@@ -1,19 +1,22 @@
-use wgpu::{CommandBuffer, Device, Surface, TextureFormat, TextureView};
+use wgpu::{CommandBuffer, Device, TextureFormat, TextureView};
 use wgpu::util::DeviceExt;
-use crate::{marks::vertex::Vertex};
 use crate::canvas::CanvasUniform;
+use crate::marks::symbol::SymbolInstance;
+use crate::marks::vertex::Vertex;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct SymbolInstance {
+pub struct RectInstance {
     pub position: [f32; 2],
     pub color: [f32; 3],
+    pub width: f32,
+    pub height: f32,
 }
 
-impl SymbolInstance {
+impl RectInstance {
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<SymbolInstance>() as wgpu::BufferAddress,
+            array_stride: std::mem::size_of::<RectInstance>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &[
                 wgpu::VertexAttribute {
@@ -25,27 +28,36 @@ impl SymbolInstance {
                     offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
                     shader_location: 2,
                     format: wgpu::VertexFormat::Float32x3,
-                }
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 5]>() as wgpu::BufferAddress,
+                    shader_location: 3,
+                    format: wgpu::VertexFormat::Float32,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,
+                    shader_location: 4,
+                    format: wgpu::VertexFormat::Float32,
+                },
             ]
         }
     }
 }
 
-const SYMBOL_VERTICES: &[Vertex] = &[
-    Vertex { position: [-0.0868241, 0.49240386, 0.0] },
-    Vertex { position: [-0.49513406, 0.06958647, 0.0] },
-    Vertex { position: [-0.21918549, -0.44939706, 0.0] },
-    Vertex { position: [0.35966998, -0.3473291, 0.0] },
-    Vertex { position: [0.44147372, 0.2347359, 0.0] },
+const RECT_VERTICES: &[Vertex] = &[
+    Vertex { position: [0.0, 0.0, 0.0] },
+    Vertex { position: [1.0, 0.0, 0.0] },
+    Vertex { position: [1.0, 1.0, 0.0] },
+    Vertex { position: [0.0, 1.0, 0.0] },
 ];
 
-const SYMBOL_INDICES: &[u16] = &[
-    0, 1, 4,
-    1, 2, 4,
-    2, 3, 4,
+const RECT_INDICES: &[u16] = &[
+    0, 1, 2,
+    0, 2, 3,
 ];
 
-pub struct SymbolMarkRenderer {
+
+pub struct RectMarkRenderer {
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     num_vertices: u32,
@@ -58,8 +70,8 @@ pub struct SymbolMarkRenderer {
     uniform_bind_group: wgpu::BindGroup,
 }
 
-impl SymbolMarkRenderer {
-    pub fn new(device: &Device, uniform: CanvasUniform, texture_format: TextureFormat, instances: &[SymbolInstance]) -> Self {
+impl RectMarkRenderer {
+    pub fn new(device: &Device, uniform: CanvasUniform, texture_format: TextureFormat, instances: &[RectInstance]) -> Self {
         // Uniforms
         let uniform_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
@@ -109,7 +121,7 @@ impl SymbolMarkRenderer {
         // Shaders
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("symbol.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("rect.wgsl").into()),
         });
 
         let render_pipeline_layout =
@@ -129,7 +141,7 @@ impl SymbolMarkRenderer {
                 entry_point: "vs_main",
                 buffers: &[
                     Vertex::desc(),
-                    SymbolInstance::desc(),
+                    RectInstance::desc(),
                 ],
             },
             fragment: Some(wgpu::FragmentState {
@@ -162,20 +174,20 @@ impl SymbolMarkRenderer {
         let vertex_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Vertex Buffer"),
-                contents: bytemuck::cast_slice(SYMBOL_VERTICES),
+                contents: bytemuck::cast_slice(RECT_VERTICES),
                 usage: wgpu::BufferUsages::VERTEX,
             }
         );
-        let num_vertices = SYMBOL_VERTICES.len() as u32;
+        let num_vertices = RECT_VERTICES.len() as u32;
 
         let index_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Index Buffer"),
-                contents: bytemuck::cast_slice(SYMBOL_INDICES),
+                contents: bytemuck::cast_slice(RECT_INDICES),
                 usage: wgpu::BufferUsages::INDEX,
             }
         );
-        let num_indices = SYMBOL_INDICES.len() as u32;
+        let num_indices = RECT_INDICES.len() as u32;
 
         let instance_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {

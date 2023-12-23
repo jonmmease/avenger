@@ -13,7 +13,8 @@ use winit::{
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 use crate::canvas::Canvas;
-use crate::marks::symbol::{SymbolInstance, SymbolMark};
+use crate::marks::rect::RectInstance;
+use crate::marks::symbol::{SymbolInstance, SymbolMarkRenderer};
 
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
@@ -62,6 +63,21 @@ pub async fn run() {
         SymbolInstance {position: [-200.0, 0.0], color: [1.0, 0.0, 0.0]},
         SymbolInstance {position: [-200.0, 55.0], color: [0.0, 1.0, 0.0]},
         SymbolInstance {position: [-200.0, -46.0], color: [0.0, 0.0, 1.0]},
+    ]);
+
+    state.add_rect_mark(&[
+        RectInstance {
+            position: [100.0, 0.0],
+            color: [1.0, 0.0, 1.0],
+            width: 20.0,
+            height: 50.0,
+        },
+        RectInstance {
+            position: [-100.0, 0.0],
+            color: [0.0, 1.0, 1.0],
+            width: 40.0,
+            height: 100.0,
+        }
     ]);
 
     event_loop.run(move |event, _, control_flow| {

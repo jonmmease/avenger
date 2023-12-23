@@ -1,6 +1,8 @@
 use winit::event::WindowEvent;
 use winit::window::Window;
-use crate::marks::symbol::{SymbolInstance, SymbolMark};
+use crate::marks::MarkRenderer;
+use crate::marks::rect::{RectMarkRenderer, RectInstance};
+use crate::marks::symbol::{SymbolInstance, SymbolMarkRenderer};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -16,7 +18,7 @@ pub struct Canvas {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
-    marks: Vec<SymbolMark>,
+    marks: Vec<MarkRenderer>,
     uniform: CanvasUniform,
 }
 
@@ -107,9 +109,15 @@ impl Canvas {
     }
 
     pub fn add_symbol_mark(&mut self, instances: &[SymbolInstance]) {
-        self.marks.push(SymbolMark::new(
+        self.marks.push(MarkRenderer::Symbol(SymbolMarkRenderer::new(
             &self.device, self.uniform.clone(), self.config.format, instances
-        ));
+        )));
+    }
+
+    pub fn add_rect_mark(&mut self, instances: &[RectInstance]) {
+        self.marks.push(MarkRenderer::Rect(RectMarkRenderer::new(
+            &self.device, self.uniform.clone(), self.config.format, instances
+        )));
     }
 
     pub fn window(&self) -> &Window {
@@ -170,7 +178,15 @@ impl Canvas {
         let mut commands = vec![background_encoder.finish()];
 
         for mark in &self.marks {
-            commands.push(mark.render(&self.device, &view))
+            let command = match mark {
+                MarkRenderer::Symbol(mark) => {
+                    mark.render(&self.device, &view)
+                }
+                MarkRenderer::Rect(mark) => {
+                    mark.render(&self.device, &view)
+                }
+            };
+            commands.push(command);
         }
 
         self.queue.submit(commands);
