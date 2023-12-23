@@ -1,4 +1,4 @@
-pub mod marks;
+pub mod mark_renderers;
 pub mod canvas;
 
 use std::iter;
@@ -13,8 +13,8 @@ use winit::{
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 use crate::canvas::Canvas;
-use crate::marks::rect::RectInstance;
-use crate::marks::symbol::{SymbolInstance, SymbolMarkRenderer};
+use crate::mark_renderers::rect::RectInstance;
+use crate::mark_renderers::symbol::{SymbolInstance, SymbolMarkRenderer};
 
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]

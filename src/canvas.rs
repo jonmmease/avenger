@@ -1,8 +1,8 @@
 use winit::event::WindowEvent;
 use winit::window::Window;
-use crate::marks::MarkRenderer;
-use crate::marks::rect::{RectMarkRenderer, RectInstance};
-use crate::marks::symbol::{SymbolInstance, SymbolMarkRenderer};
+use crate::mark_renderers::MarkRenderer;
+use crate::mark_renderers::rect::{RectMarkRenderer, RectInstance};
+use crate::mark_renderers::symbol::{SymbolInstance, SymbolMarkRenderer};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
