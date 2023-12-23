@@ -1,5 +1,5 @@
-use crate::marks::symbol::SymbolMarkRenderer;
-use crate::marks::rect::RectMarkRenderer;
+use crate::mark_renderers::symbol::SymbolMarkRenderer;
+use crate::mark_renderers::rect::RectMarkRenderer;
 pub mod symbol;
 pub mod vertex;
 pub mod rect;

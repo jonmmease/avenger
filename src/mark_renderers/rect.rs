@@ -1,8 +1,8 @@
 use wgpu::{CommandBuffer, Device, TextureFormat, TextureView};
 use wgpu::util::DeviceExt;
 use crate::canvas::CanvasUniform;
-use crate::marks::symbol::SymbolInstance;
-use crate::marks::vertex::Vertex;
+use crate::mark_renderers::symbol::SymbolInstance;
+use crate::mark_renderers::vertex::Vertex;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]

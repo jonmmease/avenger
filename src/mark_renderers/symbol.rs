@@ -1,6 +1,6 @@
 use wgpu::{CommandBuffer, Device, Surface, TextureFormat, TextureView};
 use wgpu::util::DeviceExt;
-use crate::{marks::vertex::Vertex};
+use crate::{mark_renderers::vertex::Vertex};
 use crate::canvas::CanvasUniform;
 
 #[repr(C)]

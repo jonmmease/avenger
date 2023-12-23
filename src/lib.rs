@@ -1,5 +1,6 @@
 pub mod mark_renderers;
 pub mod canvas;
+pub mod specs;
 
 use std::iter;
 use wgpu::util::DeviceExt;
