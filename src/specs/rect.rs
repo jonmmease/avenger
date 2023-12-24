@@ -4,14 +4,14 @@ use crate::specs::mark::MarkItemSpec;
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RectItemSpec {
-    x: f32,
-    y: f32,
-    width: Option<f32>,
-    height: Option<f32>,
-    x2: Option<f32>,
-    y2: Option<f32>,
-    fill: Option<String>,
-    fill_opacity: Option<f32>,
+    pub x: f32,
+    pub y: f32,
+    pub width: Option<f32>,
+    pub height: Option<f32>,
+    pub x2: Option<f32>,
+    pub y2: Option<f32>,
+    pub fill: Option<String>,
+    pub fill_opacity: Option<f32>,
 }
 
 impl MarkItemSpec for RectItemSpec {}

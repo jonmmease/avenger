@@ -2,6 +2,7 @@ use wgpu::{CommandBuffer, Device, Surface, TextureFormat, TextureView};
 use wgpu::util::DeviceExt;
 use crate::{mark_renderers::vertex::Vertex};
 use crate::canvas::CanvasUniform;
+use crate::specs::symbol::SymbolItemSpec;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -28,6 +29,18 @@ impl SymbolInstance {
                 }
             ]
         }
+    }
+
+    pub fn from_spec(item_spec: &SymbolItemSpec) -> Self {
+        // TODO: color
+        Self {
+            position: [item_spec.x, item_spec.y],
+            color: [0.5, 0.5, 0.5],
+        }
+    }
+
+    pub fn from_specs(item_specs: &[SymbolItemSpec]) -> Vec<Self> {
+        item_specs.iter().map(Self::from_spec).collect()
     }
 }
 

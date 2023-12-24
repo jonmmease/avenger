@@ -8,7 +8,7 @@ use crate::mark_renderers::symbol::{SymbolInstance, SymbolMarkRenderer};
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct CanvasUniform {
     size: [f32; 2],
-    filler: [f32; 2],  // FOr 16-byte alignment
+    origin: [f32; 2],
 }
 
 pub struct Canvas {
@@ -20,10 +20,11 @@ pub struct Canvas {
     size: winit::dpi::PhysicalSize<u32>,
     marks: Vec<MarkRenderer>,
     uniform: CanvasUniform,
+    origin: [f32; 2],
 }
 
 impl Canvas {
-    pub async fn new(window: Window) -> Self {
+    pub async fn new(window: Window, origin: [f32; 2]) -> Self {
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
@@ -89,7 +90,7 @@ impl Canvas {
         surface.configure(&device, &config);
         let uniform = CanvasUniform {
             size: [size.width as f32, size.height as f32],
-            filler: [0.0, 0.0]
+            origin: origin.clone(),
         };
 
         Self {
@@ -101,6 +102,7 @@ impl Canvas {
             window,
             uniform,
             marks: Vec::new(),
+            origin,
         }
     }
 

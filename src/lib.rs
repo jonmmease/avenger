@@ -10,12 +10,15 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
 };
+use winit::dpi::{LogicalSize, PhysicalSize, Size};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 use crate::canvas::Canvas;
 use crate::mark_renderers::rect::RectInstance;
 use crate::mark_renderers::symbol::{SymbolInstance, SymbolMarkRenderer};
+use crate::specs::group::GroupItemSpec;
+use crate::specs::mark::MarkSpec;
 
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
@@ -52,19 +55,43 @@ pub async fn run() {
     }
 
     // State::new uses async code, so we're going to wait for it to finish
-    let mut state = Canvas::new(window).await;
+    let origin = [20.0f32, 20.0];
+    window.set_inner_size(Size::Physical(PhysicalSize::new(500 + 2 * origin[1] as u32, 200 + 2 * origin[1] as u32)));
 
-    state.add_symbol_mark(&[
-        SymbolInstance {position: [0.0, 0.0], color: [0.5, 0.0, 0.5]},
-        SymbolInstance {position: [30.0, 55.0], color: [0.5, 0.3, 0.5]},
-        SymbolInstance {position: [-80.0, -46.0], color: [0.5, 0.6, 0.5]},
-    ]);
+    let mut state = Canvas::new(window, origin).await;
 
-    state.add_symbol_mark(&[
-        SymbolInstance {position: [-200.0, 0.0], color: [1.0, 0.0, 0.0]},
-        SymbolInstance {position: [-200.0, 55.0], color: [0.0, 1.0, 0.0]},
-        SymbolInstance {position: [-200.0, -46.0], color: [0.0, 0.0, 1.0]},
+    // state.resize(PhysicalSize::new(500, 200));
+
+    let scene: MarkSpec = serde_json::from_str(include_str!("../tests/specs/circles.sg.json")).unwrap();
+    let MarkSpec::Group(group) = scene else { panic!() };
+    let group_item = &group.items[0];
+    state.add_rect_mark(&[
+        RectInstance {
+            position: [group_item.x, group_item.y],
+            color: [1.0, 1.0, 1.0],
+            width: group_item.width.unwrap(),
+            height: group_item.height.unwrap(),
+        },
     ]);
+    match &group.items[0].items[0] {
+        MarkSpec::Symbol(symbol_container) => {
+            let symbol_instances = SymbolInstance::from_specs(symbol_container.items.as_slice());
+            state.add_symbol_mark(symbol_instances.as_slice());
+        }
+        _ => {}
+    }
+
+    // state.add_symbol_mark(&[
+    //     SymbolInstance {position: [0.0, 0.0], color: [0.5, 0.0, 0.5]},
+    //     SymbolInstance {position: [30.0, 55.0], color: [0.5, 0.3, 0.5]},
+    //     SymbolInstance {position: [-80.0, -46.0], color: [0.5, 0.6, 0.5]},
+    // ]);
+    //
+    // state.add_symbol_mark(&[
+    //     SymbolInstance {position: [-200.0, 0.0], color: [1.0, 0.0, 0.0]},
+    //     SymbolInstance {position: [-200.0, 55.0], color: [0.0, 1.0, 0.0]},
+    //     SymbolInstance {position: [-200.0, -46.0], color: [0.0, 0.0, 1.0]},
+    // ]);
 
     state.add_rect_mark(&[
         RectInstance {

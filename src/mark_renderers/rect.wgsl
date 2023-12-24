@@ -2,7 +2,7 @@
 
 struct ChartUniform {
     size: vec2<f32>,
-    filler: vec2<f32>, // for 16 byte alignment
+    origin: vec2<f32>,
 };
 @group(0) @binding(0)
 var<uniform> chart_uniforms: ChartUniform;
@@ -31,8 +31,8 @@ fn vs_main(
     var out: VertexOutput;
     out.color = instance.color;
     let size = 50.0;
-    let x = (model.position[0] * instance.width + instance.position[0]) / chart_uniforms.size[0];
-    let y = (model.position[1] * instance.height + instance.position[1]) / chart_uniforms.size[1];
+    let x = 2.0 * (model.position[0] * instance.width + instance.position[0] + chart_uniforms.origin[0]) / chart_uniforms.size[0] - 1.0;
+    let y = 2.0 * (model.position[1] * instance.height + instance.position[1] + chart_uniforms.origin[1]) / chart_uniforms.size[1] - 1.0;
     out.clip_position = vec4<f32>(x, y, 0.0, 1.0);
     return out;
 }
