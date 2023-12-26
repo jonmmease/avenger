@@ -4,7 +4,7 @@
   "width": 500,
   "height": 200,
   "padding": 5,
-
+  "background": "white",
   "data": [
     {
       "name": "table",

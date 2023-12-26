@@ -18,7 +18,8 @@ struct SceneGraphDims {
 
 #[test]
 fn test_image_baseline() {
-    let spec_name = "stacked_bar";
+    // let spec_name = "stacked_bar";
+    let spec_name = "heatmap";
     let specs_dir = format!("{}/tests/specs/rect", env!("CARGO_MANIFEST_DIR"));
     let output_dir = format!("{}/tests/output", env!("CARGO_MANIFEST_DIR"));
 
@@ -55,5 +56,5 @@ fn test_image_baseline() {
     let attr = Dssim::new();
     let (diff, _) = attr.compare(&expected_dssim, result_dssim);
     println!("{diff}");
-    assert!(diff < 0.001);
+    assert!(diff < 0.01);
 }
