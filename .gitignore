@@ -1,2 +1,3 @@
 /target
 /.idea
+/vega-wgpu-renderer/tests/output/stacked_bar.png
