@@ -1,6 +1,8 @@
 use image::imageops::crop_imm;
+use wgpu::{Adapter, Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandBuffer, CommandEncoder, CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, ImageCopyBuffer, ImageCopyTexture, ImageDataLayout, LoadOp, MapMode, Operations, Origin3d, PowerPreference, Queue, RenderPassColorAttachment, RenderPassDescriptor, RequestAdapterOptions, StoreOp, Surface, SurfaceConfiguration, SurfaceError, Texture, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView, TextureViewDescriptor};
 use winit::event::WindowEvent;
 use winit::window::Window;
+use crate::error::VegaWgpuError;
 use crate::renderers::MarkRenderer;
 use crate::renderers::rect::RectMarkRenderer;
 use crate::renderers::symbol::SymbolMarkRenderer;
@@ -15,114 +17,28 @@ pub struct CanvasUniform {
     origin: [f32; 2],
 }
 
-pub struct Canvas {
-    window: Window,
-    surface: wgpu::Surface,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    config: wgpu::SurfaceConfiguration,
-    size: winit::dpi::PhysicalSize<u32>,
-    marks: Vec<MarkRenderer>,
-    uniform: CanvasUniform,
-    origin: [f32; 2],
-}
 
-impl Canvas {
-    pub async fn new(window: Window, origin: [f32; 2]) -> Self {
-        let size = window.inner_size();
+pub trait Canvas {
 
-        // The instance is a handle to our GPU
-        // BackendBit::PRIMARY => Vulkan + Metal + DX12 + Browser WebGPU
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
+    fn add_mark_renderer(&mut self, mark_renderer: MarkRenderer);
+    fn clear_mark_renderer(&mut self);
 
-        // # Safety
-        //
-        // The surface needs to live as long as the window that created it.
-        // State owns the window so this should be safe.
-        let surface = unsafe { instance.create_surface(&window) }.unwrap();
+    fn device(&self) -> &Device;
+    fn uniform(&self) -> &CanvasUniform;
 
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            })
-            .await
-            .unwrap();
+    fn set_uniform(&mut self, uniform: CanvasUniform);
 
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    features: wgpu::Features::empty(),
-                    // WebGL doesn't support all of wgpu's features, so if
-                    // we're building for the web we'll have to disable some.
-                    limits: if cfg!(target_arch = "wasm32") {
-                        wgpu::Limits::downlevel_webgl2_defaults()
-                    } else {
-                        wgpu::Limits::default()
-                    },
-                },
-                // Some(&std::path::Path::new("trace")), // Trace path
-                None,
-            )
-            .await
-            .unwrap();
+    fn texture_format(&self) -> TextureFormat;
 
-        let surface_caps = surface.get_capabilities(&adapter);
-
-        // Select first non-srgb texture format
-        let surface_format = surface_caps
-            .formats
-            .iter()
-            .copied()
-            .find(|f| !f.is_srgb())
-            .unwrap_or(surface_caps.formats[0]);
-
-        let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface_format,
-            width: size.width,
-            height: size.height,
-            present_mode: surface_caps.present_modes[0],
-            alpha_mode: surface_caps.alpha_modes[0],
-            view_formats: vec![],
-        };
-        surface.configure(&device, &config);
-        let uniform = CanvasUniform {
-            size: [size.width as f32, size.height as f32],
-            origin: origin.clone(),
-        };
-
-        Self {
-            surface,
-            device,
-            queue,
-            config,
-            size,
-            window,
-            uniform,
-            marks: Vec::new(),
-            origin,
-        }
+    fn add_symbol_mark(&mut self, mark: &SymbolMark) {
+        self.add_mark_renderer(MarkRenderer::Symbol(SymbolMarkRenderer::new(
+            &self.device(), self.uniform().clone(), self.texture_format(), mark.instances.as_slice()
+        )))
     }
 
-    pub fn get_size(&self) -> winit::dpi::PhysicalSize<u32> {
-        self.size
-    }
-
-    pub fn add_symbol_mark(&mut self, mark: &SymbolMark) {
-        self.marks.push(MarkRenderer::Symbol(SymbolMarkRenderer::new(
-            &self.device, self.uniform.clone(), self.config.format, mark.instances.as_slice()
-        )));
-    }
-
-    pub fn add_rect_mark(&mut self, mark: &RectMark) {
-        self.marks.push(MarkRenderer::Rect(RectMarkRenderer::new(
-            &self.device, self.uniform.clone(), self.config.format, mark.instances.as_slice()
+    fn add_rect_mark(&mut self, mark: &RectMark) {
+        self.add_mark_renderer(MarkRenderer::Rect(RectMarkRenderer::new(
+            &self.device(), self.uniform().clone(), self.texture_format(), mark.instances.as_slice()
         )));
     }
 
@@ -142,20 +58,153 @@ impl Canvas {
         }
     }
 
-    pub fn set_scene(&mut self, scene_graph: &SceneGraph) {
+    fn set_scene(&mut self, scene_graph: &SceneGraph) {
         // Set uniforms
-        self.uniform = CanvasUniform {
+        self.set_uniform(CanvasUniform {
             size: [scene_graph.width, scene_graph.height],
             origin: scene_graph.origin,
-        };
+        });
 
         // Clear existing marks
-        self.marks.clear();
+        self.clear_mark_renderer();
 
         // Add marks
         for group in &scene_graph.groups {
             self.add_group_mark(group);
         }
+    }
+}
+
+// Private shared canvas logic
+fn make_background_command<C: Canvas>(canvas: &C, texture_view: &TextureView) -> CommandBuffer {
+    let mut background_encoder = canvas.device()
+        .create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("Render Background Encoder"),
+        });
+
+    {
+        let _render_pass = background_encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("Render Pass"),
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view: texture_view,
+                resolve_target: None,
+                ops: Operations {
+                    load: LoadOp::Clear(wgpu::Color {
+                        r: 1.0,
+                        g: 1.0,
+                        b: 1.0,
+                        a: 1.0,
+                    }),
+                    store: StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+    }
+    background_encoder.finish()
+}
+
+fn make_wgpu_instance() -> wgpu::Instance {
+    wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::all(),
+        ..Default::default()
+    })
+}
+
+async fn make_wgpu_adapter(instance: &wgpu::Instance, compatible_surface: Option<&Surface>) -> Result<Adapter, VegaWgpuError> {
+    instance
+        .request_adapter(&RequestAdapterOptions {
+            power_preference: PowerPreference::default(),
+            compatible_surface,
+            force_fallback_adapter: false,
+        })
+        .await.ok_or(VegaWgpuError::MakeWgpuAdapterError)
+}
+
+async fn request_wgpu_device(adapter: &Adapter) -> Result<(Device, Queue), VegaWgpuError> {
+    Ok(adapter
+        .request_device(
+            &DeviceDescriptor {
+                label: None,
+                features: wgpu::Features::empty(),
+                // WebGL doesn't support all of wgpu's features, so if
+                // we're building for the web we'll have to disable some.
+                limits: if cfg!(target_arch = "wasm32") {
+                    wgpu::Limits::downlevel_webgl2_defaults()
+                } else {
+                    wgpu::Limits::default()
+                },
+            },
+            None,
+        )
+        .await?
+    )
+}
+
+pub struct WindowCanvas {
+    window: Window,
+    surface: Surface,
+    device: Device,
+    queue: Queue,
+    config: SurfaceConfiguration,
+    size: winit::dpi::PhysicalSize<u32>,
+    marks: Vec<MarkRenderer>,
+    uniform: CanvasUniform,
+    origin: [f32; 2],
+}
+
+impl WindowCanvas {
+    pub async fn new(window: Window, origin: [f32; 2]) -> Result<Self, VegaWgpuError> {
+        let size = window.inner_size();
+
+        let instance = make_wgpu_instance();
+        let surface = unsafe { instance.create_surface(&window) }?;
+        let adapter = make_wgpu_adapter(&instance, Some(&surface)).await?;
+        let (device, queue) = request_wgpu_device(&adapter).await?;
+
+        let surface_caps = surface.get_capabilities(&adapter);
+
+        // Select first non-srgb texture format
+        let surface_format = surface_caps
+            .formats
+            .iter()
+            .copied()
+            .find(|f| !f.is_srgb())
+            .unwrap_or(surface_caps.formats[0]);
+
+        let config = SurfaceConfiguration {
+            usage: TextureUsages::RENDER_ATTACHMENT,
+            format: surface_format,
+            width: size.width,
+            height: size.height,
+            present_mode: surface_caps.present_modes[0],
+            alpha_mode: surface_caps.alpha_modes[0],
+            view_formats: vec![],
+        };
+        surface.configure(&device, &config);
+
+        let uniform = CanvasUniform {
+            size: [size.width as f32, size.height as f32],
+            origin: origin.clone(),
+        };
+
+        Ok(Self {
+            surface,
+            device,
+            queue,
+            config,
+            size,
+            window,
+            uniform,
+            marks: Vec::new(),
+            origin,
+        })
+    }
+
+    pub fn get_size(&self) -> winit::dpi::PhysicalSize<u32> {
+        self.size
     }
 
     pub fn window(&self) -> &Window {
@@ -178,42 +227,15 @@ impl Canvas {
 
     pub fn update(&mut self) {}
 
-    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+    pub fn render(&mut self) -> Result<(), SurfaceError> {
         let output = self.surface.get_current_texture()?;
         let view = output
             .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+            .create_view(&TextureViewDescriptor::default());
 
 
-        // Build encoder for chart background
-        let mut background_encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Render Background Encoder"),
-            });
-
-        {
-            let _render_pass = background_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 1.0,
-                            g: 1.0,
-                            b: 1.0,
-                            a: 1.0,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
-        }
-        let mut commands = vec![background_encoder.finish()];
+        let background_command = make_background_command(self, &view);
+        let mut commands = vec![background_command];
 
         for mark in &self.marks {
             let command = match mark {
@@ -235,74 +257,71 @@ impl Canvas {
 
 }
 
+impl Canvas for WindowCanvas {
+    fn add_mark_renderer(&mut self, mark_renderer: MarkRenderer) {
+        self.marks.push(mark_renderer);
+    }
+
+    fn clear_mark_renderer(&mut self) {
+        self.marks.clear();
+    }
+
+    fn device(&self) -> &Device {
+        &self.device
+    }
+
+    fn uniform(&self) -> &CanvasUniform {
+        &self.uniform
+    }
+
+    fn set_uniform(&mut self, uniform: CanvasUniform) {
+        self.uniform = uniform;
+    }
+
+    fn texture_format(&self) -> TextureFormat {
+        self.config.format
+    }
+}
+
 
 pub struct PngCanvas {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+    device: Device,
+    queue: Queue,
     marks: Vec<MarkRenderer>,
     uniform: CanvasUniform,
     width: f32,
     height: f32,
     origin: [f32; 2],
-    pub texture_view: wgpu::TextureView,
-    pub output_buffer: wgpu::Buffer,
-    pub texture: wgpu::Texture,
-    pub texture_size: wgpu::Extent3d,
+    pub texture_view: TextureView,
+    pub output_buffer: Buffer,
+    pub texture: Texture,
+    pub texture_size: Extent3d,
     pub padded_width: u32,
     pub padded_height: u32,
 }
 
 
 impl PngCanvas {
-    pub async fn new(width: f32, height: f32, origin: [f32; 2]) -> Self {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
+    pub async fn new(width: f32, height: f32, origin: [f32; 2]) -> Result<Self, VegaWgpuError> {
+        let instance = make_wgpu_instance();
+        let adapter = make_wgpu_adapter(&instance, None).await?;
+        let (device, queue) = request_wgpu_device(&adapter).await?;
 
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
-                compatible_surface: None,
-                force_fallback_adapter: false,
-            })
-            .await
-            .unwrap();
-
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    features: wgpu::Features::empty(),
-                    // WebGL doesn't support all of wgpu's features, so if
-                    // we're building for the web we'll have to disable some.
-                    limits: if cfg!(target_arch = "wasm32") {
-                        wgpu::Limits::downlevel_webgl2_defaults()
-                    } else {
-                        wgpu::Limits::default()
-                    },
-                },
-                // Some(&std::path::Path::new("trace")), // Trace path
-                None,
-            )
-            .await
-            .unwrap();
-
-        let texture_desc = wgpu::TextureDescriptor {
-            size: wgpu::Extent3d {
+        let texture_desc = TextureDescriptor {
+            size: Extent3d {
                 width: width as u32,
                 height: height as u32,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
             sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::COPY_SRC
-                | wgpu::TextureUsages::RENDER_ATTACHMENT
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8Unorm,
+            usage: TextureUsages::COPY_SRC
+                | TextureUsages::RENDER_ATTACHMENT
             ,
             label: None,
-            view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
+            view_formats: &[TextureFormat::Rgba8UnormSrgb],
         };
         let texture_size = texture_desc.size;
         let texture = device.create_texture(&texture_desc);
@@ -316,12 +335,12 @@ impl PngCanvas {
         let padded_width = (256.0 * (width / 256.0).ceil()) as u32;
         let padded_height = (256.0 * (width / 256.0).ceil()) as u32;
 
-        let output_buffer_size = (u32_size * padded_width * padded_height) as wgpu::BufferAddress;
-        let output_buffer_desc = wgpu::BufferDescriptor {
+        let output_buffer_size = (u32_size * padded_width * padded_height) as BufferAddress;
+        let output_buffer_desc = BufferDescriptor {
             size: output_buffer_size,
-            usage: wgpu::BufferUsages::COPY_DST
+            usage: BufferUsages::COPY_DST
                 // this tells wpgu that we want to read this buffer from the cpu
-                | wgpu::BufferUsages::MAP_READ,
+                | BufferUsages::MAP_READ,
             label: None,
             mapped_at_creation: false,
         };
@@ -332,7 +351,7 @@ impl PngCanvas {
             origin: origin.clone(),
         };
 
-        Self {
+        Ok(Self {
             device,
             queue,
             width,
@@ -346,45 +365,14 @@ impl PngCanvas {
             padded_width,
             padded_height,
             marks: Vec::new(),
-        }
+        })
     }
 
-    pub async fn render(&mut self) -> Result<image::RgbaImage, wgpu::SurfaceError> {
-        // let output = self.surface.get_current_texture()?;
-        // let view = output
-        //     .texture
-        //     .create_view(&wgpu::TextureViewDescriptor::default());
-        //
-        //
-        // Build encoder for chart background
-        let mut background_encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Render Background Encoder"),
-            });
+    pub async fn render(&mut self) -> Result<image::RgbaImage, SurfaceError> {
 
-        {
-            let _render_pass = background_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.texture_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 1.0,
-                            g: 1.0,
-                            b: 1.0,
-                            a: 1.0,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
-        }
-        let mut commands = vec![background_encoder.finish()];
+        // Build encoder for chart background
+        let background_command = make_background_command(self, &self.texture_view);
+        let mut commands = vec![background_command];
 
         for mark in &self.marks {
             let command = match mark {
@@ -403,22 +391,22 @@ impl PngCanvas {
         // Extract texture from GPU
         let mut extract_encoder = self
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            .create_command_encoder(&CommandEncoderDescriptor {
                 label: Some("Extract Texture Encoder"),
             });
 
         let u32_size = std::mem::size_of::<u32>() as u32;
 
         extract_encoder.copy_texture_to_buffer(
-            wgpu::ImageCopyTexture {
-                aspect: wgpu::TextureAspect::All,
+            ImageCopyTexture {
+                aspect: TextureAspect::All,
                 texture: &self.texture,
                 mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
+                origin: Origin3d::ZERO,
             },
-            wgpu::ImageCopyBuffer {
+            ImageCopyBuffer {
                 buffer: &self.output_buffer,
-                layout: wgpu::ImageDataLayout {
+                layout: ImageDataLayout {
                     offset: 0,
                     // bytes_per_row: Some(u32_size * self.width as u32),
                     bytes_per_row: Some(u32_size * self.padded_width),
@@ -436,7 +424,7 @@ impl PngCanvas {
             // NOTE: We have to create the mapping THEN device.poll() before await
             // the future. Otherwise the application will freeze.
             let (tx, rx) = futures_intrusive::channel::shared::oneshot_channel();
-            buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+            buffer_slice.map_async(MapMode::Read, move |result| {
                 tx.send(result).unwrap();
             });
             self.device.poll(wgpu::Maintain::Wait);
@@ -447,62 +435,37 @@ impl PngCanvas {
             let data = buffer_slice.get_mapped_range();
             let img_buf = image::RgbaImage::from_vec(self.padded_width, self.padded_height, data.to_vec()).unwrap();
 
-            // use image::{ImageBuffer, Rgba};
-            // let buffer =
-            //     ImageBuffer::<Rgba<u8>, _>::from_raw(self.padded_width, self.padded_height, data).unwrap();
-            //
             let cropped_img = crop_imm(&img_buf, 0, 0, self.width as u32, self.height as u32);
-            // cropped_img.
-            // cropped_img.to_image().save("image.png").unwrap();
-            // buffer.save("image.png").unwrap();
             cropped_img.to_image()
         };
 
         self.output_buffer.unmap();
         Ok((img))
     }
+}
 
-    pub fn add_symbol_mark(&mut self, mark: &SymbolMark) {
-        self.marks.push(MarkRenderer::Symbol(SymbolMarkRenderer::new(
-            &self.device, self.uniform.clone(), self.texture.format(), mark.instances.as_slice()
-        )));
+impl Canvas for PngCanvas {
+    fn add_mark_renderer(&mut self, mark_renderer: MarkRenderer) {
+        self.marks.push(mark_renderer);
     }
 
-    pub fn add_rect_mark(&mut self, mark: &RectMark) {
-        self.marks.push(MarkRenderer::Rect(RectMarkRenderer::new(
-            &self.device, self.uniform.clone(), self.texture.format(), mark.instances.as_slice()
-        )));
-    }
-
-    fn add_group_mark(&mut self, group: &SceneGroup) {
-        for mark in &group.marks {
-            match mark {
-                SceneMark::Symbol(mark) => {
-                    self.add_symbol_mark(mark);
-                }
-                SceneMark::Rect(mark) => {
-                    self.add_rect_mark(mark);
-                }
-                SceneMark::Group(group) => {
-                    self.add_group_mark(group);
-                }
-            }
-        }
-    }
-
-    pub fn set_scene(&mut self, scene_graph: &SceneGraph) {
-        // Set uniforms
-        self.uniform = CanvasUniform {
-            size: [scene_graph.width, scene_graph.height],
-            origin: scene_graph.origin,
-        };
-
-        // Clear existing marks
+    fn clear_mark_renderer(&mut self) {
         self.marks.clear();
+    }
 
-        // Add marks
-        for group in &scene_graph.groups {
-            self.add_group_mark(group);
-        }
+    fn device(&self) -> &Device {
+        &self.device
+    }
+
+    fn uniform(&self) -> &CanvasUniform {
+        &self.uniform
+    }
+
+    fn set_uniform(&mut self, uniform: CanvasUniform) {
+        self.uniform = uniform;
+    }
+
+    fn texture_format(&self) -> TextureFormat {
+        self.texture.format()
     }
 }

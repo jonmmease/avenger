@@ -15,7 +15,7 @@ use winit::dpi::{LogicalSize, PhysicalSize, Size};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
-use crate::renderers::canvas::{Canvas, PngCanvas};
+use crate::renderers::canvas::{WindowCanvas, PngCanvas, Canvas};
 use crate::renderers::symbol::SymbolMarkRenderer;
 use crate::scene::rect::RectInstance;
 use crate::scene::scene_graph::SceneGraph;
@@ -70,8 +70,8 @@ pub async fn run() {
     println!("{scene_graph:#?}");
 
     // Save to png
-    let mut png_canvas = PngCanvas::new(width, 256.0, origin).await;
-    let mut canvas = Canvas::new(window, origin).await;
+    let mut png_canvas = PngCanvas::new(width, 256.0, origin).await.unwrap();
+    let mut canvas = WindowCanvas::new(window, origin).await.unwrap();
 
     png_canvas.set_scene(&scene_graph);
     let img = png_canvas.render().await.expect("Failed to write PNG image");
