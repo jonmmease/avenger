@@ -54,7 +54,7 @@ impl RectInstance {
                     shader_location: 4,
                     format: wgpu::VertexFormat::Float32,
                 },
-            ]
+            ],
         }
     }
 
@@ -76,6 +76,9 @@ impl RectInstance {
     }
 
     pub fn from_specs(item_specs: &[RectItemSpec]) -> Result<Vec<Self>, VegaWgpuError> {
-        item_specs.iter().map(Self::from_spec).collect::<Result<Vec<_>, VegaWgpuError>>()
+        item_specs
+            .iter()
+            .map(Self::from_spec)
+            .collect::<Result<Vec<_>, VegaWgpuError>>()
     }
 }

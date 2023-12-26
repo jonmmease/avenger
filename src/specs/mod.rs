@@ -1,6 +1,5 @@
-
-pub mod mark;
 pub mod group;
+pub mod mark;
 pub mod rect;
 pub mod symbol;
 

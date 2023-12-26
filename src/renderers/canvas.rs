@@ -1,14 +1,21 @@
-use image::imageops::crop_imm;
-use wgpu::{Adapter, Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandBuffer, CommandEncoder, CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, ImageCopyBuffer, ImageCopyTexture, ImageDataLayout, LoadOp, MapMode, Operations, Origin3d, PowerPreference, Queue, RenderPassColorAttachment, RenderPassDescriptor, RequestAdapterOptions, StoreOp, Surface, SurfaceConfiguration, SurfaceError, Texture, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView, TextureViewDescriptor};
-use winit::event::WindowEvent;
-use winit::window::Window;
 use crate::error::VegaWgpuError;
-use crate::renderers::MarkRenderer;
 use crate::renderers::rect::RectMarkRenderer;
 use crate::renderers::symbol::SymbolMarkRenderer;
+use crate::renderers::MarkRenderer;
 use crate::scene::rect::{RectInstance, RectMark};
 use crate::scene::scene_graph::{SceneGraph, SceneGroup, SceneMark};
 use crate::scene::symbol::{SymbolInstance, SymbolMark};
+use image::imageops::crop_imm;
+use wgpu::{
+    Adapter, Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandBuffer, CommandEncoder,
+    CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, ImageCopyBuffer,
+    ImageCopyTexture, ImageDataLayout, LoadOp, MapMode, Operations, Origin3d, PowerPreference,
+    Queue, RenderPassColorAttachment, RenderPassDescriptor, RequestAdapterOptions, StoreOp,
+    Surface, SurfaceConfiguration, SurfaceError, Texture, TextureAspect, TextureDescriptor,
+    TextureDimension, TextureFormat, TextureUsages, TextureView, TextureViewDescriptor,
+};
+use winit::event::WindowEvent;
+use winit::window::Window;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -17,9 +24,7 @@ pub struct CanvasUniform {
     origin: [f32; 2],
 }
 
-
 pub trait Canvas {
-
     fn add_mark_renderer(&mut self, mark_renderer: MarkRenderer);
     fn clear_mark_renderer(&mut self);
 
@@ -32,13 +37,19 @@ pub trait Canvas {
 
     fn add_symbol_mark(&mut self, mark: &SymbolMark) {
         self.add_mark_renderer(MarkRenderer::Symbol(SymbolMarkRenderer::new(
-            &self.device(), self.uniform().clone(), self.texture_format(), mark.instances.as_slice()
+            &self.device(),
+            self.uniform().clone(),
+            self.texture_format(),
+            mark.instances.as_slice(),
         )))
     }
 
     fn add_rect_mark(&mut self, mark: &RectMark) {
         self.add_mark_renderer(MarkRenderer::Rect(RectMarkRenderer::new(
-            &self.device(), self.uniform().clone(), self.texture_format(), mark.instances.as_slice()
+            &self.device(),
+            self.uniform().clone(),
+            self.texture_format(),
+            mark.instances.as_slice(),
         )));
     }
 
@@ -77,10 +88,12 @@ pub trait Canvas {
 
 // Private shared canvas logic
 fn make_background_command<C: Canvas>(canvas: &C, texture_view: &TextureView) -> CommandBuffer {
-    let mut background_encoder = canvas.device()
-        .create_command_encoder(&CommandEncoderDescriptor {
-            label: Some("Render Background Encoder"),
-        });
+    let mut background_encoder =
+        canvas
+            .device()
+            .create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("Render Background Encoder"),
+            });
 
     {
         let _render_pass = background_encoder.begin_render_pass(&RenderPassDescriptor {
@@ -113,14 +126,18 @@ fn make_wgpu_instance() -> wgpu::Instance {
     })
 }
 
-async fn make_wgpu_adapter(instance: &wgpu::Instance, compatible_surface: Option<&Surface>) -> Result<Adapter, VegaWgpuError> {
+async fn make_wgpu_adapter(
+    instance: &wgpu::Instance,
+    compatible_surface: Option<&Surface>,
+) -> Result<Adapter, VegaWgpuError> {
     instance
         .request_adapter(&RequestAdapterOptions {
             power_preference: PowerPreference::default(),
             compatible_surface,
             force_fallback_adapter: false,
         })
-        .await.ok_or(VegaWgpuError::MakeWgpuAdapterError)
+        .await
+        .ok_or(VegaWgpuError::MakeWgpuAdapterError)
 }
 
 async fn request_wgpu_device(adapter: &Adapter) -> Result<(Device, Queue), VegaWgpuError> {
@@ -139,8 +156,7 @@ async fn request_wgpu_device(adapter: &Adapter) -> Result<(Device, Queue), VegaW
             },
             None,
         )
-        .await?
-    )
+        .await?)
 }
 
 pub struct WindowCanvas {
@@ -233,18 +249,13 @@ impl WindowCanvas {
             .texture
             .create_view(&TextureViewDescriptor::default());
 
-
         let background_command = make_background_command(self, &view);
         let mut commands = vec![background_command];
 
         for mark in &self.marks {
             let command = match mark {
-                MarkRenderer::Symbol(mark) => {
-                    mark.render(&self.device, &view)
-                }
-                MarkRenderer::Rect(mark) => {
-                    mark.render(&self.device, &view)
-                }
+                MarkRenderer::Symbol(mark) => mark.render(&self.device, &view),
+                MarkRenderer::Rect(mark) => mark.render(&self.device, &view),
             };
             commands.push(command);
         }
@@ -254,7 +265,6 @@ impl WindowCanvas {
 
         Ok(())
     }
-
 }
 
 impl Canvas for WindowCanvas {
@@ -283,7 +293,6 @@ impl Canvas for WindowCanvas {
     }
 }
 
-
 pub struct PngCanvas {
     device: Device,
     queue: Queue,
@@ -299,7 +308,6 @@ pub struct PngCanvas {
     pub padded_width: u32,
     pub padded_height: u32,
 }
-
 
 impl PngCanvas {
     pub async fn new(width: f32, height: f32, origin: [f32; 2]) -> Result<Self, VegaWgpuError> {
@@ -317,9 +325,7 @@ impl PngCanvas {
             sample_count: 1,
             dimension: TextureDimension::D2,
             format: TextureFormat::Rgba8Unorm,
-            usage: TextureUsages::COPY_SRC
-                | TextureUsages::RENDER_ATTACHMENT
-            ,
+            usage: TextureUsages::COPY_SRC | TextureUsages::RENDER_ATTACHMENT,
             label: None,
             view_formats: &[TextureFormat::Rgba8UnormSrgb],
         };
@@ -369,19 +375,14 @@ impl PngCanvas {
     }
 
     pub async fn render(&mut self) -> Result<image::RgbaImage, SurfaceError> {
-
         // Build encoder for chart background
         let background_command = make_background_command(self, &self.texture_view);
         let mut commands = vec![background_command];
 
         for mark in &self.marks {
             let command = match mark {
-                MarkRenderer::Symbol(mark) => {
-                    mark.render(&self.device, &self.texture_view)
-                }
-                MarkRenderer::Rect(mark) => {
-                    mark.render(&self.device, &self.texture_view)
-                }
+                MarkRenderer::Symbol(mark) => mark.render(&self.device, &self.texture_view),
+                MarkRenderer::Rect(mark) => mark.render(&self.device, &self.texture_view),
             };
             commands.push(command);
         }
@@ -433,7 +434,9 @@ impl PngCanvas {
             rx.receive().await.unwrap().unwrap();
 
             let data = buffer_slice.get_mapped_range();
-            let img_buf = image::RgbaImage::from_vec(self.padded_width, self.padded_height, data.to_vec()).unwrap();
+            let img_buf =
+                image::RgbaImage::from_vec(self.padded_width, self.padded_height, data.to_vec())
+                    .unwrap();
 
             let cropped_img = crop_imm(&img_buf, 0, 0, self.width as u32, self.height as u32);
             cropped_img.to_image()

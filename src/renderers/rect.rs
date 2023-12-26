@@ -1,24 +1,27 @@
-use wgpu::{CommandBuffer, Device, TextureFormat, TextureView};
-use wgpu::util::DeviceExt;
 use crate::renderers::canvas::CanvasUniform;
 use crate::renderers::vertex::Vertex;
 use crate::scene::rect::RectInstance;
 use crate::specs::rect::RectItemSpec;
 use crate::specs::symbol::SymbolItemSpec;
-
+use wgpu::util::DeviceExt;
+use wgpu::{CommandBuffer, Device, TextureFormat, TextureView};
 
 const RECT_VERTICES: &[Vertex] = &[
-    Vertex { position: [0.0, 0.0, 0.0] },
-    Vertex { position: [1.0, 0.0, 0.0] },
-    Vertex { position: [1.0, 1.0, 0.0] },
-    Vertex { position: [0.0, 1.0, 0.0] },
+    Vertex {
+        position: [0.0, 0.0, 0.0],
+    },
+    Vertex {
+        position: [1.0, 0.0, 0.0],
+    },
+    Vertex {
+        position: [1.0, 1.0, 0.0],
+    },
+    Vertex {
+        position: [0.0, 1.0, 0.0],
+    },
 ];
 
-const RECT_INDICES: &[u16] = &[
-    0, 1, 2,
-    0, 2, 3,
-];
-
+const RECT_INDICES: &[u16] = &[0, 1, 2, 0, 2, 3];
 
 pub struct RectMarkRenderer {
     render_pipeline: wgpu::RenderPipeline,
@@ -34,52 +37,48 @@ pub struct RectMarkRenderer {
 }
 
 impl RectMarkRenderer {
-    pub fn new(device: &Device, uniform: CanvasUniform, texture_format: TextureFormat, instances: &[RectInstance]) -> Self {
+    pub fn new(
+        device: &Device,
+        uniform: CanvasUniform,
+        texture_format: TextureFormat,
+        instances: &[RectInstance],
+    ) -> Self {
         // Uniforms
-        let uniform_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Uniform Buffer"),
-                contents: bytemuck::cast_slice(&[uniform]),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            }
-        );
+        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Uniform Buffer"),
+            contents: bytemuck::cast_slice(&[uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
 
         let uniform_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }
-            ],
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
             label: Some("chart_uniform_layout"),
         });
 
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &uniform_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: uniform_buffer.as_entire_binding(),
-                }
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
             label: Some("uniform_bind_group"),
         });
 
-        let _render_pipeline_layout = device.create_pipeline_layout(
-            &wgpu::PipelineLayoutDescriptor {
+        let _render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[
-                    &uniform_layout,
-                ],
+                bind_group_layouts: &[&uniform_layout],
                 push_constant_ranges: &[],
-            }
-        );
+            });
 
         // Shaders
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -90,9 +89,7 @@ impl RectMarkRenderer {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[
-                    &uniform_layout
-                ],
+                bind_group_layouts: &[&uniform_layout],
                 push_constant_ranges: &[],
             });
 
@@ -102,10 +99,7 @@ impl RectMarkRenderer {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main",
-                buffers: &[
-                    Vertex::desc(),
-                    RectInstance::desc(),
-                ],
+                buffers: &[Vertex::desc(), RectInstance::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -134,31 +128,25 @@ impl RectMarkRenderer {
             multiview: None,
         });
 
-        let vertex_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Vertex Buffer"),
-                contents: bytemuck::cast_slice(RECT_VERTICES),
-                usage: wgpu::BufferUsages::VERTEX,
-            }
-        );
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(RECT_VERTICES),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
         let num_vertices = RECT_VERTICES.len() as u32;
 
-        let index_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Index Buffer"),
-                contents: bytemuck::cast_slice(RECT_INDICES),
-                usage: wgpu::BufferUsages::INDEX,
-            }
-        );
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Index Buffer"),
+            contents: bytemuck::cast_slice(RECT_INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
         let num_indices = RECT_INDICES.len() as u32;
 
-        let instance_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Instance Buffer"),
-                contents: bytemuck::cast_slice(instances),
-                usage: wgpu::BufferUsages::VERTEX,
-            }
-        );
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Instance Buffer"),
+            contents: bytemuck::cast_slice(instances),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
         let num_instances = instances.len() as u32;
 
         Self {
@@ -176,10 +164,9 @@ impl RectMarkRenderer {
     }
 
     pub fn render(&self, device: &Device, texture_view: &TextureView) -> CommandBuffer {
-        let mut mark_encoder = device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Mark Render Encoder"),
-            });
+        let mut mark_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Mark Render Encoder"),
+        });
 
         {
             let mut render_pass = mark_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -205,6 +192,6 @@ impl RectMarkRenderer {
             render_pass.draw_indexed(0..self.num_indices, 0, 0..self.num_instances);
         }
 
-        return mark_encoder.finish()
+        return mark_encoder.finish();
     }
 }

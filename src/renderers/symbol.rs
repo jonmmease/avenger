@@ -1,24 +1,29 @@
-use wgpu::{CommandBuffer, Device, Surface, TextureFormat, TextureView};
-use wgpu::util::DeviceExt;
-use crate::{renderers::vertex::Vertex};
 use crate::renderers::canvas::CanvasUniform;
+use crate::renderers::vertex::Vertex;
 use crate::scene::symbol::SymbolInstance;
 use crate::specs::symbol::SymbolItemSpec;
-
+use wgpu::util::DeviceExt;
+use wgpu::{CommandBuffer, Device, Surface, TextureFormat, TextureView};
 
 const SYMBOL_VERTICES: &[Vertex] = &[
-    Vertex { position: [-0.0868241, 0.49240386, 0.0] },
-    Vertex { position: [-0.49513406, 0.06958647, 0.0] },
-    Vertex { position: [-0.21918549, -0.44939706, 0.0] },
-    Vertex { position: [0.35966998, -0.3473291, 0.0] },
-    Vertex { position: [0.44147372, 0.2347359, 0.0] },
+    Vertex {
+        position: [-0.0868241, 0.49240386, 0.0],
+    },
+    Vertex {
+        position: [-0.49513406, 0.06958647, 0.0],
+    },
+    Vertex {
+        position: [-0.21918549, -0.44939706, 0.0],
+    },
+    Vertex {
+        position: [0.35966998, -0.3473291, 0.0],
+    },
+    Vertex {
+        position: [0.44147372, 0.2347359, 0.0],
+    },
 ];
 
-const SYMBOL_INDICES: &[u16] = &[
-    0, 1, 4,
-    1, 2, 4,
-    2, 3, 4,
-];
+const SYMBOL_INDICES: &[u16] = &[0, 1, 4, 1, 2, 4, 2, 3, 4];
 
 pub struct SymbolMarkRenderer {
     render_pipeline: wgpu::RenderPipeline,
@@ -34,52 +39,48 @@ pub struct SymbolMarkRenderer {
 }
 
 impl SymbolMarkRenderer {
-    pub fn new(device: &Device, uniform: CanvasUniform, texture_format: TextureFormat, instances: &[SymbolInstance]) -> Self {
+    pub fn new(
+        device: &Device,
+        uniform: CanvasUniform,
+        texture_format: TextureFormat,
+        instances: &[SymbolInstance],
+    ) -> Self {
         // Uniforms
-        let uniform_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Uniform Buffer"),
-                contents: bytemuck::cast_slice(&[uniform]),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            }
-        );
+        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Uniform Buffer"),
+            contents: bytemuck::cast_slice(&[uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
 
         let uniform_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }
-            ],
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
             label: Some("chart_uniform_layout"),
         });
 
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &uniform_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: uniform_buffer.as_entire_binding(),
-                }
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
             label: Some("uniform_bind_group"),
         });
 
-        let _render_pipeline_layout = device.create_pipeline_layout(
-            &wgpu::PipelineLayoutDescriptor {
+        let _render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[
-                    &uniform_layout,
-                ],
+                bind_group_layouts: &[&uniform_layout],
                 push_constant_ranges: &[],
-            }
-        );
+            });
 
         // Shaders
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -90,9 +91,7 @@ impl SymbolMarkRenderer {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[
-                    &uniform_layout
-                ],
+                bind_group_layouts: &[&uniform_layout],
                 push_constant_ranges: &[],
             });
 
@@ -102,10 +101,7 @@ impl SymbolMarkRenderer {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main",
-                buffers: &[
-                    Vertex::desc(),
-                    SymbolInstance::desc(),
-                ],
+                buffers: &[Vertex::desc(), SymbolInstance::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -134,31 +130,25 @@ impl SymbolMarkRenderer {
             multiview: None,
         });
 
-        let vertex_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Vertex Buffer"),
-                contents: bytemuck::cast_slice(SYMBOL_VERTICES),
-                usage: wgpu::BufferUsages::VERTEX,
-            }
-        );
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(SYMBOL_VERTICES),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
         let num_vertices = SYMBOL_VERTICES.len() as u32;
 
-        let index_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Index Buffer"),
-                contents: bytemuck::cast_slice(SYMBOL_INDICES),
-                usage: wgpu::BufferUsages::INDEX,
-            }
-        );
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Index Buffer"),
+            contents: bytemuck::cast_slice(SYMBOL_INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
         let num_indices = SYMBOL_INDICES.len() as u32;
 
-        let instance_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Instance Buffer"),
-                contents: bytemuck::cast_slice(instances),
-                usage: wgpu::BufferUsages::VERTEX,
-            }
-        );
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Instance Buffer"),
+            contents: bytemuck::cast_slice(instances),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
         let num_instances = instances.len() as u32;
 
         Self {
@@ -176,10 +166,9 @@ impl SymbolMarkRenderer {
     }
 
     pub fn render(&self, device: &Device, texture_view: &TextureView) -> CommandBuffer {
-        let mut mark_encoder = device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Mark Render Encoder"),
-            });
+        let mut mark_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Mark Render Encoder"),
+        });
 
         {
             let mut render_pass = mark_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -205,6 +194,6 @@ impl SymbolMarkRenderer {
             render_pass.draw_indexed(0..self.num_indices, 0, 0..self.num_instances);
         }
 
-        return mark_encoder.finish()
+        return mark_encoder.finish();
     }
 }

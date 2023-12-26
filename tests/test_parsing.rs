@@ -6,7 +6,6 @@ fn parse_bar() {
     println!("{scene:#?}");
 }
 
-
 #[test]
 fn parse_symbol() {
     let scene: MarkSpec = serde_json::from_str(include_str!("specs/circles.sg.json")).unwrap();

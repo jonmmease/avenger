@@ -1,21 +1,19 @@
-pub mod renderers;
-pub mod specs;
-pub mod scene;
 pub mod error;
+pub mod renderers;
+pub mod scene;
+pub mod specs;
 
 use std::iter;
 use wgpu::util::DeviceExt;
 
+use winit::dpi::{LogicalSize, PhysicalSize, Size};
 use winit::{
     event::*,
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
 };
-use winit::dpi::{LogicalSize, PhysicalSize, Size};
 
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
-use crate::renderers::canvas::{WindowCanvas, PngCanvas, Canvas};
+use crate::renderers::canvas::{Canvas, PngCanvas, WindowCanvas};
 use crate::renderers::symbol::SymbolMarkRenderer;
 use crate::scene::rect::RectInstance;
 use crate::scene::scene_graph::SceneGraph;
@@ -23,7 +21,8 @@ use crate::scene::symbol::SymbolInstance;
 use crate::specs::group::GroupItemSpec;
 use crate::specs::mark::{MarkContainerSpec, MarkSpec};
 use crate::specs::SceneGraphSpec;
-
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
 pub async fn run() {
@@ -62,11 +61,16 @@ pub async fn run() {
     let origin = [20.0f32, 20.0];
     let width = 540.0f32;
     let height = 240.0f32;
-    window.set_inner_size(Size::Physical(PhysicalSize::new(width as u32, height as u32)));
+    window.set_inner_size(Size::Physical(PhysicalSize::new(
+        width as u32,
+        height as u32,
+    )));
 
-    let scene_spec: SceneGraphSpec = serde_json::from_str(include_str!("../tests/specs/circles.sg.json")).unwrap();
+    let scene_spec: SceneGraphSpec =
+        serde_json::from_str(include_str!("../tests/specs/circles.sg.json")).unwrap();
     // let scene_spec: SceneGraphSpec = serde_json::from_str(include_str!("../tests/specs/bar.sg.json")).unwrap();
-    let scene_graph: SceneGraph = SceneGraph::from_spec(&scene_spec, origin, width, height).expect("Failed to parse scene graph");
+    let scene_graph: SceneGraph = SceneGraph::from_spec(&scene_spec, origin, width, height)
+        .expect("Failed to parse scene graph");
     println!("{scene_graph:#?}");
 
     // Save to png
@@ -74,7 +78,10 @@ pub async fn run() {
     let mut canvas = WindowCanvas::new(window, origin).await.unwrap();
 
     png_canvas.set_scene(&scene_graph);
-    let img = png_canvas.render().await.expect("Failed to write PNG image");
+    let img = png_canvas
+        .render()
+        .await
+        .expect("Failed to write PNG image");
     img.save("image2.png").unwrap();
 
     canvas.set_scene(&scene_graph);
@@ -91,11 +98,11 @@ pub async fn run() {
                         WindowEvent::CloseRequested
                         | WindowEvent::KeyboardInput {
                             input:
-                            KeyboardInput {
-                                state: ElementState::Pressed,
-                                virtual_keycode: Some(VirtualKeyCode::Escape),
-                                ..
-                            },
+                                KeyboardInput {
+                                    state: ElementState::Pressed,
+                                    virtual_keycode: Some(VirtualKeyCode::Escape),
+                                    ..
+                                },
                             ..
                         } => *control_flow = ControlFlow::Exit,
                         WindowEvent::Resized(physical_size) => {

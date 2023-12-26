@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::specs::mark::MarkItemSpec;
+use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
