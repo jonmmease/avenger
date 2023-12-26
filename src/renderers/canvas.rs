@@ -1,8 +1,11 @@
 use winit::event::WindowEvent;
 use winit::window::Window;
-use crate::mark_renderers::MarkRenderer;
-use crate::mark_renderers::rect::{RectMarkRenderer, RectInstance};
-use crate::mark_renderers::symbol::{SymbolInstance, SymbolMarkRenderer};
+use crate::renderers::MarkRenderer;
+use crate::renderers::rect::RectMarkRenderer;
+use crate::renderers::symbol::SymbolMarkRenderer;
+use crate::scene::rect::{RectInstance, RectMark};
+use crate::scene::scene_graph::{SceneGraph, SceneGroup, SceneMark};
+use crate::scene::symbol::{SymbolInstance, SymbolMark};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -110,16 +113,48 @@ impl Canvas {
         self.size
     }
 
-    pub fn add_symbol_mark(&mut self, instances: &[SymbolInstance]) {
+    pub fn add_symbol_mark(&mut self, mark: &SymbolMark) {
         self.marks.push(MarkRenderer::Symbol(SymbolMarkRenderer::new(
-            &self.device, self.uniform.clone(), self.config.format, instances
+            &self.device, self.uniform.clone(), self.config.format, mark.instances.as_slice()
         )));
     }
 
-    pub fn add_rect_mark(&mut self, instances: &[RectInstance]) {
+    pub fn add_rect_mark(&mut self, mark: &RectMark) {
         self.marks.push(MarkRenderer::Rect(RectMarkRenderer::new(
-            &self.device, self.uniform.clone(), self.config.format, instances
+            &self.device, self.uniform.clone(), self.config.format, mark.instances.as_slice()
         )));
+    }
+
+    fn add_group_mark(&mut self, group: &SceneGroup) {
+        for mark in &group.marks {
+            match mark {
+                SceneMark::Symbol(mark) => {
+                    self.add_symbol_mark(mark);
+                }
+                SceneMark::Rect(mark) => {
+                    self.add_rect_mark(mark);
+                }
+                SceneMark::Group(group) => {
+                    self.add_group_mark(group);
+                }
+            }
+        }
+    }
+
+    pub fn set_scene(&mut self, scene_graph: &SceneGraph) {
+        // Set uniforms
+        self.uniform = CanvasUniform {
+            size: [scene_graph.width, scene_graph.height],
+            origin: scene_graph.origin,
+        };
+
+        // Clear existing marks
+        self.marks.clear();
+
+        // Add marks
+        for group in &scene_graph.groups {
+            self.add_group_mark(group);
+        }
     }
 
     pub fn window(&self) -> &Window {
@@ -196,4 +231,5 @@ impl Canvas {
 
         Ok(())
     }
+
 }

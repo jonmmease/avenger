@@ -1,48 +1,10 @@
 use wgpu::{CommandBuffer, Device, Surface, TextureFormat, TextureView};
 use wgpu::util::DeviceExt;
-use crate::{mark_renderers::vertex::Vertex};
-use crate::canvas::CanvasUniform;
+use crate::{renderers::vertex::Vertex};
+use crate::renderers::canvas::CanvasUniform;
+use crate::scene::symbol::SymbolInstance;
 use crate::specs::symbol::SymbolItemSpec;
 
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct SymbolInstance {
-    pub position: [f32; 2],
-    pub color: [f32; 3],
-}
-
-impl SymbolInstance {
-    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<SymbolInstance>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x2,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
-                    shader_location: 2,
-                    format: wgpu::VertexFormat::Float32x3,
-                }
-            ]
-        }
-    }
-
-    pub fn from_spec(item_spec: &SymbolItemSpec) -> Self {
-        // TODO: color
-        Self {
-            position: [item_spec.x, item_spec.y],
-            color: [0.5, 0.5, 0.5],
-        }
-    }
-
-    pub fn from_specs(item_specs: &[SymbolItemSpec]) -> Vec<Self> {
-        item_specs.iter().map(Self::from_spec).collect()
-    }
-}
 
 const SYMBOL_VERTICES: &[Vertex] = &[
     Vertex { position: [-0.0868241, 0.49240386, 0.0] },

@@ -1,6 +1,6 @@
-pub mod mark_renderers;
-pub mod canvas;
+pub mod renderers;
 pub mod specs;
+mod scene;
 
 use std::iter;
 use wgpu::util::DeviceExt;
@@ -14,11 +14,14 @@ use winit::dpi::{LogicalSize, PhysicalSize, Size};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
-use crate::canvas::Canvas;
-use crate::mark_renderers::rect::RectInstance;
-use crate::mark_renderers::symbol::{SymbolInstance, SymbolMarkRenderer};
+use crate::renderers::canvas::Canvas;
+use crate::renderers::symbol::SymbolMarkRenderer;
+use crate::scene::rect::RectInstance;
+use crate::scene::scene_graph::SceneGraph;
+use crate::scene::symbol::SymbolInstance;
 use crate::specs::group::GroupItemSpec;
-use crate::specs::mark::MarkSpec;
+use crate::specs::mark::{MarkContainerSpec, MarkSpec};
+use crate::specs::SceneGraphSpec;
 
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
@@ -56,65 +59,28 @@ pub async fn run() {
 
     // State::new uses async code, so we're going to wait for it to finish
     let origin = [20.0f32, 20.0];
-    window.set_inner_size(Size::Physical(PhysicalSize::new(500 + 2 * origin[1] as u32, 200 + 2 * origin[1] as u32)));
+    let width = 540.0f32;
+    let height = 240.0f32;
+    window.set_inner_size(Size::Physical(PhysicalSize::new(width as u32, height as u32)));
 
-    let mut state = Canvas::new(window, origin).await;
+    let mut canvas = Canvas::new(window, origin).await;
 
     // state.resize(PhysicalSize::new(500, 200));
 
-    let scene: MarkSpec = serde_json::from_str(include_str!("../tests/specs/circles.sg.json")).unwrap();
-    let MarkSpec::Group(group) = scene else { panic!() };
-    let group_item = &group.items[0];
-    state.add_rect_mark(&[
-        RectInstance {
-            position: [group_item.x, group_item.y],
-            color: [1.0, 1.0, 1.0],
-            width: group_item.width.unwrap(),
-            height: group_item.height.unwrap(),
-        },
-    ]);
-    match &group.items[0].items[0] {
-        MarkSpec::Symbol(symbol_container) => {
-            let symbol_instances = SymbolInstance::from_specs(symbol_container.items.as_slice());
-            state.add_symbol_mark(symbol_instances.as_slice());
-        }
-        _ => {}
-    }
+    let scene_spec: SceneGraphSpec = serde_json::from_str(include_str!("../tests/specs/circles.sg.json")).unwrap();
+    // let scene_spec: SceneGraphSpec = serde_json::from_str(include_str!("../tests/specs/bar.sg.json")).unwrap();
+    let scene_graph: SceneGraph = SceneGraph::from_spec(&scene_spec, origin, width, height);
+    println!("{scene_graph:#?}");
+    canvas.set_scene(&scene_graph);
 
-    // state.add_symbol_mark(&[
-    //     SymbolInstance {position: [0.0, 0.0], color: [0.5, 0.0, 0.5]},
-    //     SymbolInstance {position: [30.0, 55.0], color: [0.5, 0.3, 0.5]},
-    //     SymbolInstance {position: [-80.0, -46.0], color: [0.5, 0.6, 0.5]},
-    // ]);
-    //
-    // state.add_symbol_mark(&[
-    //     SymbolInstance {position: [-200.0, 0.0], color: [1.0, 0.0, 0.0]},
-    //     SymbolInstance {position: [-200.0, 55.0], color: [0.0, 1.0, 0.0]},
-    //     SymbolInstance {position: [-200.0, -46.0], color: [0.0, 0.0, 1.0]},
-    // ]);
-
-    state.add_rect_mark(&[
-        RectInstance {
-            position: [100.0, 0.0],
-            color: [1.0, 0.0, 1.0],
-            width: 20.0,
-            height: 50.0,
-        },
-        RectInstance {
-            position: [-100.0, 0.0],
-            color: [0.0, 1.0, 1.0],
-            width: 40.0,
-            height: 100.0,
-        }
-    ]);
 
     event_loop.run(move |event, _, control_flow| {
         match event {
             Event::WindowEvent {
                 ref event,
                 window_id,
-            } if window_id == state.window().id() => {
-                if !state.input(event) {
+            } if window_id == canvas.window().id() => {
+                if !canvas.input(event) {
                     // UPDATED!
                     match event {
                         WindowEvent::CloseRequested
@@ -128,23 +94,23 @@ pub async fn run() {
                             ..
                         } => *control_flow = ControlFlow::Exit,
                         WindowEvent::Resized(physical_size) => {
-                            state.resize(*physical_size);
+                            canvas.resize(*physical_size);
                         }
                         WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
                             // new_inner_size is &&mut so w have to dereference it twice
-                            state.resize(**new_inner_size);
+                            canvas.resize(**new_inner_size);
                         }
                         _ => {}
                     }
                 }
             }
-            Event::RedrawRequested(window_id) if window_id == state.window().id() => {
-                state.update();
-                match state.render() {
+            Event::RedrawRequested(window_id) if window_id == canvas.window().id() => {
+                canvas.update();
+                match canvas.render() {
                     Ok(_) => {}
                     // Reconfigure the surface if it's lost or outdated
                     Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                        state.resize(state.get_size())
+                        canvas.resize(canvas.get_size())
                     }
                     // The system is out of memory, we should probably quit
                     Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
@@ -155,7 +121,7 @@ pub async fn run() {
             Event::RedrawEventsCleared => {
                 // RedrawRequested will only trigger once, unless we manually
                 // request it.
-                state.window().request_redraw();
+                canvas.window().request_redraw();
             }
             _ => {}
         }
