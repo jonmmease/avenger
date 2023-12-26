@@ -74,15 +74,18 @@ pub async fn run() {
     println!("{scene_graph:#?}");
 
     // Save to png
-    let mut png_canvas = PngCanvas::new(width, 256.0, origin).await.unwrap();
     let mut canvas = WindowCanvas::new(window, origin).await.unwrap();
 
-    png_canvas.set_scene(&scene_graph);
-    let img = png_canvas
-        .render()
-        .await
-        .expect("Failed to write PNG image");
-    img.save("image2.png").unwrap();
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let mut png_canvas = PngCanvas::new(width, 256.0, origin).await.unwrap();
+        png_canvas.set_scene(&scene_graph);
+        let img = png_canvas
+            .render()
+            .await
+            .expect("Failed to write PNG image");
+        img.save("image2.png").unwrap();
+    }
 
     canvas.set_scene(&scene_graph);
 
