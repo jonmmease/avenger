@@ -6,7 +6,8 @@ cargo run
 ## Build wasm
 
 ```
- wasm-pack build --target web
+cd vega-wgpu-renderer
+wasm-pack build --target web
 ```
 
 Then open `index.html`

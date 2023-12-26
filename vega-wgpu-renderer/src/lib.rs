@@ -66,9 +66,10 @@ pub async fn run() {
         height as u32,
     )));
 
+    // let scene_spec: SceneGraphSpec =
+    //     serde_json::from_str(include_str!("../tests/specs/circles.sg.json")).unwrap();
     let scene_spec: SceneGraphSpec =
-        serde_json::from_str(include_str!("../tests/specs/circles.sg.json")).unwrap();
-    // let scene_spec: SceneGraphSpec = serde_json::from_str(include_str!("../tests/specs/bar.sg.json")).unwrap();
+        serde_json::from_str(include_str!("../tests/specs/bar.sg.json")).unwrap();
     let scene_graph: SceneGraph = SceneGraph::from_spec(&scene_spec, origin, width, height)
         .expect("Failed to parse scene graph");
     println!("{scene_graph:#?}");
