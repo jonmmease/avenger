@@ -15,7 +15,7 @@ use winit::dpi::{LogicalSize, PhysicalSize, Size};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
-use crate::renderers::canvas::Canvas;
+use crate::renderers::canvas::{Canvas, PngCanvas};
 use crate::renderers::symbol::SymbolMarkRenderer;
 use crate::scene::rect::RectInstance;
 use crate::scene::scene_graph::SceneGraph;
@@ -64,16 +64,20 @@ pub async fn run() {
     let height = 240.0f32;
     window.set_inner_size(Size::Physical(PhysicalSize::new(width as u32, height as u32)));
 
-    let mut canvas = Canvas::new(window, origin).await;
-
-    // state.resize(PhysicalSize::new(500, 200));
-
-    // let scene_spec: SceneGraphSpec = serde_json::from_str(include_str!("../tests/specs/circles.sg.json")).unwrap();
-    let scene_spec: SceneGraphSpec = serde_json::from_str(include_str!("../tests/specs/bar.sg.json")).unwrap();
+    let scene_spec: SceneGraphSpec = serde_json::from_str(include_str!("../tests/specs/circles.sg.json")).unwrap();
+    // let scene_spec: SceneGraphSpec = serde_json::from_str(include_str!("../tests/specs/bar.sg.json")).unwrap();
     let scene_graph: SceneGraph = SceneGraph::from_spec(&scene_spec, origin, width, height).expect("Failed to parse scene graph");
     println!("{scene_graph:#?}");
-    canvas.set_scene(&scene_graph);
 
+    // Save to png
+    let mut png_canvas = PngCanvas::new(width, 256.0, origin).await;
+    let mut canvas = Canvas::new(window, origin).await;
+
+    png_canvas.set_scene(&scene_graph);
+    let img = png_canvas.render().await.expect("Failed to write PNG image");
+    img.save("image2.png").unwrap();
+
+    canvas.set_scene(&scene_graph);
 
     event_loop.run(move |event, _, control_flow| {
         match event {
