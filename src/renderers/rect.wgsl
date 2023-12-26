@@ -29,10 +29,9 @@ fn vs_main(
     instance: InstanceInput,
 ) -> VertexOutput {
     var out: VertexOutput;
-//    out.color = instance.color;
-    out.color = vec3((instance.position[1] + instance.height) / chart_uniforms.size[1], 1.0, 1.0);
+    out.color = instance.color;
     let x = 2.0 * (model.position[0] * instance.width + instance.position[0] + chart_uniforms.origin[0]) / chart_uniforms.size[0] - 1.0;
-    let y = 2.0 * (model.position[1] * instance.height + (chart_uniforms.size[1] - instance.position[1] - instance.height)) / chart_uniforms.size[1] - 1.0;
+    let y = 2.0 * (model.position[1] * instance.height + (chart_uniforms.size[1] - instance.position[1] - instance.height - chart_uniforms.origin[1])) / chart_uniforms.size[1] - 1.0;
     out.clip_position = vec4<f32>(x, y, 0.0, 1.0);
     return out;
 }

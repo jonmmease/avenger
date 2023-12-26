@@ -1,6 +1,7 @@
 pub mod renderers;
 pub mod specs;
-mod scene;
+pub mod scene;
+pub mod error;
 
 use std::iter;
 use wgpu::util::DeviceExt;
@@ -67,9 +68,9 @@ pub async fn run() {
 
     // state.resize(PhysicalSize::new(500, 200));
 
-    let scene_spec: SceneGraphSpec = serde_json::from_str(include_str!("../tests/specs/circles.sg.json")).unwrap();
-    // let scene_spec: SceneGraphSpec = serde_json::from_str(include_str!("../tests/specs/bar.sg.json")).unwrap();
-    let scene_graph: SceneGraph = SceneGraph::from_spec(&scene_spec, origin, width, height);
+    // let scene_spec: SceneGraphSpec = serde_json::from_str(include_str!("../tests/specs/circles.sg.json")).unwrap();
+    let scene_spec: SceneGraphSpec = serde_json::from_str(include_str!("../tests/specs/bar.sg.json")).unwrap();
+    let scene_graph: SceneGraph = SceneGraph::from_spec(&scene_spec, origin, width, height).expect("Failed to parse scene graph");
     println!("{scene_graph:#?}");
     canvas.set_scene(&scene_graph);
 

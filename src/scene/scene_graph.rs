@@ -1,3 +1,4 @@
+use crate::error::VegaWgpuError;
 use crate::scene::rect::RectMark;
 use crate::scene::symbol::SymbolMark;
 use crate::specs::group::GroupItemSpec;
@@ -38,13 +39,13 @@ impl SceneGraph {
         Ok(())
     }
 
-    pub fn from_spec(spec: &MarkContainerSpec<GroupItemSpec>, origin: [f32; 2], width: f32, height: f32) -> Self {
-        Self {
-            groups: SceneGroup::from_spec(spec),
+    pub fn from_spec(spec: &MarkContainerSpec<GroupItemSpec>, origin: [f32; 2], width: f32, height: f32) -> Result<Self, VegaWgpuError> {
+        Ok(Self {
+            groups: SceneGroup::from_spec(spec)?,
             origin,
             width,
             height,
-        }
+        })
     }
 }
 
@@ -67,20 +68,20 @@ impl SceneGroup {
         Ok(())
     }
 
-    pub fn from_spec(spec: &MarkContainerSpec<GroupItemSpec>) -> Vec<Self> {
+    pub fn from_spec(spec: &MarkContainerSpec<GroupItemSpec>) -> Result<Vec<Self>, VegaWgpuError> {
         let mut scene_groups: Vec<Self> = Vec::new();
         for group_item_spec in &spec.items {
             let mut group_marks: Vec<SceneMark> = Vec::new();
             for item in &group_item_spec.items {
                 let item_marks: Vec<_> = match item {
                     MarkSpec::Group(group) => {
-                        SceneGroup::from_spec(group).into_iter().map(SceneMark::Group).collect()
+                        SceneGroup::from_spec(group)?.into_iter().map(SceneMark::Group).collect()
                     }
                     MarkSpec::Rect(mark) => {
-                        vec![SceneMark::Rect(RectMark::from_spec(mark))]
+                        vec![SceneMark::Rect(RectMark::from_spec(mark)?)]
                     }
                     MarkSpec::Symbol(mark) => {
-                        vec![SceneMark::Symbol(SymbolMark::from_spec(mark))]
+                        vec![SceneMark::Symbol(SymbolMark::from_spec(mark)?)]
                     }
                     _ => unimplemented!()
                 };
@@ -96,7 +97,7 @@ impl SceneGroup {
                 marks: group_marks,
             })
         }
-        scene_groups
+        Ok(scene_groups)
     }
 }
 

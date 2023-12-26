@@ -1,3 +1,4 @@
+use crate::error::VegaWgpuError;
 use crate::specs::mark::MarkContainerSpec;
 use crate::specs::symbol::SymbolItemSpec;
 
@@ -8,18 +9,13 @@ pub struct SymbolMark {
 }
 
 impl SymbolMark {
-    pub fn from_spec(spec: &MarkContainerSpec<SymbolItemSpec>) -> Self {
-        let instances = spec.items.iter().map(|item| {
-            SymbolInstance {
-                position: [item.x, item.y],
-                color: [0.5, 0.5, 0.5],
-            }
-        }).collect::<Vec<_>>();
+    pub fn from_spec(spec: &MarkContainerSpec<SymbolItemSpec>) -> Result<Self, VegaWgpuError> {
+        let instances = SymbolInstance::from_specs(spec.items.as_slice())?;
 
-        Self {
+        Ok(Self {
             instances,
             clip: spec.clip,
-        }
+        })
     }
 }
 
@@ -50,15 +46,20 @@ impl SymbolInstance {
         }
     }
 
-    pub fn from_spec(item_spec: &SymbolItemSpec) -> Self {
-        // TODO: color
-        Self {
+    pub fn from_spec(item_spec: &SymbolItemSpec) -> Result<Self, VegaWgpuError> {
+        let color = if let Some(fill) = &item_spec.fill {
+            let c = csscolorparser::parse(fill)?;
+            [c.r as f32, c.g as f32, c.b as f32]
+        } else {
+            [0.5f32, 0.5, 0.5]
+        };
+        Ok(Self {
             position: [item_spec.x, item_spec.y],
-            color: [0.5, 0.5, 0.5],
-        }
+            color,
+        })
     }
 
-    pub fn from_specs(item_specs: &[SymbolItemSpec]) -> Vec<Self> {
+    pub fn from_specs(item_specs: &[SymbolItemSpec]) -> Result<Vec<Self>, VegaWgpuError> {
         item_specs.iter().map(Self::from_spec).collect()
     }
 }
