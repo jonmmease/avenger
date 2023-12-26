@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "vega-wgpu-renderer",
+    "gen-test-data",
 ]
 resolver = "2"
 
