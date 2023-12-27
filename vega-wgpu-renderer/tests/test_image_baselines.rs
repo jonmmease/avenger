@@ -1,12 +1,5 @@
-use std::fs;
-use std::io::Write;
-use std::path::Path;
-use vega_wgpu_renderer::scene::scene_graph::SceneGraph;
-use vega_wgpu_renderer::specs::SceneGraphSpec;
 use serde::{Serialize, Deserialize};
-use vega_wgpu_renderer::renderers::canvas::{Canvas, PngCanvas};
-use dssim::{Dssim, DssimImage};
-use image::{EncodableLayout, RgbaImage};
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SceneGraphDims {
@@ -16,46 +9,64 @@ struct SceneGraphDims {
     origin_y: f32
 }
 
-#[test]
-fn test_image_baseline() {
-    // let spec_name = "stacked_bar";
-    // let spec_name = "heatmap";
-    let spec_name = "binned_scatter_diamonds";
-    let specs_dir = format!("{}/tests/specs/rect", env!("CARGO_MANIFEST_DIR"));
-    let output_dir = format!("{}/tests/output", env!("CARGO_MANIFEST_DIR"));
+#[cfg(test)]
+mod test_image_baselines {
+    use std::fs;
+    use std::path::Path;
+    use dssim::Dssim;
+    use vega_wgpu_renderer::renderers::canvas::{Canvas, PngCanvas};
+    use vega_wgpu_renderer::scene::scene_graph::SceneGraph;
+    use vega_wgpu_renderer::specs::SceneGraphSpec;
+    use crate::SceneGraphDims;
+    use rstest::rstest;
 
-    // Read scene graph spec
-    let scene_spec_str = fs::read_to_string(format!("{specs_dir}/{spec_name}.sg.json")).unwrap();
-    let scene_spec: SceneGraphSpec = serde_json::from_str(&scene_spec_str).unwrap();
+    #[rstest(spec_name, tolerance,
+        case("stacked_bar", 0.001),
+        case("heatmap", 0.006),
+        case("binned_scatter_diamonds", 0.005),
+    )]
+    fn test_image_baseline(spec_name: &str, tolerance: f64) {
+        let specs_dir = format!("{}/tests/specs/rect", env!("CARGO_MANIFEST_DIR"));
+        let output_dir = format!("{}/tests/output", env!("CARGO_MANIFEST_DIR"));
 
-    // Read dims
-    let scene_dims_str = fs::read_to_string(format!("{specs_dir}/{spec_name}.dims.json")).unwrap();
-    let scene_dims: SceneGraphDims = serde_json::from_str(&scene_dims_str).unwrap();
-    let width = scene_dims.width;
-    let height = scene_dims.height;
-    let origin = [scene_dims.origin_x, scene_dims.origin_y];
+        // Read scene graph spec
+        let scene_spec_str = fs::read_to_string(format!("{specs_dir}/{spec_name}.sg.json")).unwrap();
+        let scene_spec: SceneGraphSpec = serde_json::from_str(&scene_spec_str).unwrap();
 
-    // Read expected png
-    let expected_dssim = dssim::load_image(&Dssim::new(), Path::new(&format!("{specs_dir}/{spec_name}.png"))).ok().unwrap();
+        // Read dims
+        let scene_dims_str = fs::read_to_string(format!("{specs_dir}/{spec_name}.dims.json")).unwrap();
+        let scene_dims: SceneGraphDims = serde_json::from_str(&scene_dims_str).unwrap();
+        let width = scene_dims.width;
+        let height = scene_dims.height;
+        let origin = [scene_dims.origin_x, scene_dims.origin_y];
 
-    // Build scene graph
-    let scene_graph: SceneGraph = SceneGraph::from_spec(
-        &scene_spec,
-        origin,
-        width,
-        height
-    ).expect("Failed to parse scene graph");
+        // Read expected png
+        let expected_dssim = dssim::load_image(&Dssim::new(), Path::new(&format!("{specs_dir}/{spec_name}.png"))).ok().unwrap();
 
-    let mut png_canvas = pollster::block_on(PngCanvas::new(width, height, origin)).unwrap();
-    png_canvas.set_scene(&scene_graph);
-    let img = pollster::block_on(png_canvas.render()).expect("Failed to render PNG image");
-    let result_path = format!("{output_dir}/{spec_name}.png");
-    img.save(&result_path).unwrap();
-    let result_dssim = dssim::load_image(&Dssim::new(), result_path).unwrap();
+        // Build scene graph
+        let scene_graph: SceneGraph = SceneGraph::from_spec(
+            &scene_spec,
+            origin,
+            width,
+            height
+        ).expect("Failed to parse scene graph");
 
-    // Compare images
-    let attr = Dssim::new();
-    let (diff, _) = attr.compare(&expected_dssim, result_dssim);
-    println!("{diff}");
-    assert!(diff < 0.01);
+        let mut png_canvas = pollster::block_on(PngCanvas::new(width, height, origin)).unwrap();
+        png_canvas.set_scene(&scene_graph);
+        let img = pollster::block_on(png_canvas.render()).expect("Failed to render PNG image");
+        let result_path = format!("{output_dir}/{spec_name}.png");
+        img.save(&result_path).unwrap();
+        let result_dssim = dssim::load_image(&Dssim::new(), result_path).unwrap();
+
+        // Compare images
+        let attr = Dssim::new();
+        let (diff, _) = attr.compare(&expected_dssim, result_dssim);
+        println!("{diff}");
+        assert!(diff < tolerance);
+    }
+
+    #[test]
+    fn test_marker() {} // Help IDE detect test module
 }
+
+
