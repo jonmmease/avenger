@@ -19,7 +19,8 @@ struct SceneGraphDims {
 #[test]
 fn test_image_baseline() {
     // let spec_name = "stacked_bar";
-    let spec_name = "heatmap";
+    // let spec_name = "heatmap";
+    let spec_name = "binned_scatter_diamonds";
     let specs_dir = format!("{}/tests/specs/rect", env!("CARGO_MANIFEST_DIR"));
     let output_dir = format!("{}/tests/output", env!("CARGO_MANIFEST_DIR"));
 

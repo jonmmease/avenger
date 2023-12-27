@@ -24,6 +24,7 @@ impl SymbolMark {
 pub struct SymbolInstance {
     pub position: [f32; 2],
     pub color: [f32; 3],
+    pub size: f32,
 }
 
 impl SymbolInstance {
@@ -42,6 +43,11 @@ impl SymbolInstance {
                     shader_location: 2,
                     format: wgpu::VertexFormat::Float32x3,
                 },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 5]>() as wgpu::BufferAddress,
+                    shader_location: 3,
+                    format: wgpu::VertexFormat::Float32,
+                },
             ],
         }
     }
@@ -56,6 +62,7 @@ impl SymbolInstance {
         Ok(Self {
             position: [item_spec.x, item_spec.y],
             color,
+            size: item_spec.size.unwrap_or(20.0)
         })
     }
 

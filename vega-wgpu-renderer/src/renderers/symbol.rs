@@ -5,25 +5,28 @@ use crate::specs::symbol::SymbolItemSpec;
 use wgpu::util::DeviceExt;
 use wgpu::{CommandBuffer, Device, Surface, TextureFormat, TextureView};
 
-const SYMBOL_VERTICES: &[Vertex] = &[
-    Vertex {
-        position: [-0.0868241, 0.49240386, 0.0],
-    },
-    Vertex {
-        position: [-0.49513406, 0.06958647, 0.0],
-    },
-    Vertex {
-        position: [-0.21918549, -0.44939706, 0.0],
-    },
-    Vertex {
-        position: [0.35966998, -0.3473291, 0.0],
-    },
-    Vertex {
-        position: [0.44147372, 0.2347359, 0.0],
-    },
-];
 
-const SYMBOL_INDICES: &[u16] = &[0, 1, 4, 1, 2, 4, 2, 3, 4];
+fn symbol_verts() -> Vec<Vertex> {
+    let tan30: f32 = (30.0 * std::f32::consts::PI / 180.0).tan();
+    let radius: f32 = (1.0 / (2.0 * tan30)).sqrt();
+
+    vec![
+        Vertex {
+            position: [0.0, -radius, 0.0],
+        },
+        Vertex {
+            position: [radius, 0.0, 0.0],
+        },
+        Vertex {
+            position: [0.0, radius, 0.0],
+        },
+        Vertex {
+            position: [-radius, 0.0, 0.0],
+        },
+    ]
+}
+
+const SYMBOL_INDICES: &[u16] = &[0, 1, 2, 0, 2, 3];
 
 pub struct SymbolMarkRenderer {
     render_pipeline: wgpu::RenderPipeline,
@@ -130,12 +133,13 @@ impl SymbolMarkRenderer {
             multiview: None,
         });
 
+        let verts = symbol_verts();
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(SYMBOL_VERTICES),
+            contents: bytemuck::cast_slice(verts.as_slice()),
             usage: wgpu::BufferUsages::VERTEX,
         });
-        let num_vertices = SYMBOL_VERTICES.len() as u32;
+        let num_vertices = verts.len() as u32;
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Index Buffer"),
