@@ -1,22 +1,15 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct SceneGraphDims {
-    width: f32,
-    height: f32,
-    origin_x: f32,
-    origin_y: f32,
-}
 
 #[cfg(test)]
 mod test_image_baselines {
-    use crate::SceneGraphDims;
     use dssim::Dssim;
     use rstest::rstest;
     use std::fs;
     use std::path::Path;
     use vega_wgpu_renderer::renderers::canvas::{Canvas, PngCanvas};
     use vega_wgpu_renderer::scene::scene_graph::SceneGraph;
+    use vega_wgpu_renderer::specs::dims::SceneGraphDims;
     use vega_wgpu_renderer::specs::SceneGraphSpec;
 
     #[rstest(

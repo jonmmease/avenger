@@ -23,6 +23,7 @@ use crate::specs::mark::{MarkContainerSpec, MarkSpec};
 use crate::specs::SceneGraphSpec;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+use crate::specs::dims::SceneGraphDims;
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
 pub async fn run() {
@@ -56,37 +57,28 @@ pub async fn run() {
             })
             .expect("Couldn't append canvas to document body.");
     }
+    // Load scene graph
+    let scene_spec: SceneGraphSpec =
+        serde_json::from_str(include_str!("../tests/specs/symbol/binned_scatter_diamonds.sg.json")).unwrap();
 
-    // State::new uses async code, so we're going to wait for it to finish
-    let origin = [20.0f32, 20.0];
-    let width = 540.0f32;
-    let height = 240.0f32;
+    // Load dims
+    let scene_dims: SceneGraphDims =
+        serde_json::from_str(include_str!("../tests/specs/symbol/binned_scatter_diamonds.dims.json")).unwrap();
+
+    // Extract dims and set window size
+    let origin = [scene_dims.origin_x, scene_dims.origin_y];
+    let width = scene_dims.width;
+    let height = scene_dims.height;
     window.set_inner_size(Size::Physical(PhysicalSize::new(
         width as u32,
         height as u32,
     )));
 
-    // let scene_spec: SceneGraphSpec =
-    //     serde_json::from_str(include_str!("../tests/specs/circles.sg.json")).unwrap();
-    let scene_spec: SceneGraphSpec =
-        serde_json::from_str(include_str!("../tests/specs/bar.sg.json")).unwrap();
     let scene_graph: SceneGraph = SceneGraph::from_spec(&scene_spec, origin, width, height)
         .expect("Failed to parse scene graph");
-    println!("{scene_graph:#?}");
 
     // Save to png
     let mut canvas = WindowCanvas::new(window, origin).await.unwrap();
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let mut png_canvas = PngCanvas::new(width, 256.0, origin).await.unwrap();
-        png_canvas.set_scene(&scene_graph);
-        let img = png_canvas
-            .render()
-            .await
-            .expect("Failed to write PNG image");
-        img.save("image2.png").unwrap();
-    }
 
     canvas.set_scene(&scene_graph);
 
