@@ -62,7 +62,7 @@ impl SymbolInstance {
         Ok(Self {
             position: [item_spec.x, item_spec.y],
             color,
-            size: item_spec.size.unwrap_or(20.0)
+            size: item_spec.size.unwrap_or(20.0),
         })
     }
 

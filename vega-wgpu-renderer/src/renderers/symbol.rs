@@ -5,7 +5,6 @@ use crate::specs::symbol::SymbolItemSpec;
 use wgpu::util::DeviceExt;
 use wgpu::{CommandBuffer, Device, Surface, TextureFormat, TextureView};
 
-
 fn symbol_verts() -> Vec<Vertex> {
     let tan30: f32 = (30.0 * std::f32::consts::PI / 180.0).tan();
     let radius: f32 = (1.0 / (2.0 * tan30)).sqrt();
