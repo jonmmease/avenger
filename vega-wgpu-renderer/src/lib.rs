@@ -18,12 +18,12 @@ use crate::renderers::symbol::SymbolMarkRenderer;
 use crate::scene::rect::RectInstance;
 use crate::scene::scene_graph::SceneGraph;
 use crate::scene::symbol::SymbolInstance;
+use crate::specs::dims::SceneGraphDims;
 use crate::specs::group::GroupItemSpec;
 use crate::specs::mark::{MarkContainerSpec, MarkSpec};
 use crate::specs::SceneGraphSpec;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
-use crate::specs::dims::SceneGraphDims;
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
 pub async fn run() {
@@ -58,12 +58,16 @@ pub async fn run() {
             .expect("Couldn't append canvas to document body.");
     }
     // Load scene graph
-    let scene_spec: SceneGraphSpec =
-        serde_json::from_str(include_str!("../tests/specs/symbol/binned_scatter_diamonds.sg.json")).unwrap();
+    let scene_spec: SceneGraphSpec = serde_json::from_str(include_str!(
+        "../tests/specs/symbol/binned_scatter_diamonds.sg.json"
+    ))
+    .unwrap();
 
     // Load dims
-    let scene_dims: SceneGraphDims =
-        serde_json::from_str(include_str!("../tests/specs/symbol/binned_scatter_diamonds.dims.json")).unwrap();
+    let scene_dims: SceneGraphDims = serde_json::from_str(include_str!(
+        "../tests/specs/symbol/binned_scatter_diamonds.dims.json"
+    ))
+    .unwrap();
 
     // Extract dims and set window size
     let origin = [scene_dims.origin_x, scene_dims.origin_y];

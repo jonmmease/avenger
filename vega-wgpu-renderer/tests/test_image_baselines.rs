@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-
 #[cfg(test)]
 mod test_image_baselines {
     use dssim::Dssim;
