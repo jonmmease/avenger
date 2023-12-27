@@ -20,15 +20,17 @@ mod test_image_baselines {
     use vega_wgpu_renderer::specs::SceneGraphSpec;
 
     #[rstest(
+        category,
         spec_name,
         tolerance,
-        case("stacked_bar", 0.001),
-        case("heatmap", 0.006),
-        case("binned_scatter_diamonds", 0.005)
+        case("rect", "stacked_bar", 0.001),
+        case("rect", "heatmap", 0.006),
+        case("symbol", "binned_scatter_diamonds", 0.005)
     )]
-    fn test_image_baseline(spec_name: &str, tolerance: f64) {
-        let specs_dir = format!("{}/tests/specs/rect", env!("CARGO_MANIFEST_DIR"));
+    fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
+        let specs_dir = format!("{}/tests/specs/{category}", env!("CARGO_MANIFEST_DIR"));
         let output_dir = format!("{}/tests/output", env!("CARGO_MANIFEST_DIR"));
+        fs::create_dir_all(Path::new(&output_dir)).unwrap();
 
         // Read scene graph spec
         let scene_spec_str =
@@ -58,7 +60,7 @@ mod test_image_baselines {
         let mut png_canvas = pollster::block_on(PngCanvas::new(width, height, origin)).unwrap();
         png_canvas.set_scene(&scene_graph);
         let img = pollster::block_on(png_canvas.render()).expect("Failed to render PNG image");
-        let result_path = format!("{output_dir}/{spec_name}.png");
+        let result_path = format!("{output_dir}/{category}-{spec_name}.png");
         img.save(&result_path).unwrap();
         let result_dssim = dssim::load_image(&Dssim::new(), result_path).unwrap();
 
