@@ -10,9 +10,11 @@ pub struct SymbolMark {
 }
 
 impl SymbolMark {
-    pub fn from_spec(spec: &MarkContainerSpec<SymbolItemSpec>) -> Result<Self, VegaWgpuError> {
-        let instances = SymbolInstance::from_specs(spec.items.as_slice())?;
-
+    pub fn from_spec(
+        spec: &MarkContainerSpec<SymbolItemSpec>,
+        origin: [f32; 2],
+    ) -> Result<Self, VegaWgpuError> {
+        let instances = SymbolInstance::from_specs(spec.items.as_slice(), origin)?;
         // For now, grab the shape of the first item and use this for all items.
         // Eventually we'll need to handle marks with mixed symbols
         let first_shape = spec
@@ -38,7 +40,7 @@ pub struct SymbolInstance {
 }
 
 impl SymbolInstance {
-    pub fn from_spec(item_spec: &SymbolItemSpec) -> Result<Self, VegaWgpuError> {
+    pub fn from_spec(item_spec: &SymbolItemSpec, origin: [f32; 2]) -> Result<Self, VegaWgpuError> {
         let color = if let Some(fill) = &item_spec.fill {
             let c = csscolorparser::parse(fill)?;
             [c.r as f32, c.g as f32, c.b as f32]
@@ -46,13 +48,19 @@ impl SymbolInstance {
             [0.5f32, 0.5, 0.5]
         };
         Ok(Self {
-            position: [item_spec.x, item_spec.y],
+            position: [item_spec.x + origin[0], item_spec.y + origin[1]],
             color,
             size: item_spec.size.unwrap_or(20.0),
         })
     }
 
-    pub fn from_specs(item_specs: &[SymbolItemSpec]) -> Result<Vec<Self>, VegaWgpuError> {
-        item_specs.iter().map(Self::from_spec).collect()
+    pub fn from_specs(
+        item_specs: &[SymbolItemSpec],
+        origin: [f32; 2],
+    ) -> Result<Vec<Self>, VegaWgpuError> {
+        item_specs
+            .iter()
+            .map(|item| Self::from_spec(item, origin))
+            .collect()
     }
 }

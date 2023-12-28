@@ -1,8 +1,10 @@
 use crate::error::VegaWgpuError;
 use crate::renderers::mark::MarkRenderer;
 use crate::renderers::rect::RectShader;
+use crate::renderers::rule::RuleShader;
 use crate::renderers::symbol::SymbolShader;
 use crate::scene::rect::{RectInstance, RectMark};
+use crate::scene::rule::RuleMark;
 use crate::scene::scene_graph::{SceneGraph, SceneGroup, SceneMark};
 use crate::scene::symbol::{SymbolInstance, SymbolMark};
 use image::imageops::crop_imm;
@@ -21,7 +23,7 @@ use winit::window::Window;
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct CanvasUniform {
     size: [f32; 2],
-    origin: [f32; 2],
+    filler: [f32; 2], // Pad to 16 bytes
 }
 
 pub trait Canvas {
@@ -55,6 +57,16 @@ pub trait Canvas {
         ));
     }
 
+    fn add_rule_mark(&mut self, mark: &RuleMark) {
+        self.add_mark_renderer(MarkRenderer::new(
+            &self.device(),
+            self.uniform().clone(),
+            self.texture_format(),
+            Box::new(RuleShader::new()),
+            mark.instances.as_slice(),
+        ));
+    }
+
     fn add_group_mark(&mut self, group: &SceneGroup) {
         for mark in &group.marks {
             match mark {
@@ -63,6 +75,9 @@ pub trait Canvas {
                 }
                 SceneMark::Rect(mark) => {
                     self.add_rect_mark(mark);
+                }
+                SceneMark::Rule(mark) => {
+                    self.add_rule_mark(mark);
                 }
                 SceneMark::Group(group) => {
                     self.add_group_mark(group);
@@ -75,7 +90,7 @@ pub trait Canvas {
         // Set uniforms
         self.set_uniform(CanvasUniform {
             size: [scene_graph.width, scene_graph.height],
-            origin: scene_graph.origin,
+            filler: [0.0, 0.0],
         });
 
         // Clear existing marks
@@ -205,7 +220,7 @@ impl WindowCanvas {
 
         let uniform = CanvasUniform {
             size: [size.width as f32, size.height as f32],
-            origin: origin.clone(),
+            filler: [0.0, 0.0],
         };
 
         Ok(Self {
@@ -353,7 +368,7 @@ impl PngCanvas {
 
         let uniform = CanvasUniform {
             size: [width, height],
-            origin: origin.clone(),
+            filler: [0.0, 0.0],
         };
 
         Ok(Self {
