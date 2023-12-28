@@ -1,7 +1,7 @@
 use crate::error::VegaWgpuError;
-use crate::renderers::rect::RectMarkRenderer;
-use crate::renderers::symbol::SymbolMarkRenderer;
-use crate::renderers::MarkRenderer;
+use crate::renderers::mark::MarkRenderer;
+use crate::renderers::rect::RectShader;
+use crate::renderers::symbol::SymbolShader;
 use crate::scene::rect::{RectInstance, RectMark};
 use crate::scene::scene_graph::{SceneGraph, SceneGroup, SceneMark};
 use crate::scene::symbol::{SymbolInstance, SymbolMark};
@@ -36,21 +36,23 @@ pub trait Canvas {
     fn texture_format(&self) -> TextureFormat;
 
     fn add_symbol_mark(&mut self, mark: &SymbolMark) {
-        self.add_mark_renderer(MarkRenderer::Symbol(SymbolMarkRenderer::new(
+        self.add_mark_renderer(MarkRenderer::new(
             &self.device(),
             self.uniform().clone(),
             self.texture_format(),
+            Box::new(SymbolShader::new()),
             mark.instances.as_slice(),
-        )))
+        ));
     }
 
     fn add_rect_mark(&mut self, mark: &RectMark) {
-        self.add_mark_renderer(MarkRenderer::Rect(RectMarkRenderer::new(
+        self.add_mark_renderer(MarkRenderer::new(
             &self.device(),
             self.uniform().clone(),
             self.texture_format(),
+            Box::new(RectShader::new()),
             mark.instances.as_slice(),
-        )));
+        ));
     }
 
     fn add_group_mark(&mut self, group: &SceneGroup) {
@@ -253,10 +255,7 @@ impl WindowCanvas {
         let mut commands = vec![background_command];
 
         for mark in &self.marks {
-            let command = match mark {
-                MarkRenderer::Symbol(mark) => mark.render(&self.device, &view),
-                MarkRenderer::Rect(mark) => mark.render(&self.device, &view),
-            };
+            let command = mark.render(&self.device, &view);
             commands.push(command);
         }
 
@@ -380,10 +379,7 @@ impl PngCanvas {
         let mut commands = vec![background_command];
 
         for mark in &self.marks {
-            let command = match mark {
-                MarkRenderer::Symbol(mark) => mark.render(&self.device, &self.texture_view),
-                MarkRenderer::Rect(mark) => mark.render(&self.device, &self.texture_view),
-            };
+            let command = mark.render(&self.device, &self.texture_view);
             commands.push(command);
         }
 
