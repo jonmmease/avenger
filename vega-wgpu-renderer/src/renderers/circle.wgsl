@@ -2,7 +2,7 @@
 
 struct ChartUniform {
     size: vec2<f32>,
-    origin: vec2<f32>, // for 16 byte alignment
+    filler: vec2<f32>, // for 16 byte alignment
 };
 @group(0) @binding(0)
 var<uniform> chart_uniforms: ChartUniform;
@@ -37,14 +37,14 @@ fn vs_main(
 
     // Compute normalized position of vertex
     let size_scale = sqrt(instance.size);
-    let clip_x = 2.0 * (model.position[0] * size_scale + instance.position[0] + chart_uniforms.origin[0]) / chart_uniforms.size[0] - 1.0;
-    let clip_y = 2.0 * (model.position[1] * size_scale + (chart_uniforms.size[1] - instance.position[1] - chart_uniforms.origin[1])) / chart_uniforms.size[1] - 1.0;
+    let clip_x = 2.0 * (model.position[0] * size_scale + instance.position[0]) / chart_uniforms.size[0] - 1.0;
+    let clip_y = 2.0 * (model.position[1] * size_scale + (chart_uniforms.size[1] - instance.position[1])) / chart_uniforms.size[1] - 1.0;
     out.clip_position = vec4<f32>(clip_x, clip_y, 0.0, 1.0);
 
     // Compute circle center in fragment shader coordinates
     out.center = vec2<f32>(
-        instance.position[0] + chart_uniforms.origin[0],
-        instance.position[1] + chart_uniforms.origin[1]
+        instance.position[0],
+        instance.position[1]
     );
 
     // Compute radius in fragment shader coordinates
