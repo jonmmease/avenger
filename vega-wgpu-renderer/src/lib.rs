@@ -14,7 +14,6 @@ use winit::{
 };
 
 use crate::renderers::canvas::{Canvas, PngCanvas, WindowCanvas};
-use crate::renderers::symbol::SymbolMarkRenderer;
 use crate::scene::rect::RectInstance;
 use crate::scene::scene_graph::SceneGraph;
 use crate::scene::symbol::SymbolInstance;
