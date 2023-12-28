@@ -22,7 +22,6 @@ struct VertexOutput {
     @location(0) color: vec3<f32>,
 };
 
-const PI:f32 = 3.1415926535897932384626433832795;
 
 @vertex
 fn vs_main(
@@ -31,7 +30,7 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
     out.color = instance.color;
-    let size_scale = sqrt(instance.size / PI);
+    let size_scale = sqrt(instance.size);
     let x = 2.0 * (model.position[0] * size_scale + instance.position[0] + chart_uniforms.origin[0]) / chart_uniforms.size[0] - 1.0;
     let y = 2.0 * (model.position[1] * size_scale + (chart_uniforms.size[1] - instance.position[1] - chart_uniforms.origin[1])) / chart_uniforms.size[1] - 1.0;
     out.clip_position = vec4<f32>(x, y, 0.0, 1.0);

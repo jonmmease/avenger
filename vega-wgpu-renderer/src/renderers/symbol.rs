@@ -15,24 +15,47 @@ impl SymbolShader {
     pub fn new(shape: SymbolShape) -> Self {
         match shape {
             SymbolShape::Circle => todo!("circle"),
-            SymbolShape::Square => todo!("square"),
-            SymbolShape::Cross => todo!("cross"),
-            SymbolShape::Diamond => {
-                let tan30: f32 = (30.0 * std::f32::consts::PI / 180.0).tan();
-                let radius: f32 = (1.0 / (2.0 * tan30)).sqrt();
+            SymbolShape::Square => {
+                let r = 0.5;
                 Self {
                     verts: vec![
                         Vertex {
-                            position: [0.0, -radius, 0.0],
+                            position: [r, -r, 0.0],
                         },
                         Vertex {
-                            position: [radius, 0.0, 0.0],
+                            position: [r, r, 0.0],
                         },
                         Vertex {
-                            position: [0.0, radius, 0.0],
+                            position: [-r, r, 0.0],
                         },
                         Vertex {
-                            position: [-radius, 0.0, 0.0],
+                            position: [-r, -r, 0.0],
+                        },
+                    ],
+                    indices: vec![0, 1, 2, 0, 2, 3],
+                    shader: include_str!("polygon_symbol.wgsl").to_string(),
+                    vertex_entry_point: "vs_main".to_string(),
+                    fragment_entry_point: "fs_main".to_string(),
+                }
+            },
+            SymbolShape::Cross => todo!("cross"),
+            SymbolShape::Diamond => {
+                let tan30: f32 = (30.0 * std::f32::consts::PI / 180.0).tan();
+                let ry: f32 = (1.0 / (2.0 * tan30)).sqrt();
+                let r: f32 = ry * tan30;
+                Self {
+                    verts: vec![
+                        Vertex {
+                            position: [0.0, -r, 0.0],
+                        },
+                        Vertex {
+                            position: [r, 0.0, 0.0],
+                        },
+                        Vertex {
+                            position: [0.0, r, 0.0],
+                        },
+                        Vertex {
+                            position: [-r, 0.0, 0.0],
                         },
                     ],
                     indices: vec![0, 1, 2, 0, 2, 3],
