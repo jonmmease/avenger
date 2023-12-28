@@ -9,8 +9,11 @@ pub struct RectMark {
 }
 
 impl RectMark {
-    pub fn from_spec(spec: &MarkContainerSpec<RectItemSpec>) -> Result<Self, VegaWgpuError> {
-        let instances = RectInstance::from_specs(spec.items.as_slice())?;
+    pub fn from_spec(
+        spec: &MarkContainerSpec<RectItemSpec>,
+        origin: [f32; 2],
+    ) -> Result<Self, VegaWgpuError> {
+        let instances = RectInstance::from_specs(spec.items.as_slice(), origin)?;
 
         Ok(Self {
             instances,
@@ -29,7 +32,7 @@ pub struct RectInstance {
 }
 
 impl RectInstance {
-    pub fn from_spec(item_spec: &RectItemSpec) -> Result<Self, VegaWgpuError> {
+    pub fn from_spec(item_spec: &RectItemSpec, origin: [f32; 2]) -> Result<Self, VegaWgpuError> {
         // TODO: x2, y2
         let color = if let Some(fill) = &item_spec.fill {
             let c = csscolorparser::parse(fill)?;
@@ -39,17 +42,20 @@ impl RectInstance {
         };
 
         Ok(Self {
-            position: [item_spec.x, item_spec.y],
+            position: [item_spec.x + origin[0], item_spec.y + origin[1]],
             color,
             width: item_spec.width.unwrap(),
             height: item_spec.height.unwrap(),
         })
     }
 
-    pub fn from_specs(item_specs: &[RectItemSpec]) -> Result<Vec<Self>, VegaWgpuError> {
+    pub fn from_specs(
+        item_specs: &[RectItemSpec],
+        origin: [f32; 2],
+    ) -> Result<Vec<Self>, VegaWgpuError> {
         item_specs
             .iter()
-            .map(Self::from_spec)
+            .map(|item| Self::from_spec(item, origin))
             .collect::<Result<Vec<_>, VegaWgpuError>>()
     }
 }

@@ -1,5 +1,6 @@
 use crate::specs::group::GroupItemSpec;
 use crate::specs::rect::RectItemSpec;
+use crate::specs::rule::RuleItemSpec;
 use crate::specs::symbol::SymbolItemSpec;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -17,7 +18,7 @@ pub enum MarkSpec {
     Line,
     Path,
     Rect(MarkContainerSpec<RectItemSpec>),
-    Rule,
+    Rule(MarkContainerSpec<RuleItemSpec>),
     Shape,
     Symbol(MarkContainerSpec<SymbolItemSpec>),
     Text,
