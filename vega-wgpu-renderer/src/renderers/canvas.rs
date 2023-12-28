@@ -40,7 +40,7 @@ pub trait Canvas {
             &self.device(),
             self.uniform().clone(),
             self.texture_format(),
-            Box::new(SymbolShader::new()),
+            Box::new(SymbolShader::new(mark.shape)),
             mark.instances.as_slice(),
         ));
     }

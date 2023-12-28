@@ -1,6 +1,7 @@
 use crate::renderers::mark::MarkShader;
 use crate::renderers::vertex::Vertex;
 use crate::scene::symbol::SymbolInstance;
+use crate::specs::symbol::SymbolShape;
 
 pub struct SymbolShader {
     verts: Vec<Vertex>,
@@ -11,29 +12,42 @@ pub struct SymbolShader {
 }
 
 impl SymbolShader {
-    pub fn new() -> Self {
-        let tan30: f32 = (30.0 * std::f32::consts::PI / 180.0).tan();
-        let radius: f32 = (1.0 / (2.0 * tan30)).sqrt();
-
-        Self {
-            verts: vec![
-                Vertex {
-                    position: [0.0, -radius, 0.0],
-                },
-                Vertex {
-                    position: [radius, 0.0, 0.0],
-                },
-                Vertex {
-                    position: [0.0, radius, 0.0],
-                },
-                Vertex {
-                    position: [-radius, 0.0, 0.0],
-                },
-            ],
-            indices: vec![0, 1, 2, 0, 2, 3],
-            shader: include_str!("symbol.wgsl").to_string(),
-            vertex_entry_point: "vs_main".to_string(),
-            fragment_entry_point: "fs_main".to_string(),
+    pub fn new(shape: SymbolShape) -> Self {
+        match shape {
+            SymbolShape::Circle => todo!("circle"),
+            SymbolShape::Square => todo!("square"),
+            SymbolShape::Cross => todo!("cross"),
+            SymbolShape::Diamond => {
+                let tan30: f32 = (30.0 * std::f32::consts::PI / 180.0).tan();
+                let radius: f32 = (1.0 / (2.0 * tan30)).sqrt();
+                Self {
+                    verts: vec![
+                        Vertex {
+                            position: [0.0, -radius, 0.0],
+                        },
+                        Vertex {
+                            position: [radius, 0.0, 0.0],
+                        },
+                        Vertex {
+                            position: [0.0, radius, 0.0],
+                        },
+                        Vertex {
+                            position: [-radius, 0.0, 0.0],
+                        },
+                    ],
+                    indices: vec![0, 1, 2, 0, 2, 3],
+                    shader: include_str!("polygon_symbol.wgsl").to_string(),
+                    vertex_entry_point: "vs_main".to_string(),
+                    fragment_entry_point: "fs_main".to_string(),
+                }
+            },
+            SymbolShape::Triangle => todo!("triangle"),
+            SymbolShape::TriangleUp => todo!("triangle-up"),
+            SymbolShape::TriangleDown => todo!("triangle-down"),
+            SymbolShape::TriangleRight => todo!("triangle-right"),
+            SymbolShape::TriangleLeft => todo!("triangle-left"),
+            SymbolShape::Arrow => todo!("arrow"),
+            SymbolShape::Wedge => todo!("wedge"),
         }
     }
 }
