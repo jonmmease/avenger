@@ -1,0 +1,542 @@
+{
+  "marktype": "group",
+  "name": "root",
+  "role": "frame",
+  "interactive": true,
+  "clip": false,
+  "items": [
+    {
+      "items": [
+        {
+          "marktype": "symbol",
+          "name": "marks",
+          "role": "mark",
+          "interactive": true,
+          "clip": false,
+          "items": [
+            {
+              "x": 55.55555555555556,
+              "y": 70,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 10.808383233532934,
+              "shape": "cross"
+            },
+            {
+              "x": 100,
+              "y": 150,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 218.32934131736528,
+              "shape": "cross"
+            },
+            {
+              "x": 144.44444444444443,
+              "y": 30.000000000000004,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 361,
+              "shape": "cross"
+            },
+            {
+              "x": 166.66666666666669,
+              "y": 10.000000000000009,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 231.29940119760482,
+              "shape": "cross"
+            },
+            {
+              "x": 122.22222222222223,
+              "y": 30.000000000000004,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 168.6107784431138,
+              "shape": "cross"
+            },
+            {
+              "x": 33.33333333333333,
+              "y": 10.000000000000009,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 6.485029940119761,
+              "shape": "cross"
+            },
+            {
+              "x": 144.44444444444443,
+              "y": 89.99999999999999,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 62.68862275449102,
+              "shape": "cross"
+            },
+            {
+              "x": 100,
+              "y": 130,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 216.16766467065867,
+              "shape": "cross"
+            },
+            {
+              "x": 144.44444444444443,
+              "y": 50,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 214.0059880239521,
+              "shape": "cross"
+            },
+            {
+              "x": 55.55555555555556,
+              "y": 170,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 49.7185628742515,
+              "shape": "cross"
+            },
+            {
+              "x": 144.44444444444443,
+              "y": 10.000000000000009,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 283.17964071856284,
+              "shape": "cross"
+            },
+            {
+              "x": 122.22222222222223,
+              "y": 170,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 62.68862275449102,
+              "shape": "cross"
+            },
+            {
+              "x": 122.22222222222223,
+              "y": 89.99999999999999,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 283.17964071856284,
+              "shape": "cross"
+            },
+            {
+              "x": 77.77777777777779,
+              "y": 170,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 164.2874251497006,
+              "shape": "cross"
+            },
+            {
+              "x": 122.22222222222223,
+              "y": 110.00000000000001,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 272.3712574850299,
+              "shape": "cross"
+            },
+            {
+              "x": 122.22222222222223,
+              "y": 150,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 129.7005988023952,
+              "shape": "cross"
+            },
+            {
+              "x": 100,
+              "y": 89.99999999999999,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 95.11377245508983,
+              "shape": "cross"
+            },
+            {
+              "x": 55.55555555555556,
+              "y": 50,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 4.323353293413174,
+              "shape": "cross"
+            },
+            {
+              "x": 122.22222222222223,
+              "y": 10.000000000000009,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 51.880239520958085,
+              "shape": "cross"
+            },
+            {
+              "x": 100,
+              "y": 70,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 58.365269461077844,
+              "shape": "cross"
+            },
+            {
+              "x": 100,
+              "y": 50,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 17.293413173652695,
+              "shape": "cross"
+            },
+            {
+              "x": 122.22222222222223,
+              "y": 70,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 281.0179640718563,
+              "shape": "cross"
+            },
+            {
+              "x": 144.44444444444443,
+              "y": 70,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 183.7425149700599,
+              "shape": "cross"
+            },
+            {
+              "x": 122.22222222222223,
+              "y": 130,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 155.64071856287427,
+              "shape": "cross"
+            },
+            {
+              "x": 100,
+              "y": 30.000000000000004,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 21.61676646706587,
+              "shape": "cross"
+            },
+            {
+              "x": 55.55555555555556,
+              "y": 10.000000000000009,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 4.323353293413174,
+              "shape": "cross"
+            },
+            {
+              "x": 55.55555555555556,
+              "y": 150,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 23.778443113772457,
+              "shape": "cross"
+            },
+            {
+              "x": 77.77777777777779,
+              "y": 110.00000000000001,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 19.455089820359284,
+              "shape": "cross"
+            },
+            {
+              "x": 100,
+              "y": 170,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 196.71257485029938,
+              "shape": "cross"
+            },
+            {
+              "x": 100,
+              "y": 110.00000000000001,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 153.47904191616766,
+              "shape": "cross"
+            },
+            {
+              "x": 77.77777777777779,
+              "y": 89.99999999999999,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 8.646706586826348,
+              "shape": "cross"
+            },
+            {
+              "x": 166.66666666666669,
+              "y": 50,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 30.263473053892213,
+              "shape": "cross"
+            },
+            {
+              "x": 122.22222222222223,
+              "y": 50,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 229.1377245508982,
+              "shape": "cross"
+            },
+            {
+              "x": 166.66666666666669,
+              "y": 130,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 2.161676646706587,
+              "shape": "cross"
+            },
+            {
+              "x": 166.66666666666669,
+              "y": 30.000000000000004,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 77.82035928143713,
+              "shape": "cross"
+            },
+            {
+              "x": 77.77777777777779,
+              "y": 50,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 4.323353293413174,
+              "shape": "cross"
+            },
+            {
+              "x": 100,
+              "y": 10.000000000000009,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 17.293413173652695,
+              "shape": "cross"
+            },
+            {
+              "x": 77.77777777777779,
+              "y": 150,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 86.46706586826348,
+              "shape": "cross"
+            },
+            {
+              "x": 77.77777777777779,
+              "y": 190,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 92.95209580838322,
+              "shape": "cross"
+            },
+            {
+              "x": 100,
+              "y": 190,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 62.68862275449102,
+              "shape": "cross"
+            },
+            {
+              "x": 188.88888888888889,
+              "y": 10.000000000000009,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 2.161676646706587,
+              "shape": "cross"
+            },
+            {
+              "x": 77.77777777777779,
+              "y": 130,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 47.556886227544915,
+              "shape": "cross"
+            },
+            {
+              "x": 144.44444444444443,
+              "y": 110.00000000000001,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 34.58682634730539,
+              "shape": "cross"
+            },
+            {
+              "x": 55.55555555555556,
+              "y": 190,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 38.91017964071857,
+              "shape": "cross"
+            },
+            {
+              "x": 33.33333333333333,
+              "y": 170,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 17.293413173652695,
+              "shape": "cross"
+            },
+            {
+              "x": 188.88888888888889,
+              "y": 30.000000000000004,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 4.323353293413174,
+              "shape": "cross"
+            },
+            {
+              "x": 77.77777777777779,
+              "y": 10.000000000000009,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 4.323353293413174,
+              "shape": "cross"
+            },
+            {
+              "x": 33.33333333333333,
+              "y": 70,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 6.485029940119761,
+              "shape": "cross"
+            },
+            {
+              "x": 144.44444444444443,
+              "y": 150,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 12.970059880239521,
+              "shape": "cross"
+            },
+            {
+              "x": 166.66666666666669,
+              "y": 170,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 2.161676646706587,
+              "shape": "cross"
+            },
+            {
+              "x": 33.33333333333333,
+              "y": 190,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 30.263473053892213,
+              "shape": "cross"
+            },
+            {
+              "x": 77.77777777777779,
+              "y": 70,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 4.323353293413174,
+              "shape": "cross"
+            },
+            {
+              "x": 144.44444444444443,
+              "y": 130,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 30.263473053892213,
+              "shape": "cross"
+            },
+            {
+              "x": 166.66666666666669,
+              "y": 70,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 4.323353293413174,
+              "shape": "cross"
+            },
+            {
+              "x": 144.44444444444443,
+              "y": 170,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 4.323353293413174,
+              "shape": "cross"
+            },
+            {
+              "x": 11.11111111111111,
+              "y": 190,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 6.485029940119761,
+              "shape": "cross"
+            },
+            {
+              "x": 122.22222222222223,
+              "y": 190,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 6.485029940119761,
+              "shape": "cross"
+            },
+            {
+              "x": 77.77777777777779,
+              "y": 30.000000000000004,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 2.161676646706587,
+              "shape": "cross"
+            },
+            {
+              "x": 166.66666666666669,
+              "y": 110.00000000000001,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 2.161676646706587,
+              "shape": "cross"
+            },
+            {
+              "x": 55.55555555555556,
+              "y": 130,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 2.161676646706587,
+              "shape": "cross"
+            },
+            {
+              "x": 166.66666666666669,
+              "y": 89.99999999999999,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 2.161676646706587,
+              "shape": "cross"
+            },
+            {
+              "x": 33.33333333333333,
+              "y": 150,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 2.161676646706587,
+              "shape": "cross"
+            },
+            {
+              "x": 33.33333333333333,
+              "y": 130,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 2.161676646706587,
+              "shape": "cross"
+            },
+            {
+              "x": 33.33333333333333,
+              "y": 30.000000000000004,
+              "fill": "purple",
+              "strokeWidth": 2,
+              "size": 2.161676646706587,
+              "shape": "cross"
+            }
+          ],
+          "zindex": 0
+        }
+      ],
+      "x": 0,
+      "y": 0,
+      "width": 200,
+      "height": 200,
+      "fill": "transparent",
+      "stroke": "transparent"
+    }
+  ],
+  "zindex": 0
+}
