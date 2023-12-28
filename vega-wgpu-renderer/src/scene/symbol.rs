@@ -1,10 +1,11 @@
 use crate::error::VegaWgpuError;
 use crate::specs::mark::MarkContainerSpec;
-use crate::specs::symbol::SymbolItemSpec;
+use crate::specs::symbol::{SymbolItemSpec, SymbolShape};
 
 #[derive(Debug, Clone)]
 pub struct SymbolMark {
     pub instances: Vec<SymbolInstance>,
+    pub shape: SymbolShape,
     pub clip: bool,
 }
 
@@ -12,8 +13,17 @@ impl SymbolMark {
     pub fn from_spec(spec: &MarkContainerSpec<SymbolItemSpec>) -> Result<Self, VegaWgpuError> {
         let instances = SymbolInstance::from_specs(spec.items.as_slice())?;
 
+        // For now, grab the shape of the first item and use this for all items.
+        // Eventually we'll need to handle marks with mixed symbols
+        let first_shape = spec
+            .items
+            .get(0)
+            .and_then(|item| item.shape)
+            .unwrap_or_default();
+
         Ok(Self {
             instances,
+            shape: first_shape,
             clip: spec.clip,
         })
     }

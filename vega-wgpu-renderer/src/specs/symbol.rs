@@ -14,7 +14,7 @@ pub struct SymbolItemSpec {
 
 impl MarkItemSpec for SymbolItemSpec {}
 
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SymbolShape {
     #[default]

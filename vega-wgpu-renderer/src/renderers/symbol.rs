@@ -1,6 +1,7 @@
 use crate::renderers::mark::MarkShader;
 use crate::renderers::vertex::Vertex;
 use crate::scene::symbol::SymbolInstance;
+use crate::specs::symbol::SymbolShape;
 
 pub struct SymbolShader {
     verts: Vec<Vertex>,
@@ -11,29 +12,272 @@ pub struct SymbolShader {
 }
 
 impl SymbolShader {
-    pub fn new() -> Self {
+    pub fn new(shape: SymbolShape) -> Self {
         let tan30: f32 = (30.0 * std::f32::consts::PI / 180.0).tan();
-        let radius: f32 = (1.0 / (2.0 * tan30)).sqrt();
+        let sqrt3: f32 = 3.0f32.sqrt();
 
-        Self {
-            verts: vec![
-                Vertex {
-                    position: [0.0, -radius, 0.0],
-                },
-                Vertex {
-                    position: [radius, 0.0, 0.0],
-                },
-                Vertex {
-                    position: [0.0, radius, 0.0],
-                },
-                Vertex {
-                    position: [-radius, 0.0, 0.0],
-                },
-            ],
-            indices: vec![0, 1, 2, 0, 2, 3],
-            shader: include_str!("symbol.wgsl").to_string(),
-            vertex_entry_point: "vs_main".to_string(),
-            fragment_entry_point: "fs_main".to_string(),
+        match shape {
+            SymbolShape::Circle => todo!("circle"),
+            SymbolShape::Square => {
+                let r = 0.5;
+                Self {
+                    verts: vec![
+                        Vertex {
+                            position: [r, -r, 0.0],
+                        },
+                        Vertex {
+                            position: [r, r, 0.0],
+                        },
+                        Vertex {
+                            position: [-r, r, 0.0],
+                        },
+                        Vertex {
+                            position: [-r, -r, 0.0],
+                        },
+                    ],
+                    indices: vec![0, 1, 2, 0, 2, 3],
+                    shader: include_str!("polygon_symbol.wgsl").to_string(),
+                    vertex_entry_point: "vs_main".to_string(),
+                    fragment_entry_point: "fs_main".to_string(),
+                }
+            }
+            SymbolShape::Cross => {
+                let r = 0.5;
+                let s = r / 2.5;
+                Self {
+                    verts: vec![
+                        Vertex {
+                            position: [-s, r, 0.0],
+                        },
+                        Vertex {
+                            position: [-s, s, 0.0],
+                        },
+                        Vertex {
+                            position: [-r, s, 0.0],
+                        },
+                        Vertex {
+                            position: [-r, -s, 0.0],
+                        },
+                        Vertex {
+                            position: [-s, -s, 0.0],
+                        },
+                        Vertex {
+                            position: [-s, -r, 0.0],
+                        },
+                        Vertex {
+                            position: [s, -r, 0.0],
+                        },
+                        Vertex {
+                            position: [s, -s, 0.0],
+                        },
+                        Vertex {
+                            position: [r, -s, 0.0],
+                        },
+                        Vertex {
+                            position: [r, s, 0.0],
+                        },
+                        Vertex {
+                            position: [s, s, 0.0],
+                        },
+                        Vertex {
+                            position: [s, r, 0.0],
+                        },
+                    ],
+                    indices: vec![0, 1, 10, 0, 10, 11, 2, 3, 8, 2, 8, 9, 4, 5, 7, 5, 6, 7],
+                    shader: include_str!("polygon_symbol.wgsl").to_string(),
+                    vertex_entry_point: "vs_main".to_string(),
+                    fragment_entry_point: "fs_main".to_string(),
+                }
+            }
+            SymbolShape::Diamond => {
+                let ry: f32 = (1.0 / (2.0 * tan30)).sqrt();
+                let r: f32 = ry * tan30;
+                Self {
+                    verts: vec![
+                        Vertex {
+                            position: [0.0, -r, 0.0],
+                        },
+                        Vertex {
+                            position: [r, 0.0, 0.0],
+                        },
+                        Vertex {
+                            position: [0.0, r, 0.0],
+                        },
+                        Vertex {
+                            position: [-r, 0.0, 0.0],
+                        },
+                    ],
+                    indices: vec![0, 1, 2, 0, 2, 3],
+                    shader: include_str!("polygon_symbol.wgsl").to_string(),
+                    vertex_entry_point: "vs_main".to_string(),
+                    fragment_entry_point: "fs_main".to_string(),
+                }
+            }
+            SymbolShape::Triangle => {
+                let r = 0.5;
+                let h = r * sqrt3 / 2.0;
+                let o = (h - r * tan30);
+                Self {
+                    verts: vec![
+                        Vertex {
+                            position: [0.0, h + o, 0.0],
+                        },
+                        Vertex {
+                            position: [-r, -h + o, 0.0],
+                        },
+                        Vertex {
+                            position: [r, -h + o, 0.0],
+                        },
+                    ],
+                    indices: vec![0, 1, 2],
+                    shader: include_str!("polygon_symbol.wgsl").to_string(),
+                    vertex_entry_point: "vs_main".to_string(),
+                    fragment_entry_point: "fs_main".to_string(),
+                }
+            }
+            SymbolShape::TriangleUp => {
+                let r = 0.5;
+                let h = r * sqrt3 / 2.0;
+                Self {
+                    verts: vec![
+                        Vertex {
+                            position: [0.0, h, 0.0],
+                        },
+                        Vertex {
+                            position: [-r, -h, 0.0],
+                        },
+                        Vertex {
+                            position: [r, -h, 0.0],
+                        },
+                    ],
+                    indices: vec![0, 1, 2],
+                    shader: include_str!("polygon_symbol.wgsl").to_string(),
+                    vertex_entry_point: "vs_main".to_string(),
+                    fragment_entry_point: "fs_main".to_string(),
+                }
+            }
+            SymbolShape::TriangleDown => {
+                let r = 0.5;
+                let h = r * sqrt3 / 2.0;
+                Self {
+                    verts: vec![
+                        Vertex {
+                            position: [0.0, -h, 0.0],
+                        },
+                        Vertex {
+                            position: [r, h, 0.0],
+                        },
+                        Vertex {
+                            position: [-r, h, 0.0],
+                        },
+                    ],
+                    indices: vec![0, 1, 2],
+                    shader: include_str!("polygon_symbol.wgsl").to_string(),
+                    vertex_entry_point: "vs_main".to_string(),
+                    fragment_entry_point: "fs_main".to_string(),
+                }
+            }
+            SymbolShape::TriangleRight => {
+                let r = 0.5;
+                let h = r * sqrt3 / 2.0;
+                Self {
+                    verts: vec![
+                        Vertex {
+                            position: [h, 0.0, 0.0],
+                        },
+                        Vertex {
+                            position: [-h, r, 0.0],
+                        },
+                        Vertex {
+                            position: [-h, -r, 0.0],
+                        },
+                    ],
+                    indices: vec![0, 1, 2],
+                    shader: include_str!("polygon_symbol.wgsl").to_string(),
+                    vertex_entry_point: "vs_main".to_string(),
+                    fragment_entry_point: "fs_main".to_string(),
+                }
+            }
+            SymbolShape::TriangleLeft => {
+                let r = 0.5;
+                let h = r * sqrt3 / 2.0;
+                Self {
+                    verts: vec![
+                        Vertex {
+                            position: [-h, 0.0, 0.0],
+                        },
+                        Vertex {
+                            position: [h, -r, 0.0],
+                        },
+                        Vertex {
+                            position: [h, r, 0.0],
+                        },
+                    ],
+                    indices: vec![0, 1, 2],
+                    shader: include_str!("polygon_symbol.wgsl").to_string(),
+                    vertex_entry_point: "vs_main".to_string(),
+                    fragment_entry_point: "fs_main".to_string(),
+                }
+            }
+            SymbolShape::Arrow => {
+                let r = 0.5;
+                let s = r / 7.0;
+                let t = r / 2.5;
+                let v = r / 8.0;
+
+                Self {
+                    verts: vec![
+                        Vertex {
+                            position: [0.0, r, 0.0],
+                        },
+                        Vertex {
+                            position: [-t, v, 0.0],
+                        },
+                        Vertex {
+                            position: [-s, v, 0.0],
+                        },
+                        Vertex {
+                            position: [-s, -r, 0.0],
+                        },
+                        Vertex {
+                            position: [s, -r, 0.0],
+                        },
+                        Vertex {
+                            position: [s, v, 0.0],
+                        },
+                        Vertex {
+                            position: [t, v, 0.0],
+                        },
+                    ],
+                    indices: vec![0, 1, 6, 2, 3, 4, 2, 4, 5],
+                    shader: include_str!("polygon_symbol.wgsl").to_string(),
+                    vertex_entry_point: "vs_main".to_string(),
+                    fragment_entry_point: "fs_main".to_string(),
+                }
+            }
+            SymbolShape::Wedge => {
+                let r = 0.5;
+                let h = r * sqrt3 / 2.0;
+                let o = (h - r * tan30);
+                let b = r / 4.0;
+                Self {
+                    verts: vec![
+                        Vertex {
+                            position: [0.0, h + o, 0.0],
+                        },
+                        Vertex {
+                            position: [-b, -h + o, 0.0],
+                        },
+                        Vertex {
+                            position: [b, -h + o, 0.0],
+                        },
+                    ],
+                    indices: vec![0, 1, 2],
+                    shader: include_str!("polygon_symbol.wgsl").to_string(),
+                    vertex_entry_point: "vs_main".to_string(),
+                    fragment_entry_point: "fs_main".to_string(),
+                }
+            }
         }
     }
 }
