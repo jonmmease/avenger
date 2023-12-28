@@ -17,7 +17,29 @@ impl SymbolShader {
         let sqrt3: f32 = 3.0f32.sqrt();
 
         match shape {
-            SymbolShape::Circle => todo!("circle"),
+            SymbolShape::Circle => {
+                let r = 0.5;
+                Self {
+                    verts: vec![
+                        Vertex {
+                            position: [r, -r, 0.0],
+                        },
+                        Vertex {
+                            position: [r, r, 0.0],
+                        },
+                        Vertex {
+                            position: [-r, r, 0.0],
+                        },
+                        Vertex {
+                            position: [-r, -r, 0.0],
+                        },
+                    ],
+                    indices: vec![0, 1, 2, 0, 2, 3],
+                    shader: include_str!("circle.wgsl").to_string(),
+                    vertex_entry_point: "vs_main".to_string(),
+                    fragment_entry_point: "fs_main".to_string(),
+                }
+            }
             SymbolShape::Square => {
                 let r = 0.5;
                 Self {

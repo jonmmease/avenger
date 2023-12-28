@@ -98,7 +98,7 @@ impl MarkRenderer {
                 entry_point: mark_shader.fragment_entry_point(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: texture_format,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
