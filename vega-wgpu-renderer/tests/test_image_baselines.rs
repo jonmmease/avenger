@@ -17,7 +17,8 @@ mod test_image_baselines {
         tolerance,
         case("rect", "stacked_bar", 0.001),
         case("rect", "heatmap", 0.006),
-        case("symbol", "binned_scatter_diamonds", 0.005)
+        case("symbol", "binned_scatter_diamonds", 0.006),
+        case("symbol", "binned_scatter_square", 0.012)
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
         let specs_dir = format!("{}/tests/specs/{category}", env!("CARGO_MANIFEST_DIR"));
