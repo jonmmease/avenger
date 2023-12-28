@@ -27,7 +27,7 @@ mod test_image_baselines {
         case("symbol", "binned_scatter_wedge", 0.009),
         case("symbol", "binned_scatter_arrow", 0.009),
         case("symbol", "binned_scatter_cross", 0.01),
-        case("symbol", "binned_scatter_circle", 0.002)
+        case("symbol", "binned_scatter_circle", 0.0004)
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
         let specs_dir = format!("{}/tests/specs/{category}", env!("CARGO_MANIFEST_DIR"));

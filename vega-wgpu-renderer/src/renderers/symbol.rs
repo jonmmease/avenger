@@ -18,7 +18,7 @@ impl SymbolShader {
 
         match shape {
             SymbolShape::Circle => {
-                let r = 0.5;
+                let r = 0.6;
                 Self {
                     verts: vec![
                         Vertex {
