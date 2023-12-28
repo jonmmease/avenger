@@ -15,7 +15,11 @@ impl SymbolMark {
 
         // For now, grab the shape of the first item and use this for all items.
         // Eventually we'll need to handle marks with mixed symbols
-        let first_shape = spec.items.get(0).and_then(|item| item.shape).unwrap_or_default();
+        let first_shape = spec
+            .items
+            .get(0)
+            .and_then(|item| item.shape)
+            .unwrap_or_default();
 
         Ok(Self {
             instances,
