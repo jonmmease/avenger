@@ -1,5 +1,6 @@
 use crate::error::VegaWgpuError;
 use crate::scene::rect::RectMark;
+use crate::scene::rule::RuleMark;
 use crate::scene::symbol::SymbolMark;
 use crate::specs::group::GroupItemSpec;
 use crate::specs::mark::{MarkContainerSpec, MarkSpec};
@@ -17,6 +18,8 @@ pub trait SceneVisitor {
     ) -> Result<(), Self::Error>;
 
     fn visit_rect_mark(&mut self, mark: &RectMark, bounds: GroupBounds) -> Result<(), Self::Error>;
+
+    fn visit_rule_mark(&mut self, mark: &RuleMark, bounds: GroupBounds) -> Result<(), Self::Error>;
 }
 
 #[derive(Debug, Clone)]
@@ -50,7 +53,7 @@ impl SceneGraph {
         height: f32,
     ) -> Result<Self, VegaWgpuError> {
         Ok(Self {
-            groups: SceneGroup::from_spec(spec)?,
+            groups: SceneGroup::from_spec(spec, origin)?,
             origin,
             width,
             height,
@@ -70,27 +73,36 @@ impl SceneGroup {
             match mark {
                 SceneMark::Symbol(mark) => visitor.visit_symbol_mark(mark, self.bounds)?,
                 SceneMark::Rect(mark) => visitor.visit_rect_mark(mark, self.bounds)?,
+                SceneMark::Rule(mark) => visitor.visit_rule_mark(mark, self.bounds)?,
                 SceneMark::Group(group) => visitor.visit_group(group, self.bounds)?,
             }
         }
         Ok(())
     }
 
-    pub fn from_spec(spec: &MarkContainerSpec<GroupItemSpec>) -> Result<Vec<Self>, VegaWgpuError> {
+    pub fn from_spec(
+        spec: &MarkContainerSpec<GroupItemSpec>,
+        origin: [f32; 2],
+    ) -> Result<Vec<Self>, VegaWgpuError> {
         let mut scene_groups: Vec<Self> = Vec::new();
         for group_item_spec in &spec.items {
+            let new_origin = [group_item_spec.x + origin[0], group_item_spec.y + origin[1]];
+
             let mut group_marks: Vec<SceneMark> = Vec::new();
             for item in &group_item_spec.items {
                 let item_marks: Vec<_> = match item {
-                    MarkSpec::Group(group) => SceneGroup::from_spec(group)?
+                    MarkSpec::Group(group) => SceneGroup::from_spec(group, new_origin)?
                         .into_iter()
                         .map(SceneMark::Group)
                         .collect(),
                     MarkSpec::Rect(mark) => {
-                        vec![SceneMark::Rect(RectMark::from_spec(mark)?)]
+                        vec![SceneMark::Rect(RectMark::from_spec(mark, new_origin)?)]
+                    }
+                    MarkSpec::Rule(mark) => {
+                        vec![SceneMark::Rule(RuleMark::from_spec(mark, new_origin)?)]
                     }
                     MarkSpec::Symbol(mark) => {
-                        vec![SceneMark::Symbol(SymbolMark::from_spec(mark)?)]
+                        vec![SceneMark::Symbol(SymbolMark::from_spec(mark, new_origin)?)]
                     }
                     _ => unimplemented!(),
                 };
@@ -114,6 +126,7 @@ impl SceneGroup {
 pub enum SceneMark {
     Symbol(SymbolMark),
     Rect(RectMark),
+    Rule(RuleMark),
     Group(SceneGroup),
 }
 
