@@ -2,6 +2,7 @@ use crate::error::VegaWgpuError;
 use crate::scene::rect::RectMark;
 use crate::scene::rule::RuleMark;
 use crate::scene::symbol::SymbolMark;
+use crate::scene::text::TextMark;
 use crate::specs::group::GroupItemSpec;
 use crate::specs::mark::{MarkContainerSpec, MarkSpec};
 use crate::specs::rect::RectItemSpec;
@@ -20,6 +21,8 @@ pub trait SceneVisitor {
     fn visit_rect_mark(&mut self, mark: &RectMark, bounds: GroupBounds) -> Result<(), Self::Error>;
 
     fn visit_rule_mark(&mut self, mark: &RuleMark, bounds: GroupBounds) -> Result<(), Self::Error>;
+
+    fn visit_text_mark(&mut self, mark: &TextMark, bounds: GroupBounds) -> Result<(), Self::Error>;
 }
 
 #[derive(Debug, Clone)]
@@ -74,6 +77,7 @@ impl SceneGroup {
                 SceneMark::Symbol(mark) => visitor.visit_symbol_mark(mark, self.bounds)?,
                 SceneMark::Rect(mark) => visitor.visit_rect_mark(mark, self.bounds)?,
                 SceneMark::Rule(mark) => visitor.visit_rule_mark(mark, self.bounds)?,
+                SceneMark::Text(mark) => visitor.visit_text_mark(mark, self.bounds)?,
                 SceneMark::Group(group) => visitor.visit_group(group, self.bounds)?,
             }
         }
@@ -104,7 +108,13 @@ impl SceneGroup {
                     MarkSpec::Symbol(mark) => {
                         vec![SceneMark::Symbol(SymbolMark::from_spec(mark, new_origin)?)]
                     }
-                    _ => unimplemented!(),
+                    MarkSpec::Text(mark) => {
+                        vec![SceneMark::Text(TextMark::from_spec(mark, new_origin)?)]
+                    }
+                    _ => {
+                        println!("Mark type not yet supported: {:?}", item);
+                        continue;
+                    }
                 };
                 group_marks.extend(item_marks);
             }
@@ -127,6 +137,7 @@ pub enum SceneMark {
     Symbol(SymbolMark),
     Rect(RectMark),
     Rule(RuleMark),
+    Text(TextMark),
     Group(SceneGroup),
 }
 
