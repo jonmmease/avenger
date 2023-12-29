@@ -10,6 +10,12 @@ pub struct RuleShader {
     fragment_entry_point: String,
 }
 
+impl Default for RuleShader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RuleShader {
     pub fn new() -> Self {
         Self {

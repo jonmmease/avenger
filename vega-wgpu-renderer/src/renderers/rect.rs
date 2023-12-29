@@ -10,6 +10,12 @@ pub struct RectShader {
     fragment_entry_point: String,
 }
 
+impl Default for RectShader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RectShader {
     pub fn new() -> Self {
         Self {

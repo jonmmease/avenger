@@ -1,6 +1,5 @@
 use crate::renderers::canvas::CanvasUniform;
 use crate::renderers::vertex::Vertex;
-use crate::scene::rect::RectInstance;
 use wgpu::util::DeviceExt;
 use wgpu::{CommandBuffer, Device, TextureFormat, TextureView};
 
@@ -17,13 +16,10 @@ pub trait MarkShader {
 pub struct GeomMarkRenderer {
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
-    num_vertices: u32,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
     instance_buffer: wgpu::Buffer,
     num_instances: u32,
-    uniform_buffer: wgpu::Buffer,
-    uniform: CanvasUniform,
     uniform_bind_group: wgpu::BindGroup,
 }
 
@@ -126,7 +122,6 @@ impl GeomMarkRenderer {
             contents: bytemuck::cast_slice(mark_shader.verts()),
             usage: wgpu::BufferUsages::VERTEX,
         });
-        let num_vertices = mark_shader.verts().len() as u32;
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Index Buffer"),
@@ -145,13 +140,10 @@ impl GeomMarkRenderer {
         Self {
             render_pipeline,
             vertex_buffer,
-            num_vertices,
             index_buffer,
             num_indices,
             instance_buffer,
             num_instances,
-            uniform_buffer,
-            uniform,
             uniform_bind_group,
         }
     }
@@ -190,6 +182,6 @@ impl GeomMarkRenderer {
             render_pass.draw_indexed(0..self.num_indices, 0, 0..self.num_instances);
         }
 
-        return mark_encoder.finish();
+        mark_encoder.finish()
     }
 }

@@ -1,5 +1,3 @@
-use serde::{Deserialize, Serialize};
-
 #[cfg(test)]
 mod test_image_baselines {
     use dssim::Dssim;
@@ -61,7 +59,7 @@ mod test_image_baselines {
         let scene_graph: SceneGraph = SceneGraph::from_spec(&scene_spec, origin, width, height)
             .expect("Failed to parse scene graph");
 
-        let mut png_canvas = pollster::block_on(PngCanvas::new(width, height, origin)).unwrap();
+        let mut png_canvas = pollster::block_on(PngCanvas::new(width, height)).unwrap();
         png_canvas.set_scene(&scene_graph);
         let img = pollster::block_on(png_canvas.render()).expect("Failed to render PNG image");
         let result_path = format!("{output_dir}/{category}-{spec_name}.png");
