@@ -182,6 +182,6 @@ impl GeomMarkRenderer {
             render_pass.draw_indexed(0..self.num_indices, 0, 0..self.num_instances);
         }
 
-        return mark_encoder.finish();
+        mark_encoder.finish()
     }
 }

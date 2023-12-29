@@ -33,7 +33,7 @@ impl TextMarkRenderer {
         let mut atlas = TextAtlas::new(device, queue, texture_format);
         let text_renderer = TextRenderer::new(
             &mut atlas,
-            &device,
+            device,
             MultisampleState {
                 count: sample_count,
                 mask: !0,
@@ -104,7 +104,7 @@ impl TextMarkRenderer {
             .iter()
             .zip(&self.instances)
             .map(|(buffer, instance)| {
-                let (width, height) = measure(&buffer);
+                let (width, height) = measure(buffer);
 
                 let left = match instance.align {
                     TextAlignSpec::Left => instance.position[0],
@@ -123,7 +123,7 @@ impl TextMarkRenderer {
                 };
 
                 TextArea {
-                    buffer: &buffer,
+                    buffer,
                     left,
                     top,
                     scale: 1.0,
@@ -144,8 +144,8 @@ impl TextMarkRenderer {
 
         self.text_renderer
             .prepare(
-                &device,
-                &queue,
+                device,
+                queue,
                 &mut self.font_system,
                 &mut self.atlas,
                 Resolution {
@@ -164,7 +164,7 @@ impl TextMarkRenderer {
             let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
                 label: None,
                 color_attachments: &[Some(RenderPassColorAttachment {
-                    view: &texture_view,
+                    view: texture_view,
                     resolve_target,
                     ops: Operations {
                         load: wgpu::LoadOp::Load,

@@ -49,8 +49,8 @@ pub trait Canvas {
 
     fn add_symbol_mark(&mut self, mark: &SymbolMark) {
         self.add_mark_renderer(MarkRenderer::Geom(GeomMarkRenderer::new(
-            &self.device(),
-            self.uniform().clone(),
+            self.device(),
+            *self.uniform(),
             self.texture_format(),
             self.sample_count(),
             Box::new(SymbolShader::new(mark.shape)),
@@ -60,8 +60,8 @@ pub trait Canvas {
 
     fn add_rect_mark(&mut self, mark: &RectMark) {
         self.add_mark_renderer(MarkRenderer::Geom(GeomMarkRenderer::new(
-            &self.device(),
-            self.uniform().clone(),
+            self.device(),
+            *self.uniform(),
             self.texture_format(),
             self.sample_count(),
             Box::new(RectShader::new()),
@@ -71,8 +71,8 @@ pub trait Canvas {
 
     fn add_rule_mark(&mut self, mark: &RuleMark) {
         self.add_mark_renderer(MarkRenderer::Geom(GeomMarkRenderer::new(
-            &self.device(),
-            self.uniform().clone(),
+            self.device(),
+            *self.uniform(),
             self.texture_format(),
             self.sample_count(),
             Box::new(RuleShader::new()),
@@ -82,9 +82,9 @@ pub trait Canvas {
 
     fn add_text_mark(&mut self, mark: &TextMark) {
         self.add_mark_renderer(MarkRenderer::Text(TextMarkRenderer::new(
-            &self.device(),
-            &self.queue(),
-            self.uniform().clone(),
+            self.device(),
+            self.queue(),
+            *self.uniform(),
             self.texture_format(),
             self.sample_count(),
             mark.instances.clone(),
