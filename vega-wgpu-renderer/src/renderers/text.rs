@@ -1,8 +1,6 @@
 use crate::renderers::canvas::CanvasUniform;
-use crate::renderers::mark::MarkShader;
 use crate::scene::text::TextInstance;
 use crate::specs::text::{FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
-use glyphon::cosmic_text::Align;
 use glyphon::{
     Attrs, Buffer, Color, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache, TextArea,
     TextAtlas, TextBounds, TextRenderer, Weight,
@@ -30,12 +28,12 @@ impl TextMarkRenderer {
         sample_count: u32,
         instances: Vec<TextInstance>,
     ) -> Self {
-        let mut font_system = FontSystem::new();
-        let mut cache = SwashCache::new();
+        let font_system = FontSystem::new();
+        let cache = SwashCache::new();
         let mut atlas = TextAtlas::new(device, queue, texture_format);
-        let mut text_renderer = TextRenderer::new(
+        let text_renderer = TextRenderer::new(
             &mut atlas,
-            &device,
+            device,
             MultisampleState {
                 count: sample_count,
                 mask: !0,
@@ -106,7 +104,7 @@ impl TextMarkRenderer {
             .iter()
             .zip(&self.instances)
             .map(|(buffer, instance)| {
-                let (width, height) = measure(&buffer);
+                let (width, height) = measure(buffer);
 
                 let left = match instance.align {
                     TextAlignSpec::Left => instance.position[0],
@@ -125,7 +123,7 @@ impl TextMarkRenderer {
                 };
 
                 TextArea {
-                    buffer: &buffer,
+                    buffer,
                     left,
                     top,
                     scale: 1.0,
@@ -146,8 +144,8 @@ impl TextMarkRenderer {
 
         self.text_renderer
             .prepare(
-                &device,
-                &queue,
+                device,
+                queue,
                 &mut self.font_system,
                 &mut self.atlas,
                 Resolution {
@@ -166,7 +164,7 @@ impl TextMarkRenderer {
             let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
                 label: None,
                 color_attachments: &[Some(RenderPassColorAttachment {
-                    view: &texture_view,
+                    view: texture_view,
                     resolve_target,
                     ops: Operations {
                         load: wgpu::LoadOp::Load,

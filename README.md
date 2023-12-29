@@ -42,3 +42,6 @@ To start with, the most valuable contribution of this project is probably the te
 vl-convert, a collection of input Vega specs are rendered to PNG and converted to scene graphs. The GPU rendered
 PNG images are then compared for similarity to the baselines using structural similarity. See the `gen-test-data`
 crate for more information.
+
+Note: These tests aren't running on GitHub Actions yet due to a `MakeWgpuAdapterError` error that
+needs to be diagnosed.

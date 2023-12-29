@@ -1,0 +1,33 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check-rs:
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: "-D warnings"
+    steps:
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v3
+      - name: Check cargo fmt compliance
+        run: cargo fmt --all -- --check
+      - name: Check no rustc warnings
+        run: cargo check --tests
+      - name: Check for clippy warnings
+        run: cargo clippy
+      - name: Build
+        run: cargo build --verbose
+#  # Tests currently fail with `MakeWgpuAdapterError`
+#      - name: Run tests
+#        run: cargo test --verbose
