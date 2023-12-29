@@ -137,7 +137,7 @@ impl SymbolShader {
             SymbolShape::Triangle => {
                 let r = 0.5;
                 let h = r * sqrt3 / 2.0;
-                let o = (h - r * tan30);
+                let o = h - r * tan30;
                 Self {
                     verts: vec![
                         Vertex {
@@ -279,7 +279,7 @@ impl SymbolShader {
             SymbolShape::Wedge => {
                 let r = 0.5;
                 let h = r * sqrt3 / 2.0;
-                let o = (h - r * tan30);
+                let o = h - r * tan30;
                 let b = r / 4.0;
                 Self {
                     verts: vec![

@@ -1,6 +1,5 @@
 use crate::error::VegaWgpuError;
 use crate::specs::mark::MarkContainerSpec;
-use crate::specs::symbol::{SymbolItemSpec, SymbolShape};
 use crate::specs::text::{
     FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec, TextItemSpec,
 };

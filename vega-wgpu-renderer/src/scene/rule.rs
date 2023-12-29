@@ -1,5 +1,4 @@
 use crate::error::VegaWgpuError;
-use crate::scene::rect::RectInstance;
 use crate::specs::mark::MarkContainerSpec;
 use crate::specs::rule::RuleItemSpec;
 

@@ -1,8 +1,6 @@
 use crate::renderers::canvas::CanvasUniform;
-use crate::renderers::mark::MarkShader;
 use crate::scene::text::TextInstance;
 use crate::specs::text::{FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
-use glyphon::cosmic_text::Align;
 use glyphon::{
     Attrs, Buffer, Color, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache, TextArea,
     TextAtlas, TextBounds, TextRenderer, Weight,
@@ -30,10 +28,10 @@ impl TextMarkRenderer {
         sample_count: u32,
         instances: Vec<TextInstance>,
     ) -> Self {
-        let mut font_system = FontSystem::new();
-        let mut cache = SwashCache::new();
+        let font_system = FontSystem::new();
+        let cache = SwashCache::new();
         let mut atlas = TextAtlas::new(device, queue, texture_format);
-        let mut text_renderer = TextRenderer::new(
+        let text_renderer = TextRenderer::new(
             &mut atlas,
             &device,
             MultisampleState {

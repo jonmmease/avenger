@@ -3,23 +3,16 @@ pub mod renderers;
 pub mod scene;
 pub mod specs;
 
-use std::iter;
-use wgpu::util::DeviceExt;
-
-use winit::dpi::{LogicalSize, PhysicalSize, Size};
+use winit::dpi::{PhysicalSize, Size};
 use winit::{
     event::*,
     event_loop::{ControlFlow, EventLoop},
-    window::{Window, WindowBuilder},
+    window::WindowBuilder,
 };
 
-use crate::renderers::canvas::{Canvas, PngCanvas, WindowCanvas};
-use crate::scene::rect::RectInstance;
+use crate::renderers::canvas::{Canvas, WindowCanvas};
 use crate::scene::scene_graph::SceneGraph;
-use crate::scene::symbol::SymbolInstance;
 use crate::specs::dims::SceneGraphDims;
-use crate::specs::group::GroupItemSpec;
-use crate::specs::mark::{MarkContainerSpec, MarkSpec};
 use crate::specs::SceneGraphSpec;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -81,7 +74,7 @@ pub async fn run() {
         .expect("Failed to parse scene graph");
 
     // Save to png
-    let mut canvas = WindowCanvas::new(window, origin).await.unwrap();
+    let mut canvas = WindowCanvas::new(window).await.unwrap();
 
     canvas.set_scene(&scene_graph);
 
