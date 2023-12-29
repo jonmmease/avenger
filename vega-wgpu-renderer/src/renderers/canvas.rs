@@ -14,7 +14,8 @@ use wgpu::{
     ImageCopyTexture, ImageDataLayout, LoadOp, MapMode, Operations, Origin3d, PowerPreference,
     Queue, RenderPassColorAttachment, RenderPassDescriptor, RequestAdapterOptions, StoreOp,
     Surface, SurfaceConfiguration, SurfaceError, Texture, TextureAspect, TextureDescriptor,
-    TextureDimension, TextureFormat, TextureUsages, TextureView, TextureViewDescriptor,
+    TextureDimension, TextureFormat, TextureFormatFeatureFlags, TextureUsages, TextureView,
+    TextureViewDescriptor,
 };
 use winit::event::WindowEvent;
 use winit::window::Window;
@@ -37,11 +38,14 @@ pub trait Canvas {
 
     fn texture_format(&self) -> TextureFormat;
 
+    fn sample_count(&self) -> u32;
+
     fn add_symbol_mark(&mut self, mark: &SymbolMark) {
         self.add_mark_renderer(MarkRenderer::new(
             &self.device(),
             self.uniform().clone(),
             self.texture_format(),
+            self.sample_count(),
             Box::new(SymbolShader::new(mark.shape)),
             mark.instances.as_slice(),
         ));
@@ -52,6 +56,7 @@ pub trait Canvas {
             &self.device(),
             self.uniform().clone(),
             self.texture_format(),
+            self.sample_count(),
             Box::new(RectShader::new()),
             mark.instances.as_slice(),
         ));
@@ -62,6 +67,7 @@ pub trait Canvas {
             &self.device(),
             self.uniform().clone(),
             self.texture_format(),
+            self.sample_count(),
             Box::new(RuleShader::new()),
             mark.instances.as_slice(),
         ));
@@ -104,7 +110,11 @@ pub trait Canvas {
 }
 
 // Private shared canvas logic
-fn make_background_command<C: Canvas>(canvas: &C, texture_view: &TextureView) -> CommandBuffer {
+fn make_background_command<C: Canvas>(
+    canvas: &C,
+    texture_view: &TextureView,
+    resolve_target: Option<&TextureView>,
+) -> CommandBuffer {
     let mut background_encoder =
         canvas
             .device()
@@ -117,7 +127,7 @@ fn make_background_command<C: Canvas>(canvas: &C, texture_view: &TextureView) ->
             label: Some("Render Pass"),
             color_attachments: &[Some(RenderPassColorAttachment {
                 view: texture_view,
-                resolve_target: None,
+                resolve_target,
                 ops: Operations {
                     load: LoadOp::Clear(wgpu::Color {
                         r: 1.0,
@@ -176,11 +186,52 @@ async fn request_wgpu_device(adapter: &Adapter) -> Result<(Device, Queue), VegaW
         .await?)
 }
 
+fn create_multisampled_framebuffer(
+    device: &Device,
+    width: u32,
+    height: u32,
+    format: TextureFormat,
+    sample_count: u32,
+) -> TextureView {
+    let multisampled_texture_extent = wgpu::Extent3d {
+        width,
+        height,
+        depth_or_array_layers: 1,
+    };
+    let multisampled_frame_descriptor = &TextureDescriptor {
+        size: multisampled_texture_extent,
+        mip_level_count: 1,
+        sample_count,
+        dimension: TextureDimension::D2,
+        format,
+        usage: TextureUsages::RENDER_ATTACHMENT,
+        label: None,
+        view_formats: &[],
+    };
+
+    device
+        .create_texture(multisampled_frame_descriptor)
+        .create_view(&TextureViewDescriptor::default())
+}
+
+fn get_supported_sample_count(sample_flags: TextureFormatFeatureFlags) -> u32 {
+    // Get max supported sample count up to 4
+    if sample_flags.contains(wgpu::TextureFormatFeatureFlags::MULTISAMPLE_X4) {
+        4
+    } else if sample_flags.contains(wgpu::TextureFormatFeatureFlags::MULTISAMPLE_X2) {
+        2
+    } else {
+        1
+    }
+}
+
 pub struct WindowCanvas {
     window: Window,
     surface: Surface,
     device: Device,
     queue: Queue,
+    multisampled_framebuffer: TextureView,
+    sample_count: u32,
     config: SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     marks: Vec<MarkRenderer>,
@@ -218,6 +269,16 @@ impl WindowCanvas {
         };
         surface.configure(&device, &config);
 
+        let format_flags = adapter.get_texture_format_features(surface_format).flags;
+        let sample_count = get_supported_sample_count(format_flags);
+        let multisampled_framebuffer = create_multisampled_framebuffer(
+            &device,
+            config.width,
+            config.height,
+            surface_format,
+            sample_count,
+        );
+
         let uniform = CanvasUniform {
             size: [size.width as f32, size.height as f32],
             filler: [0.0, 0.0],
@@ -227,6 +288,8 @@ impl WindowCanvas {
             surface,
             device,
             queue,
+            multisampled_framebuffer,
+            sample_count,
             config,
             size,
             window,
@@ -266,11 +329,19 @@ impl WindowCanvas {
             .texture
             .create_view(&TextureViewDescriptor::default());
 
-        let background_command = make_background_command(self, &view);
+        let background_command = if self.sample_count > 1 {
+            make_background_command(self, &self.multisampled_framebuffer, Some(&view))
+        } else {
+            make_background_command(self, &view, None)
+        };
         let mut commands = vec![background_command];
 
         for mark in &self.marks {
-            let command = mark.render(&self.device, &view);
+            let command = if self.sample_count > 1 {
+                mark.render(&self.device, &self.multisampled_framebuffer, Some(&view))
+            } else {
+                mark.render(&self.device, &view, None)
+            };
             commands.push(command);
         }
 
@@ -305,11 +376,17 @@ impl Canvas for WindowCanvas {
     fn texture_format(&self) -> TextureFormat {
         self.config.format
     }
+
+    fn sample_count(&self) -> u32 {
+        self.sample_count
+    }
 }
 
 pub struct PngCanvas {
     device: Device,
     queue: Queue,
+    multisampled_framebuffer: TextureView,
+    sample_count: u32,
     marks: Vec<MarkRenderer>,
     uniform: CanvasUniform,
     width: f32,
@@ -328,6 +405,9 @@ impl PngCanvas {
         let instance = make_wgpu_instance();
         let adapter = make_wgpu_adapter(&instance, None).await?;
         let (device, queue) = request_wgpu_device(&adapter).await?;
+        let texture_format = TextureFormat::Rgba8Unorm;
+        let format_flags = adapter.get_texture_format_features(texture_format).flags;
+        let sample_count = get_supported_sample_count(format_flags);
 
         let texture_desc = TextureDescriptor {
             size: Extent3d {
@@ -336,12 +416,12 @@ impl PngCanvas {
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
-            sample_count: 1,
+            sample_count: 1, // Sample count of output texture is always 1
             dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba8Unorm,
+            format: texture_format,
             usage: TextureUsages::COPY_SRC | TextureUsages::RENDER_ATTACHMENT,
             label: None,
-            view_formats: &[TextureFormat::Rgba8UnormSrgb],
+            view_formats: &[texture_format],
         };
         let texture_size = texture_desc.size;
         let texture = device.create_texture(&texture_desc);
@@ -371,9 +451,19 @@ impl PngCanvas {
             filler: [0.0, 0.0],
         };
 
+        let multisampled_framebuffer = create_multisampled_framebuffer(
+            &device,
+            width as u32,
+            height as u32,
+            texture_format,
+            sample_count,
+        );
+
         Ok(Self {
             device,
             queue,
+            multisampled_framebuffer,
+            sample_count,
             width,
             height,
             uniform,
@@ -390,11 +480,28 @@ impl PngCanvas {
 
     pub async fn render(&mut self) -> Result<image::RgbaImage, SurfaceError> {
         // Build encoder for chart background
-        let background_command = make_background_command(self, &self.texture_view);
+        let background_command = if self.sample_count > 1 {
+            make_background_command(
+                self,
+                &self.multisampled_framebuffer,
+                Some(&self.texture_view),
+            )
+        } else {
+            make_background_command(self, &self.texture_view, None)
+        };
+
         let mut commands = vec![background_command];
 
         for mark in &self.marks {
-            let command = mark.render(&self.device, &self.texture_view);
+            let command = if self.sample_count > 1 {
+                mark.render(
+                    &self.device,
+                    &self.multisampled_framebuffer,
+                    Some(&self.texture_view),
+                )
+            } else {
+                mark.render(&self.device, &self.texture_view, None)
+            };
             commands.push(command);
         }
 
@@ -481,5 +588,9 @@ impl Canvas for PngCanvas {
 
     fn texture_format(&self) -> TextureFormat {
         self.texture.format()
+    }
+
+    fn sample_count(&self) -> u32 {
+        self.sample_count
     }
 }
