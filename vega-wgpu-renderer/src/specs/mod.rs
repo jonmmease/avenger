@@ -4,6 +4,7 @@ pub mod mark;
 pub mod rect;
 pub mod rule;
 pub mod symbol;
+pub mod text;
 
 use crate::specs::group::GroupItemSpec;
 use crate::specs::mark::MarkContainerSpec;

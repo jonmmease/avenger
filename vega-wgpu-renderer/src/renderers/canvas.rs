@@ -1,12 +1,14 @@
 use crate::error::VegaWgpuError;
-use crate::renderers::mark::MarkRenderer;
+use crate::renderers::mark::GeomMarkRenderer;
 use crate::renderers::rect::RectShader;
 use crate::renderers::rule::RuleShader;
 use crate::renderers::symbol::SymbolShader;
+use crate::renderers::text::TextMarkRenderer;
 use crate::scene::rect::{RectInstance, RectMark};
 use crate::scene::rule::RuleMark;
 use crate::scene::scene_graph::{SceneGraph, SceneGroup, SceneMark};
 use crate::scene::symbol::{SymbolInstance, SymbolMark};
+use crate::scene::text::TextMark;
 use image::imageops::crop_imm;
 use wgpu::{
     Adapter, Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandBuffer, CommandEncoder,
@@ -23,15 +25,20 @@ use winit::window::Window;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct CanvasUniform {
-    size: [f32; 2],
+    pub size: [f32; 2],
     filler: [f32; 2], // Pad to 16 bytes
+}
+
+pub enum MarkRenderer {
+    Geom(GeomMarkRenderer),
+    Text(TextMarkRenderer),
 }
 
 pub trait Canvas {
     fn add_mark_renderer(&mut self, mark_renderer: MarkRenderer);
     fn clear_mark_renderer(&mut self);
-
     fn device(&self) -> &Device;
+    fn queue(&self) -> &Queue;
     fn uniform(&self) -> &CanvasUniform;
 
     fn set_uniform(&mut self, uniform: CanvasUniform);
@@ -41,36 +48,47 @@ pub trait Canvas {
     fn sample_count(&self) -> u32;
 
     fn add_symbol_mark(&mut self, mark: &SymbolMark) {
-        self.add_mark_renderer(MarkRenderer::new(
+        self.add_mark_renderer(MarkRenderer::Geom(GeomMarkRenderer::new(
             &self.device(),
             self.uniform().clone(),
             self.texture_format(),
             self.sample_count(),
             Box::new(SymbolShader::new(mark.shape)),
             mark.instances.as_slice(),
-        ));
+        )));
     }
 
     fn add_rect_mark(&mut self, mark: &RectMark) {
-        self.add_mark_renderer(MarkRenderer::new(
+        self.add_mark_renderer(MarkRenderer::Geom(GeomMarkRenderer::new(
             &self.device(),
             self.uniform().clone(),
             self.texture_format(),
             self.sample_count(),
             Box::new(RectShader::new()),
             mark.instances.as_slice(),
-        ));
+        )));
     }
 
     fn add_rule_mark(&mut self, mark: &RuleMark) {
-        self.add_mark_renderer(MarkRenderer::new(
+        self.add_mark_renderer(MarkRenderer::Geom(GeomMarkRenderer::new(
             &self.device(),
             self.uniform().clone(),
             self.texture_format(),
             self.sample_count(),
             Box::new(RuleShader::new()),
             mark.instances.as_slice(),
-        ));
+        )));
+    }
+
+    fn add_text_mark(&mut self, mark: &TextMark) {
+        self.add_mark_renderer(MarkRenderer::Text(TextMarkRenderer::new(
+            &self.device(),
+            &self.queue(),
+            self.uniform().clone(),
+            self.texture_format(),
+            self.sample_count(),
+            mark.instances.clone(),
+        )));
     }
 
     fn add_group_mark(&mut self, group: &SceneGroup) {
@@ -84,6 +102,9 @@ pub trait Canvas {
                 }
                 SceneMark::Rule(mark) => {
                     self.add_rule_mark(mark);
+                }
+                SceneMark::Text(mark) => {
+                    self.add_text_mark(mark);
                 }
                 SceneMark::Group(group) => {
                     self.add_group_mark(group);
@@ -336,12 +357,29 @@ impl WindowCanvas {
         };
         let mut commands = vec![background_command];
 
-        for mark in &self.marks {
-            let command = if self.sample_count > 1 {
-                mark.render(&self.device, &self.multisampled_framebuffer, Some(&view))
-            } else {
-                mark.render(&self.device, &view, None)
+        for mark in &mut self.marks {
+            let command = match mark {
+                MarkRenderer::Geom(mark) => {
+                    if self.sample_count > 1 {
+                        mark.render(&self.device, &self.multisampled_framebuffer, Some(&view))
+                    } else {
+                        mark.render(&self.device, &view, None)
+                    }
+                }
+                MarkRenderer::Text(mark) => {
+                    if self.sample_count > 1 {
+                        mark.render(
+                            &self.device,
+                            &self.queue,
+                            &self.multisampled_framebuffer,
+                            Some(&view),
+                        )
+                    } else {
+                        mark.render(&self.device, &self.queue, &view, None)
+                    }
+                }
             };
+
             commands.push(command);
         }
 
@@ -363,6 +401,10 @@ impl Canvas for WindowCanvas {
 
     fn device(&self) -> &Device {
         &self.device
+    }
+
+    fn queue(&self) -> &Queue {
+        &self.queue
     }
 
     fn uniform(&self) -> &CanvasUniform {
@@ -492,16 +534,33 @@ impl PngCanvas {
 
         let mut commands = vec![background_command];
 
-        for mark in &self.marks {
-            let command = if self.sample_count > 1 {
-                mark.render(
-                    &self.device,
-                    &self.multisampled_framebuffer,
-                    Some(&self.texture_view),
-                )
-            } else {
-                mark.render(&self.device, &self.texture_view, None)
+        for mark in &mut self.marks {
+            let command = match mark {
+                MarkRenderer::Geom(mark) => {
+                    if self.sample_count > 1 {
+                        mark.render(
+                            &self.device,
+                            &self.multisampled_framebuffer,
+                            Some(&self.texture_view),
+                        )
+                    } else {
+                        mark.render(&self.device, &self.texture_view, None)
+                    }
+                }
+                MarkRenderer::Text(mark) => {
+                    if self.sample_count > 1 {
+                        mark.render(
+                            &self.device,
+                            &self.queue,
+                            &self.multisampled_framebuffer,
+                            Some(&self.texture_view),
+                        )
+                    } else {
+                        mark.render(&self.device, &self.queue, &self.texture_view, None)
+                    }
+                }
             };
+
             commands.push(command);
         }
 
@@ -576,6 +635,10 @@ impl Canvas for PngCanvas {
 
     fn device(&self) -> &Device {
         &self.device
+    }
+
+    fn queue(&self) -> &Queue {
+        &self.queue
     }
 
     fn uniform(&self) -> &CanvasUniform {
