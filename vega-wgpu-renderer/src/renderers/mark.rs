@@ -14,7 +14,7 @@ pub trait MarkShader {
     fn instance_desc(&self) -> wgpu::VertexBufferLayout<'static>;
 }
 
-pub struct MarkRenderer {
+pub struct GeomMarkRenderer {
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     num_vertices: u32,
@@ -27,7 +27,7 @@ pub struct MarkRenderer {
     uniform_bind_group: wgpu::BindGroup,
 }
 
-impl MarkRenderer {
+impl GeomMarkRenderer {
     pub fn new<T: bytemuck::Pod + bytemuck::Zeroable>(
         device: &Device,
         uniform: CanvasUniform,
