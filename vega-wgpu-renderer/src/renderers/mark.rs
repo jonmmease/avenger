@@ -32,6 +32,7 @@ impl MarkRenderer {
         device: &Device,
         uniform: CanvasUniform,
         texture_format: TextureFormat,
+        sample_count: u32,
         mark_shader: Box<dyn MarkShader<Instance = T>>,
         instances: &[T],
     ) -> Self {
@@ -113,7 +114,7 @@ impl MarkRenderer {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState {
-                count: 1,
+                count: sample_count,
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
@@ -155,7 +156,12 @@ impl MarkRenderer {
         }
     }
 
-    pub fn render(&self, device: &Device, texture_view: &TextureView) -> CommandBuffer {
+    pub fn render(
+        &self,
+        device: &Device,
+        texture_view: &TextureView,
+        resolve_target: Option<&TextureView>,
+    ) -> CommandBuffer {
         let mut mark_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Mark Render Encoder"),
         });
@@ -165,7 +171,7 @@ impl MarkRenderer {
                 label: Some("Mark Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: texture_view,
-                    resolve_target: None,
+                    resolve_target,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
