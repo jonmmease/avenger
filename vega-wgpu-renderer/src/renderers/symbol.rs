@@ -112,8 +112,7 @@ impl SymbolShader {
                 }
             }
             SymbolShape::Diamond => {
-                let ry: f32 = (1.0 / (2.0 * tan30)).sqrt();
-                let r: f32 = ry * tan30;
+                let r: f32 = 0.5;
                 Self {
                     verts: vec![
                         Vertex {
