@@ -63,8 +63,8 @@ impl TextInstance {
             font: item_spec
                 .font
                 .clone()
-                .unwrap_or_else(|| "Liberation Sans".to_string()),
-            font_size: item_spec.fill_opacity.unwrap_or(12.0),
+                .unwrap_or_else(|| "Sans Serif".to_string()),
+            font_size: item_spec.font_size.unwrap_or(10.0),
             font_weight: item_spec.font_weight.unwrap_or_default(),
             font_style: item_spec.font_style.unwrap_or_default(),
             limit: item_spec.limit.unwrap_or(0.0),

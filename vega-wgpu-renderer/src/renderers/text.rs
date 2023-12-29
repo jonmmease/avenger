@@ -1,11 +1,11 @@
 use crate::renderers::canvas::CanvasUniform;
 use crate::renderers::mark::MarkShader;
 use crate::scene::text::TextInstance;
-use crate::specs::text::{TextAlignSpec, TextBaselineSpec};
+use crate::specs::text::{FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
 use glyphon::cosmic_text::Align;
 use glyphon::{
     Attrs, Buffer, Color, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache, TextArea,
-    TextAtlas, TextBounds, TextRenderer,
+    TextAtlas, TextBounds, TextRenderer, Weight,
 };
 use wgpu::{
     CommandBuffer, CommandEncoderDescriptor, Device, MultisampleState, Operations, Queue,
@@ -69,12 +69,26 @@ impl TextMarkRenderer {
             .map(|instance| {
                 let mut buffer = Buffer::new(
                     &mut self.font_system,
-                    Metrics::new(instance.font_size, instance.font_size * 1.0),
+                    Metrics::new(instance.font_size, instance.font_size),
                 );
+                let family = match instance.font.to_lowercase().as_str() {
+                    "serif" => Family::Serif,
+                    "sans serif" => Family::SansSerif,
+                    "cursive" => Family::Cursive,
+                    "fantasy" => Family::Fantasy,
+                    "monospace" => Family::Monospace,
+                    _ => Family::Name(instance.font.as_str()),
+                };
+                let weight = match instance.font_weight {
+                    FontWeightSpec::Name(FontWeightNameSpec::Bold) => Weight::BOLD,
+                    FontWeightSpec::Name(FontWeightNameSpec::Normal) => Weight::NORMAL,
+                    FontWeightSpec::Number(w) => Weight(w as u16),
+                };
+
                 buffer.set_text(
                     &mut self.font_system,
                     &instance.text,
-                    Attrs::new().family(Family::SansSerif),
+                    Attrs::new().family(family).weight(weight),
                     Shaping::Advanced,
                 );
                 buffer.set_size(
@@ -102,8 +116,9 @@ impl TextMarkRenderer {
 
                 let top = match instance.baseline {
                     TextBaselineSpec::Alphabetic => instance.position[1] - height,
-                    TextBaselineSpec::Top => instance.position[1],
-                    TextBaselineSpec::Middle => instance.position[1] - height * 0.56,
+                    // Add half pixel for top baseline for better match with resvg
+                    TextBaselineSpec::Top => instance.position[1] + 0.5,
+                    TextBaselineSpec::Middle => instance.position[1] - height * 0.5,
                     TextBaselineSpec::Bottom => instance.position[1] - height,
                     TextBaselineSpec::LineTop => todo!(),
                     TextBaselineSpec::LineBottom => todo!(),
