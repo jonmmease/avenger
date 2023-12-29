@@ -5,8 +5,6 @@ use crate::scene::symbol::SymbolMark;
 use crate::scene::text::TextMark;
 use crate::specs::group::GroupItemSpec;
 use crate::specs::mark::{MarkContainerSpec, MarkSpec};
-use crate::specs::rect::RectItemSpec;
-use crate::specs::symbol::SymbolItemSpec;
 
 pub trait SceneVisitor {
     type Error;
@@ -28,7 +26,6 @@ pub trait SceneVisitor {
 #[derive(Debug, Clone)]
 pub struct SceneGraph {
     pub(crate) groups: Vec<SceneGroup>,
-    pub(crate) origin: [f32; 2],
     pub(crate) width: f32,
     pub(crate) height: f32,
 }
@@ -57,7 +54,6 @@ impl SceneGraph {
     ) -> Result<Self, VegaWgpuError> {
         Ok(Self {
             groups: SceneGroup::from_spec(spec, origin)?,
-            origin,
             width,
             height,
         })

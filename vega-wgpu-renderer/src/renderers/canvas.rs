@@ -4,14 +4,14 @@ use crate::renderers::rect::RectShader;
 use crate::renderers::rule::RuleShader;
 use crate::renderers::symbol::SymbolShader;
 use crate::renderers::text::TextMarkRenderer;
-use crate::scene::rect::{RectInstance, RectMark};
+use crate::scene::rect::RectMark;
 use crate::scene::rule::RuleMark;
 use crate::scene::scene_graph::{SceneGraph, SceneGroup, SceneMark};
-use crate::scene::symbol::{SymbolInstance, SymbolMark};
+use crate::scene::symbol::SymbolMark;
 use crate::scene::text::TextMark;
 use image::imageops::crop_imm;
 use wgpu::{
-    Adapter, Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandBuffer, CommandEncoder,
+    Adapter, Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandBuffer,
     CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, ImageCopyBuffer,
     ImageCopyTexture, ImageDataLayout, LoadOp, MapMode, Operations, Origin3d, PowerPreference,
     Queue, RenderPassColorAttachment, RenderPassDescriptor, RequestAdapterOptions, StoreOp,
@@ -257,11 +257,10 @@ pub struct WindowCanvas {
     size: winit::dpi::PhysicalSize<u32>,
     marks: Vec<MarkRenderer>,
     uniform: CanvasUniform,
-    origin: [f32; 2],
 }
 
 impl WindowCanvas {
-    pub async fn new(window: Window, origin: [f32; 2]) -> Result<Self, VegaWgpuError> {
+    pub async fn new(window: Window) -> Result<Self, VegaWgpuError> {
         let size = window.inner_size();
 
         let instance = make_wgpu_instance();
@@ -316,7 +315,6 @@ impl WindowCanvas {
             window,
             uniform,
             marks: Vec::new(),
-            origin,
         })
     }
 
@@ -328,7 +326,7 @@ impl WindowCanvas {
         &self.window
     }
 
-    pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+    pub fn resize(&mut self, _new_size: winit::dpi::PhysicalSize<u32>) {
         // if new_size.width > 0 && new_size.height > 0 {
         //     self.size = new_size;
         //     self.config.width = new_size.width;
@@ -433,7 +431,6 @@ pub struct PngCanvas {
     uniform: CanvasUniform,
     width: f32,
     height: f32,
-    origin: [f32; 2],
     pub texture_view: TextureView,
     pub output_buffer: Buffer,
     pub texture: Texture,
@@ -443,7 +440,7 @@ pub struct PngCanvas {
 }
 
 impl PngCanvas {
-    pub async fn new(width: f32, height: f32, origin: [f32; 2]) -> Result<Self, VegaWgpuError> {
+    pub async fn new(width: f32, height: f32) -> Result<Self, VegaWgpuError> {
         let instance = make_wgpu_instance();
         let adapter = make_wgpu_adapter(&instance, None).await?;
         let (device, queue) = request_wgpu_device(&adapter).await?;
@@ -509,7 +506,6 @@ impl PngCanvas {
             width,
             height,
             uniform,
-            origin,
             texture,
             texture_view,
             output_buffer,
@@ -620,7 +616,7 @@ impl PngCanvas {
         };
 
         self.output_buffer.unmap();
-        Ok((img))
+        Ok(img)
     }
 }
 
