@@ -1,19 +1,24 @@
-# vega-wgpu-renderer
+# Vega wgpu renderer
 This repo holds an early stage prototype of what it could look like to build an alternative [Vega](https://vega.github.io/vega/) 
 visualization renderer in Rust using [wgpu](https://github.com/gfx-rs/wgpu). This is not useful yet (and may never be).
+
+We're exploring how general the various components are, and so the names and structures of
+crates are still changing. If you're interested in collaborating on a visualization renderer for
+a non-Vega application, please open an issue.
 
 # Try it out
 
 ## Run native
 To launch a wgpu rendered visualization in a native window, run the following:
 ```
+cd sg2d-wgpu
 cargo run
 ```
 
 ## Build wasm
 To build the example above to WASM + WebGL2, run the following:
 ```
-cd vega-wgpu-renderer
+cd sg2d-wgpu
 wasm-pack build --target web
 ```
 
