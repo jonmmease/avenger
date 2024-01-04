@@ -164,6 +164,6 @@ impl VegaMarkContainer<VegaTextItem> {
         if limit.len() == len {
             mark.limit = EncodingValue::Array { values: limit };
         }
-        Ok(SceneMark::Text(mark))
+        Ok(SceneMark::Text(Box::new(mark)))
     }
 }
