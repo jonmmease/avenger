@@ -1,14 +1,73 @@
 use crate::renderers::canvas::CanvasUniform;
-use crate::scene::text::TextInstance;
-use crate::specs::text::{FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
+use crate::specs::text::{FontStyleSpec, FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
 use glyphon::{
     Attrs, Buffer, Color, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache, TextArea,
     TextAtlas, TextBounds, TextRenderer, Weight,
 };
+use itertools::izip;
 use wgpu::{
     CommandBuffer, CommandEncoderDescriptor, Device, MultisampleState, Operations, Queue,
     RenderPassColorAttachment, RenderPassDescriptor, TextureFormat, TextureView,
 };
+use crate::scene::text::TextMark;
+
+#[derive(Clone, Debug)]
+pub struct TextInstance {
+    pub text: String,
+    pub position: [f32; 2],
+    pub color: [f32; 3],
+    pub opacity: f32,
+    pub align: TextAlignSpec,
+    pub angle: f32,
+    pub baseline: TextBaselineSpec,
+    pub dx: f32,
+    pub dy: f32,
+    pub font: String,
+    pub font_size: f32,
+    pub font_weight: FontWeightSpec,
+    pub font_style: FontStyleSpec,
+    pub limit: f32,
+}
+
+impl TextInstance {
+    pub fn iter_from_spec(mark: &TextMark) -> impl Iterator<Item=TextInstance> + '_ {
+        izip!(
+            mark.text_iter(),
+            mark.x_iter(),
+            mark.y_iter(),
+            mark.color_iter(),
+            mark.opacity_iter(),
+            mark.align_iter(),
+            mark.angle_iter(),
+            mark.baseline_iter(),
+            mark.dx_iter(),
+            mark.dy_iter(),
+            mark.font_iter(),
+            mark.font_size_iter(),
+            mark.font_weight_iter(),
+            mark.font_style_iter(),
+            mark.limit_iter(),
+        ).map(|(text, x, y, color, opacity, align, angle, baseline, dx, dy, font, font_size, font_weight, font_style, limit)| {
+            TextInstance {
+                text: text.clone(),
+                position: [*x, *y],
+                color: *color,
+                opacity: *opacity,
+                align: *align,
+                angle: *angle,
+                baseline: *baseline,
+                dx: *dx,
+                dy: *dy,
+                font: font.clone(),
+                font_size: *font_size,
+                font_weight: *font_weight,
+                font_style: *font_style,
+                limit: *limit,
+            }
+        })
+    }
+}
+
 
 pub struct TextMarkRenderer {
     pub font_system: FontSystem,

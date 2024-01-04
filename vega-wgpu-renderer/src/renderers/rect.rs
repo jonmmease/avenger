@@ -1,6 +1,35 @@
+use itertools::izip;
 use crate::renderers::mark::MarkShader;
 use crate::renderers::vertex::Vertex;
-use crate::scene::rect::RectInstance;
+use crate::scene::rect::RectMark;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct RectInstance {
+    pub position: [f32; 2],
+    pub color: [f32; 3],
+    pub width: f32,
+    pub height: f32,
+}
+
+impl RectInstance {
+    pub fn iter_from_spec(mark: &RectMark) -> impl Iterator<Item=RectInstance> + '_{
+        izip!(
+            mark.x_iter(),
+            mark.y_iter(),
+            mark.width_iter(),
+            mark.height_iter(),
+            mark.fill_iter(),
+        ).map(|(x, y, width, height, fill)| {
+            RectInstance {
+                position: [*x, *y],
+                width: *width,
+                height: *height,
+                color: *fill,
+            }
+        })
+    }
+}
 
 pub struct RectShader {
     verts: Vec<Vertex>,

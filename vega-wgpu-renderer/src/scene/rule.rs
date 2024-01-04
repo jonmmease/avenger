@@ -1,70 +1,137 @@
 use crate::error::VegaWgpuError;
+use crate::scene::value::{EncodingValue, StrokeCap};
 use crate::specs::mark::MarkContainerSpec;
 use crate::specs::rule::RuleItemSpec;
+use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all="kebab-case")]
 pub struct RuleMark {
-    pub instances: Vec<RuleInstance>,
+    pub name: String,
     pub clip: bool,
+    pub len: u32,
+    pub x0: EncodingValue<f32>,
+    pub y0: EncodingValue<f32>,
+    pub x1: EncodingValue<f32>,
+    pub y1: EncodingValue<f32>,
+    pub stroke: EncodingValue<[f32; 3]>,
+    pub stroke_width: EncodingValue<f32>,
+    pub stroke_cap: EncodingValue<StrokeCap>,
 }
+
+impl RuleMark {
+    pub fn x0_iter(&self) -> Box<dyn Iterator<Item=&f32> + '_> {
+        self.x0.as_iter(self.len as usize)
+    }
+    pub fn y0_iter(&self) -> Box<dyn Iterator<Item=&f32> + '_> {
+        self.y0.as_iter(self.len as usize)
+    }
+    pub fn x1_iter(&self) -> Box<dyn Iterator<Item=&f32> + '_> {
+        self.x1.as_iter(self.len as usize)
+    }
+    pub fn y1_iter(&self) -> Box<dyn Iterator<Item=&f32> + '_> {
+        self.y1.as_iter(self.len as usize)
+    }
+    pub fn stroke_iter(&self) -> Box<dyn Iterator<Item=&[f32; 3]> + '_> {
+        self.stroke.as_iter(self.len as usize)
+    }
+    pub fn stroke_width_iter(&self) -> Box<dyn Iterator<Item=&f32> + '_> {
+        self.stroke_width.as_iter(self.len as usize)
+    }
+    pub fn stroke_cap_iter(&self) -> Box<dyn Iterator<Item=&StrokeCap> + '_> {
+        self.stroke_cap.as_iter(self.len as usize)
+    }
+}
+
+impl Default for RuleMark {
+    fn default() -> Self {
+        Self {
+            name: "rule_mark".to_string(),
+            clip: true,
+            len: 1,
+            x0: EncodingValue::Scalar { value: 0.0 },
+            y0: EncodingValue::Scalar { value: 0.0 },
+            x1: EncodingValue::Scalar { value: 0.0 },
+            y1: EncodingValue::Scalar { value: 0.0 },
+            stroke: EncodingValue::Scalar { value: [0.0, 0.0, 0.0] },
+            stroke_width: EncodingValue::Scalar { value: 1.0 },
+            stroke_cap: EncodingValue::Scalar { value: StrokeCap::Butt },
+        }
+    }
+}
+
 
 impl RuleMark {
     pub fn from_spec(
         spec: &MarkContainerSpec<RuleItemSpec>,
         origin: [f32; 2],
     ) -> Result<Self, VegaWgpuError> {
-        let instances = RuleInstance::from_specs(spec.items.as_slice(), origin)?;
 
-        Ok(Self {
-            instances,
-            clip: spec.clip,
-        })
-    }
-}
+        // Init mark with scalar defaults
+        let mut mark = RuleMark::default();
+        if let Some(name) = &spec.name {
+            mark.name = name.clone();
+        }
 
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct RuleInstance {
-    pub x0: f32,
-    pub y0: f32,
-    pub x1: f32,
-    pub y1: f32,
-    pub stroke: [f32; 3],
-    pub stroke_width: f32,
-}
+        // propagate clip
+        mark.clip = spec.clip;
 
-impl RuleInstance {
-    pub fn from_spec(item_spec: &RuleItemSpec, origin: [f32; 2]) -> Result<Self, VegaWgpuError> {
-        let stroke = if let Some(stroke) = &item_spec.stroke {
-            let c = csscolorparser::parse(stroke)?;
-            [c.r as f32, c.g as f32, c.b as f32]
-        } else {
-            [0.5f32, 0.5, 0.5]
-        };
+        // Init vector for each encoding channel
+        let mut x0 = Vec::<f32>::new();
+        let mut y0 = Vec::<f32>::new();
+        let mut x1 = Vec::<f32>::new();
+        let mut y1 = Vec::<f32>::new();
+        let mut stroke = Vec::<[f32; 3]>::new();
+        let mut stroke_width = Vec::<f32>::new();
+        let mut stroke_cap = Vec::<StrokeCap>::new();
 
-        let x0 = item_spec.x + origin[0];
-        let y0 = item_spec.y + origin[1];
-        let x1 = item_spec.x2.unwrap_or(item_spec.x) + origin[0];
-        let y1 = item_spec.y2.unwrap_or(item_spec.y) + origin[1];
-        let stroke_width = item_spec.stroke_width.unwrap_or(1.0);
+        // For each item, append explicit values to corresponding vector
+        for item in &spec.items {
+            x0.push(item.x + origin[0]);
+            y0.push(item.y + origin[1]);
+            x1.push(item.x2.unwrap_or(item.x) + origin[0]);
+            y1.push(item.y2.unwrap_or(item.y) + origin[1]);
 
-        Ok(Self {
-            x0,
-            y0,
-            x1,
-            y1,
-            stroke,
-            stroke_width,
-        })
-    }
+            if let Some(s) = &item.stroke {
+                let c = csscolorparser::parse(s)?;
+                stroke.push([c.r as f32, c.g as f32, c.b as f32])
+            }
 
-    pub fn from_specs(
-        item_specs: &[RuleItemSpec],
-        origin: [f32; 2],
-    ) -> Result<Vec<Self>, VegaWgpuError> {
-        item_specs
-            .iter()
-            .map(|item| Self::from_spec(item, origin))
-            .collect::<Result<Vec<_>, VegaWgpuError>>()
+            if let Some(s) = item.stroke_width {
+                stroke_width.push(s);
+            }
+
+            if let Some(s) = item.stroke_cap {
+                stroke_cap.push(s);
+            }
+        }
+
+        // Override values with vectors
+        let len = spec.items.len();
+        mark.len = len as u32;
+
+        if x0.len() == len {
+            mark.x0 = EncodingValue::Array {values: x0};
+        }
+        if y0.len() == len {
+            mark.y0 = EncodingValue::Array {values: y0};
+        }
+        if x1.len() == len {
+            mark.x1 = EncodingValue::Array {values: x1};
+        }
+        if y1.len() == len {
+            mark.y1 = EncodingValue::Array {values: y1};
+        }
+        if stroke.len() == len {
+            mark.stroke = EncodingValue::Array {values: stroke};
+        }
+        if stroke_width.len() == len {
+            mark.stroke_width = EncodingValue::Array {values: stroke_width};
+        }
+        if stroke_cap.len() == len {
+            mark.stroke_cap = EncodingValue::Array {values: stroke_cap};
+        }
+
+        Ok(mark)
     }
 }

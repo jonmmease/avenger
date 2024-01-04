@@ -1,7 +1,33 @@
 use crate::renderers::mark::MarkShader;
 use crate::renderers::vertex::Vertex;
-use crate::scene::symbol::SymbolInstance;
+use crate::scene::symbol::SymbolMark;
 use crate::specs::symbol::SymbolShape;
+use itertools::izip;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SymbolInstance {
+    pub position: [f32; 2],
+    pub color: [f32; 3],
+    pub size: f32,
+}
+
+impl SymbolInstance {
+    pub fn iter_from_spec(mark: &SymbolMark) -> impl Iterator<Item=SymbolInstance> + '_ {
+        izip!(
+            mark.x_iter(),
+            mark.y_iter(),
+            mark.fill_iter(),
+            mark.size_iter(),
+        ).map(|(x, y, fill, size)| {
+            SymbolInstance {
+                position: [*x, *y],
+                color: *fill,
+                size: *size,
+            }
+        })
+    }
+}
 
 pub struct SymbolShader {
     verts: Vec<Vertex>,

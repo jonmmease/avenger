@@ -30,10 +30,10 @@ pub enum MarkSpec {
 pub struct MarkContainerSpec<T: MarkItemSpec> {
     #[serde(default)]
     pub clip: bool,
-    interactive: bool,
+    pub interactive: bool,
     #[serde(default)]
     pub items: Vec<T>,
-    name: Option<String>,
+    pub name: Option<String>,
     role: Option<String>,
     zindex: Option<i64>,
 }
