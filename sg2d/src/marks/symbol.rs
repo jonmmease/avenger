@@ -48,7 +48,7 @@ impl Default for SymbolMark {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SymbolShape {
     #[default]
@@ -63,4 +63,5 @@ pub enum SymbolShape {
     Arrow,
     Wedge,
     Triangle,
+    Path(lyon_path::Path),
 }
