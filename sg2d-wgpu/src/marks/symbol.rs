@@ -1,8 +1,11 @@
 use crate::marks::mark::MarkShader;
 use crate::vertex::Vertex;
 use itertools::izip;
+use lyon::lyon_tessellation::{FillGeometryBuilder, FillVertex, GeometryBuilderError, VertexId};
+use lyon::tessellation::geometry_builder::{simple_builder, VertexBuffers};
+use lyon::tessellation::math::{point, Point};
+use lyon::tessellation::{FillOptions, FillTessellator, GeometryBuilder};
 use sg2d::marks::symbol::{SymbolMark, SymbolShape};
-
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct SymbolInstance {
@@ -318,6 +321,33 @@ impl SymbolShader {
                         },
                     ],
                     indices: vec![0, 1, 2],
+                    shader: include_str!("polygon_symbol.wgsl").to_string(),
+                    vertex_entry_point: "vs_main".to_string(),
+                    fragment_entry_point: "fs_main".to_string(),
+                }
+            }
+            SymbolShape::Path(ref path) => {
+                let mut buffers: VertexBuffers<Point, u16> = VertexBuffers::new();
+                let mut vertex_builder = simple_builder(&mut buffers);
+                let mut tessellator = FillTessellator::new();
+                let options = FillOptions::default();
+                // TODO: remove panic
+                tessellator
+                    .tessellate_path(path, &options, &mut vertex_builder)
+                    .expect("Tessellation Failed");
+
+                // - Coordinates are divided by 2 to match Vega
+                // - y-coordinate is negated to flip vertically
+                let verts = buffers
+                    .vertices
+                    .iter()
+                    .map(|v| Vertex {
+                        position: [v.x / 2.0, -v.y / 2.0, 0.0],
+                    })
+                    .collect::<Vec<_>>();
+                Self {
+                    verts,
+                    indices: buffers.indices,
                     shader: include_str!("polygon_symbol.wgsl").to_string(),
                     vertex_entry_point: "vs_main".to_string(),
                     fragment_entry_point: "fs_main".to_string(),

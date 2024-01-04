@@ -1,5 +1,6 @@
 use crate::error::VegaSceneGraphError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
+use lyon_extra::parser::{ParserOptions, Source};
 use serde::{Deserialize, Serialize};
 use sg2d::marks::mark::SceneMark;
 use sg2d::marks::symbol::{SymbolMark, SymbolShape};
@@ -13,7 +14,7 @@ pub struct VegaSymbolItem {
     pub fill: Option<String>,
     pub fill_opacity: Option<f32>,
     pub size: Option<f32>,
-    pub shape: Option<SymbolShape>,
+    pub shape: Option<String>,
 }
 
 impl VegaMarkItem for VegaSymbolItem {}
@@ -24,8 +25,31 @@ impl VegaMarkContainer<VegaSymbolItem> {
         let first_shape = self
             .items
             .get(0)
-            .and_then(|item| item.shape)
-            .unwrap_or_default();
+            .and_then(|item| item.shape.clone())
+            .unwrap_or_else(|| "circle".to_string());
+
+        let first_shape = match first_shape.to_ascii_lowercase().as_str() {
+            "circle" => SymbolShape::Circle,
+            "square" => SymbolShape::Square,
+            "cross" => SymbolShape::Cross,
+            "diamond" => SymbolShape::Diamond,
+            "triangle-up" => SymbolShape::TriangleUp,
+            "triangle-down" => SymbolShape::TriangleDown,
+            "triangle-right" => SymbolShape::TriangleRight,
+            "triangle-left" => SymbolShape::TriangleLeft,
+            "arrow" => SymbolShape::Arrow,
+            "wedge" => SymbolShape::Wedge,
+            "triangle" => SymbolShape::Triangle,
+            _ => {
+                let mut source = Source::new(first_shape.chars());
+                let mut parser = lyon_extra::parser::PathParser::new();
+                let opts = ParserOptions::DEFAULT;
+                let mut builder = lyon_path::Path::builder();
+                parser.parse(&opts, &mut source, &mut builder)?;
+                let path = builder.build();
+                SymbolShape::Path(path)
+            }
+        };
 
         // Init mark with scalar defaults
         let mut mark = SymbolMark {

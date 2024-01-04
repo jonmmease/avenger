@@ -54,7 +54,7 @@ pub trait Canvas {
             *self.uniform(),
             self.texture_format(),
             self.sample_count(),
-            Box::new(SymbolShader::new(mark.shape)),
+            Box::new(SymbolShader::new(mark.shape.clone())),
             instances.as_slice(),
         )));
     }
