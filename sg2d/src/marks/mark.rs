@@ -10,6 +10,6 @@ pub enum SceneMark {
     Symbol(SymbolMark),
     Rect(RectMark),
     Rule(RuleMark),
-    Text(TextMark),
+    Text(Box<TextMark>),
     Group(SceneGroup),
 }
