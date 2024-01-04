@@ -1,6 +1,40 @@
+use itertools::izip;
 use crate::renderers::mark::MarkShader;
 use crate::renderers::vertex::Vertex;
-use crate::scene::rule::RuleInstance;
+use crate::scene::rule::RuleMark;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct RuleInstance {
+    pub x0: f32,
+    pub y0: f32,
+    pub x1: f32,
+    pub y1: f32,
+    pub stroke: [f32; 3],
+    pub stroke_width: f32,
+}
+
+impl RuleInstance {
+    pub fn iter_from_spec(mark: &RuleMark) -> impl Iterator<Item=RuleInstance> + '_ {
+        izip!(
+            mark.x0_iter(),
+            mark.y0_iter(),
+            mark.x1_iter(),
+            mark.y1_iter(),
+            mark.stroke_iter(),
+            mark.stroke_width_iter(),
+        ).map(|(x0, y0, x1, y1, stroke, stroke_width)| {
+            RuleInstance {
+                x0: *x0,
+                y0: *y0,
+                x1: *x1,
+                y1: *y1,
+                stroke: *stroke,
+                stroke_width: *stroke_width,
+            }
+        })
+    }
+}
 
 pub struct RuleShader {
     verts: Vec<Vertex>,

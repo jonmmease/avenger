@@ -1,14 +1,9 @@
 use crate::error::VegaWgpuError;
 use crate::renderers::mark::GeomMarkRenderer;
-use crate::renderers::rect::RectShader;
-use crate::renderers::rule::RuleShader;
-use crate::renderers::symbol::SymbolShader;
-use crate::renderers::text::TextMarkRenderer;
-use crate::scene::rect::RectMark;
-use crate::scene::rule::RuleMark;
-use crate::scene::scene_graph::{SceneGraph, SceneGroup, SceneMark};
-use crate::scene::symbol::SymbolMark;
-use crate::scene::text::TextMark;
+use crate::renderers::rect::{RectInstance, RectShader};
+use crate::renderers::rule::{RuleInstance, RuleShader};
+use crate::renderers::symbol::{SymbolInstance, SymbolShader};
+use crate::renderers::text::{TextInstance, TextMarkRenderer};
 use image::imageops::crop_imm;
 use wgpu::{
     Adapter, Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandBuffer,
@@ -21,6 +16,16 @@ use wgpu::{
 };
 use winit::event::WindowEvent;
 use winit::window::Window;
+
+use crate::scene::{
+    group::SceneGroup,
+    rect::RectMark,
+    rule::RuleMark,
+    scene_graph::{SceneGraph, SceneMark},
+    symbol::SymbolMark,
+    text::TextMark,
+};
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -48,46 +53,50 @@ pub trait Canvas {
     fn sample_count(&self) -> u32;
 
     fn add_symbol_mark(&mut self, mark: &SymbolMark) {
+        let instances = SymbolInstance::iter_from_spec(mark).collect::<Vec<_>>();
         self.add_mark_renderer(MarkRenderer::Geom(GeomMarkRenderer::new(
             self.device(),
             *self.uniform(),
             self.texture_format(),
             self.sample_count(),
             Box::new(SymbolShader::new(mark.shape)),
-            mark.instances.as_slice(),
+            instances.as_slice(),
         )));
     }
 
     fn add_rect_mark(&mut self, mark: &RectMark) {
+        let instances = RectInstance::iter_from_spec(mark).collect::<Vec<_>>();
         self.add_mark_renderer(MarkRenderer::Geom(GeomMarkRenderer::new(
             self.device(),
             *self.uniform(),
             self.texture_format(),
             self.sample_count(),
             Box::new(RectShader::new()),
-            mark.instances.as_slice(),
+            instances.as_slice(),
         )));
     }
 
     fn add_rule_mark(&mut self, mark: &RuleMark) {
+        let instances = RuleInstance::iter_from_spec(mark).collect::<Vec<_>>();
         self.add_mark_renderer(MarkRenderer::Geom(GeomMarkRenderer::new(
             self.device(),
             *self.uniform(),
             self.texture_format(),
             self.sample_count(),
             Box::new(RuleShader::new()),
-            mark.instances.as_slice(),
+            instances.as_slice(),
         )));
     }
 
     fn add_text_mark(&mut self, mark: &TextMark) {
+        let instances = TextInstance::iter_from_spec(mark).collect::<Vec<_>>();
         self.add_mark_renderer(MarkRenderer::Text(TextMarkRenderer::new(
             self.device(),
             self.queue(),
             *self.uniform(),
             self.texture_format(),
             self.sample_count(),
-            mark.instances.clone(),
+            instances,
         )));
     }
 
