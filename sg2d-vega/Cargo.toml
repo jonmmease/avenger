@@ -1,0 +1,13 @@
+[package]
+name = "sg2d-vega"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+sg2d = { path = "../sg2d" }
+thiserror = { workspace = true }
+serde = { workspace = true }
+csscolorparser = "0.6.2"
+serde_json = { version = "1.0.111" }
