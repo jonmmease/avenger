@@ -1,4 +1,4 @@
 /target
 /.idea
-/vega-wgpu-renderer/tests/output/
+/sg2d-wgpu/tests/output/
 .DS_Store
