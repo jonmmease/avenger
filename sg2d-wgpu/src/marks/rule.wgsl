@@ -8,7 +8,7 @@ struct ChartUniform {
 var<uniform> chart_uniforms: ChartUniform;
 
 struct VertexInput {
-    @location(0) position: vec3<f32>,
+    @location(0) position: vec2<f32>,
 };
 
 struct InstanceInput {

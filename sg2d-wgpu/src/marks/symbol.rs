@@ -46,16 +46,16 @@ impl SymbolShader {
                 Self {
                     verts: vec![
                         Vertex {
-                            position: [r, -r, 0.0],
+                            position: [r, -r],
                         },
                         Vertex {
-                            position: [r, r, 0.0],
+                            position: [r, r],
                         },
                         Vertex {
-                            position: [-r, r, 0.0],
+                            position: [-r, r],
                         },
                         Vertex {
-                            position: [-r, -r, 0.0],
+                            position: [-r, -r],
                         },
                     ],
                     indices: vec![0, 1, 2, 0, 2, 3],
@@ -77,7 +77,7 @@ impl SymbolShader {
                     .vertices
                     .iter()
                     .map(|v| Vertex {
-                        position: [v.x, -v.y, 0.0],
+                        position: [v.x, -v.y],
                     })
                     .collect::<Vec<_>>();
                 Self {
