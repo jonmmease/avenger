@@ -1,3 +1,4 @@
+use lyon::tessellation::TessellationError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -13,4 +14,7 @@ pub enum Sg2dWgpuError {
 
     #[error("WGPU adapter creation failed")]
     MakeWgpuAdapterError,
+
+    #[error("lyon tessellation error")]
+    TessellationError(#[from] TessellationError),
 }

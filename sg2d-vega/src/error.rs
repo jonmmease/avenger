@@ -7,4 +7,14 @@ pub enum VegaSceneGraphError {
 
     #[error("css color parse error")]
     InvalidColor(#[from] csscolorparser::ParseColorError),
+
+    // ParseError doesn't implement std::Error, so #[from] doesn't seem to work
+    #[error("Error parsing SVG path")]
+    InvalidSvgPath(lyon_extra::parser::ParseError),
+}
+
+impl From<lyon_extra::parser::ParseError> for VegaSceneGraphError {
+    fn from(value: lyon_extra::parser::ParseError) -> Self {
+        Self::InvalidSvgPath(value)
+    }
 }

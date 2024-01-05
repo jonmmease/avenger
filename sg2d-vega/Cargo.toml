@@ -11,3 +11,5 @@ thiserror = { workspace = true }
 serde = { workspace = true }
 csscolorparser = "0.6.2"
 serde_json = { version = "1.0.111" }
+lyon_extra = { workspace = true }
+lyon_path = { workspace = true, features = ["serialization"]}
