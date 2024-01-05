@@ -26,6 +26,8 @@ mod test_image_baselines {
         case("symbol", "binned_scatter_arrow", 0.001),
         case("symbol", "binned_scatter_cross", 0.001),
         case("symbol", "binned_scatter_circle", 0.001),
+        case("symbol", "binned_scatter_path", 0.001),
+        case("symbol", "binned_scatter_path_star", 0.001),
         case("rule", "wide_rule_axes", 0.0001),
         case("text", "bar_axis_labels", 0.01)
     )]
@@ -64,7 +66,7 @@ mod test_image_baselines {
             .expect("Failed to parse scene graph");
 
         let mut png_canvas = pollster::block_on(PngCanvas::new(width, height)).unwrap();
-        png_canvas.set_scene(&scene_graph);
+        png_canvas.set_scene(&scene_graph).unwrap();
         let img = pollster::block_on(png_canvas.render()).expect("Failed to render PNG image");
         let result_path = format!("{output_dir}/{category}-{spec_name}.png");
         img.save(&result_path).unwrap();

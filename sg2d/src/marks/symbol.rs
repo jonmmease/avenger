@@ -48,19 +48,11 @@ impl Default for SymbolMark {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SymbolShape {
     #[default]
     Circle,
-    Square,
-    Cross,
-    Diamond,
-    TriangleUp,
-    TriangleDown,
-    TriangleRight,
-    TriangleLeft,
-    Arrow,
-    Wedge,
-    Triangle,
+    /// Path with origin top-left
+    Path(lyon_path::Path),
 }
