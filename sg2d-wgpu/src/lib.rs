@@ -75,7 +75,7 @@ pub async fn run() {
     // Save to png
     let mut canvas = WindowCanvas::new(window).await.unwrap();
 
-    canvas.set_scene(&scene_graph);
+    canvas.set_scene(&scene_graph).unwrap();
 
     event_loop.run(move |event, _, control_flow| {
         match event {

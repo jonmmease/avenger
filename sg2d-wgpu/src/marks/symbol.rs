@@ -1,10 +1,10 @@
+use crate::error::Sg2dWgpuError;
 use crate::marks::mark::MarkShader;
 use crate::vertex::Vertex;
 use itertools::izip;
-use lyon::lyon_tessellation::{FillGeometryBuilder, FillVertex, GeometryBuilderError, VertexId};
 use lyon::tessellation::geometry_builder::{simple_builder, VertexBuffers};
-use lyon::tessellation::math::{point, Point};
-use lyon::tessellation::{FillOptions, FillTessellator, GeometryBuilder};
+use lyon::tessellation::math::Point;
+use lyon::tessellation::{FillOptions, FillTessellator};
 use sg2d::marks::symbol::{SymbolMark, SymbolShape};
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -39,11 +39,11 @@ pub struct SymbolShader {
 }
 
 impl SymbolShader {
-    pub fn new(shape: SymbolShape) -> Self {
+    pub fn try_new(shape: SymbolShape) -> Result<Self, Sg2dWgpuError> {
         let tan30: f32 = (30.0 * std::f32::consts::PI / 180.0).tan();
         let sqrt3: f32 = 3.0f32.sqrt();
 
-        match shape {
+        Ok(match shape {
             SymbolShape::Circle => {
                 let r = 0.6;
                 Self {
@@ -331,10 +331,7 @@ impl SymbolShader {
                 let mut vertex_builder = simple_builder(&mut buffers);
                 let mut tessellator = FillTessellator::new();
                 let options = FillOptions::default();
-                // TODO: remove panic
-                tessellator
-                    .tessellate_path(path, &options, &mut vertex_builder)
-                    .expect("Tessellation Failed");
+                tessellator.tessellate_path(path, &options, &mut vertex_builder)?;
 
                 // - Coordinates are divided by 2 to match Vega
                 // - y-coordinate is negated to flip vertically
@@ -353,7 +350,7 @@ impl SymbolShader {
                     fragment_entry_point: "fs_main".to_string(),
                 }
             }
-        }
+        })
     }
 }
 

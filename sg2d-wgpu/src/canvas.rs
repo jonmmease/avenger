@@ -47,19 +47,20 @@ pub trait Canvas {
 
     fn sample_count(&self) -> u32;
 
-    fn add_symbol_mark(&mut self, mark: &SymbolMark) {
+    fn add_symbol_mark(&mut self, mark: &SymbolMark) -> Result<(), Sg2dWgpuError> {
         let instances = SymbolInstance::iter_from_spec(mark).collect::<Vec<_>>();
         self.add_mark_renderer(MarkRenderer::Geom(GeomMarkRenderer::new(
             self.device(),
             *self.uniform(),
             self.texture_format(),
             self.sample_count(),
-            Box::new(SymbolShader::new(mark.shape.clone())),
+            Box::new(SymbolShader::try_new(mark.shape.clone())?),
             instances.as_slice(),
         )));
+        Ok(())
     }
 
-    fn add_rect_mark(&mut self, mark: &RectMark) {
+    fn add_rect_mark(&mut self, mark: &RectMark) -> Result<(), Sg2dWgpuError> {
         let instances = RectInstance::iter_from_spec(mark).collect::<Vec<_>>();
         self.add_mark_renderer(MarkRenderer::Geom(GeomMarkRenderer::new(
             self.device(),
@@ -69,9 +70,10 @@ pub trait Canvas {
             Box::new(RectShader::new()),
             instances.as_slice(),
         )));
+        Ok(())
     }
 
-    fn add_rule_mark(&mut self, mark: &RuleMark) {
+    fn add_rule_mark(&mut self, mark: &RuleMark) -> Result<(), Sg2dWgpuError> {
         let instances = RuleInstance::iter_from_spec(mark).collect::<Vec<_>>();
         self.add_mark_renderer(MarkRenderer::Geom(GeomMarkRenderer::new(
             self.device(),
@@ -81,9 +83,10 @@ pub trait Canvas {
             Box::new(RuleShader::new()),
             instances.as_slice(),
         )));
+        Ok(())
     }
 
-    fn add_text_mark(&mut self, mark: &TextMark) {
+    fn add_text_mark(&mut self, mark: &TextMark) -> Result<(), Sg2dWgpuError> {
         let instances = TextInstance::iter_from_spec(mark).collect::<Vec<_>>();
         self.add_mark_renderer(MarkRenderer::Text(TextMarkRenderer::new(
             self.device(),
@@ -93,31 +96,33 @@ pub trait Canvas {
             self.sample_count(),
             instances,
         )));
+        Ok(())
     }
 
-    fn add_group_mark(&mut self, group: &SceneGroup) {
+    fn add_group_mark(&mut self, group: &SceneGroup) -> Result<(), Sg2dWgpuError> {
         for mark in &group.marks {
             match mark {
                 SceneMark::Symbol(mark) => {
-                    self.add_symbol_mark(mark);
+                    self.add_symbol_mark(mark)?;
                 }
                 SceneMark::Rect(mark) => {
-                    self.add_rect_mark(mark);
+                    self.add_rect_mark(mark)?;
                 }
                 SceneMark::Rule(mark) => {
-                    self.add_rule_mark(mark);
+                    self.add_rule_mark(mark)?;
                 }
                 SceneMark::Text(mark) => {
-                    self.add_text_mark(mark);
+                    self.add_text_mark(mark)?;
                 }
                 SceneMark::Group(group) => {
-                    self.add_group_mark(group);
+                    self.add_group_mark(group)?;
                 }
             }
         }
+        Ok(())
     }
 
-    fn set_scene(&mut self, scene_graph: &SceneGraph) {
+    fn set_scene(&mut self, scene_graph: &SceneGraph) -> Result<(), Sg2dWgpuError> {
         // Set uniforms
         self.set_uniform(CanvasUniform {
             size: [scene_graph.width, scene_graph.height],
@@ -129,8 +134,10 @@ pub trait Canvas {
 
         // Add marks
         for group in &scene_graph.groups {
-            self.add_group_mark(group);
+            self.add_group_mark(group)?;
         }
+
+        Ok(())
     }
 }
 
