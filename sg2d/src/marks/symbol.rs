@@ -53,15 +53,6 @@ impl Default for SymbolMark {
 pub enum SymbolShape {
     #[default]
     Circle,
-    Square,
-    Cross,
-    Diamond,
-    TriangleUp,
-    TriangleDown,
-    TriangleRight,
-    TriangleLeft,
-    Arrow,
-    Wedge,
-    Triangle,
+    /// Path with origin top-left
     Path(lyon_path::Path),
 }
