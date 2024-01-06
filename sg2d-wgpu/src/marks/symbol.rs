@@ -14,6 +14,12 @@ pub struct SymbolInstance {
     pub size: f32,
 }
 
+const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![
+    1 => Float32x2,     // position
+    2 => Float32x3,     // color
+    3 => Float32,       // size
+];
+
 impl SymbolInstance {
     pub fn iter_from_spec(mark: &SymbolMark) -> impl Iterator<Item = SymbolInstance> + '_ {
         izip!(
@@ -119,23 +125,7 @@ impl MarkShader for SymbolShader {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<SymbolInstance>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x2,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
-                    shader_location: 2,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 5]>() as wgpu::BufferAddress,
-                    shader_location: 3,
-                    format: wgpu::VertexFormat::Float32,
-                },
-            ],
+            attributes: &INSTANCE_ATTRIBUTES,
         }
     }
 }

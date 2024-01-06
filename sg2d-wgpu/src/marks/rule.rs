@@ -14,6 +14,15 @@ pub struct RuleInstance {
     pub stroke_width: f32,
 }
 
+const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array![
+    1 => Float32,     // x0
+    2 => Float32,     // y0
+    3 => Float32,     // x1
+    4 => Float32,     // y1
+    5 => Float32x3,   // stroke
+    6 => Float32,     // stroke_width
+];
+
 impl RuleInstance {
     pub fn iter_from_spec(mark: &RuleMark) -> impl Iterator<Item = RuleInstance> + '_ {
         izip!(
@@ -101,44 +110,7 @@ impl MarkShader for RuleShader {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<RuleInstance>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &[
-                // x0
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32,
-                },
-                // y0
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 1]>() as wgpu::BufferAddress,
-                    shader_location: 2,
-                    format: wgpu::VertexFormat::Float32,
-                },
-                //x1
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
-                    shader_location: 3,
-                    format: wgpu::VertexFormat::Float32,
-                },
-                //y1
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
-                    shader_location: 4,
-                    format: wgpu::VertexFormat::Float32,
-                },
-                // stroke
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
-                    shader_location: 5,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                // stroke_width
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 7]>() as wgpu::BufferAddress,
-                    shader_location: 6,
-                    format: wgpu::VertexFormat::Float32,
-                },
-            ],
+            attributes: &INSTANCE_ATTRIBUTES,
         }
     }
 }
