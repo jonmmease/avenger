@@ -15,15 +15,15 @@ struct VertexInput {
 
 struct InstanceInput {
     @location(3) position: vec2<f32>,
-    @location(4) fill_color: vec3<f32>,
-    @location(5) stroke_color: vec3<f32>,
+    @location(4) fill_color: vec4<f32>,
+    @location(5) stroke_color: vec4<f32>,
     @location(6) stroke_width: f32,
     @location(7) size: f32,
 };
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) color: vec3<f32>,
+    @location(0) color: vec4<f32>,
 };
 
 
@@ -72,5 +72,5 @@ fn vs_main(
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(in.color, 1.0);
+    return in.color;
 }
