@@ -9,12 +9,16 @@ var<uniform> chart_uniforms: ChartUniform;
 
 struct VertexInput {
     @location(0) position: vec2<f32>,
+    @location(1) normal: vec2<f32>,
+    @location(2) kind: u32,
 };
 
 struct InstanceInput {
-    @location(1) position: vec2<f32>,
-    @location(2) color: vec3<f32>,
-    @location(3) size: f32,
+    @location(3) position: vec2<f32>,
+    @location(4) fill_color: vec3<f32>,
+    @location(5) stroke_color: vec3<f32>,
+    @location(6) stroke_width: f32,
+    @location(7) size: f32,
 };
 
 struct VertexOutput {
@@ -33,7 +37,7 @@ fn vs_main(
     var out: VertexOutput;
 
     // Pass through color
-    out.color = instance.color;
+    out.color = instance.fill_color;
 
     // Compute normalized position of vertex
     let size_scale = sqrt(instance.size);
