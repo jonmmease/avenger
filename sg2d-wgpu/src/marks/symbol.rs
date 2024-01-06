@@ -1,11 +1,32 @@
 use crate::error::Sg2dWgpuError;
 use crate::marks::mark::MarkShader;
-use crate::vertex::Vertex;
 use itertools::izip;
 use lyon::tessellation::geometry_builder::{simple_builder, VertexBuffers};
 use lyon::tessellation::math::Point;
 use lyon::tessellation::{FillOptions, FillTessellator};
 use sg2d::marks::symbol::{SymbolMark, SymbolShape};
+use wgpu::VertexBufferLayout;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SymbolVertex {
+    pub position: [f32; 2],
+}
+
+const VERTEX_ATTRIBUTES: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array![
+    0 => Float32x2,     // position
+];
+
+impl SymbolVertex {
+    pub fn desc() -> VertexBufferLayout<'static> {
+        VertexBufferLayout {
+            array_stride: std::mem::size_of::<SymbolVertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &VERTEX_ATTRIBUTES,
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct SymbolInstance {
@@ -14,6 +35,8 @@ pub struct SymbolInstance {
     pub size: f32,
 }
 
+// First shader index (i.e. the 1 in `1 => Float...`) must be one greater than
+// the largest shader index used in VERTEX_ATTRIBUTES above
 const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![
     1 => Float32x2,     // position
     2 => Float32x3,     // color
@@ -37,7 +60,7 @@ impl SymbolInstance {
 }
 
 pub struct SymbolShader {
-    verts: Vec<Vertex>,
+    verts: Vec<SymbolVertex>,
     indices: Vec<u16>,
     shader: String,
     vertex_entry_point: String,
@@ -51,18 +74,10 @@ impl SymbolShader {
                 let r = 0.6;
                 Self {
                     verts: vec![
-                        Vertex {
-                            position: [r, -r],
-                        },
-                        Vertex {
-                            position: [r, r],
-                        },
-                        Vertex {
-                            position: [-r, r],
-                        },
-                        Vertex {
-                            position: [-r, -r],
-                        },
+                        SymbolVertex { position: [r, -r] },
+                        SymbolVertex { position: [r, r] },
+                        SymbolVertex { position: [-r, r] },
+                        SymbolVertex { position: [-r, -r] },
                     ],
                     indices: vec![0, 1, 2, 0, 2, 3],
                     shader: include_str!("circle.wgsl").to_string(),
@@ -82,7 +97,7 @@ impl SymbolShader {
                 let verts = buffers
                     .vertices
                     .iter()
-                    .map(|v| Vertex {
+                    .map(|v| SymbolVertex {
                         position: [v.x, -v.y],
                     })
                     .collect::<Vec<_>>();
@@ -100,8 +115,9 @@ impl SymbolShader {
 
 impl MarkShader for SymbolShader {
     type Instance = SymbolInstance;
+    type Vertex = SymbolVertex;
 
-    fn verts(&self) -> &[Vertex] {
+    fn verts(&self) -> &[Self::Vertex] {
         self.verts.as_slice()
     }
 
@@ -127,5 +143,9 @@ impl MarkShader for SymbolShader {
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &INSTANCE_ATTRIBUTES,
         }
+    }
+
+    fn vertex_desc(&self) -> VertexBufferLayout<'static> {
+        SymbolVertex::desc()
     }
 }

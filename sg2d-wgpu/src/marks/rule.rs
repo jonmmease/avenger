@@ -1,7 +1,27 @@
 use crate::marks::mark::MarkShader;
-use crate::vertex::Vertex;
 use itertools::izip;
 use sg2d::marks::rule::RuleMark;
+use wgpu::VertexBufferLayout;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct RuleVertex {
+    pub position: [f32; 2],
+}
+
+const VERTEX_ATTRIBUTES: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array![
+    0 => Float32x2,     // position
+];
+
+impl RuleVertex {
+    pub fn desc() -> VertexBufferLayout<'static> {
+        VertexBufferLayout {
+            array_stride: std::mem::size_of::<RuleVertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &VERTEX_ATTRIBUTES,
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -45,7 +65,7 @@ impl RuleInstance {
 }
 
 pub struct RuleShader {
-    verts: Vec<Vertex>,
+    verts: Vec<RuleVertex>,
     indices: Vec<u16>,
     shader: String,
     vertex_entry_point: String,
@@ -62,16 +82,16 @@ impl RuleShader {
     pub fn new() -> Self {
         Self {
             verts: vec![
-                Vertex {
+                RuleVertex {
                     position: [-0.5, 0.5],
                 },
-                Vertex {
+                RuleVertex {
                     position: [-0.5, -0.5],
                 },
-                Vertex {
+                RuleVertex {
                     position: [0.5, -0.5],
                 },
-                Vertex {
+                RuleVertex {
                     position: [0.5, 0.5],
                 },
             ],
@@ -85,8 +105,9 @@ impl RuleShader {
 
 impl MarkShader for RuleShader {
     type Instance = RuleInstance;
+    type Vertex = RuleVertex;
 
-    fn verts(&self) -> &[Vertex] {
+    fn verts(&self) -> &[Self::Vertex] {
         self.verts.as_slice()
     }
 
@@ -112,5 +133,9 @@ impl MarkShader for RuleShader {
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &INSTANCE_ATTRIBUTES,
         }
+    }
+
+    fn vertex_desc(&self) -> VertexBufferLayout<'static> {
+        RuleVertex::desc()
     }
 }
