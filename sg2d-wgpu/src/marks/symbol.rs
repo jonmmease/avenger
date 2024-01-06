@@ -98,7 +98,7 @@ impl SymbolShader {
     ) -> Result<Self, Sg2dWgpuError> {
         Ok(match shape {
             SymbolShape::Circle => {
-                let r = 0.6;
+                let r = if has_stroke { 0.9 } else { 0.6 };
                 let normal: [f32; 2] = [0.0, 0.0];
                 let kind = FILL_KIND;
                 Self {
@@ -137,7 +137,7 @@ impl SymbolShader {
                 // Tesselate fill
                 if has_fill {
                     let mut fill_tessellator = FillTessellator::new();
-                    let fill_options = FillOptions::default();
+                    let fill_options = FillOptions::default().with_tolerance(0.01);
                     fill_tessellator.tessellate_path(path, &fill_options, &mut builder)?;
                 }
 

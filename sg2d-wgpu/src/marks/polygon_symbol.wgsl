@@ -51,7 +51,7 @@ fn vs_main(
         out.color = instance.stroke_color;
 
         // Compute scaled stroke width.
-        // The 0.1 here is the widget that lyon used to compute the stroke tesselation
+        // The 0.1 here is the width that lyon used to compute the stroke tesselation
         let scaled_stroke_width = 0.1 * size_scale;
 
         // Adjust vertex along normal to achieve desired line width

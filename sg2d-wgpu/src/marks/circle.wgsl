@@ -25,7 +25,9 @@ struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(1) center: vec2<f32>,
     @location(2) radius: f32,
-    @location(3) color: vec3<f32>,
+    @location(3) fill_color: vec3<f32>,
+    @location(4) stroke_width: f32,
+    @location(5) stroke_color: vec3<f32>,
 };
 
 
@@ -36,8 +38,10 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
 
-    // Pass through color
-    out.color = instance.fill_color;
+    // Pass through colors and stroke_width
+    out.fill_color = instance.fill_color;
+    out.stroke_color = instance.stroke_color;
+    out.stroke_width = instance.stroke_width;
 
     // Compute normalized position of vertex
     let size_scale = sqrt(instance.size);
@@ -63,10 +67,23 @@ fn fs_main(
 ) -> @location(0) vec4<f32> {
     let buffer = 0.5;
     let dist = length(in.center - vec2<f32>(in.clip_position[0], in.clip_position[1]));
-    let alpha_factor = 1.0 - smoothstep(in.radius - buffer, in.radius + buffer, dist);
-    if (dist > in.radius + buffer) {
-        discard;
+
+    if (in.stroke_width > 0.0) {
+        let inner_radius = in.radius - in.stroke_width / 2.0;
+        let outer_radius = in.radius + in.stroke_width / 2.0;
+        if (dist > outer_radius + buffer * 2.0) {
+            discard;
+        } else {
+            let alpha_factor = 1.0 - smoothstep(outer_radius - buffer, outer_radius + buffer, dist);
+            let mix_factor = 1.0 - smoothstep(inner_radius - buffer, inner_radius + buffer, dist);
+            return vec4<f32>(mix(in.stroke_color, in.fill_color, mix_factor), alpha_factor);
+        }
     } else {
-        return vec4<f32>(in.color, alpha_factor);
+        let alpha_factor = 1.0 - smoothstep(in.radius - buffer, in.radius + buffer, dist);
+        if (dist > in.radius + buffer) {
+            discard;
+        } else {
+            return vec4<f32>(in.fill_color, alpha_factor);
+        }
     }
 }
