@@ -1,7 +1,27 @@
 use crate::marks::mark::MarkShader;
-use crate::vertex::Vertex;
 use itertools::izip;
 use sg2d::marks::rect::RectMark;
+use wgpu::VertexBufferLayout;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct RectVertex {
+    pub position: [f32; 2],
+}
+
+const VERTEX_ATTRIBUTES: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array![
+    0 => Float32x2,     // position
+];
+
+impl RectVertex {
+    pub fn desc() -> VertexBufferLayout<'static> {
+        VertexBufferLayout {
+            array_stride: std::mem::size_of::<RectVertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &VERTEX_ATTRIBUTES,
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -38,7 +58,7 @@ impl RectInstance {
 }
 
 pub struct RectShader {
-    verts: Vec<Vertex>,
+    verts: Vec<RectVertex>,
     indices: Vec<u16>,
     shader: String,
     vertex_entry_point: String,
@@ -55,16 +75,16 @@ impl RectShader {
     pub fn new() -> Self {
         Self {
             verts: vec![
-                Vertex {
+                RectVertex {
                     position: [0.0, 0.0],
                 },
-                Vertex {
+                RectVertex {
                     position: [1.0, 0.0],
                 },
-                Vertex {
+                RectVertex {
                     position: [1.0, 1.0],
                 },
-                Vertex {
+                RectVertex {
                     position: [0.0, 1.0],
                 },
             ],
@@ -78,8 +98,9 @@ impl RectShader {
 
 impl MarkShader for RectShader {
     type Instance = RectInstance;
+    type Vertex = RectVertex;
 
-    fn verts(&self) -> &[Vertex] {
+    fn verts(&self) -> &[Self::Vertex] {
         self.verts.as_slice()
     }
 
@@ -105,5 +126,9 @@ impl MarkShader for RectShader {
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &INSTANCE_ATTRIBUTES,
         }
+    }
+
+    fn vertex_desc(&self) -> VertexBufferLayout<'static> {
+        RectVertex::desc()
     }
 }
