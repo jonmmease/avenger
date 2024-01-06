@@ -59,9 +59,9 @@ impl VegaMarkContainer<VegaSymbolItem> {
         // Init vector for each encoding channel
         let mut x = Vec::<f32>::new();
         let mut y = Vec::<f32>::new();
-        let mut fill = Vec::<[f32; 3]>::new();
+        let mut fill = Vec::<[f32; 4]>::new();
         let mut size = Vec::<f32>::new();
-        let mut stroke = Vec::<[f32; 3]>::new();
+        let mut stroke = Vec::<[f32; 4]>::new();
         let mut stroke_width = Vec::<f32>::new();
 
         // For each item, append explicit values to corresponding vector
@@ -71,7 +71,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
 
             if let Some(c) = &item.fill {
                 let c = csscolorparser::parse(c)?;
-                fill.push([c.r as f32, c.g as f32, c.b as f32])
+                fill.push([c.r as f32, c.g as f32, c.b as f32, 1.0])
             }
 
             if let Some(s) = item.size {
@@ -80,7 +80,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
 
             if let Some(c) = &item.stroke {
                 let c = csscolorparser::parse(c)?;
-                stroke.push([c.r as f32, c.g as f32, c.b as f32])
+                stroke.push([c.r as f32, c.g as f32, c.b as f32, 1.0])
             }
 
             if let Some(s) = item.stroke_width {

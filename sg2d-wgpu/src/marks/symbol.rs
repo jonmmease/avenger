@@ -46,8 +46,8 @@ impl SymbolVertex {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct SymbolInstance {
     pub position: [f32; 2],
-    pub fill_color: [f32; 3],
-    pub stroke_color: [f32; 3],
+    pub fill_color: [f32; 4],
+    pub stroke_color: [f32; 4],
     pub stroke_width: f32,
     pub size: f32,
 }
@@ -56,8 +56,8 @@ pub struct SymbolInstance {
 // the largest shader index used in VERTEX_ATTRIBUTES above
 const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
     3 => Float32x2,     // position
-    4 => Float32x3,     // fill_color
-    5 => Float32x3,     // stroke_color
+    4 => Float32x4,     // fill_color
+    5 => Float32x4,     // stroke_color
     6 => Float32,       // stroke_width
     7 => Float32,       // size
 ];
