@@ -15,11 +15,13 @@ pub struct VegaSymbolItem {
     pub x: f32,
     pub y: f32,
     pub fill: Option<String>,
+    pub opacity: Option<f32>,
     pub fill_opacity: Option<f32>,
     pub size: Option<f32>,
     pub shape: Option<String>,
     pub stroke: Option<String>,
     pub stroke_width: Option<f32>,
+    pub stroke_opacity: Option<f32>,
 }
 
 impl VegaMarkItem for VegaSymbolItem {}
@@ -71,7 +73,10 @@ impl VegaMarkContainer<VegaSymbolItem> {
 
             if let Some(c) = &item.fill {
                 let c = csscolorparser::parse(c)?;
-                fill.push([c.r as f32, c.g as f32, c.b as f32, 1.0])
+                let fill_opacity = item.fill_opacity.unwrap_or_else(
+                    || item.opacity.unwrap_or(1.0)
+                );
+                fill.push([c.r as f32, c.g as f32, c.b as f32, fill_opacity])
             }
 
             if let Some(s) = item.size {
@@ -80,7 +85,10 @@ impl VegaMarkContainer<VegaSymbolItem> {
 
             if let Some(c) = &item.stroke {
                 let c = csscolorparser::parse(c)?;
-                stroke.push([c.r as f32, c.g as f32, c.b as f32, 1.0])
+                let stroke_opacity = item.fill_opacity.unwrap_or_else(
+                    || item.opacity.unwrap_or(1.0)
+                );
+                stroke.push([c.r as f32, c.g as f32, c.b as f32, stroke_opacity])
             }
 
             if let Some(s) = item.stroke_width {
