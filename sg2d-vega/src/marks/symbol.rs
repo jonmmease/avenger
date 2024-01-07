@@ -39,7 +39,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
 
         // Only include stroke_width if there is a stroke color
         let stroke_width = if first_has_stroke {
-            first.and_then(|item| item.stroke_width.clone())
+            first.and_then(|item| item.stroke_width)
         } else {
             None
         };
