@@ -73,9 +73,9 @@ impl VegaMarkContainer<VegaSymbolItem> {
 
             if let Some(c) = &item.fill {
                 let c = csscolorparser::parse(c)?;
-                let fill_opacity = item.fill_opacity.unwrap_or_else(
-                    || item.opacity.unwrap_or(1.0)
-                );
+                let fill_opacity = item
+                    .fill_opacity
+                    .unwrap_or_else(|| item.opacity.unwrap_or(1.0));
                 fill.push([c.r as f32, c.g as f32, c.b as f32, fill_opacity])
             }
 
@@ -85,9 +85,9 @@ impl VegaMarkContainer<VegaSymbolItem> {
 
             if let Some(c) = &item.stroke {
                 let c = csscolorparser::parse(c)?;
-                let stroke_opacity = item.fill_opacity.unwrap_or_else(
-                    || item.opacity.unwrap_or(1.0)
-                );
+                let stroke_opacity = item
+                    .fill_opacity
+                    .unwrap_or_else(|| item.opacity.unwrap_or(1.0));
                 stroke.push([c.r as f32, c.g as f32, c.b as f32, stroke_opacity])
             }
 
