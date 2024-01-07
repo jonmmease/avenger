@@ -14,6 +14,7 @@ pub struct SymbolMark {
     pub fill: EncodingValue<[f32; 4]>,
     pub size: EncodingValue<f32>,
     pub stroke: EncodingValue<[f32; 4]>,
+    pub angle: EncodingValue<f32>,
 }
 
 impl SymbolMark {
@@ -35,6 +36,9 @@ impl SymbolMark {
     pub fn stroke_iter(&self) -> Box<dyn Iterator<Item = &[f32; 4]> + '_> {
         self.stroke.as_iter(self.len as usize)
     }
+    pub fn angle_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
+        self.angle.as_iter(self.len as usize)
+    }
 }
 
 impl Default for SymbolMark {
@@ -54,6 +58,7 @@ impl Default for SymbolMark {
             stroke: EncodingValue::Scalar {
                 value: [0.0, 0.0, 0.0, 0.0],
             },
+            angle: EncodingValue::Scalar { value: 0.0 },
         }
     }
 }

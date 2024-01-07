@@ -19,6 +19,7 @@ struct InstanceInput {
     @location(5) stroke_color: vec4<f32>,
     @location(6) stroke_width: f32,
     @location(7) size: f32,
+    @location(8) angle: f32,
 };
 
 struct VertexOutput {
