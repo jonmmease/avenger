@@ -1,17 +1,11 @@
 use crate::error::Sg2dWgpuError;
 use crate::marks::mark::MarkShader;
 use itertools::izip;
-use lyon::lyon_tessellation::geometry_builder::Positions;
 use lyon::lyon_tessellation::{
-    BuffersBuilder, FillGeometryBuilder, FillVertex, FillVertexConstructor, GeometryBuilderError,
-    StrokeVertex, StrokeVertexConstructor, VertexId,
+    BuffersBuilder, FillVertex, FillVertexConstructor, StrokeVertex, StrokeVertexConstructor,
 };
-use lyon::tessellation::geometry_builder::{simple_builder, VertexBuffers};
-use lyon::tessellation::math::Point;
-use lyon::tessellation::{
-    FillBuilder, FillOptions, FillTessellator, GeometryBuilder, StrokeGeometryBuilder,
-    StrokeOptions, StrokeTessellator,
-};
+use lyon::tessellation::geometry_builder::VertexBuffers;
+use lyon::tessellation::{FillOptions, FillTessellator, StrokeOptions, StrokeTessellator};
 use sg2d::marks::symbol::{SymbolMark, SymbolShape};
 use wgpu::VertexBufferLayout;
 
