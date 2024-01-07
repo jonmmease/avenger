@@ -19,6 +19,7 @@ struct InstanceInput {
     @location(5) stroke_color: vec4<f32>,
     @location(6) stroke_width: f32,
     @location(7) size: f32,
+    @location(8) angle: f32,
 };
 
 struct VertexOutput {
@@ -26,6 +27,7 @@ struct VertexOutput {
     @location(0) color: vec4<f32>,
 };
 
+const PI = 3.14159265359;
 
 @vertex
 fn vs_main(
@@ -36,8 +38,11 @@ fn vs_main(
     let size_scale = sqrt(instance.size);
 
     // Compute scenegraph x and y coordinates
-    let sg_x = model.position[0] * size_scale + instance.position[0];
-    let sg_y = model.position[1] * size_scale + (chart_uniforms.size[1] - instance.position[1]);
+    let angle_rad = PI * instance.angle / 180.0;
+    let rot = mat2x2(cos(angle_rad), -sin(angle_rad), sin(angle_rad), cos(angle_rad));
+    let rotated_pos = rot * model.position;
+    let sg_x = rotated_pos[0] * size_scale + instance.position[0];
+    let sg_y = rotated_pos[1] * size_scale + (chart_uniforms.size[1] - instance.position[1]);
     let pos = vec2(sg_x, sg_y);
 
     if (model.kind == 0u) {

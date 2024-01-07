@@ -34,6 +34,8 @@ mod test_image_baselines {
         case("symbol", "binned_scatter_path_star_stroke_no_fill", 0.001),
         case("symbol", "scatter_transparent_stroke", 0.001),
         case("symbol", "scatter_transparent_stroke_star", 0.005),
+        case("symbol", "wind_vector", 0.0015),
+        case("symbol", "wedge_angle", 0.001),
         case("rule", "wide_rule_axes", 0.0001),
         case("text", "bar_axis_labels", 0.01)
     )]

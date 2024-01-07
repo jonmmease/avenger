@@ -44,16 +44,18 @@ pub struct SymbolInstance {
     pub stroke_color: [f32; 4],
     pub stroke_width: f32,
     pub size: f32,
+    pub angle: f32,
 }
 
 // First shader index (i.e. the 1 in `1 => Float...`) must be one greater than
 // the largest shader index used in VERTEX_ATTRIBUTES above
-const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
+const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array![
     3 => Float32x2,     // position
     4 => Float32x4,     // fill_color
     5 => Float32x4,     // stroke_color
     6 => Float32,       // stroke_width
     7 => Float32,       // size
+    8 => Float32,       // angle
 ];
 
 impl SymbolInstance {
@@ -65,13 +67,15 @@ impl SymbolInstance {
             mark.fill_iter(),
             mark.size_iter(),
             mark.stroke_iter(),
+            mark.angle_iter(),
         )
-        .map(move |(x, y, fill, size, stroke)| SymbolInstance {
+        .map(move |(x, y, fill, size, stroke, angle)| SymbolInstance {
             position: [*x, *y],
             fill_color: *fill,
             stroke_color: *stroke,
             stroke_width,
             size: *size,
+            angle: *angle,
         })
     }
 }
