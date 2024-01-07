@@ -1,37 +1,83 @@
 use crate::error::Sg2dWgpuError;
 use crate::marks::mark::MarkShader;
-use crate::vertex::Vertex;
 use itertools::izip;
-use lyon::tessellation::geometry_builder::{simple_builder, VertexBuffers};
-use lyon::tessellation::math::Point;
-use lyon::tessellation::{FillOptions, FillTessellator};
+use lyon::lyon_tessellation::{
+    BuffersBuilder, FillVertex, FillVertexConstructor, StrokeVertex, StrokeVertexConstructor,
+};
+use lyon::tessellation::geometry_builder::VertexBuffers;
+use lyon::tessellation::{FillOptions, FillTessellator, StrokeOptions, StrokeTessellator};
 use sg2d::marks::symbol::{SymbolMark, SymbolShape};
+use wgpu::VertexBufferLayout;
+
+const FILL_KIND: u32 = 0;
+const STROKE_KIND: u32 = 1;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SymbolVertex {
+    pub position: [f32; 2],
+    pub normal: [f32; 2],
+    pub kind: u32,
+}
+
+const VERTEX_ATTRIBUTES: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![
+    0 => Float32x2,     // position
+    1 => Float32x2,     // normal
+    2 => Uint32,        // kind
+];
+
+impl SymbolVertex {
+    pub fn desc() -> VertexBufferLayout<'static> {
+        VertexBufferLayout {
+            array_stride: std::mem::size_of::<SymbolVertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &VERTEX_ATTRIBUTES,
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct SymbolInstance {
     pub position: [f32; 2],
-    pub color: [f32; 3],
+    pub fill_color: [f32; 4],
+    pub stroke_color: [f32; 4],
+    pub stroke_width: f32,
     pub size: f32,
 }
 
+// First shader index (i.e. the 1 in `1 => Float...`) must be one greater than
+// the largest shader index used in VERTEX_ATTRIBUTES above
+const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
+    3 => Float32x2,     // position
+    4 => Float32x4,     // fill_color
+    5 => Float32x4,     // stroke_color
+    6 => Float32,       // stroke_width
+    7 => Float32,       // size
+];
+
 impl SymbolInstance {
     pub fn iter_from_spec(mark: &SymbolMark) -> impl Iterator<Item = SymbolInstance> + '_ {
+        let stroke_width = mark.stroke_width.unwrap_or(0.0);
         izip!(
             mark.x_iter(),
             mark.y_iter(),
             mark.fill_iter(),
             mark.size_iter(),
+            mark.stroke_iter(),
         )
-        .map(|(x, y, fill, size)| SymbolInstance {
+        .map(move |(x, y, fill, size, stroke)| SymbolInstance {
             position: [*x, *y],
-            color: *fill,
+            fill_color: *fill,
+            stroke_color: *stroke,
+            stroke_width,
             size: *size,
         })
     }
 }
 
 pub struct SymbolShader {
-    verts: Vec<Vertex>,
+    verts: Vec<SymbolVertex>,
     indices: Vec<u16>,
     shader: String,
     vertex_entry_point: String,
@@ -39,23 +85,37 @@ pub struct SymbolShader {
 }
 
 impl SymbolShader {
-    pub fn try_new(shape: SymbolShape) -> Result<Self, Sg2dWgpuError> {
+    pub fn try_new(
+        shape: SymbolShape,
+        has_fill: bool,
+        has_stroke: bool,
+    ) -> Result<Self, Sg2dWgpuError> {
         Ok(match shape {
             SymbolShape::Circle => {
-                let r = 0.6;
+                let r = if has_stroke { 0.9 } else { 0.6 };
+                let normal: [f32; 2] = [0.0, 0.0];
+                let kind = FILL_KIND;
                 Self {
                     verts: vec![
-                        Vertex {
-                            position: [r, -r, 0.0],
+                        SymbolVertex {
+                            position: [r, -r],
+                            normal,
+                            kind,
                         },
-                        Vertex {
-                            position: [r, r, 0.0],
+                        SymbolVertex {
+                            position: [r, r],
+                            normal,
+                            kind,
                         },
-                        Vertex {
-                            position: [-r, r, 0.0],
+                        SymbolVertex {
+                            position: [-r, r],
+                            normal,
+                            kind,
                         },
-                        Vertex {
-                            position: [-r, -r, 0.0],
+                        SymbolVertex {
+                            position: [-r, -r],
+                            normal,
+                            kind,
                         },
                     ],
                     indices: vec![0, 1, 2, 0, 2, 3],
@@ -65,23 +125,25 @@ impl SymbolShader {
                 }
             }
             SymbolShape::Path(ref path) => {
-                let mut buffers: VertexBuffers<Point, u16> = VertexBuffers::new();
-                let mut vertex_builder = simple_builder(&mut buffers);
-                let mut tessellator = FillTessellator::new();
-                let options = FillOptions::default();
-                tessellator.tessellate_path(path, &options, &mut vertex_builder)?;
+                let mut buffers: VertexBuffers<SymbolVertex, u16> = VertexBuffers::new();
+                let mut builder = BuffersBuilder::new(&mut buffers, VertexPositions);
 
-                // - y-coordinate is negated to flip vertically from SVG coordinates (top-left)
-                // to canvas coordinates (bottom-left).
-                let verts = buffers
-                    .vertices
-                    .iter()
-                    .map(|v| Vertex {
-                        position: [v.x, -v.y, 0.0],
-                    })
-                    .collect::<Vec<_>>();
+                // Tesselate fill
+                if has_fill {
+                    let mut fill_tessellator = FillTessellator::new();
+                    let fill_options = FillOptions::default().with_tolerance(0.01);
+                    fill_tessellator.tessellate_path(path, &fill_options, &mut builder)?;
+                }
+
+                // Tesselate stroke
+                if has_stroke {
+                    let mut stroke_tessellator = StrokeTessellator::new();
+                    let stroke_options = StrokeOptions::default().with_line_width(0.1);
+                    stroke_tessellator.tessellate_path(path, &stroke_options, &mut builder)?;
+                }
+
                 Self {
-                    verts,
+                    verts: buffers.vertices,
                     indices: buffers.indices,
                     shader: include_str!("polygon_symbol.wgsl").to_string(),
                     vertex_entry_point: "vs_main".to_string(),
@@ -94,8 +156,9 @@ impl SymbolShader {
 
 impl MarkShader for SymbolShader {
     type Instance = SymbolInstance;
+    type Vertex = SymbolVertex;
 
-    fn verts(&self) -> &[Vertex] {
+    fn verts(&self) -> &[Self::Vertex] {
         self.verts.as_slice()
     }
 
@@ -119,23 +182,37 @@ impl MarkShader for SymbolShader {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<SymbolInstance>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x2,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
-                    shader_location: 2,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 5]>() as wgpu::BufferAddress,
-                    shader_location: 3,
-                    format: wgpu::VertexFormat::Float32,
-                },
-            ],
+            attributes: &INSTANCE_ATTRIBUTES,
+        }
+    }
+
+    fn vertex_desc(&self) -> VertexBufferLayout<'static> {
+        SymbolVertex::desc()
+    }
+}
+
+pub struct VertexPositions;
+
+impl FillVertexConstructor<SymbolVertex> for VertexPositions {
+    fn new_vertex(&mut self, vertex: FillVertex) -> SymbolVertex {
+        // - y-coordinate is negated to flip vertically from SVG coordinates (top-left)
+        // to canvas coordinates (bottom-left).
+        SymbolVertex {
+            position: [vertex.position().x, -vertex.position().y],
+            normal: [0.0, 0.0],
+            kind: FILL_KIND,
+        }
+    }
+}
+
+impl StrokeVertexConstructor<SymbolVertex> for VertexPositions {
+    fn new_vertex(&mut self, vertex: StrokeVertex) -> SymbolVertex {
+        // - y-coordinate is negated to flip vertically from SVG coordinates (top-left)
+        // to canvas coordinates (bottom-left).
+        SymbolVertex {
+            position: [vertex.position().x, -vertex.position().y],
+            normal: [vertex.normal().x, -vertex.normal().y],
+            kind: STROKE_KIND,
         }
     }
 }

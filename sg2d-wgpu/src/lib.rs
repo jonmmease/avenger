@@ -1,7 +1,6 @@
 pub mod canvas;
 pub mod error;
 pub mod marks;
-pub mod vertex;
 
 use crate::canvas::{Canvas, WindowCanvas};
 use sg2d::scene_graph::SceneGraph;

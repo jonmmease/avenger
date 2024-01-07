@@ -8,20 +8,26 @@ struct ChartUniform {
 var<uniform> chart_uniforms: ChartUniform;
 
 struct VertexInput {
-    @location(0) position: vec3<f32>,
+    @location(0) position: vec2<f32>,
+    @location(1) normal: vec2<f32>,
+    @location(2) kind: u32,
 };
 
 struct InstanceInput {
-    @location(1) position: vec2<f32>,
-    @location(2) color: vec3<f32>,
-    @location(3) size: f32,
+    @location(3) position: vec2<f32>,
+    @location(4) fill_color: vec4<f32>,
+    @location(5) stroke_color: vec4<f32>,
+    @location(6) stroke_width: f32,
+    @location(7) size: f32,
 };
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(1) center: vec2<f32>,
     @location(2) radius: f32,
-    @location(3) color: vec3<f32>,
+    @location(3) fill_color: vec4<f32>,
+    @location(4) stroke_color: vec4<f32>,
+    @location(5) stroke_width: f32,
 };
 
 
@@ -32,8 +38,10 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
 
-    // Pass through color
-    out.color = instance.color;
+    // Pass through colors and stroke_width
+    out.fill_color = instance.fill_color;
+    out.stroke_color = instance.stroke_color;
+    out.stroke_width = instance.stroke_width;
 
     // Compute normalized position of vertex
     let size_scale = sqrt(instance.size);
@@ -59,10 +67,27 @@ fn fs_main(
 ) -> @location(0) vec4<f32> {
     let buffer = 0.5;
     let dist = length(in.center - vec2<f32>(in.clip_position[0], in.clip_position[1]));
-    let alpha_factor = 1.0 - smoothstep(in.radius - buffer, in.radius + buffer, dist);
-    if (dist > in.radius + buffer) {
-        discard;
+
+    if (in.stroke_width > 0.0) {
+        let inner_radius = in.radius - in.stroke_width / 2.0;
+        let outer_radius = in.radius + in.stroke_width / 2.0;
+        if (dist > outer_radius + buffer * 2.0) {
+            discard;
+        } else {
+            let alpha_factor = 1.0 - smoothstep(outer_radius - buffer, outer_radius + buffer, dist);
+            let mix_factor = 1.0 - smoothstep(inner_radius - buffer, inner_radius + buffer, dist);
+            var mixed_color: vec4<f32> = mix(in.stroke_color, in.fill_color, mix_factor);
+            mixed_color[3] *= alpha_factor;
+            return mixed_color;
+        }
     } else {
-        return vec4<f32>(in.color, alpha_factor);
+        let alpha_factor = 1.0 - smoothstep(in.radius - buffer, in.radius + buffer, dist);
+        var mixed_color: vec4<f32> = in.fill_color;
+        mixed_color[3] *= alpha_factor;
+        if (dist > in.radius + buffer) {
+            discard;
+        } else {
+            return mixed_color;
+        }
     }
 }

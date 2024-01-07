@@ -1,7 +1,27 @@
 use crate::marks::mark::MarkShader;
-use crate::vertex::Vertex;
 use itertools::izip;
 use sg2d::marks::rect::RectMark;
+use wgpu::VertexBufferLayout;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct RectVertex {
+    pub position: [f32; 2],
+}
+
+const VERTEX_ATTRIBUTES: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array![
+    0 => Float32x2,     // position
+];
+
+impl RectVertex {
+    pub fn desc() -> VertexBufferLayout<'static> {
+        VertexBufferLayout {
+            array_stride: std::mem::size_of::<RectVertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &VERTEX_ATTRIBUTES,
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -11,6 +31,13 @@ pub struct RectInstance {
     pub width: f32,
     pub height: f32,
 }
+
+const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
+    1 => Float32x2,     // position
+    2 => Float32x3,     // color
+    3 => Float32,       // width
+    4 => Float32,       // height
+];
 
 impl RectInstance {
     pub fn iter_from_spec(mark: &RectMark) -> impl Iterator<Item = RectInstance> + '_ {
@@ -31,7 +58,7 @@ impl RectInstance {
 }
 
 pub struct RectShader {
-    verts: Vec<Vertex>,
+    verts: Vec<RectVertex>,
     indices: Vec<u16>,
     shader: String,
     vertex_entry_point: String,
@@ -48,17 +75,17 @@ impl RectShader {
     pub fn new() -> Self {
         Self {
             verts: vec![
-                Vertex {
-                    position: [0.0, 0.0, 0.0],
+                RectVertex {
+                    position: [0.0, 0.0],
                 },
-                Vertex {
-                    position: [1.0, 0.0, 0.0],
+                RectVertex {
+                    position: [1.0, 0.0],
                 },
-                Vertex {
-                    position: [1.0, 1.0, 0.0],
+                RectVertex {
+                    position: [1.0, 1.0],
                 },
-                Vertex {
-                    position: [0.0, 1.0, 0.0],
+                RectVertex {
+                    position: [0.0, 1.0],
                 },
             ],
             indices: vec![0, 1, 2, 0, 2, 3],
@@ -71,8 +98,9 @@ impl RectShader {
 
 impl MarkShader for RectShader {
     type Instance = RectInstance;
+    type Vertex = RectVertex;
 
-    fn verts(&self) -> &[Vertex] {
+    fn verts(&self) -> &[Self::Vertex] {
         self.verts.as_slice()
     }
 
@@ -96,28 +124,11 @@ impl MarkShader for RectShader {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<RectInstance>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x2,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
-                    shader_location: 2,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 5]>() as wgpu::BufferAddress,
-                    shader_location: 3,
-                    format: wgpu::VertexFormat::Float32,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,
-                    shader_location: 4,
-                    format: wgpu::VertexFormat::Float32,
-                },
-            ],
+            attributes: &INSTANCE_ATTRIBUTES,
         }
+    }
+
+    fn vertex_desc(&self) -> VertexBufferLayout<'static> {
+        RectVertex::desc()
     }
 }

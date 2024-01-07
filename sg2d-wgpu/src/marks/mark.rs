@@ -1,16 +1,18 @@
 use crate::canvas::CanvasUniform;
-use crate::vertex::Vertex;
 use wgpu::util::DeviceExt;
 use wgpu::{CommandBuffer, Device, TextureFormat, TextureView};
 
 pub trait MarkShader {
     type Instance: bytemuck::Pod + bytemuck::Zeroable;
-    fn verts(&self) -> &[Vertex];
+    type Vertex: bytemuck::Pod + bytemuck::Zeroable;
+
+    fn verts(&self) -> &[Self::Vertex];
     fn indices(&self) -> &[u16];
     fn shader(&self) -> &str;
     fn vertex_entry_point(&self) -> &str;
     fn fragment_entry_point(&self) -> &str;
     fn instance_desc(&self) -> wgpu::VertexBufferLayout<'static>;
+    fn vertex_desc(&self) -> wgpu::VertexBufferLayout<'static>;
 }
 
 pub struct GeomMarkRenderer {
@@ -24,14 +26,18 @@ pub struct GeomMarkRenderer {
 }
 
 impl GeomMarkRenderer {
-    pub fn new<T: bytemuck::Pod + bytemuck::Zeroable>(
+    pub fn new<I, V>(
         device: &Device,
         uniform: CanvasUniform,
         texture_format: TextureFormat,
         sample_count: u32,
-        mark_shader: Box<dyn MarkShader<Instance = T>>,
-        instances: &[T],
-    ) -> Self {
+        mark_shader: Box<dyn MarkShader<Instance = I, Vertex = V>>,
+        instances: &[I],
+    ) -> Self
+    where
+        I: bytemuck::Pod + bytemuck::Zeroable,
+        V: bytemuck::Pod + bytemuck::Zeroable,
+    {
         // Uniforms
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Uniform Buffer"),
@@ -88,7 +94,7 @@ impl GeomMarkRenderer {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: mark_shader.vertex_entry_point(),
-                buffers: &[Vertex::desc(), mark_shader.instance_desc()],
+                buffers: &[mark_shader.vertex_desc(), mark_shader.instance_desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,

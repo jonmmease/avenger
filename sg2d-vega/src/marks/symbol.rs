@@ -15,9 +15,13 @@ pub struct VegaSymbolItem {
     pub x: f32,
     pub y: f32,
     pub fill: Option<String>,
+    pub opacity: Option<f32>,
     pub fill_opacity: Option<f32>,
     pub size: Option<f32>,
     pub shape: Option<String>,
+    pub stroke: Option<String>,
+    pub stroke_width: Option<f32>,
+    pub stroke_opacity: Option<f32>,
 }
 
 impl VegaMarkItem for VegaSymbolItem {}
@@ -25,17 +29,27 @@ impl VegaMarkItem for VegaSymbolItem {}
 impl VegaMarkContainer<VegaSymbolItem> {
     pub fn to_scene_graph(&self, origin: [f32; 2]) -> Result<SceneMark, VegaSceneGraphError> {
         // Get shape of first item and use that for all items for now
-        let first_shape = self
-            .items
-            .get(0)
+        let first = self.items.get(0);
+
+        let first_shape = first
             .and_then(|item| item.shape.clone())
             .unwrap_or_else(|| "circle".to_string());
+
+        let first_has_stroke = first.map(|item| item.stroke.is_some()).unwrap_or(false);
+
+        // Only include stroke_width if there is a stroke color
+        let stroke_width = if first_has_stroke {
+            first.and_then(|item| item.stroke_width)
+        } else {
+            None
+        };
 
         let first_shape = shape_to_path(&first_shape)?;
 
         // Init mark with scalar defaults
         let mut mark = SymbolMark {
             shape: first_shape,
+            stroke_width,
             clip: self.clip,
             ..Default::default()
         };
@@ -47,8 +61,10 @@ impl VegaMarkContainer<VegaSymbolItem> {
         // Init vector for each encoding channel
         let mut x = Vec::<f32>::new();
         let mut y = Vec::<f32>::new();
-        let mut fill = Vec::<[f32; 3]>::new();
+        let mut fill = Vec::<[f32; 4]>::new();
         let mut size = Vec::<f32>::new();
+        let mut stroke = Vec::<[f32; 4]>::new();
+        let mut stroke_width = Vec::<f32>::new();
 
         // For each item, append explicit values to corresponding vector
         for item in &self.items {
@@ -57,11 +73,26 @@ impl VegaMarkContainer<VegaSymbolItem> {
 
             if let Some(c) = &item.fill {
                 let c = csscolorparser::parse(c)?;
-                fill.push([c.r as f32, c.g as f32, c.b as f32])
+                let fill_opacity = item
+                    .fill_opacity
+                    .unwrap_or_else(|| item.opacity.unwrap_or(1.0));
+                fill.push([c.r as f32, c.g as f32, c.b as f32, fill_opacity])
             }
 
             if let Some(s) = item.size {
                 size.push(s);
+            }
+
+            if let Some(c) = &item.stroke {
+                let c = csscolorparser::parse(c)?;
+                let stroke_opacity = item
+                    .fill_opacity
+                    .unwrap_or_else(|| item.opacity.unwrap_or(1.0));
+                stroke.push([c.r as f32, c.g as f32, c.b as f32, stroke_opacity])
+            }
+
+            if let Some(s) = item.stroke_width {
+                stroke_width.push(s);
             }
         }
 
@@ -80,6 +111,9 @@ impl VegaMarkContainer<VegaSymbolItem> {
         }
         if size.len() == len {
             mark.size = EncodingValue::Array { values: size };
+        }
+        if stroke.len() == len {
+            mark.stroke = EncodingValue::Array { values: stroke };
         }
 
         Ok(SceneMark::Symbol(mark))
