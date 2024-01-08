@@ -1,0 +1,40 @@
+{
+  "width": 500,
+  "height": 100,
+  "background": "white",
+  "data": [
+    {
+      "name": "data_1",
+      "values": [
+        {"x": 30, "angle": 0, "size": 600},
+        {"x": 60, "angle": 30, "size": 1200},
+        {"x": 90, "angle": 90, "size": 1800},
+        {"x": 150, "angle": 120, "size": 2200},
+        {"x": 200, "angle": 180, "size": 2800},
+        {"x": 250, "angle": 240, "size": 3000},
+        {"x": 310, "angle": 270, "size": 1600},
+        {"x": 360, "angle": 300, "size": 2400},
+        {"x": 400, "angle": 330, "size": 3000},
+        {"x": 450, "angle": 360, "size": 3600}
+      ]
+    }
+  ],
+  "marks": [
+    {
+      "type": "symbol",
+      "from": {"data": "data_1"},
+      "encode": {
+        "update": {
+          "x": {"field": "x"},
+          "y": {"value": 40},
+          "shape": {"value": "wedge"},
+          "fill": {"value": "red"},
+          "stroke": {"value": "black"},
+          "strokeWidth": {"value": 3},
+          "size": {"field": "size"},
+          "angle": {"field": "angle"}
+        }
+      }
+    }
+  ]
+}
