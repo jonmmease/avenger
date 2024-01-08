@@ -63,8 +63,9 @@ fn vs_main(
         // The factor of 2.0 here is because the normal vector that lyon
         // returns has length such that moving all stroke vertices by the length
         // of the "normal" vector will increase the line width by 2.
+        let normal = rot * model.normal;
         var diff = scaled_stroke_width - instance.stroke_width;
-        let adjusted_pos = pos - diff * model.normal / 2.0;
+        let adjusted_pos = pos - diff * normal / 2.0;
 
         let normalized_pos = 2.0 * adjusted_pos / chart_uniforms.size - 1.0;
         out.clip_position = vec4<f32>(normalized_pos, 0.0, 1.0);
