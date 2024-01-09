@@ -8,6 +8,7 @@ use wgpu::{
     TextureDimension, TextureFormat, TextureFormatFeatureFlags, TextureUsages, TextureView,
     TextureViewDescriptor,
 };
+use winit::dpi::{PhysicalSize, Size};
 use winit::event::WindowEvent;
 use winit::window::Window;
 
@@ -26,7 +27,8 @@ use sg2d::{
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct CanvasUniform {
     pub size: [f32; 2],
-    filler: [f32; 2], // Pad to 16 bytes
+    pub scale: f32,
+    _pad: [f32; 1], // Pad to 16 bytes
 }
 
 pub enum MarkRenderer {
@@ -40,6 +42,7 @@ pub trait Canvas {
     fn device(&self) -> &Device;
     fn queue(&self) -> &Queue;
     fn uniform(&self) -> &CanvasUniform;
+    fn scale(&self) -> f32;
 
     fn set_uniform(&mut self, uniform: CanvasUniform);
 
@@ -130,7 +133,8 @@ pub trait Canvas {
         // Set uniforms
         self.set_uniform(CanvasUniform {
             size: [scene_graph.width, scene_graph.height],
-            filler: [0.0, 0.0],
+            scale: self.scale(),
+            _pad: [0.0],
         });
 
         // Clear existing marks
@@ -270,12 +274,23 @@ pub struct WindowCanvas {
     sample_count: u32,
     config: SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
+    scale: f32,
     marks: Vec<MarkRenderer>,
     uniform: CanvasUniform,
 }
 
 impl WindowCanvas {
-    pub async fn new(window: Window) -> Result<Self, Sg2dWgpuError> {
+    pub async fn new(
+        window: Window,
+        width: f32,
+        height: f32,
+        scale: f32,
+    ) -> Result<Self, Sg2dWgpuError> {
+        window.set_inner_size(Size::Physical(PhysicalSize::new(
+            (width * scale) as u32,
+            (height * scale) as u32,
+        )));
+
         let size = window.inner_size();
 
         let instance = make_wgpu_instance();
@@ -316,7 +331,8 @@ impl WindowCanvas {
 
         let uniform = CanvasUniform {
             size: [size.width as f32, size.height as f32],
-            filler: [0.0, 0.0],
+            scale,
+            _pad: [0.0],
         };
 
         Ok(Self {
@@ -327,6 +343,7 @@ impl WindowCanvas {
             sample_count,
             config,
             size,
+            scale,
             window,
             uniform,
             marks: Vec::new(),
@@ -424,6 +441,10 @@ impl Canvas for WindowCanvas {
         &self.uniform
     }
 
+    fn scale(&self) -> f32 {
+        self.scale
+    }
+
     fn set_uniform(&mut self, uniform: CanvasUniform) {
         self.uniform = uniform;
     }
@@ -444,18 +465,21 @@ pub struct PngCanvas {
     sample_count: u32,
     marks: Vec<MarkRenderer>,
     uniform: CanvasUniform,
-    width: f32,
-    height: f32,
+    pub width: f32,
+    pub height: f32,
+    pub scale: f32,
     pub texture_view: TextureView,
     pub output_buffer: Buffer,
     pub texture: Texture,
     pub texture_size: Extent3d,
     pub padded_width: u32,
     pub padded_height: u32,
+    pub physical_width: f32,
+    pub physical_height: f32,
 }
 
 impl PngCanvas {
-    pub async fn new(width: f32, height: f32) -> Result<Self, Sg2dWgpuError> {
+    pub async fn new(width: f32, height: f32, scale: f32) -> Result<Self, Sg2dWgpuError> {
         let instance = make_wgpu_instance();
         let adapter = make_wgpu_adapter(&instance, None).await?;
         let (device, queue) = request_wgpu_device(&adapter).await?;
@@ -463,10 +487,12 @@ impl PngCanvas {
         let format_flags = adapter.get_texture_format_features(texture_format).flags;
         let sample_count = get_supported_sample_count(format_flags);
 
+        let physical_width = width * scale;
+        let physical_height = height * scale;
         let texture_desc = TextureDescriptor {
             size: Extent3d {
-                width: width as u32,
-                height: height as u32,
+                width: physical_width as u32,
+                height: physical_height as u32,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -486,8 +512,8 @@ impl PngCanvas {
 
         // Width and height must be padded to multiple of 256 for copying image buffer
         // from/to GPU texture
-        let padded_width = (256.0 * (width / 256.0).ceil()) as u32;
-        let padded_height = (256.0 * (width / 256.0).ceil()) as u32;
+        let padded_width = (256.0 * (physical_width / 256.0).ceil()) as u32;
+        let padded_height = (256.0 * (physical_height / 256.0).ceil()) as u32;
 
         let output_buffer_size = (u32_size * padded_width * padded_height) as BufferAddress;
         let output_buffer_desc = BufferDescriptor {
@@ -502,13 +528,14 @@ impl PngCanvas {
 
         let uniform = CanvasUniform {
             size: [width, height],
-            filler: [0.0, 0.0],
+            scale,
+            _pad: [0.0],
         };
 
         let multisampled_framebuffer = create_multisampled_framebuffer(
             &device,
-            width as u32,
-            height as u32,
+            physical_width as u32,
+            physical_height as u32,
             texture_format,
             sample_count,
         );
@@ -520,6 +547,9 @@ impl PngCanvas {
             sample_count,
             width,
             height,
+            scale,
+            physical_width,
+            physical_height,
             uniform,
             texture,
             texture_view,
@@ -626,7 +656,13 @@ impl PngCanvas {
                 image::RgbaImage::from_vec(self.padded_width, self.padded_height, data.to_vec())
                     .unwrap();
 
-            let cropped_img = crop_imm(&img_buf, 0, 0, self.width as u32, self.height as u32);
+            let cropped_img = crop_imm(
+                &img_buf,
+                0,
+                0,
+                self.physical_width as u32,
+                self.physical_height as u32,
+            );
             cropped_img.to_image()
         };
 
@@ -654,6 +690,10 @@ impl Canvas for PngCanvas {
 
     fn uniform(&self) -> &CanvasUniform {
         &self.uniform
+    }
+
+    fn scale(&self) -> f32 {
+        self.scale
     }
 
     fn set_uniform(&mut self, uniform: CanvasUniform) {
