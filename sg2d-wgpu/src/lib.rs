@@ -48,13 +48,13 @@ pub async fn run() {
     }
     // Load scene graph
     let scene_spec: VegaSceneGraph = serde_json::from_str(include_str!(
-        "../../sg2d-vega-test-data/vega-scenegraphs/symbol/binned_scatter_diamonds.sg.json"
+        "../../sg2d-vega-test-data/vega-scenegraphs/symbol/binned_scatter_cross_stroke.sg.json"
     ))
     .unwrap();
 
     // Load dims
     let scene_dims: VegaSceneGraphDims = serde_json::from_str(include_str!(
-        "../../sg2d-vega-test-data/vega-scenegraphs/symbol/binned_scatter_diamonds.dims.json"
+        "../../sg2d-vega-test-data/vega-scenegraphs/symbol/binned_scatter_cross_stroke.dims.json"
     ))
     .unwrap();
 
@@ -62,17 +62,16 @@ pub async fn run() {
     let origin = [scene_dims.origin_x, scene_dims.origin_y];
     let width = scene_dims.width;
     let height = scene_dims.height;
-    window.set_inner_size(Size::Physical(PhysicalSize::new(
-        width as u32,
-        height as u32,
-    )));
+    let scale = 3.0;
 
     let scene_graph: SceneGraph = scene_spec
         .to_scene_graph(origin, width, height)
         .expect("Failed to parse scene graph");
 
     // Save to png
-    let mut canvas = WindowCanvas::new(window).await.unwrap();
+    let mut canvas = WindowCanvas::new(window, width, height, scale)
+        .await
+        .unwrap();
 
     canvas.set_scene(&scene_graph).unwrap();
 

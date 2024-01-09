@@ -62,7 +62,7 @@ fn main() {
             let png = pollster::block_on(converter.vega_to_png(
                 vg_spec.clone(),
                 Default::default(),
-                None,
+                Some(2.0),
                 None,
             ))
             .unwrap();
