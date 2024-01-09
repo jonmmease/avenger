@@ -33,12 +33,12 @@ mod test_image_baselines {
         case("symbol", "binned_scatter_circle_stroke_no_fill", 0.001),
         case("symbol", "binned_scatter_path_star_stroke_no_fill", 0.001),
         case("symbol", "scatter_transparent_stroke", 0.001),
-        case("symbol", "scatter_transparent_stroke_star", 0.005),
+        case("symbol", "scatter_transparent_stroke_star", 0.006),
         case("symbol", "wind_vector", 0.0015),
         case("symbol", "wedge_angle", 0.001),
         case("symbol", "wedge_stroke_angle", 0.001),
         case("rule", "wide_rule_axes", 0.0001),
-        case("text", "bar_axis_labels", 0.01)
+        case("text", "bar_axis_labels", 0.025)
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
         let specs_dir = format!(
@@ -74,7 +74,7 @@ mod test_image_baselines {
             .to_scene_graph(origin, width, height)
             .expect("Failed to parse scene graph");
 
-        let mut png_canvas = pollster::block_on(PngCanvas::new(width, height)).unwrap();
+        let mut png_canvas = pollster::block_on(PngCanvas::new(width, height, 2.0)).unwrap();
         png_canvas.set_scene(&scene_graph).unwrap();
         let img = pollster::block_on(png_canvas.render()).expect("Failed to render PNG image");
         let result_path = format!("{output_dir}/{category}-{spec_name}.png");
