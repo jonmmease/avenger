@@ -6,7 +6,6 @@ use crate::canvas::{Canvas, WindowCanvas};
 use sg2d::scene_graph::SceneGraph;
 use sg2d_vega::dims::VegaSceneGraphDims;
 use sg2d_vega::scene_graph::VegaSceneGraph;
-use winit::dpi::{PhysicalSize, Size};
 use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
