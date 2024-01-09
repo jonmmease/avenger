@@ -2,8 +2,10 @@
 
 struct ChartUniform {
     size: vec2<f32>,
-    filler: vec2<f32>, // for 16 byte alignment
+    scale: f32,
+    _pad: f32, // for 16 byte alignment
 };
+
 @group(0) @binding(0)
 var<uniform> chart_uniforms: ChartUniform;
 
@@ -52,12 +54,12 @@ fn vs_main(
 
     // Compute circle center in fragment shader coordinates
     out.center = vec2<f32>(
-        instance.position[0],
-        instance.position[1]
+        instance.position[0] * chart_uniforms.scale,
+        instance.position[1] * chart_uniforms.scale,
     );
 
     // Compute radius in fragment shader coordinates
-    out.radius = size_scale / 2.0;
+    out.radius = size_scale * chart_uniforms.scale / 2.0;
     return out;
 }
 
@@ -66,12 +68,12 @@ fn vs_main(
 fn fs_main(
     in: VertexOutput,
 ) -> @location(0) vec4<f32> {
-    let buffer = 0.5;
+    let buffer = 0.5 * chart_uniforms.scale;
     let dist = length(in.center - vec2<f32>(in.clip_position[0], in.clip_position[1]));
 
     if (in.stroke_width > 0.0) {
-        let inner_radius = in.radius - in.stroke_width / 2.0;
-        let outer_radius = in.radius + in.stroke_width / 2.0;
+        let inner_radius = in.radius - in.stroke_width * chart_uniforms.scale / 2.0;
+        let outer_radius = in.radius + in.stroke_width * chart_uniforms.scale / 2.0;
         if (dist > outer_radius + buffer * 2.0) {
             discard;
         } else {
