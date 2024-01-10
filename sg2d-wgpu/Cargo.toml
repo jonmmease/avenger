@@ -8,12 +8,12 @@ crate-type = ["cdylib", "rlib"]
 
 [[example]]
 name = "wgpu-winit"
-path = "examples/wgpu-winit"
+path = "examples/wgpu-winit/src/main.rs"
 crate-type = ["cdylib", "rlib"]
 
 [[example]]
 name = "scatter-panning"
-path = "examples/scatter-panning"
+path = "examples/scatter-panning/src/main.rs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
