@@ -1,4 +1,4 @@
-use sg2d_wgpu::run;
+use wgpu_winit::run;
 
 fn main() {
     pollster::block_on(run());

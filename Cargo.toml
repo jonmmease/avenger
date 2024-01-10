@@ -5,6 +5,7 @@ members = [
     "sg2d-wgpu",
     "sg2d-vega-test-data",
 ]
+
 resolver = "2"
 
 [workspace.dependencies]

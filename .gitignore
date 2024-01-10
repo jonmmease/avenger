@@ -2,3 +2,5 @@
 /.idea
 /sg2d-wgpu/tests/output/
 .DS_Store
+/sg2d-wgpu/examples/wgpu-winit/pkg/
+/sg2d-wgpu/examples/wgpu-winit/target/
