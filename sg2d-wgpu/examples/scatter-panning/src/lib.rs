@@ -56,7 +56,7 @@ pub async fn run() {
     let margin = 20.0;
     let width = inner_width + 2.0 * margin;
     let height = inner_height + 2.0 * margin;
-    let scale = 1.0;
+    let scale = 2.0;
 
     let shape = shape_to_path("circle").unwrap();
 
@@ -65,7 +65,7 @@ pub async fn run() {
     let mut fill: Vec<[f32; 4]> = Vec::new();
     let mut size: Vec<f32> = Vec::new();
 
-    let n = 10000;
+    let n = 100000;
     for _ in 0..n {
         x.push(rng.gen::<f32>() * inner_width + margin);
         y.push(rng.gen::<f32>() * inner_height + margin);
@@ -111,7 +111,15 @@ pub async fn run() {
                         WindowEvent::CursorMoved { device_id, position, modifiers } => {
                             // println!("position: {position:?}");
                             let scene_graph = make_sg(
-                                width, height, &shape, &x, &y, &fill, &size, position.x as f32 - 100.0, position.y as f32 - 100.0
+                                width,
+                                height,
+                                &shape,
+                                &x,
+                                &y,
+                                &fill,
+                                &size,
+                                (position.x / scale as f64) as f32 - 100.0,
+                                (position.y / scale as f64) as f32 - 100.0
                             );
                             canvas.set_scene(&scene_graph).unwrap();
                             canvas.window().request_redraw();
