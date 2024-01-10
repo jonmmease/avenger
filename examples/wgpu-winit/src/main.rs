@@ -1,4 +1,6 @@
-use wgpu_winit::run;
+mod util;
+use crate::util::run;
+
 
 fn main() {
     pollster::block_on(run());
