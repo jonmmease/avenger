@@ -11,6 +11,11 @@ name = "wgpu-winit"
 path = "examples/wgpu-winit"
 crate-type = ["cdylib", "rlib"]
 
+[[example]]
+name = "scatter-panning"
+path = "examples/scatter-panning"
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 sg2d = { path = "../sg2d" }
 
