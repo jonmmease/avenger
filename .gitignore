@@ -2,7 +2,7 @@
 /.idea
 /sg2d-wgpu/tests/output/
 .DS_Store
-/sg2d-wgpu/examples/wgpu-winit/pkg/
-/sg2d-wgpu/examples/wgpu-winit/target/
-/sg2d-wgpu/examples/scatter-panning/pkg/
-/sg2d-wgpu/examples/scatter-panning/target/
+examples/wgpu-winit/pkg/
+examples/wgpu-winit/target/
+examples/scatter-panning/pkg/
+examples/scatter-panning/target/
