@@ -1,10 +1,10 @@
 use sg2d::scene_graph::SceneGraph;
 use sg2d_vega::dims::VegaSceneGraphDims;
 use sg2d_vega::scene_graph::VegaSceneGraph;
+use sg2d_wgpu::canvas::{Canvas, WindowCanvas};
 use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
-use sg2d_wgpu::canvas::{Canvas, WindowCanvas};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -45,13 +45,13 @@ pub async fn run() {
     let scene_spec: VegaSceneGraph = serde_json::from_str(include_str!(
         "../../../sg2d-vega-test-data/vega-scenegraphs/symbol/binned_scatter_cross_stroke.sg.json"
     ))
-        .unwrap();
+    .unwrap();
 
     // Load dims
     let scene_dims: VegaSceneGraphDims = serde_json::from_str(include_str!(
         "../../../sg2d-vega-test-data/vega-scenegraphs/symbol/binned_scatter_cross_stroke.dims.json"
     ))
-        .unwrap();
+    .unwrap();
 
     // Extract dims and set window size
     let origin = [scene_dims.origin_x, scene_dims.origin_y];
@@ -82,11 +82,11 @@ pub async fn run() {
                         WindowEvent::CloseRequested
                         | WindowEvent::KeyboardInput {
                             input:
-                            KeyboardInput {
-                                state: ElementState::Pressed,
-                                virtual_keycode: Some(VirtualKeyCode::Escape),
-                                ..
-                            },
+                                KeyboardInput {
+                                    state: ElementState::Pressed,
+                                    virtual_keycode: Some(VirtualKeyCode::Escape),
+                                    ..
+                                },
                             ..
                         } => *control_flow = ControlFlow::Exit,
                         WindowEvent::Resized(physical_size) => {

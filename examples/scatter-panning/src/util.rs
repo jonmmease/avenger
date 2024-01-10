@@ -1,16 +1,16 @@
 use rand::Rng;
-use sg2d::scene_graph::SceneGraph;
-use sg2d_vega::dims::VegaSceneGraphDims;
-use sg2d_vega::scene_graph::VegaSceneGraph;
-use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
-use winit::event_loop::{ControlFlow, EventLoop};
-use winit::window::WindowBuilder;
 use sg2d::marks::group::{GroupBounds, SceneGroup};
 use sg2d::marks::mark::SceneMark;
 use sg2d::marks::symbol::{SymbolMark, SymbolShape};
+use sg2d::scene_graph::SceneGraph;
 use sg2d::value::EncodingValue;
+use sg2d_vega::dims::VegaSceneGraphDims;
 use sg2d_vega::marks::symbol::shape_to_path;
+use sg2d_vega::scene_graph::VegaSceneGraph;
 use sg2d_wgpu::canvas::{Canvas, WindowCanvas};
+use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
+use winit::event_loop::{ControlFlow, EventLoop};
+use winit::window::WindowBuilder;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -94,11 +94,11 @@ pub async fn run() {
                         WindowEvent::CloseRequested
                         | WindowEvent::KeyboardInput {
                             input:
-                            KeyboardInput {
-                                state: ElementState::Pressed,
-                                virtual_keycode: Some(VirtualKeyCode::Escape),
-                                ..
-                            },
+                                KeyboardInput {
+                                    state: ElementState::Pressed,
+                                    virtual_keycode: Some(VirtualKeyCode::Escape),
+                                    ..
+                                },
                             ..
                         } => *control_flow = ControlFlow::Exit,
                         WindowEvent::Resized(physical_size) => {
@@ -108,7 +108,11 @@ pub async fn run() {
                             // new_inner_size is &&mut so w have to dereference it twice
                             canvas.resize(**new_inner_size);
                         }
-                        WindowEvent::CursorMoved { device_id, position, modifiers } => {
+                        WindowEvent::CursorMoved {
+                            device_id,
+                            position,
+                            modifiers,
+                        } => {
                             // println!("position: {position:?}");
                             let scene_graph = make_sg(
                                 width,
@@ -119,12 +123,17 @@ pub async fn run() {
                                 &fill,
                                 &size,
                                 (position.x / scale as f64) as f32 - 100.0,
-                                (position.y / scale as f64) as f32 - 100.0
+                                (position.y / scale as f64) as f32 - 100.0,
                             );
                             canvas.set_scene(&scene_graph).unwrap();
                             canvas.window().request_redraw();
                         }
-                        WindowEvent::MouseInput { device_id, state, button, modifiers } => {
+                        WindowEvent::MouseInput {
+                            device_id,
+                            state,
+                            button,
+                            modifiers,
+                        } => {
                             // println!("state: {state:?}, button: {button:?}");
                         }
                         _ => {}
@@ -155,38 +164,46 @@ pub async fn run() {
     });
 }
 
-fn make_sg(width: f32, height: f32, shape: &SymbolShape, x: &[f32], y: &[f32], fill: &[[f32; 4]], size: &[f32], x_offset: f32, y_offset: f32) -> SceneGraph {
+fn make_sg(
+    width: f32,
+    height: f32,
+    shape: &SymbolShape,
+    x: &[f32],
+    y: &[f32],
+    fill: &[[f32; 4]],
+    size: &[f32],
+    x_offset: f32,
+    y_offset: f32,
+) -> SceneGraph {
     let x: Vec<f32> = x.iter().map(|v| *v + x_offset).collect();
     let y: Vec<f32> = y.iter().map(|v| *v + y_offset).collect();
     let fill: Vec<[f32; 4]> = Vec::from(fill);
     let size: Vec<f32> = Vec::from(size);
 
     SceneGraph {
-        groups: vec![
-            SceneGroup {
-                bounds: GroupBounds {
-                    x: 0.0,
-                    y: 0.0,
-                    width: None,
-                    height: None,
+        groups: vec![SceneGroup {
+            bounds: GroupBounds {
+                x: 0.0,
+                y: 0.0,
+                width: None,
+                height: None,
+            },
+            marks: vec![SceneMark::Symbol(SymbolMark {
+                name: "scatter".to_string(),
+                clip: false,
+                shape: shape.clone(),
+                stroke_width: None,
+                len: x.len() as u32,
+                x: EncodingValue::Array { values: x },
+                y: EncodingValue::Array { values: y },
+                fill: EncodingValue::Array { values: fill },
+                size: EncodingValue::Array { values: size },
+                stroke: EncodingValue::Scalar {
+                    value: [0.0, 0.0, 0.0, 0.0],
                 },
-                marks: vec![
-                    SceneMark::Symbol(SymbolMark {
-                        name: "scatter".to_string(),
-                        clip: false,
-                        shape: shape.clone(),
-                        stroke_width: None,
-                        len: x.len() as u32,
-                        x: EncodingValue::Array { values: x },
-                        y: EncodingValue::Array { values: y },
-                        fill: EncodingValue::Array { values: fill },
-                        size: EncodingValue::Array { values: size },
-                        stroke: EncodingValue::Scalar { value: [0.0, 0.0, 0.0, 0.0] },
-                        angle: EncodingValue::Scalar { value: 0.0 },
-                    })
-                ],
-            }
-        ],
+                angle: EncodingValue::Scalar { value: 0.0 },
+            })],
+        }],
         width,
         height,
     }
