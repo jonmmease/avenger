@@ -30,7 +30,7 @@ impl VegaMarkItem for VegaSymbolItem {}
 impl VegaMarkContainer<VegaSymbolItem> {
     pub fn to_scene_graph(&self, origin: [f32; 2]) -> Result<SceneMark, VegaSceneGraphError> {
         // Get shape of first item and use that for all items for now
-        let first = self.items.get(0);
+        let first = self.items.first();
 
         let first_shape = first
             .and_then(|item| item.shape.clone())
