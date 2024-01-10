@@ -18,11 +18,11 @@ cargo run
 ## Build wasm
 To build the example above to WASM + WebGL2, run the following:
 ```
-cd sg2d-wgpu
+cd examples/wgpu-winit
 wasm-pack build --target web
 ```
 
-Then open `vega-wgpu-renderer/index.html` in a web browser.
+Then open `examples/wgpu-winit/index.html` in a web browser.
 
 ## Export PNG
 The `PngCanvas` struct can be used to convert a scene graph to a PNG image headlessly. See the tests in
