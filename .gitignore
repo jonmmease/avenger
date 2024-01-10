@@ -4,3 +4,5 @@
 .DS_Store
 /sg2d-wgpu/examples/wgpu-winit/pkg/
 /sg2d-wgpu/examples/wgpu-winit/target/
+/sg2d-wgpu/examples/scatter-panning/pkg/
+/sg2d-wgpu/examples/scatter-panning/target/
