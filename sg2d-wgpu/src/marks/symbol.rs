@@ -11,6 +11,7 @@ use wgpu::VertexBufferLayout;
 
 const FILL_KIND: u32 = 0;
 const STROKE_KIND: u32 = 1;
+const CIRCLE_KIND: u32 = 2;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -98,7 +99,7 @@ impl SymbolShader {
             SymbolShape::Circle => {
                 let r = if has_stroke { 0.9 } else { 0.6 };
                 let normal: [f32; 2] = [0.0, 0.0];
-                let kind = FILL_KIND;
+                let kind = CIRCLE_KIND;
                 Self {
                     verts: vec![
                         SymbolVertex {
@@ -123,7 +124,7 @@ impl SymbolShader {
                         },
                     ],
                     indices: vec![0, 1, 2, 0, 2, 3],
-                    shader: include_str!("circle.wgsl").to_string(),
+                    shader: include_str!("symbol.wgsl").to_string(),
                     vertex_entry_point: "vs_main".to_string(),
                     fragment_entry_point: "fs_main".to_string(),
                 }
@@ -149,7 +150,7 @@ impl SymbolShader {
                 Self {
                     verts: buffers.vertices,
                     indices: buffers.indices,
-                    shader: include_str!("polygon_symbol.wgsl").to_string(),
+                    shader: include_str!("symbol.wgsl").to_string(),
                     vertex_entry_point: "vs_main".to_string(),
                     fragment_entry_point: "fs_main".to_string(),
                 }
