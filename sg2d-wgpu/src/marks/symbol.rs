@@ -19,12 +19,14 @@ pub struct SymbolVertex {
     pub position: [f32; 2],
     pub normal: [f32; 2],
     pub kind: u32,
+    pub shape_index: u32,
 }
 
-const VERTEX_ATTRIBUTES: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![
+const VERTEX_ATTRIBUTES: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
     0 => Float32x2,     // position
     1 => Float32x2,     // normal
     2 => Uint32,        // kind
+    3 => Uint32,        // shape_index
 ];
 
 impl SymbolVertex {
@@ -46,17 +48,19 @@ pub struct SymbolInstance {
     pub stroke_width: f32,
     pub size: f32,
     pub angle: f32,
+    pub shape_index: u32,
 }
 
 // First shader index (i.e. the 1 in `1 => Float...`) must be one greater than
 // the largest shader index used in VERTEX_ATTRIBUTES above
-const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array![
-    3 => Float32x2,     // position
-    4 => Float32x4,     // fill_color
-    5 => Float32x4,     // stroke_color
-    6 => Float32,       // stroke_width
-    7 => Float32,       // size
-    8 => Float32,       // angle
+const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
+    4 => Float32x2,     // position
+    5 => Float32x4,     // fill_color
+    6 => Float32x4,     // stroke_color
+    7 => Float32,       // stroke_width
+    8 => Float32,       // size
+    9 => Float32,       // angle
+    10 => Uint32,       // shape_index
 ];
 
 impl SymbolInstance {
@@ -69,15 +73,19 @@ impl SymbolInstance {
             mark.size_iter(),
             mark.stroke_iter(),
             mark.angle_iter(),
+            mark.shape_index_iter(),
         )
-        .map(move |(x, y, fill, size, stroke, angle)| SymbolInstance {
-            position: [*x, *y],
-            fill_color: *fill,
-            stroke_color: *stroke,
-            stroke_width,
-            size: *size,
-            angle: *angle,
-        })
+        .map(
+            move |(x, y, fill, size, stroke, angle, shape_index)| SymbolInstance {
+                position: [*x, *y],
+                fill_color: *fill,
+                stroke_color: *stroke,
+                stroke_width,
+                size: *size,
+                angle: *angle,
+                shape_index: (*shape_index) as u32,
+            },
+        )
     }
 }
 
@@ -91,70 +99,83 @@ pub struct SymbolShader {
 
 impl SymbolShader {
     pub fn try_new(
-        shape: SymbolShape,
+        shapes: Vec<SymbolShape>,
         has_fill: bool,
         has_stroke: bool,
     ) -> Result<Self, Sg2dWgpuError> {
-        Ok(match shape {
-            SymbolShape::Circle => {
-                let r = if has_stroke { 0.9 } else { 0.6 };
-                let normal: [f32; 2] = [0.0, 0.0];
-                let kind = CIRCLE_KIND;
-                Self {
-                    verts: vec![
+        let mut verts: Vec<SymbolVertex> = Vec::new();
+        let mut indices: Vec<u16> = Vec::new();
+        for (shape_index, shape) in shapes.iter().enumerate() {
+            let shape_index = shape_index as u32;
+            match shape {
+                SymbolShape::Circle => {
+                    let r = if has_stroke { 0.9 } else { 0.6 };
+                    let normal: [f32; 2] = [0.0, 0.0];
+                    let kind = CIRCLE_KIND;
+                    let index_offset = verts.len() as u16;
+
+                    verts.extend(vec![
                         SymbolVertex {
                             position: [r, -r],
                             normal,
                             kind,
+                            shape_index,
                         },
                         SymbolVertex {
                             position: [r, r],
                             normal,
                             kind,
+                            shape_index,
                         },
                         SymbolVertex {
                             position: [-r, r],
                             normal,
                             kind,
+                            shape_index,
                         },
                         SymbolVertex {
                             position: [-r, -r],
                             normal,
                             kind,
+                            shape_index,
                         },
-                    ],
-                    indices: vec![0, 1, 2, 0, 2, 3],
-                    shader: include_str!("symbol.wgsl").to_string(),
-                    vertex_entry_point: "vs_main".to_string(),
-                    fragment_entry_point: "fs_main".to_string(),
+                    ]);
+                    let local_indices = vec![0, 1, 2, 0, 2, 3];
+                    indices.extend(local_indices.into_iter().map(|i| i + index_offset));
+                }
+                SymbolShape::Path(path) => {
+                    let mut buffers: VertexBuffers<SymbolVertex, u16> = VertexBuffers::new();
+                    let mut builder =
+                        BuffersBuilder::new(&mut buffers, VertexPositions { shape_index });
+
+                    // Tesselate fill
+                    if has_fill {
+                        let mut fill_tessellator = FillTessellator::new();
+                        let fill_options = FillOptions::default().with_tolerance(0.01);
+                        fill_tessellator.tessellate_path(path, &fill_options, &mut builder)?;
+                    }
+
+                    // Tesselate stroke
+                    if has_stroke {
+                        let mut stroke_tessellator = StrokeTessellator::new();
+                        let stroke_options = StrokeOptions::default()
+                            .with_tolerance(0.01)
+                            .with_line_width(0.1);
+                        stroke_tessellator.tessellate_path(path, &stroke_options, &mut builder)?;
+                    }
+
+                    let index_offset = verts.len() as u16;
+                    verts.extend(buffers.vertices);
+                    indices.extend(buffers.indices.into_iter().map(|i| i + index_offset));
                 }
             }
-            SymbolShape::Path(ref path) => {
-                let mut buffers: VertexBuffers<SymbolVertex, u16> = VertexBuffers::new();
-                let mut builder = BuffersBuilder::new(&mut buffers, VertexPositions);
-
-                // Tesselate fill
-                if has_fill {
-                    let mut fill_tessellator = FillTessellator::new();
-                    let fill_options = FillOptions::default().with_tolerance(0.01);
-                    fill_tessellator.tessellate_path(path, &fill_options, &mut builder)?;
-                }
-
-                // Tesselate stroke
-                if has_stroke {
-                    let mut stroke_tessellator = StrokeTessellator::new();
-                    let stroke_options = StrokeOptions::default().with_line_width(0.1);
-                    stroke_tessellator.tessellate_path(path, &stroke_options, &mut builder)?;
-                }
-
-                Self {
-                    verts: buffers.vertices,
-                    indices: buffers.indices,
-                    shader: include_str!("symbol.wgsl").to_string(),
-                    vertex_entry_point: "vs_main".to_string(),
-                    fragment_entry_point: "fs_main".to_string(),
-                }
-            }
+        }
+        Ok(Self {
+            verts,
+            indices,
+            shader: include_str!("symbol.wgsl").to_string(),
+            vertex_entry_point: "vs_main".to_string(),
+            fragment_entry_point: "fs_main".to_string(),
         })
     }
 }
@@ -196,7 +217,9 @@ impl MarkShader for SymbolShader {
     }
 }
 
-pub struct VertexPositions;
+pub struct VertexPositions {
+    shape_index: u32,
+}
 
 impl FillVertexConstructor<SymbolVertex> for VertexPositions {
     fn new_vertex(&mut self, vertex: FillVertex) -> SymbolVertex {
@@ -206,6 +229,7 @@ impl FillVertexConstructor<SymbolVertex> for VertexPositions {
             position: [vertex.position().x, -vertex.position().y],
             normal: [0.0, 0.0],
             kind: FILL_KIND,
+            shape_index: self.shape_index,
         }
     }
 }
@@ -218,6 +242,7 @@ impl StrokeVertexConstructor<SymbolVertex> for VertexPositions {
             position: [vertex.position().x, -vertex.position().y],
             normal: [vertex.normal().x, -vertex.normal().y],
             kind: STROKE_KIND,
+            shape_index: self.shape_index,
         }
     }
 }

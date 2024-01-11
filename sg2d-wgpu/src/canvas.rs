@@ -58,7 +58,7 @@ pub trait Canvas {
             self.texture_format(),
             self.sample_count(),
             Box::new(SymbolShader::try_new(
-                mark.shape.clone(),
+                mark.shapes.clone(),
                 true,
                 mark.stroke_width.is_some(),
             )?),
