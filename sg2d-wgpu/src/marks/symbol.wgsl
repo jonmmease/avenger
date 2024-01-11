@@ -12,34 +12,39 @@ struct VertexInput {
     @location(0) position: vec2<f32>,
     @location(1) normal: vec2<f32>,
     @location(2) kind: u32,
+    @location(3) shape_index: u32,
 };
 
 struct InstanceInput {
-    @location(3) position: vec2<f32>,
-    @location(4) fill_color: vec4<f32>,
-    @location(5) stroke_color: vec4<f32>,
-    @location(6) stroke_width: f32,
-    @location(7) size: f32,
-    @location(8) angle: f32,
+    @location(4) position: vec2<f32>,
+    @location(5) fill_color: vec4<f32>,
+    @location(6) stroke_color: vec4<f32>,
+    @location(7) stroke_width: f32,
+    @location(8) size: f32,
+    @location(9) angle: f32,
+    @location(10) shape_index: u32,
 };
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
 
+    // if 1.0, draw the fragment, otherwise discard
+    @location(0) draw_shape: f32,
+
     // If 1.0, the vertex is part of the bounding box of a circle symbol
     // otherwise, vertex is part of a geometric (path-based) symbol
-    @location(0) is_circle: f32,
+    @location(1) is_circle: f32,
 
     // Color of vertex when drawing geometric symbol based on a path
-    @location(1) geom_color: vec4<f32>,
+    @location(2) geom_color: vec4<f32>,
 
     // Properties of circle symbol. Circles are drawn in the fragment shader,
     // so more info must be passed through
-    @location(2) circle_center: vec2<f32>,
-    @location(3) circle_radius: f32,
-    @location(4) circle_fill_color: vec4<f32>,
-    @location(5) circle_stroke_color: vec4<f32>,
-    @location(6) circle_stroke_width: f32,
+    @location(3) circle_center: vec2<f32>,
+    @location(4) circle_radius: f32,
+    @location(5) circle_fill_color: vec4<f32>,
+    @location(6) circle_stroke_color: vec4<f32>,
+    @location(7) circle_stroke_width: f32,
 };
 
 const PI = 3.14159265359;
@@ -50,6 +55,14 @@ fn vs_main(
     instance: InstanceInput,
 ) -> VertexOutput {
     var out: VertexOutput;
+
+    if (instance.shape_index != model.shape_index) {
+        out.draw_shape = 0.0;
+        return out;
+    } else {
+        out.draw_shape = 1.0;
+    }
+
     let size_scale = sqrt(instance.size);
 
     // Compute scenegraph x and y coordinates
@@ -117,7 +130,9 @@ fn vs_main(
 // Fragment shader
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    if (in.is_circle == 1.0) {
+    if (in.draw_shape != 1.0) {
+        discard;
+    } if (in.is_circle == 1.0) {
         // Draw anti-aliased circle
         let buffer = 0.5 * chart_uniforms.scale;
         let dist = length(in.circle_center - vec2<f32>(in.clip_position[0], in.clip_position[1]));

@@ -1,0 +1,81 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v5.json",
+  "description": "A scatterplot showing body mass and flipper lengths of penguins.",
+  "background": "white",
+  "padding": 5,
+  "width": 500,
+  "height": 500,
+  "style": "cell",
+  "config": {"style": {"cell": {"stroke": "transparent"}}},
+  "data": [
+    {
+      "name": "source_0",
+      "url": "data/penguins.json",
+      "format": {"type": "json"},
+      "transform": [
+        {
+          "type": "filter",
+          "expr": "isValid(datum[\"Flipper Length (mm)\"]) && isFinite(+datum[\"Flipper Length (mm)\"]) && isValid(datum[\"Body Mass (g)\"]) && isFinite(+datum[\"Body Mass (g)\"])"
+        }
+      ]
+    }
+  ],
+  "marks": [
+    {
+      "name": "marks",
+      "type": "symbol",
+      "style": ["point"],
+      "from": {"data": "source_0"},
+      "encode": {
+        "update": {
+          "opacity": {"value": 0.7},
+          "fill": {"value": "pink"},
+          "stroke": {"scale": "color", "field": "Species"},
+          "fillOpacity": {"value": 0.5},
+          "x": {"scale": "x", "field": "Flipper Length (mm)"},
+          "y": {"scale": "y", "field": "Body Mass (g)"},
+          "size": {"scale": "size", "field": "Beak Length (mm)"},
+          "shape": {"scale": "shape", "field": "Species"}
+        }
+      }
+    }
+  ],
+  "scales": [
+    {
+      "name": "x",
+      "type": "linear",
+      "domain": {"data": "source_0", "field": "Flipper Length (mm)"},
+      "range": [0, {"signal": "width"}],
+      "zero": false,
+      "nice": true
+    },
+    {
+      "name": "y",
+      "type": "linear",
+      "domain": {"data": "source_0", "field": "Body Mass (g)"},
+      "range": [{"signal": "height"}, 0],
+      "zero": false,
+      "nice": true
+    },
+    {
+      "name": "size",
+      "type": "linear",
+      "domain": {"data": "source_0", "field": "Beak Length (mm)"},
+      "range": [10, 1000],
+      "zero": false,
+      "nice": true
+    },
+    {
+      "name": "color",
+      "type": "ordinal",
+      "domain": {"data": "source_0", "field": "Species", "sort": true},
+      "range": "category"
+    },
+    {
+      "name": "shape",
+      "type": "ordinal",
+      "domain": ["Adelie", "Gentoo", "Chinstrap"],
+      "range": ["cross", "M0,.5L.6,.8L.5,.1L1,-.3L.3,-.4L0,-1L-.3,-.4L-1,-.3L-.5,.1L-.6.8L0,.5Z", "circle"]
+    }
+  ]
+}
