@@ -59,6 +59,7 @@ pub async fn run() {
     let scale = 2.0;
 
     let shape = shape_to_path("circle").unwrap();
+    // let shape = shape_to_path("cross").unwrap();
 
     let mut x: Vec<f32> = Vec::new();
     let mut y: Vec<f32> = Vec::new();
@@ -202,6 +203,7 @@ fn make_sg(
                     value: [0.0, 0.0, 0.0, 0.0],
                 },
                 angle: EncodingValue::Scalar { value: 0.0 },
+                indices: None,
             })],
         }],
         width,
