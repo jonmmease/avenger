@@ -6,9 +6,10 @@ use serde::{Deserialize, Serialize};
 pub struct SymbolMark {
     pub name: String,
     pub clip: bool,
-    pub shape: SymbolShape,
+    pub shapes: Vec<SymbolShape>,
     pub stroke_width: Option<f32>,
     pub len: u32,
+    pub shape_index: EncodingValue<usize>,
     pub x: EncodingValue<f32>,
     pub y: EncodingValue<f32>,
     pub fill: EncodingValue<[f32; 4]>,
@@ -41,6 +42,10 @@ impl SymbolMark {
     pub fn angle_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
         self.angle.as_iter(self.len as usize, self.indices.as_ref())
     }
+    pub fn shape_index_iter(&self) -> Box<dyn Iterator<Item = &usize> + '_> {
+        self.shape_index
+            .as_iter(self.len as usize, self.indices.as_ref())
+    }
 }
 
 impl Default for SymbolMark {
@@ -48,11 +53,12 @@ impl Default for SymbolMark {
         Self {
             name: "".to_string(),
             clip: true,
-            shape: Default::default(),
+            shapes: vec![Default::default()],
             stroke_width: None,
             len: 1,
             x: EncodingValue::Scalar { value: 0.0 },
             y: EncodingValue::Scalar { value: 0.0 },
+            shape_index: EncodingValue::Scalar { value: 0 },
             fill: EncodingValue::Scalar {
                 value: [0.0, 0.0, 0.0, 0.0],
             },
