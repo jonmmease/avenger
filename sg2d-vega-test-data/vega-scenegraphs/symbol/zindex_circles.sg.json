@@ -1,0 +1,82 @@
+{
+  "marktype": "group",
+  "name": "root",
+  "role": "frame",
+  "interactive": true,
+  "clip": false,
+  "items": [
+    {
+      "items": [
+        {
+          "marktype": "symbol",
+          "role": "mark",
+          "interactive": true,
+          "clip": false,
+          "items": [
+            {
+              "zindex": 3,
+              "x": 30,
+              "y": 40,
+              "fill": "red",
+              "stroke": "black",
+              "strokeWidth": 3,
+              "size": 600,
+              "shape": "circle",
+              "angle": 0
+            },
+            {
+              "zindex": 1,
+              "x": 30,
+              "y": 40,
+              "fill": "blue",
+              "stroke": "black",
+              "strokeWidth": 3,
+              "size": 1200,
+              "shape": "circle",
+              "angle": 30
+            },
+            {
+              "zindex": 0,
+              "x": 10,
+              "y": 40,
+              "fill": "green",
+              "stroke": "black",
+              "strokeWidth": 3,
+              "size": 1800,
+              "shape": "circle",
+              "angle": 90
+            },
+            {
+              "zindex": 2,
+              "x": 50,
+              "y": 40,
+              "fill": "aqua",
+              "stroke": "black",
+              "strokeWidth": 3,
+              "size": 2200,
+              "shape": "circle",
+              "angle": 120
+            },
+            {
+              "zindex": 0,
+              "x": 30,
+              "y": 40,
+              "fill": "pink",
+              "stroke": "black",
+              "strokeWidth": 3,
+              "size": 2800,
+              "shape": "circle",
+              "angle": 180
+            }
+          ],
+          "zindex": 0
+        }
+      ],
+      "x": 0,
+      "y": 0,
+      "width": 100,
+      "height": 100
+    }
+  ],
+  "zindex": 0
+}

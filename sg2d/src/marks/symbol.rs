@@ -15,29 +15,31 @@ pub struct SymbolMark {
     pub size: EncodingValue<f32>,
     pub stroke: EncodingValue<[f32; 4]>,
     pub angle: EncodingValue<f32>,
+    pub indices: Option<Vec<usize>>,
 }
 
 impl SymbolMark {
     pub fn x_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.x.as_iter(self.len as usize)
+        self.x.as_iter(self.len as usize, self.indices.as_ref())
     }
 
     pub fn y_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.y.as_iter(self.len as usize)
+        self.y.as_iter(self.len as usize, self.indices.as_ref())
     }
 
     pub fn fill_iter(&self) -> Box<dyn Iterator<Item = &[f32; 4]> + '_> {
-        self.fill.as_iter(self.len as usize)
+        self.fill.as_iter(self.len as usize, self.indices.as_ref())
     }
 
     pub fn size_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.size.as_iter(self.len as usize)
+        self.size.as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn stroke_iter(&self) -> Box<dyn Iterator<Item = &[f32; 4]> + '_> {
-        self.stroke.as_iter(self.len as usize)
+        self.stroke
+            .as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn angle_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.angle.as_iter(self.len as usize)
+        self.angle.as_iter(self.len as usize, self.indices.as_ref())
     }
 }
 
@@ -59,6 +61,7 @@ impl Default for SymbolMark {
                 value: [0.0, 0.0, 0.0, 0.0],
             },
             angle: EncodingValue::Scalar { value: 0.0 },
+            indices: None,
         }
     }
 }
