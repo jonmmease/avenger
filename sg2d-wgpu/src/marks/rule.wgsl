@@ -18,13 +18,13 @@ struct InstanceInput {
     @location(2) y0: f32,
     @location(3) x1: f32,
     @location(4) y1: f32,
-    @location(5) stroke: vec3<f32>,
+    @location(5) stroke: vec4<f32>,
     @location(6) stroke_width: f32,
 };
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) color: vec3<f32>,
+    @location(0) color: vec4<f32>,
 };
 
 const PI = 3.14159265359;
@@ -56,8 +56,7 @@ fn vs_main(
 }
 
 // Fragment shader
-
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(in.color, 1.0);
+    return in.color;
 }

@@ -24,6 +24,7 @@ impl<T> EncodingValue<T> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum StrokeCap {
     Butt,
     Round,

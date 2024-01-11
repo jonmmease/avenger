@@ -30,7 +30,7 @@ pub struct RuleInstance {
     pub y0: f32,
     pub x1: f32,
     pub y1: f32,
-    pub stroke: [f32; 3],
+    pub stroke: [f32; 4],
     pub stroke_width: f32,
 }
 
@@ -39,7 +39,7 @@ const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array!
     2 => Float32,     // y0
     3 => Float32,     // x1
     4 => Float32,     // y1
-    5 => Float32x3,   // stroke
+    5 => Float32x4,   // stroke
     6 => Float32,     // stroke_width
 ];
 

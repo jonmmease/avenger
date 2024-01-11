@@ -1,0 +1,60 @@
+{
+  "marktype": "group",
+  "name": "root",
+  "role": "frame",
+  "interactive": true,
+  "clip": false,
+  "items": [
+    {
+      "items": [
+        {
+          "marktype": "rule",
+          "name": "marks",
+          "role": "mark",
+          "interactive": true,
+          "clip": false,
+          "items": [
+            {
+              "x": 140,
+              "y": 15,
+              "opacity": 0.5,
+              "stroke": "orange",
+              "strokeWidth": 16,
+              "strokeCap": "butt",
+              "x2": 60,
+              "y2": 180
+            },
+            {
+              "x": 20,
+              "y": 15,
+              "opacity": 0.5,
+              "stroke": "blue",
+              "strokeWidth": 16,
+              "strokeCap": "butt",
+              "x2": 120,
+              "y2": 140
+            },
+            {
+              "x": 50,
+              "y": 15,
+              "opacity": 0.5,
+              "stroke": "green",
+              "strokeWidth": 16,
+              "strokeCap": "butt",
+              "x2": 120,
+              "y2": 180
+            }
+          ],
+          "zindex": 0
+        }
+      ],
+      "x": 0,
+      "y": 0,
+      "width": 200,
+      "height": 200,
+      "fill": "transparent",
+      "stroke": "transparent"
+    }
+  ],
+  "zindex": 0
+}
