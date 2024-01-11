@@ -23,6 +23,7 @@ pub struct VegaSymbolItem {
     pub stroke_width: Option<f32>,
     pub stroke_opacity: Option<f32>,
     pub angle: Option<f32>,
+    pub zindex: Option<i32>,
 }
 
 impl VegaMarkItem for VegaSymbolItem {}
@@ -67,6 +68,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
         let mut stroke = Vec::<[f32; 4]>::new();
         let mut stroke_width = Vec::<f32>::new();
         let mut angle = Vec::<f32>::new();
+        let mut zindex = Vec::<i32>::new();
 
         // For each item, append explicit values to corresponding vector
         for item in &self.items {
@@ -99,6 +101,9 @@ impl VegaMarkContainer<VegaSymbolItem> {
             if let Some(v) = item.angle {
                 angle.push(v);
             }
+            if let Some(v) = item.zindex {
+                zindex.push(v);
+            }
         }
 
         // Override values with vectors
@@ -122,6 +127,11 @@ impl VegaMarkContainer<VegaSymbolItem> {
         }
         if angle.len() == len {
             mark.angle = EncodingValue::Array { values: angle };
+        }
+        if zindex.len() == len {
+            let mut indices: Vec<usize> = (0..len).collect();
+            indices.sort_by_key(|i| zindex[*i]);
+            mark.indices = Some(indices);
         }
 
         Ok(SceneMark::Symbol(mark))

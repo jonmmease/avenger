@@ -12,27 +12,29 @@ pub struct RectMark {
     pub width: EncodingValue<f32>,
     pub height: EncodingValue<f32>,
     pub fill: EncodingValue<[f32; 3]>,
+    pub indices: Option<Vec<usize>>,
 }
 
 impl RectMark {
     pub fn x_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.x.as_iter(self.len as usize)
+        self.x.as_iter(self.len as usize, self.indices.as_ref())
     }
 
     pub fn y_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.y.as_iter(self.len as usize)
+        self.y.as_iter(self.len as usize, self.indices.as_ref())
     }
 
     pub fn width_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.width.as_iter(self.len as usize)
+        self.width.as_iter(self.len as usize, self.indices.as_ref())
     }
 
     pub fn height_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.height.as_iter(self.len as usize)
+        self.height
+            .as_iter(self.len as usize, self.indices.as_ref())
     }
 
     pub fn fill_iter(&self) -> Box<dyn Iterator<Item = &[f32; 3]> + '_> {
-        self.fill.as_iter(self.len as usize)
+        self.fill.as_iter(self.len as usize, self.indices.as_ref())
     }
 }
 
@@ -49,6 +51,7 @@ impl Default for RectMark {
             fill: EncodingValue::Scalar {
                 value: [0.0, 0.0, 0.0],
             },
+            indices: None,
         }
     }
 }

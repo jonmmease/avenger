@@ -14,29 +14,33 @@ pub struct RuleMark {
     pub stroke: EncodingValue<[f32; 3]>,
     pub stroke_width: EncodingValue<f32>,
     pub stroke_cap: EncodingValue<StrokeCap>,
+    pub indices: Option<Vec<usize>>,
 }
 
 impl RuleMark {
     pub fn x0_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.x0.as_iter(self.len as usize)
+        self.x0.as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn y0_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.y0.as_iter(self.len as usize)
+        self.y0.as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn x1_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.x1.as_iter(self.len as usize)
+        self.x1.as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn y1_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.y1.as_iter(self.len as usize)
+        self.y1.as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn stroke_iter(&self) -> Box<dyn Iterator<Item = &[f32; 3]> + '_> {
-        self.stroke.as_iter(self.len as usize)
+        self.stroke
+            .as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn stroke_width_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.stroke_width.as_iter(self.len as usize)
+        self.stroke_width
+            .as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn stroke_cap_iter(&self) -> Box<dyn Iterator<Item = &StrokeCap> + '_> {
-        self.stroke_cap.as_iter(self.len as usize)
+        self.stroke_cap
+            .as_iter(self.len as usize, self.indices.as_ref())
     }
 }
 
@@ -57,6 +61,7 @@ impl Default for RuleMark {
             stroke_cap: EncodingValue::Scalar {
                 value: StrokeCap::Butt,
             },
+            indices: None,
         }
     }
 }
