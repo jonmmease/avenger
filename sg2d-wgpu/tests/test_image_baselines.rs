@@ -37,6 +37,7 @@ mod test_image_baselines {
         case("symbol", "wind_vector", 0.0015),
         case("symbol", "wedge_angle", 0.001),
         case("symbol", "wedge_stroke_angle", 0.001),
+        case("symbol", "zindex_circles", 0.001),
         case("rule", "wide_rule_axes", 0.0001),
         case("text", "bar_axis_labels", 0.025)
     )]

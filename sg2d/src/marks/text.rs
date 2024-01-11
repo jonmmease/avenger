@@ -22,53 +22,59 @@ pub struct TextMark {
     pub font_weight: EncodingValue<FontWeightSpec>,
     pub font_style: EncodingValue<FontStyleSpec>,
     pub limit: EncodingValue<f32>,
+    pub indices: Option<Vec<usize>>,
 }
 
 impl TextMark {
     pub fn text_iter(&self) -> Box<dyn Iterator<Item = &String> + '_> {
-        self.text.as_iter(self.len as usize)
+        self.text.as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn x_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.x.as_iter(self.len as usize)
+        self.x.as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn y_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.y.as_iter(self.len as usize)
+        self.y.as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn align_iter(&self) -> Box<dyn Iterator<Item = &TextAlignSpec> + '_> {
-        self.align.as_iter(self.len as usize)
+        self.align.as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn baseline_iter(&self) -> Box<dyn Iterator<Item = &TextBaselineSpec> + '_> {
-        self.baseline.as_iter(self.len as usize)
+        self.baseline
+            .as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn opacity_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.opacity.as_iter(self.len as usize)
+        self.opacity
+            .as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn angle_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.angle.as_iter(self.len as usize)
+        self.angle.as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn color_iter(&self) -> Box<dyn Iterator<Item = &[f32; 3]> + '_> {
-        self.color.as_iter(self.len as usize)
+        self.color.as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn dx_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.dx.as_iter(self.len as usize)
+        self.dx.as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn dy_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.dx.as_iter(self.len as usize)
+        self.dx.as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn font_iter(&self) -> Box<dyn Iterator<Item = &String> + '_> {
-        self.font.as_iter(self.len as usize)
+        self.font.as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn font_size_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.font_size.as_iter(self.len as usize)
+        self.font_size
+            .as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn font_weight_iter(&self) -> Box<dyn Iterator<Item = &FontWeightSpec> + '_> {
-        self.font_weight.as_iter(self.len as usize)
+        self.font_weight
+            .as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn font_style_iter(&self) -> Box<dyn Iterator<Item = &FontStyleSpec> + '_> {
-        self.font_style.as_iter(self.len as usize)
+        self.font_style
+            .as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn limit_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.limit.as_iter(self.len as usize)
+        self.limit.as_iter(self.len as usize, self.indices.as_ref())
     }
 }
 
@@ -107,6 +113,7 @@ impl Default for TextMark {
                 value: FontStyleSpec::Normal,
             },
             limit: EncodingValue::Scalar { value: 0.0 },
+            indices: None,
         }
     }
 }

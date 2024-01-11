@@ -15,6 +15,7 @@ pub struct VegaRuleItem {
     pub stroke: Option<String>,
     pub stroke_width: Option<f32>,
     pub stroke_cap: Option<StrokeCap>,
+    pub zindex: Option<i32>,
 }
 
 impl VegaMarkItem for VegaRuleItem {}
@@ -38,6 +39,7 @@ impl VegaMarkContainer<VegaRuleItem> {
         let mut stroke = Vec::<[f32; 3]>::new();
         let mut stroke_width = Vec::<f32>::new();
         let mut stroke_cap = Vec::<StrokeCap>::new();
+        let mut zindex = Vec::<i32>::new();
 
         // For each item, append explicit values to corresponding vector
         for item in &self.items {
@@ -57,6 +59,10 @@ impl VegaMarkContainer<VegaRuleItem> {
 
             if let Some(s) = item.stroke_cap {
                 stroke_cap.push(s);
+            }
+
+            if let Some(v) = item.zindex {
+                zindex.push(v);
             }
         }
 
@@ -86,6 +92,11 @@ impl VegaMarkContainer<VegaRuleItem> {
         }
         if stroke_cap.len() == len {
             mark.stroke_cap = EncodingValue::Array { values: stroke_cap };
+        }
+        if zindex.len() == len {
+            let mut indices: Vec<usize> = (0..len).collect();
+            indices.sort_by_key(|i| zindex[*i]);
+            mark.indices = Some(indices);
         }
 
         Ok(SceneMark::Rule(mark))

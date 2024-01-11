@@ -26,6 +26,7 @@ pub struct VegaTextItem {
     pub font_weight: Option<FontWeightSpec>,
     pub font_style: Option<FontStyleSpec>,
     pub limit: Option<f32>,
+    pub zindex: Option<i32>,
 }
 
 impl VegaMarkItem for VegaTextItem {}
@@ -57,6 +58,7 @@ impl VegaMarkContainer<VegaTextItem> {
         let mut font_weight = Vec::<FontWeightSpec>::new();
         let mut font_style = Vec::<FontStyleSpec>::new();
         let mut limit = Vec::<f32>::new();
+        let mut zindex = Vec::<i32>::new();
 
         for item in &self.items {
             x.push(item.x + origin[0]);
@@ -111,6 +113,10 @@ impl VegaMarkContainer<VegaTextItem> {
             if let Some(v) = item.limit {
                 limit.push(v);
             }
+
+            if let Some(v) = item.zindex {
+                zindex.push(v);
+            }
         }
 
         // Override values with vectors
@@ -163,6 +169,11 @@ impl VegaMarkContainer<VegaTextItem> {
         }
         if limit.len() == len {
             mark.limit = EncodingValue::Array { values: limit };
+        }
+        if zindex.len() == len {
+            let mut indices: Vec<usize> = (0..len).collect();
+            indices.sort_by_key(|i| zindex[*i]);
+            mark.indices = Some(indices);
         }
         Ok(SceneMark::Text(Box::new(mark)))
     }

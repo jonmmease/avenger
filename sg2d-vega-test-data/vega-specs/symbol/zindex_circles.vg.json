@@ -1,0 +1,36 @@
+{
+  "width": 100,
+  "height": 100,
+  "background": "white",
+  "data": [
+    {
+      "name": "data_1",
+      "values": [
+        {"x": 30, "z": 3, "angle": 0, "c": "red", "size": 600},
+        {"x": 30, "z": 1, "angle": 30, "c": "blue", "size": 1200},
+        {"x": 10, "z": 0, "angle": 90, "c": "green", "size": 1800},
+        {"x": 50, "z": 2, "angle": 120, "c": "aqua", "size": 2200},
+        {"x": 30, "z": 0, "angle": 180, "c": "pink", "size": 2800}
+      ]
+    }
+  ],
+  "marks": [
+    {
+      "type": "symbol",
+      "from": {"data": "data_1"},
+      "encode": {
+        "update": {
+          "x": {"field": "x"},
+          "y": {"value": 40},
+          "zindex": {"field": "z"},
+          "shape": {"value": "circle"},
+          "fill": {"field": "c"},
+          "stroke": {"value": "black"},
+          "strokeWidth": {"value": 3},
+          "size": {"field": "size"},
+          "angle": {"field": "angle"}
+        }
+      }
+    }
+  ]
+}

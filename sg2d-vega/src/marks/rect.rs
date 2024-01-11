@@ -16,6 +16,7 @@ pub struct VegaRectItem {
     pub y2: Option<f32>,
     pub fill: Option<String>,
     pub fill_opacity: Option<f32>,
+    pub zindex: Option<i32>,
 }
 
 impl VegaMarkItem for VegaRectItem {}
@@ -37,6 +38,7 @@ impl VegaMarkContainer<VegaRectItem> {
         let mut width = Vec::<f32>::new();
         let mut height = Vec::<f32>::new();
         let mut fill = Vec::<[f32; 3]>::new();
+        let mut zindex = Vec::<i32>::new();
 
         // For each item, append explicit values to corresponding vector
         for item in &self.items {
@@ -51,6 +53,9 @@ impl VegaMarkContainer<VegaRectItem> {
             if let Some(v) = &item.fill {
                 let c = csscolorparser::parse(v)?;
                 fill.push([c.r as f32, c.g as f32, c.b as f32])
+            }
+            if let Some(v) = item.zindex {
+                zindex.push(v);
             }
         }
 
@@ -72,6 +77,11 @@ impl VegaMarkContainer<VegaRectItem> {
         }
         if fill.len() == len {
             mark.fill = EncodingValue::Array { values: fill };
+        }
+        if zindex.len() == len {
+            let mut indices: Vec<usize> = (0..len).collect();
+            indices.sort_by_key(|i| zindex[*i]);
+            mark.indices = Some(indices);
         }
 
         Ok(SceneMark::Rect(mark))
