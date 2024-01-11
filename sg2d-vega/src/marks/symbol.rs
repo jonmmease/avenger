@@ -32,11 +32,6 @@ impl VegaMarkContainer<VegaSymbolItem> {
     pub fn to_scene_graph(&self, origin: [f32; 2]) -> Result<SceneMark, VegaSceneGraphError> {
         // Get shape of first item and use that for all items for now
         let first = self.items.first();
-
-        let first_shape = first
-            .and_then(|item| item.shape.clone())
-            .unwrap_or_else(|| "circle".to_string());
-
         let first_has_stroke = first.map(|item| item.stroke.is_some()).unwrap_or(false);
 
         // Only include stroke_width if there is a stroke color
@@ -46,11 +41,8 @@ impl VegaMarkContainer<VegaSymbolItem> {
             None
         };
 
-        let first_shape = shape_to_path(&first_shape)?;
-
         // Init mark with scalar defaults
         let mut mark = SymbolMark {
-            shape: first_shape,
             stroke_width,
             clip: self.clip,
             ..Default::default()
@@ -70,16 +62,18 @@ impl VegaMarkContainer<VegaSymbolItem> {
         let mut angle = Vec::<f32>::new();
         let mut zindex = Vec::<i32>::new();
 
+        let mut shape_strings = Vec::<String>::new();
+        let mut shape_index = Vec::<usize>::new();
+
         // For each item, append explicit values to corresponding vector
         for item in &self.items {
             x.push(item.x + origin[0]);
             y.push(item.y + origin[1]);
 
+            let base_opacity = item.opacity.unwrap_or(1.0);
             if let Some(c) = &item.fill {
                 let c = csscolorparser::parse(c)?;
-                let fill_opacity = item
-                    .fill_opacity
-                    .unwrap_or_else(|| item.opacity.unwrap_or(1.0));
+                let fill_opacity = item.fill_opacity.unwrap_or(1.0) * base_opacity;
                 fill.push([c.r as f32, c.g as f32, c.b as f32, fill_opacity])
             }
 
@@ -89,9 +83,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
 
             if let Some(c) = &item.stroke {
                 let c = csscolorparser::parse(c)?;
-                let stroke_opacity = item
-                    .fill_opacity
-                    .unwrap_or_else(|| item.opacity.unwrap_or(1.0));
+                let stroke_opacity = item.stroke_opacity.unwrap_or(1.0) * base_opacity;
                 stroke.push([c.r as f32, c.g as f32, c.b as f32, stroke_opacity])
             }
 
@@ -103,6 +95,17 @@ impl VegaMarkContainer<VegaSymbolItem> {
             }
             if let Some(v) = item.zindex {
                 zindex.push(v);
+            }
+            if let Some(shape_string) = &item.shape {
+                if let Some(pos) = shape_strings.iter().position(|s| s == shape_string) {
+                    // Already have shape
+                    shape_index.push(pos);
+                } else {
+                    // Add shape
+                    let pos = shape_strings.len();
+                    shape_strings.push(shape_string.clone());
+                    shape_index.push(pos);
+                }
             }
         }
 
@@ -132,6 +135,15 @@ impl VegaMarkContainer<VegaSymbolItem> {
             let mut indices: Vec<usize> = (0..len).collect();
             indices.sort_by_key(|i| zindex[*i]);
             mark.indices = Some(indices);
+        }
+        if shape_index.len() == len {
+            mark.shape_index = EncodingValue::Array {
+                values: shape_index,
+            };
+            mark.shapes = shape_strings
+                .iter()
+                .map(|s| shape_to_path(s))
+                .collect::<Result<Vec<SymbolShape>, VegaSceneGraphError>>()?;
         }
 
         Ok(SceneMark::Symbol(mark))
