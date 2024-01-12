@@ -11,7 +11,7 @@ pub struct RuleMark {
     pub y0: EncodingValue<f32>,
     pub x1: EncodingValue<f32>,
     pub y1: EncodingValue<f32>,
-    pub stroke: EncodingValue<[f32; 3]>,
+    pub stroke: EncodingValue<[f32; 4]>,
     pub stroke_width: EncodingValue<f32>,
     pub stroke_cap: EncodingValue<StrokeCap>,
     pub indices: Option<Vec<usize>>,
@@ -30,7 +30,7 @@ impl RuleMark {
     pub fn y1_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
         self.y1.as_iter(self.len as usize, self.indices.as_ref())
     }
-    pub fn stroke_iter(&self) -> Box<dyn Iterator<Item = &[f32; 3]> + '_> {
+    pub fn stroke_iter(&self) -> Box<dyn Iterator<Item = &[f32; 4]> + '_> {
         self.stroke
             .as_iter(self.len as usize, self.indices.as_ref())
     }
@@ -55,7 +55,7 @@ impl Default for RuleMark {
             x1: EncodingValue::Scalar { value: 0.0 },
             y1: EncodingValue::Scalar { value: 0.0 },
             stroke: EncodingValue::Scalar {
-                value: [0.0, 0.0, 0.0],
+                value: [0.0, 0.0, 0.0, 1.0],
             },
             stroke_width: EncodingValue::Scalar { value: 1.0 },
             stroke_cap: EncodingValue::Scalar {

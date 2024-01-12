@@ -15,6 +15,8 @@ pub struct VegaRuleItem {
     pub stroke: Option<String>,
     pub stroke_width: Option<f32>,
     pub stroke_cap: Option<StrokeCap>,
+    pub stroke_opacity: Option<f32>,
+    pub opacity: Option<f32>,
     pub zindex: Option<i32>,
 }
 
@@ -36,7 +38,7 @@ impl VegaMarkContainer<VegaRuleItem> {
         let mut y0 = Vec::<f32>::new();
         let mut x1 = Vec::<f32>::new();
         let mut y1 = Vec::<f32>::new();
-        let mut stroke = Vec::<[f32; 3]>::new();
+        let mut stroke = Vec::<[f32; 4]>::new();
         let mut stroke_width = Vec::<f32>::new();
         let mut stroke_cap = Vec::<StrokeCap>::new();
         let mut zindex = Vec::<i32>::new();
@@ -50,7 +52,8 @@ impl VegaMarkContainer<VegaRuleItem> {
 
             if let Some(s) = &item.stroke {
                 let c = csscolorparser::parse(s)?;
-                stroke.push([c.r as f32, c.g as f32, c.b as f32])
+                let opacity = item.stroke_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
+                stroke.push([c.r as f32, c.g as f32, c.b as f32, opacity]);
             }
 
             if let Some(s) = item.stroke_width {

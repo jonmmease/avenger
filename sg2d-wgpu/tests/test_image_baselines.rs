@@ -40,6 +40,7 @@ mod test_image_baselines {
         case("symbol", "zindex_circles", 0.001),
         case("symbol", "mixed_symbols", 0.001),
         case("rule", "wide_rule_axes", 0.0001),
+        case("rule", "wide_transparent_caps", 0.0001),
         case("text", "bar_axis_labels", 0.025)
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {

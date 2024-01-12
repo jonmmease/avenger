@@ -1,6 +1,7 @@
 use crate::marks::mark::MarkShader;
 use itertools::izip;
 use sg2d::marks::rule::RuleMark;
+use sg2d::value::StrokeCap;
 use wgpu::VertexBufferLayout;
 
 #[repr(C)]
@@ -23,6 +24,10 @@ impl RuleVertex {
     }
 }
 
+const STROKE_CAP_BUTT: u32 = 0;
+const STROKE_CAP_SQUARE: u32 = 1;
+const STROKE_CAP_ROUND: u32 = 2;
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct RuleInstance {
@@ -30,17 +35,19 @@ pub struct RuleInstance {
     pub y0: f32,
     pub x1: f32,
     pub y1: f32,
-    pub stroke: [f32; 3],
+    pub stroke: [f32; 4],
     pub stroke_width: f32,
+    pub stroke_cap: u32,
 }
 
-const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array![
+const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
     1 => Float32,     // x0
     2 => Float32,     // y0
     3 => Float32,     // x1
     4 => Float32,     // y1
-    5 => Float32x3,   // stroke
+    5 => Float32x4,   // stroke
     6 => Float32,     // stroke_width
+    7 => Uint32,      // stroke_cap_type
 ];
 
 impl RuleInstance {
@@ -52,14 +59,20 @@ impl RuleInstance {
             mark.y1_iter(),
             mark.stroke_iter(),
             mark.stroke_width_iter(),
+            mark.stroke_cap_iter(),
         )
-        .map(|(x0, y0, x1, y1, stroke, stroke_width)| RuleInstance {
+        .map(|(x0, y0, x1, y1, stroke, stroke_width, cap)| RuleInstance {
             x0: *x0,
             y0: *y0,
             x1: *x1,
             y1: *y1,
             stroke: *stroke,
             stroke_width: *stroke_width,
+            stroke_cap: match cap {
+                StrokeCap::Butt => STROKE_CAP_BUTT,
+                StrokeCap::Square => STROKE_CAP_SQUARE,
+                StrokeCap::Round => STROKE_CAP_ROUND,
+            },
         })
     }
 }
