@@ -10,9 +10,9 @@
   "data": [{
     "name": "source_0",
     "values": [
-      {"x": 140, "x2": 60, "y": 15, "y2": 180, "fill": "orange"},
-      {"x": 20, "x2": 120, "y": 15, "y2": 140, "fill": "blue"},
-      {"x": 50, "x2": 120, "y": 15, "y2": 180, "fill": "green"}
+      {"x": 140, "x2": 60, "y": 15, "y2": 180, "fill": "orange", "cap": "butt", "width": 12},
+      {"x": 20, "x2": 120, "y": 15, "y2": 140, "fill": "blue", "cap": "square", "width": 16},
+      {"x": 50, "x2": 120, "y": 15, "y2": 180, "fill": "green", "cap": "round", "width": 20}
     ]
   }],
   "marks": [
@@ -23,14 +23,14 @@
       "from": {"data": "source_0"},
       "encode": {
         "update": {
-          "strokeWidth": {"value": 16},
+          "strokeWidth": {"field": "width"},
           "stroke": {"field": "fill"},
           "x": {"field": "x" },
           "x2": {"field": "x2"},
           "y": {"field": "y"},
           "y2": {"field": "y2"},
           "opacity": {"value": 0.5},
-          "strokeCap": {"value": "butt"}
+          "strokeCap": {"field": "cap"}
         }
       }
     }
