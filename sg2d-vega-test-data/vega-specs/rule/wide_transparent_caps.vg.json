@@ -1,0 +1,54 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v5.json",
+  "description": "A scatterplot showing horsepower and miles per gallons for various cars.",
+  "background": "white",
+  "padding": 5,
+  "width": 200,
+  "height": 200,
+  "style": "cell",
+  "config": {"style": {"cell": {"stroke": "transparent"}}},
+  "data": [{
+    "name": "source_0",
+    "values": [
+      {"x": 140, "x2": 60, "y": 15, "y2": 180, "fill": "orange", "cap": "butt", "width": 12},
+      {"x": 20, "x2": 120, "y": 15, "y2": 140, "fill": "blue", "cap": "square", "width": 16},
+      {"x": 50, "x2": 120, "y": 15, "y2": 180, "fill": "green", "cap": "round", "width": 20}
+    ]
+  }],
+  "marks": [
+    {
+      "name": "marks",
+      "type": "rule",
+      "style": ["rule"],
+      "from": {"data": "source_0"},
+      "encode": {
+        "update": {
+          "strokeWidth": {"field": "width"},
+          "stroke": {"field": "fill"},
+          "x": {"field": "x" },
+          "x2": {"field": "x2"},
+          "y": {"field": "y"},
+          "y2": {"field": "y2"},
+          "opacity": {"value": 0.5},
+          "strokeCap": {"field": "cap"}
+        }
+      }
+    }
+  ],
+  "scales": [
+    {
+      "name": "x",
+      "type": "linear",
+      "domain": [0, 100],
+      "range": [0, {"signal": "width"}],
+      "zero": true
+    },
+    {
+      "name": "y",
+      "type": "linear",
+      "domain": [0, 100],
+      "range": [{"signal": "height"}, 0],
+      "zero": true
+    }
+  ]
+}
