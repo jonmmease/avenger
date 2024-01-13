@@ -724,7 +724,7 @@ dependencies = [
 [[package]]
 name = "glyphon"
 version = "0.3.0"
-source = "git+https://github.com/grovesNL/glyphon.git?rev=941309aed230d7110bfec0d4af502ecb4648cf90#941309aed230d7110bfec0d4af502ecb4648cf90"
+source = "git+https://github.com/jonmmease/glyphon.git?rev=0fb93c93da055337590dbf90cf8575374bcdb9ce#0fb93c93da055337590dbf90cf8575374bcdb9ce"
 dependencies = [
  "cosmic-text",
  "etagere",

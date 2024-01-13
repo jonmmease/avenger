@@ -127,9 +127,10 @@
       "scale": "y",
       "orient": "left",
       "grid": false,
+      "title": "Activity",
+      "zindex": 0,
       "labelFont": "Helvetica",
-      "titleFont": "Helvetica",
-      "zindex": 0
+      "titleFont": "Helvetica"
     }
   ]
 }
