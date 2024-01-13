@@ -7,6 +7,7 @@ pub struct RuleMark {
     pub name: String,
     pub clip: bool,
     pub len: u32,
+    pub stroke_dash: Option<EncodingValue<Vec<f32>>>,
     pub x0: EncodingValue<f32>,
     pub y0: EncodingValue<f32>,
     pub x1: EncodingValue<f32>,
@@ -42,6 +43,13 @@ impl RuleMark {
         self.stroke_cap
             .as_iter(self.len as usize, self.indices.as_ref())
     }
+    pub fn stroke_dash_iter(&self) -> Option<Box<dyn Iterator<Item = &Vec<f32>> + '_>> {
+        if let Some(stroke_dash) = &self.stroke_dash {
+            Some(stroke_dash.as_iter(self.len as usize, self.indices.as_ref()))
+        } else {
+            None
+        }
+    }
 }
 
 impl Default for RuleMark {
@@ -50,6 +58,7 @@ impl Default for RuleMark {
             name: "rule_mark".to_string(),
             clip: true,
             len: 1,
+            stroke_dash: None,
             x0: EncodingValue::Scalar { value: 0.0 },
             y0: EncodingValue::Scalar { value: 0.0 },
             x1: EncodingValue::Scalar { value: 0.0 },
