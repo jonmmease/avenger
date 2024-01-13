@@ -143,9 +143,14 @@ impl TextMarkRenderer {
             .instances
             .iter()
             .map(|instance| {
+                // Ad-hoc size adjustment for better match with resvg
+                let font_size_scale = 0.99f32;
                 let mut buffer = Buffer::new(
                     &mut self.font_system,
-                    Metrics::new(instance.font_size, instance.font_size),
+                    Metrics::new(
+                        instance.font_size * self.uniform.scale * font_size_scale,
+                        instance.font_size * self.uniform.scale * font_size_scale,
+                    ),
                 );
                 let family = match instance.font.to_lowercase().as_str() {
                     "serif" => Family::Serif,
@@ -169,8 +174,8 @@ impl TextMarkRenderer {
                 );
                 buffer.set_size(
                     &mut self.font_system,
-                    self.uniform.size[0],
-                    self.uniform.size[1],
+                    self.uniform.size[0] * self.uniform.scale,
+                    self.uniform.size[1] * self.uniform.scale,
                 );
                 buffer.shape_until_scroll(&mut self.font_system);
 
@@ -183,22 +188,26 @@ impl TextMarkRenderer {
             .zip(&self.instances)
             .map(|(buffer, instance)| {
                 let (width, height) = measure(buffer);
-
+                let scaled_x = instance.position[0] * self.uniform.scale;
+                let scaled_y = instance.position[1] * self.uniform.scale;
                 let left = match instance.align {
-                    TextAlignSpec::Left => instance.position[0],
-                    TextAlignSpec::Center => instance.position[0] - width / 2.0,
-                    TextAlignSpec::Right => instance.position[0] - width,
+                    TextAlignSpec::Left => scaled_x,
+                    TextAlignSpec::Center => scaled_x - width / 2.0,
+                    TextAlignSpec::Right => scaled_x - width,
                 };
 
-                let top = match instance.baseline {
-                    TextBaselineSpec::Alphabetic => instance.position[1] - height,
-                    // Add half pixel for top baseline for better match with resvg
-                    TextBaselineSpec::Top => instance.position[1] + 0.5,
-                    TextBaselineSpec::Middle => instance.position[1] - height * 0.5,
-                    TextBaselineSpec::Bottom => instance.position[1] - height,
+                let mut top = match instance.baseline {
+                    TextBaselineSpec::Alphabetic => scaled_y - height,
+
+                    TextBaselineSpec::Top => scaled_y,
+                    TextBaselineSpec::Middle => scaled_y - height * 0.5,
+                    TextBaselineSpec::Bottom => scaled_y - height,
                     TextBaselineSpec::LineTop => todo!(),
                     TextBaselineSpec::LineBottom => todo!(),
                 };
+
+                // Add half pixel for top baseline for better match with resvg
+                top += 0.5 * self.uniform.scale;
 
                 TextArea {
                     buffer,
@@ -208,8 +217,8 @@ impl TextMarkRenderer {
                     bounds: TextBounds {
                         left: 0,
                         top: 0,
-                        right: self.uniform.size[0] as i32,
-                        bottom: self.uniform.size[1] as i32,
+                        right: (self.uniform.size[0] * self.uniform.scale) as i32,
+                        bottom: (self.uniform.size[1] * self.uniform.scale) as i32,
                     },
                     default_color: Color::rgb(
                         (instance.color[0] * 255.0) as u8,
@@ -227,8 +236,8 @@ impl TextMarkRenderer {
                 &mut self.font_system,
                 &mut self.atlas,
                 Resolution {
-                    width: self.uniform.size[0] as u32,
-                    height: self.uniform.size[1] as u32,
+                    width: (self.uniform.size[0] * self.uniform.scale) as u32,
+                    height: (self.uniform.size[1] * self.uniform.scale) as u32,
                 },
                 areas,
                 &mut self.cache,
