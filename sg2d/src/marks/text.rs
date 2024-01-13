@@ -12,9 +12,8 @@ pub struct TextMark {
     pub y: EncodingValue<f32>,
     pub align: EncodingValue<TextAlignSpec>,
     pub baseline: EncodingValue<TextBaselineSpec>,
-    pub opacity: EncodingValue<f32>,
     pub angle: EncodingValue<f32>,
-    pub color: EncodingValue<[f32; 3]>,
+    pub color: EncodingValue<[f32; 4]>,
     pub dx: EncodingValue<f32>,
     pub dy: EncodingValue<f32>,
     pub font: EncodingValue<String>,
@@ -42,14 +41,10 @@ impl TextMark {
         self.baseline
             .as_iter(self.len as usize, self.indices.as_ref())
     }
-    pub fn opacity_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.opacity
-            .as_iter(self.len as usize, self.indices.as_ref())
-    }
     pub fn angle_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
         self.angle.as_iter(self.len as usize, self.indices.as_ref())
     }
-    pub fn color_iter(&self) -> Box<dyn Iterator<Item = &[f32; 3]> + '_> {
+    pub fn color_iter(&self) -> Box<dyn Iterator<Item = &[f32; 4]> + '_> {
         self.color.as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn dx_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
@@ -95,10 +90,9 @@ impl Default for TextMark {
             baseline: EncodingValue::Scalar {
                 value: TextBaselineSpec::Bottom,
             },
-            opacity: EncodingValue::Scalar { value: 1.0 },
             angle: EncodingValue::Scalar { value: 0.0 },
             color: EncodingValue::Scalar {
-                value: [0.0, 0.0, 0.0],
+                value: [0.0, 0.0, 0.0, 1.0],
             },
             dx: EncodingValue::Scalar { value: 0.0 },
             dy: EncodingValue::Scalar { value: 0.0 },
