@@ -20,6 +20,7 @@ pub struct VegaTextItem {
     pub dx: Option<f32>,
     pub dy: Option<f32>,
     pub fill: Option<String>,
+    pub opacity: Option<f32>,
     pub fill_opacity: Option<f32>,
     pub font: Option<String>,
     pub font_size: Option<f32>,
@@ -48,9 +49,8 @@ impl VegaMarkContainer<VegaTextItem> {
         let mut y = Vec::<f32>::new();
         let mut align = Vec::<TextAlignSpec>::new();
         let mut baseline = Vec::<TextBaselineSpec>::new();
-        let mut opacity = Vec::<f32>::new();
         let mut angle = Vec::<f32>::new();
-        let mut color = Vec::<[f32; 3]>::new();
+        let mut color = Vec::<[f32; 4]>::new();
         let mut dx = Vec::<f32>::new();
         let mut dy = Vec::<f32>::new();
         let mut font = Vec::<String>::new();
@@ -73,17 +73,14 @@ impl VegaMarkContainer<VegaTextItem> {
                 baseline.push(v);
             }
 
-            if let Some(v) = item.fill_opacity {
-                opacity.push(v);
-            }
-
             if let Some(v) = item.angle {
                 angle.push(v);
             }
 
             if let Some(v) = &item.fill {
                 let c = csscolorparser::parse(v)?;
-                color.push([c.r as f32, c.g as f32, c.b as f32])
+                let opacity = item.fill_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
+                color.push([c.r as f32, c.g as f32, c.b as f32, opacity])
             }
 
             if let Some(v) = item.dx {
@@ -137,9 +134,6 @@ impl VegaMarkContainer<VegaTextItem> {
         }
         if baseline.len() == len {
             mark.baseline = EncodingValue::Array { values: baseline };
-        }
-        if opacity.len() == len {
-            mark.opacity = EncodingValue::Array { values: opacity };
         }
         if angle.len() == len {
             mark.angle = EncodingValue::Array { values: angle };
