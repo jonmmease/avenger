@@ -21,7 +21,9 @@ cgmath = "0.18.0"
 itertools = "0.12.0"
 image = "0.24.7"
 futures-intrusive = "^0.5"
-glyphon = { git = "https://github.com/grovesNL/glyphon.git", rev="941309aed230d7110bfec0d4af502ecb4648cf90" }
+
+# glyphon branch that includes text rotation support: https://github.com/jonmmease/glyphon/pull/1
+glyphon = { git = "https://github.com/jonmmease/glyphon.git", rev="c468f5dacd4130b27a29b098c4de3f4d5c146209" }
 lyon = { workspace = true }
 
 [dev-dependencies]
