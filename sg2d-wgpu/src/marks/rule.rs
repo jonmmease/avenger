@@ -51,29 +51,115 @@ const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array!
 ];
 
 impl RuleInstance {
-    pub fn iter_from_spec(mark: &RuleMark) -> impl Iterator<Item = RuleInstance> + '_ {
-        izip!(
-            mark.x0_iter(),
-            mark.y0_iter(),
-            mark.x1_iter(),
-            mark.y1_iter(),
-            mark.stroke_iter(),
-            mark.stroke_width_iter(),
-            mark.stroke_cap_iter(),
-        )
-        .map(|(x0, y0, x1, y1, stroke, stroke_width, cap)| RuleInstance {
-            x0: *x0,
-            y0: *y0,
-            x1: *x1,
-            y1: *y1,
-            stroke: *stroke,
-            stroke_width: *stroke_width,
-            stroke_cap: match cap {
-                StrokeCap::Butt => STROKE_CAP_BUTT,
-                StrokeCap::Square => STROKE_CAP_SQUARE,
-                StrokeCap::Round => STROKE_CAP_ROUND,
-            },
-        })
+    pub fn iter_from_spec(mark: &RuleMark) -> Box<dyn Iterator<Item = RuleInstance> + '_> {
+        if let Some(stroke_dash_iter) = mark.stroke_dash_iter() {
+            // Rule has a dash specification, so we create an individual RuleInstance for each dash
+            // in each Rule mark item.
+            Box::new(
+                izip!(
+                    stroke_dash_iter,
+                    mark.x0_iter(),
+                    mark.y0_iter(),
+                    mark.x1_iter(),
+                    mark.y1_iter(),
+                    mark.stroke_iter(),
+                    mark.stroke_width_iter(),
+                    mark.stroke_cap_iter(),
+                )
+                .flat_map(
+                    |(stroke_dash, x0, y0, x1, y1, stroke, stroke_width, cap)| {
+                        // Next index into stroke_dash array
+                        let mut dash_idx = 0;
+
+                        // Distance along line from (x0,y0) to (x1,y1) where the next dash will start
+                        let mut start_dash_dist: f32 = 0.0;
+
+                        // Length of the line from (x0,y0) to (x1,y1)
+                        let rule_len = ((x1 - x0).powi(2) + (y1 - y0).powi(2)).sqrt();
+
+                        // Coponents of unit vector along (x0,y0) to (x1,y1)
+                        let xhat = (x1 - x0) / rule_len;
+                        let yhat = (y1 - y0) / rule_len;
+
+                        // Vector of rule instances, one for each dash segment
+                        let mut dash_rules: Vec<RuleInstance> = Vec::new();
+
+                        // Whether the next dash length represents a drawn dash (draw == true)
+                        // or a gap (draw == false)
+                        let mut draw = true;
+
+                        while start_dash_dist < rule_len {
+                            let end_dash_dist =
+                                if start_dash_dist + stroke_dash[dash_idx] >= rule_len {
+                                    // The final dash/gap should be truncated to the end of the rule
+                                    rule_len
+                                } else {
+                                    // The dash/gap fits entirely in the rule
+                                    start_dash_dist + stroke_dash[dash_idx]
+                                };
+
+                            if draw {
+                                let dash_x0 = x0 + xhat * start_dash_dist;
+                                let dash_y0 = y0 + yhat * start_dash_dist;
+                                let dash_x1 = x0 + xhat * end_dash_dist;
+                                let dash_y1 = y0 + yhat * end_dash_dist;
+
+                                dash_rules.push(RuleInstance {
+                                    x0: dash_x0,
+                                    y0: dash_y0,
+                                    x1: dash_x1,
+                                    y1: dash_y1,
+                                    stroke: *stroke,
+                                    stroke_width: *stroke_width,
+                                    stroke_cap: match cap {
+                                        StrokeCap::Butt => STROKE_CAP_BUTT,
+                                        StrokeCap::Square => STROKE_CAP_SQUARE,
+                                        StrokeCap::Round => STROKE_CAP_ROUND,
+                                    },
+                                })
+                            }
+
+                            // update start dist for next dash/gap
+                            start_dash_dist = end_dash_dist;
+
+                            // increment index and cycle back to start of start of dash array
+                            dash_idx = (dash_idx + 1) % stroke_dash.len();
+
+                            // Alternate between drawn dash and gap
+                            draw = !draw;
+                        }
+
+                        dash_rules
+                    },
+                ),
+            )
+        } else {
+            // Rule has no dash specification, so we create one RuleInstance per Rule mark item
+            Box::new(
+                izip!(
+                    mark.x0_iter(),
+                    mark.y0_iter(),
+                    mark.x1_iter(),
+                    mark.y1_iter(),
+                    mark.stroke_iter(),
+                    mark.stroke_width_iter(),
+                    mark.stroke_cap_iter(),
+                )
+                .map(|(x0, y0, x1, y1, stroke, stroke_width, cap)| RuleInstance {
+                    x0: *x0,
+                    y0: *y0,
+                    x1: *x1,
+                    y1: *y1,
+                    stroke: *stroke,
+                    stroke_width: *stroke_width,
+                    stroke_cap: match cap {
+                        StrokeCap::Butt => STROKE_CAP_BUTT,
+                        StrokeCap::Square => STROKE_CAP_SQUARE,
+                        StrokeCap::Round => STROKE_CAP_ROUND,
+                    },
+                }),
+            )
+        }
     }
 }
 

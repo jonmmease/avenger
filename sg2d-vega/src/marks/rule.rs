@@ -16,6 +16,7 @@ pub struct VegaRuleItem {
     pub stroke_width: Option<f32>,
     pub stroke_cap: Option<StrokeCap>,
     pub stroke_opacity: Option<f32>,
+    pub stroke_dash: Option<String>,
     pub opacity: Option<f32>,
     pub zindex: Option<i32>,
 }
@@ -41,6 +42,7 @@ impl VegaMarkContainer<VegaRuleItem> {
         let mut stroke = Vec::<[f32; 4]>::new();
         let mut stroke_width = Vec::<f32>::new();
         let mut stroke_cap = Vec::<StrokeCap>::new();
+        let mut stroke_dash = Vec::<Vec<f32>>::new();
         let mut zindex = Vec::<i32>::new();
 
         // For each item, append explicit values to corresponding vector
@@ -62,6 +64,10 @@ impl VegaMarkContainer<VegaRuleItem> {
 
             if let Some(s) = item.stroke_cap {
                 stroke_cap.push(s);
+            }
+
+            if let Some(dash) = &item.stroke_dash {
+                stroke_dash.push(parse_dash_str(dash)?);
             }
 
             if let Some(v) = item.zindex {
@@ -96,6 +102,11 @@ impl VegaMarkContainer<VegaRuleItem> {
         if stroke_cap.len() == len {
             mark.stroke_cap = EncodingValue::Array { values: stroke_cap };
         }
+        if stroke_dash.len() == len {
+            mark.stroke_dash = Some(EncodingValue::Array {
+                values: stroke_dash,
+            });
+        }
         if zindex.len() == len {
             let mut indices: Vec<usize> = (0..len).collect();
             indices.sort_by_key(|i| zindex[*i]);
@@ -104,4 +115,17 @@ impl VegaMarkContainer<VegaRuleItem> {
 
         Ok(SceneMark::Rule(mark))
     }
+}
+
+fn parse_dash_str(dash_str: &str) -> Result<Vec<f32>, VegaSceneGraphError> {
+    let clean_dash_str = dash_str.replace(',', " ");
+    let mut dashes: Vec<f32> = Vec::new();
+    for s in clean_dash_str.split_whitespace() {
+        let d = s
+            .parse::<f32>()
+            .map_err(|_| VegaSceneGraphError::InvalidDashString(dash_str.to_string()))?
+            .abs();
+        dashes.push(d);
+    }
+    Ok(dashes)
 }
