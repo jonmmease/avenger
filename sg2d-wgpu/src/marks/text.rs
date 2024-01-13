@@ -187,7 +187,7 @@ impl TextMarkRenderer {
             .iter()
             .zip(&self.instances)
             .map(|(buffer, instance)| {
-                let (width, height) = measure(buffer);
+                let (width, line_y, height) = measure(buffer);
                 let scaled_x = instance.position[0] * self.uniform.scale;
                 let scaled_y = instance.position[1] * self.uniform.scale;
                 let left = match instance.align {
@@ -197,8 +197,7 @@ impl TextMarkRenderer {
                 };
 
                 let mut top = match instance.baseline {
-                    TextBaselineSpec::Alphabetic => scaled_y - height,
-
+                    TextBaselineSpec::Alphabetic => scaled_y - line_y,
                     TextBaselineSpec::Top => scaled_y,
                     TextBaselineSpec::Middle => scaled_y - height * 0.5,
                     TextBaselineSpec::Bottom => scaled_y - height,
@@ -225,6 +224,8 @@ impl TextMarkRenderer {
                         (instance.color[1] * 255.0) as u8,
                         (instance.color[2] * 255.0) as u8,
                     ),
+                    angle: instance.angle,
+                    rotation_origin: Some([scaled_x, scaled_y]),
                 }
             })
             .collect::<Vec<_>>();
@@ -270,11 +271,20 @@ impl TextMarkRenderer {
     }
 }
 
-pub fn measure(buffer: &Buffer) -> (f32, f32) {
-    let (width, total_lines) = buffer
-        .layout_runs()
-        .fold((0.0, 0usize), |(width, total_lines), run| {
-            (run.line_w.max(width), total_lines + 1)
-        });
-    (width, (total_lines as f32 * buffer.metrics().line_height))
+pub fn measure(buffer: &Buffer) -> (f32, f32, f32) {
+    let (width, line_y, total_lines) =
+        buffer
+            .layout_runs()
+            .fold((0.0, 0.0, 0usize), |(width, line_y, total_lines), run| {
+                (
+                    run.line_w.max(width),
+                    run.line_y.max(line_y),
+                    total_lines + 1,
+                )
+            });
+    (
+        width,
+        line_y,
+        (total_lines as f32 * buffer.metrics().line_height),
+    )
 }

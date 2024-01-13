@@ -485,6 +485,28 @@
                     }
                   ],
                   "zindex": 0
+                },
+                {
+                  "marktype": "text",
+                  "role": "axis-title",
+                  "interactive": false,
+                  "clip": false,
+                  "items": [
+                    {
+                      "x": -49.9208984375,
+                      "y": 30,
+                      "align": "center",
+                      "baseline": "bottom",
+                      "fill": "#000",
+                      "opacity": 1,
+                      "text": "Activity",
+                      "angle": -90,
+                      "font": "Helvetica",
+                      "fontSize": 11,
+                      "fontWeight": "bold"
+                    }
+                  ],
+                  "zindex": 0
                 }
               ],
               "x": 0.5,

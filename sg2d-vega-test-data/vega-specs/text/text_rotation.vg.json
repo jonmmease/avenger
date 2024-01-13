@@ -1,0 +1,53 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v5.json",
+  "description": "A scatterplot showing horsepower and miles per gallons for various cars.",
+  "background": "white",
+  "padding": 5,
+  "width": 200,
+  "height": 200,
+  "style": "cell",
+  "config": {"style": {"cell": {"stroke": "transparent"}}},
+  "data": [{
+    "name": "source_0",
+    "values": [
+      {"x": 40, "y": 15, "fill": "orange", "angle": 0, "baseline": "top"},
+      {"x": 20, "y": 70, "fill": "blue", "angle": 30, "baseline": "middle"},
+      {"x": 80, "y": 160, "fill": "green", "angle": -90, "baseline": "bottom"},
+      {"x": 120, "y": 160, "fill": "purple", "angle": -27, "baseline": "alphabetic"}
+    ]
+  }],
+  "marks": [
+    {
+      "name": "points",
+      "type": "symbol",
+      "from": {"data": "source_0"},
+      "encode": {
+        "update": {
+          "shape": {"value": "triangle-up"},
+          "size": {"value": 30},
+          "fill": {"field": "fill"},
+          "x": {"field": "x" },
+          "y": {"field": "y"},
+          "angle": {"field": "angle"}
+        }
+      }
+    },
+    {
+      "name": "text",
+      "type": "text",
+      "from": {"data": "source_0"},
+      "encode": {
+        "update": {
+          "text": {"value": "hello"},
+          "font": {"value": "Helvetica"},
+          "fontSize": {"value": 20},
+          "fill": {"field": "fill"},
+          "x": {"field": "x" },
+          "y": {"field": "y"},
+          "angle": {"field": "angle"},
+          "baseline": {"field": "baseline"}
+        }
+      }
+    }
+  ]
+}
