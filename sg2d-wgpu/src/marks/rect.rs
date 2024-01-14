@@ -27,16 +27,22 @@ impl RectVertex {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct RectInstance {
     pub position: [f32; 2],
-    pub color: [f32; 3],
+    pub fill: [f32; 4],
     pub width: f32,
     pub height: f32,
+    pub stroke: [f32; 4],
+    pub stroke_width: f32,
+    pub corner_radius: f32,
 }
 
-const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
+const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
     1 => Float32x2,     // position
-    2 => Float32x3,     // color
+    2 => Float32x4,     // color
     3 => Float32,       // width
     4 => Float32,       // height
+    5 => Float32x4,     // stroke
+    6 => Float32,       // stroke_width
+    7 => Float32,       // corner_radius
 ];
 
 impl RectInstance {
@@ -47,13 +53,21 @@ impl RectInstance {
             mark.width_iter(),
             mark.height_iter(),
             mark.fill_iter(),
+            mark.stroke_iter(),
+            mark.stroke_width_iter(),
+            mark.corner_radius_iter(),
         )
-        .map(|(x, y, width, height, fill)| RectInstance {
-            position: [*x, *y],
-            width: *width,
-            height: *height,
-            color: *fill,
-        })
+        .map(
+            |(x, y, width, height, fill, stroke, stroke_width, corner_radius)| RectInstance {
+                position: [*x, *y],
+                width: *width,
+                height: *height,
+                fill: *fill,
+                stroke: *stroke,
+                stroke_width: *stroke_width,
+                corner_radius: *corner_radius,
+            },
+        )
     }
 }
 
