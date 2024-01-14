@@ -15,7 +15,12 @@ pub struct VegaRectItem {
     pub x2: Option<f32>,
     pub y2: Option<f32>,
     pub fill: Option<String>,
+    pub stroke: Option<String>,
+    pub stroke_width: Option<f32>,
+    pub corner_radius: Option<f32>,
+    pub opacity: Option<f32>,
     pub fill_opacity: Option<f32>,
+    pub stroke_opacity: Option<f32>,
     pub zindex: Option<i32>,
 }
 
@@ -37,7 +42,10 @@ impl VegaMarkContainer<VegaRectItem> {
         let mut y = Vec::<f32>::new();
         let mut width = Vec::<f32>::new();
         let mut height = Vec::<f32>::new();
-        let mut fill = Vec::<[f32; 3]>::new();
+        let mut fill = Vec::<[f32; 4]>::new();
+        let mut stroke = Vec::<[f32; 4]>::new();
+        let mut stroke_width = Vec::<f32>::new();
+        let mut corner_radius = Vec::<f32>::new();
         let mut zindex = Vec::<i32>::new();
 
         // For each item, append explicit values to corresponding vector
@@ -52,7 +60,19 @@ impl VegaMarkContainer<VegaRectItem> {
             }
             if let Some(v) = &item.fill {
                 let c = csscolorparser::parse(v)?;
-                fill.push([c.r as f32, c.g as f32, c.b as f32])
+                let opacity = item.fill_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
+                fill.push([c.r as f32, c.g as f32, c.b as f32, opacity])
+            }
+            if let Some(v) = &item.stroke {
+                let c = csscolorparser::parse(v)?;
+                let opacity = item.stroke_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
+                stroke.push([c.r as f32, c.g as f32, c.b as f32, opacity])
+            }
+            if let Some(v) = item.stroke_width {
+                stroke_width.push(v);
+            }
+            if let Some(v) = item.corner_radius {
+                corner_radius.push(v);
             }
             if let Some(v) = item.zindex {
                 zindex.push(v);
@@ -77,6 +97,19 @@ impl VegaMarkContainer<VegaRectItem> {
         }
         if fill.len() == len {
             mark.fill = EncodingValue::Array { values: fill };
+        }
+        if stroke.len() == len {
+            mark.stroke = EncodingValue::Array { values: stroke };
+        }
+        if stroke_width.len() == len {
+            mark.stroke_width = EncodingValue::Array {
+                values: stroke_width,
+            };
+        }
+        if corner_radius.len() == len {
+            mark.corner_radius = EncodingValue::Array {
+                values: corner_radius,
+            };
         }
         if zindex.len() == len {
             let mut indices: Vec<usize> = (0..len).collect();

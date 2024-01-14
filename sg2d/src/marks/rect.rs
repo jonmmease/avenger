@@ -11,7 +11,10 @@ pub struct RectMark {
     pub y: EncodingValue<f32>,
     pub width: EncodingValue<f32>,
     pub height: EncodingValue<f32>,
-    pub fill: EncodingValue<[f32; 3]>,
+    pub fill: EncodingValue<[f32; 4]>,
+    pub stroke: EncodingValue<[f32; 4]>,
+    pub stroke_width: EncodingValue<f32>,
+    pub corner_radius: EncodingValue<f32>,
     pub indices: Option<Vec<usize>>,
 }
 
@@ -33,8 +36,23 @@ impl RectMark {
             .as_iter(self.len as usize, self.indices.as_ref())
     }
 
-    pub fn fill_iter(&self) -> Box<dyn Iterator<Item = &[f32; 3]> + '_> {
+    pub fn fill_iter(&self) -> Box<dyn Iterator<Item = &[f32; 4]> + '_> {
         self.fill.as_iter(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn stroke_iter(&self) -> Box<dyn Iterator<Item = &[f32; 4]> + '_> {
+        self.stroke
+            .as_iter(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn stroke_width_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
+        self.stroke_width
+            .as_iter(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn corner_radius_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
+        self.corner_radius
+            .as_iter(self.len as usize, self.indices.as_ref())
     }
 }
 
@@ -49,8 +67,13 @@ impl Default for RectMark {
             width: EncodingValue::Scalar { value: 0.0 },
             height: EncodingValue::Scalar { value: 0.0 },
             fill: EncodingValue::Scalar {
-                value: [0.0, 0.0, 0.0],
+                value: [0.0, 0.0, 0.0, 1.0],
             },
+            stroke: EncodingValue::Scalar {
+                value: [0.0, 0.0, 0.0, 0.0],
+            },
+            stroke_width: EncodingValue::Scalar { value: 0.0 },
+            corner_radius: EncodingValue::Scalar { value: 0.0 },
             indices: None,
         }
     }
