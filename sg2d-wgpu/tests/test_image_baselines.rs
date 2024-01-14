@@ -17,6 +17,7 @@ mod test_image_baselines {
         case("rect", "stacked_bar_stroke", 0.001),
         case("rect", "stacked_bar_rounded", 0.001),
         case("rect", "stacked_bar_rounded_stroke", 0.001),
+        case("rect", "stacked_bar_rounded_stroke_opacity", 0.009),
         case("rect", "heatmap", 0.006),
         case("symbol", "binned_scatter_diamonds", 0.001),
         case("symbol", "binned_scatter_square", 0.001),
