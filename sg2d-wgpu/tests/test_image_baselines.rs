@@ -51,7 +51,7 @@ mod test_image_baselines {
         case("text", "letter_scatter", 0.012),
         case("arc", "single_arc_with_inner_radius", 0.0005),
         case("arc", "single_arc_with_inner_radius_wrap", 0.0005),
-        case("arc", "arcs_with_variable_outer_radius", 0.0005),
+        case("arc", "arcs_with_variable_outer_radius", 0.0005)
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
         let specs_dir = format!(
