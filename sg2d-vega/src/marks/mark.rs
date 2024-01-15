@@ -1,3 +1,4 @@
+use crate::marks::arc::VegaArcItem;
 use crate::marks::group::VegaGroupItem;
 use crate::marks::rect::VegaRectItem;
 use crate::marks::rule::VegaRuleItem;
@@ -11,7 +12,7 @@ pub trait VegaMarkItem {}
 #[serde(rename_all = "camelCase")]
 #[serde(tag = "marktype")]
 pub enum VegaMark {
-    Arc,
+    Arc(VegaMarkContainer<VegaArcItem>),
     Area,
     Image,
     Group(VegaMarkContainer<VegaGroupItem>),
