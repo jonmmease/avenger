@@ -1,3 +1,4 @@
+pub mod arc;
 pub mod mark;
 pub mod rect;
 pub mod rule;
