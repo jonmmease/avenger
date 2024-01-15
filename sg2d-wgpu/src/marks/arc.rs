@@ -126,6 +126,12 @@ pub struct ArcShader {
     fragment_entry_point: String,
 }
 
+impl Default for ArcShader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ArcShader {
     pub fn new() -> Self {
         Self {
