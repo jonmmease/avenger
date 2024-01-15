@@ -40,6 +40,9 @@ impl VegaGroupItem {
                 VegaMark::Text(mark) => {
                     vec![mark.to_scene_graph(new_origin)?]
                 }
+                VegaMark::Arc(mark) => {
+                    vec![mark.to_scene_graph(new_origin)?]
+                }
                 _ => {
                     println!("Mark type not yet supported: {:?}", item);
                     continue;

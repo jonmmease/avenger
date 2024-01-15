@@ -13,11 +13,13 @@ use winit::event::WindowEvent;
 use winit::window::Window;
 
 use crate::error::Sg2dWgpuError;
+use crate::marks::arc::{ArcInstance, ArcShader};
 use crate::marks::mark::GeomMarkRenderer;
 use crate::marks::rect::{RectInstance, RectShader};
 use crate::marks::rule::{RuleInstance, RuleShader};
 use crate::marks::symbol::{SymbolInstance, SymbolShader};
 use crate::marks::text::{TextInstance, TextMarkRenderer};
+use sg2d::marks::arc::ArcMark;
 use sg2d::{
     marks::group::SceneGroup, marks::mark::SceneMark, marks::rect::RectMark, marks::rule::RuleMark,
     marks::symbol::SymbolMark, marks::text::TextMark, scene_graph::SceneGraph,
@@ -49,6 +51,19 @@ pub trait Canvas {
     fn texture_format(&self) -> TextureFormat;
 
     fn sample_count(&self) -> u32;
+
+    fn add_arc_mark(&mut self, mark: &ArcMark) -> Result<(), Sg2dWgpuError> {
+        let instances = ArcInstance::iter_from_spec(mark).collect::<Vec<_>>();
+        self.add_mark_renderer(MarkRenderer::Geom(GeomMarkRenderer::new(
+            self.device(),
+            *self.uniform(),
+            self.texture_format(),
+            self.sample_count(),
+            Box::new(ArcShader::new()),
+            instances.as_slice(),
+        )));
+        Ok(())
+    }
 
     fn add_symbol_mark(&mut self, mark: &SymbolMark) -> Result<(), Sg2dWgpuError> {
         let instances = SymbolInstance::iter_from_spec(mark).collect::<Vec<_>>();
@@ -109,6 +124,9 @@ pub trait Canvas {
     fn add_group_mark(&mut self, group: &SceneGroup) -> Result<(), Sg2dWgpuError> {
         for mark in &group.marks {
             match mark {
+                SceneMark::Arc(mark) => {
+                    self.add_arc_mark(mark)?;
+                }
                 SceneMark::Symbol(mark) => {
                     self.add_symbol_mark(mark)?;
                 }
