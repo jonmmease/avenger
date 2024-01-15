@@ -1,0 +1,89 @@
+{
+  "marktype": "group",
+  "name": "root",
+  "role": "frame",
+  "interactive": true,
+  "clip": false,
+  "items": [
+    {
+      "items": [
+        {
+          "marktype": "arc",
+          "name": "layer_0_marks",
+          "role": "mark",
+          "interactive": true,
+          "clip": false,
+          "items": [
+            {
+              "x": 100,
+              "y": 100,
+              "fill": "#f58518",
+              "startAngle": 0.7113039970391984,
+              "endAngle": 0.23710133234639946,
+              "innerRadius": 20,
+              "outerRadius": 58.43075691322092,
+              "description": "data: 12"
+            },
+            {
+              "x": 100,
+              "y": 100,
+              "fill": "#72b7b2",
+              "startAngle": 2.371013323463995,
+              "endAngle": 1.4621248828027968,
+              "innerRadius": 20,
+              "outerRadius": 73.20497374089409,
+              "description": "data: 23"
+            },
+            {
+              "x": 100,
+              "y": 100,
+              "fill": "#54a24b",
+              "startAngle": 4.22830709351079,
+              "endAngle": 2.371013323463995,
+              "innerRadius": 20,
+              "outerRadius": 96.05665904189708,
+              "description": "data: 47"
+            },
+            {
+              "x": 100,
+              "y": 100,
+              "fill": "#4c78a8",
+              "startAngle": 0.23710133234639946,
+              "endAngle": 0,
+              "innerRadius": 20,
+              "outerRadius": 47.1746488194703,
+              "description": "data: 6"
+            },
+            {
+              "x": 100,
+              "y": 100,
+              "fill": "#eeca3b",
+              "startAngle": 6.283185307179586,
+              "endAngle": 4.22830709351079,
+              "innerRadius": 20,
+              "outerRadius": 100,
+              "description": "data: 52"
+            },
+            {
+              "x": 100,
+              "y": 100,
+              "fill": "#e45756",
+              "startAngle": 1.4621248828027968,
+              "endAngle": 0.7113039970391984,
+              "innerRadius": 20,
+              "outerRadius": 68.35764198615911,
+              "description": "data: 19"
+            }
+          ],
+          "zindex": 0
+        }
+      ],
+      "x": 0,
+      "y": 0,
+      "width": 200,
+      "height": 200,
+      "fill": "transparent"
+    }
+  ],
+  "zindex": 0
+}
