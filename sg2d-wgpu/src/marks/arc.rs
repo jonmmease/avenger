@@ -1,4 +1,4 @@
-use crate::marks::mark::MarkShader;
+use crate::marks::instanced_mark::InstancedMarkShader;
 use itertools::izip;
 use sg2d::marks::arc::ArcMark;
 use std::f32::consts::TAU;
@@ -157,7 +157,7 @@ impl ArcShader {
     }
 }
 
-impl MarkShader for ArcShader {
+impl InstancedMarkShader for ArcShader {
     type Instance = ArcInstance;
     type Vertex = ArcVertex;
 

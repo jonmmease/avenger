@@ -3,7 +3,7 @@ use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use lyon_extra::euclid::Point2D;
 use lyon_extra::parser::{ParserOptions, Source};
 use lyon_path::geom::{Box2D, Point, Scale};
-use lyon_path::Winding;
+use lyon_path::{Path, Winding};
 use serde::{Deserialize, Serialize};
 use sg2d::marks::mark::SceneMark;
 use sg2d::marks::symbol::{SymbolMark, SymbolShape};
@@ -58,7 +58,6 @@ impl VegaMarkContainer<VegaSymbolItem> {
         let mut fill = Vec::<[f32; 4]>::new();
         let mut size = Vec::<f32>::new();
         let mut stroke = Vec::<[f32; 4]>::new();
-        let mut stroke_width = Vec::<f32>::new();
         let mut angle = Vec::<f32>::new();
         let mut zindex = Vec::<i32>::new();
 
@@ -85,10 +84,6 @@ impl VegaMarkContainer<VegaSymbolItem> {
                 let c = csscolorparser::parse(c)?;
                 let stroke_opacity = item.stroke_opacity.unwrap_or(1.0) * base_opacity;
                 stroke.push([c.r as f32, c.g as f32, c.b as f32, stroke_opacity])
-            }
-
-            if let Some(s) = item.stroke_width {
-                stroke_width.push(s);
             }
             if let Some(v) = item.angle {
                 angle.push(v);
@@ -279,12 +274,7 @@ pub fn shape_to_path(shape: &str) -> Result<SymbolShape, VegaSceneGraphError> {
         }
         _ => {
             // General SVG string
-            let mut source = Source::new(shape.chars());
-            let mut parser = lyon_extra::parser::PathParser::new();
-            let opts = ParserOptions::DEFAULT;
-            let mut builder = lyon_path::Path::builder();
-            parser.parse(&opts, &mut source, &mut builder)?;
-            let path = builder.build();
+            let path = parse_svg_path(shape)?;
 
             // - Coordinates are divided by 2 to match Vega
             let path = path.transformed(&Scale::new(0.5));
@@ -292,4 +282,13 @@ pub fn shape_to_path(shape: &str) -> Result<SymbolShape, VegaSceneGraphError> {
             SymbolShape::Path(path)
         }
     })
+}
+
+pub fn parse_svg_path(path: &str) -> Result<Path, VegaSceneGraphError> {
+    let mut source = Source::new(path.chars());
+    let mut parser = lyon_extra::parser::PathParser::new();
+    let opts = ParserOptions::DEFAULT;
+    let mut builder = lyon_path::Path::builder();
+    parser.parse(&opts, &mut source, &mut builder)?;
+    Ok(builder.build())
 }

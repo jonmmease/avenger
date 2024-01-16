@@ -55,7 +55,16 @@ mod test_image_baselines {
         case("arc", "single_arc_with_inner_radius_wrap_stroke", 0.0005),
         case("arc", "arcs_with_variable_outer_radius", 0.0005),
         case("arc", "arcs_with_variable_outer_radius_stroke", 0.0005),
-        case("arc", "arc_with_stroke", 0.0005)
+        case("arc", "arc_with_stroke", 0.0005),
+        case("path", "single_path_no_stroke", 0.0005),
+        case("path", "multi_path_no_stroke", 0.0005),
+
+        // vl-convert/resvg messes up the path_with_stroke examples because it scales the path
+        // width. The Vega editor renderers don't do this.
+        case("path", "single_path_with_stroke", 0.8),
+        case("path", "single_path_with_stroke_no_fill", 0.8),
+        case("path", "multi_path_with_stroke", 0.8),
+        case("path", "multi_path_with_stroke_no_fill", 0.8),
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
         let specs_dir = format!(
