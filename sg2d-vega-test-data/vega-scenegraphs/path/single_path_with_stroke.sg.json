@@ -1,0 +1,62 @@
+{
+  "marktype": "group",
+  "name": "root",
+  "role": "frame",
+  "interactive": true,
+  "clip": false,
+  "items": [
+    {
+      "items": [
+        {
+          "marktype": "path",
+          "name": "marks",
+          "role": "mark",
+          "interactive": true,
+          "clip": false,
+          "items": [
+            {
+              "x": 50,
+              "y": 70,
+              "fill": "green",
+              "fillOpacity": 0.6,
+              "stroke": "deeppink",
+              "strokeWidth": 4,
+              "path": "M0,.5L.6,.8L.5,.1L1,-.3L.3,-.4L0,-1L-.3,-.4L-1,-.3L-.5,.1L-.6.8L0,.5Z",
+              "scaleX": 15,
+              "scaleY": 15
+            },
+            {
+              "x": 90,
+              "y": 90,
+              "fill": "blue",
+              "fillOpacity": 0.6,
+              "stroke": "deeppink",
+              "strokeWidth": 4,
+              "path": "M0,.5L.6,.8L.5,.1L1,-.3L.3,-.4L0,-1L-.3,-.4L-1,-.3L-.5,.1L-.6.8L0,.5Z",
+              "scaleX": 15,
+              "scaleY": 30
+            },
+            {
+              "x": 130,
+              "y": 130,
+              "fill": "darkorange",
+              "fillOpacity": 0.6,
+              "stroke": "deeppink",
+              "strokeWidth": 4,
+              "path": "M0,.5L.6,.8L.5,.1L1,-.3L.3,-.4L0,-1L-.3,-.4L-1,-.3L-.5,.1L-.6.8L0,.5Z",
+              "scaleX": 30,
+              "scaleY": 15
+            }
+          ],
+          "zindex": 0
+        }
+      ],
+      "x": 0,
+      "y": 0,
+      "width": 200,
+      "height": 200,
+      "fill": "transparent"
+    }
+  ],
+  "zindex": 0
+}
