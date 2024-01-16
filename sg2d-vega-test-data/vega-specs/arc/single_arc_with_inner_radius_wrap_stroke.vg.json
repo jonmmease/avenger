@@ -1,0 +1,39 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v5.json",
+  "description": "A simple pie chart with embedded data.",
+  "background": "white",
+  "padding": 5,
+  "width": 100,
+  "height": 100,
+  "style": "view",
+  "marks": [
+    {
+      "name": "marks",
+      "type": "arc",
+      "style": ["arc"],
+      "encode": {
+        "update": {
+          "x": {"value": 50},
+          "y": {"value": 50},
+          "outerRadius": {"value": 10},
+          "innerRadius": {"value": 30},
+          "startAngle": {"value": 5},
+          "endAngle": {"value": 6.29},
+          "fill": {"value": "lightblue"},
+          "stroke": {"value": "deeppink"},
+          "strokeWidth": {"value": 3}
+        }
+      }
+    },
+    {
+      "type": "symbol",
+      "encode": {
+        "update": {
+          "x": {"value": 50},
+          "y": {"value": 50},
+          "fill": {"value": "crimson"}
+        }
+      }
+    }
+  ]
+}
