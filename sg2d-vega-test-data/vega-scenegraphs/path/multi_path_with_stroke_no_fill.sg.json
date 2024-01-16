@@ -15,10 +15,8 @@
           "clip": false,
           "items": [
             {
-              "x": 50,
-              "y": 70,
-              "fill": "green",
-              "fillOpacity": 0.6,
+              "x": 20,
+              "y": 30,
               "stroke": "deeppink",
               "strokeWidth": 3,
               "path": "M0,.5L.6,.8L.5,.1L1,-.3L.3,-.4L0,-1L-.3,-.4L-1,-.3L-.5,.1L-.6.8L0,.5Z",
@@ -27,28 +25,24 @@
               "angle": 0
             },
             {
-              "x": 90,
-              "y": 90,
-              "fill": "blue",
-              "fillOpacity": 0.6,
+              "x": 40,
+              "y": 30,
               "stroke": "deeppink",
               "strokeWidth": 3,
-              "path": "M0,.5L.6,.8L.5,.1L1,-.3L.3,-.4L0,-1L-.3,-.4L-1,-.3L-.5,.1L-.6.8L0,.5Z",
+              "path": "M2 1 h1 v1 h1 v1 h-1 v1 h-1 v-1 h-1 v-1 h1 z",
               "scaleX": 15,
               "scaleY": 30,
-              "angle": 15
+              "angle": 10
             },
             {
-              "x": 130,
-              "y": 130,
-              "fill": "darkorange",
-              "fillOpacity": 0.6,
+              "x": 150,
+              "y": 170,
               "stroke": "deeppink",
               "strokeWidth": 3,
-              "path": "M0,.5L.6,.8L.5,.1L1,-.3L.3,-.4L0,-1L-.3,-.4L-1,-.3L-.5,.1L-.6.8L0,.5Z",
+              "path": "M-1,-1L1,-1L1,1L-1,1Z",
               "scaleX": 30,
               "scaleY": 15,
-              "angle": -20
+              "angle": -15
             }
           ],
           "zindex": 0
@@ -56,8 +50,8 @@
       ],
       "x": 0,
       "y": 0,
-      "width": 200,
-      "height": 200,
+      "width": 300,
+      "height": 300,
       "fill": "transparent"
     }
   ],

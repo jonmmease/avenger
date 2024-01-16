@@ -1,4 +1,4 @@
-use crate::marks::mark::MarkShader;
+use crate::marks::instanced_mark::InstancedMarkShader;
 use itertools::izip;
 use sg2d::marks::rect::RectMark;
 use wgpu::VertexBufferLayout;
@@ -110,7 +110,7 @@ impl RectShader {
     }
 }
 
-impl MarkShader for RectShader {
+impl InstancedMarkShader for RectShader {
     type Instance = RectInstance;
     type Vertex = RectVertex;
 

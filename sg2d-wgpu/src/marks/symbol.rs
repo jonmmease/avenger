@@ -1,5 +1,5 @@
 use crate::error::Sg2dWgpuError;
-use crate::marks::mark::MarkShader;
+use crate::marks::instanced_mark::InstancedMarkShader;
 use itertools::izip;
 use lyon::lyon_tessellation::{
     BuffersBuilder, FillVertex, FillVertexConstructor, StrokeVertex, StrokeVertexConstructor,
@@ -180,7 +180,7 @@ impl SymbolShader {
     }
 }
 
-impl MarkShader for SymbolShader {
+impl InstancedMarkShader for SymbolShader {
     type Instance = SymbolInstance;
     type Vertex = SymbolVertex;
 

@@ -23,10 +23,20 @@ impl<T> EncodingValue<T> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum StrokeCap {
+    #[default]
     Butt,
     Round,
     Square,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StrokeJoin {
+    Bevel,
+    #[default]
+    Miter,
+    Round,
 }

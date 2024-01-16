@@ -21,7 +21,8 @@
               "fillOpacity": 0.6,
               "path": "M0,.5L.6,.8L.5,.1L1,-.3L.3,-.4L0,-1L-.3,-.4L-1,-.3L-.5,.1L-.6.8L0,.5Z",
               "scaleX": 15,
-              "scaleY": 15
+              "scaleY": 15,
+              "angle": 0
             },
             {
               "x": 90,
@@ -30,7 +31,8 @@
               "fillOpacity": 0.6,
               "path": "M0,.5L.6,.8L.5,.1L1,-.3L.3,-.4L0,-1L-.3,-.4L-1,-.3L-.5,.1L-.6.8L0,.5Z",
               "scaleX": 15,
-              "scaleY": 30
+              "scaleY": 30,
+              "angle": 15
             },
             {
               "x": 130,
@@ -39,7 +41,8 @@
               "fillOpacity": 0.6,
               "path": "M0,.5L.6,.8L.5,.1L1,-.3L.3,-.4L0,-1L-.3,-.4L-1,-.3L-.5,.1L-.6.8L0,.5Z",
               "scaleX": 30,
-              "scaleY": 15
+              "scaleY": 15,
+              "angle": -20
             }
           ],
           "zindex": 0
