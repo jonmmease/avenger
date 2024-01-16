@@ -80,52 +80,109 @@ fn mod_tau(v: f32) -> f32 {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let frag_pos = vec2<f32>(in.clip_position[0], in.clip_position[1]);
-    let scaled_center = in.position * chart_uniforms.scale;
 
-    let scaled_outer_radius = in.outer_radius * chart_uniforms.scale;
-    let scaled_inner_radius = in.inner_radius * chart_uniforms.scale;
-    let mid_radius = (scaled_outer_radius + scaled_inner_radius) / 2.0;
+    // Compute scaled values position
+    let scaled_center = in.position * chart_uniforms.scale;
+    let outer_radius = in.outer_radius * chart_uniforms.scale;
+    let inner_radius = in.inner_radius * chart_uniforms.scale;
+    let half_stroke = in.stroke_width * chart_uniforms.scale / 2.0;
+    let outer_stroke_radius = outer_radius + half_stroke;
+    let inner_stroke_radius = inner_radius - half_stroke;
+    let mid_radius = (outer_radius + inner_radius) / 2.0;
 
     // Compute position of fragment relative to arc center
+    let frag_pos = vec2<f32>(in.clip_position[0], in.clip_position[1]);
     let relative_frag = frag_pos - scaled_center;
 
-    // Compute alpha factor for start/end radius
-    let frag_radius = length(relative_frag);
+    // Initialize alpha nand color mix factors for start/end radius boundaries
     var radius_alpha_factor: f32 = 1.0;
-    let radius_buffer = 0.5 * chart_uniforms.scale;
+    var radius_mix_factor: f32 = 1.0;
+
+    // antialias buffer distance
+    let distance_buffer = 0.5 * chart_uniforms.scale;
+
+    let frag_radius = length(relative_frag);
     if (frag_radius > mid_radius) {
-        radius_alpha_factor = 1.0 - smoothstep(scaled_outer_radius - radius_buffer, scaled_outer_radius + radius_buffer, frag_radius);
-    } else if (scaled_inner_radius > 0.0) {
-        radius_alpha_factor = smoothstep(scaled_inner_radius - radius_buffer, scaled_inner_radius + radius_buffer, frag_radius);
+        radius_alpha_factor = 1.0 - smoothstep(outer_stroke_radius - distance_buffer, outer_stroke_radius + distance_buffer, frag_radius);
+        radius_mix_factor = 1.0 - smoothstep(
+            outer_stroke_radius - 2.0 * half_stroke - distance_buffer,
+            outer_stroke_radius - 2.0 * half_stroke + distance_buffer,
+            frag_radius
+        );
+    } else if (inner_radius > 0.0) {
+        radius_alpha_factor = smoothstep(inner_stroke_radius - distance_buffer, inner_stroke_radius + distance_buffer, frag_radius);
+        radius_mix_factor = smoothstep(
+            inner_stroke_radius + 2.0 * half_stroke - distance_buffer,
+            inner_stroke_radius + 2.0 * half_stroke + distance_buffer,
+            frag_radius
+        );
     }
 
     // Compute angle of current fragment. Normalize to interval [0, TAU), adding PI / 2 to align with Vega
     let frag_angle = mod_tau((PI / 2.0) + atan2(relative_frag[1], relative_frag[0]));
+
+    // compute projected distance from fragment position to lines from center
+    // point at start and end angles
+    let start_theta = min(
+        abs(frag_angle - in.start_angle),
+        abs(frag_angle - mod_tau(in.start_angle)),
+    );
+    let end_theta = min(
+        abs(frag_angle - in.end_angle),
+        abs(frag_angle - mod_tau(in.end_angle)),
+    );
+
+    // Compute distance of fragment to line from center along start_theta.
+    // Use a large value if the fragment is on the oposite side
+    var start_proj_dist: f32;
+    if (start_theta < PI / 2.0) {
+        start_proj_dist = abs(sin(start_theta) * length(relative_frag));
+    } else {
+        start_proj_dist = 1000000.0;
+    }
+
+    var end_proj_dist: f32;
+    if (end_theta < PI / 2.0) {
+        end_proj_dist = abs(sin(end_theta) * length(relative_frag));
+    } else {
+        end_proj_dist = 1000000.0;
+    }
 
     // Check whether end interval crosses the 0/TAU boundary
     let end_angle_turns = floor(in.end_angle / TAU);
     let turns = end_angle_turns;
 
     // alpha_factor based on angle
-    var angle_alpha_factor: f32 = 1.0;
-    let angle_buffer = 0.5 * chart_uniforms.scale / frag_radius;
+    var angle_alpha_factor: f32;
+    var angle_mix_factor: f32;
 
-    if (turns > 0.0 && (in.start_angle <= frag_angle || frag_angle + turns * TAU <= in.end_angle)) {
-        angle_alpha_factor = max(
-            smoothstep(in.start_angle - angle_buffer, in.start_angle + angle_buffer, frag_angle),
-            1.0 - smoothstep(in.end_angle - angle_buffer, in.end_angle + angle_buffer, frag_angle + turns * TAU)
+    let in_straddle_arc = turns > 0.0 && (in.start_angle <= frag_angle || frag_angle + turns * TAU <= in.end_angle);
+    let in_non_straddle_arc = turns == 0.0 && (mod_tau(in.start_angle) <= frag_angle && frag_angle <= mod_tau(in.end_angle));
+    if (in_straddle_arc || in_non_straddle_arc) {
+        // Inside an arc
+        angle_mix_factor = smoothstep(
+            half_stroke - distance_buffer,
+            half_stroke + distance_buffer,
+            min(start_proj_dist, end_proj_dist)
         );
-    } else if (turns == 0.0 && (mod_tau(in.start_angle) <= frag_angle && frag_angle <= mod_tau(in.end_angle))) {
-        angle_alpha_factor = min(
-            smoothstep(in.start_angle - angle_buffer, in.start_angle + angle_buffer, frag_angle),
-            1.0 - smoothstep(in.end_angle - angle_buffer, in.end_angle + angle_buffer, frag_angle + turns * TAU)
-        );
+        angle_alpha_factor = 1.0;
     } else {
-        angle_alpha_factor = 0.0;
+        // Outside of the arc, apply anit-aliasing
+        angle_alpha_factor = 1.0 - smoothstep(
+            half_stroke - distance_buffer,
+            half_stroke + distance_buffer,
+            min(start_proj_dist, end_proj_dist)
+        );
+        angle_mix_factor = 0.0;
     }
 
-    var color: vec4<f32> = in.fill;
-    color[3] *= min(radius_alpha_factor, angle_alpha_factor);
-    return color;
+    var mixed_color: vec4<f32>;
+    if (in.stroke_width > 0.0) {
+        mixed_color = mix(in.stroke, in.fill, min(radius_mix_factor, angle_mix_factor));
+    } else {
+        mixed_color = in.fill;
+    }
+
+    mixed_color[3] *= min(radius_alpha_factor, angle_alpha_factor);
+    return mixed_color;
 }
