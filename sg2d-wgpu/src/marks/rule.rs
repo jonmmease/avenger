@@ -1,4 +1,4 @@
-use crate::marks::mark::MarkShader;
+use crate::marks::instanced_mark::InstancedMarkShader;
 use itertools::izip;
 use sg2d::marks::rule::RuleMark;
 use sg2d::value::StrokeCap;
@@ -202,7 +202,7 @@ impl RuleShader {
     }
 }
 
-impl MarkShader for RuleShader {
+impl InstancedMarkShader for RuleShader {
     type Instance = RuleInstance;
     type Vertex = RuleVertex;
 

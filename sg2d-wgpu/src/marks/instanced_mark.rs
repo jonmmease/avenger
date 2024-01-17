@@ -2,7 +2,7 @@ use crate::canvas::CanvasUniform;
 use wgpu::util::DeviceExt;
 use wgpu::{CommandBuffer, Device, TextureFormat, TextureView};
 
-pub trait MarkShader {
+pub trait InstancedMarkShader {
     type Instance: bytemuck::Pod + bytemuck::Zeroable;
     type Vertex: bytemuck::Pod + bytemuck::Zeroable;
 
@@ -15,7 +15,7 @@ pub trait MarkShader {
     fn vertex_desc(&self) -> wgpu::VertexBufferLayout<'static>;
 }
 
-pub struct GeomMarkRenderer {
+pub struct InstancedMarkRenderer {
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
@@ -25,13 +25,13 @@ pub struct GeomMarkRenderer {
     uniform_bind_group: wgpu::BindGroup,
 }
 
-impl GeomMarkRenderer {
+impl InstancedMarkRenderer {
     pub fn new<I, V>(
         device: &Device,
         uniform: CanvasUniform,
         texture_format: TextureFormat,
         sample_count: u32,
-        mark_shader: Box<dyn MarkShader<Instance = I, Vertex = V>>,
+        mark_shader: Box<dyn InstancedMarkShader<Instance = I, Vertex = V>>,
         instances: &[I],
     ) -> Self
     where
