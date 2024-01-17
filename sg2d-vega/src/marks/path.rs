@@ -1,7 +1,7 @@
 use crate::error::VegaSceneGraphError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::symbol::parse_svg_path;
-use lyon_extra::euclid::{Transform2D, Vector2D};
+use lyon_extra::euclid::Vector2D;
 use lyon_path::geom::Angle;
 use serde::{Deserialize, Serialize};
 use sg2d::marks::mark::SceneMark;
