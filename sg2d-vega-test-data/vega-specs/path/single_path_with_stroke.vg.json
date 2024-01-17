@@ -1,0 +1,39 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v5.json",
+  "description": "A simple pie chart with embedded data.",
+  "background": "white",
+  "padding": 5,
+  "width": 200,
+  "height": 200,
+  "style": "view",
+  "data": [{
+    "name": "data_0",
+    "values": [
+      {"x": 50, "y": 70, "fill": "green", "scaleX": 15, "scaleY": 15, "angle": 0},
+      {"x": 90, "y": 90, "fill": "blue", "scaleX": 15, "scaleY": 30, "angle": 15},
+      {"x": 130, "y": 130, "fill": "darkorange", "scaleX": 30, "scaleY": 15, "angle": -20}
+    ]
+  }],
+  "marks": [
+    {
+      "name": "marks",
+      "type": "path",
+      "from": {"data": "data_0"},
+      "style": ["arc"],
+      "encode": {
+        "update": {
+          "x": {"field": "x"},
+          "y": {"field": "y"},
+          "scaleX": {"field": "scaleX"},
+          "scaleY": {"field": "scaleY"},
+          "path": {"value": "M0,.5L.6,.8L.5,.1L1,-.3L.3,-.4L0,-1L-.3,-.4L-1,-.3L-.5,.1L-.6.8L0,.5Z"},
+          "fill":  {"field": "fill"},
+          "fillOpacity": {"value": 0.6},
+          "angle": {"field": "angle"},
+          "stroke": {"value": "deeppink"},
+          "strokeWidth": {"value": 3}
+        }
+      }
+    }
+  ]
+}

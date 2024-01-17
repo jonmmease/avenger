@@ -1,5 +1,6 @@
 use crate::marks::arc::VegaArcItem;
 use crate::marks::group::VegaGroupItem;
+use crate::marks::path::VegaPathItem;
 use crate::marks::rect::VegaRectItem;
 use crate::marks::rule::VegaRuleItem;
 use crate::marks::symbol::VegaSymbolItem;
@@ -17,7 +18,7 @@ pub enum VegaMark {
     Image,
     Group(VegaMarkContainer<VegaGroupItem>),
     Line,
-    Path,
+    Path(VegaMarkContainer<VegaPathItem>),
     Rect(VegaMarkContainer<VegaRectItem>),
     Rule(VegaMarkContainer<VegaRuleItem>),
     Shape,

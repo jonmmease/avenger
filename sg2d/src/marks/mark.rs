@@ -1,5 +1,6 @@
 use crate::marks::arc::ArcMark;
 use crate::marks::group::SceneGroup;
+use crate::marks::path::PathMark;
 use crate::marks::rect::RectMark;
 use crate::marks::rule::RuleMark;
 use crate::marks::symbol::SymbolMark;
@@ -9,6 +10,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SceneMark {
     Arc(ArcMark),
+    Path(PathMark),
     Symbol(SymbolMark),
     Rect(RectMark),
     Rule(RuleMark),

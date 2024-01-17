@@ -14,12 +14,15 @@ use winit::window::Window;
 
 use crate::error::Sg2dWgpuError;
 use crate::marks::arc::{ArcInstance, ArcShader};
-use crate::marks::mark::GeomMarkRenderer;
+use crate::marks::basic_mark::BasicMarkRenderer;
+use crate::marks::instanced_mark::InstancedMarkRenderer;
+use crate::marks::path::PathShader;
 use crate::marks::rect::{RectInstance, RectShader};
 use crate::marks::rule::{RuleInstance, RuleShader};
 use crate::marks::symbol::{SymbolInstance, SymbolShader};
 use crate::marks::text::{TextInstance, TextMarkRenderer};
 use sg2d::marks::arc::ArcMark;
+use sg2d::marks::path::PathMark;
 use sg2d::{
     marks::group::SceneGroup, marks::mark::SceneMark, marks::rect::RectMark, marks::rule::RuleMark,
     marks::symbol::SymbolMark, marks::text::TextMark, scene_graph::SceneGraph,
@@ -34,7 +37,8 @@ pub struct CanvasUniform {
 }
 
 pub enum MarkRenderer {
-    Geom(GeomMarkRenderer),
+    Basic(BasicMarkRenderer),
+    Instanced(InstancedMarkRenderer),
     Text(TextMarkRenderer),
 }
 
@@ -54,7 +58,7 @@ pub trait Canvas {
 
     fn add_arc_mark(&mut self, mark: &ArcMark) -> Result<(), Sg2dWgpuError> {
         let instances = ArcInstance::iter_from_spec(mark).collect::<Vec<_>>();
-        self.add_mark_renderer(MarkRenderer::Geom(GeomMarkRenderer::new(
+        self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
             self.device(),
             *self.uniform(),
             self.texture_format(),
@@ -65,9 +69,20 @@ pub trait Canvas {
         Ok(())
     }
 
+    fn add_path_mark(&mut self, mark: &PathMark) -> Result<(), Sg2dWgpuError> {
+        self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
+            self.device(),
+            *self.uniform(),
+            self.texture_format(),
+            self.sample_count(),
+            Box::new(PathShader::from_path_mark(mark)?),
+        )));
+        Ok(())
+    }
+
     fn add_symbol_mark(&mut self, mark: &SymbolMark) -> Result<(), Sg2dWgpuError> {
         let instances = SymbolInstance::iter_from_spec(mark).collect::<Vec<_>>();
-        self.add_mark_renderer(MarkRenderer::Geom(GeomMarkRenderer::new(
+        self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
             self.device(),
             *self.uniform(),
             self.texture_format(),
@@ -84,7 +99,7 @@ pub trait Canvas {
 
     fn add_rect_mark(&mut self, mark: &RectMark) -> Result<(), Sg2dWgpuError> {
         let instances = RectInstance::iter_from_spec(mark).collect::<Vec<_>>();
-        self.add_mark_renderer(MarkRenderer::Geom(GeomMarkRenderer::new(
+        self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
             self.device(),
             *self.uniform(),
             self.texture_format(),
@@ -97,7 +112,7 @@ pub trait Canvas {
 
     fn add_rule_mark(&mut self, mark: &RuleMark) -> Result<(), Sg2dWgpuError> {
         let instances = RuleInstance::iter_from_spec(mark).collect::<Vec<_>>();
-        self.add_mark_renderer(MarkRenderer::Geom(GeomMarkRenderer::new(
+        self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
             self.device(),
             *self.uniform(),
             self.texture_format(),
@@ -135,6 +150,9 @@ pub trait Canvas {
                 }
                 SceneMark::Rule(mark) => {
                     self.add_rule_mark(mark)?;
+                }
+                SceneMark::Path(mark) => {
+                    self.add_path_mark(mark)?;
                 }
                 SceneMark::Text(mark) => {
                     self.add_text_mark(mark)?;
@@ -407,23 +425,30 @@ impl WindowCanvas {
 
         for mark in &mut self.marks {
             let command = match mark {
-                MarkRenderer::Geom(mark) => {
+                MarkRenderer::Basic(renderer) => {
                     if self.sample_count > 1 {
-                        mark.render(&self.device, &self.multisampled_framebuffer, Some(&view))
+                        renderer.render(&self.device, &self.multisampled_framebuffer, Some(&view))
                     } else {
-                        mark.render(&self.device, &view, None)
+                        renderer.render(&self.device, &view, None)
                     }
                 }
-                MarkRenderer::Text(mark) => {
+                MarkRenderer::Instanced(renderer) => {
                     if self.sample_count > 1 {
-                        mark.render(
+                        renderer.render(&self.device, &self.multisampled_framebuffer, Some(&view))
+                    } else {
+                        renderer.render(&self.device, &view, None)
+                    }
+                }
+                MarkRenderer::Text(renderer) => {
+                    if self.sample_count > 1 {
+                        renderer.render(
                             &self.device,
                             &self.queue,
                             &self.multisampled_framebuffer,
                             Some(&view),
                         )
                     } else {
-                        mark.render(&self.device, &self.queue, &view, None)
+                        renderer.render(&self.device, &self.queue, &view, None)
                     }
                 }
             };
@@ -595,7 +620,18 @@ impl PngCanvas {
 
         for mark in &mut self.marks {
             let command = match mark {
-                MarkRenderer::Geom(mark) => {
+                MarkRenderer::Basic(renderer) => {
+                    if self.sample_count > 1 {
+                        renderer.render(
+                            &self.device,
+                            &self.multisampled_framebuffer,
+                            Some(&self.texture_view),
+                        )
+                    } else {
+                        renderer.render(&self.device, &self.texture_view, None)
+                    }
+                }
+                MarkRenderer::Instanced(mark) => {
                     if self.sample_count > 1 {
                         mark.render(
                             &self.device,
