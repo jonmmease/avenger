@@ -1,12 +1,10 @@
 use crate::error::Sg2dWgpuError;
 use crate::marks::basic_mark::BasicMarkShader;
 use itertools::izip;
-use lyon::geom::euclid::{Transform2D, Vector2D};
 use lyon::lyon_tessellation::{
     BuffersBuilder, FillOptions, FillTessellator, FillVertex, FillVertexConstructor, StrokeOptions,
     StrokeTessellator, StrokeVertex, StrokeVertexConstructor, VertexBuffers,
 };
-use lyon::math::Angle;
 use lyon::path::{LineCap, LineJoin};
 use sg2d::marks::path::PathMark;
 use sg2d::value::{StrokeCap, StrokeJoin};
@@ -48,22 +46,14 @@ impl PathShader {
         let mut indices: Vec<u16> = Vec::new();
 
         // Here, add style info to PathVertex
-        for (path, x, y, scale_x, scale_y, angle, fill, stroke) in izip!(
+        for (path, fill, stroke, transform) in izip!(
             mark.path_iter(),
-            mark.x_iter(),
-            mark.y_iter(),
-            mark.scale_x_iter(),
-            mark.scale_y_iter(),
-            mark.angle_iter(),
             mark.fill_iter(),
             mark.stroke_iter(),
+            mark.transform_iter(),
         ) {
-            // Apply scale and rotation to path
-            let transform = Transform2D::scale(*scale_x, *scale_y)
-                .then_rotate(Angle::degrees(*angle))
-                .then_translate(Vector2D::new(*x, *y));
-
-            let path = path.clone().transformed(&transform);
+            // Apply transform to path
+            let path = path.clone().transformed(transform);
 
             // Create vertex/index buffer builder
             let mut buffers: VertexBuffers<PathVertex, u16> = VertexBuffers::new();
