@@ -4,5 +4,6 @@ pub mod mark;
 pub mod path;
 pub mod rect;
 pub mod rule;
+pub mod shape;
 pub mod symbol;
 pub mod text;

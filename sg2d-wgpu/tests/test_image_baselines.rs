@@ -64,6 +64,12 @@ mod test_image_baselines {
         case("path", "single_path_with_stroke_no_fill", 0.8),
         case("path", "multi_path_with_stroke", 0.8),
         case("path", "multi_path_with_stroke_no_fill", 0.8),
+
+        // us-counties is a bit off due to how anti-aliasing results in light border between
+        // adjacent shapes. The wgpu implementation doesn't have this border
+        case("shape", "us-counties", 0.003),
+        case("shape", "us-map", 0.0006),
+        case("shape", "world-natural-earth-projection", 0.0006),
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
         let specs_dir = format!(

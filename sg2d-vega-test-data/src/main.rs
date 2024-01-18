@@ -1,5 +1,3 @@
-use regex::Regex;
-use serde_json::json;
 use std::fs::DirEntry;
 use std::path::Path;
 use std::{fs, io};

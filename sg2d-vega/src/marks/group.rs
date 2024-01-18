@@ -46,6 +46,9 @@ impl VegaGroupItem {
                 VegaMark::Path(mark) => {
                     vec![mark.to_scene_graph(new_origin)?]
                 }
+                VegaMark::Shape(mark) => {
+                    vec![mark.to_scene_graph(new_origin)?]
+                }
                 _ => {
                     println!("Mark type not yet supported: {:?}", item);
                     continue;
