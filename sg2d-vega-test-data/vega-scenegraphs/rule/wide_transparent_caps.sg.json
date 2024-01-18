@@ -1,60 +1,68 @@
 {
-  "marktype": "group",
-  "name": "root",
-  "role": "frame",
-  "interactive": true,
-  "clip": false,
-  "items": [
-    {
-      "items": [
-        {
-          "marktype": "rule",
-          "name": "marks",
-          "role": "mark",
-          "interactive": true,
-          "clip": false,
-          "items": [
-            {
-              "x": 140,
-              "y": 15,
-              "opacity": 0.5,
-              "stroke": "orange",
-              "strokeWidth": 12,
-              "strokeCap": "butt",
-              "x2": 60,
-              "y2": 180
-            },
-            {
-              "x": 20,
-              "y": 15,
-              "opacity": 0.5,
-              "stroke": "blue",
-              "strokeWidth": 16,
-              "strokeCap": "square",
-              "x2": 120,
-              "y2": 140
-            },
-            {
-              "x": 50,
-              "y": 15,
-              "opacity": 0.5,
-              "stroke": "green",
-              "strokeWidth": 20,
-              "strokeCap": "round",
-              "x2": 120,
-              "y2": 180
-            }
-          ],
-          "zindex": 0
-        }
-      ],
-      "x": 0,
-      "y": 0,
-      "width": 200,
-      "height": 200,
-      "fill": "transparent",
-      "stroke": "transparent"
-    }
+  "width": 210,
+  "height": 215,
+  "origin": [
+    5,
+    10
   ],
-  "zindex": 0
+  "scenegraph": {
+    "clip": false,
+    "interactive": true,
+    "items": [
+      {
+        "items": [
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "strokeWidth": 12,
+                "stroke": "orange",
+                "x": 140,
+                "x2": 60,
+                "y": 15,
+                "y2": 180,
+                "opacity": 0.5,
+                "strokeCap": "butt"
+              },
+              {
+                "strokeWidth": 16,
+                "stroke": "blue",
+                "x": 20,
+                "x2": 120,
+                "y": 15,
+                "y2": 140,
+                "opacity": 0.5,
+                "strokeCap": "square"
+              },
+              {
+                "strokeWidth": 20,
+                "stroke": "green",
+                "x": 50,
+                "x2": 120,
+                "y": 15,
+                "y2": 180,
+                "opacity": 0.5,
+                "strokeCap": "round"
+              }
+            ],
+            "marktype": "rule",
+            "name": "marks",
+            "role": "mark",
+            "zindex": 0
+          }
+        ],
+        "fill": "transparent",
+        "stroke": "transparent",
+        "x": 0,
+        "y": 0,
+        "width": 200,
+        "height": 200
+      }
+    ],
+    "marktype": "group",
+    "name": "root",
+    "role": "frame",
+    "zindex": 0
+  }
 }

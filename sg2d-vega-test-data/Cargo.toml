@@ -7,6 +7,6 @@ edition = "2021"
 
 [dependencies]
 serde_json = {workspace = true}
-vl-convert-rs = "1.2.0"
+vl-convert-rs = {path = "/Users/jonmmease/VegaFusion/repos/vl-convert/vl-convert-rs"}
 regex = "1.10.2"
 pollster = "0.3"
