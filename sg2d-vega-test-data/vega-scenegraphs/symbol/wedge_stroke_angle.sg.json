@@ -1,127 +1,135 @@
 {
-  "marktype": "group",
-  "name": "root",
-  "role": "frame",
-  "interactive": true,
-  "clip": false,
-  "items": [
-    {
-      "items": [
-        {
-          "marktype": "symbol",
-          "role": "mark",
-          "interactive": true,
-          "clip": false,
-          "items": [
-            {
-              "x": 30,
-              "y": 40,
-              "fill": "red",
-              "stroke": "black",
-              "strokeWidth": 3,
-              "size": 600,
-              "shape": "wedge",
-              "angle": 0
-            },
-            {
-              "x": 60,
-              "y": 40,
-              "fill": "red",
-              "stroke": "black",
-              "strokeWidth": 3,
-              "size": 1200,
-              "shape": "wedge",
-              "angle": 30
-            },
-            {
-              "x": 90,
-              "y": 40,
-              "fill": "red",
-              "stroke": "black",
-              "strokeWidth": 3,
-              "size": 1800,
-              "shape": "wedge",
-              "angle": 90
-            },
-            {
-              "x": 150,
-              "y": 40,
-              "fill": "red",
-              "stroke": "black",
-              "strokeWidth": 3,
-              "size": 2200,
-              "shape": "wedge",
-              "angle": 120
-            },
-            {
-              "x": 200,
-              "y": 40,
-              "fill": "red",
-              "stroke": "black",
-              "strokeWidth": 3,
-              "size": 2800,
-              "shape": "wedge",
-              "angle": 180
-            },
-            {
-              "x": 250,
-              "y": 40,
-              "fill": "red",
-              "stroke": "black",
-              "strokeWidth": 3,
-              "size": 3000,
-              "shape": "wedge",
-              "angle": 240
-            },
-            {
-              "x": 310,
-              "y": 40,
-              "fill": "red",
-              "stroke": "black",
-              "strokeWidth": 3,
-              "size": 1600,
-              "shape": "wedge",
-              "angle": 270
-            },
-            {
-              "x": 360,
-              "y": 40,
-              "fill": "red",
-              "stroke": "black",
-              "strokeWidth": 3,
-              "size": 2400,
-              "shape": "wedge",
-              "angle": 300
-            },
-            {
-              "x": 400,
-              "y": 40,
-              "fill": "red",
-              "stroke": "black",
-              "strokeWidth": 3,
-              "size": 3000,
-              "shape": "wedge",
-              "angle": 330
-            },
-            {
-              "x": 450,
-              "y": 40,
-              "fill": "red",
-              "stroke": "black",
-              "strokeWidth": 3,
-              "size": 3600,
-              "shape": "wedge",
-              "angle": 360
-            }
-          ],
-          "zindex": 0
-        }
-      ],
-      "x": 0,
-      "y": 0,
-      "width": 500,
-      "height": 100
-    }
+  "width": 500,
+  "height": 100,
+  "origin": [
+    0,
+    0
   ],
-  "zindex": 0
+  "scenegraph": {
+    "clip": false,
+    "interactive": true,
+    "items": [
+      {
+        "items": [
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "x": 30,
+                "y": 40,
+                "shape": "wedge",
+                "fill": "red",
+                "stroke": "black",
+                "strokeWidth": 3,
+                "size": 600,
+                "angle": 0
+              },
+              {
+                "x": 60,
+                "y": 40,
+                "shape": "wedge",
+                "fill": "red",
+                "stroke": "black",
+                "strokeWidth": 3,
+                "size": 1200,
+                "angle": 30
+              },
+              {
+                "x": 90,
+                "y": 40,
+                "shape": "wedge",
+                "fill": "red",
+                "stroke": "black",
+                "strokeWidth": 3,
+                "size": 1800,
+                "angle": 90
+              },
+              {
+                "x": 150,
+                "y": 40,
+                "shape": "wedge",
+                "fill": "red",
+                "stroke": "black",
+                "strokeWidth": 3,
+                "size": 2200,
+                "angle": 120
+              },
+              {
+                "x": 200,
+                "y": 40,
+                "shape": "wedge",
+                "fill": "red",
+                "stroke": "black",
+                "strokeWidth": 3,
+                "size": 2800,
+                "angle": 180
+              },
+              {
+                "x": 250,
+                "y": 40,
+                "shape": "wedge",
+                "fill": "red",
+                "stroke": "black",
+                "strokeWidth": 3,
+                "size": 3000,
+                "angle": 240
+              },
+              {
+                "x": 310,
+                "y": 40,
+                "shape": "wedge",
+                "fill": "red",
+                "stroke": "black",
+                "strokeWidth": 3,
+                "size": 1600,
+                "angle": 270
+              },
+              {
+                "x": 360,
+                "y": 40,
+                "shape": "wedge",
+                "fill": "red",
+                "stroke": "black",
+                "strokeWidth": 3,
+                "size": 2400,
+                "angle": 300
+              },
+              {
+                "x": 400,
+                "y": 40,
+                "shape": "wedge",
+                "fill": "red",
+                "stroke": "black",
+                "strokeWidth": 3,
+                "size": 3000,
+                "angle": 330
+              },
+              {
+                "x": 450,
+                "y": 40,
+                "shape": "wedge",
+                "fill": "red",
+                "stroke": "black",
+                "strokeWidth": 3,
+                "size": 3600,
+                "angle": 360
+              }
+            ],
+            "marktype": "symbol",
+            "role": "mark",
+            "zindex": 0
+          }
+        ],
+        "x": 0,
+        "y": 0,
+        "width": 500,
+        "height": 100
+      }
+    ],
+    "marktype": "group",
+    "name": "root",
+    "role": "frame",
+    "zindex": 0
+  }
 }

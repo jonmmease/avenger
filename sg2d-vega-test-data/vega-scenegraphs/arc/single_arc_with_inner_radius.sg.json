@@ -1,53 +1,61 @@
 {
-  "marktype": "group",
-  "name": "root",
-  "role": "frame",
-  "interactive": true,
-  "clip": false,
-  "items": [
-    {
-      "items": [
-        {
-          "marktype": "arc",
-          "name": "marks",
-          "role": "mark",
-          "interactive": true,
-          "clip": false,
-          "items": [
-            {
-              "x": 50,
-              "y": 50,
-              "fill": "#4c78a8",
-              "startAngle": -0.5,
-              "endAngle": 1.7,
-              "innerRadius": 30,
-              "outerRadius": 10
-            }
-          ],
-          "zindex": 0
-        },
-        {
-          "marktype": "symbol",
-          "role": "mark",
-          "interactive": true,
-          "clip": false,
-          "items": [
-            {
-              "x": 50,
-              "y": 50,
-              "fill": "crimson",
-              "size": 64
-            }
-          ],
-          "zindex": 0
-        }
-      ],
-      "x": 0,
-      "y": 0,
-      "width": 100,
-      "height": 100,
-      "fill": "transparent"
-    }
+  "width": 110,
+  "height": 110,
+  "origin": [
+    5,
+    5
   ],
-  "zindex": 0
+  "scenegraph": {
+    "clip": false,
+    "interactive": true,
+    "items": [
+      {
+        "items": [
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "fill": "#4c78a8",
+                "x": 50,
+                "y": 50,
+                "outerRadius": 10,
+                "innerRadius": 30,
+                "startAngle": -0.5,
+                "endAngle": 1.7
+              }
+            ],
+            "marktype": "arc",
+            "name": "marks",
+            "role": "mark",
+            "zindex": 0
+          },
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "size": 64,
+                "x": 50,
+                "y": 50,
+                "fill": "crimson"
+              }
+            ],
+            "marktype": "symbol",
+            "role": "mark",
+            "zindex": 0
+          }
+        ],
+        "fill": "transparent",
+        "x": 0,
+        "y": 0,
+        "width": 100,
+        "height": 100
+      }
+    ],
+    "marktype": "group",
+    "name": "root",
+    "role": "frame",
+    "zindex": 0
+  }
 }

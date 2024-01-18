@@ -42,22 +42,6 @@ fn main() {
             let spec_str = fs::read_to_string(path).unwrap();
             let vg_spec: serde_json::Value = serde_json::from_str(&spec_str).unwrap();
 
-            // Write dimensions JSON file
-            let svg =
-                pollster::block_on(converter.vega_to_svg(vg_spec.clone(), Default::default()))
-                    .unwrap();
-            let width = get_svg_width(&svg);
-            let height = get_svg_height(&svg);
-            let origin = get_svg_origin(&svg);
-            let dims_str = serde_json::to_string_pretty(&json!({
-                "width": width,
-                "height": height,
-                "origin_x": origin.0,
-                "origin_y": origin.1
-            }))
-            .unwrap();
-            fs::write(format!("{output_dir}/{spec_name}.dims.json"), dims_str).unwrap();
-
             // Save PNG
             let png = pollster::block_on(converter.vega_to_png(
                 vg_spec.clone(),
@@ -77,29 +61,6 @@ fn main() {
         }
     })
     .unwrap();
-}
-
-/// Get the image width from the SVG
-fn get_svg_width(svg: &str) -> u32 {
-    let width_re = Regex::new("width=\"(\\d+)\"").unwrap();
-    let captures = width_re.captures(svg).expect("Missing width");
-    captures.get(1).unwrap().as_str().parse().unwrap()
-}
-
-/// Get the image height from the SVG
-fn get_svg_height(svg: &str) -> u32 {
-    let width_re = Regex::new("height=\"(\\d+)\"").unwrap();
-    let captures = width_re.captures(svg).expect("Missing height");
-    captures.get(1).unwrap().as_str().parse().unwrap()
-}
-
-/// Get the renderer origin by extracting the first `translate` transform from the SVG
-fn get_svg_origin(svg: &str) -> (u32, u32) {
-    let width_re = Regex::new("translate\\((\\d+),(\\d+)\\)").unwrap();
-    let captures = width_re.captures(svg).expect("Missing height");
-    let origin_x: u32 = captures.get(1).unwrap().as_str().parse().unwrap();
-    let origin_y: u32 = captures.get(2).unwrap().as_str().parse().unwrap();
-    (origin_x, origin_y)
 }
 
 fn visit_dirs(dir: &Path, cb: &mut dyn FnMut(&DirEntry)) -> io::Result<()> {

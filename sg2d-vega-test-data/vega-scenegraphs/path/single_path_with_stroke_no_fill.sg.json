@@ -1,59 +1,67 @@
 {
-  "marktype": "group",
-  "name": "root",
-  "role": "frame",
-  "interactive": true,
-  "clip": false,
-  "items": [
-    {
-      "items": [
-        {
-          "marktype": "path",
-          "name": "marks",
-          "role": "mark",
-          "interactive": true,
-          "clip": false,
-          "items": [
-            {
-              "x": 50,
-              "y": 70,
-              "stroke": "deeppink",
-              "strokeWidth": 3,
-              "path": "M0,.5L.6,.8L.5,.1L1,-.3L.3,-.4L0,-1L-.3,-.4L-1,-.3L-.5,.1L-.6.8L0,.5Z",
-              "scaleX": 15,
-              "scaleY": 15,
-              "angle": 0
-            },
-            {
-              "x": 90,
-              "y": 90,
-              "stroke": "deeppink",
-              "strokeWidth": 3,
-              "path": "M0,.5L.6,.8L.5,.1L1,-.3L.3,-.4L0,-1L-.3,-.4L-1,-.3L-.5,.1L-.6.8L0,.5Z",
-              "scaleX": 15,
-              "scaleY": 30,
-              "angle": 15
-            },
-            {
-              "x": 130,
-              "y": 130,
-              "stroke": "deeppink",
-              "strokeWidth": 3,
-              "path": "M0,.5L.6,.8L.5,.1L1,-.3L.3,-.4L0,-1L-.3,-.4L-1,-.3L-.5,.1L-.6.8L0,.5Z",
-              "scaleX": 30,
-              "scaleY": 15,
-              "angle": -20
-            }
-          ],
-          "zindex": 0
-        }
-      ],
-      "x": 0,
-      "y": 0,
-      "width": 200,
-      "height": 200,
-      "fill": "transparent"
-    }
+  "width": 210,
+  "height": 210,
+  "origin": [
+    5,
+    5
   ],
-  "zindex": 0
+  "scenegraph": {
+    "clip": false,
+    "interactive": true,
+    "items": [
+      {
+        "items": [
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "x": 50,
+                "y": 70,
+                "scaleX": 15,
+                "scaleY": 15,
+                "path": "M0,.5L.6,.8L.5,.1L1,-.3L.3,-.4L0,-1L-.3,-.4L-1,-.3L-.5,.1L-.6.8L0,.5Z",
+                "angle": 0,
+                "stroke": "deeppink",
+                "strokeWidth": 3
+              },
+              {
+                "x": 90,
+                "y": 90,
+                "scaleX": 15,
+                "scaleY": 30,
+                "path": "M0,.5L.6,.8L.5,.1L1,-.3L.3,-.4L0,-1L-.3,-.4L-1,-.3L-.5,.1L-.6.8L0,.5Z",
+                "angle": 15,
+                "stroke": "deeppink",
+                "strokeWidth": 3
+              },
+              {
+                "x": 130,
+                "y": 130,
+                "scaleX": 30,
+                "scaleY": 15,
+                "path": "M0,.5L.6,.8L.5,.1L1,-.3L.3,-.4L0,-1L-.3,-.4L-1,-.3L-.5,.1L-.6.8L0,.5Z",
+                "angle": -20,
+                "stroke": "deeppink",
+                "strokeWidth": 3
+              }
+            ],
+            "marktype": "path",
+            "name": "marks",
+            "role": "mark",
+            "zindex": 0
+          }
+        ],
+        "fill": "transparent",
+        "x": 0,
+        "y": 0,
+        "width": 200,
+        "height": 200
+      }
+    ],
+    "marktype": "group",
+    "name": "root",
+    "role": "frame",
+    "zindex": 0
+  }
 }

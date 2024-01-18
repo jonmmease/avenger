@@ -1,112 +1,120 @@
 {
-  "marktype": "group",
-  "name": "root",
-  "role": "frame",
-  "interactive": true,
-  "clip": false,
-  "items": [
-    {
-      "items": [
-        {
-          "marktype": "symbol",
-          "name": "points",
-          "role": "mark",
-          "interactive": true,
-          "clip": false,
-          "items": [
-            {
-              "x": 40,
-              "y": 15,
-              "fill": "orange",
-              "size": 30,
-              "shape": "triangle-up",
-              "angle": 0
-            },
-            {
-              "x": 20,
-              "y": 70,
-              "fill": "blue",
-              "size": 30,
-              "shape": "triangle-up",
-              "angle": 30
-            },
-            {
-              "x": 80,
-              "y": 160,
-              "fill": "green",
-              "size": 30,
-              "shape": "triangle-up",
-              "angle": -90
-            },
-            {
-              "x": 120,
-              "y": 160,
-              "fill": "purple",
-              "size": 30,
-              "shape": "triangle-up",
-              "angle": -27
-            }
-          ],
-          "zindex": 0
-        },
-        {
-          "marktype": "text",
-          "name": "text",
-          "role": "mark",
-          "interactive": true,
-          "clip": false,
-          "items": [
-            {
-              "x": 40,
-              "y": 15,
-              "baseline": "top",
-              "fill": "orange",
-              "text": "hello",
-              "angle": 0,
-              "font": "Helvetica",
-              "fontSize": 20
-            },
-            {
-              "x": 20,
-              "y": 70,
-              "baseline": "middle",
-              "fill": "blue",
-              "text": "hello",
-              "angle": 30,
-              "font": "Helvetica",
-              "fontSize": 20
-            },
-            {
-              "x": 80,
-              "y": 160,
-              "baseline": "bottom",
-              "fill": "green",
-              "text": "hello",
-              "angle": -90,
-              "font": "Helvetica",
-              "fontSize": 20
-            },
-            {
-              "x": 120,
-              "y": 160,
-              "baseline": "alphabetic",
-              "fill": "purple",
-              "text": "hello",
-              "angle": -27,
-              "font": "Helvetica",
-              "fontSize": 20
-            }
-          ],
-          "zindex": 0
-        }
-      ],
-      "x": 0,
-      "y": 0,
-      "width": 200,
-      "height": 200,
-      "fill": "transparent",
-      "stroke": "transparent"
-    }
+  "width": 210,
+  "height": 210,
+  "origin": [
+    5,
+    5
   ],
-  "zindex": 0
+  "scenegraph": {
+    "clip": false,
+    "interactive": true,
+    "items": [
+      {
+        "items": [
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "shape": "triangle-up",
+                "size": 30,
+                "fill": "orange",
+                "x": 40,
+                "y": 15,
+                "angle": 0
+              },
+              {
+                "shape": "triangle-up",
+                "size": 30,
+                "fill": "blue",
+                "x": 20,
+                "y": 70,
+                "angle": 30
+              },
+              {
+                "shape": "triangle-up",
+                "size": 30,
+                "fill": "green",
+                "x": 80,
+                "y": 160,
+                "angle": -90
+              },
+              {
+                "shape": "triangle-up",
+                "size": 30,
+                "fill": "purple",
+                "x": 120,
+                "y": 160,
+                "angle": -27
+              }
+            ],
+            "marktype": "symbol",
+            "name": "points",
+            "role": "mark",
+            "zindex": 0
+          },
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "text": "hello",
+                "font": "Helvetica",
+                "fontSize": 20,
+                "fill": "orange",
+                "x": 40,
+                "y": 15,
+                "angle": 0,
+                "baseline": "top"
+              },
+              {
+                "text": "hello",
+                "font": "Helvetica",
+                "fontSize": 20,
+                "fill": "blue",
+                "x": 20,
+                "y": 70,
+                "angle": 30,
+                "baseline": "middle"
+              },
+              {
+                "text": "hello",
+                "font": "Helvetica",
+                "fontSize": 20,
+                "fill": "green",
+                "x": 80,
+                "y": 160,
+                "angle": -90,
+                "baseline": "bottom"
+              },
+              {
+                "text": "hello",
+                "font": "Helvetica",
+                "fontSize": 20,
+                "fill": "purple",
+                "x": 120,
+                "y": 160,
+                "angle": -27,
+                "baseline": "alphabetic"
+              }
+            ],
+            "marktype": "text",
+            "name": "text",
+            "role": "mark",
+            "zindex": 0
+          }
+        ],
+        "fill": "transparent",
+        "stroke": "transparent",
+        "x": 0,
+        "y": 0,
+        "width": 200,
+        "height": 200
+      }
+    ],
+    "marktype": "group",
+    "name": "root",
+    "role": "frame",
+    "zindex": 0
+  }
 }
