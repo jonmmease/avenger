@@ -36,13 +36,13 @@ impl VegaMarkContainer<VegaLineItem> {
         let mut stroke_dash: Option<Vec<f32>> = None;
         if let Some(item) = &first {
             if let Some(stroke_css) = &item.stroke {
-                let c = csscolorparser::parse(&stroke_css)?;
+                let c = csscolorparser::parse(stroke_css)?;
                 let base_opacity = item.opacity.unwrap_or(1.0);
                 let stroke_opacity = c.a as f32 * item.stroke_opacity.unwrap_or(1.0) * base_opacity;
                 stroke = [c.r as f32, c.g as f32, c.b as f32, stroke_opacity]
             }
             if let Some(d) = &item.stroke_dash {
-                stroke_dash = Some(parse_dash_str(&d)?);
+                stroke_dash = Some(parse_dash_str(d)?);
             }
         }
 
