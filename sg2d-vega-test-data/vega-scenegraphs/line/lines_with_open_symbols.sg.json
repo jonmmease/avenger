@@ -1,0 +1,1148 @@
+{
+  "width": 220,
+  "height": 217,
+  "origin": [
+    10,
+    10
+  ],
+  "scenegraph": {
+    "clip": false,
+    "interactive": true,
+    "items": [
+      {
+        "items": [
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": true,
+                    "items": [
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#54a24b",
+                        "description": "date (year): 2000; Mean of price: 29.6733333333; symbol: MSFT",
+                        "x": 0,
+                        "y": 189.20969696969698,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#54a24b",
+                        "description": "date (year): 2001; Mean of price: 25.3475; symbol: MSFT",
+                        "x": 20.038324664659186,
+                        "y": 190.78272727272727,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#54a24b",
+                        "description": "date (year): 2002; Mean of price: 21.8266666667; symbol: MSFT",
+                        "x": 40.02189980837667,
+                        "y": 192.0630303030303,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#54a24b",
+                        "description": "date (year): 2003; Mean of price: 20.9341666667; symbol: MSFT",
+                        "x": 60.005474952094175,
+                        "y": 192.38757575757575,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#54a24b",
+                        "description": "date (year): 2004; Mean of price: 22.6741666667; symbol: MSFT",
+                        "x": 79.98905009581166,
+                        "y": 191.75484848484848,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#54a24b",
+                        "description": "date (year): 2005; Mean of price: 23.8458333333; symbol: MSFT",
+                        "x": 100.02737476047085,
+                        "y": 191.3287878787879,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#54a24b",
+                        "description": "date (year): 2006; Mean of price: 24.7583333333; symbol: MSFT",
+                        "x": 120.01094990418835,
+                        "y": 190.9969696969697,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#54a24b",
+                        "description": "date (year): 2007; Mean of price: 29.2841666667; symbol: MSFT",
+                        "x": 139.99452504790582,
+                        "y": 189.35121212121211,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#54a24b",
+                        "description": "date (year): 2008; Mean of price: 25.2083333333; symbol: MSFT",
+                        "x": 159.97810019162333,
+                        "y": 190.83333333333334,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#54a24b",
+                        "description": "date (year): 2009; Mean of price: 22.8725; symbol: MSFT",
+                        "x": 180.0164248562825,
+                        "y": 191.68272727272728,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#54a24b",
+                        "description": "date (year): 2010; Mean of price: 28.5066666667; symbol: MSFT",
+                        "x": 200,
+                        "y": 189.6339393939394,
+                        "defined": true
+                      }
+                    ],
+                    "marktype": "line",
+                    "name": "layer_0_marks",
+                    "role": "mark",
+                    "zindex": 0
+                  }
+                ],
+                "width": 200,
+                "height": 200
+              },
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": true,
+                    "items": [
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#f58518",
+                        "description": "date (year): 2000; Mean of price: 43.9308333333; symbol: AMZN",
+                        "x": 0,
+                        "y": 184.02515151515152,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#f58518",
+                        "description": "date (year): 2001; Mean of price: 11.7391666667; symbol: AMZN",
+                        "x": 20.038324664659186,
+                        "y": 195.7312121212121,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#f58518",
+                        "description": "date (year): 2002; Mean of price: 16.7233333333; symbol: AMZN",
+                        "x": 40.02189980837667,
+                        "y": 193.91878787878787,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#f58518",
+                        "description": "date (year): 2003; Mean of price: 39.0166666667; symbol: AMZN",
+                        "x": 60.005474952094175,
+                        "y": 185.8121212121212,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#f58518",
+                        "description": "date (year): 2004; Mean of price: 43.2675; symbol: AMZN",
+                        "x": 79.98905009581166,
+                        "y": 184.26636363636365,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#f58518",
+                        "description": "date (year): 2005; Mean of price: 40.1875; symbol: AMZN",
+                        "x": 100.02737476047085,
+                        "y": 185.38636363636363,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#f58518",
+                        "description": "date (year): 2006; Mean of price: 36.2516666667; symbol: AMZN",
+                        "x": 120.01094990418835,
+                        "y": 186.81757575757575,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#f58518",
+                        "description": "date (year): 2007; Mean of price: 69.9525; symbol: AMZN",
+                        "x": 139.99452504790582,
+                        "y": 174.56272727272727,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#f58518",
+                        "description": "date (year): 2008; Mean of price: 69.015; symbol: AMZN",
+                        "x": 159.97810019162333,
+                        "y": 174.90363636363637,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#f58518",
+                        "description": "date (year): 2009; Mean of price: 90.7308333333; symbol: AMZN",
+                        "x": 180.0164248562825,
+                        "y": 167.0069696969697,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#f58518",
+                        "description": "date (year): 2010; Mean of price: 124.21; symbol: AMZN",
+                        "x": 200,
+                        "y": 154.83272727272728,
+                        "defined": true
+                      }
+                    ],
+                    "marktype": "line",
+                    "name": "layer_0_marks",
+                    "role": "mark",
+                    "zindex": 0
+                  }
+                ],
+                "width": 200,
+                "height": 200
+              },
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": true,
+                    "items": [
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#72b7b2",
+                        "description": "date (year): 2000; Mean of price: 96.9141666667; symbol: IBM",
+                        "x": 0,
+                        "y": 164.75848484848484,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#72b7b2",
+                        "description": "date (year): 2001; Mean of price: 96.9683333333; symbol: IBM",
+                        "x": 20.038324664659186,
+                        "y": 164.7387878787879,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#72b7b2",
+                        "description": "date (year): 2002; Mean of price: 75.125; symbol: IBM",
+                        "x": 40.02189980837667,
+                        "y": 172.6818181818182,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#72b7b2",
+                        "description": "date (year): 2003; Mean of price: 77.3075; symbol: IBM",
+                        "x": 60.005474952094175,
+                        "y": 171.8881818181818,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#72b7b2",
+                        "description": "date (year): 2004; Mean of price: 83.8858333333; symbol: IBM",
+                        "x": 79.98905009581166,
+                        "y": 169.4960606060606,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#72b7b2",
+                        "description": "date (year): 2005; Mean of price: 77.4975; symbol: IBM",
+                        "x": 100.02737476047085,
+                        "y": 171.8190909090909,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#72b7b2",
+                        "description": "date (year): 2006; Mean of price: 78.7175; symbol: IBM",
+                        "x": 120.01094990418835,
+                        "y": 171.37545454545455,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#72b7b2",
+                        "description": "date (year): 2007; Mean of price: 101.276666667; symbol: IBM",
+                        "x": 139.99452504790582,
+                        "y": 163.17212121212123,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#72b7b2",
+                        "description": "date (year): 2008; Mean of price: 107.225; symbol: IBM",
+                        "x": 159.97810019162333,
+                        "y": 161.00909090909093,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#72b7b2",
+                        "description": "date (year): 2009; Mean of price: 109.296666667; symbol: IBM",
+                        "x": 180.0164248562825,
+                        "y": 160.25575757575757,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#72b7b2",
+                        "description": "date (year): 2010; Mean of price: 124.853333333; symbol: IBM",
+                        "x": 200,
+                        "y": 154.59878787878787,
+                        "defined": true
+                      }
+                    ],
+                    "marktype": "line",
+                    "name": "layer_0_marks",
+                    "role": "mark",
+                    "zindex": 0
+                  }
+                ],
+                "width": 200,
+                "height": 200
+              },
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": true,
+                    "items": [
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#e45756",
+                        "description": "date (year): 2004; Mean of price: 159.476; symbol: GOOG",
+                        "x": 79.98905009581166,
+                        "y": 142.0087272727273,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#e45756",
+                        "description": "date (year): 2005; Mean of price: 286.4725; symbol: GOOG",
+                        "x": 100.02737476047085,
+                        "y": 95.82818181818182,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#e45756",
+                        "description": "date (year): 2006; Mean of price: 415.256666667; symbol: GOOG",
+                        "x": 120.01094990418835,
+                        "y": 48.99757575757575,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#e45756",
+                        "description": "date (year): 2007; Mean of price: 548.758333333; symbol: GOOG",
+                        "x": 139.99452504790582,
+                        "y": 0.4515151515151583,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#e45756",
+                        "description": "date (year): 2008; Mean of price: 454.999166667; symbol: GOOG",
+                        "x": 159.97810019162333,
+                        "y": 34.54575757575758,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#e45756",
+                        "description": "date (year): 2009; Mean of price: 449.92; symbol: GOOG",
+                        "x": 180.0164248562825,
+                        "y": 36.392727272727285,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#e45756",
+                        "description": "date (year): 2010; Mean of price: 538.976666667; symbol: GOOG",
+                        "x": 200,
+                        "y": 4.008484848484839,
+                        "defined": true
+                      }
+                    ],
+                    "marktype": "line",
+                    "name": "layer_0_marks",
+                    "role": "mark",
+                    "zindex": 0
+                  }
+                ],
+                "width": 200,
+                "height": 200
+              },
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": true,
+                    "items": [
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#4c78a8",
+                        "description": "date (year): 2000; Mean of price: 21.7483333333; symbol: AAPL",
+                        "x": 0,
+                        "y": 192.09151515151515,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#4c78a8",
+                        "description": "date (year): 2001; Mean of price: 10.1758333333; symbol: AAPL",
+                        "x": 20.038324664659186,
+                        "y": 196.29969696969698,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#4c78a8",
+                        "description": "date (year): 2002; Mean of price: 9.40833333333; symbol: AAPL",
+                        "x": 40.02189980837667,
+                        "y": 196.5787878787879,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#4c78a8",
+                        "description": "date (year): 2003; Mean of price: 9.3475; symbol: AAPL",
+                        "x": 60.005474952094175,
+                        "y": 196.60090909090908,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#4c78a8",
+                        "description": "date (year): 2004; Mean of price: 18.7233333333; symbol: AAPL",
+                        "x": 79.98905009581166,
+                        "y": 193.19151515151515,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#4c78a8",
+                        "description": "date (year): 2005; Mean of price: 48.1716666667; symbol: AAPL",
+                        "x": 100.02737476047085,
+                        "y": 182.4830303030303,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#4c78a8",
+                        "description": "date (year): 2006; Mean of price: 72.0433333333; symbol: AAPL",
+                        "x": 120.01094990418835,
+                        "y": 173.80242424242425,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#4c78a8",
+                        "description": "date (year): 2007; Mean of price: 133.353333333; symbol: AAPL",
+                        "x": 139.99452504790582,
+                        "y": 151.50787878787878,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#4c78a8",
+                        "description": "date (year): 2008; Mean of price: 138.480833333; symbol: AAPL",
+                        "x": 159.97810019162333,
+                        "y": 149.64333333333335,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#4c78a8",
+                        "description": "date (year): 2009; Mean of price: 150.393333333; symbol: AAPL",
+                        "x": 180.0164248562825,
+                        "y": 145.31151515151515,
+                        "defined": true
+                      },
+                      {
+                        "strokeWidth": 2,
+                        "stroke": "#4c78a8",
+                        "description": "date (year): 2010; Mean of price: 206.566666667; symbol: AAPL",
+                        "x": 200,
+                        "y": 124.88484848484849,
+                        "defined": true
+                      }
+                    ],
+                    "marktype": "line",
+                    "name": "layer_0_marks",
+                    "role": "mark",
+                    "zindex": 0
+                  }
+                ],
+                "width": 200,
+                "height": 200
+              }
+            ],
+            "marktype": "group",
+            "name": "layer_0_pathgroup",
+            "role": "scope",
+            "zindex": 0
+          },
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#54a24b",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2000; Mean of price: 29.6733333333; symbol: MSFT",
+                "x": 0,
+                "y": 189.20969696969698
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#54a24b",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2001; Mean of price: 25.3475; symbol: MSFT",
+                "x": 20.038324664659186,
+                "y": 190.78272727272727
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#54a24b",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2002; Mean of price: 21.8266666667; symbol: MSFT",
+                "x": 40.02189980837667,
+                "y": 192.0630303030303
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#54a24b",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2003; Mean of price: 20.9341666667; symbol: MSFT",
+                "x": 60.005474952094175,
+                "y": 192.38757575757575
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#54a24b",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2004; Mean of price: 22.6741666667; symbol: MSFT",
+                "x": 79.98905009581166,
+                "y": 191.75484848484848
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#54a24b",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2005; Mean of price: 23.8458333333; symbol: MSFT",
+                "x": 100.02737476047085,
+                "y": 191.3287878787879
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#54a24b",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2006; Mean of price: 24.7583333333; symbol: MSFT",
+                "x": 120.01094990418835,
+                "y": 190.9969696969697
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#54a24b",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2007; Mean of price: 29.2841666667; symbol: MSFT",
+                "x": 139.99452504790582,
+                "y": 189.35121212121211
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#54a24b",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2008; Mean of price: 25.2083333333; symbol: MSFT",
+                "x": 159.97810019162333,
+                "y": 190.83333333333334
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#54a24b",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2009; Mean of price: 22.8725; symbol: MSFT",
+                "x": 180.0164248562825,
+                "y": 191.68272727272728
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#54a24b",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2010; Mean of price: 28.5066666667; symbol: MSFT",
+                "x": 200,
+                "y": 189.6339393939394
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#f58518",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2000; Mean of price: 43.9308333333; symbol: AMZN",
+                "x": 0,
+                "y": 184.02515151515152
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#f58518",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2001; Mean of price: 11.7391666667; symbol: AMZN",
+                "x": 20.038324664659186,
+                "y": 195.7312121212121
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#f58518",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2002; Mean of price: 16.7233333333; symbol: AMZN",
+                "x": 40.02189980837667,
+                "y": 193.91878787878787
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#f58518",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2003; Mean of price: 39.0166666667; symbol: AMZN",
+                "x": 60.005474952094175,
+                "y": 185.8121212121212
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#f58518",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2004; Mean of price: 43.2675; symbol: AMZN",
+                "x": 79.98905009581166,
+                "y": 184.26636363636365
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#f58518",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2005; Mean of price: 40.1875; symbol: AMZN",
+                "x": 100.02737476047085,
+                "y": 185.38636363636363
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#f58518",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2006; Mean of price: 36.2516666667; symbol: AMZN",
+                "x": 120.01094990418835,
+                "y": 186.81757575757575
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#f58518",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2007; Mean of price: 69.9525; symbol: AMZN",
+                "x": 139.99452504790582,
+                "y": 174.56272727272727
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#f58518",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2008; Mean of price: 69.015; symbol: AMZN",
+                "x": 159.97810019162333,
+                "y": 174.90363636363637
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#f58518",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2009; Mean of price: 90.7308333333; symbol: AMZN",
+                "x": 180.0164248562825,
+                "y": 167.0069696969697
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#f58518",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2010; Mean of price: 124.21; symbol: AMZN",
+                "x": 200,
+                "y": 154.83272727272728
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#72b7b2",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2000; Mean of price: 96.9141666667; symbol: IBM",
+                "x": 0,
+                "y": 164.75848484848484
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#72b7b2",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2001; Mean of price: 96.9683333333; symbol: IBM",
+                "x": 20.038324664659186,
+                "y": 164.7387878787879
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#72b7b2",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2002; Mean of price: 75.125; symbol: IBM",
+                "x": 40.02189980837667,
+                "y": 172.6818181818182
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#72b7b2",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2003; Mean of price: 77.3075; symbol: IBM",
+                "x": 60.005474952094175,
+                "y": 171.8881818181818
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#72b7b2",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2004; Mean of price: 83.8858333333; symbol: IBM",
+                "x": 79.98905009581166,
+                "y": 169.4960606060606
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#72b7b2",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2005; Mean of price: 77.4975; symbol: IBM",
+                "x": 100.02737476047085,
+                "y": 171.8190909090909
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#72b7b2",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2006; Mean of price: 78.7175; symbol: IBM",
+                "x": 120.01094990418835,
+                "y": 171.37545454545455
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#72b7b2",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2007; Mean of price: 101.276666667; symbol: IBM",
+                "x": 139.99452504790582,
+                "y": 163.17212121212123
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#72b7b2",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2008; Mean of price: 107.225; symbol: IBM",
+                "x": 159.97810019162333,
+                "y": 161.00909090909093
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#72b7b2",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2009; Mean of price: 109.296666667; symbol: IBM",
+                "x": 180.0164248562825,
+                "y": 160.25575757575757
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#72b7b2",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2010; Mean of price: 124.853333333; symbol: IBM",
+                "x": 200,
+                "y": 154.59878787878787
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#e45756",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2004; Mean of price: 159.476; symbol: GOOG",
+                "x": 79.98905009581166,
+                "y": 142.0087272727273
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#e45756",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2005; Mean of price: 286.4725; symbol: GOOG",
+                "x": 100.02737476047085,
+                "y": 95.82818181818182
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#e45756",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2006; Mean of price: 415.256666667; symbol: GOOG",
+                "x": 120.01094990418835,
+                "y": 48.99757575757575
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#e45756",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2007; Mean of price: 548.758333333; symbol: GOOG",
+                "x": 139.99452504790582,
+                "y": 0.4515151515151583
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#e45756",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2008; Mean of price: 454.999166667; symbol: GOOG",
+                "x": 159.97810019162333,
+                "y": 34.54575757575758
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#e45756",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2009; Mean of price: 449.92; symbol: GOOG",
+                "x": 180.0164248562825,
+                "y": 36.392727272727285
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#e45756",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2010; Mean of price: 538.976666667; symbol: GOOG",
+                "x": 200,
+                "y": 4.008484848484839
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2000; Mean of price: 21.7483333333; symbol: AAPL",
+                "x": 0,
+                "y": 192.09151515151515
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2001; Mean of price: 10.1758333333; symbol: AAPL",
+                "x": 20.038324664659186,
+                "y": 196.29969696969698
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2002; Mean of price: 9.40833333333; symbol: AAPL",
+                "x": 40.02189980837667,
+                "y": 196.5787878787879
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2003; Mean of price: 9.3475; symbol: AAPL",
+                "x": 60.005474952094175,
+                "y": 196.60090909090908
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2004; Mean of price: 18.7233333333; symbol: AAPL",
+                "x": 79.98905009581166,
+                "y": 193.19151515151515
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2005; Mean of price: 48.1716666667; symbol: AAPL",
+                "x": 100.02737476047085,
+                "y": 182.4830303030303
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2006; Mean of price: 72.0433333333; symbol: AAPL",
+                "x": 120.01094990418835,
+                "y": 173.80242424242425
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2007; Mean of price: 133.353333333; symbol: AAPL",
+                "x": 139.99452504790582,
+                "y": 151.50787878787878
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2008; Mean of price: 138.480833333; symbol: AAPL",
+                "x": 159.97810019162333,
+                "y": 149.64333333333335
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2009; Mean of price: 150.393333333; symbol: AAPL",
+                "x": 180.0164248562825,
+                "y": 145.31151515151515
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "white",
+                "stroke": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "date (year): 2010; Mean of price: 206.566666667; symbol: AAPL",
+                "x": 200,
+                "y": 124.88484848484849
+              }
+            ],
+            "marktype": "symbol",
+            "name": "layer_1_marks",
+            "role": "mark",
+            "zindex": 0
+          }
+        ],
+        "fill": "transparent",
+        "stroke": "transparent",
+        "x": 0,
+        "y": 0,
+        "width": 200,
+        "height": 200
+      }
+    ],
+    "marktype": "group",
+    "name": "root",
+    "role": "frame",
+    "zindex": 0
+  }
+}

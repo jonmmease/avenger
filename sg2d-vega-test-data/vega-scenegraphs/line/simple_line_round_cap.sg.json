@@ -1,0 +1,128 @@
+{
+  "width": 310,
+  "height": 210,
+  "origin": [
+    5,
+    5
+  ],
+  "scenegraph": {
+    "clip": false,
+    "interactive": true,
+    "items": [
+      {
+        "items": [
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "strokeCap": "round",
+                "strokeJoin": "round",
+                "strokeWidth": 4,
+                "stroke": "#4c78a8",
+                "x": 30,
+                "y": 120,
+                "defined": true
+              },
+              {
+                "strokeCap": "round",
+                "strokeJoin": "round",
+                "strokeWidth": 4,
+                "stroke": "#4c78a8",
+                "x": 60,
+                "y": 42.85714285714286,
+                "defined": true
+              },
+              {
+                "strokeCap": "round",
+                "strokeJoin": "round",
+                "strokeWidth": 4,
+                "stroke": "#4c78a8",
+                "x": 90,
+                "y": 80,
+                "defined": true
+              },
+              {
+                "strokeCap": "round",
+                "strokeJoin": "round",
+                "strokeWidth": 4,
+                "stroke": "#4c78a8",
+                "x": 117,
+                "y": 88.57142857142857,
+                "defined": true
+              },
+              {
+                "strokeCap": "round",
+                "strokeJoin": "round",
+                "strokeWidth": 4,
+                "stroke": "#4c78a8",
+                "x": 120,
+                "y": 102.85714285714285,
+                "defined": false
+              },
+              {
+                "strokeCap": "round",
+                "strokeJoin": "round",
+                "strokeWidth": 4,
+                "stroke": "#4c78a8",
+                "x": 150,
+                "y": 97.14285714285715,
+                "defined": true
+              },
+              {
+                "strokeCap": "round",
+                "strokeJoin": "round",
+                "strokeWidth": 4,
+                "stroke": "#4c78a8",
+                "x": 180,
+                "y": 62.857142857142854,
+                "defined": false
+              },
+              {
+                "strokeCap": "round",
+                "strokeJoin": "round",
+                "strokeWidth": 4,
+                "stroke": "#4c78a8",
+                "x": 183,
+                "y": 114.28571428571428,
+                "defined": true
+              },
+              {
+                "strokeCap": "round",
+                "strokeJoin": "round",
+                "strokeWidth": 4,
+                "stroke": "#4c78a8",
+                "x": 240,
+                "y": 125.71428571428571,
+                "defined": true
+              },
+              {
+                "strokeCap": "round",
+                "strokeJoin": "round",
+                "strokeWidth": 4,
+                "stroke": "#4c78a8",
+                "x": 270,
+                "y": 68.57142857142857,
+                "defined": true
+              }
+            ],
+            "marktype": "line",
+            "name": "marks",
+            "role": "mark",
+            "zindex": 0
+          }
+        ],
+        "fill": "transparent",
+        "stroke": "transparent",
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 200
+      }
+    ],
+    "marktype": "group",
+    "name": "root",
+    "role": "frame",
+    "zindex": 0
+  }
+}

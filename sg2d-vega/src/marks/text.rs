@@ -79,7 +79,8 @@ impl VegaMarkContainer<VegaTextItem> {
 
             if let Some(v) = &item.fill {
                 let c = csscolorparser::parse(v)?;
-                let opacity = item.fill_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
+                let opacity =
+                    c.a as f32 * item.fill_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
                 color.push([c.r as f32, c.g as f32, c.b as f32, opacity])
             }
 

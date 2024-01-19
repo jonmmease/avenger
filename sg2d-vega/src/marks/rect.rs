@@ -60,12 +60,14 @@ impl VegaMarkContainer<VegaRectItem> {
             }
             if let Some(v) = &item.fill {
                 let c = csscolorparser::parse(v)?;
-                let opacity = item.fill_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
+                let opacity =
+                    c.a as f32 * item.fill_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
                 fill.push([c.r as f32, c.g as f32, c.b as f32, opacity])
             }
             if let Some(v) = &item.stroke {
                 let c = csscolorparser::parse(v)?;
-                let opacity = item.stroke_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
+                let opacity =
+                    c.a as f32 * item.stroke_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
                 stroke.push([c.r as f32, c.g as f32, c.b as f32, opacity])
             }
             if let Some(v) = item.stroke_width {
