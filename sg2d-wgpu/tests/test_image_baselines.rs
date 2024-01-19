@@ -70,6 +70,15 @@ mod test_image_baselines {
         case("shape", "us-counties", 0.003),
         case("shape", "us-map", 0.0006),
         case("shape", "world-natural-earth-projection", 0.0006),
+        case("shape", "london_tubes", 0.0002),
+
+        case("line", "simple_line_round_cap", 0.0001),
+        case("line", "simple_line_butt_cap_miter_join", 0.0001),
+        // lyon seems to omit closing square cap, need to investigate
+        case("line", "simple_line_square_cap_bevel_join", 0.002),
+        case("line", "connected_scatter", 0.0008),
+        case("line", "lines_with_open_symbols", 0.0004),
+        case("line", "stocks", 0.0005),
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
         let specs_dir = format!(

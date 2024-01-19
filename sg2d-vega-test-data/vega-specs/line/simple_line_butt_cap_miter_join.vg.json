@@ -38,10 +38,11 @@
       "from": {"data": "data_0"},
       "encode": {
         "update": {
-          "strokeCap": {"value": "round"},
-          "strokeJoin": {"value": "round"},
+          "strokeCap": {"value": "butt"},
+          "strokeJoin": {"value": "miter"},
           "strokeWidth": {"value": 4},
-          "stroke": {"value": "#4c78a8"},
+          "stroke": {"value": "crimson"},
+          "strokeOpacity": {"value": 0.7},
           "x": {"scale": "x", "field": "u"},
           "y": {"scale": "y", "field": "v"},
           "defined": {"field": "defined"}

@@ -1,0 +1,1093 @@
+{
+  "width": 210,
+  "height": 210,
+  "origin": [
+    5,
+    5
+  ],
+  "scenegraph": {
+    "clip": false,
+    "interactive": true,
+    "items": [
+      {
+        "items": [
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 3675; gas: 2.38; year: 1956",
+                "x": 5,
+                "y": 92.72727272727275,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 3706; gas: 2.4; year: 1957",
+                "x": 5.885714285714286,
+                "y": 90.90909090909092,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 3766; gas: 2.26; year: 1958",
+                "x": 7.6,
+                "y": 103.63636363636365,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 3905; gas: 2.31; year: 1959",
+                "x": 11.571428571428571,
+                "y": 99.0909090909091,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 3935; gas: 2.27; year: 1960",
+                "x": 12.428571428571429,
+                "y": 102.72727272727273,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 3977; gas: 2.25; year: 1961",
+                "x": 13.628571428571428,
+                "y": 104.54545454545455,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 4085; gas: 2.22; year: 1962",
+                "x": 16.714285714285715,
+                "y": 107.27272727272725,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 4218; gas: 2.12; year: 1963",
+                "x": 20.514285714285716,
+                "y": 116.36363636363636,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 4369; gas: 2.11; year: 1964",
+                "x": 24.82857142857143,
+                "y": 117.27272727272728,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 4538; gas: 2.14; year: 1965",
+                "x": 29.65714285714286,
+                "y": 114.54545454545455,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 4676; gas: 2.14; year: 1966",
+                "x": 33.6,
+                "y": 114.54545454545455,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 4827; gas: 2.14; year: 1967",
+                "x": 37.91428571428572,
+                "y": 114.54545454545455,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 5038; gas: 2.13; year: 1968",
+                "x": 43.94285714285714,
+                "y": 115.45454545454548,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 5207; gas: 2.07; year: 1969",
+                "x": 48.77142857142857,
+                "y": 120.90909090909092,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 5376; gas: 2.01; year: 1970",
+                "x": 53.6,
+                "y": 126.36363636363639,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 5617; gas: 1.93; year: 1971",
+                "x": 60.48571428571429,
+                "y": 133.63636363636365,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 5973; gas: 1.87; year: 1972",
+                "x": 70.65714285714286,
+                "y": 139.0909090909091,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 6154; gas: 1.9; year: 1973",
+                "x": 75.82857142857144,
+                "y": 136.36363636363637,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 5943; gas: 2.34; year: 1974",
+                "x": 69.8,
+                "y": 96.36363636363639,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 6111; gas: 2.31; year: 1975",
+                "x": 74.6,
+                "y": 99.0909090909091,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 6389; gas: 2.32; year: 1976",
+                "x": 82.54285714285714,
+                "y": 98.18181818181819,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 6630; gas: 2.36; year: 1977",
+                "x": 89.42857142857143,
+                "y": 94.54545454545456,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 6883; gas: 2.23; year: 1978",
+                "x": 96.65714285714286,
+                "y": 106.36363636363637,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 6744; gas: 2.68; year: 1979",
+                "x": 92.68571428571428,
+                "y": 65.45454545454545,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 6672; gas: 3.3; year: 1980",
+                "x": 90.62857142857142,
+                "y": 9.09090909090915,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 6732; gas: 3.3; year: 1981",
+                "x": 92.34285714285714,
+                "y": 9.09090909090915,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 6835; gas: 2.92; year: 1982",
+                "x": 95.28571428571428,
+                "y": 43.636363636363654,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 6943; gas: 2.66; year: 1983",
+                "x": 98.37142857142858,
+                "y": 67.27272727272727,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 7130; gas: 2.48; year: 1984",
+                "x": 103.71428571428571,
+                "y": 83.63636363636364,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 7323; gas: 2.36; year: 1985",
+                "x": 109.22857142857143,
+                "y": 94.54545454545456,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 7558; gas: 1.76; year: 1986",
+                "x": 115.94285714285715,
+                "y": 149.09090909090907,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 7770; gas: 1.76; year: 1987",
+                "x": 122,
+                "y": 149.09090909090907,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 8089; gas: 1.68; year: 1988",
+                "x": 131.11428571428573,
+                "y": 156.36363636363637,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 8397; gas: 1.75; year: 1989",
+                "x": 139.9142857142857,
+                "y": 150,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 8529; gas: 1.88; year: 1990",
+                "x": 143.68571428571428,
+                "y": 138.1818181818182,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 8535; gas: 1.78; year: 1991",
+                "x": 143.85714285714286,
+                "y": 147.27272727272725,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 8662; gas: 1.69; year: 1992",
+                "x": 147.4857142857143,
+                "y": 155.45454545454547,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 8855; gas: 1.6; year: 1993",
+                "x": 153,
+                "y": 163.63636363636363,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 8909; gas: 1.59; year: 1994",
+                "x": 154.54285714285714,
+                "y": 164.54545454545456,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 9150; gas: 1.6; year: 1995",
+                "x": 161.42857142857144,
+                "y": 163.63636363636363,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 9192; gas: 1.67; year: 1996",
+                "x": 162.62857142857143,
+                "y": 157.27272727272728,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 9416; gas: 1.65; year: 1997",
+                "x": 169.02857142857144,
+                "y": 159.0909090909091,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 9590; gas: 1.39; year: 1998",
+                "x": 174,
+                "y": 182.72727272727275,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 9687; gas: 1.5; year: 1999",
+                "x": 176.77142857142857,
+                "y": 172.72727272727272,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 9717; gas: 1.89; year: 2000",
+                "x": 177.62857142857143,
+                "y": 137.27272727272728,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 9699; gas: 1.77; year: 2001",
+                "x": 177.1142857142857,
+                "y": 148.1818181818182,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 9814; gas: 1.64; year: 2002",
+                "x": 180.4,
+                "y": 160,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 9868; gas: 1.86; year: 2003",
+                "x": 181.94285714285715,
+                "y": 140,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 9994; gas: 2.14; year: 2004",
+                "x": 185.54285714285714,
+                "y": 114.54545454545455,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 10067; gas: 2.53; year: 2005",
+                "x": 187.62857142857143,
+                "y": 79.09090909090912,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 10037; gas: 2.79; year: 2006",
+                "x": 186.77142857142857,
+                "y": 55.45454545454547,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 10025; gas: 2.95; year: 2007",
+                "x": 186.42857142857144,
+                "y": 40.90909090909089,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 9880; gas: 3.31; year: 2008",
+                "x": 182.2857142857143,
+                "y": 8.18181818181818,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 9657; gas: 2.38; year: 2009",
+                "x": 175.9142857142857,
+                "y": 92.72727272727275,
+                "defined": true
+              },
+              {
+                "strokeWidth": 2,
+                "stroke": "#4c78a8",
+                "description": "miles: 9596; gas: 2.61; year: 2010",
+                "x": 174.17142857142858,
+                "y": 71.81818181818183,
+                "defined": true
+              }
+            ],
+            "marktype": "line",
+            "name": "layer_0_marks",
+            "role": "mark",
+            "zindex": 0
+          },
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 3675; gas: 2.38; year: 1956",
+                "x": 5,
+                "y": 92.72727272727275
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 3706; gas: 2.4; year: 1957",
+                "x": 5.885714285714286,
+                "y": 90.90909090909092
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 3766; gas: 2.26; year: 1958",
+                "x": 7.6,
+                "y": 103.63636363636365
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 3905; gas: 2.31; year: 1959",
+                "x": 11.571428571428571,
+                "y": 99.0909090909091
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 3935; gas: 2.27; year: 1960",
+                "x": 12.428571428571429,
+                "y": 102.72727272727273
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 3977; gas: 2.25; year: 1961",
+                "x": 13.628571428571428,
+                "y": 104.54545454545455
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 4085; gas: 2.22; year: 1962",
+                "x": 16.714285714285715,
+                "y": 107.27272727272725
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 4218; gas: 2.12; year: 1963",
+                "x": 20.514285714285716,
+                "y": 116.36363636363636
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 4369; gas: 2.11; year: 1964",
+                "x": 24.82857142857143,
+                "y": 117.27272727272728
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 4538; gas: 2.14; year: 1965",
+                "x": 29.65714285714286,
+                "y": 114.54545454545455
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 4676; gas: 2.14; year: 1966",
+                "x": 33.6,
+                "y": 114.54545454545455
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 4827; gas: 2.14; year: 1967",
+                "x": 37.91428571428572,
+                "y": 114.54545454545455
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 5038; gas: 2.13; year: 1968",
+                "x": 43.94285714285714,
+                "y": 115.45454545454548
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 5207; gas: 2.07; year: 1969",
+                "x": 48.77142857142857,
+                "y": 120.90909090909092
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 5376; gas: 2.01; year: 1970",
+                "x": 53.6,
+                "y": 126.36363636363639
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 5617; gas: 1.93; year: 1971",
+                "x": 60.48571428571429,
+                "y": 133.63636363636365
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 5973; gas: 1.87; year: 1972",
+                "x": 70.65714285714286,
+                "y": 139.0909090909091
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 6154; gas: 1.9; year: 1973",
+                "x": 75.82857142857144,
+                "y": 136.36363636363637
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 5943; gas: 2.34; year: 1974",
+                "x": 69.8,
+                "y": 96.36363636363639
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 6111; gas: 2.31; year: 1975",
+                "x": 74.6,
+                "y": 99.0909090909091
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 6389; gas: 2.32; year: 1976",
+                "x": 82.54285714285714,
+                "y": 98.18181818181819
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 6630; gas: 2.36; year: 1977",
+                "x": 89.42857142857143,
+                "y": 94.54545454545456
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 6883; gas: 2.23; year: 1978",
+                "x": 96.65714285714286,
+                "y": 106.36363636363637
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 6744; gas: 2.68; year: 1979",
+                "x": 92.68571428571428,
+                "y": 65.45454545454545
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 6672; gas: 3.3; year: 1980",
+                "x": 90.62857142857142,
+                "y": 9.09090909090915
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 6732; gas: 3.3; year: 1981",
+                "x": 92.34285714285714,
+                "y": 9.09090909090915
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 6835; gas: 2.92; year: 1982",
+                "x": 95.28571428571428,
+                "y": 43.636363636363654
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 6943; gas: 2.66; year: 1983",
+                "x": 98.37142857142858,
+                "y": 67.27272727272727
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 7130; gas: 2.48; year: 1984",
+                "x": 103.71428571428571,
+                "y": 83.63636363636364
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 7323; gas: 2.36; year: 1985",
+                "x": 109.22857142857143,
+                "y": 94.54545454545456
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 7558; gas: 1.76; year: 1986",
+                "x": 115.94285714285715,
+                "y": 149.09090909090907
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 7770; gas: 1.76; year: 1987",
+                "x": 122,
+                "y": 149.09090909090907
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 8089; gas: 1.68; year: 1988",
+                "x": 131.11428571428573,
+                "y": 156.36363636363637
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 8397; gas: 1.75; year: 1989",
+                "x": 139.9142857142857,
+                "y": 150
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 8529; gas: 1.88; year: 1990",
+                "x": 143.68571428571428,
+                "y": 138.1818181818182
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 8535; gas: 1.78; year: 1991",
+                "x": 143.85714285714286,
+                "y": 147.27272727272725
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 8662; gas: 1.69; year: 1992",
+                "x": 147.4857142857143,
+                "y": 155.45454545454547
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 8855; gas: 1.6; year: 1993",
+                "x": 153,
+                "y": 163.63636363636363
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 8909; gas: 1.59; year: 1994",
+                "x": 154.54285714285714,
+                "y": 164.54545454545456
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 9150; gas: 1.6; year: 1995",
+                "x": 161.42857142857144,
+                "y": 163.63636363636363
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 9192; gas: 1.67; year: 1996",
+                "x": 162.62857142857143,
+                "y": 157.27272727272728
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 9416; gas: 1.65; year: 1997",
+                "x": 169.02857142857144,
+                "y": 159.0909090909091
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 9590; gas: 1.39; year: 1998",
+                "x": 174,
+                "y": 182.72727272727275
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 9687; gas: 1.5; year: 1999",
+                "x": 176.77142857142857,
+                "y": 172.72727272727272
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 9717; gas: 1.89; year: 2000",
+                "x": 177.62857142857143,
+                "y": 137.27272727272728
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 9699; gas: 1.77; year: 2001",
+                "x": 177.1142857142857,
+                "y": 148.1818181818182
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 9814; gas: 1.64; year: 2002",
+                "x": 180.4,
+                "y": 160
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 9868; gas: 1.86; year: 2003",
+                "x": 181.94285714285715,
+                "y": 140
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 9994; gas: 2.14; year: 2004",
+                "x": 185.54285714285714,
+                "y": 114.54545454545455
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 10067; gas: 2.53; year: 2005",
+                "x": 187.62857142857143,
+                "y": 79.09090909090912
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 10037; gas: 2.79; year: 2006",
+                "x": 186.77142857142857,
+                "y": 55.45454545454547
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 10025; gas: 2.95; year: 2007",
+                "x": 186.42857142857144,
+                "y": 40.90909090909089
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 9880; gas: 3.31; year: 2008",
+                "x": 182.2857142857143,
+                "y": 8.18181818181818
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 9657; gas: 2.38; year: 2009",
+                "x": 175.9142857142857,
+                "y": 92.72727272727275
+              },
+              {
+                "size": 30,
+                "strokeWidth": 2,
+                "shape": "circle",
+                "opacity": 1,
+                "fill": "#4c78a8",
+                "ariaRoleDescription": "point",
+                "description": "miles: 9596; gas: 2.61; year: 2010",
+                "x": 174.17142857142858,
+                "y": 71.81818181818183
+              }
+            ],
+            "marktype": "symbol",
+            "name": "layer_1_marks",
+            "role": "mark",
+            "zindex": 0
+          }
+        ],
+        "fill": "transparent",
+        "x": 0,
+        "y": 0,
+        "width": 200,
+        "height": 200,
+        "stroke": "transparent"
+      }
+    ],
+    "marktype": "group",
+    "name": "root",
+    "role": "frame",
+    "zindex": 0
+  }
+}
