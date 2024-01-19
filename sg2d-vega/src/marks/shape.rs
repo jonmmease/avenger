@@ -67,12 +67,12 @@ impl VegaMarkContainer<VegaShapeItem> {
             let base_opacity = item.opacity.unwrap_or(1.0);
             if let Some(c) = &item.fill {
                 let c = csscolorparser::parse(c)?;
-                let fill_opacity = item.fill_opacity.unwrap_or(1.0) * base_opacity;
+                let fill_opacity = c.a as f32 * item.fill_opacity.unwrap_or(1.0) * base_opacity;
                 fill.push([c.r as f32, c.g as f32, c.b as f32, fill_opacity])
             }
             if let Some(c) = &item.stroke {
                 let c = csscolorparser::parse(c)?;
-                let stroke_opacity = item.stroke_opacity.unwrap_or(1.0) * base_opacity;
+                let stroke_opacity = c.a as f32 * item.stroke_opacity.unwrap_or(1.0) * base_opacity;
                 stroke.push([c.r as f32, c.g as f32, c.b as f32, stroke_opacity])
             }
 

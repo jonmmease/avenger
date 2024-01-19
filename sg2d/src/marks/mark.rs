@@ -1,5 +1,6 @@
 use crate::marks::arc::ArcMark;
 use crate::marks::group::SceneGroup;
+use crate::marks::line::LineMark;
 use crate::marks::path::PathMark;
 use crate::marks::rect::RectMark;
 use crate::marks::rule::RuleMark;
@@ -12,6 +13,7 @@ pub enum SceneMark {
     Arc(ArcMark),
     Path(PathMark),
     Symbol(SymbolMark),
+    Line(LineMark),
     Rect(RectMark),
     Rule(RuleMark),
     Text(Box<TextMark>),
