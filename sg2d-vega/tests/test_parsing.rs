@@ -8,7 +8,7 @@ mod tests {
         let category = "rule";
         let spec_name = "wide_rule_axes";
         let specs_dir = format!(
-            "{}/../vega-wgpu-renderer/tests/specs/{category}",
+            "{}/../sg2d-vega-test-data/vega-scenegraphs/{category}",
             env!("CARGO_MANIFEST_DIR")
         );
 
@@ -21,7 +21,7 @@ mod tests {
 
         // Convert to scene graph
 
-        let sg = scene_spec.to_scene_graph([0.0, 0.0], 200.0, 300.0).unwrap();
+        let sg = scene_spec.to_scene_graph().unwrap();
         println!("{sg:#?}");
     }
 }

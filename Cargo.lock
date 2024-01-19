@@ -2341,7 +2341,6 @@ name = "gen-test-data"
 version = "0.1.0"
 dependencies = [
  "pollster",
- "regex",
  "serde_json",
  "vl-convert-rs",
 ]
@@ -6708,9 +6707,9 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 
 [[package]]
 name = "vl-convert-pdf"
-version = "1.2.0"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0bdf58f1b79d1a83714e93d6ee9adf9bec5cb8dcf01d5056df5642c777d6ce6"
+checksum = "a6a50212349f3ff58de1727c92e4de41124dbf96addaaec6d0082c250e1ce5a7"
 dependencies = [
  "anyhow",
  "itertools 0.12.0",
@@ -6726,9 +6725,9 @@ dependencies = [
 
 [[package]]
 name = "vl-convert-rs"
-version = "1.2.0"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f71cba2096940e852d7458b37e0dc3ebb0bdcfc5bde51537fd90489b30420bb2"
+checksum = "76abc570ecfb0b27ffb6a3157dfd4512ebd88d3e292c6cec36c1b112f1fc9256"
 dependencies = [
  "deno_core",
  "deno_emit",

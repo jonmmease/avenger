@@ -1,0 +1,76 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v5.json",
+  "background": "white",
+  "padding": 5,
+  "width": 800,
+  "height": 500,
+  "style": "view",
+  "data": [
+    {
+      "name": "source_0",
+      "url": "data/us-10m.json",
+      "format": {"type": "topojson", "feature": "states"}
+    },
+    {
+      "name": "source_1",
+      "url": "data/us-state-capitals.json",
+      "format": {"type": "json"},
+      "transform": [
+        {
+          "type": "geojson",
+          "fields": ["lon", "lat"],
+          "signal": "layer_1_layer_0_geojson_0"
+        },
+        {
+          "type": "geopoint",
+          "projection": "projection",
+          "fields": ["lon", "lat"],
+          "as": ["layer_1_layer_0_x", "layer_1_layer_0_y"]
+        }
+      ]
+    }
+  ],
+  "projections": [
+    {
+      "name": "projection",
+      "size": {"signal": "[width, height]"},
+      "fit": {"signal": "[data('source_0'), layer_1_layer_0_geojson_0]"},
+      "type": "albersUsa"
+    }
+  ],
+  "marks": [
+    {
+      "name": "layer_0_marks",
+      "type": "shape",
+      "style": ["geoshape"],
+      "from": {"data": "source_0"},
+      "encode": {
+        "update": {
+          "fill": {"value": "lightgray"},
+          "stroke": {"value": "white"},
+          "ariaRoleDescription": {"value": "geoshape"}
+        }
+      },
+      "transform": [{"type": "geoshape", "projection": "projection"}]
+    },
+    {
+      "name": "layer_1_layer_0_marks",
+      "type": "symbol",
+      "style": ["circle"],
+      "from": {"data": "source_1"},
+      "encode": {
+        "update": {
+          "opacity": {"value": 0.7},
+          "fill": {"value": "crimson"},
+          "ariaRoleDescription": {"value": "circle"},
+          "description": {
+            "signal": "\"lon: \" + (format(datum[\"lon\"], \"\")) + \"; lat: \" + (format(datum[\"lat\"], \"\"))"
+          },
+          "x": {"field": "layer_1_layer_0_x"},
+          "y": {"field": "layer_1_layer_0_y"},
+          "shape": {"value": "circle"}
+        }
+      }
+    }
+  ]
+}

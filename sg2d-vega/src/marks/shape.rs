@@ -1,8 +1,6 @@
 use crate::error::VegaSceneGraphError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::symbol::parse_svg_path;
-use lyon_extra::euclid::Vector2D;
-use lyon_path::geom::Angle;
 use serde::{Deserialize, Serialize};
 use sg2d::marks::mark::SceneMark;
 use sg2d::marks::path::{PathMark, PathTransform};
@@ -11,27 +9,24 @@ use std::collections::HashSet;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct VegaPathItem {
-    pub path: Option<String>,
-    pub stroke_cap: Option<StrokeCap>,
-    pub stroke_join: Option<StrokeJoin>,
+pub struct VegaShapeItem {
+    pub shape: String,
     pub x: Option<f32>,
     pub y: Option<f32>,
-    pub scale_x: Option<f32>,
-    pub scale_y: Option<f32>,
+    pub stroke_cap: Option<StrokeCap>,
+    pub stroke_join: Option<StrokeJoin>,
     pub opacity: Option<f32>,
     pub fill: Option<String>,
     pub fill_opacity: Option<f32>,
     pub stroke: Option<String>,
     pub stroke_opacity: Option<f32>,
     pub stroke_width: Option<f32>,
-    pub angle: Option<f32>,
     pub zindex: Option<i32>,
 }
 
-impl VegaMarkItem for VegaPathItem {}
+impl VegaMarkItem for VegaShapeItem {}
 
-impl VegaMarkContainer<VegaPathItem> {
+impl VegaMarkContainer<VegaShapeItem> {
     pub fn to_scene_graph(&self, origin: [f32; 2]) -> Result<SceneMark, VegaSceneGraphError> {
         // Get shape of first item and use that for all items for now
         let first = self.items.first();
@@ -67,9 +62,7 @@ impl VegaMarkContainer<VegaPathItem> {
         let mut zindex = Vec::<i32>::new();
 
         for item in &self.items {
-            if let Some(v) = &item.path {
-                path_str.push(v.clone());
-            }
+            path_str.push(item.shape.clone());
 
             let base_opacity = item.opacity.unwrap_or(1.0);
             if let Some(c) = &item.fill {
@@ -84,20 +77,11 @@ impl VegaMarkContainer<VegaPathItem> {
             }
 
             // Build transform
-            if item.x.is_some()
-                || item.y.is_some()
-                || item.scale_x.is_some()
-                || item.scale_y.is_some()
-                || item.angle.is_some()
-            {
-                transform.push(
-                    PathTransform::scale(item.scale_x.unwrap_or(1.0), item.scale_y.unwrap_or(1.0))
-                        .then_rotate(Angle::degrees(item.angle.unwrap_or(0.0)))
-                        .then_translate(Vector2D::new(
-                            item.x.unwrap_or(0.0) + origin[0],
-                            item.y.unwrap_or(0.0) + origin[1],
-                        )),
-                )
+            if item.x.is_some() || item.y.is_some() {
+                transform.push(PathTransform::translation(
+                    item.x.unwrap_or(0.0) + origin[0],
+                    item.y.unwrap_or(0.0) + origin[1],
+                ))
             }
 
             if let Some(v) = item.zindex {

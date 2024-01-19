@@ -1,258 +1,266 @@
 {
-  "marktype": "group",
-  "name": "root",
-  "role": "frame",
-  "interactive": true,
-  "clip": false,
-  "items": [
-    {
-      "items": [
-        {
-          "marktype": "group",
-          "role": "axis",
-          "interactive": false,
-          "clip": false,
-          "items": [
-            {
-              "items": [
-                {
-                  "marktype": "rule",
-                  "role": "axis-tick",
-                  "interactive": false,
-                  "clip": false,
-                  "items": [
-                    {
-                      "x": 0,
-                      "y": 0,
-                      "opacity": 1,
-                      "stroke": "#888",
-                      "strokeWidth": 1,
-                      "y2": 5
-                    },
-                    {
-                      "x": 30,
-                      "y": 0,
-                      "opacity": 1,
-                      "stroke": "#888",
-                      "strokeWidth": 1,
-                      "y2": 5
-                    },
-                    {
-                      "x": 60,
-                      "y": 0,
-                      "opacity": 1,
-                      "stroke": "#888",
-                      "strokeWidth": 1,
-                      "y2": 5
-                    },
-                    {
-                      "x": 90,
-                      "y": 0,
-                      "opacity": 1,
-                      "stroke": "#888",
-                      "strokeWidth": 1,
-                      "y2": 5
-                    },
-                    {
-                      "x": 120,
-                      "y": 0,
-                      "opacity": 1,
-                      "stroke": "#888",
-                      "strokeWidth": 1,
-                      "y2": 5
-                    },
-                    {
-                      "x": 150,
-                      "y": 0,
-                      "opacity": 1,
-                      "stroke": "#888",
-                      "strokeWidth": 1,
-                      "y2": 5
-                    },
-                    {
-                      "x": 180,
-                      "y": 0,
-                      "opacity": 1,
-                      "stroke": "#888",
-                      "strokeWidth": 1,
-                      "y2": 5
-                    },
-                    {
-                      "x": 210,
-                      "y": 0,
-                      "opacity": 1,
-                      "stroke": "#888",
-                      "strokeWidth": 1,
-                      "y2": 5
-                    },
-                    {
-                      "x": 240,
-                      "y": 0,
-                      "opacity": 1,
-                      "stroke": "#888",
-                      "strokeWidth": 1,
-                      "y2": 5
-                    },
-                    {
-                      "x": 270,
-                      "y": 0,
-                      "opacity": 1,
-                      "stroke": "#888",
-                      "strokeWidth": 1,
-                      "y2": 5
-                    },
-                    {
-                      "x": 300,
-                      "y": 0,
-                      "opacity": 1,
-                      "stroke": "#888",
-                      "strokeWidth": 1,
-                      "y2": 5
-                    }
-                  ],
-                  "zindex": 0
-                },
-                {
-                  "marktype": "rule",
-                  "role": "axis-domain",
-                  "interactive": false,
-                  "clip": false,
-                  "items": [
-                    {
-                      "x": 0,
-                      "y": 0,
-                      "opacity": 1,
-                      "stroke": "#888",
-                      "strokeWidth": 1,
-                      "x2": 300
-                    }
-                  ],
-                  "zindex": 0
-                }
-              ],
-              "x": 0.5,
-              "y": 200.5,
-              "orient": "bottom"
-            }
-          ],
-          "zindex": 0
-        },
-        {
-          "marktype": "group",
-          "role": "axis",
-          "interactive": false,
-          "clip": false,
-          "items": [
-            {
-              "items": [
-                {
-                  "marktype": "rule",
-                  "role": "axis-tick",
-                  "interactive": false,
-                  "clip": false,
-                  "items": [
-                    {
-                      "x": 0,
-                      "y": 200,
-                      "opacity": 1,
-                      "stroke": "#888",
-                      "strokeWidth": 1,
-                      "x2": -5
-                    },
-                    {
-                      "x": 0,
-                      "y": 160,
-                      "opacity": 1,
-                      "stroke": "#888",
-                      "strokeWidth": 1,
-                      "x2": -5
-                    },
-                    {
-                      "x": 0,
-                      "y": 120,
-                      "opacity": 1,
-                      "stroke": "#888",
-                      "strokeWidth": 1,
-                      "x2": -5
-                    },
-                    {
-                      "x": 0,
-                      "y": 80,
-                      "opacity": 1,
-                      "stroke": "#888",
-                      "strokeWidth": 1,
-                      "x2": -5
-                    },
-                    {
-                      "x": 0,
-                      "y": 40,
-                      "opacity": 1,
-                      "stroke": "#888",
-                      "strokeWidth": 1,
-                      "x2": -5
-                    },
-                    {
-                      "x": 0,
-                      "y": 0,
-                      "opacity": 1,
-                      "stroke": "#888",
-                      "strokeWidth": 1,
-                      "x2": -5
-                    }
-                  ],
-                  "zindex": 0
-                },
-                {
-                  "marktype": "rule",
-                  "role": "axis-domain",
-                  "interactive": false,
-                  "clip": false,
-                  "items": [
-                    {
-                      "x": 0,
-                      "y": 200,
-                      "opacity": 1,
-                      "stroke": "#888",
-                      "strokeWidth": 1,
-                      "y2": 0
-                    }
-                  ],
-                  "zindex": 0
-                }
-              ],
-              "x": 0.5,
-              "y": 0.5,
-              "orient": "left"
-            }
-          ],
-          "zindex": 0
-        },
-        {
-          "marktype": "rule",
-          "name": "marks",
-          "role": "mark",
-          "interactive": true,
-          "clip": false,
-          "items": [
-            {
-              "x": 90,
-              "y": 170,
-              "stroke": "orange",
-              "strokeWidth": 16,
-              "x2": 180,
-              "y2": 39.99999999999999
-            }
-          ],
-          "zindex": 0
-        }
-      ],
-      "x": 0,
-      "y": 0,
-      "width": 300,
-      "height": 200,
-      "fill": "transparent",
-      "stroke": "transparent"
-    }
+  "width": 317,
+  "height": 217,
+  "origin": [
+    11,
+    6
   ],
-  "zindex": 0
+  "scenegraph": {
+    "clip": false,
+    "interactive": true,
+    "items": [
+      {
+        "items": [
+          {
+            "clip": false,
+            "interactive": false,
+            "items": [
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 0
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 30
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 60
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 90
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 120
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 150
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 180
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 210
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 240
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 270
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 300
+                      }
+                    ],
+                    "marktype": "rule",
+                    "role": "axis-tick",
+                    "zindex": 0
+                  },
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "x2": 300,
+                        "y": 0
+                      }
+                    ],
+                    "marktype": "rule",
+                    "role": "axis-domain",
+                    "zindex": 0
+                  }
+                ],
+                "orient": "bottom",
+                "x": 0.5,
+                "y": 200.5
+              }
+            ],
+            "marktype": "group",
+            "role": "axis",
+            "zindex": 0
+          },
+          {
+            "clip": false,
+            "interactive": false,
+            "items": [
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 200,
+                        "x": 0,
+                        "x2": -5
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 160,
+                        "x": 0,
+                        "x2": -5
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 120,
+                        "x": 0,
+                        "x2": -5
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 80,
+                        "x": 0,
+                        "x2": -5
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 40,
+                        "x": 0,
+                        "x2": -5
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "x": 0,
+                        "x2": -5
+                      }
+                    ],
+                    "marktype": "rule",
+                    "role": "axis-tick",
+                    "zindex": 0
+                  },
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "y": 200,
+                        "y2": 0
+                      }
+                    ],
+                    "marktype": "rule",
+                    "role": "axis-domain",
+                    "zindex": 0
+                  }
+                ],
+                "orient": "left",
+                "x": 0.5,
+                "y": 0.5
+              }
+            ],
+            "marktype": "group",
+            "role": "axis",
+            "zindex": 0
+          },
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "strokeWidth": 16,
+                "stroke": "orange",
+                "x": 90,
+                "x2": 180,
+                "y": 170,
+                "y2": 39.99999999999999
+              }
+            ],
+            "marktype": "rule",
+            "name": "marks",
+            "role": "mark",
+            "zindex": 0
+          }
+        ],
+        "fill": "transparent",
+        "stroke": "transparent",
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 200
+      }
+    ],
+    "marktype": "group",
+    "name": "root",
+    "role": "frame",
+    "zindex": 0
+  }
 }
