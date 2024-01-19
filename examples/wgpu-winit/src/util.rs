@@ -1,5 +1,4 @@
 use sg2d::scene_graph::SceneGraph;
-use sg2d_vega::dims::VegaSceneGraphDims;
 use sg2d_vega::scene_graph::VegaSceneGraph;
 use sg2d_wgpu::canvas::{Canvas, WindowCanvas};
 use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
@@ -47,24 +46,14 @@ pub async fn run() {
     ))
     .unwrap();
 
-    // Load dims
-    let scene_dims: VegaSceneGraphDims = serde_json::from_str(include_str!(
-        "../../../sg2d-vega-test-data/vega-scenegraphs/symbol/binned_scatter_cross_stroke.dims.json"
-    ))
-    .unwrap();
-
-    // Extract dims and set window size
-    let origin = [scene_dims.origin_x, scene_dims.origin_y];
-    let width = scene_dims.width;
-    let height = scene_dims.height;
     let scale = 2.0;
 
     let scene_graph: SceneGraph = scene_spec
-        .to_scene_graph(origin, width, height)
+        .to_scene_graph()
         .expect("Failed to parse scene graph");
 
     // Save to png
-    let mut canvas = WindowCanvas::new(window, width, height, scale)
+    let mut canvas = WindowCanvas::new(window, scene_graph.width, scene_graph.height, scale)
         .await
         .unwrap();
 

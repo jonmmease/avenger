@@ -1,82 +1,90 @@
 {
-  "marktype": "group",
-  "name": "root",
-  "role": "frame",
-  "interactive": true,
-  "clip": false,
-  "items": [
-    {
-      "items": [
-        {
-          "marktype": "symbol",
-          "role": "mark",
-          "interactive": true,
-          "clip": false,
-          "items": [
-            {
-              "zindex": 3,
-              "x": 30,
-              "y": 40,
-              "fill": "red",
-              "stroke": "black",
-              "strokeWidth": 3,
-              "size": 600,
-              "shape": "circle",
-              "angle": 0
-            },
-            {
-              "zindex": 1,
-              "x": 30,
-              "y": 40,
-              "fill": "blue",
-              "stroke": "black",
-              "strokeWidth": 3,
-              "size": 1200,
-              "shape": "circle",
-              "angle": 30
-            },
-            {
-              "zindex": 0,
-              "x": 10,
-              "y": 40,
-              "fill": "green",
-              "stroke": "black",
-              "strokeWidth": 3,
-              "size": 1800,
-              "shape": "circle",
-              "angle": 90
-            },
-            {
-              "zindex": 2,
-              "x": 50,
-              "y": 40,
-              "fill": "aqua",
-              "stroke": "black",
-              "strokeWidth": 3,
-              "size": 2200,
-              "shape": "circle",
-              "angle": 120
-            },
-            {
-              "zindex": 0,
-              "x": 30,
-              "y": 40,
-              "fill": "pink",
-              "stroke": "black",
-              "strokeWidth": 3,
-              "size": 2800,
-              "shape": "circle",
-              "angle": 180
-            }
-          ],
-          "zindex": 0
-        }
-      ],
-      "x": 0,
-      "y": 0,
-      "width": 100,
-      "height": 100
-    }
+  "width": 115,
+  "height": 100,
+  "origin": [
+    15,
+    0
   ],
-  "zindex": 0
+  "scenegraph": {
+    "clip": false,
+    "interactive": true,
+    "items": [
+      {
+        "items": [
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "x": 30,
+                "y": 40,
+                "zindex": 3,
+                "shape": "circle",
+                "fill": "red",
+                "stroke": "black",
+                "strokeWidth": 3,
+                "size": 600,
+                "angle": 0
+              },
+              {
+                "x": 30,
+                "y": 40,
+                "zindex": 1,
+                "shape": "circle",
+                "fill": "blue",
+                "stroke": "black",
+                "strokeWidth": 3,
+                "size": 1200,
+                "angle": 30
+              },
+              {
+                "x": 10,
+                "y": 40,
+                "zindex": 0,
+                "shape": "circle",
+                "fill": "green",
+                "stroke": "black",
+                "strokeWidth": 3,
+                "size": 1800,
+                "angle": 90
+              },
+              {
+                "x": 50,
+                "y": 40,
+                "zindex": 2,
+                "shape": "circle",
+                "fill": "aqua",
+                "stroke": "black",
+                "strokeWidth": 3,
+                "size": 2200,
+                "angle": 120
+              },
+              {
+                "x": 30,
+                "y": 40,
+                "zindex": 0,
+                "shape": "circle",
+                "fill": "pink",
+                "stroke": "black",
+                "strokeWidth": 3,
+                "size": 2800,
+                "angle": 180
+              }
+            ],
+            "marktype": "symbol",
+            "role": "mark",
+            "zindex": 0
+          }
+        ],
+        "x": 0,
+        "y": 0,
+        "width": 100,
+        "height": 100
+      }
+    ],
+    "marktype": "group",
+    "name": "root",
+    "role": "frame",
+    "zindex": 0
+  }
 }

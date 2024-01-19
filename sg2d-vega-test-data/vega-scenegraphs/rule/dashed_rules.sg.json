@@ -1,63 +1,71 @@
 {
-  "marktype": "group",
-  "name": "root",
-  "role": "frame",
-  "interactive": true,
-  "clip": false,
-  "items": [
-    {
-      "items": [
-        {
-          "marktype": "rule",
-          "name": "marks",
-          "role": "mark",
-          "interactive": true,
-          "clip": false,
-          "items": [
-            {
-              "x": 340,
-              "y": 15,
-              "opacity": 0.7,
-              "stroke": "orange",
-              "strokeWidth": 8,
-              "strokeCap": "butt",
-              "strokeDash": "12 8,4",
-              "x2": 60,
-              "y2": 380
-            },
-            {
-              "x": 20,
-              "y": 15,
-              "opacity": 0.7,
-              "stroke": "blue",
-              "strokeWidth": 4,
-              "strokeCap": "square",
-              "strokeDash": "8,16",
-              "x2": 320,
-              "y2": 340
-            },
-            {
-              "x": 80,
-              "y": 15,
-              "opacity": 0.7,
-              "stroke": "green",
-              "strokeWidth": 6,
-              "strokeCap": "round",
-              "strokeDash": "12",
-              "x2": 220,
-              "y2": 380
-            }
-          ],
-          "zindex": 0
-        }
-      ],
-      "x": 0,
-      "y": 0,
-      "width": 400,
-      "height": 400,
-      "fill": "transparent",
-      "stroke": "transparent"
-    }
+  "width": 410,
+  "height": 410,
+  "origin": [
+    5,
+    5
   ],
-  "zindex": 0
+  "scenegraph": {
+    "clip": false,
+    "interactive": true,
+    "items": [
+      {
+        "items": [
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "strokeWidth": 8,
+                "stroke": "orange",
+                "x": 340,
+                "x2": 60,
+                "y": 15,
+                "y2": 380,
+                "opacity": 0.7,
+                "strokeCap": "butt",
+                "strokeDash": "12 8,4"
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": "blue",
+                "x": 20,
+                "x2": 320,
+                "y": 15,
+                "y2": 340,
+                "opacity": 0.7,
+                "strokeCap": "square",
+                "strokeDash": "8,16"
+              },
+              {
+                "strokeWidth": 6,
+                "stroke": "green",
+                "x": 80,
+                "x2": 220,
+                "y": 15,
+                "y2": 380,
+                "opacity": 0.7,
+                "strokeCap": "round",
+                "strokeDash": "12"
+              }
+            ],
+            "marktype": "rule",
+            "name": "marks",
+            "role": "mark",
+            "zindex": 0
+          }
+        ],
+        "fill": "transparent",
+        "stroke": "transparent",
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 400
+      }
+    ],
+    "marktype": "group",
+    "name": "root",
+    "role": "frame",
+    "zindex": 0
+  }
 }

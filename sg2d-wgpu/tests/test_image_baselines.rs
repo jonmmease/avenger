@@ -3,7 +3,6 @@ mod test_image_baselines {
     use dssim::Dssim;
     use rstest::rstest;
     use sg2d::scene_graph::SceneGraph;
-    use sg2d_vega::dims::VegaSceneGraphDims;
     use sg2d_vega::scene_graph::VegaSceneGraph;
     use sg2d_wgpu::canvas::{Canvas, PngCanvas};
     use std::fs;
@@ -65,6 +64,12 @@ mod test_image_baselines {
         case("path", "single_path_with_stroke_no_fill", 0.8),
         case("path", "multi_path_with_stroke", 0.8),
         case("path", "multi_path_with_stroke_no_fill", 0.8),
+
+        // us-counties is a bit off due to how anti-aliasing results in light border between
+        // adjacent shapes. The wgpu implementation doesn't have this border
+        case("shape", "us-counties", 0.003),
+        case("shape", "us-map", 0.0006),
+        case("shape", "world-natural-earth-projection", 0.0006),
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
         let specs_dir = format!(
@@ -79,14 +84,6 @@ mod test_image_baselines {
             fs::read_to_string(format!("{specs_dir}/{spec_name}.sg.json")).unwrap();
         let scene_spec: VegaSceneGraph = serde_json::from_str(&scene_spec_str).unwrap();
 
-        // Read dims
-        let scene_dims_str =
-            fs::read_to_string(format!("{specs_dir}/{spec_name}.dims.json")).unwrap();
-        let scene_dims: VegaSceneGraphDims = serde_json::from_str(&scene_dims_str).unwrap();
-        let width = scene_dims.width;
-        let height = scene_dims.height;
-        let origin = [scene_dims.origin_x, scene_dims.origin_y];
-
         // Read expected png
         let expected_dssim = dssim::load_image(
             &Dssim::new(),
@@ -97,10 +94,11 @@ mod test_image_baselines {
 
         // Build scene graph
         let scene_graph: SceneGraph = scene_spec
-            .to_scene_graph(origin, width, height)
+            .to_scene_graph()
             .expect("Failed to parse scene graph");
 
-        let mut png_canvas = pollster::block_on(PngCanvas::new(width, height, 2.0)).unwrap();
+        let mut png_canvas =
+            pollster::block_on(PngCanvas::new(scene_graph.width, scene_graph.height, 2.0)).unwrap();
         png_canvas.set_scene(&scene_graph).unwrap();
         let img = pollster::block_on(png_canvas.render()).expect("Failed to render PNG image");
         let result_path = format!("{output_dir}/{category}-{spec_name}.png");

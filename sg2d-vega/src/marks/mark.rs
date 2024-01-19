@@ -3,6 +3,7 @@ use crate::marks::group::VegaGroupItem;
 use crate::marks::path::VegaPathItem;
 use crate::marks::rect::VegaRectItem;
 use crate::marks::rule::VegaRuleItem;
+use crate::marks::shape::VegaShapeItem;
 use crate::marks::symbol::VegaSymbolItem;
 use crate::marks::text::VegaTextItem;
 use serde::{Deserialize, Serialize};
@@ -21,7 +22,7 @@ pub enum VegaMark {
     Path(VegaMarkContainer<VegaPathItem>),
     Rect(VegaMarkContainer<VegaRectItem>),
     Rule(VegaMarkContainer<VegaRuleItem>),
-    Shape,
+    Shape(VegaMarkContainer<VegaShapeItem>),
     Symbol(VegaMarkContainer<VegaSymbolItem>),
     Text(VegaMarkContainer<VegaTextItem>),
     Trail,
