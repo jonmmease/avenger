@@ -54,7 +54,8 @@ impl VegaMarkContainer<VegaRuleItem> {
 
             if let Some(s) = &item.stroke {
                 let c = csscolorparser::parse(s)?;
-                let opacity = item.stroke_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
+                let opacity =
+                    c.a as f32 * item.stroke_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
                 stroke.push([c.r as f32, c.g as f32, c.b as f32, opacity]);
             }
 
@@ -117,7 +118,7 @@ impl VegaMarkContainer<VegaRuleItem> {
     }
 }
 
-fn parse_dash_str(dash_str: &str) -> Result<Vec<f32>, VegaSceneGraphError> {
+pub fn parse_dash_str(dash_str: &str) -> Result<Vec<f32>, VegaSceneGraphError> {
     let clean_dash_str = dash_str.replace(',', " ");
     let mut dashes: Vec<f32> = Vec::new();
     for s in clean_dash_str.split_whitespace() {

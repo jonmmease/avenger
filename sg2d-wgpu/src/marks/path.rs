@@ -6,6 +6,7 @@ use lyon::lyon_tessellation::{
     StrokeTessellator, StrokeVertex, StrokeVertexConstructor, VertexBuffers,
 };
 use lyon::path::{LineCap, LineJoin};
+use sg2d::marks::line::LineMark;
 use sg2d::marks::path::PathMark;
 use sg2d::value::{StrokeCap, StrokeJoin};
 use wgpu::VertexBufferLayout;
@@ -98,6 +99,68 @@ impl PathShader {
         Ok(Self {
             verts,
             indices,
+            shader: include_str!("path.wgsl").to_string(),
+            vertex_entry_point: "vs_main".to_string(),
+            fragment_entry_point: "fs_main".to_string(),
+        })
+    }
+
+    pub fn from_line_mark(mark: &LineMark) -> Result<Self, Sg2dWgpuError> {
+        // Build path
+        let mut path_builder = lyon::path::Path::builder().with_svg();
+        let mut path_len = 0;
+        for (x, y, defined) in izip!(mark.x_iter(), mark.y_iter(), mark.defined_iter(),) {
+            if *defined {
+                if path_len > 0 {
+                    // Continue path
+                    path_builder.line_to(lyon::geom::point(*x, *y));
+                } else {
+                    // New path
+                    path_builder.move_to(lyon::geom::point(*x, *y));
+                }
+                path_len += 1;
+            } else {
+                if path_len == 1 {
+                    // Finishing single point line. Add extra point at the same location
+                    // so that stroke caps are drawn
+                    path_builder.close();
+                }
+                path_len = 0;
+            }
+        }
+
+        let path = path_builder.build();
+
+        // Create vertex/index buffer builder
+        let mut buffers: VertexBuffers<PathVertex, u16> = VertexBuffers::new();
+        let mut buffers_builder = BuffersBuilder::new(
+            &mut buffers,
+            VertexPositions {
+                fill: [0.0, 0.0, 0.0, 0.0],
+                stroke: mark.stroke,
+            },
+        );
+
+        // Tesselate path
+        let mut stroke_tessellator = StrokeTessellator::new();
+        let stroke_options = StrokeOptions::default()
+            .with_tolerance(0.05)
+            .with_line_join(match mark.stroke_join {
+                StrokeJoin::Miter => LineJoin::Miter,
+                StrokeJoin::Round => LineJoin::Round,
+                StrokeJoin::Bevel => LineJoin::Bevel,
+            })
+            .with_line_cap(match mark.stroke_cap {
+                StrokeCap::Butt => LineCap::Butt,
+                StrokeCap::Round => LineCap::Round,
+                StrokeCap::Square => LineCap::Square,
+            })
+            .with_line_width(mark.stroke_width);
+        stroke_tessellator.tessellate_path(&path, &stroke_options, &mut buffers_builder)?;
+
+        Ok(Self {
+            verts: buffers.vertices,
+            indices: buffers.indices,
             shader: include_str!("path.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
