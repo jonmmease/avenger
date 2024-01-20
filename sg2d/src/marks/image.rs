@@ -1,19 +1,22 @@
+use crate::marks::value::{EncodingValue, ImageAlign, ImageBaseline};
 use serde::{Deserialize, Serialize};
-use crate::marks::value::{EncodingValue, ImageAlign};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct ImageMark {
-    image: EncodingValue<RgbaImage>,
-    x: EncodingValue<f32>,
-    y: EncodingValue<f32>,
-    width: EncodingValue<f32>,
-    height: EncodingValue<f32>,
-    aspect: bool,
-    smooth: bool,
-    align: ImageAlign,
+    pub name: String,
+    pub clip: bool,
+    pub len: u32,
+    pub image: EncodingValue<RgbaImage>,
+    pub x: EncodingValue<f32>,
+    pub y: EncodingValue<f32>,
+    pub width: EncodingValue<f32>,
+    pub height: EncodingValue<f32>,
+    pub align: EncodingValue<ImageAlign>,
+    pub baseline: EncodingValue<ImageBaseline>,
+    pub aspect: bool,
+    pub smooth: bool,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RgbaImage {
@@ -27,7 +30,7 @@ impl RgbaImage {
         image::RgbaImage::from_raw(self.width, self.height, self.data.clone())
     }
 
-    pub fn from_image(&self, img: &image::RgbaImage) -> Self {
+    pub fn from_image(img: &image::RgbaImage) -> Self {
         Self {
             width: img.width(),
             height: img.height(),
@@ -35,4 +38,3 @@ impl RgbaImage {
         }
     }
 }
-
