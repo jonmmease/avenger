@@ -7,6 +7,7 @@ use crate::marks::rect::RectMark;
 use crate::marks::rule::RuleMark;
 use crate::marks::symbol::SymbolMark;
 use crate::marks::text::TextMark;
+use crate::marks::trail::TrailMark;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,6 +17,7 @@ pub enum SceneMark {
     Path(PathMark),
     Symbol(SymbolMark),
     Line(LineMark),
+    Trail(TrailMark),
     Rect(RectMark),
     Rule(RuleMark),
     Text(Box<TextMark>),

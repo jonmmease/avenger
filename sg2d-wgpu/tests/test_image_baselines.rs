@@ -87,6 +87,9 @@ mod test_image_baselines {
         case("area", "streamgraph_area", 0.005),
         case("area", "with_undefined", 0.0005),
         case("area", "with_undefined_horizontal", 0.0005),
+
+        case("trail", "trail_stocks", 0.0005),
+        case("trail", "trail_stocks_opacity", 0.0005),
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
         let specs_dir = format!(
