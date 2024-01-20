@@ -1,7 +1,7 @@
 use crate::marks::instanced_mark::InstancedMarkShader;
 use itertools::izip;
 use sg2d::marks::rule::RuleMark;
-use sg2d::value::StrokeCap;
+use sg2d::marks::value::StrokeCap;
 use wgpu::VertexBufferLayout;
 
 #[repr(C)]

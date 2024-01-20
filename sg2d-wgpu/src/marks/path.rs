@@ -13,7 +13,7 @@ use sg2d::marks::area::{AreaMark, AreaOrientation};
 use sg2d::marks::line::LineMark;
 use sg2d::marks::path::PathMark;
 use sg2d::marks::trail::TrailMark;
-use sg2d::value::{StrokeCap, StrokeJoin};
+use sg2d::marks::value::{StrokeCap, StrokeJoin};
 use wgpu::VertexBufferLayout;
 
 #[repr(C)]

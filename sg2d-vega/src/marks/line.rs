@@ -4,7 +4,7 @@ use crate::marks::values::StrokeDashSpec;
 use serde::{Deserialize, Serialize};
 use sg2d::marks::line::LineMark;
 use sg2d::marks::mark::SceneMark;
-use sg2d::value::{EncodingValue, StrokeCap, StrokeJoin};
+use sg2d::marks::value::{EncodingValue, StrokeCap, StrokeJoin};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

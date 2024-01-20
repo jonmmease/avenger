@@ -1,5 +1,5 @@
-use crate::value::EncodingValue;
 use serde::{Deserialize, Serialize};
+use crate::marks::value::EncodingValue;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
