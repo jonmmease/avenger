@@ -1,4 +1,5 @@
 use crate::marks::arc::ArcMark;
+use crate::marks::area::AreaMark;
 use crate::marks::group::SceneGroup;
 use crate::marks::line::LineMark;
 use crate::marks::path::PathMark;
@@ -11,6 +12,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SceneMark {
     Arc(ArcMark),
+    Area(AreaMark),
     Path(PathMark),
     Symbol(SymbolMark),
     Line(LineMark),
