@@ -1,18 +1,23 @@
 use crate::error::VegaSceneGraphError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
+use crate::marks::values::StrokeDashSpec;
 use lyon_extra::euclid::Point2D;
 use lyon_extra::parser::{ParserOptions, Source};
 use lyon_path::geom::{Box2D, Point, Scale};
 use lyon_path::{Path, Winding};
 use serde::{Deserialize, Serialize};
+use sg2d::marks::group::{GroupBounds, SceneGroup};
+use sg2d::marks::line::LineMark;
 use sg2d::marks::mark::SceneMark;
 use sg2d::marks::symbol::{SymbolMark, SymbolShape};
-use sg2d::value::EncodingValue;
+use sg2d::value::{EncodingValue, StrokeCap, StrokeJoin};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VegaSymbolItem {
+    #[serde(default)]
     pub x: f32,
+    #[serde(default)]
     pub y: f32,
     pub fill: Option<String>,
     pub opacity: Option<f32>,
@@ -21,6 +26,9 @@ pub struct VegaSymbolItem {
     pub shape: Option<String>,
     pub stroke: Option<String>,
     pub stroke_width: Option<f32>,
+    pub stroke_cap: Option<StrokeCap>,
+    pub stroke_join: Option<StrokeJoin>,
+    pub stroke_dash: Option<StrokeDashSpec>,
     pub stroke_opacity: Option<f32>,
     pub angle: Option<f32>,
     pub zindex: Option<i32>,
@@ -32,6 +40,63 @@ impl VegaMarkContainer<VegaSymbolItem> {
     pub fn to_scene_graph(&self, origin: [f32; 2]) -> Result<SceneMark, VegaSceneGraphError> {
         // Get shape of first item and use that for all items for now
         let first = self.items.first();
+        let first_shape = first
+            .and_then(|item| item.shape.clone())
+            .unwrap_or("circle".to_string());
+
+        // Handle special case of sybols with shape == "stroke". This happens when lines are
+        // used in legends. We convert these to a group of regular line marks
+        if first_shape == "stroke" {
+            // stroke symbols are converted to a group of lines
+            let mut line_marks: Vec<SceneMark> = Vec::new();
+            for item in &self.items {
+                let width = item.size.unwrap_or(100.0).sqrt();
+                let stroke = if let Some(c) = &item.stroke {
+                    let c = csscolorparser::parse(c)?;
+                    let base_opacity = item.opacity.unwrap_or(1.0);
+                    let stroke_opacity =
+                        c.a as f32 * item.stroke_opacity.unwrap_or(1.0) * base_opacity;
+                    [c.r as f32, c.g as f32, c.b as f32, stroke_opacity]
+                } else {
+                    [0.0, 0.0, 0.0, 1.0]
+                };
+                let mark = LineMark {
+                    name: "".to_string(),
+                    clip: false,
+                    len: 2,
+                    x: EncodingValue::Array {
+                        values: vec![
+                            origin[0] + item.x - width / 2.0,
+                            origin[0] + item.x + width / 2.0,
+                        ],
+                    },
+                    y: EncodingValue::Scalar {
+                        value: origin[1] + item.y,
+                    },
+                    stroke,
+                    stroke_width: item.stroke_width.unwrap_or(1.0),
+                    stroke_cap: item.stroke_cap.unwrap_or_default(),
+                    stroke_join: item.stroke_join.unwrap_or_default(),
+                    stroke_dash: item
+                        .stroke_dash
+                        .clone()
+                        .map(|d| Ok::<Vec<f32>, VegaSceneGraphError>(d.to_array()?.to_vec()))
+                        .transpose()?,
+                    ..Default::default()
+                };
+                line_marks.push(SceneMark::Line(mark));
+            }
+            return Ok(SceneMark::Group(SceneGroup {
+                bounds: GroupBounds {
+                    x: 0.0,
+                    y: 0.0,
+                    width: None,
+                    height: None,
+                },
+                marks: line_marks,
+            }));
+        }
+
         let first_has_stroke = first.map(|item| item.stroke.is_some()).unwrap_or(false);
 
         // Only include stroke_width if there is a stroke color
