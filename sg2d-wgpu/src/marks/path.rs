@@ -7,10 +7,11 @@ use lyon::lyon_tessellation::{
 };
 use lyon::path::builder::WithSvg;
 use lyon::path::path::BuilderImpl;
-use lyon::path::{LineCap, LineJoin};
+use lyon::path::{AttributeIndex, LineCap, LineJoin};
 use sg2d::marks::area::{AreaMark, AreaOrientation};
 use sg2d::marks::line::LineMark;
 use sg2d::marks::path::PathMark;
+use sg2d::marks::trail::TrailMark;
 use sg2d::value::{StrokeCap, StrokeJoin};
 use wgpu::VertexBufferLayout;
 
@@ -263,6 +264,68 @@ impl PathShader {
                 StrokeCap::Square => LineCap::Square,
             })
             .with_line_width(mark.stroke_width);
+        stroke_tessellator.tessellate_path(&path, &stroke_options, &mut buffers_builder)?;
+
+        Ok(Self {
+            verts: buffers.vertices,
+            indices: buffers.indices,
+            shader: include_str!("path.wgsl").to_string(),
+            vertex_entry_point: "vs_main".to_string(),
+            fragment_entry_point: "fs_main".to_string(),
+        })
+    }
+
+    pub fn from_trail_mark(mark: &TrailMark) -> Result<Self, Sg2dWgpuError> {
+        let size_idx: AttributeIndex = 0;
+        let mut path_builder = lyon::path::Path::builder_with_attributes(1);
+        let mut path_len = 0;
+        for (x, y, size, defined) in izip!(
+            mark.x_iter(),
+            mark.y_iter(),
+            mark.size_iter(),
+            mark.defined_iter()
+        ) {
+            if *defined {
+                if path_len > 0 {
+                    // Continue path
+                    path_builder.line_to(lyon::geom::point(*x, *y), &[*size]);
+                } else {
+                    // New path
+                    path_builder.begin(lyon::geom::point(*x, *y), &[*size]);
+                }
+                path_len += 1;
+            } else {
+                if path_len == 1 {
+                    // Finishing single point line. Add extra point at the same location
+                    // so that stroke caps are drawn
+                    path_builder.end(true);
+                } else {
+                    path_builder.end(false);
+                }
+                path_len = 0;
+            }
+        }
+        path_builder.end(false);
+
+        let path = path_builder.build();
+
+        // Create vertex/index buffer builder
+        let mut buffers: VertexBuffers<PathVertex, u16> = VertexBuffers::new();
+        let mut buffers_builder = BuffersBuilder::new(
+            &mut buffers,
+            VertexPositions {
+                fill: [0.0, 0.0, 0.0, 0.0],
+                stroke: mark.stroke,
+            },
+        );
+
+        // Tesselate path
+        let mut stroke_tessellator = StrokeTessellator::new();
+        let stroke_options = StrokeOptions::default()
+            .with_tolerance(0.05)
+            .with_line_join(LineJoin::Round)
+            .with_line_cap(LineCap::Round)
+            .with_variable_line_width(size_idx);
         stroke_tessellator.tessellate_path(&path, &stroke_options, &mut buffers_builder)?;
 
         Ok(Self {

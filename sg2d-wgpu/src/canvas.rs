@@ -25,6 +25,7 @@ use sg2d::marks::arc::ArcMark;
 use sg2d::marks::area::AreaMark;
 use sg2d::marks::line::LineMark;
 use sg2d::marks::path::PathMark;
+use sg2d::marks::trail::TrailMark;
 use sg2d::{
     marks::group::SceneGroup, marks::mark::SceneMark, marks::rect::RectMark, marks::rule::RuleMark,
     marks::symbol::SymbolMark, marks::text::TextMark, scene_graph::SceneGraph,
@@ -89,6 +90,17 @@ pub trait Canvas {
             self.texture_format(),
             self.sample_count(),
             Box::new(PathShader::from_line_mark(mark)?),
+        )));
+        Ok(())
+    }
+
+    fn add_trail_mark(&mut self, mark: &TrailMark) -> Result<(), Sg2dWgpuError> {
+        self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
+            self.device(),
+            *self.uniform(),
+            self.texture_format(),
+            self.sample_count(),
+            Box::new(PathShader::from_trail_mark(mark)?),
         )));
         Ok(())
     }
@@ -180,6 +192,9 @@ pub trait Canvas {
                 }
                 SceneMark::Line(mark) => {
                     self.add_line_mark(mark)?;
+                }
+                SceneMark::Trail(mark) => {
+                    self.add_trail_mark(mark)?;
                 }
                 SceneMark::Area(mark) => {
                     self.add_area_mark(mark)?;
