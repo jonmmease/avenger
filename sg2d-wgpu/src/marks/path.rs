@@ -132,7 +132,7 @@ impl PathShader {
                 mark.defined_iter(),
             ) {
                 if *defined {
-                    if tail.len() > 0 {
+                    if !tail.is_empty() {
                         // Continue path
                         path_builder.line_to(lyon::geom::point(*x, *y));
                     } else {
@@ -152,7 +152,7 @@ impl PathShader {
                 mark.defined_iter(),
             ) {
                 if *defined {
-                    if tail.len() > 0 {
+                    if !tail.is_empty() {
                         // Continue path
                         path_builder.line_to(lyon::geom::point(*x, *y));
                     } else {
