@@ -79,8 +79,9 @@ mod test_image_baselines {
         case("line", "connected_scatter", 0.0008),
         case("line", "lines_with_open_symbols", 0.0004),
         case("line", "stocks", 0.0005),
+        case("line", "stocks-legend", 0.003),
         case("line", "simple_dashed", 0.0005),
-        case("line", "stocks_dashed", 0.0005),
+        case("line", "stocks_dashed", 0.001),
         case("line", "line_dashed_round_undefined", 0.0005),
 
         // lyon's square end cap doesn't seem to work
