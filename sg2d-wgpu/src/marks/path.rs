@@ -1,13 +1,14 @@
 use crate::error::Sg2dWgpuError;
 use crate::marks::basic_mark::BasicMarkShader;
 use itertools::izip;
+use lyon::algorithms::measure::{PathMeasurements, PathSampler, SampleType};
 use lyon::lyon_tessellation::{
     BuffersBuilder, FillOptions, FillTessellator, FillVertex, FillVertexConstructor, StrokeOptions,
     StrokeTessellator, StrokeVertex, StrokeVertexConstructor, VertexBuffers,
 };
 use lyon::path::builder::WithSvg;
 use lyon::path::path::BuilderImpl;
-use lyon::path::{AttributeIndex, LineCap, LineJoin};
+use lyon::path::{AttributeIndex, LineCap, LineJoin, Path};
 use sg2d::marks::area::{AreaMark, AreaOrientation};
 use sg2d::marks::line::LineMark;
 use sg2d::marks::path::PathMark;
@@ -214,7 +215,9 @@ impl PathShader {
     }
 
     pub fn from_line_mark(mark: &LineMark) -> Result<Self, Sg2dWgpuError> {
-        // Build path
+        let mut defined_paths: Vec<Path> = Vec::new();
+
+        // Build path for each defined line segment
         let mut path_builder = lyon::path::Path::builder().with_svg();
         let mut path_len = 0;
         for (x, y, defined) in izip!(mark.x_iter(), mark.y_iter(), mark.defined_iter()) {
@@ -233,42 +236,103 @@ impl PathShader {
                     // so that stroke caps are drawn
                     path_builder.close();
                 }
+                defined_paths.push(path_builder.build());
+                path_builder = lyon::path::Path::builder().with_svg();
                 path_len = 0;
             }
         }
+        defined_paths.push(path_builder.build());
 
-        let path = path_builder.build();
+        let defined_paths = if let Some(stroke_dash) = &mark.stroke_dash {
+            // Create new paths with dashing
+            let mut dashed_paths: Vec<Path> = Vec::new();
+            for path in defined_paths.iter() {
+                let mut dash_path_builder = lyon::path::Path::builder();
+                let path_measurements = PathMeasurements::from_path(path, 0.1);
+                let mut sampler =
+                    PathSampler::new(&path_measurements, path, &(), SampleType::Distance);
 
-        // Create vertex/index buffer builder
-        let mut buffers: VertexBuffers<PathVertex, u16> = VertexBuffers::new();
-        let mut buffers_builder = BuffersBuilder::new(
-            &mut buffers,
-            VertexPositions {
-                fill: [0.0, 0.0, 0.0, 0.0],
-                stroke: mark.stroke,
-            },
-        );
+                // Next index into stroke_dash array
+                let mut dash_idx = 0;
 
-        // Tesselate path
-        let mut stroke_tessellator = StrokeTessellator::new();
-        let stroke_options = StrokeOptions::default()
-            .with_tolerance(0.05)
-            .with_line_join(match mark.stroke_join {
-                StrokeJoin::Miter => LineJoin::Miter,
-                StrokeJoin::Round => LineJoin::Round,
-                StrokeJoin::Bevel => LineJoin::Bevel,
-            })
-            .with_line_cap(match mark.stroke_cap {
-                StrokeCap::Butt => LineCap::Butt,
-                StrokeCap::Round => LineCap::Round,
-                StrokeCap::Square => LineCap::Square,
-            })
-            .with_line_width(mark.stroke_width);
-        stroke_tessellator.tessellate_path(&path, &stroke_options, &mut buffers_builder)?;
+                // Distance along line from (x0,y0) to (x1,y1) where the next dash will start
+                let mut start_dash_dist: f32 = 0.0;
+
+                // Total length of line
+                let line_len = sampler.length();
+
+                // Whether the next dash length represents a drawn dash (draw == true)
+                // or a gap (draw == false)
+                let mut draw = true;
+
+                while start_dash_dist < line_len {
+                    let end_dash_dist = if start_dash_dist + stroke_dash[dash_idx] >= line_len {
+                        // The final dash/gap should be truncated to the end of the line
+                        line_len
+                    } else {
+                        // The dash/gap fits entirely in the rule
+                        start_dash_dist + stroke_dash[dash_idx]
+                    };
+
+                    if draw {
+                        sampler.split_range(start_dash_dist..end_dash_dist, &mut dash_path_builder);
+                    }
+
+                    // update start dist for next dash/gap
+                    start_dash_dist = end_dash_dist;
+
+                    // increment index and cycle back to start of start of dash array
+                    dash_idx = (dash_idx + 1) % stroke_dash.len();
+
+                    // Alternate between drawn dash and gap
+                    draw = !draw;
+                }
+                dashed_paths.push(dash_path_builder.build())
+            }
+            dashed_paths
+        } else {
+            defined_paths
+        };
+
+        let mut verts: Vec<PathVertex> = Vec::new();
+        let mut indices: Vec<u16> = Vec::new();
+
+        for path in &defined_paths {
+            // Create vertex/index buffer builder
+            let mut buffers: VertexBuffers<PathVertex, u16> = VertexBuffers::new();
+            let mut buffers_builder = BuffersBuilder::new(
+                &mut buffers,
+                VertexPositions {
+                    fill: [0.0, 0.0, 0.0, 0.0],
+                    stroke: mark.stroke,
+                },
+            );
+
+            // Tesselate path
+            let mut stroke_tessellator = StrokeTessellator::new();
+            let stroke_options = StrokeOptions::default()
+                .with_tolerance(0.05)
+                .with_line_join(match mark.stroke_join {
+                    StrokeJoin::Miter => LineJoin::Miter,
+                    StrokeJoin::Round => LineJoin::Round,
+                    StrokeJoin::Bevel => LineJoin::Bevel,
+                })
+                .with_line_cap(match mark.stroke_cap {
+                    StrokeCap::Butt => LineCap::Butt,
+                    StrokeCap::Round => LineCap::Round,
+                    StrokeCap::Square => LineCap::Square,
+                })
+                .with_line_width(mark.stroke_width);
+            stroke_tessellator.tessellate_path(path, &stroke_options, &mut buffers_builder)?;
+
+            let index_offset = verts.len() as u16;
+            verts.extend(buffers.vertices);
+            indices.extend(buffers.indices.into_iter().map(|i| i + index_offset));
+        }
 
         Ok(Self {
-            verts: buffers.vertices,
-            indices: buffers.indices,
+            verts,
+            indices,
             shader: include_str!("path.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
