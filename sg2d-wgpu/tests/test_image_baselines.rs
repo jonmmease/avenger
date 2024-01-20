@@ -79,6 +79,14 @@ mod test_image_baselines {
         case("line", "connected_scatter", 0.0008),
         case("line", "lines_with_open_symbols", 0.0004),
         case("line", "stocks", 0.0005),
+
+        case("area", "100_percent_stacked_area", 0.005),
+        case("area", "simple_unemployment", 0.0005),
+        case("area", "simple_unemployment_stroke", 0.0005),
+        case("area", "stacked_area", 0.005),
+        case("area", "streamgraph_area", 0.005),
+        case("area", "with_undefined", 0.0005),
+        case("area", "with_undefined_horizontal", 0.0005),
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
         let specs_dir = format!(

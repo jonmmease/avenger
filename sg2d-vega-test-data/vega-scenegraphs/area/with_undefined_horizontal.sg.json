@@ -1,0 +1,168 @@
+{
+  "width": 310,
+  "height": 284,
+  "origin": [
+    5,
+    5
+  ],
+  "scenegraph": {
+    "clip": false,
+    "interactive": true,
+    "items": [
+      {
+        "items": [
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "orient": "horizontal",
+                "fill": "green",
+                "fillOpacity": 0.5,
+                "strokeWidth": 4,
+                "stroke": "crimson",
+                "strokeOpacity": 0.7,
+                "x": 120,
+                "y": 30,
+                "x2": 90,
+                "defined": true,
+                "width": -30
+              },
+              {
+                "orient": "horizontal",
+                "fill": "green",
+                "fillOpacity": 0.5,
+                "strokeWidth": 4,
+                "stroke": "crimson",
+                "strokeOpacity": 0.7,
+                "x": 42.85714285714286,
+                "y": 60,
+                "x2": 90,
+                "defined": true,
+                "width": 47.14285714285714
+              },
+              {
+                "orient": "horizontal",
+                "fill": "green",
+                "fillOpacity": 0.5,
+                "strokeWidth": 4,
+                "stroke": "crimson",
+                "strokeOpacity": 0.7,
+                "x": 80,
+                "y": 90,
+                "x2": 90,
+                "defined": true,
+                "width": 10
+              },
+              {
+                "orient": "horizontal",
+                "fill": "green",
+                "fillOpacity": 0.5,
+                "strokeWidth": 4,
+                "stroke": "crimson",
+                "strokeOpacity": 0.7,
+                "x": 88.57142857142857,
+                "y": 117,
+                "x2": 90,
+                "defined": true,
+                "width": 1.4285714285714306
+              },
+              {
+                "orient": "horizontal",
+                "fill": "green",
+                "fillOpacity": 0.5,
+                "strokeWidth": 4,
+                "stroke": "crimson",
+                "strokeOpacity": 0.7,
+                "x": 102.85714285714285,
+                "y": 120,
+                "x2": 90,
+                "defined": false,
+                "width": -12.857142857142847
+              },
+              {
+                "orient": "horizontal",
+                "fill": "green",
+                "fillOpacity": 0.5,
+                "strokeWidth": 4,
+                "stroke": "crimson",
+                "strokeOpacity": 0.7,
+                "x": 97.14285714285715,
+                "y": 150,
+                "x2": 90,
+                "defined": true,
+                "width": -7.142857142857153
+              },
+              {
+                "orient": "horizontal",
+                "fill": "green",
+                "fillOpacity": 0.5,
+                "strokeWidth": 4,
+                "stroke": "crimson",
+                "strokeOpacity": 0.7,
+                "x": 62.857142857142854,
+                "y": 180,
+                "x2": 90,
+                "defined": false,
+                "width": 27.142857142857146
+              },
+              {
+                "orient": "horizontal",
+                "fill": "green",
+                "fillOpacity": 0.5,
+                "strokeWidth": 4,
+                "stroke": "crimson",
+                "strokeOpacity": 0.7,
+                "x": 114.28571428571428,
+                "y": 183,
+                "x2": 90,
+                "defined": true,
+                "width": -24.285714285714278
+              },
+              {
+                "orient": "horizontal",
+                "fill": "green",
+                "fillOpacity": 0.5,
+                "strokeWidth": 4,
+                "stroke": "crimson",
+                "strokeOpacity": 0.7,
+                "x": 125.71428571428571,
+                "y": 240,
+                "x2": 90,
+                "defined": true,
+                "width": -35.71428571428571
+              },
+              {
+                "orient": "horizontal",
+                "fill": "green",
+                "fillOpacity": 0.5,
+                "strokeWidth": 4,
+                "stroke": "crimson",
+                "strokeOpacity": 0.7,
+                "x": 68.57142857142857,
+                "y": 270,
+                "x2": 90,
+                "defined": true,
+                "width": 21.42857142857143
+              }
+            ],
+            "marktype": "area",
+            "name": "marks",
+            "role": "mark",
+            "zindex": 0
+          }
+        ],
+        "fill": "transparent",
+        "stroke": "transparent",
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 200
+      }
+    ],
+    "marktype": "group",
+    "name": "root",
+    "role": "frame",
+    "zindex": 0
+  }
+}
