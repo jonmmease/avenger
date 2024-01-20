@@ -10,3 +10,4 @@ pub mod shape;
 pub mod symbol;
 pub mod text;
 pub mod trail;
+pub mod values;
