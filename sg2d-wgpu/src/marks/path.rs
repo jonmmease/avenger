@@ -248,7 +248,7 @@ impl PathShader {
             let mut dashed_paths: Vec<Path> = Vec::new();
             for path in defined_paths.iter() {
                 let mut dash_path_builder = lyon::path::Path::builder();
-                let path_measurements = PathMeasurements::from_path(&path, 0.1);
+                let path_measurements = PathMeasurements::from_path(path, 0.1);
                 let mut sampler =
                     PathSampler::new(&path_measurements, path, &(), SampleType::Distance);
 
