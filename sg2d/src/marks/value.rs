@@ -40,3 +40,21 @@ pub enum StrokeJoin {
     Miter,
     Round,
 }
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ImageAlign {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ImageBaseline {
+    #[default]
+    Top,
+    Middle,
+    Bottom,
+}

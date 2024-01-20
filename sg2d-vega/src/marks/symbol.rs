@@ -10,7 +10,7 @@ use sg2d::marks::group::{GroupBounds, SceneGroup};
 use sg2d::marks::line::LineMark;
 use sg2d::marks::mark::SceneMark;
 use sg2d::marks::symbol::{SymbolMark, SymbolShape};
-use sg2d::value::{EncodingValue, StrokeCap, StrokeJoin};
+use sg2d::marks::value::{EncodingValue, StrokeCap, StrokeJoin};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
