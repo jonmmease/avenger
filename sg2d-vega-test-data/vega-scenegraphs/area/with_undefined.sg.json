@@ -1,0 +1,158 @@
+{
+  "width": 310,
+  "height": 210,
+  "origin": [
+    5,
+    5
+  ],
+  "scenegraph": {
+    "clip": false,
+    "interactive": true,
+    "items": [
+      {
+        "items": [
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "fill": "green",
+                "fillOpacity": 0.5,
+                "strokeWidth": 4,
+                "stroke": "crimson",
+                "strokeOpacity": 0.7,
+                "x": 30,
+                "y": 120,
+                "y2": 90,
+                "defined": true,
+                "height": -30
+              },
+              {
+                "fill": "green",
+                "fillOpacity": 0.5,
+                "strokeWidth": 4,
+                "stroke": "crimson",
+                "strokeOpacity": 0.7,
+                "x": 60,
+                "y": 42.85714285714286,
+                "y2": 90,
+                "defined": true,
+                "height": 47.14285714285714
+              },
+              {
+                "fill": "green",
+                "fillOpacity": 0.5,
+                "strokeWidth": 4,
+                "stroke": "crimson",
+                "strokeOpacity": 0.7,
+                "x": 90,
+                "y": 80,
+                "y2": 90,
+                "defined": true,
+                "height": 10
+              },
+              {
+                "fill": "green",
+                "fillOpacity": 0.5,
+                "strokeWidth": 4,
+                "stroke": "crimson",
+                "strokeOpacity": 0.7,
+                "x": 117,
+                "y": 88.57142857142857,
+                "y2": 90,
+                "defined": true,
+                "height": 1.4285714285714306
+              },
+              {
+                "fill": "green",
+                "fillOpacity": 0.5,
+                "strokeWidth": 4,
+                "stroke": "crimson",
+                "strokeOpacity": 0.7,
+                "x": 120,
+                "y": 102.85714285714285,
+                "y2": 90,
+                "defined": false,
+                "height": -12.857142857142847
+              },
+              {
+                "fill": "green",
+                "fillOpacity": 0.5,
+                "strokeWidth": 4,
+                "stroke": "crimson",
+                "strokeOpacity": 0.7,
+                "x": 150,
+                "y": 97.14285714285715,
+                "y2": 90,
+                "defined": true,
+                "height": -7.142857142857153
+              },
+              {
+                "fill": "green",
+                "fillOpacity": 0.5,
+                "strokeWidth": 4,
+                "stroke": "crimson",
+                "strokeOpacity": 0.7,
+                "x": 180,
+                "y": 62.857142857142854,
+                "y2": 90,
+                "defined": false,
+                "height": 27.142857142857146
+              },
+              {
+                "fill": "green",
+                "fillOpacity": 0.5,
+                "strokeWidth": 4,
+                "stroke": "crimson",
+                "strokeOpacity": 0.7,
+                "x": 183,
+                "y": 114.28571428571428,
+                "y2": 90,
+                "defined": true,
+                "height": -24.285714285714278
+              },
+              {
+                "fill": "green",
+                "fillOpacity": 0.5,
+                "strokeWidth": 4,
+                "stroke": "crimson",
+                "strokeOpacity": 0.7,
+                "x": 240,
+                "y": 125.71428571428571,
+                "y2": 90,
+                "defined": true,
+                "height": -35.71428571428571
+              },
+              {
+                "fill": "green",
+                "fillOpacity": 0.5,
+                "strokeWidth": 4,
+                "stroke": "crimson",
+                "strokeOpacity": 0.7,
+                "x": 270,
+                "y": 68.57142857142857,
+                "y2": 90,
+                "defined": true,
+                "height": 21.42857142857143
+              }
+            ],
+            "marktype": "area",
+            "name": "marks",
+            "role": "mark",
+            "zindex": 0
+          }
+        ],
+        "fill": "transparent",
+        "stroke": "transparent",
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 200
+      }
+    ],
+    "marktype": "group",
+    "name": "root",
+    "role": "frame",
+    "zindex": 0
+  }
+}

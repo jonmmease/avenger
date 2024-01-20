@@ -1,4 +1,5 @@
 pub mod arc;
+pub mod area;
 pub mod group;
 pub mod line;
 pub mod mark;
