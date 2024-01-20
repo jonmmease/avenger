@@ -8,6 +8,7 @@ use crate::marks::rule::VegaRuleItem;
 use crate::marks::shape::VegaShapeItem;
 use crate::marks::symbol::VegaSymbolItem;
 use crate::marks::text::VegaTextItem;
+use crate::marks::trail::VegaTrailItem;
 use serde::{Deserialize, Serialize};
 
 pub trait VegaMarkItem {}
@@ -27,7 +28,7 @@ pub enum VegaMark {
     Shape(VegaMarkContainer<VegaShapeItem>),
     Symbol(VegaMarkContainer<VegaSymbolItem>),
     Text(VegaMarkContainer<VegaTextItem>),
-    Trail,
+    Trail(VegaMarkContainer<VegaTrailItem>),
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
