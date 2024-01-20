@@ -22,6 +22,7 @@ use crate::marks::rule::{RuleInstance, RuleShader};
 use crate::marks::symbol::{SymbolInstance, SymbolShader};
 use crate::marks::text::{TextInstance, TextMarkRenderer};
 use sg2d::marks::arc::ArcMark;
+use sg2d::marks::area::AreaMark;
 use sg2d::marks::line::LineMark;
 use sg2d::marks::path::PathMark;
 use sg2d::{
@@ -88,6 +89,17 @@ pub trait Canvas {
             self.texture_format(),
             self.sample_count(),
             Box::new(PathShader::from_line_mark(mark)?),
+        )));
+        Ok(())
+    }
+
+    fn add_area_mark(&mut self, mark: &AreaMark) -> Result<(), Sg2dWgpuError> {
+        self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
+            self.device(),
+            *self.uniform(),
+            self.texture_format(),
+            self.sample_count(),
+            Box::new(PathShader::from_area_mark(mark)?),
         )));
         Ok(())
     }
@@ -168,6 +180,9 @@ pub trait Canvas {
                 }
                 SceneMark::Line(mark) => {
                     self.add_line_mark(mark)?;
+                }
+                SceneMark::Area(mark) => {
+                    self.add_area_mark(mark)?;
                 }
                 SceneMark::Text(mark) => {
                     self.add_text_mark(mark)?;

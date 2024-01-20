@@ -5,7 +5,10 @@ use lyon::lyon_tessellation::{
     BuffersBuilder, FillOptions, FillTessellator, FillVertex, FillVertexConstructor, StrokeOptions,
     StrokeTessellator, StrokeVertex, StrokeVertexConstructor, VertexBuffers,
 };
+use lyon::path::builder::WithSvg;
+use lyon::path::path::BuilderImpl;
 use lyon::path::{LineCap, LineJoin};
+use sg2d::marks::area::{AreaMark, AreaOrientation};
 use sg2d::marks::line::LineMark;
 use sg2d::marks::path::PathMark;
 use sg2d::value::{StrokeCap, StrokeJoin};
@@ -105,11 +108,115 @@ impl PathShader {
         })
     }
 
+    pub fn from_area_mark(mark: &AreaMark) -> Result<Self, Sg2dWgpuError> {
+        let mut path_builder = lyon::path::Path::builder().with_svg();
+        let mut tail: Vec<(f32, f32)> = Vec::new();
+
+        fn close_area(b: &mut WithSvg<BuilderImpl>, tail: &mut Vec<(f32, f32)>) {
+            if tail.is_empty() {
+                return;
+            }
+            for (x, y) in tail.iter().rev() {
+                b.line_to(lyon::geom::point(*x, *y));
+            }
+
+            tail.clear();
+            b.close();
+        }
+
+        if mark.orientation == AreaOrientation::Vertical {
+            for (x, y, y2, defined) in izip!(
+                mark.x_iter(),
+                mark.y_iter(),
+                mark.y2_iter(),
+                mark.defined_iter(),
+            ) {
+                if *defined {
+                    if !tail.is_empty() {
+                        // Continue path
+                        path_builder.line_to(lyon::geom::point(*x, *y));
+                    } else {
+                        // New path
+                        path_builder.move_to(lyon::geom::point(*x, *y));
+                    }
+                    tail.push((*x, *y2));
+                } else {
+                    close_area(&mut path_builder, &mut tail);
+                }
+            }
+        } else {
+            for (y, x, x2, defined) in izip!(
+                mark.y_iter(),
+                mark.x_iter(),
+                mark.x2_iter(),
+                mark.defined_iter(),
+            ) {
+                if *defined {
+                    if !tail.is_empty() {
+                        // Continue path
+                        path_builder.line_to(lyon::geom::point(*x, *y));
+                    } else {
+                        // New path
+                        path_builder.move_to(lyon::geom::point(*x, *y));
+                    }
+                    tail.push((*x2, *y));
+                } else {
+                    close_area(&mut path_builder, &mut tail);
+                }
+            }
+        }
+
+        close_area(&mut path_builder, &mut tail);
+        let path = path_builder.build();
+
+        // Create vertex/index buffer builder
+        let mut buffers: VertexBuffers<PathVertex, u16> = VertexBuffers::new();
+        let mut buffers_builder = BuffersBuilder::new(
+            &mut buffers,
+            VertexPositions {
+                fill: mark.fill,
+                stroke: mark.stroke,
+            },
+        );
+
+        // Tessellate fill
+        let mut fill_tessellator = FillTessellator::new();
+        let fill_options = FillOptions::default().with_tolerance(0.05);
+        fill_tessellator.tessellate_path(&path, &fill_options, &mut buffers_builder)?;
+
+        // Tessellate path
+        if mark.stroke_width > 0.0 {
+            let mut stroke_tessellator = StrokeTessellator::new();
+            let stroke_options = StrokeOptions::default()
+                .with_tolerance(0.05)
+                .with_line_join(match mark.stroke_join {
+                    StrokeJoin::Miter => LineJoin::Miter,
+                    StrokeJoin::Round => LineJoin::Round,
+                    StrokeJoin::Bevel => LineJoin::Bevel,
+                })
+                .with_line_cap(match mark.stroke_cap {
+                    StrokeCap::Butt => LineCap::Butt,
+                    StrokeCap::Round => LineCap::Round,
+                    StrokeCap::Square => LineCap::Square,
+                })
+                .with_line_width(mark.stroke_width);
+            stroke_tessellator.tessellate_path(&path, &stroke_options, &mut buffers_builder)?;
+        }
+
+        Ok(Self {
+            verts: buffers.vertices,
+            indices: buffers.indices,
+            shader: include_str!("path.wgsl").to_string(),
+            vertex_entry_point: "vs_main".to_string(),
+            fragment_entry_point: "fs_main".to_string(),
+        })
+    }
+
     pub fn from_line_mark(mark: &LineMark) -> Result<Self, Sg2dWgpuError> {
         // Build path
         let mut path_builder = lyon::path::Path::builder().with_svg();
         let mut path_len = 0;
-        for (x, y, defined) in izip!(mark.x_iter(), mark.y_iter(), mark.defined_iter(),) {
+        for (x, y, defined) in izip!(mark.x_iter(), mark.y_iter(), mark.defined_iter()) {
             if *defined {
                 if path_len > 0 {
                     // Continue path
