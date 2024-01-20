@@ -58,9 +58,8 @@ impl VegaGroupItem {
                 VegaMark::Trail(mark) => {
                     vec![mark.to_scene_graph(new_origin)?]
                 }
-                _ => {
-                    println!("Mark type not yet supported: {:?}", item);
-                    continue;
+                VegaMark::Image(mark) => {
+                    vec![mark.to_scene_graph(new_origin)?]
                 }
             };
             marks.extend(item_marks);

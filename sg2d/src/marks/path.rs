@@ -1,6 +1,6 @@
+use crate::marks::value::{EncodingValue, StrokeCap, StrokeJoin};
 use lyon_path::geom::euclid::{Transform2D, UnknownUnit};
 use serde::{Deserialize, Serialize};
-use crate::marks::value::{EncodingValue, StrokeCap, StrokeJoin};
 
 pub type PathTransform = Transform2D<f32, UnknownUnit, UnknownUnit>;
 

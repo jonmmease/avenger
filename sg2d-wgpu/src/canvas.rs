@@ -23,6 +23,7 @@ use crate::marks::symbol::{SymbolInstance, SymbolShader};
 use crate::marks::text::{TextInstance, TextMarkRenderer};
 use sg2d::marks::arc::ArcMark;
 use sg2d::marks::area::AreaMark;
+use sg2d::marks::image::ImageMark;
 use sg2d::marks::line::LineMark;
 use sg2d::marks::path::PathMark;
 use sg2d::marks::trail::TrailMark;
@@ -172,6 +173,11 @@ pub trait Canvas {
         Ok(())
     }
 
+    fn add_image_mark(&mut self, mark: &ImageMark) -> Result<(), Sg2dWgpuError> {
+        // println!("{mark:#?}");
+        todo!()
+    }
+
     fn add_group_mark(&mut self, group: &SceneGroup) -> Result<(), Sg2dWgpuError> {
         for mark in &group.marks {
             match mark {
@@ -201,6 +207,9 @@ pub trait Canvas {
                 }
                 SceneMark::Text(mark) => {
                     self.add_text_mark(mark)?;
+                }
+                SceneMark::Image(mark) => {
+                    self.add_image_mark(mark)?;
                 }
                 SceneMark::Group(group) => {
                     self.add_group_mark(group)?;
