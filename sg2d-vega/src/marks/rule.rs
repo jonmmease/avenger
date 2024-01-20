@@ -1,5 +1,6 @@
 use crate::error::VegaSceneGraphError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
+use crate::marks::values::StrokeDashSpec;
 use serde::{Deserialize, Serialize};
 use sg2d::marks::mark::SceneMark;
 use sg2d::marks::rule::RuleMark;
@@ -16,7 +17,7 @@ pub struct VegaRuleItem {
     pub stroke_width: Option<f32>,
     pub stroke_cap: Option<StrokeCap>,
     pub stroke_opacity: Option<f32>,
-    pub stroke_dash: Option<String>,
+    pub stroke_dash: Option<StrokeDashSpec>,
     pub opacity: Option<f32>,
     pub zindex: Option<i32>,
 }
@@ -68,7 +69,7 @@ impl VegaMarkContainer<VegaRuleItem> {
             }
 
             if let Some(dash) = &item.stroke_dash {
-                stroke_dash.push(parse_dash_str(dash)?);
+                stroke_dash.push(dash.to_array()?.to_vec());
             }
 
             if let Some(v) = item.zindex {
@@ -116,17 +117,4 @@ impl VegaMarkContainer<VegaRuleItem> {
 
         Ok(SceneMark::Rule(mark))
     }
-}
-
-pub fn parse_dash_str(dash_str: &str) -> Result<Vec<f32>, VegaSceneGraphError> {
-    let clean_dash_str = dash_str.replace(',', " ");
-    let mut dashes: Vec<f32> = Vec::new();
-    for s in clean_dash_str.split_whitespace() {
-        let d = s
-            .parse::<f32>()
-            .map_err(|_| VegaSceneGraphError::InvalidDashString(dash_str.to_string()))?
-            .abs();
-        dashes.push(d);
-    }
-    Ok(dashes)
 }

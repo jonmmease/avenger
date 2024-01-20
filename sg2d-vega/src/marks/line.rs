@@ -1,6 +1,6 @@
 use crate::error::VegaSceneGraphError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
-use crate::marks::rule::parse_dash_str;
+use crate::marks::values::StrokeDashSpec;
 use serde::{Deserialize, Serialize};
 use sg2d::marks::line::LineMark;
 use sg2d::marks::mark::SceneMark;
@@ -17,7 +17,7 @@ pub struct VegaLineItem {
     pub stroke: Option<String>,
     pub stroke_opacity: Option<f32>,
     pub stroke_width: Option<f32>,
-    pub stroke_dash: Option<String>,
+    pub stroke_dash: Option<StrokeDashSpec>,
     pub opacity: Option<f32>,
 }
 
@@ -42,7 +42,7 @@ impl VegaMarkContainer<VegaLineItem> {
                 stroke = [c.r as f32, c.g as f32, c.b as f32, stroke_opacity]
             }
             if let Some(d) = &item.stroke_dash {
-                stroke_dash = Some(parse_dash_str(d)?);
+                stroke_dash = Some(d.to_array()?.to_vec());
             }
         }
 
