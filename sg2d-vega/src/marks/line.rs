@@ -9,7 +9,9 @@ use sg2d::value::{EncodingValue, StrokeCap, StrokeJoin};
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VegaLineItem {
+    #[serde(default)]
     pub x: f32,
+    #[serde(default)]
     pub y: f32,
     pub defined: Option<bool>,
     pub stroke_cap: Option<StrokeCap>,

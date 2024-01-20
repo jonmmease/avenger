@@ -82,5 +82,15 @@
         [2, 2],
         [2, 4, 8, 4]]
     }
+  ],
+  "legends": [
+    {
+      "strokeDash": "strokeDash",
+      "symbolType": "stroke",
+      "title": "symbol",
+      "labelFont": "Helvetica",
+      "titleFont": "Helvetica",
+      "encode": {"symbols": {"update": {"stroke": {"value": "#4c78a8"}}}}
+    }
   ]
 }
