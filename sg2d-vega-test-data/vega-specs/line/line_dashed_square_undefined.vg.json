@@ -1,0 +1,69 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v5.json",
+  "background": "white",
+  "padding": 5,
+  "width": 300,
+  "height": 200,
+  "style": "cell",
+  "config": {"style": {"cell": {"stroke": "transparent"}}},
+  "data": [
+    {
+      "name": "source_0",
+      "values": [
+        {"u": 1, "v": 28, "defined": true},
+        {"u": 2, "v": 55, "defined": true},
+        {"u": 3, "v": 42, "defined": true},
+        {"u": 3.9, "v": 39, "defined": true},
+        {"u": 4, "v": 34, "defined": false},
+        {"u": 5, "v": 36, "defined": true},
+        {"u": 6, "v": 48, "defined": true},
+        {"u": 6.1, "v": 30, "defined": true},
+        {"u": 8, "v": 26, "defined": true},
+        {"u": 9, "v": 46, "defined": true}
+      ]
+    },
+    {
+      "name": "data_0",
+      "source": "source_0",
+      "transform": [
+        {"type": "formula", "expr": "toNumber(datum[\"u\"])", "as": "u"}
+      ]
+    }
+  ],
+  "marks": [
+    {
+      "name": "marks",
+      "type": "line",
+      "sort": {"field": "datum[\"u\"]"},
+      "from": {"data": "data_0"},
+      "encode": {
+        "update": {
+          "strokeCap": {"value": "square"},
+          "strokeJoin": {"value": "bevel"},
+          "strokeWidth": {"value": 4},
+          "strokeDash": {"value": [14, 8]},
+          "stroke": {"value": "#4c78a8"},
+          "x": {"scale": "x", "field": "u"},
+          "y": {"scale": "y", "field": "v"},
+          "defined": {"field": "defined"}
+        }
+      }
+    }
+  ],
+  "scales": [
+    {
+      "name": "x",
+      "type": "linear",
+      "domain": [1, 10],
+      "range": [0, {"signal": "width"}],
+      "nice": true
+    },
+    {
+      "name": "y",
+      "type": "linear",
+      "domain": [20, 70],
+      "range": [{"signal": "height"}, 0],
+      "nice": true
+    }
+  ]
+}
