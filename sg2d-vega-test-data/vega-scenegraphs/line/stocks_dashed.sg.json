@@ -1,5 +1,5 @@
 {
-  "width": 414,
+  "width": 480,
   "height": 410,
   "origin": [
     7,
@@ -7065,6 +7065,339 @@
             "marktype": "group",
             "name": "pathgroup",
             "role": "scope",
+            "zindex": 0
+          },
+          {
+            "clip": false,
+            "interactive": false,
+            "items": [
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "items": [
+                          {
+                            "clip": false,
+                            "interactive": false,
+                            "items": [
+                              {
+                                "items": [
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "opacity": 1,
+                                        "x": 6,
+                                        "y": 6,
+                                        "fill": "transparent",
+                                        "shape": "stroke",
+                                        "size": 100,
+                                        "stroke": "#4c78a8",
+                                        "strokeWidth": 1.5,
+                                        "strokeDash": [
+                                          2,
+                                          0
+                                        ]
+                                      }
+                                    ],
+                                    "marktype": "symbol",
+                                    "role": "legend-symbol",
+                                    "zindex": 0
+                                  },
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "fill": "#000",
+                                        "fontSize": 10,
+                                        "opacity": 1,
+                                        "x": 16,
+                                        "y": 6,
+                                        "align": "left",
+                                        "baseline": "middle",
+                                        "font": "Helvetica",
+                                        "limit": 160,
+                                        "text": "AAPL"
+                                      }
+                                    ],
+                                    "marktype": "text",
+                                    "role": "legend-label",
+                                    "zindex": 0
+                                  }
+                                ],
+                                "width": 47.11328125,
+                                "height": 11,
+                                "opacity": 1,
+                                "x": 0,
+                                "y": 0
+                              },
+                              {
+                                "items": [
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "opacity": 1,
+                                        "x": 6,
+                                        "y": 6,
+                                        "fill": "transparent",
+                                        "shape": "stroke",
+                                        "size": 100,
+                                        "stroke": "#4c78a8",
+                                        "strokeWidth": 1.5,
+                                        "strokeDash": [
+                                          8,
+                                          4
+                                        ]
+                                      }
+                                    ],
+                                    "marktype": "symbol",
+                                    "role": "legend-symbol",
+                                    "zindex": 0
+                                  },
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "fill": "#000",
+                                        "fontSize": 10,
+                                        "opacity": 1,
+                                        "x": 16,
+                                        "y": 6,
+                                        "align": "left",
+                                        "baseline": "middle",
+                                        "font": "Helvetica",
+                                        "limit": 160,
+                                        "text": "AMZN"
+                                      }
+                                    ],
+                                    "marktype": "text",
+                                    "role": "legend-label",
+                                    "zindex": 0
+                                  }
+                                ],
+                                "width": 47.11328125,
+                                "height": 11,
+                                "opacity": 1,
+                                "x": 0,
+                                "y": 13
+                              },
+                              {
+                                "items": [
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "opacity": 1,
+                                        "x": 6,
+                                        "y": 6,
+                                        "fill": "transparent",
+                                        "shape": "stroke",
+                                        "size": 100,
+                                        "stroke": "#4c78a8",
+                                        "strokeWidth": 1.5,
+                                        "strokeDash": [
+                                          4,
+                                          2
+                                        ]
+                                      }
+                                    ],
+                                    "marktype": "symbol",
+                                    "role": "legend-symbol",
+                                    "zindex": 0
+                                  },
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "fill": "#000",
+                                        "fontSize": 10,
+                                        "opacity": 1,
+                                        "x": 16,
+                                        "y": 6,
+                                        "align": "left",
+                                        "baseline": "middle",
+                                        "font": "Helvetica",
+                                        "limit": 160,
+                                        "text": "GOOG"
+                                      }
+                                    ],
+                                    "marktype": "text",
+                                    "role": "legend-label",
+                                    "zindex": 0
+                                  }
+                                ],
+                                "width": 47.11328125,
+                                "height": 11,
+                                "opacity": 1,
+                                "x": 0,
+                                "y": 26
+                              },
+                              {
+                                "items": [
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "opacity": 1,
+                                        "x": 6,
+                                        "y": 6,
+                                        "fill": "transparent",
+                                        "shape": "stroke",
+                                        "size": 100,
+                                        "stroke": "#4c78a8",
+                                        "strokeWidth": 1.5,
+                                        "strokeDash": [
+                                          2,
+                                          2
+                                        ]
+                                      }
+                                    ],
+                                    "marktype": "symbol",
+                                    "role": "legend-symbol",
+                                    "zindex": 0
+                                  },
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "fill": "#000",
+                                        "fontSize": 10,
+                                        "opacity": 1,
+                                        "x": 16,
+                                        "y": 6,
+                                        "align": "left",
+                                        "baseline": "middle",
+                                        "font": "Helvetica",
+                                        "limit": 160,
+                                        "text": "IBM"
+                                      }
+                                    ],
+                                    "marktype": "text",
+                                    "role": "legend-label",
+                                    "zindex": 0
+                                  }
+                                ],
+                                "width": 47.11328125,
+                                "height": 11,
+                                "opacity": 1,
+                                "x": 0,
+                                "y": 39
+                              },
+                              {
+                                "items": [
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "opacity": 1,
+                                        "x": 6,
+                                        "y": 6,
+                                        "fill": "transparent",
+                                        "shape": "stroke",
+                                        "size": 100,
+                                        "stroke": "#4c78a8",
+                                        "strokeWidth": 1.5,
+                                        "strokeDash": [
+                                          2,
+                                          4,
+                                          8,
+                                          4
+                                        ]
+                                      }
+                                    ],
+                                    "marktype": "symbol",
+                                    "role": "legend-symbol",
+                                    "zindex": 0
+                                  },
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "fill": "#000",
+                                        "fontSize": 10,
+                                        "opacity": 1,
+                                        "x": 16,
+                                        "y": 6,
+                                        "align": "left",
+                                        "baseline": "middle",
+                                        "font": "Helvetica",
+                                        "limit": 160,
+                                        "text": "MSFT"
+                                      }
+                                    ],
+                                    "marktype": "text",
+                                    "role": "legend-label",
+                                    "zindex": 0
+                                  }
+                                ],
+                                "width": 47.11328125,
+                                "height": 11,
+                                "opacity": 1,
+                                "x": 0,
+                                "y": 52
+                              }
+                            ],
+                            "marktype": "group",
+                            "role": "scope",
+                            "zindex": 0
+                          }
+                        ],
+                        "x": 0,
+                        "y": 16
+                      }
+                    ],
+                    "marktype": "group",
+                    "role": "legend-entry",
+                    "zindex": 0
+                  },
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "fill": "#000",
+                        "fontSize": 11,
+                        "fontWeight": "bold",
+                        "opacity": 1,
+                        "orient": "top",
+                        "text": "symbol",
+                        "font": "Helvetica",
+                        "limit": 180,
+                        "x": 0,
+                        "y": 0,
+                        "angle": 0,
+                        "align": "left",
+                        "baseline": "top"
+                      }
+                    ],
+                    "marktype": "text",
+                    "role": "legend-title",
+                    "zindex": 0
+                  }
+                ],
+                "orient": "right",
+                "x": 420,
+                "y": 0,
+                "width": 48,
+                "height": 79
+              }
+            ],
+            "marktype": "group",
+            "role": "legend",
             "zindex": 0
           }
         ],
