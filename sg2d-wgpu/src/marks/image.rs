@@ -4,7 +4,7 @@ use etagere::Size;
 use itertools::izip;
 use sg2d::marks::image::ImageMark;
 use sg2d::marks::value::{ImageAlign, ImageBaseline};
-use wgpu::{Extent3d, VertexBufferLayout};
+use wgpu::{Extent3d, FilterMode, VertexBufferLayout};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -36,6 +36,7 @@ pub struct ImageShader {
     fragment_entry_point: String,
     batches: Vec<TextureMarkBatch>,
     texture_size: Extent3d,
+    mag_filter: wgpu::FilterMode,
 }
 
 impl ImageShader {
@@ -186,6 +187,11 @@ impl ImageShader {
             shader: include_str!("image.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
+            mag_filter: if mark.smooth {
+                wgpu::FilterMode::Linear
+            } else {
+                wgpu::FilterMode::Nearest
+            },
         })
     }
 }
@@ -223,5 +229,9 @@ impl TextureMarkShader for ImageShader {
 
     fn texture_size(&self) -> Extent3d {
         self.texture_size
+    }
+
+    fn mag_filter(&self) -> FilterMode {
+        self.mag_filter
     }
 }

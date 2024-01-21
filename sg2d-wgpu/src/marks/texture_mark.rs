@@ -19,6 +19,16 @@ pub trait TextureMarkShader {
     fn vertex_entry_point(&self) -> &str;
     fn fragment_entry_point(&self) -> &str;
     fn vertex_desc(&self) -> wgpu::VertexBufferLayout<'static>;
+
+    fn mag_filter(&self) -> wgpu::FilterMode {
+        wgpu::FilterMode::Linear
+    }
+    fn min_filter(&self) -> wgpu::FilterMode {
+        wgpu::FilterMode::Nearest
+    }
+    fn mipmap_filter(&self) -> wgpu::FilterMode {
+        wgpu::FilterMode::Nearest
+    }
 }
 
 pub struct TextureMarkRenderer {
@@ -90,9 +100,9 @@ impl TextureMarkRenderer {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mag_filter: mark_shader.mag_filter(),
+            min_filter: mark_shader.min_filter(),
+            mipmap_filter: mark_shader.mipmap_filter(),
             ..Default::default()
         });
 
