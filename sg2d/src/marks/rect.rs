@@ -67,7 +67,7 @@ impl Default for RectMark {
             width: EncodingValue::Scalar { value: 0.0 },
             height: EncodingValue::Scalar { value: 0.0 },
             fill: EncodingValue::Scalar {
-                value: [0.0, 0.0, 0.0, 1.0],
+                value: [0.0, 0.0, 0.0, 0.0],
             },
             stroke: EncodingValue::Scalar {
                 value: [0.0, 0.0, 0.0, 0.0],

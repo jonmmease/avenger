@@ -3,6 +3,7 @@ use crate::marks::texture_mark::{TextureMarkBatch, TextureMarkShader};
 use etagere::Size;
 use itertools::izip;
 use sg2d::marks::image::ImageMark;
+use sg2d::marks::value::{ImageAlign, ImageBaseline};
 use wgpu::{Extent3d, VertexBufferLayout};
 
 #[repr(C)]
@@ -59,7 +60,7 @@ impl ImageShader {
             texture_size.height as i32,
         ));
 
-        let mut start_index = indices.len() as u32;
+        let start_index = indices.len() as u32;
         for (img, x, y, width, height, baseline, align) in izip!(
             mark.image_iter(),
             mark.x_iter(),
@@ -92,6 +93,7 @@ impl ImageShader {
                     }
                 }
 
+                // Compute texture coordinates
                 let tex_x0 = x0 as f32 / texture_size.width as f32;
                 let tex_x1 = x1 as f32 / texture_size.width as f32;
                 let tex_y0 = y0 as f32 / texture_size.height as f32;
@@ -100,24 +102,59 @@ impl ImageShader {
                 // Vertex index offset
                 let offset = verts.len() as u16;
 
-                // Upper left
+                // Compute image left
+                let left = match *align {
+                    ImageAlign::Left => *x,
+                    ImageAlign::Center => *x - *width / 2.0,
+                    ImageAlign::Right => *x - *width,
+                };
+                // Compute image top
+                let top = match *baseline {
+                    ImageBaseline::Top => *y,
+                    ImageBaseline::Middle => *y - *height / 2.0,
+                    ImageBaseline::Bottom => *y - *height,
+                };
+
+                // Adjust position and dimensions if aspect ratio should be preserved
+                let (left, top, width, height) = if aspect {
+                    let img_aspect = img.width as f32 / img.height as f32;
+                    let outline_aspect = *width / *height;
+                    if img_aspect > outline_aspect {
+                        // image is wider than the box, so we scale
+                        // image to box width and center vertically
+                        let aspect_height = *width / img_aspect;
+                        let aspect_top = top + (*height - aspect_height) / 2.0;
+                        (left, aspect_top, *width, aspect_height)
+                    } else if img_aspect < outline_aspect {
+                        // image is taller than the box, so we scale
+                        // image to box height an center horizontally
+                        let aspect_width = *height * img_aspect;
+                        let aspect_left = left + (*width - aspect_width) / 2.0;
+                        (aspect_left, top, aspect_width, *height)
+                    } else {
+                        (left, top, *width, *height)
+                    }
+                } else {
+                    (left, top, *width, *height)
+                };
+
                 verts.push(ImageVertex {
-                    position: [*x, *y],
+                    position: [left, top],
                     tex_coord: [tex_x0, tex_y0],
                 });
                 // Lower left
                 verts.push(ImageVertex {
-                    position: [*x, *y + *height],
+                    position: [left, top + height],
                     tex_coord: [tex_x0, tex_y1],
                 });
                 // Lower right
                 verts.push(ImageVertex {
-                    position: [*x + *width, *y + *height],
+                    position: [left + width, top + height],
                     tex_coord: [tex_x1, tex_y1],
                 });
                 // Upper right
                 verts.push(ImageVertex {
-                    position: [*x + *width, *y],
+                    position: [left + width, top],
                     tex_coord: [tex_x1, tex_y0],
                 });
 
