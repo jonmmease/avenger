@@ -15,12 +15,14 @@ use winit::window::Window;
 use crate::error::Sg2dWgpuError;
 use crate::marks::arc::{ArcInstance, ArcShader};
 use crate::marks::basic_mark::BasicMarkRenderer;
+use crate::marks::image::ImageShader;
 use crate::marks::instanced_mark::InstancedMarkRenderer;
 use crate::marks::path::PathShader;
 use crate::marks::rect::{RectInstance, RectShader};
 use crate::marks::rule::{RuleInstance, RuleShader};
 use crate::marks::symbol::{SymbolInstance, SymbolShader};
 use crate::marks::text::{TextInstance, TextMarkRenderer};
+use crate::marks::texture_mark::TextureMarkRenderer;
 use sg2d::marks::arc::ArcMark;
 use sg2d::marks::area::AreaMark;
 use sg2d::marks::image::ImageMark;
@@ -43,6 +45,7 @@ pub struct CanvasUniform {
 pub enum MarkRenderer {
     Basic(BasicMarkRenderer),
     Instanced(InstancedMarkRenderer),
+    Texture(TextureMarkRenderer),
     Text(TextMarkRenderer),
 }
 
@@ -174,8 +177,14 @@ pub trait Canvas {
     }
 
     fn add_image_mark(&mut self, mark: &ImageMark) -> Result<(), Sg2dWgpuError> {
-        // println!("{mark:#?}");
-        todo!()
+        self.add_mark_renderer(MarkRenderer::Texture(TextureMarkRenderer::new(
+            self.device(),
+            *self.uniform(),
+            self.texture_format(),
+            self.sample_count(),
+            Box::new(ImageShader::from_image_mark(mark)?),
+        )));
+        Ok(())
     }
 
     fn add_group_mark(&mut self, group: &SceneGroup) -> Result<(), Sg2dWgpuError> {
@@ -493,6 +502,18 @@ impl WindowCanvas {
                         renderer.render(&self.device, &view, None)
                     }
                 }
+                MarkRenderer::Texture(renderer) => {
+                    if self.sample_count > 1 {
+                        renderer.render(
+                            &self.device,
+                            &self.queue,
+                            &self.multisampled_framebuffer,
+                            Some(&view),
+                        )
+                    } else {
+                        renderer.render(&self.device, &self.queue, &view, None)
+                    }
+                }
                 MarkRenderer::Text(renderer) => {
                     if self.sample_count > 1 {
                         renderer.render(
@@ -694,6 +715,18 @@ impl PngCanvas {
                         )
                     } else {
                         mark.render(&self.device, &self.texture_view, None)
+                    }
+                }
+                MarkRenderer::Texture(renderer) => {
+                    if self.sample_count > 1 {
+                        renderer.render(
+                            &self.device,
+                            &self.queue,
+                            &self.multisampled_framebuffer,
+                            Some(&self.texture_view),
+                        )
+                    } else {
+                        renderer.render(&self.device, &self.queue, &self.texture_view, None)
                     }
                 }
                 MarkRenderer::Text(mark) => {

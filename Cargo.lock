@@ -5290,6 +5290,7 @@ dependencies = [
  "cgmath",
  "dssim",
  "env_logger",
+ "etagere",
  "futures-intrusive",
  "glyphon",
  "image",

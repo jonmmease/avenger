@@ -5,6 +5,7 @@
   "width": 200,
   "height": 200,
   "style": "cell",
+  "encode": {"update": {"stroke": {"value": "transparent"}}},
   "data": [
     {
       "name": "source_0",
@@ -98,9 +99,9 @@
       "scale": "x",
       "orient": "bottom",
       "grid": false,
-      "title": "x",
       "labelFlush": true,
       "labelOverlap": true,
+      "labels": false,
       "tickCount": {"signal": "ceil(width/40)"},
       "zindex": 0
     },
@@ -108,7 +109,7 @@
       "scale": "y",
       "orient": "left",
       "grid": false,
-      "title": "y",
+      "labels": false,
       "labelOverlap": true,
       "tickCount": {"signal": "ceil(height/40)"},
       "zindex": 0

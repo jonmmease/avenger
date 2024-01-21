@@ -24,6 +24,7 @@ pub struct VegaImageItem {
     pub align: ImageAlign,
     #[serde(default)]
     pub baseline: ImageBaseline,
+    pub zindex: Option<i32>,
 }
 
 fn default_true() -> bool {
@@ -50,12 +51,13 @@ impl VegaMarkContainer<VegaImageItem> {
         let mut align: Vec<ImageAlign> = Vec::new();
         let mut baseline: Vec<ImageBaseline> = Vec::new();
         let mut images: Vec<RgbaImage> = Vec::new();
+        let mut zindex = Vec::<i32>::new();
 
         let client = Client::new();
 
         for item in &self.items {
             x.push(item.x + origin[0]);
-            y.push(item.x + origin[1]);
+            y.push(item.y + origin[1]);
             align.push(item.align);
             baseline.push(item.baseline);
 
@@ -79,7 +81,21 @@ impl VegaMarkContainer<VegaImageItem> {
             // Push width/height
             width.push(item.width.unwrap_or(img_width as f32));
             height.push(item.height.unwrap_or(img_height as f32));
+
+            if let Some(v) = item.zindex {
+                zindex.push(v);
+            }
         }
+
+        let len = self.items.len();
+
+        let indices = if zindex.len() == len {
+            let mut indices: Vec<usize> = (0..len).collect();
+            indices.sort_by_key(|i| zindex[*i]);
+            Some(indices)
+        } else {
+            None
+        };
 
         Ok(SceneMark::Image(Box::new(ImageMark {
             name,
@@ -94,6 +110,7 @@ impl VegaMarkContainer<VegaImageItem> {
             y: EncodingValue::Array { values: y },
             width: EncodingValue::Array { values: width },
             height: EncodingValue::Array { values: height },
+            indices,
         })))
     }
 }

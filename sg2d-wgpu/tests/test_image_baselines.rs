@@ -98,6 +98,8 @@ mod test_image_baselines {
 
         case("trail", "trail_stocks", 0.0005),
         case("trail", "trail_stocks_opacity", 0.0005),
+
+        case("image", "logos", 0.001),
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
         let specs_dir = format!(
