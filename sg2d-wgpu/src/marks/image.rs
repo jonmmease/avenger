@@ -62,7 +62,6 @@ impl ImageShader {
         ));
 
         let mut start_index = indices.len() as u32;
-        let mut stop_index = indices.len() as u32;
         for (img, x, y, width, height, baseline, align) in izip!(
             mark.image_iter(),
             mark.x_iter(),
