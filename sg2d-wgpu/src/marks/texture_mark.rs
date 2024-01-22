@@ -1,7 +1,7 @@
 use crate::canvas::CanvasUniform;
 use std::ops::Range;
 use wgpu::util::DeviceExt;
-use wgpu::{CommandBuffer, Device, Extent3d, Queue, TextureFormat, TextureView};
+use wgpu::{CommandBuffer, Device, Extent3d, ImageDataLayout, Queue, TextureFormat, TextureView};
 
 #[derive(Clone)]
 pub struct TextureMarkBatch {
@@ -230,20 +230,31 @@ impl TextureMarkRenderer {
         });
 
         for batch in self.batches.iter() {
-            queue.write_texture(
+            let temp_buffer = device.create_buffer_init(
+                &wgpu::util::BufferInitDescriptor {
+                    label: Some("Temp Buffer"),
+                    contents: batch.image.to_rgba8().as_raw(),
+                    usage: wgpu::BufferUsages::COPY_SRC,
+                }
+            );
+            mark_encoder.copy_buffer_to_texture(
+                wgpu::ImageCopyBuffer {
+                    buffer: &temp_buffer,
+                    layout: ImageDataLayout {
+                        offset: 0,
+                        // bytes_per_row: None,
+                        // rows_per_image: None,
+                        bytes_per_row: Some(4 * self.texture_size.width),
+                        rows_per_image: Some(self.texture_size.height),
+                    },
+                },
                 wgpu::ImageCopyTexture {
                     texture: &self.texture,
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
-                batch.image.to_rgba8().as_raw(),
-                wgpu::ImageDataLayout {
-                    offset: 0,
-                    bytes_per_row: Some(4 * self.texture_size.width),
-                    rows_per_image: Some(self.texture_size.height),
-                },
-                self.texture_size,
+                self.texture_size
             );
 
             {
