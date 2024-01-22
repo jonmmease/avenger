@@ -1,0 +1,446 @@
+{
+  "width": 226,
+  "height": 226,
+  "origin": [
+    21,
+    5
+  ],
+  "scenegraph": {
+    "clip": false,
+    "interactive": true,
+    "items": [
+      {
+        "items": [
+          {
+            "clip": false,
+            "interactive": false,
+            "items": [
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "y": -200,
+                        "y2": 0
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 36,
+                        "y": -200,
+                        "y2": 0
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 73,
+                        "y": -200,
+                        "y2": 0
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 109,
+                        "y": -200,
+                        "y2": 0
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 145,
+                        "y": -200,
+                        "y2": 0
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 182,
+                        "y": -200,
+                        "y2": 0
+                      }
+                    ],
+                    "marktype": "rule",
+                    "role": "axis-grid",
+                    "zindex": 0
+                  }
+                ],
+                "orient": "bottom",
+                "x": 0.5,
+                "y": 200.5
+              }
+            ],
+            "marktype": "group",
+            "role": "axis",
+            "zindex": 0,
+            "aria": false
+          },
+          {
+            "clip": false,
+            "interactive": false,
+            "items": [
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "y": 200,
+                        "x2": 200
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "y": 164,
+                        "x2": 200
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "y": 127,
+                        "x2": 200
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "y": 91,
+                        "x2": 200
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "y": 55,
+                        "x2": 200
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "y": 18,
+                        "x2": 200
+                      }
+                    ],
+                    "marktype": "rule",
+                    "role": "axis-grid",
+                    "zindex": 0
+                  }
+                ],
+                "orient": "left",
+                "x": 0.5,
+                "y": 0.5
+              }
+            ],
+            "marktype": "group",
+            "role": "axis",
+            "zindex": 0,
+            "aria": false
+          },
+          {
+            "clip": false,
+            "interactive": false,
+            "items": [
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 0
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 36
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 73
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 109
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 145
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 182
+                      }
+                    ],
+                    "marktype": "rule",
+                    "role": "axis-tick",
+                    "zindex": 0
+                  },
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "x2": 200,
+                        "y": 0
+                      }
+                    ],
+                    "marktype": "rule",
+                    "role": "axis-domain",
+                    "zindex": 0
+                  }
+                ],
+                "orient": "bottom",
+                "x": 0.5,
+                "y": 200.5
+              }
+            ],
+            "marktype": "group",
+            "role": "axis",
+            "zindex": 0
+          },
+          {
+            "clip": false,
+            "interactive": false,
+            "items": [
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 200,
+                        "x": 0,
+                        "x2": -5
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 164,
+                        "x": 0,
+                        "x2": -5
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 127,
+                        "x": 0,
+                        "x2": -5
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 91,
+                        "x": 0,
+                        "x2": -5
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 55,
+                        "x": 0,
+                        "x2": -5
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 18,
+                        "x": 0,
+                        "x2": -5
+                      }
+                    ],
+                    "marktype": "rule",
+                    "role": "axis-tick",
+                    "zindex": 0
+                  },
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "y": 200,
+                        "y2": 0
+                      }
+                    ],
+                    "marktype": "rule",
+                    "role": "axis-domain",
+                    "zindex": 0
+                  }
+                ],
+                "orient": "left",
+                "x": 0.5,
+                "y": 0.5
+              }
+            ],
+            "marktype": "group",
+            "role": "axis",
+            "zindex": 0
+          },
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "description": "x: 0.5; y: 0.5; img: https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/js_logo.png",
+                "width": 50,
+                "height": 50,
+                "url": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/js_logo.png",
+                "x": -15.909090909090908,
+                "y": 165.9090909090909
+              },
+              {
+                "description": "x: 1.5; y: 1.5; img: https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/matplotlib.png",
+                "width": 50,
+                "height": 50,
+                "url": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/matplotlib.png",
+                "x": 2.27272727272727,
+                "y": 147.72727272727272
+              },
+              {
+                "description": "x: 2.5; y: 2.5; img: https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/python_logo.png",
+                "width": 50,
+                "height": 50,
+                "url": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/python_logo.png",
+                "x": 20.454545454545453,
+                "y": 129.54545454545453
+              },
+              {
+                "description": "x: 3.5; y: 3.5; img: https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/rust_logo.png",
+                "width": 50,
+                "height": 50,
+                "url": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/rust_logo.png",
+                "x": 38.63636363636363,
+                "y": 111.36363636363637
+              },
+              {
+                "description": "x: 4.5; y: 4.5; img: https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/scipy_logo.png",
+                "width": 50,
+                "height": 50,
+                "url": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/scipy_logo.png",
+                "x": 56.81818181818183,
+                "y": 93.18181818181816
+              },
+              {
+                "description": "x: 5.5; y: 5.5; img: https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/VegaFusion-512x512.png",
+                "width": 50,
+                "height": 50,
+                "url": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/VegaFusion-512x512.png",
+                "x": 75,
+                "y": 75
+              },
+              {
+                "description": "x: 6.5; y: 6.5; img: https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/VG_Black%40512.png",
+                "width": 50,
+                "height": 50,
+                "url": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/VG_Black%40512.png",
+                "x": 93.18181818181819,
+                "y": 56.81818181818181
+              },
+              {
+                "description": "x: 7.5; y: 7.5; img: https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/VG_Color%40512.png",
+                "width": 50,
+                "height": 50,
+                "url": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/VG_Color%40512.png",
+                "x": 111.36363636363635,
+                "y": 38.63636363636365
+              },
+              {
+                "description": "x: 8.5; y: 8.5; img: https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/VL_Black%40512.png",
+                "width": 50,
+                "height": 50,
+                "url": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/VL_Black%40512.png",
+                "x": 129.54545454545453,
+                "y": 20.45454545454546
+              },
+              {
+                "description": "x: 9.5; y: 9.5; img: https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/VL_Color%40512.png",
+                "width": 50,
+                "height": 50,
+                "url": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/VL_Color%40512.png",
+                "x": 147.72727272727272,
+                "y": 2.27272727272727
+              }
+            ],
+            "marktype": "image",
+            "name": "marks",
+            "role": "mark",
+            "zindex": 0
+          }
+        ],
+        "fill": "transparent",
+        "x": 0,
+        "y": 0,
+        "width": 200,
+        "height": 200,
+        "stroke": "transparent"
+      }
+    ],
+    "marktype": "group",
+    "name": "root",
+    "role": "frame",
+    "zindex": 0
+  }
+}

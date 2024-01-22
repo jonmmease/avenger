@@ -76,7 +76,9 @@ impl ImageShader {
                 continue;
             };
 
-            let allocation = match atlas_allocator.allocate(Size::new(img.width as i32, img.height as i32)) {
+            let allocation = match atlas_allocator
+                .allocate(Size::new(img.width as i32, img.height as i32))
+            {
                 Some(allocation) => allocation,
                 None => {
                     // Current allocator is full
@@ -91,7 +93,21 @@ impl ImageShader {
                         texture_size.width as i32,
                         texture_size.height as i32,
                     ));
-                    let allocation = atlas_allocator.allocate(Size::new(img.width as i32, img.height as i32)).unwrap();
+
+                    let Some(allocation) =
+                        atlas_allocator.allocate(Size::new(img.width as i32, img.height as i32))
+                    else {
+                        if img.width > texture_size.width || img.height > texture_size.height {
+                            return Err(Sg2dWgpuError::ImageAllocationError(format!(
+                                "Image dimensions ({}, {}) exceed the maximum size of ({}, {})",
+                                img.width, img.height, texture_size.width, texture_size.height
+                            )));
+                        } else {
+                            return Err(Sg2dWgpuError::ImageAllocationError(
+                                "Unknown error".to_string(),
+                            ));
+                        }
+                    };
 
                     // Create a new texture image
                     texture_image = image::RgbaImage::new(texture_size.width, texture_size.height);
