@@ -230,20 +230,16 @@ impl TextureMarkRenderer {
         });
 
         for batch in self.batches.iter() {
-            let temp_buffer = device.create_buffer_init(
-                &wgpu::util::BufferInitDescriptor {
-                    label: Some("Temp Buffer"),
-                    contents: batch.image.to_rgba8().as_raw(),
-                    usage: wgpu::BufferUsages::COPY_SRC,
-                }
-            );
+            let temp_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Temp Buffer"),
+                contents: batch.image.to_rgba8().as_raw(),
+                usage: wgpu::BufferUsages::COPY_SRC,
+            });
             mark_encoder.copy_buffer_to_texture(
                 wgpu::ImageCopyBuffer {
                     buffer: &temp_buffer,
                     layout: ImageDataLayout {
                         offset: 0,
-                        // bytes_per_row: None,
-                        // rows_per_image: None,
                         bytes_per_row: Some(4 * self.texture_size.width),
                         rows_per_image: Some(self.texture_size.height),
                     },
@@ -254,7 +250,7 @@ impl TextureMarkRenderer {
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
-                self.texture_size
+                self.texture_size,
             );
 
             {
@@ -273,7 +269,6 @@ impl TextureMarkRenderer {
                     timestamp_writes: None,
                 });
 
-                // TODO: check if we can rewrite the texture within the same render pass
                 render_pass.set_pipeline(&self.render_pipeline);
                 render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 render_pass.set_bind_group(1, &self.texture_bind_group, &[]);

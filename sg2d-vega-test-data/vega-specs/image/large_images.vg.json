@@ -1,0 +1,165 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v5.json",
+  "background": "white",
+  "padding": 5,
+  "width": 200,
+  "height": 200,
+  "style": "cell",
+  "encode": {"update": {"stroke": {"value": "transparent"}}},
+  "data": [
+    {
+      "name": "source_0",
+      "values": [
+        {
+          "x": 0.5,
+          "y": 0.5,
+          "img": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/js_logo.png"
+        },
+        {
+          "x": 1.5,
+          "y": 1.5,
+          "img": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/matplotlib.png"
+        },
+        {
+          "x": 2.5,
+          "y": 2.5,
+          "img": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/python_logo.png"
+        },
+        {
+          "x": 3.5,
+          "y": 3.5,
+          "img": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/rust_logo.png"
+        },
+        {
+          "x": 4.5,
+          "y": 4.5,
+          "img": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/scipy_logo.png"
+        },
+        {
+          "x": 5.5,
+          "y": 5.5,
+          "img": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/VegaFusion-512x512.png"
+        },
+        {
+          "x": 6.5,
+          "y": 6.5,
+          "img": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/VG_Black%40512.png"
+        },
+        {
+          "x": 7.5,
+          "y": 7.5,
+          "img": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/VG_Color%40512.png"
+        },
+        {
+          "x": 8.5,
+          "y": 8.5,
+          "img": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/VL_Black%40512.png"
+        },
+        {
+          "x": 9.5,
+          "y": 9.5,
+          "img": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/VL_Color%40512.png"
+        }
+      ]
+    },
+    {
+      "name": "data_0",
+      "source": "source_0",
+      "transform": [
+        {
+          "type": "filter",
+          "expr": "isValid(datum[\"x\"]) && isFinite(+datum[\"x\"]) && isValid(datum[\"y\"]) && isFinite(+datum[\"y\"])"
+        }
+      ]
+    }
+  ],
+  "marks": [
+    {
+      "name": "marks",
+      "type": "image",
+      "style": ["image"],
+      "from": {"data": "data_0"},
+      "encode": {
+        "update": {
+          "description": {
+            "signal": "\"x: \" + (format(datum[\"x\"], \"\")) + \"; y: \" + (format(datum[\"y\"], \"\")) + \"; img: \" + (isValid(datum[\"img\"]) ? datum[\"img\"] : \"\"+datum[\"img\"])"
+          },
+          "xc": {"scale": "x", "field": "x"},
+          "width": {"value": 50},
+          "yc": {"scale": "y", "field": "y"},
+          "height": {"value": 50},
+          "url": {
+            "signal": "isValid(datum[\"img\"]) ? datum[\"img\"] : \"\"+datum[\"img\"]"
+          }
+        }
+      }
+    }
+  ],
+  "scales": [
+    {
+      "name": "x",
+      "type": "linear",
+      "domain": [0, 11],
+      "range": [0, {"signal": "width"}],
+      "nice": true,
+      "zero": true
+    },
+    {
+      "name": "y",
+      "type": "linear",
+      "domain": [0, 11],
+      "range": [{"signal": "height"}, 0],
+      "nice": true,
+      "zero": true
+    }
+  ],
+  "axes": [
+    {
+      "scale": "x",
+      "orient": "bottom",
+      "gridScale": "y",
+      "grid": true,
+      "tickCount": {"signal": "ceil(width/40)"},
+      "domain": false,
+      "labels": false,
+      "aria": false,
+      "maxExtent": 0,
+      "minExtent": 0,
+      "ticks": false,
+      "zindex": 0
+    },
+    {
+      "scale": "y",
+      "orient": "left",
+      "gridScale": "x",
+      "grid": true,
+      "tickCount": {"signal": "ceil(height/40)"},
+      "domain": false,
+      "labels": false,
+      "aria": false,
+      "maxExtent": 0,
+      "minExtent": 0,
+      "ticks": false,
+      "zindex": 0
+    },
+    {
+      "scale": "x",
+      "orient": "bottom",
+      "grid": false,
+      "labels": false,
+      "labelFlush": true,
+      "labelOverlap": true,
+      "tickCount": {"signal": "ceil(width/40)"},
+      "zindex": 0
+    },
+    {
+      "scale": "y",
+      "orient": "left",
+      "grid": false,
+      "labels": false,
+      "labelOverlap": true,
+      "tickCount": {"signal": "ceil(height/40)"},
+      "zindex": 0
+    }
+  ]
+}

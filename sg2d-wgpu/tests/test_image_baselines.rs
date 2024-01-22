@@ -105,6 +105,8 @@ mod test_image_baselines {
         case("image", "logos_sized_aspect_true_align_baseline", 0.001),
         case("image", "smooth_false", 0.03),  // vl-convert/resvg doesn't support smooth=false
         case("image", "smooth_true", 0.001),
+        case("image", "many_images", 0.001),
+        case("image", "large_images", 0.001),
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
         let specs_dir = format!(
