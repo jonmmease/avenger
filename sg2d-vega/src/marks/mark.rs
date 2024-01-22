@@ -1,6 +1,7 @@
 use crate::marks::arc::VegaArcItem;
 use crate::marks::area::VegaAreaItem;
 use crate::marks::group::VegaGroupItem;
+use crate::marks::image::VegaImageItem;
 use crate::marks::line::VegaLineItem;
 use crate::marks::path::VegaPathItem;
 use crate::marks::rect::VegaRectItem;
@@ -19,7 +20,7 @@ pub trait VegaMarkItem {}
 pub enum VegaMark {
     Arc(VegaMarkContainer<VegaArcItem>),
     Area(VegaMarkContainer<VegaAreaItem>),
-    Image,
+    Image(VegaMarkContainer<VegaImageItem>),
     Group(VegaMarkContainer<VegaGroupItem>),
     Line(VegaMarkContainer<VegaLineItem>),
     Path(VegaMarkContainer<VegaPathItem>),

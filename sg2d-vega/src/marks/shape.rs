@@ -4,7 +4,7 @@ use crate::marks::symbol::parse_svg_path;
 use serde::{Deserialize, Serialize};
 use sg2d::marks::mark::SceneMark;
 use sg2d::marks::path::{PathMark, PathTransform};
-use sg2d::value::{EncodingValue, StrokeCap, StrokeJoin};
+use sg2d::marks::value::{EncodingValue, StrokeCap, StrokeJoin};
 use std::collections::HashSet;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]

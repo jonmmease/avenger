@@ -1,4 +1,4 @@
-use crate::value::{EncodingValue, StrokeCap, StrokeJoin};
+use crate::marks::value::{EncodingValue, StrokeCap, StrokeJoin};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

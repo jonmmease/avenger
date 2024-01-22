@@ -1,4 +1,4 @@
-use crate::value::{EncodingValue, StrokeCap, StrokeJoin};
+use crate::marks::value::{EncodingValue, StrokeCap, StrokeJoin};
 use lyon_path::geom::euclid::{Transform2D, UnknownUnit};
 use serde::{Deserialize, Serialize};
 

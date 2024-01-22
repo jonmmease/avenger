@@ -1,0 +1,119 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v5.json",
+  "background": "white",
+  "padding": 5,
+  "width": 200,
+  "height": 200,
+  "style": "cell",
+  "encode": {"update": {"stroke": {"value": "transparent"}}},
+  "data": [
+    {
+      "name": "source_0",
+      "values": [
+        {"x": 0.5, "y": 0.5, "img": "data/ffox.png", "width": 40, "height": 60},
+        {"x": 1.5, "y": 1.5, "img": "data/gimp.png", "width": 150, "height": 100},
+        {"x": 2.5, "y": 2.5, "img": "data/7zip.png", "width": 30, "height": 30}
+      ]
+    },
+    {
+      "name": "data_0",
+      "source": "source_0",
+      "transform": [
+        {
+          "type": "filter",
+          "expr": "isValid(datum[\"x\"]) && isFinite(+datum[\"x\"]) && isValid(datum[\"y\"]) && isFinite(+datum[\"y\"])"
+        }
+      ]
+    }
+  ],
+  "marks": [
+    {
+      "name": "marks",
+      "type": "image",
+      "style": ["image"],
+      "from": {"data": "data_0"},
+      "encode": {
+        "update": {
+          "description": {
+            "signal": "\"x: \" + (format(datum[\"x\"], \"\")) + \"; y: \" + (format(datum[\"y\"], \"\")) + \"; img: \" + (isValid(datum[\"img\"]) ? datum[\"img\"] : \"\"+datum[\"img\"])"
+          },
+          "aspect": {"value": false},
+          "xc": {"scale": "x", "field": "x"},
+          "width": {"field": "width"},
+          "yc": {"scale": "y", "field": "y"},
+          "height": {"field": "height"},
+          "url": {
+            "signal": "isValid(datum[\"img\"]) ? datum[\"img\"] : \"\"+datum[\"img\"]"
+          }
+        }
+      }
+    }
+  ],
+  "scales": [
+    {
+      "name": "x",
+      "type": "linear",
+      "domain": {"data": "data_0", "field": "x"},
+      "range": [0, {"signal": "width"}],
+      "nice": true,
+      "zero": true
+    },
+    {
+      "name": "y",
+      "type": "linear",
+      "domain": {"data": "data_0", "field": "y"},
+      "range": [{"signal": "height"}, 0],
+      "nice": true,
+      "zero": true
+    }
+  ],
+  "axes": [
+    {
+      "scale": "x",
+      "orient": "bottom",
+      "gridScale": "y",
+      "grid": true,
+      "tickCount": {"signal": "ceil(width/40)"},
+      "domain": false,
+      "labels": false,
+      "aria": false,
+      "maxExtent": 0,
+      "minExtent": 0,
+      "ticks": false,
+      "zindex": 0
+    },
+    {
+      "scale": "y",
+      "orient": "left",
+      "gridScale": "x",
+      "grid": true,
+      "tickCount": {"signal": "ceil(height/40)"},
+      "domain": false,
+      "labels": false,
+      "aria": false,
+      "maxExtent": 0,
+      "minExtent": 0,
+      "ticks": false,
+      "zindex": 0
+    },
+    {
+      "scale": "x",
+      "orient": "bottom",
+      "grid": false,
+      "labelFlush": true,
+      "labelOverlap": true,
+      "labels": false,
+      "tickCount": {"signal": "ceil(width/40)"},
+      "zindex": 0
+    },
+    {
+      "scale": "y",
+      "orient": "left",
+      "grid": false,
+      "labels": false,
+      "labelOverlap": true,
+      "tickCount": {"signal": "ceil(height/40)"},
+      "zindex": 0
+    }
+  ]
+}
