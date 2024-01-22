@@ -17,4 +17,7 @@ pub enum Sg2dWgpuError {
 
     #[error("lyon tessellation error")]
     TessellationError(#[from] TessellationError),
+
+    #[error("Image allocation error: {0}")]
+    ImageAllocationError(String),
 }

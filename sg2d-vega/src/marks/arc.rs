@@ -3,7 +3,7 @@ use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use serde::{Deserialize, Serialize};
 use sg2d::marks::arc::ArcMark;
 use sg2d::marks::mark::SceneMark;
-use sg2d::value::EncodingValue;
+use sg2d::marks::value::EncodingValue;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
