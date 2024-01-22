@@ -61,7 +61,8 @@ impl ImageShader {
             texture_size.height as i32,
         ));
 
-        let start_index = indices.len() as u32;
+        let mut start_index = indices.len() as u32;
+        let mut stop_index = indices.len() as u32;
         for (img, x, y, width, height, baseline, align) in izip!(
             mark.image_iter(),
             mark.x_iter(),
@@ -74,108 +75,127 @@ impl ImageShader {
             let Some(rgba_image) = img.to_image() else {
                 continue;
             };
-            if let Some(allocation) =
-                atlas_allocator.allocate(Size::new(img.width as i32, img.height as i32))
-            {
-                // Write image to allocated portion of final texture image
-                let p0 = allocation.rectangle.min;
-                let p1 = allocation.rectangle.max;
-                let x0 = p0.x;
-                let x1 = p1.x.min(x0 + img.width as i32);
-                let y0 = p0.y;
-                let y1 = p1.y.min(y0 + img.height as i32);
-                for (src_x, dest_x) in (x0..x1).enumerate() {
-                    for (src_y, dest_y) in (y0..y1).enumerate() {
-                        texture_image.put_pixel(
-                            dest_x as u32,
-                            dest_y as u32,
-                            *rgba_image.get_pixel(src_x as u32, src_y as u32),
-                        );
-                    }
+
+            let allocation = match atlas_allocator.allocate(Size::new(img.width as i32, img.height as i32)) {
+                Some(allocation) => allocation,
+                None => {
+                    // Current allocator is full
+                    // Add previous batch
+                    batches.push(TextureMarkBatch {
+                        indices: start_index..indices.len() as u32,
+                        image: image::DynamicImage::ImageRgba8(texture_image),
+                    });
+
+                    // create new allocator, new texture image, new batch
+                    atlas_allocator = etagere::AtlasAllocator::new(Size::new(
+                        texture_size.width as i32,
+                        texture_size.height as i32,
+                    ));
+                    let allocation = atlas_allocator.allocate(Size::new(img.width as i32, img.height as i32)).unwrap();
+
+                    // Create a new texture image
+                    texture_image = image::RgbaImage::new(texture_size.width, texture_size.height);
+
+                    // update start_index
+                    start_index = indices.len() as u32;
+
+                    allocation
                 }
+            };
 
-                // Compute texture coordinates
-                let tex_x0 = x0 as f32 / texture_size.width as f32;
-                let tex_x1 = x1 as f32 / texture_size.width as f32;
-                let tex_y0 = y0 as f32 / texture_size.height as f32;
-                let tex_y1 = y1 as f32 / texture_size.height as f32;
+            // Write image to allocated portion of final texture image
+            let p0 = allocation.rectangle.min;
+            let p1 = allocation.rectangle.max;
+            let x0 = p0.x;
+            let x1 = p1.x.min(x0 + img.width as i32);
+            let y0 = p0.y;
+            let y1 = p1.y.min(y0 + img.height as i32);
+            for (src_x, dest_x) in (x0..x1).enumerate() {
+                for (src_y, dest_y) in (y0..y1).enumerate() {
+                    texture_image.put_pixel(
+                        dest_x as u32,
+                        dest_y as u32,
+                        *rgba_image.get_pixel(src_x as u32, src_y as u32),
+                    );
+                }
+            }
 
-                // Vertex index offset
-                let offset = verts.len() as u16;
+            // Compute texture coordinates
+            let tex_x0 = x0 as f32 / texture_size.width as f32;
+            let tex_x1 = x1 as f32 / texture_size.width as f32;
+            let tex_y0 = y0 as f32 / texture_size.height as f32;
+            let tex_y1 = y1 as f32 / texture_size.height as f32;
 
-                // Compute image left
-                let left = match *align {
-                    ImageAlign::Left => *x,
-                    ImageAlign::Center => *x - *width / 2.0,
-                    ImageAlign::Right => *x - *width,
-                };
-                // Compute image top
-                let top = match *baseline {
-                    ImageBaseline::Top => *y,
-                    ImageBaseline::Middle => *y - *height / 2.0,
-                    ImageBaseline::Bottom => *y - *height,
-                };
+            // Vertex index offset
+            let offset = verts.len() as u16;
 
-                // Adjust position and dimensions if aspect ratio should be preserved
-                let (left, top, width, height) = if aspect {
-                    let img_aspect = img.width as f32 / img.height as f32;
-                    let outline_aspect = *width / *height;
-                    if img_aspect > outline_aspect {
-                        // image is wider than the box, so we scale
-                        // image to box width and center vertically
-                        let aspect_height = *width / img_aspect;
-                        let aspect_top = top + (*height - aspect_height) / 2.0;
-                        (left, aspect_top, *width, aspect_height)
-                    } else if img_aspect < outline_aspect {
-                        // image is taller than the box, so we scale
-                        // image to box height an center horizontally
-                        let aspect_width = *height * img_aspect;
-                        let aspect_left = left + (*width - aspect_width) / 2.0;
-                        (aspect_left, top, aspect_width, *height)
-                    } else {
-                        (left, top, *width, *height)
-                    }
+            // Compute image left
+            let left = match *align {
+                ImageAlign::Left => *x,
+                ImageAlign::Center => *x - *width / 2.0,
+                ImageAlign::Right => *x - *width,
+            };
+            // Compute image top
+            let top = match *baseline {
+                ImageBaseline::Top => *y,
+                ImageBaseline::Middle => *y - *height / 2.0,
+                ImageBaseline::Bottom => *y - *height,
+            };
+
+            // Adjust position and dimensions if aspect ratio should be preserved
+            let (left, top, width, height) = if aspect {
+                let img_aspect = img.width as f32 / img.height as f32;
+                let outline_aspect = *width / *height;
+                if img_aspect > outline_aspect {
+                    // image is wider than the box, so we scale
+                    // image to box width and center vertically
+                    let aspect_height = *width / img_aspect;
+                    let aspect_top = top + (*height - aspect_height) / 2.0;
+                    (left, aspect_top, *width, aspect_height)
+                } else if img_aspect < outline_aspect {
+                    // image is taller than the box, so we scale
+                    // image to box height an center horizontally
+                    let aspect_width = *height * img_aspect;
+                    let aspect_left = left + (*width - aspect_width) / 2.0;
+                    (aspect_left, top, aspect_width, *height)
                 } else {
                     (left, top, *width, *height)
-                };
-
-                verts.push(ImageVertex {
-                    position: [left, top],
-                    tex_coord: [tex_x0, tex_y0],
-                });
-                // Lower left
-                verts.push(ImageVertex {
-                    position: [left, top + height],
-                    tex_coord: [tex_x0, tex_y1],
-                });
-                // Lower right
-                verts.push(ImageVertex {
-                    position: [left + width, top + height],
-                    tex_coord: [tex_x1, tex_y1],
-                });
-                // Upper right
-                verts.push(ImageVertex {
-                    position: [left + width, top],
-                    tex_coord: [tex_x1, tex_y0],
-                });
-
-                // Indices
-                indices.push(offset);
-                indices.push(offset + 1);
-                indices.push(offset + 2);
-
-                indices.push(offset);
-                indices.push(offset + 2);
-                indices.push(offset + 3);
+                }
             } else {
-                // TODO: reallocate, create new batch
-                todo!()
-            }
-        }
-        let stop_index = indices.len() as u32;
+                (left, top, *width, *height)
+            };
 
+            verts.push(ImageVertex {
+                position: [left, top],
+                tex_coord: [tex_x0, tex_y0],
+            });
+            // Lower left
+            verts.push(ImageVertex {
+                position: [left, top + height],
+                tex_coord: [tex_x0, tex_y1],
+            });
+            // Lower right
+            verts.push(ImageVertex {
+                position: [left + width, top + height],
+                tex_coord: [tex_x1, tex_y1],
+            });
+            // Upper right
+            verts.push(ImageVertex {
+                position: [left + width, top],
+                tex_coord: [tex_x1, tex_y0],
+            });
+
+            // Indices
+            indices.push(offset);
+            indices.push(offset + 1);
+            indices.push(offset + 2);
+
+            indices.push(offset);
+            indices.push(offset + 2);
+            indices.push(offset + 3);
+        }
         batches.push(TextureMarkBatch {
-            indices: start_index..stop_index,
+            indices: start_index..indices.len() as u32,
             image: image::DynamicImage::ImageRgba8(texture_image),
         });
 
