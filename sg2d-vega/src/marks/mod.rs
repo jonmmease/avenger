@@ -1,7 +1,7 @@
 pub mod arc;
 pub mod area;
 pub mod group;
-mod image;
+pub mod image;
 pub mod line;
 pub mod mark;
 pub mod path;

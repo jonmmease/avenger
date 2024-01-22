@@ -504,14 +504,9 @@ impl WindowCanvas {
                 }
                 MarkRenderer::Texture(renderer) => {
                     if self.sample_count > 1 {
-                        renderer.render(
-                            &self.device,
-                            &self.queue,
-                            &self.multisampled_framebuffer,
-                            Some(&view),
-                        )
+                        renderer.render(&self.device, &self.multisampled_framebuffer, Some(&view))
                     } else {
-                        renderer.render(&self.device, &self.queue, &view, None)
+                        renderer.render(&self.device, &view, None)
                     }
                 }
                 MarkRenderer::Text(renderer) => {
@@ -721,12 +716,11 @@ impl PngCanvas {
                     if self.sample_count > 1 {
                         renderer.render(
                             &self.device,
-                            &self.queue,
                             &self.multisampled_framebuffer,
                             Some(&self.texture_view),
                         )
                     } else {
-                        renderer.render(&self.device, &self.queue, &self.texture_view, None)
+                        renderer.render(&self.device, &self.texture_view, None)
                     }
                 }
                 MarkRenderer::Text(mark) => {

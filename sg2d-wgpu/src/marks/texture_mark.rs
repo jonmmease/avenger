@@ -1,7 +1,7 @@
 use crate::canvas::CanvasUniform;
 use std::ops::Range;
 use wgpu::util::DeviceExt;
-use wgpu::{CommandBuffer, Device, Extent3d, ImageDataLayout, Queue, TextureFormat, TextureView};
+use wgpu::{CommandBuffer, Device, Extent3d, ImageDataLayout, TextureFormat, TextureView};
 
 #[derive(Clone)]
 pub struct TextureMarkBatch {
@@ -221,7 +221,6 @@ impl TextureMarkRenderer {
     pub fn render(
         &self,
         device: &Device,
-        queue: &Queue,
         texture_view: &TextureView,
         resolve_target: Option<&TextureView>,
     ) -> CommandBuffer {
