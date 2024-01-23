@@ -4,20 +4,24 @@ use wgpu::util::DeviceExt;
 use wgpu::{CommandBuffer, Device, Extent3d, ImageDataLayout, TextureFormat, TextureView};
 
 #[derive(Clone)]
-pub struct TextureMarkBatch {
-    pub indices_range: Range<u32>,
+pub struct InstancedTextureMarkBatch {
+    pub instances_range: Range<u32>,
     pub image: image::DynamicImage,
 }
 
-pub trait TextureMarkShader {
+pub trait TextureInstancedMarkShader {
+    type Instance: bytemuck::Pod + bytemuck::Zeroable;
     type Vertex: bytemuck::Pod + bytemuck::Zeroable;
+
     fn verts(&self) -> &[Self::Vertex];
     fn indices(&self) -> &[u16];
-    fn batches(&self) -> &[TextureMarkBatch];
+    fn batches(&self) -> &[InstancedTextureMarkBatch];
     fn texture_size(&self) -> Extent3d;
+
     fn shader(&self) -> &str;
     fn vertex_entry_point(&self) -> &str;
     fn fragment_entry_point(&self) -> &str;
+    fn instance_desc(&self) -> wgpu::VertexBufferLayout<'static>;
     fn vertex_desc(&self) -> wgpu::VertexBufferLayout<'static>;
 
     fn mag_filter(&self) -> wgpu::FilterMode {
@@ -31,26 +35,30 @@ pub trait TextureMarkShader {
     }
 }
 
-pub struct TextureMarkRenderer {
-    render_pipeline: wgpu::RenderPipeline,
-    vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
-    batches: Vec<TextureMarkBatch>,
-    uniform_bind_group: wgpu::BindGroup,
-    texture: wgpu::Texture,
-    texture_size: wgpu::Extent3d,
-    texture_bind_group: wgpu::BindGroup,
+pub struct TextureInstancedMarkRenderer {
+    pub render_pipeline: wgpu::RenderPipeline,
+    pub vertex_buffer: wgpu::Buffer,
+    pub index_buffer: wgpu::Buffer,
+    pub num_indices: u32,
+    pub instance_buffer: wgpu::Buffer,
+    pub batches: Vec<InstancedTextureMarkBatch>,
+    pub uniform_bind_group: wgpu::BindGroup,
+    pub texture: wgpu::Texture,
+    pub texture_size: wgpu::Extent3d,
+    pub texture_bind_group: wgpu::BindGroup,
 }
 
-impl TextureMarkRenderer {
-    pub fn new<V>(
+impl TextureInstancedMarkRenderer {
+    pub fn new<I, V>(
         device: &Device,
         uniform: CanvasUniform,
         texture_format: TextureFormat,
         sample_count: u32,
-        mark_shader: Box<dyn TextureMarkShader<Vertex = V>>,
+        mark_shader: Box<dyn TextureInstancedMarkShader<Instance = I, Vertex = V>>,
+        instances: &[I],
     ) -> Self
     where
+        I: bytemuck::Pod + bytemuck::Zeroable,
         V: bytemuck::Pod + bytemuck::Zeroable,
     {
         // Uniforms
@@ -157,7 +165,7 @@ impl TextureMarkRenderer {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&uniform_layout, &texture_bind_group_layout],
+                bind_group_layouts: &[&uniform_layout],
                 push_constant_ranges: &[],
             });
 
@@ -167,7 +175,7 @@ impl TextureMarkRenderer {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: mark_shader.vertex_entry_point(),
-                buffers: &[mark_shader.vertex_desc()],
+                buffers: &[mark_shader.vertex_desc(), mark_shader.instance_desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -207,12 +215,21 @@ impl TextureMarkRenderer {
             contents: bytemuck::cast_slice(mark_shader.indices()),
             usage: wgpu::BufferUsages::INDEX,
         });
+        let num_indices = mark_shader.indices().len() as u32;
+
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Instance Buffer"),
+            contents: bytemuck::cast_slice(instances),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
 
         Self {
             render_pipeline,
             vertex_buffer,
             index_buffer,
             batches: Vec::from(mark_shader.batches()),
+            num_indices,
+            instance_buffer,
             uniform_bind_group,
             texture,
             texture_size: mark_shader.texture_size(),
@@ -272,11 +289,11 @@ impl TextureMarkRenderer {
 
                 render_pass.set_pipeline(&self.render_pipeline);
                 render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-                render_pass.set_bind_group(1, &self.texture_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
                 render_pass
                     .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                render_pass.draw_indexed(batch.indices_range.clone(), 0, 0..1);
+                render_pass.draw_indexed(0..self.num_indices, 0, batch.instances_range.clone());
             }
         }
 

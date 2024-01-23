@@ -22,6 +22,7 @@ use crate::marks::rect::{RectInstance, RectShader};
 use crate::marks::rule::{RuleInstance, RuleShader};
 use crate::marks::symbol::{SymbolInstance, SymbolShader};
 use crate::marks::text::{TextInstance, TextMarkRenderer};
+use crate::marks::texture_instanced_mark::TextureInstancedMarkRenderer;
 use crate::marks::texture_mark::TextureMarkRenderer;
 use sg2d::marks::arc::ArcMark;
 use sg2d::marks::area::AreaMark;
@@ -46,6 +47,7 @@ pub enum MarkRenderer {
     Basic(BasicMarkRenderer),
     Instanced(InstancedMarkRenderer),
     Texture(TextureMarkRenderer),
+    TextureInstanced(TextureInstancedMarkRenderer),
     Text(TextMarkRenderer),
 }
 
@@ -509,6 +511,13 @@ impl WindowCanvas {
                         renderer.render(&self.device, &view, None)
                     }
                 }
+                MarkRenderer::TextureInstanced(renderer) => {
+                    if self.sample_count > 1 {
+                        renderer.render(&self.device, &self.multisampled_framebuffer, Some(&view))
+                    } else {
+                        renderer.render(&self.device, &view, None)
+                    }
+                }
                 MarkRenderer::Text(renderer) => {
                     if self.sample_count > 1 {
                         renderer.render(
@@ -713,6 +722,17 @@ impl PngCanvas {
                     }
                 }
                 MarkRenderer::Texture(renderer) => {
+                    if self.sample_count > 1 {
+                        renderer.render(
+                            &self.device,
+                            &self.multisampled_framebuffer,
+                            Some(&self.texture_view),
+                        )
+                    } else {
+                        renderer.render(&self.device, &self.texture_view, None)
+                    }
+                }
+                MarkRenderer::TextureInstanced(renderer) => {
                     if self.sample_count > 1 {
                         renderer.render(
                             &self.device,
