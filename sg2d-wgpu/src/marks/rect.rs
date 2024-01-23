@@ -1,6 +1,7 @@
 use crate::marks::instanced_mark::InstancedMarkShader;
 use itertools::izip;
 use sg2d::marks::rect::RectMark;
+use sg2d::marks::value::ColorOrGradient;
 use wgpu::VertexBufferLayout;
 
 #[repr(C)]
@@ -58,14 +59,24 @@ impl RectInstance {
             mark.corner_radius_iter(),
         )
         .map(
-            |(x, y, width, height, fill, stroke, stroke_width, corner_radius)| RectInstance {
-                position: [*x, *y],
-                width: *width,
-                height: *height,
-                fill: *fill,
-                stroke: *stroke,
-                stroke_width: *stroke_width,
-                corner_radius: *corner_radius,
+            |(x, y, width, height, fill, stroke, stroke_width, corner_radius)| {
+                let fill = match fill {
+                    ColorOrGradient::Color(c) => c,
+                    _ => todo!("Gradient fill not implemented"),
+                };
+                let stroke = match stroke {
+                    ColorOrGradient::Color(c) => c,
+                    _ => todo!("Gradient stroke not implemented"),
+                };
+                RectInstance {
+                    position: [*x, *y],
+                    width: *width,
+                    height: *height,
+                    fill: *fill,
+                    stroke: *stroke,
+                    stroke_width: *stroke_width,
+                    corner_radius: *corner_radius,
+                }
             },
         )
     }

@@ -1,0 +1,3120 @@
+{
+  "width": 461,
+  "height": 166,
+  "origin": [
+    5,
+    5
+  ],
+  "scenegraph": {
+    "clip": false,
+    "interactive": true,
+    "items": [
+      {
+        "items": [
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "fill": "rgb(178, 225, 182)",
+                "description": "Day: 31; Month: Dec; Max of temp_max: 12.8",
+                "x": 390,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(203, 235, 181)",
+                "description": "Day:  1; Month: Jan; Max of temp_max: 10.6",
+                "x": 0,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(192, 230, 181)",
+                "description": "Day:  2; Month: Jan; Max of temp_max: 11.7",
+                "x": 13,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(186, 228, 181)",
+                "description": "Day:  3; Month: Jan; Max of temp_max: 12.2",
+                "x": 26,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(186, 228, 181)",
+                "description": "Day:  4; Month: Jan; Max of temp_max: 12.2",
+                "x": 39,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(186, 228, 181)",
+                "description": "Day:  5; Month: Jan; Max of temp_max: 12.2",
+                "x": 52,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(209, 237, 180)",
+                "description": "Day:  6; Month: Jan; Max of temp_max: 10",
+                "x": 65,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(192, 230, 181)",
+                "description": "Day:  7; Month: Jan; Max of temp_max: 11.7",
+                "x": 78,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(209, 237, 180)",
+                "description": "Day:  8; Month: Jan; Max of temp_max: 10",
+                "x": 91,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(178, 225, 182)",
+                "description": "Day:  9; Month: Jan; Max of temp_max: 12.8",
+                "x": 104,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(156, 216, 184)",
+                "description": "Day: 10; Month: Jan; Max of temp_max: 14.4",
+                "x": 117,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(198, 233, 181)",
+                "description": "Day: 11; Month: Jan; Max of temp_max: 11.1",
+                "x": 130,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(203, 235, 181)",
+                "description": "Day: 12; Month: Jan; Max of temp_max: 10.6",
+                "x": 143,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(198, 233, 181)",
+                "description": "Day: 13; Month: Jan; Max of temp_max: 11.1",
+                "x": 156,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(198, 233, 181)",
+                "description": "Day: 14; Month: Jan; Max of temp_max: 11.1",
+                "x": 169,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(192, 230, 181)",
+                "description": "Day: 15; Month: Jan; Max of temp_max: 11.7",
+                "x": 182,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(171, 222, 183)",
+                "description": "Day: 16; Month: Jan; Max of temp_max: 13.3",
+                "x": 195,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(163, 219, 184)",
+                "description": "Day: 17; Month: Jan; Max of temp_max: 13.9",
+                "x": 208,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(209, 237, 180)",
+                "description": "Day: 18; Month: Jan; Max of temp_max: 10",
+                "x": 221,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(209, 237, 180)",
+                "description": "Day: 19; Month: Jan; Max of temp_max: 10",
+                "x": 234,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(209, 237, 180)",
+                "description": "Day: 20; Month: Jan; Max of temp_max: 10",
+                "x": 247,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(215, 240, 180)",
+                "description": "Day: 21; Month: Jan; Max of temp_max: 9.4",
+                "x": 260,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(186, 228, 181)",
+                "description": "Day: 22; Month: Jan; Max of temp_max: 12.2",
+                "x": 273,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(156, 216, 184)",
+                "description": "Day: 23; Month: Jan; Max of temp_max: 14.4",
+                "x": 286,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(115, 201, 189)",
+                "description": "Day: 24; Month: Jan; Max of temp_max: 17.2",
+                "x": 299,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(131, 207, 187)",
+                "description": "Day: 25; Month: Jan; Max of temp_max: 16.1",
+                "x": 312,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(198, 233, 181)",
+                "description": "Day: 26; Month: Jan; Max of temp_max: 11.1",
+                "x": 325,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(186, 228, 181)",
+                "description": "Day: 27; Month: Jan; Max of temp_max: 12.2",
+                "x": 338,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(186, 228, 181)",
+                "description": "Day: 28; Month: Jan; Max of temp_max: 12.2",
+                "x": 351,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(220, 241, 180)",
+                "description": "Day: 29; Month: Jan; Max of temp_max: 8.9",
+                "x": 364,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(215, 240, 180)",
+                "description": "Day: 30; Month: Jan; Max of temp_max: 9.4",
+                "x": 377,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(192, 230, 181)",
+                "description": "Day: 31; Month: Jan; Max of temp_max: 11.7",
+                "x": 390,
+                "width": 13,
+                "y": 0,
+                "height": 13
+              },
+              {
+                "fill": "rgb(198, 233, 181)",
+                "description": "Day:  1; Month: Feb; Max of temp_max: 11.1",
+                "x": 0,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(156, 216, 184)",
+                "description": "Day:  2; Month: Feb; Max of temp_max: 14.4",
+                "x": 13,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(139, 209, 186)",
+                "description": "Day:  3; Month: Feb; Max of temp_max: 15.6",
+                "x": 26,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(163, 219, 184)",
+                "description": "Day:  4; Month: Feb; Max of temp_max: 13.9",
+                "x": 39,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(131, 207, 187)",
+                "description": "Day:  5; Month: Feb; Max of temp_max: 16.1",
+                "x": 52,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(139, 209, 186)",
+                "description": "Day:  6; Month: Feb; Max of temp_max: 15.6",
+                "x": 65,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(147, 213, 185)",
+                "description": "Day:  7; Month: Feb; Max of temp_max: 15",
+                "x": 78,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(171, 222, 183)",
+                "description": "Day:  8; Month: Feb; Max of temp_max: 13.3",
+                "x": 91,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(178, 225, 182)",
+                "description": "Day:  9; Month: Feb; Max of temp_max: 12.8",
+                "x": 104,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(178, 225, 182)",
+                "description": "Day: 10; Month: Feb; Max of temp_max: 12.8",
+                "x": 117,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(122, 204, 188)",
+                "description": "Day: 11; Month: Feb; Max of temp_max: 16.7",
+                "x": 130,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(139, 209, 186)",
+                "description": "Day: 12; Month: Feb; Max of temp_max: 15.6",
+                "x": 143,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(156, 216, 184)",
+                "description": "Day: 13; Month: Feb; Max of temp_max: 14.4",
+                "x": 156,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(171, 222, 183)",
+                "description": "Day: 14; Month: Feb; Max of temp_max: 13.3",
+                "x": 169,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(147, 213, 185)",
+                "description": "Day: 15; Month: Feb; Max of temp_max: 15",
+                "x": 182,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(131, 207, 187)",
+                "description": "Day: 16; Month: Feb; Max of temp_max: 16.1",
+                "x": 195,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(186, 228, 181)",
+                "description": "Day: 17; Month: Feb; Max of temp_max: 12.2",
+                "x": 208,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(203, 235, 181)",
+                "description": "Day: 18; Month: Feb; Max of temp_max: 10.6",
+                "x": 221,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(198, 233, 181)",
+                "description": "Day: 19; Month: Feb; Max of temp_max: 11.1",
+                "x": 234,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(186, 228, 181)",
+                "description": "Day: 20; Month: Feb; Max of temp_max: 12.2",
+                "x": 247,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(192, 230, 181)",
+                "description": "Day: 21; Month: Feb; Max of temp_max: 11.7",
+                "x": 260,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(178, 225, 182)",
+                "description": "Day: 22; Month: Feb; Max of temp_max: 12.8",
+                "x": 273,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(198, 233, 181)",
+                "description": "Day: 23; Month: Feb; Max of temp_max: 11.1",
+                "x": 286,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(186, 228, 181)",
+                "description": "Day: 24; Month: Feb; Max of temp_max: 12.2",
+                "x": 299,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(163, 219, 184)",
+                "description": "Day: 25; Month: Feb; Max of temp_max: 13.9",
+                "x": 312,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(178, 225, 182)",
+                "description": "Day: 26; Month: Feb; Max of temp_max: 12.8",
+                "x": 325,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(156, 216, 184)",
+                "description": "Day: 27; Month: Feb; Max of temp_max: 14.4",
+                "x": 338,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(147, 213, 185)",
+                "description": "Day: 28; Month: Feb; Max of temp_max: 15",
+                "x": 351,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(239, 249, 189)",
+                "description": "Day: 29; Month: Feb; Max of temp_max: 6.1",
+                "x": 364,
+                "width": 13,
+                "y": 13,
+                "height": 13
+              },
+              {
+                "fill": "rgb(163, 219, 184)",
+                "description": "Day:  1; Month: Mar; Max of temp_max: 13.9",
+                "x": 0,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(156, 216, 184)",
+                "description": "Day:  2; Month: Mar; Max of temp_max: 14.4",
+                "x": 13,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(163, 219, 184)",
+                "description": "Day:  3; Month: Mar; Max of temp_max: 13.9",
+                "x": 26,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(139, 209, 186)",
+                "description": "Day:  4; Month: Mar; Max of temp_max: 15.6",
+                "x": 39,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(147, 213, 185)",
+                "description": "Day:  5; Month: Mar; Max of temp_max: 15",
+                "x": 52,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(122, 204, 188)",
+                "description": "Day:  6; Month: Mar; Max of temp_max: 16.7",
+                "x": 65,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(115, 201, 189)",
+                "description": "Day:  7; Month: Mar; Max of temp_max: 17.2",
+                "x": 78,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(147, 213, 185)",
+                "description": "Day:  8; Month: Mar; Max of temp_max: 15",
+                "x": 91,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(171, 222, 183)",
+                "description": "Day:  9; Month: Mar; Max of temp_max: 13.3",
+                "x": 104,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(156, 216, 184)",
+                "description": "Day: 10; Month: Mar; Max of temp_max: 14.4",
+                "x": 117,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(106, 198, 190)",
+                "description": "Day: 11; Month: Mar; Max of temp_max: 17.8",
+                "x": 130,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(115, 201, 189)",
+                "description": "Day: 12; Month: Mar; Max of temp_max: 17.2",
+                "x": 143,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(156, 216, 184)",
+                "description": "Day: 13; Month: Mar; Max of temp_max: 14.4",
+                "x": 156,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(122, 204, 188)",
+                "description": "Day: 14; Month: Mar; Max of temp_max: 16.7",
+                "x": 169,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(163, 219, 184)",
+                "description": "Day: 15; Month: Mar; Max of temp_max: 13.9",
+                "x": 182,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(171, 222, 183)",
+                "description": "Day: 16; Month: Mar; Max of temp_max: 13.3",
+                "x": 195,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(139, 209, 186)",
+                "description": "Day: 17; Month: Mar; Max of temp_max: 15.6",
+                "x": 208,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(139, 209, 186)",
+                "description": "Day: 18; Month: Mar; Max of temp_max: 15.6",
+                "x": 221,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(163, 219, 184)",
+                "description": "Day: 19; Month: Mar; Max of temp_max: 13.9",
+                "x": 234,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(171, 222, 183)",
+                "description": "Day: 20; Month: Mar; Max of temp_max: 13.3",
+                "x": 247,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(192, 230, 181)",
+                "description": "Day: 21; Month: Mar; Max of temp_max: 11.7",
+                "x": 260,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(178, 225, 182)",
+                "description": "Day: 22; Month: Mar; Max of temp_max: 12.8",
+                "x": 273,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(93, 191, 191)",
+                "description": "Day: 23; Month: Mar; Max of temp_max: 18.9",
+                "x": 286,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(122, 204, 188)",
+                "description": "Day: 24; Month: Mar; Max of temp_max: 16.7",
+                "x": 299,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(72, 181, 194)",
+                "description": "Day: 25; Month: Mar; Max of temp_max: 20.6",
+                "x": 312,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(100, 195, 191)",
+                "description": "Day: 26; Month: Mar; Max of temp_max: 18.3",
+                "x": 325,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(131, 207, 187)",
+                "description": "Day: 27; Month: Mar; Max of temp_max: 16.1",
+                "x": 338,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(100, 195, 191)",
+                "description": "Day: 28; Month: Mar; Max of temp_max: 18.3",
+                "x": 351,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(79, 185, 193)",
+                "description": "Day: 29; Month: Mar; Max of temp_max: 20",
+                "x": 364,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(72, 181, 194)",
+                "description": "Day: 30; Month: Mar; Max of temp_max: 20.6",
+                "x": 377,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(115, 201, 189)",
+                "description": "Day: 31; Month: Mar; Max of temp_max: 17.2",
+                "x": 390,
+                "width": 13,
+                "y": 26,
+                "height": 13
+              },
+              {
+                "fill": "rgb(122, 204, 188)",
+                "description": "Day:  1; Month: Apr; Max of temp_max: 16.7",
+                "x": 0,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(122, 204, 188)",
+                "description": "Day:  2; Month: Apr; Max of temp_max: 16.7",
+                "x": 13,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(156, 216, 184)",
+                "description": "Day:  3; Month: Apr; Max of temp_max: 14.4",
+                "x": 26,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(122, 204, 188)",
+                "description": "Day:  4; Month: Apr; Max of temp_max: 16.7",
+                "x": 39,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(163, 219, 184)",
+                "description": "Day:  5; Month: Apr; Max of temp_max: 13.9",
+                "x": 52,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(67, 178, 194)",
+                "description": "Day:  6; Month: Apr; Max of temp_max: 21.1",
+                "x": 65,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(67, 178, 194)",
+                "description": "Day:  7; Month: Apr; Max of temp_max: 21.1",
+                "x": 78,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(79, 185, 193)",
+                "description": "Day:  8; Month: Apr; Max of temp_max: 20",
+                "x": 91,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(106, 198, 190)",
+                "description": "Day:  9; Month: Apr; Max of temp_max: 17.8",
+                "x": 104,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(115, 201, 189)",
+                "description": "Day: 10; Month: Apr; Max of temp_max: 17.2",
+                "x": 117,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(131, 207, 187)",
+                "description": "Day: 11; Month: Apr; Max of temp_max: 16.1",
+                "x": 130,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(72, 181, 194)",
+                "description": "Day: 12; Month: Apr; Max of temp_max: 20.6",
+                "x": 143,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(79, 185, 193)",
+                "description": "Day: 13; Month: Apr; Max of temp_max: 20",
+                "x": 156,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(131, 207, 187)",
+                "description": "Day: 14; Month: Apr; Max of temp_max: 16.1",
+                "x": 169,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(106, 198, 190)",
+                "description": "Day: 15; Month: Apr; Max of temp_max: 17.8",
+                "x": 182,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(93, 191, 191)",
+                "description": "Day: 16; Month: Apr; Max of temp_max: 18.9",
+                "x": 195,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(93, 191, 191)",
+                "description": "Day: 17; Month: Apr; Max of temp_max: 18.9",
+                "x": 208,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(67, 178, 194)",
+                "description": "Day: 18; Month: Apr; Max of temp_max: 21.1",
+                "x": 221,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(52, 165, 193)",
+                "description": "Day: 19; Month: Apr; Max of temp_max: 22.8",
+                "x": 234,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(79, 185, 193)",
+                "description": "Day: 20; Month: Apr; Max of temp_max: 20",
+                "x": 247,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(48, 162, 192)",
+                "description": "Day: 21; Month: Apr; Max of temp_max: 23.3",
+                "x": 260,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(62, 174, 193)",
+                "description": "Day: 22; Month: Apr; Max of temp_max: 21.7",
+                "x": 273,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(67, 178, 194)",
+                "description": "Day: 23; Month: Apr; Max of temp_max: 21.1",
+                "x": 286,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(62, 174, 193)",
+                "description": "Day: 24; Month: Apr; Max of temp_max: 21.7",
+                "x": 299,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(72, 181, 194)",
+                "description": "Day: 25; Month: Apr; Max of temp_max: 20.6",
+                "x": 312,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(40, 147, 189)",
+                "description": "Day: 26; Month: Apr; Max of temp_max: 25",
+                "x": 325,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(131, 207, 187)",
+                "description": "Day: 27; Month: Apr; Max of temp_max: 16.1",
+                "x": 338,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(40, 147, 189)",
+                "description": "Day: 28; Month: Apr; Max of temp_max: 25",
+                "x": 351,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 119, 179)",
+                "description": "Day: 29; Month: Apr; Max of temp_max: 27.8",
+                "x": 364,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 102, 171)",
+                "description": "Day: 30; Month: Apr; Max of temp_max: 29.4",
+                "x": 377,
+                "width": 13,
+                "y": 39,
+                "height": 13
+              },
+              {
+                "fill": "rgb(72, 181, 194)",
+                "description": "Day:  1; Month: May; Max of temp_max: 20.6",
+                "x": 0,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(62, 174, 193)",
+                "description": "Day:  2; Month: May; Max of temp_max: 21.7",
+                "x": 13,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(40, 147, 189)",
+                "description": "Day:  3; Month: May; Max of temp_max: 25",
+                "x": 26,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 107, 174)",
+                "description": "Day:  4; Month: May; Max of temp_max: 28.9",
+                "x": 39,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 90, 166)",
+                "description": "Day:  5; Month: May; Max of temp_max: 30.6",
+                "x": 52,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(44, 157, 192)",
+                "description": "Day:  6; Month: May; Max of temp_max: 23.9",
+                "x": 65,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(44, 157, 192)",
+                "description": "Day:  7; Month: May; Max of temp_max: 23.9",
+                "x": 78,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 130, 184)",
+                "description": "Day:  8; Month: May; Max of temp_max: 26.7",
+                "x": 91,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(35, 136, 186)",
+                "description": "Day:  9; Month: May; Max of temp_max: 26.1",
+                "x": 104,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 125, 182)",
+                "description": "Day: 10; Month: May; Max of temp_max: 27.2",
+                "x": 117,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(42, 152, 190)",
+                "description": "Day: 11; Month: May; Max of temp_max: 24.4",
+                "x": 130,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 130, 184)",
+                "description": "Day: 12; Month: May; Max of temp_max: 26.7",
+                "x": 143,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 119, 179)",
+                "description": "Day: 13; Month: May; Max of temp_max: 27.8",
+                "x": 156,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 130, 184)",
+                "description": "Day: 14; Month: May; Max of temp_max: 26.7",
+                "x": 169,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(62, 174, 193)",
+                "description": "Day: 15; Month: May; Max of temp_max: 21.7",
+                "x": 182,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(79, 185, 193)",
+                "description": "Day: 16; Month: May; Max of temp_max: 20",
+                "x": 195,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(37, 141, 187)",
+                "description": "Day: 17; Month: May; Max of temp_max: 25.6",
+                "x": 208,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(62, 174, 193)",
+                "description": "Day: 18; Month: May; Max of temp_max: 21.7",
+                "x": 221,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(48, 162, 192)",
+                "description": "Day: 19; Month: May; Max of temp_max: 23.3",
+                "x": 234,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(37, 141, 187)",
+                "description": "Day: 20; Month: May; Max of temp_max: 25.6",
+                "x": 247,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(42, 152, 190)",
+                "description": "Day: 21; Month: May; Max of temp_max: 24.4",
+                "x": 260,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(79, 185, 193)",
+                "description": "Day: 22; Month: May; Max of temp_max: 20",
+                "x": 273,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(100, 195, 191)",
+                "description": "Day: 23; Month: May; Max of temp_max: 18.3",
+                "x": 286,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(58, 170, 193)",
+                "description": "Day: 24; Month: May; Max of temp_max: 22.2",
+                "x": 299,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(58, 170, 193)",
+                "description": "Day: 25; Month: May; Max of temp_max: 22.2",
+                "x": 312,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(42, 152, 190)",
+                "description": "Day: 26; Month: May; Max of temp_max: 24.4",
+                "x": 325,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 119, 179)",
+                "description": "Day: 27; Month: May; Max of temp_max: 27.8",
+                "x": 338,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(35, 136, 186)",
+                "description": "Day: 28; Month: May; Max of temp_max: 26.1",
+                "x": 351,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(52, 165, 193)",
+                "description": "Day: 29; Month: May; Max of temp_max: 22.8",
+                "x": 364,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(40, 147, 189)",
+                "description": "Day: 30; Month: May; Max of temp_max: 25",
+                "x": 377,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(52, 165, 193)",
+                "description": "Day: 31; Month: May; Max of temp_max: 22.8",
+                "x": 390,
+                "width": 13,
+                "y": 52,
+                "height": 13
+              },
+              {
+                "fill": "rgb(48, 162, 192)",
+                "description": "Day:  1; Month: Jun; Max of temp_max: 23.3",
+                "x": 0,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(58, 170, 193)",
+                "description": "Day:  2; Month: Jun; Max of temp_max: 22.2",
+                "x": 13,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(35, 136, 186)",
+                "description": "Day:  3; Month: Jun; Max of temp_max: 26.1",
+                "x": 26,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 130, 184)",
+                "description": "Day:  4; Month: Jun; Max of temp_max: 26.7",
+                "x": 39,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 102, 171)",
+                "description": "Day:  5; Month: Jun; Max of temp_max: 29.4",
+                "x": 52,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 86, 163)",
+                "description": "Day:  6; Month: Jun; Max of temp_max: 31.1",
+                "x": 65,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 90, 166)",
+                "description": "Day:  7; Month: Jun; Max of temp_max: 30.6",
+                "x": 78,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 107, 174)",
+                "description": "Day:  8; Month: Jun; Max of temp_max: 28.9",
+                "x": 91,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(37, 141, 187)",
+                "description": "Day:  9; Month: Jun; Max of temp_max: 25.6",
+                "x": 104,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(42, 152, 190)",
+                "description": "Day: 10; Month: Jun; Max of temp_max: 24.4",
+                "x": 117,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(62, 174, 193)",
+                "description": "Day: 11; Month: Jun; Max of temp_max: 21.7",
+                "x": 130,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(44, 157, 192)",
+                "description": "Day: 12; Month: Jun; Max of temp_max: 23.9",
+                "x": 143,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 119, 179)",
+                "description": "Day: 13; Month: Jun; Max of temp_max: 27.8",
+                "x": 156,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 96, 169)",
+                "description": "Day: 14; Month: Jun; Max of temp_max: 30",
+                "x": 169,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(44, 157, 192)",
+                "description": "Day: 15; Month: Jun; Max of temp_max: 23.9",
+                "x": 182,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(37, 141, 187)",
+                "description": "Day: 16; Month: Jun; Max of temp_max: 25.6",
+                "x": 195,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(42, 152, 190)",
+                "description": "Day: 17; Month: Jun; Max of temp_max: 24.4",
+                "x": 208,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(37, 141, 187)",
+                "description": "Day: 18; Month: Jun; Max of temp_max: 25.6",
+                "x": 221,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(40, 147, 189)",
+                "description": "Day: 19; Month: Jun; Max of temp_max: 25",
+                "x": 234,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(37, 141, 187)",
+                "description": "Day: 20; Month: Jun; Max of temp_max: 25.6",
+                "x": 247,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(37, 141, 187)",
+                "description": "Day: 21; Month: Jun; Max of temp_max: 25.6",
+                "x": 260,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(35, 136, 186)",
+                "description": "Day: 22; Month: Jun; Max of temp_max: 26.1",
+                "x": 273,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(37, 141, 187)",
+                "description": "Day: 23; Month: Jun; Max of temp_max: 25.6",
+                "x": 286,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 90, 166)",
+                "description": "Day: 24; Month: Jun; Max of temp_max: 30.6",
+                "x": 299,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 80, 161)",
+                "description": "Day: 25; Month: Jun; Max of temp_max: 31.7",
+                "x": 312,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 66, 151)",
+                "description": "Day: 26; Month: Jun; Max of temp_max: 33.3",
+                "x": 325,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 90, 166)",
+                "description": "Day: 27; Month: Jun; Max of temp_max: 30.6",
+                "x": 338,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 96, 169)",
+                "description": "Day: 28; Month: Jun; Max of temp_max: 30",
+                "x": 351,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(32, 62, 146)",
+                "description": "Day: 29; Month: Jun; Max of temp_max: 33.9",
+                "x": 364,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(31, 58, 142)",
+                "description": "Day: 30; Month: Jun; Max of temp_max: 34.4",
+                "x": 377,
+                "width": 13,
+                "y": 65,
+                "height": 13
+              },
+              {
+                "fill": "rgb(32, 62, 146)",
+                "description": "Day:  1; Month: Jul; Max of temp_max: 33.9",
+                "x": 0,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 66, 151)",
+                "description": "Day:  2; Month: Jul; Max of temp_max: 33.3",
+                "x": 13,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 66, 151)",
+                "description": "Day:  3; Month: Jul; Max of temp_max: 33.3",
+                "x": 26,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(35, 70, 155)",
+                "description": "Day:  4; Month: Jul; Max of temp_max: 32.8",
+                "x": 39,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 102, 171)",
+                "description": "Day:  5; Month: Jul; Max of temp_max: 29.4",
+                "x": 52,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 125, 182)",
+                "description": "Day:  6; Month: Jul; Max of temp_max: 27.2",
+                "x": 65,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 96, 169)",
+                "description": "Day:  7; Month: Jul; Max of temp_max: 30",
+                "x": 78,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 96, 169)",
+                "description": "Day:  8; Month: Jul; Max of temp_max: 30",
+                "x": 91,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 107, 174)",
+                "description": "Day:  9; Month: Jul; Max of temp_max: 28.9",
+                "x": 104,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 86, 163)",
+                "description": "Day: 10; Month: Jul; Max of temp_max: 31.1",
+                "x": 117,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(35, 75, 158)",
+                "description": "Day: 11; Month: Jul; Max of temp_max: 32.2",
+                "x": 130,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 102, 171)",
+                "description": "Day: 12; Month: Jul; Max of temp_max: 29.4",
+                "x": 143,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 119, 179)",
+                "description": "Day: 13; Month: Jul; Max of temp_max: 27.8",
+                "x": 156,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 86, 163)",
+                "description": "Day: 14; Month: Jul; Max of temp_max: 31.1",
+                "x": 169,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 86, 163)",
+                "description": "Day: 15; Month: Jul; Max of temp_max: 31.1",
+                "x": 182,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 119, 179)",
+                "description": "Day: 16; Month: Jul; Max of temp_max: 27.8",
+                "x": 195,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 66, 151)",
+                "description": "Day: 17; Month: Jul; Max of temp_max: 33.3",
+                "x": 208,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(29, 53, 138)",
+                "description": "Day: 18; Month: Jul; Max of temp_max: 35",
+                "x": 221,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 130, 184)",
+                "description": "Day: 19; Month: Jul; Max of temp_max: 26.7",
+                "x": 234,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(44, 157, 192)",
+                "description": "Day: 20; Month: Jul; Max of temp_max: 23.9",
+                "x": 247,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(35, 136, 186)",
+                "description": "Day: 21; Month: Jul; Max of temp_max: 26.1",
+                "x": 260,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 86, 163)",
+                "description": "Day: 22; Month: Jul; Max of temp_max: 31.1",
+                "x": 273,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 86, 163)",
+                "description": "Day: 23; Month: Jul; Max of temp_max: 31.1",
+                "x": 286,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 86, 163)",
+                "description": "Day: 24; Month: Jul; Max of temp_max: 31.1",
+                "x": 299,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 86, 163)",
+                "description": "Day: 25; Month: Jul; Max of temp_max: 31.1",
+                "x": 312,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 114, 177)",
+                "description": "Day: 26; Month: Jul; Max of temp_max: 28.3",
+                "x": 325,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 90, 166)",
+                "description": "Day: 27; Month: Jul; Max of temp_max: 30.6",
+                "x": 338,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(35, 75, 158)",
+                "description": "Day: 28; Month: Jul; Max of temp_max: 32.2",
+                "x": 351,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(31, 58, 142)",
+                "description": "Day: 29; Month: Jul; Max of temp_max: 34.4",
+                "x": 364,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(31, 58, 142)",
+                "description": "Day: 30; Month: Jul; Max of temp_max: 34.4",
+                "x": 377,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 66, 151)",
+                "description": "Day: 31; Month: Jul; Max of temp_max: 33.3",
+                "x": 390,
+                "width": 13,
+                "y": 78,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 90, 166)",
+                "description": "Day:  1; Month: Aug; Max of temp_max: 30.6",
+                "x": 0,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 80, 161)",
+                "description": "Day:  2; Month: Aug; Max of temp_max: 31.7",
+                "x": 13,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(32, 62, 146)",
+                "description": "Day:  3; Month: Aug; Max of temp_max: 33.9",
+                "x": 26,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(32, 62, 146)",
+                "description": "Day:  4; Month: Aug; Max of temp_max: 33.9",
+                "x": 39,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 90, 166)",
+                "description": "Day:  5; Month: Aug; Max of temp_max: 30.6",
+                "x": 52,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 86, 163)",
+                "description": "Day:  6; Month: Aug; Max of temp_max: 31.1",
+                "x": 65,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 114, 177)",
+                "description": "Day:  7; Month: Aug; Max of temp_max: 28.3",
+                "x": 78,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 114, 177)",
+                "description": "Day:  8; Month: Aug; Max of temp_max: 28.3",
+                "x": 91,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 90, 166)",
+                "description": "Day:  9; Month: Aug; Max of temp_max: 30.6",
+                "x": 104,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(28, 49, 133)",
+                "description": "Day: 10; Month: Aug; Max of temp_max: 35.6",
+                "x": 117,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 90, 166)",
+                "description": "Day: 11; Month: Aug; Max of temp_max: 30.6",
+                "x": 130,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 90, 166)",
+                "description": "Day: 12; Month: Aug; Max of temp_max: 30.6",
+                "x": 143,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 107, 174)",
+                "description": "Day: 13; Month: Aug; Max of temp_max: 28.9",
+                "x": 156,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 86, 163)",
+                "description": "Day: 14; Month: Aug; Max of temp_max: 31.1",
+                "x": 169,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(31, 58, 142)",
+                "description": "Day: 15; Month: Aug; Max of temp_max: 34.4",
+                "x": 182,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(35, 70, 155)",
+                "description": "Day: 16; Month: Aug; Max of temp_max: 32.8",
+                "x": 195,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 96, 169)",
+                "description": "Day: 17; Month: Aug; Max of temp_max: 30",
+                "x": 208,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 80, 161)",
+                "description": "Day: 18; Month: Aug; Max of temp_max: 31.7",
+                "x": 221,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(37, 141, 187)",
+                "description": "Day: 19; Month: Aug; Max of temp_max: 25.6",
+                "x": 234,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 119, 179)",
+                "description": "Day: 20; Month: Aug; Max of temp_max: 27.8",
+                "x": 247,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 107, 174)",
+                "description": "Day: 21; Month: Aug; Max of temp_max: 28.9",
+                "x": 260,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 119, 179)",
+                "description": "Day: 22; Month: Aug; Max of temp_max: 27.8",
+                "x": 273,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(40, 147, 189)",
+                "description": "Day: 23; Month: Aug; Max of temp_max: 25",
+                "x": 286,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 107, 174)",
+                "description": "Day: 24; Month: Aug; Max of temp_max: 28.9",
+                "x": 299,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 86, 163)",
+                "description": "Day: 25; Month: Aug; Max of temp_max: 31.1",
+                "x": 312,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 102, 171)",
+                "description": "Day: 26; Month: Aug; Max of temp_max: 29.4",
+                "x": 325,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 130, 184)",
+                "description": "Day: 27; Month: Aug; Max of temp_max: 26.7",
+                "x": 338,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(44, 157, 192)",
+                "description": "Day: 28; Month: Aug; Max of temp_max: 23.9",
+                "x": 351,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(35, 136, 186)",
+                "description": "Day: 29; Month: Aug; Max of temp_max: 26.1",
+                "x": 364,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 119, 179)",
+                "description": "Day: 30; Month: Aug; Max of temp_max: 27.8",
+                "x": 377,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 119, 179)",
+                "description": "Day: 31; Month: Aug; Max of temp_max: 27.8",
+                "x": 390,
+                "width": 13,
+                "y": 91,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 119, 179)",
+                "description": "Day:  1; Month: Sep; Max of temp_max: 27.8",
+                "x": 0,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(40, 147, 189)",
+                "description": "Day:  2; Month: Sep; Max of temp_max: 25",
+                "x": 13,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(42, 152, 190)",
+                "description": "Day:  3; Month: Sep; Max of temp_max: 24.4",
+                "x": 26,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 119, 179)",
+                "description": "Day:  4; Month: Sep; Max of temp_max: 27.8",
+                "x": 39,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(35, 75, 158)",
+                "description": "Day:  5; Month: Sep; Max of temp_max: 32.2",
+                "x": 52,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(35, 75, 158)",
+                "description": "Day:  6; Month: Sep; Max of temp_max: 32.2",
+                "x": 65,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 130, 184)",
+                "description": "Day:  7; Month: Sep; Max of temp_max: 26.7",
+                "x": 78,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(35, 136, 186)",
+                "description": "Day:  8; Month: Sep; Max of temp_max: 26.1",
+                "x": 91,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 130, 184)",
+                "description": "Day:  9; Month: Sep; Max of temp_max: 26.7",
+                "x": 104,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(32, 62, 146)",
+                "description": "Day: 10; Month: Sep; Max of temp_max: 33.9",
+                "x": 117,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 130, 184)",
+                "description": "Day: 11; Month: Sep; Max of temp_max: 26.7",
+                "x": 130,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 114, 177)",
+                "description": "Day: 12; Month: Sep; Max of temp_max: 28.3",
+                "x": 143,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 96, 169)",
+                "description": "Day: 13; Month: Sep; Max of temp_max: 30",
+                "x": 156,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(34, 90, 166)",
+                "description": "Day: 14; Month: Sep; Max of temp_max: 30.6",
+                "x": 169,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(42, 152, 190)",
+                "description": "Day: 15; Month: Sep; Max of temp_max: 24.4",
+                "x": 182,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 119, 179)",
+                "description": "Day: 16; Month: Sep; Max of temp_max: 27.8",
+                "x": 195,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(33, 119, 179)",
+                "description": "Day: 17; Month: Sep; Max of temp_max: 27.8",
+                "x": 208,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(37, 141, 187)",
+                "description": "Day: 18; Month: Sep; Max of temp_max: 25.6",
+                "x": 221,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(42, 152, 190)",
+                "description": "Day: 19; Month: Sep; Max of temp_max: 24.4",
+                "x": 234,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(35, 136, 186)",
+                "description": "Day: 20; Month: Sep; Max of temp_max: 26.1",
+                "x": 247,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(58, 170, 193)",
+                "description": "Day: 21; Month: Sep; Max of temp_max: 22.2",
+                "x": 260,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(72, 181, 194)",
+                "description": "Day: 22; Month: Sep; Max of temp_max: 20.6",
+                "x": 273,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(58, 170, 193)",
+                "description": "Day: 23; Month: Sep; Max of temp_max: 22.2",
+                "x": 286,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(62, 174, 193)",
+                "description": "Day: 24; Month: Sep; Max of temp_max: 21.7",
+                "x": 299,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(79, 185, 193)",
+                "description": "Day: 25; Month: Sep; Max of temp_max: 20",
+                "x": 312,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(52, 165, 193)",
+                "description": "Day: 26; Month: Sep; Max of temp_max: 22.8",
+                "x": 325,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(40, 147, 189)",
+                "description": "Day: 27; Month: Sep; Max of temp_max: 25",
+                "x": 338,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(62, 174, 193)",
+                "description": "Day: 28; Month: Sep; Max of temp_max: 21.7",
+                "x": 351,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(67, 178, 194)",
+                "description": "Day: 29; Month: Sep; Max of temp_max: 21.1",
+                "x": 364,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(48, 162, 192)",
+                "description": "Day: 30; Month: Sep; Max of temp_max: 23.3",
+                "x": 377,
+                "width": 13,
+                "y": 104,
+                "height": 13
+              },
+              {
+                "fill": "rgb(87, 188, 192)",
+                "description": "Day:  1; Month: Oct; Max of temp_max: 19.4",
+                "x": 0,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(58, 170, 193)",
+                "description": "Day:  2; Month: Oct; Max of temp_max: 22.2",
+                "x": 13,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(52, 165, 193)",
+                "description": "Day:  3; Month: Oct; Max of temp_max: 22.8",
+                "x": 26,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(44, 157, 192)",
+                "description": "Day:  4; Month: Oct; Max of temp_max: 23.9",
+                "x": 39,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(37, 141, 187)",
+                "description": "Day:  5; Month: Oct; Max of temp_max: 25.6",
+                "x": 52,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(44, 157, 192)",
+                "description": "Day:  6; Month: Oct; Max of temp_max: 23.9",
+                "x": 65,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(67, 178, 194)",
+                "description": "Day:  7; Month: Oct; Max of temp_max: 21.1",
+                "x": 78,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(87, 188, 192)",
+                "description": "Day:  8; Month: Oct; Max of temp_max: 19.4",
+                "x": 91,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(67, 178, 194)",
+                "description": "Day:  9; Month: Oct; Max of temp_max: 21.1",
+                "x": 104,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(100, 195, 191)",
+                "description": "Day: 10; Month: Oct; Max of temp_max: 18.3",
+                "x": 117,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(100, 195, 191)",
+                "description": "Day: 11; Month: Oct; Max of temp_max: 18.3",
+                "x": 130,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(67, 178, 194)",
+                "description": "Day: 12; Month: Oct; Max of temp_max: 21.1",
+                "x": 143,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(106, 198, 190)",
+                "description": "Day: 13; Month: Oct; Max of temp_max: 17.8",
+                "x": 156,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(67, 178, 194)",
+                "description": "Day: 14; Month: Oct; Max of temp_max: 21.1",
+                "x": 169,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(72, 181, 194)",
+                "description": "Day: 15; Month: Oct; Max of temp_max: 20.6",
+                "x": 182,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(87, 188, 192)",
+                "description": "Day: 16; Month: Oct; Max of temp_max: 19.4",
+                "x": 195,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(87, 188, 192)",
+                "description": "Day: 17; Month: Oct; Max of temp_max: 19.4",
+                "x": 208,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(58, 170, 193)",
+                "description": "Day: 18; Month: Oct; Max of temp_max: 22.2",
+                "x": 221,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(106, 198, 190)",
+                "description": "Day: 19; Month: Oct; Max of temp_max: 17.8",
+                "x": 234,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(131, 207, 187)",
+                "description": "Day: 20; Month: Oct; Max of temp_max: 16.1",
+                "x": 247,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(131, 207, 187)",
+                "description": "Day: 21; Month: Oct; Max of temp_max: 16.1",
+                "x": 260,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(156, 216, 184)",
+                "description": "Day: 22; Month: Oct; Max of temp_max: 14.4",
+                "x": 273,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(147, 213, 185)",
+                "description": "Day: 23; Month: Oct; Max of temp_max: 15",
+                "x": 286,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(87, 188, 192)",
+                "description": "Day: 24; Month: Oct; Max of temp_max: 19.4",
+                "x": 299,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(178, 225, 182)",
+                "description": "Day: 25; Month: Oct; Max of temp_max: 12.8",
+                "x": 312,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(131, 207, 187)",
+                "description": "Day: 26; Month: Oct; Max of temp_max: 16.1",
+                "x": 325,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(147, 213, 185)",
+                "description": "Day: 27; Month: Oct; Max of temp_max: 15",
+                "x": 338,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(122, 204, 188)",
+                "description": "Day: 28; Month: Oct; Max of temp_max: 16.7",
+                "x": 351,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(115, 201, 189)",
+                "description": "Day: 29; Month: Oct; Max of temp_max: 17.2",
+                "x": 364,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(139, 209, 186)",
+                "description": "Day: 30; Month: Oct; Max of temp_max: 15.6",
+                "x": 377,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(106, 198, 190)",
+                "description": "Day: 31; Month: Oct; Max of temp_max: 17.8",
+                "x": 390,
+                "width": 13,
+                "y": 117,
+                "height": 13
+              },
+              {
+                "fill": "rgb(147, 213, 185)",
+                "description": "Day:  1; Month: Nov; Max of temp_max: 15",
+                "x": 0,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(139, 209, 186)",
+                "description": "Day:  2; Month: Nov; Max of temp_max: 15.6",
+                "x": 13,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(106, 198, 190)",
+                "description": "Day:  3; Month: Nov; Max of temp_max: 17.8",
+                "x": 26,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(147, 213, 185)",
+                "description": "Day:  4; Month: Nov; Max of temp_max: 15",
+                "x": 39,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(122, 204, 188)",
+                "description": "Day:  5; Month: Nov; Max of temp_max: 16.7",
+                "x": 52,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(156, 216, 184)",
+                "description": "Day:  6; Month: Nov; Max of temp_max: 14.4",
+                "x": 65,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(171, 222, 183)",
+                "description": "Day:  7; Month: Nov; Max of temp_max: 13.3",
+                "x": 78,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(171, 222, 183)",
+                "description": "Day:  8; Month: Nov; Max of temp_max: 13.3",
+                "x": 91,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(198, 233, 181)",
+                "description": "Day:  9; Month: Nov; Max of temp_max: 11.1",
+                "x": 104,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(131, 207, 187)",
+                "description": "Day: 10; Month: Nov; Max of temp_max: 16.1",
+                "x": 117,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(139, 209, 186)",
+                "description": "Day: 11; Month: Nov; Max of temp_max: 15.6",
+                "x": 130,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(163, 219, 184)",
+                "description": "Day: 12; Month: Nov; Max of temp_max: 13.9",
+                "x": 143,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(198, 233, 181)",
+                "description": "Day: 13; Month: Nov; Max of temp_max: 11.1",
+                "x": 156,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(203, 235, 181)",
+                "description": "Day: 14; Month: Nov; Max of temp_max: 10.6",
+                "x": 169,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(209, 237, 180)",
+                "description": "Day: 15; Month: Nov; Max of temp_max: 10",
+                "x": 182,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(171, 222, 183)",
+                "description": "Day: 16; Month: Nov; Max of temp_max: 13.3",
+                "x": 195,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(178, 225, 182)",
+                "description": "Day: 17; Month: Nov; Max of temp_max: 12.8",
+                "x": 208,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(171, 222, 183)",
+                "description": "Day: 18; Month: Nov; Max of temp_max: 13.3",
+                "x": 221,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(198, 233, 181)",
+                "description": "Day: 19; Month: Nov; Max of temp_max: 11.1",
+                "x": 234,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(198, 233, 181)",
+                "description": "Day: 20; Month: Nov; Max of temp_max: 11.1",
+                "x": 247,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(209, 237, 180)",
+                "description": "Day: 21; Month: Nov; Max of temp_max: 10",
+                "x": 260,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(178, 225, 182)",
+                "description": "Day: 22; Month: Nov; Max of temp_max: 12.8",
+                "x": 273,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(192, 230, 181)",
+                "description": "Day: 23; Month: Nov; Max of temp_max: 11.7",
+                "x": 286,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(163, 219, 184)",
+                "description": "Day: 24; Month: Nov; Max of temp_max: 13.9",
+                "x": 299,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(147, 213, 185)",
+                "description": "Day: 25; Month: Nov; Max of temp_max: 15",
+                "x": 312,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(156, 216, 184)",
+                "description": "Day: 26; Month: Nov; Max of temp_max: 14.4",
+                "x": 325,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(178, 225, 182)",
+                "description": "Day: 27; Month: Nov; Max of temp_max: 12.8",
+                "x": 338,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(178, 225, 182)",
+                "description": "Day: 28; Month: Nov; Max of temp_max: 12.8",
+                "x": 351,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(147, 213, 185)",
+                "description": "Day: 29; Month: Nov; Max of temp_max: 15",
+                "x": 364,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(171, 222, 183)",
+                "description": "Day: 30; Month: Nov; Max of temp_max: 13.3",
+                "x": 377,
+                "width": 13,
+                "y": 130,
+                "height": 13
+              },
+              {
+                "fill": "rgb(203, 235, 181)",
+                "description": "Day:  1; Month: Dec; Max of temp_max: 10.6",
+                "x": 0,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(139, 209, 186)",
+                "description": "Day:  2; Month: Dec; Max of temp_max: 15.6",
+                "x": 13,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(192, 230, 181)",
+                "description": "Day:  3; Month: Dec; Max of temp_max: 11.7",
+                "x": 26,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(178, 225, 182)",
+                "description": "Day:  4; Month: Dec; Max of temp_max: 12.8",
+                "x": 39,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(178, 225, 182)",
+                "description": "Day:  5; Month: Dec; Max of temp_max: 12.8",
+                "x": 52,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(156, 216, 184)",
+                "description": "Day:  6; Month: Dec; Max of temp_max: 14.4",
+                "x": 65,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(139, 209, 186)",
+                "description": "Day:  7; Month: Dec; Max of temp_max: 15.6",
+                "x": 78,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(131, 207, 187)",
+                "description": "Day:  8; Month: Dec; Max of temp_max: 16.1",
+                "x": 91,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(93, 191, 191)",
+                "description": "Day:  9; Month: Dec; Max of temp_max: 18.9",
+                "x": 104,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(156, 216, 184)",
+                "description": "Day: 10; Month: Dec; Max of temp_max: 14.4",
+                "x": 117,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(198, 233, 181)",
+                "description": "Day: 11; Month: Dec; Max of temp_max: 11.1",
+                "x": 130,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(209, 237, 180)",
+                "description": "Day: 12; Month: Dec; Max of temp_max: 10",
+                "x": 143,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(178, 225, 182)",
+                "description": "Day: 13; Month: Dec; Max of temp_max: 12.8",
+                "x": 156,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(186, 228, 181)",
+                "description": "Day: 14; Month: Dec; Max of temp_max: 12.2",
+                "x": 169,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(209, 237, 180)",
+                "description": "Day: 15; Month: Dec; Max of temp_max: 10",
+                "x": 182,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(220, 241, 180)",
+                "description": "Day: 16; Month: Dec; Max of temp_max: 8.9",
+                "x": 195,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(215, 240, 180)",
+                "description": "Day: 17; Month: Dec; Max of temp_max: 9.4",
+                "x": 208,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(198, 233, 181)",
+                "description": "Day: 18; Month: Dec; Max of temp_max: 11.1",
+                "x": 221,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(178, 225, 182)",
+                "description": "Day: 19; Month: Dec; Max of temp_max: 12.8",
+                "x": 234,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(178, 225, 182)",
+                "description": "Day: 20; Month: Dec; Max of temp_max: 12.8",
+                "x": 247,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(203, 235, 181)",
+                "description": "Day: 21; Month: Dec; Max of temp_max: 10.6",
+                "x": 260,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(186, 228, 181)",
+                "description": "Day: 22; Month: Dec; Max of temp_max: 12.2",
+                "x": 273,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(224, 243, 182)",
+                "description": "Day: 23; Month: Dec; Max of temp_max: 8.3",
+                "x": 286,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(227, 244, 184)",
+                "description": "Day: 24; Month: Dec; Max of temp_max: 7.8",
+                "x": 299,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(235, 247, 187)",
+                "description": "Day: 25; Month: Dec; Max of temp_max: 6.7",
+                "x": 312,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(215, 240, 180)",
+                "description": "Day: 26; Month: Dec; Max of temp_max: 9.4",
+                "x": 325,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(215, 240, 180)",
+                "description": "Day: 27; Month: Dec; Max of temp_max: 9.4",
+                "x": 338,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(232, 246, 186)",
+                "description": "Day: 28; Month: Dec; Max of temp_max: 7.2",
+                "x": 351,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(220, 241, 180)",
+                "description": "Day: 29; Month: Dec; Max of temp_max: 8.9",
+                "x": 364,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              },
+              {
+                "fill": "rgb(224, 243, 182)",
+                "description": "Day: 30; Month: Dec; Max of temp_max: 8.3",
+                "x": 377,
+                "width": 13,
+                "y": 143,
+                "height": 13
+              }
+            ],
+            "marktype": "rect",
+            "name": "marks",
+            "role": "mark",
+            "zindex": 0
+          },
+          {
+            "clip": false,
+            "interactive": false,
+            "items": [
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "items": [
+                          {
+                            "clip": false,
+                            "interactive": false,
+                            "items": [
+                              {
+                                "opacity": 1,
+                                "x": 0,
+                                "y": 0,
+                                "width": 16,
+                                "height": 156,
+                                "stroke": "#ddd",
+                                "strokeWidth": 0,
+                                "fill": {
+                                  "x1": 0,
+                                  "y1": 1,
+                                  "x2": 0,
+                                  "y2": 0,
+                                  "stops": [
+                                    {
+                                      "offset": 0,
+                                      "color": "rgb(239, 249, 189)"
+                                    },
+                                    {
+                                      "offset": 0.06440677966101696,
+                                      "color": "rgb(226, 244, 183)"
+                                    },
+                                    {
+                                      "offset": 0.1322033898305085,
+                                      "color": "rgb(209, 237, 180)"
+                                    },
+                                    {
+                                      "offset": 0.2,
+                                      "color": "rgb(189, 229, 181)"
+                                    },
+                                    {
+                                      "offset": 0.2677966101694915,
+                                      "color": "rgb(161, 218, 184)"
+                                    },
+                                    {
+                                      "offset": 0.3355932203389831,
+                                      "color": "rgb(133, 207, 187)"
+                                    },
+                                    {
+                                      "offset": 0.4033898305084746,
+                                      "color": "rgb(104, 196, 190)"
+                                    },
+                                    {
+                                      "offset": 0.4711864406779661,
+                                      "color": "rgb(79, 185, 193)"
+                                    },
+                                    {
+                                      "offset": 0.5389830508474577,
+                                      "color": "rgb(59, 171, 193)"
+                                    },
+                                    {
+                                      "offset": 0.6067796610169491,
+                                      "color": "rgb(43, 156, 191)"
+                                    },
+                                    {
+                                      "offset": 0.6745762711864406,
+                                      "color": "rgb(36, 137, 186)"
+                                    },
+                                    {
+                                      "offset": 0.7423728813559322,
+                                      "color": "rgb(33, 117, 178)"
+                                    },
+                                    {
+                                      "offset": 0.8101694915254237,
+                                      "color": "rgb(33, 96, 169)"
+                                    },
+                                    {
+                                      "offset": 0.8779661016949152,
+                                      "color": "rgb(35, 77, 159)"
+                                    },
+                                    {
+                                      "offset": 0.9457627118644067,
+                                      "color": "rgb(32, 61, 145)"
+                                    },
+                                    {
+                                      "offset": 1,
+                                      "color": "rgb(28, 49, 133)"
+                                    }
+                                  ]
+                                }
+                              }
+                            ],
+                            "marktype": "rect",
+                            "role": "legend-gradient",
+                            "zindex": 0
+                          },
+                          {
+                            "clip": false,
+                            "interactive": false,
+                            "items": [
+                              {
+                                "fill": "#000",
+                                "font": "sans-serif",
+                                "fontSize": 10,
+                                "opacity": 1,
+                                "align": "left",
+                                "baseline": "bottom",
+                                "y": 156,
+                                "x": 18,
+                                "text": "6"
+                              },
+                              {
+                                "fill": "#000",
+                                "font": "sans-serif",
+                                "fontSize": 10,
+                                "opacity": 1,
+                                "align": "left",
+                                "baseline": "top",
+                                "y": 0,
+                                "x": 18,
+                                "text": "36"
+                              }
+                            ],
+                            "marktype": "text",
+                            "role": "legend-label",
+                            "zindex": 0
+                          }
+                        ],
+                        "x": 0,
+                        "y": 0
+                      }
+                    ],
+                    "marktype": "group",
+                    "role": "legend-entry",
+                    "zindex": 0
+                  }
+                ],
+                "orient": "right",
+                "x": 421,
+                "y": 0,
+                "width": 30,
+                "height": 156
+              }
+            ],
+            "marktype": "group",
+            "role": "legend",
+            "zindex": 0
+          }
+        ],
+        "fill": "transparent",
+        "x": 0,
+        "y": 0,
+        "width": 403,
+        "height": 156,
+        "stroke": "transparent"
+      }
+    ],
+    "marktype": "group",
+    "name": "root",
+    "role": "frame",
+    "zindex": 0
+  }
+}

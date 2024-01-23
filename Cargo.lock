@@ -598,6 +598,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d7b894f5411737b7867f4827955924d7c254fc9f4d91a6aad6b097804b1018b"
 
 [[package]]
+name = "colorgrad"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a5f405d474b9d05e0a093d3120e77e9bf26461b57a84b40aa2a221ac5617fb6"
+dependencies = [
+ "csscolorparser",
+]
+
+[[package]]
 name = "com-rs"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5288,6 +5297,7 @@ dependencies = [
  "bytemuck",
  "cfg-if",
  "cgmath",
+ "colorgrad",
  "dssim",
  "env_logger",
  "etagere",
@@ -6811,9 +6821,9 @@ dependencies = [
 
 [[package]]
 name = "vl-convert-rs"
-version = "1.2.1"
+version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76abc570ecfb0b27ffb6a3157dfd4512ebd88d3e292c6cec36c1b112f1fc9256"
+checksum = "0dc3c1e77e3a5836c9b0c39ac6c55cf6b7ff9f50f238527d900649dce3d7c2d7"
 dependencies = [
  "deno_core",
  "deno_emit",

@@ -32,3 +32,4 @@ sg2d-vega = { path = "../sg2d-vega" }
 serde_json = { version = "1.0.111" }
 dssim = "3.2.4"
 rstest = "0.18.2"
+colorgrad = "0.6.2"

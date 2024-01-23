@@ -58,3 +58,37 @@ pub enum ImageBaseline {
     Middle,
     Bottom,
 }
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ColorOrGradient {
+    Color([f32; 4]),
+    LinearGradient(LinearGradient),
+    RadialGradient(RadialGradient),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LinearGradient {
+    pub x0: f32,
+    pub y0: f32,
+    pub x1: f32,
+    pub y1: f32,
+    pub stops: Vec<GradientStop>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RadialGradient {
+    pub x0: f32,
+    pub y0: f32,
+    pub x1: f32,
+    pub y1: f32,
+    pub r0: f32,
+    pub r1: f32,
+    pub stops: Vec<GradientStop>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GradientStop {
+    pub offset: f32,
+    pub color: [f32; 4],
+}
