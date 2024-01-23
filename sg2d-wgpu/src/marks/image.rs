@@ -83,7 +83,7 @@ impl ImageShader {
                     // Current allocator is full
                     // Add previous batch
                     batches.push(TextureMarkBatch {
-                        indices: start_index..indices.len() as u32,
+                        indices_range: start_index..indices.len() as u32,
                         image: image::DynamicImage::ImageRgba8(texture_image),
                     });
 
@@ -210,7 +210,7 @@ impl ImageShader {
             indices.push(offset + 3);
         }
         batches.push(TextureMarkBatch {
-            indices: start_index..indices.len() as u32,
+            indices_range: start_index..indices.len() as u32,
             image: image::DynamicImage::ImageRgba8(texture_image),
         });
 
