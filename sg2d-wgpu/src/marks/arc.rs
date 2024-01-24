@@ -140,6 +140,7 @@ impl ArcInstance {
 pub struct ArcShader {
     verts: Vec<ArcVertex>,
     indices: Vec<u16>,
+    instances: Vec<ArcInstance>,
     uniform: ArcUniform,
     shader: String,
     vertex_entry_point: String,
@@ -147,7 +148,8 @@ pub struct ArcShader {
 }
 
 impl ArcShader {
-    pub fn new(dimensions: CanvasDimensions) -> Self {
+    pub fn from_arc_mark(mark: &ArcMark, dimensions: CanvasDimensions) -> Self {
+        let instances = ArcInstance::iter_from_spec(mark).collect::<Vec<_>>();
         Self {
             verts: vec![
                 ArcVertex {
@@ -164,6 +166,7 @@ impl ArcShader {
                 },
             ],
             indices: vec![0, 1, 2, 0, 2, 3],
+            instances,
             uniform: ArcUniform::new(dimensions),
             shader: include_str!("arc.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
@@ -183,6 +186,10 @@ impl InstancedMarkShader for ArcShader {
 
     fn indices(&self) -> &[u16] {
         self.indices.as_slice()
+    }
+
+    fn instances(&self) -> &[Self::Instance] {
+        self.instances.as_slice()
     }
 
     fn uniform(&self) -> Self::Uniform {

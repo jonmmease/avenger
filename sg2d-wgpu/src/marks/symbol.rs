@@ -111,6 +111,7 @@ impl SymbolInstance {
 pub struct SymbolShader {
     verts: Vec<SymbolVertex>,
     indices: Vec<u16>,
+    instances: Vec<SymbolInstance>,
     uniform: SymbolUniform,
     shader: String,
     vertex_entry_point: String,
@@ -118,12 +119,12 @@ pub struct SymbolShader {
 }
 
 impl SymbolShader {
-    pub fn try_new(
-        shapes: Vec<SymbolShape>,
+    pub fn from_symbol_mark(
+        mark: &SymbolMark,
         dimensions: CanvasDimensions,
-        has_fill: bool,
-        has_stroke: bool,
     ) -> Result<Self, Sg2dWgpuError> {
+        let shapes = &mark.shapes;
+        let has_stroke = mark.stroke_width.is_some();
         let mut verts: Vec<SymbolVertex> = Vec::new();
         let mut indices: Vec<u16> = Vec::new();
         for (shape_index, shape) in shapes.iter().enumerate() {
@@ -170,14 +171,12 @@ impl SymbolShader {
                         BuffersBuilder::new(&mut buffers, VertexPositions { shape_index });
 
                     // Tesselate fill
-                    if has_fill {
-                        let mut fill_tessellator = FillTessellator::new();
-                        let fill_options = FillOptions::default().with_tolerance(0.01);
-                        fill_tessellator.tessellate_path(path, &fill_options, &mut builder)?;
-                    }
+                    let mut fill_tessellator = FillTessellator::new();
+                    let fill_options = FillOptions::default().with_tolerance(0.01);
+                    fill_tessellator.tessellate_path(path, &fill_options, &mut builder)?;
 
                     // Tesselate stroke
-                    if has_stroke {
+                    if mark.stroke_width.is_some() {
                         let mut stroke_tessellator = StrokeTessellator::new();
                         let stroke_options = StrokeOptions::default()
                             .with_tolerance(0.01)
@@ -191,9 +190,11 @@ impl SymbolShader {
                 }
             }
         }
+        let instances = SymbolInstance::iter_from_spec(mark).collect::<Vec<_>>();
         Ok(Self {
             verts,
             indices,
+            instances,
             uniform: SymbolUniform::new(dimensions),
             shader: include_str!("symbol.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
@@ -213,6 +214,10 @@ impl InstancedMarkShader for SymbolShader {
 
     fn indices(&self) -> &[u16] {
         self.indices.as_slice()
+    }
+
+    fn instances(&self) -> &[Self::Instance] {
+        self.instances.as_slice()
     }
 
     fn uniform(&self) -> Self::Uniform {

@@ -13,15 +13,15 @@ use winit::event::WindowEvent;
 use winit::window::Window;
 
 use crate::error::Sg2dWgpuError;
-use crate::marks::arc::{ArcInstance, ArcShader};
+use crate::marks::arc::ArcShader;
 use crate::marks::basic_mark::BasicMarkRenderer;
 use crate::marks::image::ImageShader;
 use crate::marks::instanced_mark::InstancedMarkRenderer;
 use crate::marks::path::PathShader;
-use crate::marks::rect::{RectInstance, RectShader};
-use crate::marks::rule::{RuleInstance, RuleShader};
+use crate::marks::rect::RectShader;
+use crate::marks::rule::RuleShader;
 use crate::marks::symbol::{SymbolInstance, SymbolShader};
-use crate::marks::text::{TextInstance, TextMarkRenderer};
+use crate::marks::text::TextMarkRenderer;
 use crate::marks::texture_instanced_mark::TextureInstancedMarkRenderer;
 use crate::marks::texture_mark::TextureMarkRenderer;
 use sg2d::marks::arc::ArcMark;
@@ -78,13 +78,11 @@ pub trait Canvas {
     fn sample_count(&self) -> u32;
 
     fn add_arc_mark(&mut self, mark: &ArcMark) -> Result<(), Sg2dWgpuError> {
-        let instances = ArcInstance::iter_from_spec(mark).collect::<Vec<_>>();
         self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
             self.device(),
             self.texture_format(),
             self.sample_count(),
-            Box::new(ArcShader::new(self.dimensions())),
-            instances.as_slice(),
+            Box::new(ArcShader::from_arc_mark(mark, self.dimensions())),
         )));
         Ok(())
     }
@@ -130,55 +128,43 @@ pub trait Canvas {
     }
 
     fn add_symbol_mark(&mut self, mark: &SymbolMark) -> Result<(), Sg2dWgpuError> {
-        let instances = SymbolInstance::iter_from_spec(mark).collect::<Vec<_>>();
         self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
             self.device(),
             self.texture_format(),
             self.sample_count(),
-            Box::new(SymbolShader::try_new(
-                mark.shapes.clone(),
-                self.dimensions(),
-                true,
-                mark.stroke_width.is_some(),
-            )?),
-            instances.as_slice(),
+            Box::new(SymbolShader::from_symbol_mark(mark, self.dimensions())?),
         )));
         Ok(())
     }
 
     fn add_rect_mark(&mut self, mark: &RectMark) -> Result<(), Sg2dWgpuError> {
-        let instances = RectInstance::iter_from_spec(mark).collect::<Vec<_>>();
         self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
             self.device(),
             self.texture_format(),
             self.sample_count(),
-            Box::new(RectShader::new(self.dimensions())),
-            instances.as_slice(),
+            Box::new(RectShader::from_rect_mark(mark, self.dimensions())),
         )));
         Ok(())
     }
 
     fn add_rule_mark(&mut self, mark: &RuleMark) -> Result<(), Sg2dWgpuError> {
-        let instances = RuleInstance::iter_from_spec(mark).collect::<Vec<_>>();
         self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
             self.device(),
             self.texture_format(),
             self.sample_count(),
-            Box::new(RuleShader::new(self.dimensions())),
-            instances.as_slice(),
+            Box::new(RuleShader::from_rule_mark(mark, self.dimensions())),
         )));
         Ok(())
     }
 
     fn add_text_mark(&mut self, mark: &TextMark) -> Result<(), Sg2dWgpuError> {
-        let instances = TextInstance::iter_from_spec(mark).collect::<Vec<_>>();
         self.add_mark_renderer(MarkRenderer::Text(TextMarkRenderer::new(
             self.device(),
             self.queue(),
             self.texture_format(),
             self.dimensions(),
             self.sample_count(),
-            instances,
+            mark,
         )));
         Ok(())
     }

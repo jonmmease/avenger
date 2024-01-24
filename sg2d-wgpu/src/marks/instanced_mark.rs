@@ -8,6 +8,7 @@ pub trait InstancedMarkShader {
 
     fn verts(&self) -> &[Self::Vertex];
     fn indices(&self) -> &[u16];
+    fn instances(&self) -> &[Self::Instance];
     fn uniform(&self) -> Self::Uniform;
     fn shader(&self) -> &str;
     fn vertex_entry_point(&self) -> &str;
@@ -32,7 +33,6 @@ impl InstancedMarkRenderer {
         texture_format: TextureFormat,
         sample_count: u32,
         mark_shader: Box<dyn InstancedMarkShader<Instance = I, Vertex = V, Uniform = U>>,
-        instances: &[I],
     ) -> Self
     where
         I: bytemuck::Pod + bytemuck::Zeroable,
@@ -130,6 +130,7 @@ impl InstancedMarkRenderer {
         });
         let num_indices = mark_shader.indices().len() as u32;
 
+        let instances = mark_shader.instances();
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Instance Buffer"),
             contents: bytemuck::cast_slice(instances),
