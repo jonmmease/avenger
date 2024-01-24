@@ -1,3 +1,4 @@
+use crate::canvas::CanvasDimensions;
 use crate::error::Sg2dWgpuError;
 use crate::marks::basic_mark::BasicMarkShader;
 use itertools::izip;
@@ -15,6 +16,24 @@ use sg2d::marks::path::PathMark;
 use sg2d::marks::trail::TrailMark;
 use sg2d::marks::value::{StrokeCap, StrokeJoin};
 use wgpu::VertexBufferLayout;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PathUniform {
+    pub size: [f32; 2],
+    pub scale: f32,
+    _pad: [f32; 1], // Pad to 16 bytes
+}
+
+impl PathUniform {
+    pub fn new(dimensions: CanvasDimensions) -> Self {
+        Self {
+            size: dimensions.size,
+            scale: dimensions.scale,
+            _pad: [0.0],
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -41,13 +60,17 @@ impl PathVertex {
 pub struct PathShader {
     verts: Vec<PathVertex>,
     indices: Vec<u16>,
+    uniform: PathUniform,
     shader: String,
     vertex_entry_point: String,
     fragment_entry_point: String,
 }
 
 impl PathShader {
-    pub fn from_path_mark(mark: &PathMark) -> Result<Self, Sg2dWgpuError> {
+    pub fn from_path_mark(
+        mark: &PathMark,
+        dimensions: CanvasDimensions,
+    ) -> Result<Self, Sg2dWgpuError> {
         let mut verts: Vec<PathVertex> = Vec::new();
         let mut indices: Vec<u16> = Vec::new();
 
@@ -104,13 +127,17 @@ impl PathShader {
         Ok(Self {
             verts,
             indices,
+            uniform: PathUniform::new(dimensions),
             shader: include_str!("path.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
         })
     }
 
-    pub fn from_area_mark(mark: &AreaMark) -> Result<Self, Sg2dWgpuError> {
+    pub fn from_area_mark(
+        mark: &AreaMark,
+        dimensions: CanvasDimensions,
+    ) -> Result<Self, Sg2dWgpuError> {
         let mut path_builder = lyon::path::Path::builder().with_svg();
         let mut tail: Vec<(f32, f32)> = Vec::new();
 
@@ -208,13 +235,17 @@ impl PathShader {
         Ok(Self {
             verts: buffers.vertices,
             indices: buffers.indices,
+            uniform: PathUniform::new(dimensions),
             shader: include_str!("path.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
         })
     }
 
-    pub fn from_line_mark(mark: &LineMark) -> Result<Self, Sg2dWgpuError> {
+    pub fn from_line_mark(
+        mark: &LineMark,
+        dimensions: CanvasDimensions,
+    ) -> Result<Self, Sg2dWgpuError> {
         let mut defined_paths: Vec<Path> = Vec::new();
 
         // Build path for each defined line segment
@@ -333,13 +364,17 @@ impl PathShader {
         Ok(Self {
             verts,
             indices,
+            uniform: PathUniform::new(dimensions),
             shader: include_str!("path.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
         })
     }
 
-    pub fn from_trail_mark(mark: &TrailMark) -> Result<Self, Sg2dWgpuError> {
+    pub fn from_trail_mark(
+        mark: &TrailMark,
+        dimensions: CanvasDimensions,
+    ) -> Result<Self, Sg2dWgpuError> {
         let size_idx: AttributeIndex = 0;
         let mut path_builder = lyon::path::Path::builder_with_attributes(1);
         let mut path_len = 0;
@@ -395,6 +430,7 @@ impl PathShader {
         Ok(Self {
             verts: buffers.vertices,
             indices: buffers.indices,
+            uniform: PathUniform::new(dimensions),
             shader: include_str!("path.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
@@ -404,6 +440,7 @@ impl PathShader {
 
 impl BasicMarkShader for PathShader {
     type Vertex = PathVertex;
+    type Uniform = PathUniform;
 
     fn verts(&self) -> &[Self::Vertex] {
         self.verts.as_slice()
@@ -411,6 +448,10 @@ impl BasicMarkShader for PathShader {
 
     fn indices(&self) -> &[u16] {
         self.indices.as_slice()
+    }
+
+    fn uniform(&self) -> Self::Uniform {
+        self.uniform
     }
 
     fn shader(&self) -> &str {

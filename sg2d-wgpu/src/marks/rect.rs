@@ -1,8 +1,27 @@
+use crate::canvas::CanvasDimensions;
 use crate::marks::instanced_mark::InstancedMarkShader;
 use itertools::izip;
 use sg2d::marks::rect::RectMark;
 use sg2d::marks::value::ColorOrGradient;
 use wgpu::VertexBufferLayout;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct RectUniform {
+    pub size: [f32; 2],
+    pub scale: f32,
+    _pad: [f32; 1], // Pad to 16 bytes
+}
+
+impl RectUniform {
+    pub fn new(dimensions: CanvasDimensions) -> Self {
+        Self {
+            size: dimensions.size,
+            scale: dimensions.scale,
+            _pad: [0.0],
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -85,19 +104,14 @@ impl RectInstance {
 pub struct RectShader {
     verts: Vec<RectVertex>,
     indices: Vec<u16>,
+    uniform: RectUniform,
     shader: String,
     vertex_entry_point: String,
     fragment_entry_point: String,
 }
 
-impl Default for RectShader {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl RectShader {
-    pub fn new() -> Self {
+    pub fn new(dimensions: CanvasDimensions) -> Self {
         Self {
             verts: vec![
                 RectVertex {
@@ -114,6 +128,7 @@ impl RectShader {
                 },
             ],
             indices: vec![0, 1, 2, 0, 2, 3],
+            uniform: RectUniform::new(dimensions),
             shader: include_str!("rect.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
@@ -124,6 +139,7 @@ impl RectShader {
 impl InstancedMarkShader for RectShader {
     type Instance = RectInstance;
     type Vertex = RectVertex;
+    type Uniform = RectUniform;
 
     fn verts(&self) -> &[Self::Vertex] {
         self.verts.as_slice()
@@ -131,6 +147,10 @@ impl InstancedMarkShader for RectShader {
 
     fn indices(&self) -> &[u16] {
         self.indices.as_slice()
+    }
+
+    fn uniform(&self) -> Self::Uniform {
+        self.uniform
     }
 
     fn shader(&self) -> &str {

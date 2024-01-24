@@ -4,7 +4,7 @@ mod test_image_baselines {
     use rstest::rstest;
     use sg2d::scene_graph::SceneGraph;
     use sg2d_vega::scene_graph::VegaSceneGraph;
-    use sg2d_wgpu::canvas::{Canvas, PngCanvas};
+    use sg2d_wgpu::canvas::{Canvas, CanvasDimensions, PngCanvas};
     use std::fs;
     use std::path::Path;
 
@@ -136,8 +136,11 @@ mod test_image_baselines {
             .to_scene_graph()
             .expect("Failed to parse scene graph");
 
-        let mut png_canvas =
-            pollster::block_on(PngCanvas::new(scene_graph.width, scene_graph.height, 2.0)).unwrap();
+        let mut png_canvas = pollster::block_on(PngCanvas::new(CanvasDimensions {
+            size: [scene_graph.width, scene_graph.height],
+            scale: 2.0,
+        }))
+        .unwrap();
         png_canvas.set_scene(&scene_graph).unwrap();
         let img = pollster::block_on(png_canvas.render()).expect("Failed to render PNG image");
         let result_path = format!("{output_dir}/{category}-{spec_name}.png");

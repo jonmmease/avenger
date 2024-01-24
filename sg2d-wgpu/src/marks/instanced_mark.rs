@@ -1,13 +1,14 @@
-use crate::canvas::CanvasUniform;
 use wgpu::util::DeviceExt;
 use wgpu::{CommandBuffer, Device, TextureFormat, TextureView};
 
 pub trait InstancedMarkShader {
     type Instance: bytemuck::Pod + bytemuck::Zeroable;
     type Vertex: bytemuck::Pod + bytemuck::Zeroable;
+    type Uniform: bytemuck::Pod + bytemuck::Zeroable;
 
     fn verts(&self) -> &[Self::Vertex];
     fn indices(&self) -> &[u16];
+    fn uniform(&self) -> Self::Uniform;
     fn shader(&self) -> &str;
     fn vertex_entry_point(&self) -> &str;
     fn fragment_entry_point(&self) -> &str;
@@ -26,22 +27,22 @@ pub struct InstancedMarkRenderer {
 }
 
 impl InstancedMarkRenderer {
-    pub fn new<I, V>(
+    pub fn new<I, V, U>(
         device: &Device,
-        uniform: CanvasUniform,
         texture_format: TextureFormat,
         sample_count: u32,
-        mark_shader: Box<dyn InstancedMarkShader<Instance = I, Vertex = V>>,
+        mark_shader: Box<dyn InstancedMarkShader<Instance = I, Vertex = V, Uniform = U>>,
         instances: &[I],
     ) -> Self
     where
         I: bytemuck::Pod + bytemuck::Zeroable,
         V: bytemuck::Pod + bytemuck::Zeroable,
+        U: bytemuck::Pod + bytemuck::Zeroable,
     {
         // Uniforms
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Uniform Buffer"),
-            contents: bytemuck::cast_slice(&[uniform]),
+            contents: bytemuck::cast_slice(&[mark_shader.uniform()]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 

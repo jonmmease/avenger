@@ -1,3 +1,4 @@
+use crate::canvas::CanvasDimensions;
 use crate::error::Sg2dWgpuError;
 use crate::marks::texture_mark::{TextureMarkBatch, TextureMarkShader};
 use etagere::Size;
@@ -5,6 +6,24 @@ use itertools::izip;
 use sg2d::marks::image::ImageMark;
 use sg2d::marks::value::{ImageAlign, ImageBaseline};
 use wgpu::{Extent3d, FilterMode, VertexBufferLayout};
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ImageUniform {
+    pub size: [f32; 2],
+    pub scale: f32,
+    _pad: [f32; 1], // Pad to 16 bytes
+}
+
+impl ImageUniform {
+    pub fn new(dimensions: CanvasDimensions) -> Self {
+        Self {
+            size: dimensions.size,
+            scale: dimensions.scale,
+            _pad: [0.0],
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -31,6 +50,7 @@ impl ImageVertex {
 pub struct ImageShader {
     verts: Vec<ImageVertex>,
     indices: Vec<u16>,
+    uniform: ImageUniform,
     shader: String,
     vertex_entry_point: String,
     fragment_entry_point: String,
@@ -40,7 +60,10 @@ pub struct ImageShader {
 }
 
 impl ImageShader {
-    pub fn from_image_mark(mark: &ImageMark) -> Result<Self, Sg2dWgpuError> {
+    pub fn from_image_mark(
+        mark: &ImageMark,
+        dimensions: CanvasDimensions,
+    ) -> Result<Self, Sg2dWgpuError> {
         let mut verts: Vec<ImageVertex> = Vec::new();
         let mut indices: Vec<u16> = Vec::new();
         let mut batches: Vec<TextureMarkBatch> = Vec::new();
@@ -217,6 +240,7 @@ impl ImageShader {
         Ok(Self {
             verts,
             indices,
+            uniform: ImageUniform::new(dimensions),
             batches,
             texture_size,
             shader: include_str!("image.wgsl").to_string(),
@@ -233,6 +257,7 @@ impl ImageShader {
 
 impl TextureMarkShader for ImageShader {
     type Vertex = ImageVertex;
+    type Uniform = ImageUniform;
 
     fn verts(&self) -> &[Self::Vertex] {
         self.verts.as_slice()
@@ -240,6 +265,10 @@ impl TextureMarkShader for ImageShader {
 
     fn indices(&self) -> &[u16] {
         self.indices.as_slice()
+    }
+
+    fn uniform(&self) -> Self::Uniform {
+        self.uniform
     }
 
     fn shader(&self) -> &str {

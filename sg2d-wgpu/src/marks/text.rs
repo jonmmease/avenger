@@ -1,4 +1,4 @@
-use crate::canvas::CanvasUniform;
+use crate::canvas::CanvasDimensions;
 use glyphon::{
     Attrs, Buffer, Color, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache, TextArea,
     TextAtlas, TextBounds, TextRenderer, Weight,
@@ -90,15 +90,15 @@ pub struct TextMarkRenderer {
     pub atlas: TextAtlas,
     pub text_renderer: TextRenderer,
     pub instances: Vec<TextInstance>,
-    pub uniform: CanvasUniform,
+    pub dimensions: CanvasDimensions,
 }
 
 impl TextMarkRenderer {
     pub fn new(
         device: &Device,
         queue: &Queue,
-        uniform: CanvasUniform,
         texture_format: TextureFormat,
+        dimensions: CanvasDimensions,
         sample_count: u32,
         instances: Vec<TextInstance>,
     ) -> Self {
@@ -121,7 +121,7 @@ impl TextMarkRenderer {
             cache,
             atlas,
             text_renderer,
-            uniform,
+            dimensions,
             instances,
         }
     }
@@ -144,8 +144,8 @@ impl TextMarkRenderer {
                 let mut buffer = Buffer::new(
                     &mut self.font_system,
                     Metrics::new(
-                        instance.font_size * self.uniform.scale * font_size_scale,
-                        instance.font_size * self.uniform.scale * font_size_scale,
+                        instance.font_size * self.dimensions.scale * font_size_scale,
+                        instance.font_size * self.dimensions.scale * font_size_scale,
                     ),
                 );
                 let family = match instance.font.to_lowercase().as_str() {
@@ -170,8 +170,8 @@ impl TextMarkRenderer {
                 );
                 buffer.set_size(
                     &mut self.font_system,
-                    self.uniform.size[0] * self.uniform.scale,
-                    self.uniform.size[1] * self.uniform.scale,
+                    self.dimensions.size[0] * self.dimensions.scale,
+                    self.dimensions.size[1] * self.dimensions.scale,
                 );
                 buffer.shape_until_scroll(&mut self.font_system);
 
@@ -184,8 +184,8 @@ impl TextMarkRenderer {
             .zip(&self.instances)
             .map(|(buffer, instance)| {
                 let (width, line_y, height) = measure(buffer);
-                let scaled_x = instance.position[0] * self.uniform.scale;
-                let scaled_y = instance.position[1] * self.uniform.scale;
+                let scaled_x = instance.position[0] * self.dimensions.scale;
+                let scaled_y = instance.position[1] * self.dimensions.scale;
                 let left = match instance.align {
                     TextAlignSpec::Left => scaled_x,
                     TextAlignSpec::Center => scaled_x - width / 2.0,
@@ -202,7 +202,7 @@ impl TextMarkRenderer {
                 };
 
                 // Add half pixel for top baseline for better match with resvg
-                top += 0.5 * self.uniform.scale;
+                top += 0.5 * self.dimensions.scale;
 
                 TextArea {
                     buffer,
@@ -212,8 +212,8 @@ impl TextMarkRenderer {
                     bounds: TextBounds {
                         left: 0,
                         top: 0,
-                        right: (self.uniform.size[0] * self.uniform.scale) as i32,
-                        bottom: (self.uniform.size[1] * self.uniform.scale) as i32,
+                        right: (self.dimensions.size[0] * self.dimensions.scale) as i32,
+                        bottom: (self.dimensions.size[1] * self.dimensions.scale) as i32,
                     },
                     default_color: Color::rgba(
                         (instance.color[0] * 255.0) as u8,
@@ -234,8 +234,8 @@ impl TextMarkRenderer {
                 &mut self.font_system,
                 &mut self.atlas,
                 Resolution {
-                    width: (self.uniform.size[0] * self.uniform.scale) as u32,
-                    height: (self.uniform.size[1] * self.uniform.scale) as u32,
+                    width: self.dimensions.to_physical_width(),
+                    height: self.dimensions.to_physical_height(),
                 },
                 areas,
                 &mut self.cache,
