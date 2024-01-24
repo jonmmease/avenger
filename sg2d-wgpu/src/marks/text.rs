@@ -100,8 +100,9 @@ impl TextMarkRenderer {
         texture_format: TextureFormat,
         dimensions: CanvasDimensions,
         sample_count: u32,
-        instances: Vec<TextInstance>,
+        mark: &TextMark,
     ) -> Self {
+        let instances = TextInstance::iter_from_spec(mark).collect::<Vec<_>>();
         let font_system = FontSystem::new();
         let cache = SwashCache::new();
         let mut atlas = TextAtlas::new(device, queue, texture_format);

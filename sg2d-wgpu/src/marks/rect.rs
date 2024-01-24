@@ -104,6 +104,7 @@ impl RectInstance {
 pub struct RectShader {
     verts: Vec<RectVertex>,
     indices: Vec<u16>,
+    instances: Vec<RectInstance>,
     uniform: RectUniform,
     shader: String,
     vertex_entry_point: String,
@@ -111,7 +112,8 @@ pub struct RectShader {
 }
 
 impl RectShader {
-    pub fn new(dimensions: CanvasDimensions) -> Self {
+    pub fn from_rect_mark(mark: &RectMark, dimensions: CanvasDimensions) -> Self {
+        let instances = RectInstance::iter_from_spec(mark).collect::<Vec<_>>();
         Self {
             verts: vec![
                 RectVertex {
@@ -128,6 +130,7 @@ impl RectShader {
                 },
             ],
             indices: vec![0, 1, 2, 0, 2, 3],
+            instances,
             uniform: RectUniform::new(dimensions),
             shader: include_str!("rect.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
@@ -147,6 +150,10 @@ impl InstancedMarkShader for RectShader {
 
     fn indices(&self) -> &[u16] {
         self.indices.as_slice()
+    }
+
+    fn instances(&self) -> &[Self::Instance] {
+        self.instances.as_slice()
     }
 
     fn uniform(&self) -> Self::Uniform {
