@@ -1,9 +1,28 @@
+use crate::canvas::CanvasDimensions;
 use crate::marks::instanced_mark::InstancedMarkShader;
 use itertools::izip;
 use sg2d::marks::arc::ArcMark;
 use std::f32::consts::TAU;
 use std::mem;
 use wgpu::VertexBufferLayout;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ArcUniform {
+    pub size: [f32; 2],
+    pub scale: f32,
+    _pad: [f32; 1], // Pad to 16 bytes
+}
+
+impl ArcUniform {
+    pub fn new(dimensions: CanvasDimensions) -> Self {
+        Self {
+            size: dimensions.size,
+            scale: dimensions.scale,
+            _pad: [0.0],
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -121,19 +140,14 @@ impl ArcInstance {
 pub struct ArcShader {
     verts: Vec<ArcVertex>,
     indices: Vec<u16>,
+    uniform: ArcUniform,
     shader: String,
     vertex_entry_point: String,
     fragment_entry_point: String,
 }
 
-impl Default for ArcShader {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl ArcShader {
-    pub fn new() -> Self {
+    pub fn new(dimensions: CanvasDimensions) -> Self {
         Self {
             verts: vec![
                 ArcVertex {
@@ -150,6 +164,7 @@ impl ArcShader {
                 },
             ],
             indices: vec![0, 1, 2, 0, 2, 3],
+            uniform: ArcUniform::new(dimensions),
             shader: include_str!("arc.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
@@ -160,6 +175,7 @@ impl ArcShader {
 impl InstancedMarkShader for ArcShader {
     type Instance = ArcInstance;
     type Vertex = ArcVertex;
+    type Uniform = ArcUniform;
 
     fn verts(&self) -> &[Self::Vertex] {
         self.verts.as_slice()
@@ -167,6 +183,10 @@ impl InstancedMarkShader for ArcShader {
 
     fn indices(&self) -> &[u16] {
         self.indices.as_slice()
+    }
+
+    fn uniform(&self) -> Self::Uniform {
+        self.uniform
     }
 
     fn shader(&self) -> &str {

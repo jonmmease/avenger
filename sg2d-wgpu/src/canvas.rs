@@ -8,7 +8,7 @@ use wgpu::{
     TextureDimension, TextureFormat, TextureFormatFeatureFlags, TextureUsages, TextureView,
     TextureViewDescriptor,
 };
-use winit::dpi::{PhysicalSize, Size};
+use winit::dpi::Size;
 use winit::event::WindowEvent;
 use winit::window::Window;
 
@@ -35,14 +35,6 @@ use sg2d::{
     marks::symbol::SymbolMark, marks::text::TextMark, scene_graph::SceneGraph,
 };
 
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct CanvasUniform {
-    pub size: [f32; 2],
-    pub scale: f32,
-    _pad: [f32; 1], // Pad to 16 bytes
-}
-
 pub enum MarkRenderer {
     Basic(BasicMarkRenderer),
     Instanced(InstancedMarkRenderer),
@@ -51,15 +43,35 @@ pub enum MarkRenderer {
     Text(TextMarkRenderer),
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct CanvasDimensions {
+    pub size: [f32; 2],
+    pub scale: f32,
+}
+
+impl CanvasDimensions {
+    pub fn to_physical_width(&self) -> u32 {
+        (self.size[0] * self.scale) as u32
+    }
+
+    pub fn to_physical_height(&self) -> u32 {
+        (self.size[1] * self.scale) as u32
+    }
+
+    pub fn to_physical_size(&self) -> winit::dpi::PhysicalSize<u32> {
+        winit::dpi::PhysicalSize {
+            width: self.to_physical_width(),
+            height: self.to_physical_height(),
+        }
+    }
+}
+
 pub trait Canvas {
     fn add_mark_renderer(&mut self, mark_renderer: MarkRenderer);
     fn clear_mark_renderer(&mut self);
     fn device(&self) -> &Device;
     fn queue(&self) -> &Queue;
-    fn uniform(&self) -> &CanvasUniform;
-    fn scale(&self) -> f32;
-
-    fn set_uniform(&mut self, uniform: CanvasUniform);
+    fn dimensions(&self) -> CanvasDimensions;
 
     fn texture_format(&self) -> TextureFormat;
 
@@ -69,10 +81,9 @@ pub trait Canvas {
         let instances = ArcInstance::iter_from_spec(mark).collect::<Vec<_>>();
         self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
             self.device(),
-            *self.uniform(),
             self.texture_format(),
             self.sample_count(),
-            Box::new(ArcShader::new()),
+            Box::new(ArcShader::new(self.dimensions())),
             instances.as_slice(),
         )));
         Ok(())
@@ -81,10 +92,9 @@ pub trait Canvas {
     fn add_path_mark(&mut self, mark: &PathMark) -> Result<(), Sg2dWgpuError> {
         self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
             self.device(),
-            *self.uniform(),
             self.texture_format(),
             self.sample_count(),
-            Box::new(PathShader::from_path_mark(mark)?),
+            Box::new(PathShader::from_path_mark(mark, self.dimensions())?),
         )));
         Ok(())
     }
@@ -92,10 +102,9 @@ pub trait Canvas {
     fn add_line_mark(&mut self, mark: &LineMark) -> Result<(), Sg2dWgpuError> {
         self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
             self.device(),
-            *self.uniform(),
             self.texture_format(),
             self.sample_count(),
-            Box::new(PathShader::from_line_mark(mark)?),
+            Box::new(PathShader::from_line_mark(mark, self.dimensions())?),
         )));
         Ok(())
     }
@@ -103,10 +112,9 @@ pub trait Canvas {
     fn add_trail_mark(&mut self, mark: &TrailMark) -> Result<(), Sg2dWgpuError> {
         self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
             self.device(),
-            *self.uniform(),
             self.texture_format(),
             self.sample_count(),
-            Box::new(PathShader::from_trail_mark(mark)?),
+            Box::new(PathShader::from_trail_mark(mark, self.dimensions())?),
         )));
         Ok(())
     }
@@ -114,10 +122,9 @@ pub trait Canvas {
     fn add_area_mark(&mut self, mark: &AreaMark) -> Result<(), Sg2dWgpuError> {
         self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
             self.device(),
-            *self.uniform(),
             self.texture_format(),
             self.sample_count(),
-            Box::new(PathShader::from_area_mark(mark)?),
+            Box::new(PathShader::from_area_mark(mark, self.dimensions())?),
         )));
         Ok(())
     }
@@ -126,11 +133,11 @@ pub trait Canvas {
         let instances = SymbolInstance::iter_from_spec(mark).collect::<Vec<_>>();
         self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
             self.device(),
-            *self.uniform(),
             self.texture_format(),
             self.sample_count(),
             Box::new(SymbolShader::try_new(
                 mark.shapes.clone(),
+                self.dimensions(),
                 true,
                 mark.stroke_width.is_some(),
             )?),
@@ -143,10 +150,9 @@ pub trait Canvas {
         let instances = RectInstance::iter_from_spec(mark).collect::<Vec<_>>();
         self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
             self.device(),
-            *self.uniform(),
             self.texture_format(),
             self.sample_count(),
-            Box::new(RectShader::new()),
+            Box::new(RectShader::new(self.dimensions())),
             instances.as_slice(),
         )));
         Ok(())
@@ -156,10 +162,9 @@ pub trait Canvas {
         let instances = RuleInstance::iter_from_spec(mark).collect::<Vec<_>>();
         self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
             self.device(),
-            *self.uniform(),
             self.texture_format(),
             self.sample_count(),
-            Box::new(RuleShader::new()),
+            Box::new(RuleShader::new(self.dimensions())),
             instances.as_slice(),
         )));
         Ok(())
@@ -170,8 +175,8 @@ pub trait Canvas {
         self.add_mark_renderer(MarkRenderer::Text(TextMarkRenderer::new(
             self.device(),
             self.queue(),
-            *self.uniform(),
             self.texture_format(),
+            self.dimensions(),
             self.sample_count(),
             instances,
         )));
@@ -181,10 +186,9 @@ pub trait Canvas {
     fn add_image_mark(&mut self, mark: &ImageMark) -> Result<(), Sg2dWgpuError> {
         self.add_mark_renderer(MarkRenderer::Texture(TextureMarkRenderer::new(
             self.device(),
-            *self.uniform(),
             self.texture_format(),
             self.sample_count(),
-            Box::new(ImageShader::from_image_mark(mark)?),
+            Box::new(ImageShader::from_image_mark(mark, self.dimensions())?),
         )));
         Ok(())
     }
@@ -231,13 +235,6 @@ pub trait Canvas {
     }
 
     fn set_scene(&mut self, scene_graph: &SceneGraph) -> Result<(), Sg2dWgpuError> {
-        // Set uniforms
-        self.set_uniform(CanvasUniform {
-            size: [scene_graph.width, scene_graph.height],
-            scale: self.scale(),
-            _pad: [0.0],
-        });
-
         // Clear existing marks
         self.clear_mark_renderer();
 
@@ -374,26 +371,13 @@ pub struct WindowCanvas {
     multisampled_framebuffer: TextureView,
     sample_count: u32,
     config: SurfaceConfiguration,
-    size: winit::dpi::PhysicalSize<u32>,
-    scale: f32,
+    dimensions: CanvasDimensions,
     marks: Vec<MarkRenderer>,
-    uniform: CanvasUniform,
 }
 
 impl WindowCanvas {
-    pub async fn new(
-        window: Window,
-        width: f32,
-        height: f32,
-        scale: f32,
-    ) -> Result<Self, Sg2dWgpuError> {
-        window.set_inner_size(Size::Physical(PhysicalSize::new(
-            (width * scale) as u32,
-            (height * scale) as u32,
-        )));
-
-        let size = window.inner_size();
-
+    pub async fn new(window: Window, dimensions: CanvasDimensions) -> Result<Self, Sg2dWgpuError> {
+        window.set_inner_size(Size::Physical(dimensions.to_physical_size()));
         let instance = make_wgpu_instance();
         let surface = unsafe { instance.create_surface(&window) }?;
         let adapter = make_wgpu_adapter(&instance, Some(&surface)).await?;
@@ -412,8 +396,8 @@ impl WindowCanvas {
         let config = SurfaceConfiguration {
             usage: TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
-            width: size.width,
-            height: size.height,
+            width: dimensions.to_physical_width(),
+            height: dimensions.to_physical_height(),
             present_mode: surface_caps.present_modes[0],
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
@@ -430,12 +414,6 @@ impl WindowCanvas {
             sample_count,
         );
 
-        let uniform = CanvasUniform {
-            size: [size.width as f32, size.height as f32],
-            scale,
-            _pad: [0.0],
-        };
-
         Ok(Self {
             surface,
             device,
@@ -443,16 +421,14 @@ impl WindowCanvas {
             multisampled_framebuffer,
             sample_count,
             config,
-            size,
-            scale,
+            dimensions,
             window,
-            uniform,
             marks: Vec::new(),
         })
     }
 
     pub fn get_size(&self) -> winit::dpi::PhysicalSize<u32> {
-        self.size
+        self.dimensions.to_physical_size()
     }
 
     pub fn window(&self) -> &Window {
@@ -559,16 +535,8 @@ impl Canvas for WindowCanvas {
         &self.queue
     }
 
-    fn uniform(&self) -> &CanvasUniform {
-        &self.uniform
-    }
-
-    fn scale(&self) -> f32 {
-        self.scale
-    }
-
-    fn set_uniform(&mut self, uniform: CanvasUniform) {
-        self.uniform = uniform;
+    fn dimensions(&self) -> CanvasDimensions {
+        self.dimensions
     }
 
     fn texture_format(&self) -> TextureFormat {
@@ -586,35 +554,27 @@ pub struct PngCanvas {
     multisampled_framebuffer: TextureView,
     sample_count: u32,
     marks: Vec<MarkRenderer>,
-    uniform: CanvasUniform,
-    pub width: f32,
-    pub height: f32,
-    pub scale: f32,
+    pub dimensions: CanvasDimensions,
     pub texture_view: TextureView,
     pub output_buffer: Buffer,
     pub texture: Texture,
     pub texture_size: Extent3d,
     pub padded_width: u32,
     pub padded_height: u32,
-    pub physical_width: f32,
-    pub physical_height: f32,
 }
 
 impl PngCanvas {
-    pub async fn new(width: f32, height: f32, scale: f32) -> Result<Self, Sg2dWgpuError> {
+    pub async fn new(dimensions: CanvasDimensions) -> Result<Self, Sg2dWgpuError> {
         let instance = make_wgpu_instance();
         let adapter = make_wgpu_adapter(&instance, None).await?;
         let (device, queue) = request_wgpu_device(&adapter).await?;
         let texture_format = TextureFormat::Rgba8Unorm;
         let format_flags = adapter.get_texture_format_features(texture_format).flags;
         let sample_count = get_supported_sample_count(format_flags);
-
-        let physical_width = width * scale;
-        let physical_height = height * scale;
         let texture_desc = TextureDescriptor {
             size: Extent3d {
-                width: physical_width as u32,
-                height: physical_height as u32,
+                width: dimensions.to_physical_width(),
+                height: dimensions.to_physical_height(),
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -634,8 +594,9 @@ impl PngCanvas {
 
         // Width and height must be padded to multiple of 256 for copying image buffer
         // from/to GPU texture
-        let padded_width = (256.0 * (physical_width / 256.0).ceil()) as u32;
-        let padded_height = (256.0 * (physical_height / 256.0).ceil()) as u32;
+        let padded_width = (256.0 * (dimensions.to_physical_width() as f32 / 256.0).ceil()) as u32;
+        let padded_height =
+            (256.0 * (dimensions.to_physical_height() as f32 / 256.0).ceil()) as u32;
 
         let output_buffer_size = (u32_size * padded_width * padded_height) as BufferAddress;
         let output_buffer_desc = BufferDescriptor {
@@ -648,16 +609,10 @@ impl PngCanvas {
         };
         let output_buffer = device.create_buffer(&output_buffer_desc);
 
-        let uniform = CanvasUniform {
-            size: [width, height],
-            scale,
-            _pad: [0.0],
-        };
-
         let multisampled_framebuffer = create_multisampled_framebuffer(
             &device,
-            physical_width as u32,
-            physical_height as u32,
+            dimensions.to_physical_width(),
+            dimensions.to_physical_height(),
             texture_format,
             sample_count,
         );
@@ -667,12 +622,7 @@ impl PngCanvas {
             queue,
             multisampled_framebuffer,
             sample_count,
-            width,
-            height,
-            scale,
-            physical_width,
-            physical_height,
-            uniform,
+            dimensions,
             texture,
             texture_view,
             output_buffer,
@@ -815,8 +765,8 @@ impl PngCanvas {
                 &img_buf,
                 0,
                 0,
-                self.physical_width as u32,
-                self.physical_height as u32,
+                self.dimensions.to_physical_width(),
+                self.dimensions.to_physical_height(),
             );
             cropped_img.to_image()
         };
@@ -843,16 +793,8 @@ impl Canvas for PngCanvas {
         &self.queue
     }
 
-    fn uniform(&self) -> &CanvasUniform {
-        &self.uniform
-    }
-
-    fn scale(&self) -> f32 {
-        self.scale
-    }
-
-    fn set_uniform(&mut self, uniform: CanvasUniform) {
-        self.uniform = uniform;
+    fn dimensions(&self) -> CanvasDimensions {
+        self.dimensions
     }
 
     fn texture_format(&self) -> TextureFormat {

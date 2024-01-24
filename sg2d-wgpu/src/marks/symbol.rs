@@ -1,3 +1,4 @@
+use crate::canvas::CanvasDimensions;
 use crate::error::Sg2dWgpuError;
 use crate::marks::instanced_mark::InstancedMarkShader;
 use itertools::izip;
@@ -12,6 +13,24 @@ use wgpu::VertexBufferLayout;
 const FILL_KIND: u32 = 0;
 const STROKE_KIND: u32 = 1;
 const CIRCLE_KIND: u32 = 2;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SymbolUniform {
+    pub size: [f32; 2],
+    pub scale: f32,
+    _pad: [f32; 1], // Pad to 16 bytes
+}
+
+impl SymbolUniform {
+    pub fn new(dimensions: CanvasDimensions) -> Self {
+        Self {
+            size: dimensions.size,
+            scale: dimensions.scale,
+            _pad: [0.0],
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -92,6 +111,7 @@ impl SymbolInstance {
 pub struct SymbolShader {
     verts: Vec<SymbolVertex>,
     indices: Vec<u16>,
+    uniform: SymbolUniform,
     shader: String,
     vertex_entry_point: String,
     fragment_entry_point: String,
@@ -100,6 +120,7 @@ pub struct SymbolShader {
 impl SymbolShader {
     pub fn try_new(
         shapes: Vec<SymbolShape>,
+        dimensions: CanvasDimensions,
         has_fill: bool,
         has_stroke: bool,
     ) -> Result<Self, Sg2dWgpuError> {
@@ -173,6 +194,7 @@ impl SymbolShader {
         Ok(Self {
             verts,
             indices,
+            uniform: SymbolUniform::new(dimensions),
             shader: include_str!("symbol.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
@@ -183,6 +205,7 @@ impl SymbolShader {
 impl InstancedMarkShader for SymbolShader {
     type Instance = SymbolInstance;
     type Vertex = SymbolVertex;
+    type Uniform = SymbolUniform;
 
     fn verts(&self) -> &[Self::Vertex] {
         self.verts.as_slice()
@@ -190,6 +213,10 @@ impl InstancedMarkShader for SymbolShader {
 
     fn indices(&self) -> &[u16] {
         self.indices.as_slice()
+    }
+
+    fn uniform(&self) -> Self::Uniform {
+        self.uniform
     }
 
     fn shader(&self) -> &str {
