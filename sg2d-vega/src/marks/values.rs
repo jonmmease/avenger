@@ -1,6 +1,6 @@
 use crate::error::VegaSceneGraphError;
 use serde::{Deserialize, Serialize};
-use sg2d::marks::value::{ColorOrGradient, GradientStop, LinearGradient, RadialGradient};
+use sg2d::marks::value::{ColorOrGradient, Gradient, GradientStop, LinearGradient, RadialGradient};
 use std::borrow::Cow;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -50,26 +50,30 @@ impl CssColorOrGradient {
                 ]))
             }
             CssColorOrGradient::Gradient(grad) => Ok(match grad.gradient {
-                VegaGradientType::Linear => ColorOrGradient::LinearGradient(LinearGradient {
-                    x0: grad.x1.unwrap_or(0.0),
-                    y0: grad.y1.unwrap_or(0.0),
-                    x1: grad.x2.unwrap_or(1.0),
-                    y1: grad.y2.unwrap_or(0.0),
-                    stops: grad
-                        .stops
-                        .iter()
-                        .map(|s| s.to_grad_stop(opacity))
-                        .collect::<Result<Vec<_>, VegaSceneGraphError>>()?,
-                }),
-                VegaGradientType::Radial => ColorOrGradient::RadialGradient(RadialGradient {
-                    x0: grad.x1.unwrap_or(0.5),
-                    y0: grad.y1.unwrap_or(0.5),
-                    x1: grad.x2.unwrap_or(0.5),
-                    y1: grad.y2.unwrap_or(0.5),
-                    r0: grad.r1.unwrap_or(0.0),
-                    r1: grad.r2.unwrap_or(0.5),
-                    stops: vec![],
-                }),
+                VegaGradientType::Linear => {
+                    ColorOrGradient::Gradient(Gradient::LinearGradient(LinearGradient {
+                        x0: grad.x1.unwrap_or(0.0),
+                        y0: grad.y1.unwrap_or(0.0),
+                        x1: grad.x2.unwrap_or(1.0),
+                        y1: grad.y2.unwrap_or(0.0),
+                        stops: grad
+                            .stops
+                            .iter()
+                            .map(|s| s.to_grad_stop(opacity))
+                            .collect::<Result<Vec<_>, VegaSceneGraphError>>()?,
+                    }))
+                }
+                VegaGradientType::Radial => {
+                    ColorOrGradient::Gradient(Gradient::RadialGradient(RadialGradient {
+                        x0: grad.x1.unwrap_or(0.5),
+                        y0: grad.y1.unwrap_or(0.5),
+                        x1: grad.x2.unwrap_or(0.5),
+                        y1: grad.y2.unwrap_or(0.5),
+                        r0: grad.r1.unwrap_or(0.0),
+                        r1: grad.r2.unwrap_or(0.5),
+                        stops: vec![],
+                    }))
+                }
             }),
         }
     }

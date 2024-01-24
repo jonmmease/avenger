@@ -63,8 +63,23 @@ pub enum ImageBaseline {
 #[serde(untagged)]
 pub enum ColorOrGradient {
     Color([f32; 4]),
+    Gradient(Gradient),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Gradient {
     LinearGradient(LinearGradient),
     RadialGradient(RadialGradient),
+}
+
+impl Gradient {
+    pub fn stops(&self) -> &[GradientStop] {
+        match self {
+            Gradient::LinearGradient(grad) => grad.stops.as_slice(),
+            Gradient::RadialGradient(grad) => grad.stops.as_slice(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
