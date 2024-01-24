@@ -15,12 +15,13 @@ use winit::window::Window;
 use crate::error::Sg2dWgpuError;
 use crate::marks::arc::ArcShader;
 use crate::marks::basic_mark::BasicMarkRenderer;
+use crate::marks::gradient_rect::GradientRectShader;
 use crate::marks::image::ImageShader;
 use crate::marks::instanced_mark::InstancedMarkRenderer;
 use crate::marks::path::PathShader;
 use crate::marks::rect::RectShader;
 use crate::marks::rule::RuleShader;
-use crate::marks::symbol::{SymbolInstance, SymbolShader};
+use crate::marks::symbol::SymbolShader;
 use crate::marks::text::TextMarkRenderer;
 use crate::marks::texture_instanced_mark::TextureInstancedMarkRenderer;
 use crate::marks::texture_mark::TextureMarkRenderer;
@@ -138,12 +139,22 @@ pub trait Canvas {
     }
 
     fn add_rect_mark(&mut self, mark: &RectMark) -> Result<(), Sg2dWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
-            self.device(),
-            self.texture_format(),
-            self.sample_count(),
-            Box::new(RectShader::from_rect_mark(mark, self.dimensions())),
-        )));
+        // self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
+        //     self.device(),
+        //     self.texture_format(),
+        //     self.sample_count(),
+        //     Box::new(RectShader::from_rect_mark(mark, self.dimensions())),
+        // )));
+
+        // Use gradient version
+        self.add_mark_renderer(MarkRenderer::TextureInstanced(
+            TextureInstancedMarkRenderer::new(
+                self.device(),
+                self.texture_format(),
+                self.sample_count(),
+                Box::new(GradientRectShader::from_rect_mark(mark, self.dimensions())),
+            ),
+        ));
         Ok(())
     }
 

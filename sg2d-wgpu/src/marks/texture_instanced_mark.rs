@@ -15,6 +15,7 @@ pub trait TextureInstancedMarkShader {
 
     fn verts(&self) -> &[Self::Vertex];
     fn indices(&self) -> &[u16];
+    fn instances(&self) -> &[Self::Instance];
     fn uniform(&self) -> Self::Uniform;
     fn batches(&self) -> &[InstancedTextureMarkBatch];
     fn texture_size(&self) -> Extent3d;
@@ -55,7 +56,6 @@ impl TextureInstancedMarkRenderer {
         texture_format: TextureFormat,
         sample_count: u32,
         mark_shader: Box<dyn TextureInstancedMarkShader<Instance = I, Vertex = V, Uniform = U>>,
-        instances: &[I],
     ) -> Self
     where
         I: bytemuck::Pod + bytemuck::Zeroable,
@@ -220,7 +220,7 @@ impl TextureInstancedMarkRenderer {
 
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Instance Buffer"),
-            contents: bytemuck::cast_slice(instances),
+            contents: bytemuck::cast_slice(mark_shader.instances()),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
