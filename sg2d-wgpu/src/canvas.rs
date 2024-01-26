@@ -128,12 +128,14 @@ pub trait Canvas {
     }
 
     fn add_symbol_mark(&mut self, mark: &SymbolMark) -> Result<(), Sg2dWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
-            self.device(),
-            self.texture_format(),
-            self.sample_count(),
-            Box::new(SymbolShader::from_symbol_mark(mark, self.dimensions())?),
-        )));
+        self.add_mark_renderer(MarkRenderer::TextureInstanced(
+            TextureInstancedMarkRenderer::new(
+                self.device(),
+                self.texture_format(),
+                self.sample_count(),
+                Box::new(SymbolShader::from_symbol_mark(mark, self.dimensions())?),
+            ),
+        ));
         Ok(())
     }
 
