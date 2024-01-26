@@ -1,5 +1,5 @@
 {
-  "width": 461,
+  "width": 462,
   "height": 166,
   "origin": [
     5,
@@ -3057,9 +3057,9 @@
                             "items": [
                               {
                                 "fill": "#000",
-                                "font": "sans-serif",
                                 "fontSize": 10,
                                 "opacity": 1,
+                                "font": "Courier",
                                 "align": "left",
                                 "baseline": "bottom",
                                 "y": 156,
@@ -3068,9 +3068,9 @@
                               },
                               {
                                 "fill": "#000",
-                                "font": "sans-serif",
                                 "fontSize": 10,
                                 "opacity": 1,
+                                "font": "Courier",
                                 "align": "left",
                                 "baseline": "top",
                                 "y": 0,
@@ -3095,7 +3095,7 @@
                 "orient": "right",
                 "x": 421,
                 "y": 0,
-                "width": 30,
+                "width": 31,
                 "height": 156
               }
             ],

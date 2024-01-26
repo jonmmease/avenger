@@ -93,6 +93,9 @@
     }
   ],
   "legends": [
-    {"fill": "color", "gradientLength": {"signal": "clamp(height, 64, 200)"}}
+    {"fill": "color",
+      "gradientLength": {"signal": "clamp(height, 64, 200)"},
+      "labelFont": "Courier"
+    }
   ]
 }

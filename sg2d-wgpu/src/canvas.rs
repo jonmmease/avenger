@@ -19,7 +19,6 @@ use crate::marks::gradient_rect::GradientRectShader;
 use crate::marks::image::ImageShader;
 use crate::marks::instanced_mark::InstancedMarkRenderer;
 use crate::marks::path::PathShader;
-use crate::marks::rect::RectShader;
 use crate::marks::rule::RuleShader;
 use crate::marks::symbol::SymbolShader;
 use crate::marks::text::TextMarkRenderer;
