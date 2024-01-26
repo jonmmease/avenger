@@ -4,7 +4,7 @@ use crate::marks::values::CssColorOrGradient;
 use serde::{Deserialize, Serialize};
 use sg2d::marks::mark::SceneMark;
 use sg2d::marks::rect::RectMark;
-use sg2d::marks::value::{ColorOrGradient, EncodingValue};
+use sg2d::marks::value::{ColorOrGradient, EncodingValue, Gradient};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -48,6 +48,7 @@ impl VegaMarkContainer<VegaRectItem> {
         let mut stroke_width = Vec::<f32>::new();
         let mut corner_radius = Vec::<f32>::new();
         let mut zindex = Vec::<i32>::new();
+        let mut gradients = Vec::<Gradient>::new();
 
         // For each item, append explicit values to corresponding vector
         for item in &self.items {
@@ -61,11 +62,11 @@ impl VegaMarkContainer<VegaRectItem> {
             }
             if let Some(v) = &item.fill {
                 let opacity = item.fill_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
-                fill.push(v.to_color_or_grad(opacity)?);
+                fill.push(v.to_color_or_grad(opacity, &mut gradients)?);
             }
             if let Some(v) = &item.stroke {
                 let opacity = item.stroke_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
-                stroke.push(v.to_color_or_grad(opacity)?);
+                stroke.push(v.to_color_or_grad(opacity, &mut gradients)?);
             }
             if let Some(v) = item.stroke_width {
                 stroke_width.push(v);
@@ -115,6 +116,8 @@ impl VegaMarkContainer<VegaRectItem> {
             indices.sort_by_key(|i| zindex[*i]);
             mark.indices = Some(indices);
         }
+
+        mark.gradients = gradients;
 
         Ok(SceneMark::Rect(mark))
     }
