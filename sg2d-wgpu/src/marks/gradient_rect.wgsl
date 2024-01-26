@@ -84,6 +84,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let scaled_stroke_width = in.stroke_width * chart_uniforms.scale;
     let frag_xy = vec2<f32>(in.clip_position[0], in.clip_position[1]);
 
+    // Compute fill and stroke, potentially based on gradient
+    let fill = lookup_color(in.fill, in.clip_position, in.outer_top_left, in.outer_bottom_right);
+    let stroke = lookup_color(in.stroke, in.clip_position, in.outer_top_left, in.outer_bottom_right);
+
     if (scaled_radius > 0.0) {
         // has rounded corners
         let inner_bottom_left = vec2<f32>(in.inner_top_left[0], in.inner_bottom_right[1]);
@@ -114,16 +118,21 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             }
 
             let stroke_radius = scaled_radius + scaled_stroke_width / 2.0;
-            let alpha_factor = 1.0 - smoothstep(stroke_radius - buffer, stroke_radius + buffer, dist);
+            let outer_factor = 1.0 - smoothstep(stroke_radius - buffer, stroke_radius + buffer, dist);
 
             let inner_radius = scaled_radius - scaled_stroke_width / 2.0;
-            let mix_factor = 1.0 - smoothstep(inner_radius - buffer, inner_radius + buffer, dist);
-            var mixed_color: vec4<f32> = mix(
-                lookup_color(in.stroke, in.clip_position, in.outer_top_left, in.outer_bottom_right),
-                lookup_color(in.fill, in.clip_position, in.outer_top_left, in.outer_bottom_right),
-                mix_factor
-            );
-            mixed_color[3] *= alpha_factor;
+            let inner_factor = 1.0 - smoothstep(inner_radius - buffer, inner_radius + buffer, dist);
+
+            var mixed_color: vec4<f32>;
+
+            if (fill[3] == 0.0) {
+                mixed_color = stroke;
+                mixed_color[3] *= outer_factor * (1.0 - inner_factor);
+            } else {
+                mixed_color = mix(stroke, fill, inner_factor);
+                mixed_color[3] *= outer_factor;
+            }
+
             return mixed_color;
         } else {
             var dist: f32 = scaled_radius;
@@ -137,11 +146,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 dist = distance(inner_top_right, frag_xy);
             } else {
                 // skip anit-aliasing when not in a corner
-                return lookup_color(in.fill, in.clip_position, in.outer_top_left, in.outer_bottom_right);
+                return fill;
             }
 
             let alpha_factor = 1.0 - smoothstep(scaled_radius - buffer, scaled_radius + buffer, dist);
-            var color: vec4<f32> = lookup_color(in.fill, in.clip_position, in.outer_top_left, in.outer_bottom_right);
+            var color: vec4<f32> = fill;
             color[3] *= alpha_factor;
             return color;
         }
@@ -156,13 +165,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
             let in_stroke = in_left_stroke || in_right_stroke || in_bottom_stroke || in_top_stroke;
             if (in_stroke) {
-                return lookup_color(in.stroke, in.clip_position, in.outer_top_left, in.outer_bottom_right);
+                return stroke;
             } else {
-                return lookup_color(in.fill, in.clip_position, in.outer_top_left, in.outer_bottom_right);
+                return fill;
             }
         } else {
             // no stroke
-            return lookup_color(in.fill, in.clip_position, in.outer_top_left, in.outer_bottom_right);
+            return fill;
         }
     }
 }
