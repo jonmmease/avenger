@@ -1,10 +1,10 @@
 use crate::error::VegaSceneGraphError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
-use crate::marks::values::StrokeDashSpec;
+use crate::marks::values::{CssColorOrGradient, StrokeDashSpec};
 use serde::{Deserialize, Serialize};
 use sg2d::marks::area::{AreaMark, AreaOrientation};
 use sg2d::marks::mark::SceneMark;
-use sg2d::marks::value::{EncodingValue, StrokeCap, StrokeJoin};
+use sg2d::marks::value::{ColorOrGradient, EncodingValue, Gradient, StrokeCap, StrokeJoin};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -15,11 +15,11 @@ pub struct VegaAreaItem {
     pub y2: Option<f32>,
     pub orient: Option<AreaOrientation>,
     pub defined: Option<bool>,
-    pub fill: Option<String>,
+    pub fill: Option<CssColorOrGradient>,
     pub fill_opacity: Option<f32>,
     pub stroke_cap: Option<StrokeCap>,
     pub stroke_join: Option<StrokeJoin>,
-    pub stroke: Option<String>,
+    pub stroke: Option<CssColorOrGradient>,
     pub stroke_opacity: Option<f32>,
     pub stroke_width: Option<f32>,
     pub stroke_dash: Option<StrokeDashSpec>,
@@ -38,26 +38,25 @@ impl VegaMarkContainer<VegaAreaItem> {
 
         // Parse stroke color
         let mut stroke_width = 0.0;
-        let mut stroke = [0.0, 0.0, 0.0, 1.0];
-        let mut fill = [0.0, 0.0, 0.0, 0.0];
+        let mut stroke = ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]);
+        let mut fill = ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]);
         let mut stroke_dash: Option<Vec<f32>> = None;
+        let mut gradients = Vec::<Gradient>::new();
 
         if let Some(item) = &first {
             if let Some(stroke_css) = &item.stroke {
-                let c = csscolorparser::parse(stroke_css)?;
                 let base_opacity = item.opacity.unwrap_or(1.0);
-                let stroke_opacity = c.a as f32 * item.stroke_opacity.unwrap_or(1.0) * base_opacity;
-                stroke = [c.r as f32, c.g as f32, c.b as f32, stroke_opacity];
+                let stroke_opacity = item.stroke_opacity.unwrap_or(1.0) * base_opacity;
+                stroke = stroke_css.to_color_or_grad(stroke_opacity, &mut gradients)?;
                 stroke_width = item.stroke_width.unwrap_or(1.0);
             }
             if let Some(d) = &item.stroke_dash {
                 stroke_dash = Some(d.to_array()?.to_vec());
             }
             if let Some(fill_css) = &item.fill {
-                let c = csscolorparser::parse(fill_css)?;
                 let base_opacity = item.opacity.unwrap_or(1.0);
-                let fill_opacity = c.a as f32 * item.fill_opacity.unwrap_or(1.0) * base_opacity;
-                fill = [c.r as f32, c.g as f32, c.b as f32, fill_opacity]
+                let fill_opacity = item.fill_opacity.unwrap_or(1.0) * base_opacity;
+                fill = fill_css.to_color_or_grad(fill_opacity, &mut gradients)?;
             }
         }
 
@@ -113,6 +112,7 @@ impl VegaMarkContainer<VegaAreaItem> {
         if defined.len() == len {
             mark.defined = EncodingValue::Array { values: defined };
         }
+        mark.gradients = gradients;
 
         Ok(SceneMark::Area(mark))
     }

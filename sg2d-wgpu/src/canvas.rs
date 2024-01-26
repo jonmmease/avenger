@@ -15,10 +15,10 @@ use winit::window::Window;
 use crate::error::Sg2dWgpuError;
 use crate::marks::arc::ArcShader;
 use crate::marks::basic_mark::BasicMarkRenderer;
-use crate::marks::rect::RectShader;
 use crate::marks::image::ImageShader;
 use crate::marks::instanced_mark::InstancedMarkRenderer;
 use crate::marks::path::PathShader;
+use crate::marks::rect::RectShader;
 use crate::marks::rule::RuleShader;
 use crate::marks::symbol::SymbolShader;
 use crate::marks::text::TextMarkRenderer;
@@ -88,7 +88,7 @@ pub trait Canvas {
     }
 
     fn add_path_mark(&mut self, mark: &PathMark) -> Result<(), Sg2dWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
+        self.add_mark_renderer(MarkRenderer::Texture(TextureMarkRenderer::new(
             self.device(),
             self.texture_format(),
             self.sample_count(),
@@ -98,7 +98,7 @@ pub trait Canvas {
     }
 
     fn add_line_mark(&mut self, mark: &LineMark) -> Result<(), Sg2dWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
+        self.add_mark_renderer(MarkRenderer::Texture(TextureMarkRenderer::new(
             self.device(),
             self.texture_format(),
             self.sample_count(),
@@ -108,7 +108,7 @@ pub trait Canvas {
     }
 
     fn add_trail_mark(&mut self, mark: &TrailMark) -> Result<(), Sg2dWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
+        self.add_mark_renderer(MarkRenderer::Texture(TextureMarkRenderer::new(
             self.device(),
             self.texture_format(),
             self.sample_count(),
@@ -118,7 +118,7 @@ pub trait Canvas {
     }
 
     fn add_area_mark(&mut self, mark: &AreaMark) -> Result<(), Sg2dWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
+        self.add_mark_renderer(MarkRenderer::Texture(TextureMarkRenderer::new(
             self.device(),
             self.texture_format(),
             self.sample_count(),

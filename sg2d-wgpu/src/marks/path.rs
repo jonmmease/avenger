@@ -1,7 +1,10 @@
 use crate::canvas::CanvasDimensions;
 use crate::error::Sg2dWgpuError;
-use crate::marks::basic_mark::BasicMarkShader;
+use crate::marks::gradient::to_color_or_gradient_coord;
+use crate::marks::rect::build_gradients_image;
+use crate::marks::texture_mark::{TextureMarkBatch, TextureMarkShader};
 use itertools::izip;
+use lyon::algorithms::aabb::bounding_box;
 use lyon::algorithms::measure::{PathMeasurements, PathSampler, SampleType};
 use lyon::lyon_tessellation::{
     BuffersBuilder, FillOptions, FillTessellator, FillVertex, FillVertexConstructor, StrokeOptions,
@@ -15,7 +18,7 @@ use sg2d::marks::line::LineMark;
 use sg2d::marks::path::PathMark;
 use sg2d::marks::trail::TrailMark;
 use sg2d::marks::value::{StrokeCap, StrokeJoin};
-use wgpu::VertexBufferLayout;
+use wgpu::{Extent3d, VertexBufferLayout};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -40,11 +43,15 @@ impl PathUniform {
 pub struct PathVertex {
     pub position: [f32; 2],
     pub color: [f32; 4],
+    pub top_left: [f32; 2],
+    pub bottom_right: [f32; 2],
 }
 
-const VERTEX_ATTRIBUTES: [wgpu::VertexAttribute; 2] = wgpu::vertex_attr_array![
+const VERTEX_ATTRIBUTES: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
     0 => Float32x2,     // position
     1 => Float32x4,     // color
+    2 => Float32x2,     // top_left
+    3 => Float32x2,     // bottom_right
 ];
 
 impl PathVertex {
@@ -61,6 +68,7 @@ pub struct PathShader {
     verts: Vec<PathVertex>,
     indices: Vec<u16>,
     uniform: PathUniform,
+    batches: Vec<TextureMarkBatch>,
     shader: String,
     vertex_entry_point: String,
     fragment_entry_point: String,
@@ -71,6 +79,7 @@ impl PathShader {
         mark: &PathMark,
         dimensions: CanvasDimensions,
     ) -> Result<Self, Sg2dWgpuError> {
+        let gradients_image = build_gradients_image(&[]);
         let mut verts: Vec<PathVertex> = Vec::new();
         let mut indices: Vec<u16> = Vec::new();
 
@@ -83,6 +92,7 @@ impl PathShader {
         ) {
             // Apply transform to path
             let path = path.clone().transformed(transform);
+            let bbox = bounding_box(&path);
 
             // Create vertex/index buffer builder
             let mut buffers: VertexBuffers<PathVertex, u16> = VertexBuffers::new();
@@ -91,6 +101,8 @@ impl PathShader {
                 VertexPositions {
                     fill: *fill,
                     stroke: *stroke,
+                    top_left: bbox.min.to_array(),
+                    bottom_right: bbox.max.to_array(),
                 },
             );
 
@@ -124,10 +136,15 @@ impl PathShader {
             indices.extend(buffers.indices.into_iter().map(|i| i + index_offset));
         }
 
+        let indices_range = 0..indices.len() as u32;
         Ok(Self {
             verts,
             indices,
             uniform: PathUniform::new(dimensions),
+            batches: vec![TextureMarkBatch {
+                indices_range,
+                image: image::DynamicImage::ImageRgba8(gradients_image),
+            }],
             shader: include_str!("path.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
@@ -138,6 +155,9 @@ impl PathShader {
         mark: &AreaMark,
         dimensions: CanvasDimensions,
     ) -> Result<Self, Sg2dWgpuError> {
+        // Handle gradients:
+        let gradients_image = build_gradients_image(&mark.gradients);
+
         let mut path_builder = lyon::path::Path::builder().with_svg();
         let mut tail: Vec<(f32, f32)> = Vec::new();
 
@@ -197,14 +217,17 @@ impl PathShader {
 
         close_area(&mut path_builder, &mut tail);
         let path = path_builder.build();
+        let bbox = bounding_box(&path);
 
         // Create vertex/index buffer builder
         let mut buffers: VertexBuffers<PathVertex, u16> = VertexBuffers::new();
         let mut buffers_builder = BuffersBuilder::new(
             &mut buffers,
             VertexPositions {
-                fill: mark.fill,
-                stroke: mark.stroke,
+                fill: to_color_or_gradient_coord(&mark.fill),
+                stroke: to_color_or_gradient_coord(&mark.stroke),
+                top_left: bbox.min.to_array(),
+                bottom_right: bbox.max.to_array(),
             },
         );
 
@@ -232,10 +255,15 @@ impl PathShader {
             stroke_tessellator.tessellate_path(&path, &stroke_options, &mut buffers_builder)?;
         }
 
+        let indices_range = 0..buffers.indices.len() as u32;
         Ok(Self {
             verts: buffers.vertices,
             indices: buffers.indices,
             uniform: PathUniform::new(dimensions),
+            batches: vec![TextureMarkBatch {
+                indices_range,
+                image: image::DynamicImage::ImageRgba8(gradients_image),
+            }],
             shader: include_str!("path.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
@@ -246,6 +274,7 @@ impl PathShader {
         mark: &LineMark,
         dimensions: CanvasDimensions,
     ) -> Result<Self, Sg2dWgpuError> {
+        let gradients_image = build_gradients_image(&mark.gradients);
         let mut defined_paths: Vec<Path> = Vec::new();
 
         // Build path for each defined line segment
@@ -329,13 +358,16 @@ impl PathShader {
         let mut indices: Vec<u16> = Vec::new();
 
         for path in &defined_paths {
+            let bbox = bounding_box(path);
             // Create vertex/index buffer builder
             let mut buffers: VertexBuffers<PathVertex, u16> = VertexBuffers::new();
             let mut buffers_builder = BuffersBuilder::new(
                 &mut buffers,
                 VertexPositions {
                     fill: [0.0, 0.0, 0.0, 0.0],
-                    stroke: mark.stroke,
+                    stroke: to_color_or_gradient_coord(&mark.stroke),
+                    top_left: bbox.min.to_array(),
+                    bottom_right: bbox.max.to_array(),
                 },
             );
 
@@ -361,10 +393,15 @@ impl PathShader {
             indices.extend(buffers.indices.into_iter().map(|i| i + index_offset));
         }
 
+        let indices_range = 0..indices.len() as u32;
         Ok(Self {
             verts,
             indices,
             uniform: PathUniform::new(dimensions),
+            batches: vec![TextureMarkBatch {
+                indices_range,
+                image: image::DynamicImage::ImageRgba8(gradients_image),
+            }],
             shader: include_str!("path.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
@@ -375,6 +412,8 @@ impl PathShader {
         mark: &TrailMark,
         dimensions: CanvasDimensions,
     ) -> Result<Self, Sg2dWgpuError> {
+        let gradients_image = build_gradients_image(&[]);
+
         let size_idx: AttributeIndex = 0;
         let mut path_builder = lyon::path::Path::builder_with_attributes(1);
         let mut path_len = 0;
@@ -407,6 +446,7 @@ impl PathShader {
         path_builder.end(false);
 
         let path = path_builder.build();
+        let bbox = bounding_box(&path);
 
         // Create vertex/index buffer builder
         let mut buffers: VertexBuffers<PathVertex, u16> = VertexBuffers::new();
@@ -415,6 +455,8 @@ impl PathShader {
             VertexPositions {
                 fill: [0.0, 0.0, 0.0, 0.0],
                 stroke: mark.stroke,
+                top_left: bbox.min.to_array(),
+                bottom_right: bbox.max.to_array(),
             },
         );
 
@@ -427,10 +469,15 @@ impl PathShader {
             .with_variable_line_width(size_idx);
         stroke_tessellator.tessellate_path(&path, &stroke_options, &mut buffers_builder)?;
 
+        let indices_range = 0..buffers.indices.len() as u32;
         Ok(Self {
             verts: buffers.vertices,
             indices: buffers.indices,
             uniform: PathUniform::new(dimensions),
+            batches: vec![TextureMarkBatch {
+                indices_range,
+                image: image::DynamicImage::ImageRgba8(gradients_image),
+            }],
             shader: include_str!("path.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
@@ -438,7 +485,7 @@ impl PathShader {
     }
 }
 
-impl BasicMarkShader for PathShader {
+impl TextureMarkShader for PathShader {
     type Vertex = PathVertex;
     type Uniform = PathUniform;
 
@@ -452,6 +499,18 @@ impl BasicMarkShader for PathShader {
 
     fn uniform(&self) -> Self::Uniform {
         self.uniform
+    }
+
+    fn batches(&self) -> &[TextureMarkBatch] {
+        self.batches.as_slice()
+    }
+
+    fn texture_size(&self) -> Extent3d {
+        Extent3d {
+            width: self.batches[0].image.width(),
+            height: self.batches[0].image.height(),
+            depth_or_array_layers: 1,
+        }
     }
 
     fn shader(&self) -> &str {
@@ -474,6 +533,8 @@ impl BasicMarkShader for PathShader {
 pub struct VertexPositions {
     fill: [f32; 4],
     stroke: [f32; 4],
+    top_left: [f32; 2],
+    bottom_right: [f32; 2],
 }
 
 impl FillVertexConstructor<PathVertex> for VertexPositions {
@@ -481,6 +542,8 @@ impl FillVertexConstructor<PathVertex> for VertexPositions {
         PathVertex {
             position: [vertex.position().x, vertex.position().y],
             color: self.fill,
+            top_left: self.top_left,
+            bottom_right: self.bottom_right,
         }
     }
 }
@@ -490,6 +553,8 @@ impl StrokeVertexConstructor<PathVertex> for VertexPositions {
         PathVertex {
             position: [vertex.position().x, vertex.position().y],
             color: self.stroke,
+            top_left: self.top_left,
+            bottom_right: self.bottom_right,
         }
     }
 }

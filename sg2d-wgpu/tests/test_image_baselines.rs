@@ -113,6 +113,8 @@ mod test_image_baselines {
         case("gradients", "default_gradient_bars_rounded_stroke", 0.0015),
         case("gradients", "residuals_colorscale", 0.0015),
         case("gradients", "stroke_rect_gradient", 0.002),
+        case("gradients", "area_with_gradient", 0.001),
+        case("gradients", "area_line_with_gradient", 0.001),
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
         let specs_dir = format!(
