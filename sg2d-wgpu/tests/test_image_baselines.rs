@@ -111,6 +111,7 @@ mod test_image_baselines {
         case("gradients", "heatmap_with_colorbar", 0.001),
         case("gradients", "diagonal_gradient_bars_rounded", 0.001),
         case("gradients", "default_gradient_bars_rounded_stroke", 0.0015),
+        case("gradients", "residuals_colorscale", 0.0015),
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
         let specs_dir = format!(
