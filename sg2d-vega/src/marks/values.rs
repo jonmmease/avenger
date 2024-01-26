@@ -38,7 +38,11 @@ pub enum CssColorOrGradient {
 }
 
 impl CssColorOrGradient {
-    pub fn to_color_or_grad(&self, opacity: f32) -> Result<ColorOrGradient, VegaSceneGraphError> {
+    pub fn to_color_or_grad(
+        &self,
+        opacity: f32,
+        gradients: &mut Vec<Gradient>,
+    ) -> Result<ColorOrGradient, VegaSceneGraphError> {
         match self {
             CssColorOrGradient::Color(c) => {
                 let c = csscolorparser::parse(c)?;
@@ -49,9 +53,10 @@ impl CssColorOrGradient {
                     c.a as f32 * opacity,
                 ]))
             }
-            CssColorOrGradient::Gradient(grad) => Ok(match grad.gradient {
-                VegaGradientType::Linear => {
-                    ColorOrGradient::Gradient(Gradient::LinearGradient(LinearGradient {
+            CssColorOrGradient::Gradient(grad) => {
+                // Build gradient
+                let grad = match grad.gradient {
+                    VegaGradientType::Linear => Gradient::LinearGradient(LinearGradient {
                         x0: grad.x1.unwrap_or(0.0),
                         y0: grad.y1.unwrap_or(0.0),
                         x1: grad.x2.unwrap_or(1.0),
@@ -61,20 +66,33 @@ impl CssColorOrGradient {
                             .iter()
                             .map(|s| s.to_grad_stop(opacity))
                             .collect::<Result<Vec<_>, VegaSceneGraphError>>()?,
-                    }))
-                }
-                VegaGradientType::Radial => {
-                    ColorOrGradient::Gradient(Gradient::RadialGradient(RadialGradient {
+                    }),
+                    VegaGradientType::Radial => Gradient::RadialGradient(RadialGradient {
                         x0: grad.x1.unwrap_or(0.5),
                         y0: grad.y1.unwrap_or(0.5),
                         x1: grad.x2.unwrap_or(0.5),
                         y1: grad.y2.unwrap_or(0.5),
                         r0: grad.r1.unwrap_or(0.0),
                         r1: grad.r2.unwrap_or(0.5),
-                        stops: vec![],
-                    }))
-                }
-            }),
+                        stops: grad
+                            .stops
+                            .iter()
+                            .map(|s| s.to_grad_stop(opacity))
+                            .collect::<Result<Vec<_>, VegaSceneGraphError>>()?,
+                    }),
+                };
+
+                // Check if we already have it
+                let pos = match gradients.iter().position(|g| g == &grad) {
+                    Some(pos) => pos,
+                    None => {
+                        let pos = gradients.len();
+                        gradients.push(grad);
+                        pos
+                    }
+                };
+                Ok(ColorOrGradient::GradientIndex(pos as u32))
+            }
         }
     }
 }

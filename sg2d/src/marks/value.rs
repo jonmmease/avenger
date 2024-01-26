@@ -63,7 +63,7 @@ pub enum ImageBaseline {
 #[serde(untagged)]
 pub enum ColorOrGradient {
     Color([f32; 4]),
-    Gradient(Gradient),
+    GradientIndex(u32),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

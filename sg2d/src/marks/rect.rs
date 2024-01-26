@@ -1,4 +1,4 @@
-use crate::marks::value::{ColorOrGradient, EncodingValue};
+use crate::marks::value::{ColorOrGradient, EncodingValue, Gradient};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -7,6 +7,7 @@ pub struct RectMark {
     pub name: String,
     pub clip: bool,
     pub len: u32,
+    pub gradients: Vec<Gradient>,
     pub x: EncodingValue<f32>,
     pub y: EncodingValue<f32>,
     pub width: EncodingValue<f32>,
@@ -62,6 +63,7 @@ impl Default for RectMark {
             name: "rule_mark".to_string(),
             clip: true,
             len: 1,
+            gradients: vec![],
             x: EncodingValue::Scalar { value: 0.0 },
             y: EncodingValue::Scalar { value: 0.0 },
             width: EncodingValue::Scalar { value: 0.0 },
