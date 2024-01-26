@@ -120,6 +120,8 @@ mod test_image_baselines {
         // vl-convert/resvg messes up scaled paths with strokes
         case("gradients", "path_with_stroke_gradients", 0.5),
         case("gradients", "rules_with_gradients", 0.004), // Slight difference in bounding box for square caps
+        case("gradients", "symbol_cross_gradient", 0.001),
+        case("gradients", "symbol_circles_gradient_stroke", 0.001),
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
         let specs_dir = format!(
