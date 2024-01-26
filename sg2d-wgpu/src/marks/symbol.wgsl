@@ -143,10 +143,19 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             if (dist > outer_radius + buffer * 2.0) {
                 discard;
             } else {
-                let alpha_factor = 1.0 - smoothstep(outer_radius - buffer, outer_radius + buffer, dist);
-                let mix_factor = 1.0 - smoothstep(inner_radius - buffer, inner_radius + buffer, dist);
-                var mixed_color: vec4<f32> = mix(in.circle_stroke_color, in.circle_fill_color, mix_factor);
-                mixed_color[3] *= alpha_factor;
+                let outer_factor = 1.0 - smoothstep(outer_radius - buffer, outer_radius + buffer, dist);
+                let inner_factor = 1.0 - smoothstep(inner_radius - buffer, inner_radius + buffer, dist);
+                var mixed_color: vec4<f32>;
+                if (in.circle_fill_color[3] == 0.0) {
+                    // No fill, so use opacity to fade out stroke rather than interpolate color
+                    mixed_color = in.circle_stroke_color;
+                    mixed_color[3] *= outer_factor * (1.0 - inner_factor);
+                } else {
+                    // Has fill, interpolate opacity outside of circle and interpolate color inside
+                    mixed_color = mix(in.circle_stroke_color, in.circle_fill_color, inner_factor);
+                    mixed_color[3] *= outer_factor;
+                }
+
                 return mixed_color;
             }
         } else {
