@@ -1,0 +1,2418 @@
+{
+  "width": 416,
+  "height": 410,
+  "origin": [
+    7,
+    5
+  ],
+  "scenegraph": {
+    "clip": false,
+    "interactive": true,
+    "items": [
+      {
+        "items": [
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Aug 01, 2004; price: 102.37; symbol: GOOG",
+                "x": 0,
+                "y": 348.815,
+                "size": 2.0135643564356434,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Sep 01, 2004; price: 129.6; symbol: GOOG",
+                "x": 6.084272074908511,
+                "y": 335.2,
+                "size": 2.283168316831683,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Oct 01, 2004; price: 190.64; symbol: GOOG",
+                "x": 11.972277308690941,
+                "y": 304.68,
+                "size": 2.8875247524752474,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Nov 01, 2004; price: 181.98; symbol: GOOG",
+                "x": 18.06472716864637,
+                "y": 309.01,
+                "size": 2.8017821782178216,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Dec 01, 2004; price: 192.79; symbol: GOOG",
+                "x": 23.952732402428804,
+                "y": 303.605,
+                "size": 2.908811881188119,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Jan 01, 2005; price: 195.62; symbol: GOOG",
+                "x": 30.037004477337316,
+                "y": 302.19,
+                "size": 2.9368316831683168,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Feb 01, 2005; price: 187.99; symbol: GOOG",
+                "x": 36.121276552245824,
+                "y": 306.005,
+                "size": 2.8612871287128714,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Mar 01, 2005; price: 180.51; symbol: GOOG",
+                "x": 41.61674810377609,
+                "y": 309.745,
+                "size": 2.7872277227722773,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Apr 01, 2005; price: 220; symbol: GOOG",
+                "x": 47.70102017868461,
+                "y": 290,
+                "size": 3.178217821782178,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: May 01, 2005; price: 277.27; symbol: GOOG",
+                "x": 53.58084762742011,
+                "y": 261.365,
+                "size": 3.7452475247524752,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Jun 01, 2005; price: 294.15; symbol: GOOG",
+                "x": 59.66511970232863,
+                "y": 252.925,
+                "size": 3.912376237623762,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Jul 01, 2005; price: 287.76; symbol: GOOG",
+                "x": 65.55312493611105,
+                "y": 256.12000000000006,
+                "size": 3.849108910891089,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Aug 01, 2005; price: 286; symbol: GOOG",
+                "x": 71.63739701101957,
+                "y": 257,
+                "size": 3.8316831683168315,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Sep 01, 2005; price: 316.46; symbol: GOOG",
+                "x": 77.72166908592808,
+                "y": 241.76999999999998,
+                "size": 4.133267326732673,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Oct 01, 2005; price: 372.14; symbol: GOOG",
+                "x": 83.6096743197105,
+                "y": 213.93,
+                "size": 4.684554455445545,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Nov 01, 2005; price: 404.91; symbol: GOOG",
+                "x": 89.70212417966594,
+                "y": 197.545,
+                "size": 5.009009900990099,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Dec 01, 2005; price: 414.86; symbol: GOOG",
+                "x": 95.59012941344837,
+                "y": 192.57,
+                "size": 5.107524752475248,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Jan 01, 2006; price: 432.66; symbol: GOOG",
+                "x": 101.67440148835686,
+                "y": 183.67,
+                "size": 5.283762376237624,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Feb 01, 2006; price: 362.62; symbol: GOOG",
+                "x": 107.75867356326539,
+                "y": 218.69,
+                "size": 4.59029702970297,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Mar 01, 2006; price: 390; symbol: GOOG",
+                "x": 113.25414511479566,
+                "y": 204.99999999999997,
+                "size": 4.861386138613861,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Apr 01, 2006; price: 417.94; symbol: GOOG",
+                "x": 119.33841718970417,
+                "y": 191.03,
+                "size": 5.138019801980198,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: May 01, 2006; price: 371.82; symbol: GOOG",
+                "x": 125.21824463843967,
+                "y": 214.09000000000003,
+                "size": 4.6813861386138615,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Jun 01, 2006; price: 419.33; symbol: GOOG",
+                "x": 131.30251671334818,
+                "y": 190.335,
+                "size": 5.151782178217822,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Jul 01, 2006; price: 386.6; symbol: GOOG",
+                "x": 137.1905219471306,
+                "y": 206.70000000000002,
+                "size": 4.8277227722772285,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Aug 01, 2006; price: 378.53; symbol: GOOG",
+                "x": 143.27479402203915,
+                "y": 210.735,
+                "size": 4.747821782178218,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Sep 01, 2006; price: 401.9; symbol: GOOG",
+                "x": 149.35906609694766,
+                "y": 199.04999999999998,
+                "size": 4.979207920792079,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Oct 01, 2006; price: 476.39; symbol: GOOG",
+                "x": 155.24707133073008,
+                "y": 161.805,
+                "size": 5.716732673267327,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Nov 01, 2006; price: 484.81; symbol: GOOG",
+                "x": 161.3395211906855,
+                "y": 157.59500000000003,
+                "size": 5.80009900990099,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Dec 01, 2006; price: 460.48; symbol: GOOG",
+                "x": 167.22752642446795,
+                "y": 169.76,
+                "size": 5.55920792079208,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Jan 01, 2007; price: 501.5; symbol: GOOG",
+                "x": 173.31179849937644,
+                "y": 149.25000000000003,
+                "size": 5.965346534653466,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Feb 01, 2007; price: 449.45; symbol: GOOG",
+                "x": 179.39607057428495,
+                "y": 175.27500000000003,
+                "size": 5.449999999999999,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Mar 01, 2007; price: 458.16; symbol: GOOG",
+                "x": 184.89154212581522,
+                "y": 170.92000000000002,
+                "size": 5.536237623762376,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Apr 01, 2007; price: 471.38; symbol: GOOG",
+                "x": 190.96763641567682,
+                "y": 164.31,
+                "size": 5.667128712871287,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: May 01, 2007; price: 497.91; symbol: GOOG",
+                "x": 196.85564164945924,
+                "y": 151.04500000000002,
+                "size": 5.92980198019802,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Jun 01, 2007; price: 522.7; symbol: GOOG",
+                "x": 202.93991372436776,
+                "y": 138.64999999999998,
+                "size": 6.175247524752476,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Jul 01, 2007; price: 510; symbol: GOOG",
+                "x": 208.8279189581502,
+                "y": 145.00000000000003,
+                "size": 6.0495049504950495,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Aug 01, 2007; price: 515.25; symbol: GOOG",
+                "x": 214.9121910330587,
+                "y": 142.375,
+                "size": 6.101485148514852,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Sep 01, 2007; price: 567.27; symbol: GOOG",
+                "x": 220.9964631079672,
+                "y": 116.36500000000001,
+                "size": 6.616534653465346,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Oct 01, 2007; price: 707; symbol: GOOG",
+                "x": 226.88446834174965,
+                "y": 46.499999999999986,
+                "size": 8,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Nov 01, 2007; price: 693; symbol: GOOG",
+                "x": 232.96874041665814,
+                "y": 53.500000000000014,
+                "size": 7.861386138613861,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Dec 01, 2007; price: 691.48; symbol: GOOG",
+                "x": 238.8649234354875,
+                "y": 54.25999999999998,
+                "size": 7.846336633663366,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Jan 01, 2008; price: 564.3; symbol: GOOG",
+                "x": 244.949195510396,
+                "y": 117.85000000000001,
+                "size": 6.587128712871287,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Feb 01, 2008; price: 471.18; symbol: GOOG",
+                "x": 251.03346758530455,
+                "y": 164.41,
+                "size": 5.665148514851485,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Mar 01, 2008; price: 440.47; symbol: GOOG",
+                "x": 256.72520597796085,
+                "y": 179.765,
+                "size": 5.361089108910891,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Apr 01, 2008; price: 574.29; symbol: GOOG",
+                "x": 262.80130026782246,
+                "y": 112.85500000000002,
+                "size": 6.6860396039603955,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: May 01, 2008; price: 585.8; symbol: GOOG",
+                "x": 268.6893055016049,
+                "y": 107.10000000000002,
+                "size": 6.8,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Jun 01, 2008; price: 526.42; symbol: GOOG",
+                "x": 274.7735775765134,
+                "y": 136.79000000000002,
+                "size": 6.212079207920792,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Jul 01, 2008; price: 473.75; symbol: GOOG",
+                "x": 280.66158281029584,
+                "y": 163.125,
+                "size": 5.6905940594059405,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Aug 01, 2008; price: 463.29; symbol: GOOG",
+                "x": 286.7458548852043,
+                "y": 168.355,
+                "size": 5.587029702970297,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Sep 01, 2008; price: 400.52; symbol: GOOG",
+                "x": 292.8301269601128,
+                "y": 199.74000000000004,
+                "size": 4.9655445544554455,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Oct 01, 2008; price: 359.36; symbol: GOOG",
+                "x": 298.7181321938953,
+                "y": 220.32,
+                "size": 4.5580198019801985,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Nov 01, 2008; price: 292.96; symbol: GOOG",
+                "x": 304.8024042688038,
+                "y": 253.52,
+                "size": 3.9005940594059405,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Dec 01, 2008; price: 307.65; symbol: GOOG",
+                "x": 310.69858728763313,
+                "y": 246.17500000000004,
+                "size": 4.046039603960396,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Jan 01, 2009; price: 338.53; symbol: GOOG",
+                "x": 316.78285936254167,
+                "y": 230.73500000000004,
+                "size": 4.351782178217821,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Feb 01, 2009; price: 337.99; symbol: GOOG",
+                "x": 322.8671314374502,
+                "y": 231.005,
+                "size": 4.346435643564356,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Mar 01, 2009; price: 348.06; symbol: GOOG",
+                "x": 328.3626029889804,
+                "y": 225.97,
+                "size": 4.446138613861386,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Apr 01, 2009; price: 395.97; symbol: GOOG",
+                "x": 334.438697278842,
+                "y": 202.01500000000001,
+                "size": 4.92049504950495,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: May 01, 2009; price: 417.23; symbol: GOOG",
+                "x": 340.3267025126245,
+                "y": 191.385,
+                "size": 5.130990099009901,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Jun 01, 2009; price: 421.59; symbol: GOOG",
+                "x": 346.41097458753296,
+                "y": 189.205,
+                "size": 5.174158415841584,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Jul 01, 2009; price: 443.05; symbol: GOOG",
+                "x": 352.2989798213154,
+                "y": 178.475,
+                "size": 5.386633663366337,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Aug 01, 2009; price: 461.67; symbol: GOOG",
+                "x": 358.3832518962239,
+                "y": 169.16500000000002,
+                "size": 5.570990099009902,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Sep 01, 2009; price: 495.85; symbol: GOOG",
+                "x": 364.4675239711324,
+                "y": 152.07500000000002,
+                "size": 5.90940594059406,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Oct 01, 2009; price: 536.12; symbol: GOOG",
+                "x": 370.35552920491483,
+                "y": 131.94,
+                "size": 6.308118811881188,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Nov 01, 2009; price: 583; symbol: GOOG",
+                "x": 376.43980127982337,
+                "y": 108.5,
+                "size": 6.772277227722773,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Dec 01, 2009; price: 619.98; symbol: GOOG",
+                "x": 382.3359842986527,
+                "y": 90.01000000000002,
+                "size": 7.138415841584159,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Jan 01, 2010; price: 529.94; symbol: GOOG",
+                "x": 388.4202563735612,
+                "y": 135.02999999999997,
+                "size": 6.246930693069308,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Feb 01, 2010; price: 526.8; symbol: GOOG",
+                "x": 394.5045284484697,
+                "y": 136.60000000000002,
+                "size": 6.215841584158415,
+                "defined": true
+              },
+              {
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.2,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "red"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "cyan"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "green"
+                    }
+                  ]
+                },
+                "description": "date: Mar 01, 2010; price: 560.19; symbol: GOOG",
+                "x": 400,
+                "y": 119.90499999999997,
+                "size": 6.546435643564357,
+                "defined": true
+              }
+            ],
+            "marktype": "trail",
+            "name": "marks",
+            "role": "mark",
+            "zindex": 0
+          }
+        ],
+        "fill": "transparent",
+        "stroke": "transparent",
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 400
+      }
+    ],
+    "marktype": "group",
+    "name": "root",
+    "role": "frame",
+    "zindex": 0
+  }
+}
