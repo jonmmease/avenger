@@ -115,6 +115,10 @@ mod test_image_baselines {
         case("gradients", "stroke_rect_gradient", 0.002),
         case("gradients", "area_with_gradient", 0.001),
         case("gradients", "area_line_with_gradient", 0.001),
+        case("gradients", "trail_gradient", 0.001),
+
+        // vl-convert/resvg messes up scaled paths with strokes
+        case("gradients", "path_with_stroke_gradients", 0.5),
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
         let specs_dir = format!(

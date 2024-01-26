@@ -1,4 +1,4 @@
-use crate::marks::value::EncodingValue;
+use crate::marks::value::{ColorOrGradient, EncodingValue, Gradient};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -7,7 +7,8 @@ pub struct TrailMark {
     pub name: String,
     pub clip: bool,
     pub len: u32,
-    pub stroke: [f32; 4],
+    pub gradients: Vec<Gradient>,
+    pub stroke: ColorOrGradient,
     pub x: EncodingValue<f32>,
     pub y: EncodingValue<f32>,
     pub size: EncodingValue<f32>,
@@ -42,7 +43,8 @@ impl Default for TrailMark {
             y: EncodingValue::Scalar { value: 0.0 },
             size: EncodingValue::Scalar { value: 1.0 },
             defined: EncodingValue::Scalar { value: true },
-            stroke: [0.0, 0.0, 0.0, 1.0],
+            stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]),
+            gradients: vec![],
         }
     }
 }

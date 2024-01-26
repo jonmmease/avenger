@@ -79,7 +79,7 @@ impl PathShader {
         mark: &PathMark,
         dimensions: CanvasDimensions,
     ) -> Result<Self, Sg2dWgpuError> {
-        let gradients_image = build_gradients_image(&[]);
+        let gradients_image = build_gradients_image(&mark.gradients);
         let mut verts: Vec<PathVertex> = Vec::new();
         let mut indices: Vec<u16> = Vec::new();
 
@@ -99,8 +99,8 @@ impl PathShader {
             let mut builder = BuffersBuilder::new(
                 &mut buffers,
                 VertexPositions {
-                    fill: *fill,
-                    stroke: *stroke,
+                    fill: to_color_or_gradient_coord(fill),
+                    stroke: to_color_or_gradient_coord(stroke),
                     top_left: bbox.min.to_array(),
                     bottom_right: bbox.max.to_array(),
                 },
@@ -412,7 +412,7 @@ impl PathShader {
         mark: &TrailMark,
         dimensions: CanvasDimensions,
     ) -> Result<Self, Sg2dWgpuError> {
-        let gradients_image = build_gradients_image(&[]);
+        let gradients_image = build_gradients_image(&mark.gradients);
 
         let size_idx: AttributeIndex = 0;
         let mut path_builder = lyon::path::Path::builder_with_attributes(1);
@@ -454,7 +454,7 @@ impl PathShader {
             &mut buffers,
             VertexPositions {
                 fill: [0.0, 0.0, 0.0, 0.0],
-                stroke: mark.stroke,
+                stroke: to_color_or_gradient_coord(&mark.stroke),
                 top_left: bbox.min.to_array(),
                 bottom_right: bbox.max.to_array(),
             },
