@@ -1,20 +1,15 @@
 // Vertex shader
-
-const GRADIENT_NONE = 0.0;
 const GRADIENT_LINEAR = 1.0;
 const GRADIENT_RADIAL = 2.0;
+
+const COLORWAY_LENGTH = 250.0;
+const GRADIENT_TEXTURE_WIDTH = 256.0;
+const GRADIENT_TEXTURE_HEIGHT = 256.0;
 
 struct ChartUniform {
     size: vec2<f32>,
     scale: f32,
-    gradient_type: f32,
-    x0: f32,
-    y0: f32,
-    x1: f32,
-    y1: f32,
-    r0: f32,
-    r1: f32,
-    _pad: vec2<f32>, // for 16 byte alignment
+    _pad: f32, // for 16 byte alignment
 };
 
 @group(0) @binding(0)
@@ -83,11 +78,6 @@ fn vs_main(
 }
 
 // Fragment shader
-@group(1) @binding(0)
-var t_diffuse: texture_2d<f32>;
-@group(1) @binding(1)
-var s_diffuse: sampler;
-
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let scaled_radius = in.corner_radius * chart_uniforms.scale;
@@ -128,7 +118,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
             let inner_radius = scaled_radius - scaled_stroke_width / 2.0;
             let mix_factor = 1.0 - smoothstep(inner_radius - buffer, inner_radius + buffer, dist);
-            var mixed_color: vec4<f32> = mix(lookup_color(in.stroke, in), lookup_color(in.fill, in), mix_factor);
+            var mixed_color: vec4<f32> = mix(
+                lookup_color(in.stroke, in.clip_position, in.outer_top_left, in.outer_bottom_right),
+                lookup_color(in.fill, in.clip_position, in.outer_top_left, in.outer_bottom_right),
+                mix_factor
+            );
             mixed_color[3] *= alpha_factor;
             return mixed_color;
         } else {
@@ -143,11 +137,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 dist = distance(inner_top_right, frag_xy);
             } else {
                 // skip anit-aliasing when not in a corner
-                return lookup_color(in.fill, in);
+                return lookup_color(in.fill, in.clip_position, in.outer_top_left, in.outer_bottom_right);
             }
 
             let alpha_factor = 1.0 - smoothstep(scaled_radius - buffer, scaled_radius + buffer, dist);
-            var color: vec4<f32> = lookup_color(in.fill, in);
+            var color: vec4<f32> = lookup_color(in.fill, in.clip_position, in.outer_top_left, in.outer_bottom_right);
             color[3] *= alpha_factor;
             return color;
         }
@@ -162,35 +156,67 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
             let in_stroke = in_left_stroke || in_right_stroke || in_bottom_stroke || in_top_stroke;
             if (in_stroke) {
-                return lookup_color(in.stroke, in);
+                return lookup_color(in.stroke, in.clip_position, in.outer_top_left, in.outer_bottom_right);
             } else {
-                return lookup_color(in.fill, in);
+                return lookup_color(in.fill, in.clip_position, in.outer_top_left, in.outer_bottom_right);
             }
         } else {
             // no stroke
-            return lookup_color(in.fill, in);
+            return lookup_color(in.fill, in.clip_position, in.outer_top_left, in.outer_bottom_right);
         }
     }
 }
 
-fn lookup_color(color: vec4<f32>, in: VertexOutput) -> vec4<f32> {
+// Gradient color
+@group(1) @binding(0)
+var gradient_texture: texture_2d<f32>;
+@group(1) @binding(1)
+var linear_sampler: sampler;
+@group(1) @binding(2)
+var nearest_sampler: sampler;
+
+// Compute final color, potentially computing gradient
+fn lookup_color(color: vec4<f32>, clip_position: vec4<f32>, top_left: vec2<f32>, bottom_right: vec2<f32>) -> vec4<f32> {
     if (color[0] < 0.0) {
+        // If the first color coordinate is negative, this indicates that we need to compute a gradient.
+        // The negative of this value is the y-coordinate into the gradient texture where the gradient control
+        // points and gradient colorway are stored.
         let tex_coord_y = -color[0];
 
-        // Convert fragment coordinate into coordinate normalized to rect bounding box
-        let frag_xy = vec2<f32>(in.clip_position[0], in.clip_position[1]);
-        let width = in.outer_bottom_right[0] - in.outer_top_left[0];
-        let height = in.outer_bottom_right[1] - in.outer_top_left[1];
-        let width_height = vec2<f32>(width, height);
-        let norm_xy = (frag_xy - in.outer_top_left) / width_height;
+        // Extract gradient type from fist pixel using nearest sampler (so that not interpolation is performed)
+        let control0 = textureSample(gradient_texture, nearest_sampler, vec2<f32>(0.0, tex_coord_y));
+        let gradient_type = control0[0];
 
-        let p0 = vec2<f32>(chart_uniforms.x0, chart_uniforms.y0);
-        let p1 = vec2<f32>(chart_uniforms.x1, chart_uniforms.y1);
-        let control_dist = distance(p0, p1);
-        let projected_dist = dot(norm_xy - p0, p1 - p0) / control_dist;
-        let tex_coord_x = projected_dist / control_dist;
+        // Extract x/y control points from second pixel
+        let control1 = textureSample(gradient_texture, nearest_sampler, vec2<f32>(1.0 / GRADIENT_TEXTURE_WIDTH, tex_coord_y));
+        let x0 = control1[0];
+        let y0 = control1[1];
+        let x1 = control1[2];
+        let y1 = control1[3];
 
-        return textureSample(t_diffuse, s_diffuse, vec2<f32>(tex_coord_x, tex_coord_y));
+        if (gradient_type == GRADIENT_LINEAR) {
+            // Convert fragment coordinate into coordinate normalized to rect bounding box
+            let frag_xy = vec2<f32>(clip_position[0], clip_position[1]);
+            let width_height = vec2<f32>(bottom_right[0] - top_left[0], bottom_right[1] - top_left[1]);
+            let norm_xy = (frag_xy - top_left) / width_height;
+
+            let p0 = vec2<f32>(x0, y0);
+            let p1 = vec2<f32>(x1, y1);
+            let control_dist = distance(p0, p1);
+            let projected_dist = dot(norm_xy - p0, p1 - p0) / control_dist;
+            let col_offset = GRADIENT_TEXTURE_WIDTH - COLORWAY_LENGTH;
+            let tex_coord_x = clamp(projected_dist / control_dist, 0.0, 1.0) * COLORWAY_LENGTH / GRADIENT_TEXTURE_WIDTH + col_offset / GRADIENT_TEXTURE_WIDTH;
+
+            return textureSample(gradient_texture, linear_sampler, vec2<f32>(tex_coord_x, tex_coord_y));
+        } else {
+            // Extract additional radius gradient control points from third pixel
+            let control2 = textureSample(gradient_texture, nearest_sampler, vec2<f32>(2.0 / GRADIENT_TEXTURE_WIDTH, tex_coord_y));
+            let r0 = control2[0];
+            let r1 = control2[1];
+
+            // TODO: compute radial gradinet
+            return vec4<f32>(1.0, 0.0, 0.0, 1.0);
+        }
     } else {
         return color;
     }
