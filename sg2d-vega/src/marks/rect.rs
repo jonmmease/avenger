@@ -117,6 +117,7 @@ impl VegaMarkContainer<VegaRectItem> {
             mark.indices = Some(indices);
         }
 
+        // Add gradients
         mark.gradients = gradients;
 
         Ok(SceneMark::Rect(mark))

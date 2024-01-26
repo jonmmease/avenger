@@ -238,8 +238,8 @@ impl RectShader {
             instances,
             batches,
             texture_size: Extent3d {
-                width: 256,
-                height: 256,
+                width: GRADIENT_TEXTURE_WIDTH,
+                height: GRADIENT_TEXTURE_HEIGHT,
                 depth_or_array_layers: 1,
             },
             uniform: RectUniform::new(dimensions),
