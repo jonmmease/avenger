@@ -1,6 +1,6 @@
 pub mod arc;
 pub mod basic_mark;
-pub mod gradient_rect;
+pub mod rect;
 pub mod image;
 pub mod instanced_mark;
 pub mod path;

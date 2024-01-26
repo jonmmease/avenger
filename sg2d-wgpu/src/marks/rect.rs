@@ -16,13 +16,13 @@ const GRADIENT_TEXTURE_HEIGHT: u32 = 256;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct GradientRectUniform {
+pub struct RectUniform {
     pub size: [f32; 2],
     pub scale: f32,
     _pad: [f32; 1], // Pad to 16 bytes
 }
 
-impl GradientRectUniform {
+impl RectUniform {
     pub fn new(dimensions: CanvasDimensions) -> Self {
         Self {
             size: dimensions.size,
@@ -34,7 +34,7 @@ impl GradientRectUniform {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct GradientRectVertex {
+pub struct RectVertex {
     pub position: [f32; 2],
 }
 
@@ -42,10 +42,10 @@ const VERTEX_ATTRIBUTES: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array![
     0 => Float32x2,     // position
 ];
 
-impl GradientRectVertex {
+impl RectVertex {
     pub fn desc() -> VertexBufferLayout<'static> {
         VertexBufferLayout {
-            array_stride: std::mem::size_of::<GradientRectVertex>() as wgpu::BufferAddress,
+            array_stride: std::mem::size_of::<RectVertex>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &VERTEX_ATTRIBUTES,
         }
@@ -54,7 +54,7 @@ impl GradientRectVertex {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct GradientRectInstance {
+pub struct RectInstance {
     pub position: [f32; 2],
     pub fill: [f32; 4],
     pub width: f32,
@@ -74,9 +74,9 @@ const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array!
     7 => Float32,       // corner_radius
 ];
 
-impl GradientRectInstance {
-    pub fn from_spec(mark: &RectMark) -> (Vec<GradientRectInstance>, image::RgbaImage) {
-        let mut instances: Vec<GradientRectInstance> = Vec::new();
+impl RectInstance {
+    pub fn from_spec(mark: &RectMark) -> (Vec<RectInstance>, image::RgbaImage) {
+        let mut instances: Vec<RectInstance> = Vec::new();
         let mut img = image::RgbaImage::new(GRADIENT_TEXTURE_WIDTH, GRADIENT_TEXTURE_HEIGHT);
 
         // Write gradients
@@ -197,7 +197,7 @@ impl GradientRectInstance {
         ) {
             let fill = compute_color(fill);
             let stroke = compute_color(stroke);
-            instances.push(GradientRectInstance {
+            instances.push(RectInstance {
                 position: [*x, *y],
                 width: *width,
                 height: *height,
@@ -211,11 +211,11 @@ impl GradientRectInstance {
     }
 }
 
-pub struct GradientRectShader {
-    verts: Vec<GradientRectVertex>,
+pub struct RectShader {
+    verts: Vec<RectVertex>,
     indices: Vec<u16>,
-    instances: Vec<GradientRectInstance>,
-    uniform: GradientRectUniform,
+    instances: Vec<RectInstance>,
+    uniform: RectUniform,
     batches: Vec<InstancedTextureMarkBatch>,
     texture_size: Extent3d,
     shader: String,
@@ -223,9 +223,9 @@ pub struct GradientRectShader {
     fragment_entry_point: String,
 }
 
-impl GradientRectShader {
+impl RectShader {
     pub fn from_rect_mark(mark: &RectMark, dimensions: CanvasDimensions) -> Self {
-        let (instances, img) = GradientRectInstance::from_spec(mark);
+        let (instances, img) = RectInstance::from_spec(mark);
 
         let batches = vec![InstancedTextureMarkBatch {
             instances_range: 0..instances.len() as u32,
@@ -234,16 +234,16 @@ impl GradientRectShader {
 
         Self {
             verts: vec![
-                GradientRectVertex {
+                RectVertex {
                     position: [0.0, 0.0],
                 },
-                GradientRectVertex {
+                RectVertex {
                     position: [1.0, 0.0],
                 },
-                GradientRectVertex {
+                RectVertex {
                     position: [1.0, 1.0],
                 },
-                GradientRectVertex {
+                RectVertex {
                     position: [0.0, 1.0],
                 },
             ],
@@ -255,18 +255,18 @@ impl GradientRectShader {
                 height: 256,
                 depth_or_array_layers: 1,
             },
-            uniform: GradientRectUniform::new(dimensions),
-            shader: include_str!("gradient_rect.wgsl").to_string(),
+            uniform: RectUniform::new(dimensions),
+            shader: include_str!("rect.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
         }
     }
 }
 
-impl TextureInstancedMarkShader for GradientRectShader {
-    type Instance = GradientRectInstance;
-    type Vertex = GradientRectVertex;
-    type Uniform = GradientRectUniform;
+impl TextureInstancedMarkShader for RectShader {
+    type Instance = RectInstance;
+    type Vertex = RectVertex;
+    type Uniform = RectUniform;
 
     fn verts(&self) -> &[Self::Vertex] {
         self.verts.as_slice()
@@ -306,13 +306,13 @@ impl TextureInstancedMarkShader for GradientRectShader {
 
     fn instance_desc(&self) -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<GradientRectInstance>() as wgpu::BufferAddress,
+            array_stride: std::mem::size_of::<RectInstance>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &INSTANCE_ATTRIBUTES,
         }
     }
 
     fn vertex_desc(&self) -> VertexBufferLayout<'static> {
-        GradientRectVertex::desc()
+        RectVertex::desc()
     }
 }
