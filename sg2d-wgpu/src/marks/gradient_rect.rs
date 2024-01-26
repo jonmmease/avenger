@@ -201,8 +201,8 @@ impl GradientRectInstance {
                 position: [*x, *y],
                 width: *width,
                 height: *height,
-                fill: fill,
-                stroke: stroke,
+                fill,
+                stroke,
                 stroke_width: *stroke_width,
                 corner_radius: *corner_radius,
             })
