@@ -10,7 +10,7 @@ use sg2d::marks::group::{GroupBounds, SceneGroup};
 use sg2d::marks::line::LineMark;
 use sg2d::marks::mark::SceneMark;
 use sg2d::marks::symbol::{SymbolMark, SymbolShape};
-use sg2d::marks::value::{EncodingValue, StrokeCap, StrokeJoin};
+use sg2d::marks::value::{ColorOrGradient, EncodingValue, StrokeCap, StrokeJoin};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,7 +73,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
                     y: EncodingValue::Scalar {
                         value: origin[1] + item.y,
                     },
-                    stroke,
+                    stroke: ColorOrGradient::Color(stroke),
                     stroke_width: item.stroke_width.unwrap_or(1.0),
                     stroke_cap: item.stroke_cap.unwrap_or_default(),
                     stroke_join: item.stroke_join.unwrap_or_default(),

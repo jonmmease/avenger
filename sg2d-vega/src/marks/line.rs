@@ -1,10 +1,10 @@
 use crate::error::VegaSceneGraphError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
-use crate::marks::values::StrokeDashSpec;
+use crate::marks::values::{CssColorOrGradient, StrokeDashSpec};
 use serde::{Deserialize, Serialize};
 use sg2d::marks::line::LineMark;
 use sg2d::marks::mark::SceneMark;
-use sg2d::marks::value::{EncodingValue, StrokeCap, StrokeJoin};
+use sg2d::marks::value::{ColorOrGradient, EncodingValue, Gradient, StrokeCap, StrokeJoin};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -16,7 +16,7 @@ pub struct VegaLineItem {
     pub defined: Option<bool>,
     pub stroke_cap: Option<StrokeCap>,
     pub stroke_join: Option<StrokeJoin>,
-    pub stroke: Option<String>,
+    pub stroke: Option<CssColorOrGradient>,
     pub stroke_opacity: Option<f32>,
     pub stroke_width: Option<f32>,
     pub stroke_dash: Option<StrokeDashSpec>,
@@ -32,16 +32,16 @@ impl VegaMarkContainer<VegaLineItem> {
         let stroke_width = first.and_then(|item| item.stroke_width).unwrap_or(1.0);
         let stroke_cap = first.and_then(|item| item.stroke_cap).unwrap_or_default();
         let stroke_join = first.and_then(|item| item.stroke_join).unwrap_or_default();
+        let mut gradients = Vec::<Gradient>::new();
 
         // Parse stroke color
-        let mut stroke = [0.0, 0.0, 0.0, 1.0];
+        let mut stroke = ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]);
         let mut stroke_dash: Option<Vec<f32>> = None;
         if let Some(item) = &first {
             if let Some(stroke_css) = &item.stroke {
-                let c = csscolorparser::parse(stroke_css)?;
                 let base_opacity = item.opacity.unwrap_or(1.0);
-                let stroke_opacity = c.a as f32 * item.stroke_opacity.unwrap_or(1.0) * base_opacity;
-                stroke = [c.r as f32, c.g as f32, c.b as f32, stroke_opacity]
+                let stroke_opacity = item.stroke_opacity.unwrap_or(1.0) * base_opacity;
+                stroke = stroke_css.to_color_or_grad(stroke_opacity, &mut gradients)?;
             }
             if let Some(d) = &item.stroke_dash {
                 stroke_dash = Some(d.to_array()?.to_vec());
@@ -55,6 +55,7 @@ impl VegaMarkContainer<VegaLineItem> {
             stroke_cap,
             stroke_dash,
             stroke_join,
+            gradients,
             ..Default::default()
         };
 

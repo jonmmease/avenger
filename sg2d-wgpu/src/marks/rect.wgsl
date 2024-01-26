@@ -1,11 +1,4 @@
 // Vertex shader
-const GRADIENT_LINEAR = 1.0;
-const GRADIENT_RADIAL = 2.0;
-
-const COLORWAY_LENGTH = 250.0;
-const GRADIENT_TEXTURE_WIDTH = 256.0;
-const GRADIENT_TEXTURE_HEIGHT = 256.0;
-
 struct ChartUniform {
     size: vec2<f32>,
     scale: f32,
@@ -177,6 +170,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 // Gradient color
+const GRADIENT_LINEAR = 1.0;
+const GRADIENT_RADIAL = 2.0;
+
+const COLORWAY_LENGTH = 250.0;
+const GRADIENT_TEXTURE_WIDTH = 256.0;
+const GRADIENT_TEXTURE_HEIGHT = 256.0;
+
 @group(1) @binding(0)
 var gradient_texture: texture_2d<f32>;
 @group(1) @binding(1)
