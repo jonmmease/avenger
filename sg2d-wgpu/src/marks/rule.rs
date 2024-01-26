@@ -1,9 +1,11 @@
 use crate::canvas::CanvasDimensions;
-use crate::marks::instanced_mark::InstancedMarkShader;
+use crate::marks::gradient::to_color_or_gradient_coord;
+use crate::marks::rect::{build_gradients_image, GRADIENT_TEXTURE_HEIGHT, GRADIENT_TEXTURE_WIDTH};
+use crate::marks::texture_instanced_mark::{InstancedTextureMarkBatch, TextureInstancedMarkShader};
 use itertools::izip;
 use sg2d::marks::rule::RuleMark;
 use sg2d::marks::value::StrokeCap;
-use wgpu::VertexBufferLayout;
+use wgpu::{Extent3d, VertexBufferLayout};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -70,115 +72,108 @@ const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array!
 ];
 
 impl RuleInstance {
-    pub fn iter_from_spec(mark: &RuleMark) -> Box<dyn Iterator<Item = RuleInstance> + '_> {
+    pub fn from_spec(mark: &RuleMark) -> (Vec<RuleInstance>, image::RgbaImage) {
+        let mut instances: Vec<RuleInstance> = Vec::new();
+        let img = build_gradients_image(&mark.gradients);
+
         if let Some(stroke_dash_iter) = mark.stroke_dash_iter() {
             // Rule has a dash specification, so we create an individual RuleInstance for each dash
             // in each Rule mark item.
-            Box::new(
-                izip!(
-                    stroke_dash_iter,
-                    mark.x0_iter(),
-                    mark.y0_iter(),
-                    mark.x1_iter(),
-                    mark.y1_iter(),
-                    mark.stroke_iter(),
-                    mark.stroke_width_iter(),
-                    mark.stroke_cap_iter(),
-                )
-                .flat_map(
-                    |(stroke_dash, x0, y0, x1, y1, stroke, stroke_width, cap)| {
-                        // Next index into stroke_dash array
-                        let mut dash_idx = 0;
 
-                        // Distance along line from (x0,y0) to (x1,y1) where the next dash will start
-                        let mut start_dash_dist: f32 = 0.0;
+            for (stroke_dash, x0, y0, x1, y1, stroke, stroke_width, cap) in izip!(
+                stroke_dash_iter,
+                mark.x0_iter(),
+                mark.y0_iter(),
+                mark.x1_iter(),
+                mark.y1_iter(),
+                mark.stroke_iter(),
+                mark.stroke_width_iter(),
+                mark.stroke_cap_iter(),
+            ) {
+                // Next index into stroke_dash array
+                let mut dash_idx = 0;
 
-                        // Length of the line from (x0,y0) to (x1,y1)
-                        let rule_len = ((x1 - x0).powi(2) + (y1 - y0).powi(2)).sqrt();
+                // Distance along line from (x0,y0) to (x1,y1) where the next dash will start
+                let mut start_dash_dist: f32 = 0.0;
 
-                        // Coponents of unit vector along (x0,y0) to (x1,y1)
-                        let xhat = (x1 - x0) / rule_len;
-                        let yhat = (y1 - y0) / rule_len;
+                // Length of the line from (x0,y0) to (x1,y1)
+                let rule_len = ((x1 - x0).powi(2) + (y1 - y0).powi(2)).sqrt();
 
-                        // Vector of rule instances, one for each dash segment
-                        let mut dash_rules: Vec<RuleInstance> = Vec::new();
+                // Coponents of unit vector along (x0,y0) to (x1,y1)
+                let xhat = (x1 - x0) / rule_len;
+                let yhat = (y1 - y0) / rule_len;
 
-                        // Whether the next dash length represents a drawn dash (draw == true)
-                        // or a gap (draw == false)
-                        let mut draw = true;
+                // Whether the next dash length represents a drawn dash (draw == true)
+                // or a gap (draw == false)
+                let mut draw = true;
 
-                        while start_dash_dist < rule_len {
-                            let end_dash_dist =
-                                if start_dash_dist + stroke_dash[dash_idx] >= rule_len {
-                                    // The final dash/gap should be truncated to the end of the rule
-                                    rule_len
-                                } else {
-                                    // The dash/gap fits entirely in the rule
-                                    start_dash_dist + stroke_dash[dash_idx]
-                                };
+                while start_dash_dist < rule_len {
+                    let end_dash_dist = if start_dash_dist + stroke_dash[dash_idx] >= rule_len {
+                        // The final dash/gap should be truncated to the end of the rule
+                        rule_len
+                    } else {
+                        // The dash/gap fits entirely in the rule
+                        start_dash_dist + stroke_dash[dash_idx]
+                    };
 
-                            if draw {
-                                let dash_x0 = x0 + xhat * start_dash_dist;
-                                let dash_y0 = y0 + yhat * start_dash_dist;
-                                let dash_x1 = x0 + xhat * end_dash_dist;
-                                let dash_y1 = y0 + yhat * end_dash_dist;
+                    if draw {
+                        let dash_x0 = x0 + xhat * start_dash_dist;
+                        let dash_y0 = y0 + yhat * start_dash_dist;
+                        let dash_x1 = x0 + xhat * end_dash_dist;
+                        let dash_y1 = y0 + yhat * end_dash_dist;
 
-                                dash_rules.push(RuleInstance {
-                                    x0: dash_x0,
-                                    y0: dash_y0,
-                                    x1: dash_x1,
-                                    y1: dash_y1,
-                                    stroke: *stroke,
-                                    stroke_width: *stroke_width,
-                                    stroke_cap: match cap {
-                                        StrokeCap::Butt => STROKE_CAP_BUTT,
-                                        StrokeCap::Square => STROKE_CAP_SQUARE,
-                                        StrokeCap::Round => STROKE_CAP_ROUND,
-                                    },
-                                })
-                            }
+                        instances.push(RuleInstance {
+                            x0: dash_x0,
+                            y0: dash_y0,
+                            x1: dash_x1,
+                            y1: dash_y1,
+                            stroke: to_color_or_gradient_coord(stroke),
+                            stroke_width: *stroke_width,
+                            stroke_cap: match cap {
+                                StrokeCap::Butt => STROKE_CAP_BUTT,
+                                StrokeCap::Square => STROKE_CAP_SQUARE,
+                                StrokeCap::Round => STROKE_CAP_ROUND,
+                            },
+                        })
+                    }
 
-                            // update start dist for next dash/gap
-                            start_dash_dist = end_dash_dist;
+                    // update start dist for next dash/gap
+                    start_dash_dist = end_dash_dist;
 
-                            // increment index and cycle back to start of start of dash array
-                            dash_idx = (dash_idx + 1) % stroke_dash.len();
+                    // increment index and cycle back to start of start of dash array
+                    dash_idx = (dash_idx + 1) % stroke_dash.len();
 
-                            // Alternate between drawn dash and gap
-                            draw = !draw;
-                        }
-
-                        dash_rules
-                    },
-                ),
-            )
+                    // Alternate between drawn dash and gap
+                    draw = !draw;
+                }
+            }
         } else {
             // Rule has no dash specification, so we create one RuleInstance per Rule mark item
-            Box::new(
-                izip!(
-                    mark.x0_iter(),
-                    mark.y0_iter(),
-                    mark.x1_iter(),
-                    mark.y1_iter(),
-                    mark.stroke_iter(),
-                    mark.stroke_width_iter(),
-                    mark.stroke_cap_iter(),
-                )
-                .map(|(x0, y0, x1, y1, stroke, stroke_width, cap)| RuleInstance {
+            for (x0, y0, x1, y1, stroke, stroke_width, cap) in izip!(
+                mark.x0_iter(),
+                mark.y0_iter(),
+                mark.x1_iter(),
+                mark.y1_iter(),
+                mark.stroke_iter(),
+                mark.stroke_width_iter(),
+                mark.stroke_cap_iter(),
+            ) {
+                instances.push(RuleInstance {
                     x0: *x0,
                     y0: *y0,
                     x1: *x1,
                     y1: *y1,
-                    stroke: *stroke,
+                    stroke: to_color_or_gradient_coord(stroke),
                     stroke_width: *stroke_width,
                     stroke_cap: match cap {
                         StrokeCap::Butt => STROKE_CAP_BUTT,
                         StrokeCap::Square => STROKE_CAP_SQUARE,
                         StrokeCap::Round => STROKE_CAP_ROUND,
                     },
-                }),
-            )
+                })
+            }
         }
+        (instances, img)
     }
 }
 
@@ -187,6 +182,8 @@ pub struct RuleShader {
     indices: Vec<u16>,
     instances: Vec<RuleInstance>,
     uniform: RuleUniform,
+    batches: Vec<InstancedTextureMarkBatch>,
+    texture_size: Extent3d,
     shader: String,
     vertex_entry_point: String,
     fragment_entry_point: String,
@@ -194,7 +191,11 @@ pub struct RuleShader {
 
 impl RuleShader {
     pub fn from_rule_mark(mark: &RuleMark, dimensions: CanvasDimensions) -> Self {
-        let instances = RuleInstance::iter_from_spec(mark).collect::<Vec<_>>();
+        let (instances, gradient_image) = RuleInstance::from_spec(mark);
+        let batches = vec![InstancedTextureMarkBatch {
+            instances_range: 0..instances.len() as u32,
+            image: image::DynamicImage::ImageRgba8(gradient_image),
+        }];
         Self {
             verts: vec![
                 RuleVertex {
@@ -213,6 +214,12 @@ impl RuleShader {
             indices: vec![0, 1, 2, 0, 2, 3],
             instances,
             uniform: RuleUniform::new(dimensions),
+            batches,
+            texture_size: Extent3d {
+                width: GRADIENT_TEXTURE_WIDTH,
+                height: GRADIENT_TEXTURE_HEIGHT,
+                depth_or_array_layers: 1,
+            },
             shader: include_str!("rule.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
@@ -220,7 +227,7 @@ impl RuleShader {
     }
 }
 
-impl InstancedMarkShader for RuleShader {
+impl TextureInstancedMarkShader for RuleShader {
     type Instance = RuleInstance;
     type Vertex = RuleVertex;
     type Uniform = RuleUniform;
@@ -239,6 +246,14 @@ impl InstancedMarkShader for RuleShader {
 
     fn uniform(&self) -> Self::Uniform {
         self.uniform
+    }
+
+    fn batches(&self) -> &[InstancedTextureMarkBatch] {
+        self.batches.as_slice()
+    }
+
+    fn texture_size(&self) -> Extent3d {
+        self.texture_size
     }
 
     fn shader(&self) -> &str {

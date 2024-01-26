@@ -1,0 +1,100 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v5.json",
+  "description": "A scatterplot showing horsepower and miles per gallons for various cars.",
+  "background": "white",
+  "padding": 5,
+  "width": 200,
+  "height": 200,
+  "style": "cell",
+  "config": {"style": {"cell": {"stroke": "transparent"}}},
+  "data": [
+    {
+      "name": "source_0",
+      "values": [
+        {
+          "x": 140,
+          "x2": 60,
+          "y": 15,
+          "y2": 180,
+          "fill": {
+            "x1": 1,
+            "y1": 1,
+            "x2": 1,
+            "y2": 0,
+            "gradient": "linear",
+            "stops": [
+              {"offset": 0, "color": "yellow"},
+              {"offset": 0.65, "color": "orange"},
+              {"offset": 0.7, "color": "darkgreen"},
+              {"offset": 1, "color": "lightgreen"}
+            ]
+          },
+          "cap": "butt",
+          "width": 12
+        },
+        {
+          "x": 20,
+          "x2": 120,
+          "y": 45,
+          "y2": 140,
+          "fill": {
+            "x1": 0,
+            "y1": 1,
+            "x2": 1,
+            "y2": 1,
+            "gradient": "linear",
+            "stops": [
+              {"offset": 0, "color": "lightblue"},
+              {"offset": 0.25, "color": "blue"},
+              {"offset": 0.3, "color": "pink"},
+              {"offset": 1, "color": "red"}
+            ]
+          },
+          "cap": "square",
+          "width": 16
+        },
+        {
+          "x": 50,
+          "x2": 120,
+          "y": 15,
+          "y2": 190,
+          "fill": {
+            "x1": 0,
+            "y1": 0,
+            "x2": 1,
+            "y2": 1,
+            "gradient": "linear",
+            "stops": [
+              {"offset": 0, "color": "lightblue"},
+              {"offset": 0.25, "color": "blue"},
+              {"offset": 0.3, "color": "slategray"},
+              {"offset": 1, "color": "cyan"}
+            ]
+          },
+          "cap": "round",
+          "width": 20
+        }
+      ]
+    }
+  ],
+  "marks": [
+    {
+      "name": "marks",
+      "type": "rule",
+      "style": ["rule"],
+      "from": {"data": "source_0"},
+      "encode": {
+        "update": {
+          "strokeWidth": {"field": "width"},
+          "stroke": {"field": "fill"},
+          "x": {"field": "x"},
+          "x2": {"field": "x2"},
+          "y": {"field": "y"},
+          "y2": {"field": "y2"},
+          "opacity": {"value": 0.8},
+          "strokeCap": {"field": "cap"}
+        }
+      }
+    }
+  ]
+}
