@@ -128,7 +128,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
             let inner_radius = scaled_radius - scaled_stroke_width / 2.0;
             let mix_factor = 1.0 - smoothstep(inner_radius - buffer, inner_radius + buffer, dist);
-            var mixed_color: vec4<f32> = mix(lookup_color(in.stroke), lookup_color(in.fill), mix_factor);
+            var mixed_color: vec4<f32> = mix(lookup_color(in.stroke, in), lookup_color(in.fill, in), mix_factor);
             mixed_color[3] *= alpha_factor;
             return mixed_color;
         } else {
@@ -143,11 +143,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 dist = distance(inner_top_right, frag_xy);
             } else {
                 // skip anit-aliasing when not in a corner
-                return lookup_color(in.fill);
+                return lookup_color(in.fill, in);
             }
 
             let alpha_factor = 1.0 - smoothstep(scaled_radius - buffer, scaled_radius + buffer, dist);
-            var color: vec4<f32> = lookup_color(in.fill);
+            var color: vec4<f32> = lookup_color(in.fill, in);
             color[3] *= alpha_factor;
             return color;
         }
@@ -162,22 +162,35 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
             let in_stroke = in_left_stroke || in_right_stroke || in_bottom_stroke || in_top_stroke;
             if (in_stroke) {
-                return lookup_color(in.stroke);
+                return lookup_color(in.stroke, in);
             } else {
-                return lookup_color(in.fill);
+                return lookup_color(in.fill, in);
             }
         } else {
             // no stroke
-            return lookup_color(in.fill);
+            return lookup_color(in.fill, in);
         }
     }
 }
 
-fn lookup_color(color: vec4<f32>) -> vec4<f32> {
+fn lookup_color(color: vec4<f32>, in: VertexOutput) -> vec4<f32> {
     if (color[0] < 0.0) {
         let tex_coord_y = -color[0];
-        // TODO: compute tex_coord_x and use sampler to determine color
-        return vec4<f32>(1.0, 0.0, 0.0, 1.0);
+
+        // Convert fragment coordinate into coordinate normalized to rect bounding box
+        let frag_xy = vec2<f32>(in.clip_position[0], in.clip_position[1]);
+        let width = in.outer_bottom_right[0] - in.outer_top_left[0];
+        let height = in.outer_bottom_right[1] - in.outer_top_left[1];
+        let width_height = vec2<f32>(width, height);
+        let norm_xy = (frag_xy - in.outer_top_left) / width_height;
+
+        let p0 = vec2<f32>(chart_uniforms.x0, chart_uniforms.y0);
+        let p1 = vec2<f32>(chart_uniforms.x1, chart_uniforms.y1);
+        let control_dist = distance(p0, p1);
+        let projected_dist = dot(norm_xy - p0, p1 - p0) / control_dist;
+        let tex_coord_x = projected_dist / control_dist;
+
+        return textureSample(t_diffuse, s_diffuse, vec2<f32>(tex_coord_x, tex_coord_y));
     } else {
         return color;
     }

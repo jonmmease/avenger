@@ -1,3 +1,5 @@
+use colorgrad::Color;
+use image::Rgba;
 use crate::canvas::CanvasDimensions;
 use crate::marks::texture_instanced_mark::{InstancedTextureMarkBatch, TextureInstancedMarkShader};
 use itertools::izip;
@@ -110,10 +112,13 @@ const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array!
 ];
 
 impl GradientRectInstance {
-    pub fn from_spec(mark: &RectMark) -> (Vec<GradientRectInstance>, Option<Gradient>) {
+    pub fn from_spec(mark: &RectMark) -> (Vec<GradientRectInstance>, Option<Gradient>, image::RgbaImage) {
         let mut instances: Vec<GradientRectInstance> = Vec::new();
         let mut gradient: Option<Gradient> = None;
         let mut stops: Vec<Vec<GradientStop>> = Vec::new();
+        let tex_width = 256;
+        let tex_height= 256;
+        let mut img = image::RgbaImage::new(tex_width, tex_height);
 
         let mut compute_color = |color_or_gradient: &ColorOrGradient| -> [f32; 4] {
             match color_or_gradient {
@@ -121,12 +126,34 @@ impl GradientRectInstance {
                 ColorOrGradient::Gradient(grad) => {
                     gradient = Some(grad.clone());
                     let s = grad.stops();
-                    let pos = if let Some(pos) = stops.iter().position(|s| s.as_slice() == s) {
+                    let pos = if let Some(pos) = stops.iter().position(|stop| stop.as_slice() == s) {
                         // Already have stops, store index
                         pos
                     } else {
                         // Add stops
                         let pos = stops.len();
+                        assert!(pos < (tex_height / 2) as usize, "Exceeded max number of supported gradient colorways");
+
+                        let mut binding = colorgrad::CustomGradient::new();
+
+                        let offsets = s.iter().map(|stop| stop.offset as f64).collect::<Vec<_>>();
+                        let colors = s.iter().map(
+                            |stop| Color::new(stop.color[0] as f64, stop.color[1] as f64, stop.color[2] as f64, stop.color[3] as f64),
+                        ).collect::<Vec<_>>();
+
+                        let builder = binding.domain(offsets.as_slice()).colors(colors.as_slice());
+                        let b = builder.build().unwrap();
+
+                        let row0 = (pos * 2) as u32;
+                        for i in 0..tex_width {
+                            let p = (i as f64) / 255.0;
+                            let c= b.at(p).to_rgba8();
+
+                            // Write color to row0 and row0 + 1
+                            img.put_pixel(i, row0, Rgba::from(c));
+                            img.put_pixel(i, row0 + 1, Rgba::from(c));
+                        }
+
                         stops.push(Vec::from(s));
                         pos
                     };
@@ -162,7 +189,7 @@ impl GradientRectInstance {
                 corner_radius: *corner_radius,
             })
         }
-        (instances, gradient)
+        (instances, gradient, img)
     }
 }
 
@@ -180,11 +207,11 @@ pub struct GradientRectShader {
 
 impl GradientRectShader {
     pub fn from_rect_mark(mark: &RectMark, dimensions: CanvasDimensions) -> Self {
-        let (instances, gradient) = GradientRectInstance::from_spec(mark);
+        let (instances, gradient, img) = GradientRectInstance::from_spec(mark);
 
         let batches = vec![InstancedTextureMarkBatch {
             instances_range: 0..instances.len() as u32,
-            image: image::DynamicImage::ImageRgba8(image::RgbaImage::new(256, 256)),
+            image: image::DynamicImage::ImageRgba8(img),
         }];
 
         Self {

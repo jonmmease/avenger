@@ -166,7 +166,7 @@ impl TextureInstancedMarkRenderer {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&uniform_layout],
+                bind_group_layouts: &[&uniform_layout, &texture_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -290,6 +290,7 @@ impl TextureInstancedMarkRenderer {
 
                 render_pass.set_pipeline(&self.render_pipeline);
                 render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+                render_pass.set_bind_group(1, &self.texture_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                 render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
                 render_pass
