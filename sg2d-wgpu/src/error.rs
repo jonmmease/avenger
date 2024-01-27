@@ -20,4 +20,7 @@ pub enum Sg2dWgpuError {
 
     #[error("Image allocation error: {0}")]
     ImageAllocationError(String),
+
+    #[error("Text support is not enabled: {0}")]
+    TextNotEnabled(String),
 }
