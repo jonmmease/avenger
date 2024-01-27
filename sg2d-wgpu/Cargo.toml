@@ -6,6 +6,10 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+text-glyphon = ["glyphon"]
+default = ["text-glyphon"]
+
 [dependencies]
 sg2d = { path = "../sg2d" }
 
@@ -25,11 +29,11 @@ etagere = "0.2.10"
 colorgrad = "0.6.2"
 
 # glyphon branch that includes text rotation support: https://github.com/jonmmease/glyphon/pull/1
-glyphon = { git = "https://github.com/jonmmease/glyphon.git", rev="c468f5dacd4130b27a29b098c4de3f4d5c146209" }
+glyphon = { git = "https://github.com/jonmmease/glyphon.git", rev="c468f5dacd4130b27a29b098c4de3f4d5c146209", optional = true }
 lyon = { workspace = true }
 
 [dev-dependencies]
-sg2d-vega = { path = "../sg2d-vega" }
+sg2d-vega = { path = "../sg2d-vega", features = ["image-request"] }
 serde_json = { version = "1.0.111" }
 dssim = "3.2.4"
 rstest = "0.18.2"

@@ -11,7 +11,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 sg2d-vega = { path = "../../sg2d-vega" }
-sg2d-wgpu = { path = "../../sg2d-wgpu" }
+sg2d-wgpu = { path = "../../sg2d-wgpu", default-features = false }
 sg2d = { path = "../../sg2d" }
 
 cfg-if = "1"
