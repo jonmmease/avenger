@@ -5,7 +5,7 @@ use wgpu::{CommandBuffer, Device, Extent3d, ImageDataLayout, TextureFormat, Text
 #[derive(Clone)]
 pub struct BasicMarkBatch {
     pub indices_range: Range<u32>,
-    pub image: image::DynamicImage,
+    pub image: Option<image::DynamicImage>,
 }
 
 pub trait BasicMarkShader {
@@ -243,28 +243,31 @@ impl BasicMarkRenderer {
         });
 
         for batch in self.batches.iter() {
-            let temp_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Temp Buffer"),
-                contents: batch.image.to_rgba8().as_raw(),
-                usage: wgpu::BufferUsages::COPY_SRC,
-            });
-            mark_encoder.copy_buffer_to_texture(
-                wgpu::ImageCopyBuffer {
-                    buffer: &temp_buffer,
-                    layout: ImageDataLayout {
-                        offset: 0,
-                        bytes_per_row: Some(4 * self.texture_size.width),
-                        rows_per_image: Some(self.texture_size.height),
+            // Write image to texture
+            if let Some(img) = &batch.image {
+                let temp_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Temp Buffer"),
+                    contents: img.to_rgba8().as_raw(),
+                    usage: wgpu::BufferUsages::COPY_SRC,
+                });
+                mark_encoder.copy_buffer_to_texture(
+                    wgpu::ImageCopyBuffer {
+                        buffer: &temp_buffer,
+                        layout: ImageDataLayout {
+                            offset: 0,
+                            bytes_per_row: Some(4 * self.texture_size.width),
+                            rows_per_image: Some(self.texture_size.height),
+                        },
                     },
-                },
-                wgpu::ImageCopyTexture {
-                    texture: &self.texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                self.texture_size,
-            );
+                    wgpu::ImageCopyTexture {
+                        texture: &self.texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    self.texture_size,
+                );
+            }
 
             {
                 let mut render_pass = mark_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

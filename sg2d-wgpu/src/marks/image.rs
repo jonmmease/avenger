@@ -106,7 +106,7 @@ impl ImageShader {
                     // Add previous batch
                     batches.push(BasicMarkBatch {
                         indices_range: start_index..indices.len() as u32,
-                        image: image::DynamicImage::ImageRgba8(texture_image),
+                        image: Some(image::DynamicImage::ImageRgba8(texture_image)),
                     });
 
                     // create new allocator, new texture image, new batch
@@ -233,7 +233,7 @@ impl ImageShader {
         }
         batches.push(BasicMarkBatch {
             indices_range: start_index..indices.len() as u32,
-            image: image::DynamicImage::ImageRgba8(texture_image),
+            image: Some(image::DynamicImage::ImageRgba8(texture_image)),
         });
 
         Ok(Self {

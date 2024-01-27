@@ -1,7 +1,6 @@
 use crate::canvas::CanvasDimensions;
-use crate::marks::gradient::to_color_or_gradient_coord;
+use crate::marks::gradient::{build_gradients_image, to_color_or_gradient_coord};
 use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
-use crate::marks::rect::{build_gradients_image, GRADIENT_TEXTURE_HEIGHT, GRADIENT_TEXTURE_WIDTH};
 use itertools::izip;
 use sg2d::marks::arc::ArcMark;
 use std::f32::consts::TAU;
@@ -77,9 +76,9 @@ const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 10] = wgpu::vertex_attr_array
 ];
 
 impl ArcInstance {
-    pub fn from_spec(mark: &ArcMark) -> (Vec<ArcInstance>, image::RgbaImage) {
+    pub fn from_spec(mark: &ArcMark) -> (Vec<ArcInstance>, Option<image::DynamicImage>, Extent3d) {
         let mut instances: Vec<ArcInstance> = Vec::new();
-        let img = build_gradients_image(&mark.gradients);
+        let (img, texture_size) = build_gradients_image(&mark.gradients);
 
         for (
             x,
@@ -131,13 +130,13 @@ impl ArcInstance {
                 inner_radius: inner_radius.min(*outer_radius),
                 pad_angle: *pad_angle,
                 corner_radius: *corner_radius,
-                fill: to_color_or_gradient_coord(fill),
-                stroke: to_color_or_gradient_coord(stroke),
+                fill: to_color_or_gradient_coord(fill, texture_size),
+                stroke: to_color_or_gradient_coord(stroke, texture_size),
                 stroke_width: *stroke_width,
             });
         }
 
-        (instances, img)
+        (instances, img, texture_size)
     }
 }
 
@@ -155,10 +154,10 @@ pub struct ArcShader {
 
 impl ArcShader {
     pub fn from_arc_mark(mark: &ArcMark, dimensions: CanvasDimensions) -> Self {
-        let (instances, img) = ArcInstance::from_spec(mark);
+        let (instances, img, texture_size) = ArcInstance::from_spec(mark);
         let batches = vec![InstancedMarkBatch {
             instances_range: 0..instances.len() as u32,
-            image: image::DynamicImage::ImageRgba8(img),
+            image: img,
         }];
 
         Self {
@@ -180,11 +179,7 @@ impl ArcShader {
             instances,
             uniform: ArcUniform::new(dimensions),
             batches,
-            texture_size: Extent3d {
-                width: GRADIENT_TEXTURE_WIDTH,
-                height: GRADIENT_TEXTURE_HEIGHT,
-                depth_or_array_layers: 1,
-            },
+            texture_size,
             shader: include_str!("arc.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
