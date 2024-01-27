@@ -1,7 +1,7 @@
 use crate::canvas::CanvasDimensions;
 use crate::marks::gradient::to_color_or_gradient_coord;
-use crate::marks::rect::{build_gradients_image, GRADIENT_TEXTURE_HEIGHT, GRADIENT_TEXTURE_WIDTH};
 use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
+use crate::marks::rect::{build_gradients_image, GRADIENT_TEXTURE_HEIGHT, GRADIENT_TEXTURE_WIDTH};
 use itertools::izip;
 use sg2d::marks::arc::ArcMark;
 use std::f32::consts::TAU;

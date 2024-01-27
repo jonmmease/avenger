@@ -1,7 +1,7 @@
 struct ChartUniform {
     size: vec2<f32>,
     scale: f32,
-    _pad: f32, // for 16 byte alignment
+    smooth_: f32,
 };
 
 @group(0) @binding(0)
@@ -41,5 +41,9 @@ var nearest_sampler: sampler;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return textureSample(texture_atlas, linear_sampler, in.tex_coords);
+    if (chart_uniforms.smooth_ == 1.0) {
+        return textureSample(texture_atlas, linear_sampler, in.tex_coords);
+    } else {
+        return textureSample(texture_atlas, nearest_sampler, in.tex_coords);
+    }
 }

@@ -1,8 +1,8 @@
 use crate::canvas::CanvasDimensions;
 use crate::error::Sg2dWgpuError;
+use crate::marks::basic_mark::{BasicMarkBatch, BasicMarkShader};
 use crate::marks::gradient::to_color_or_gradient_coord;
 use crate::marks::rect::build_gradients_image;
-use crate::marks::basic_mark::{BasicMarkBatch, BasicMarkShader};
 use itertools::izip;
 use lyon::algorithms::aabb::bounding_box;
 use lyon::algorithms::measure::{PathMeasurements, PathSampler, SampleType};

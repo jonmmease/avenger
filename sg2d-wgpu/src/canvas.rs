@@ -14,14 +14,14 @@ use winit::window::Window;
 
 use crate::error::Sg2dWgpuError;
 use crate::marks::arc::ArcShader;
+use crate::marks::basic_mark::BasicMarkRenderer;
 use crate::marks::image::ImageShader;
+use crate::marks::instanced_mark::InstancedMarkRenderer;
 use crate::marks::path::PathShader;
 use crate::marks::rect::RectShader;
 use crate::marks::rule::RuleShader;
 use crate::marks::symbol::SymbolShader;
 use crate::marks::text::TextMarkRenderer;
-use crate::marks::instanced_mark::InstancedMarkRenderer;
-use crate::marks::basic_mark::BasicMarkRenderer;
 use sg2d::marks::arc::ArcMark;
 use sg2d::marks::area::AreaMark;
 use sg2d::marks::image::ImageMark;
@@ -74,14 +74,12 @@ pub trait Canvas {
     fn sample_count(&self) -> u32;
 
     fn add_arc_mark(&mut self, mark: &ArcMark) -> Result<(), Sg2dWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Instanced(
-            InstancedMarkRenderer::new(
-                self.device(),
-                self.texture_format(),
-                self.sample_count(),
-                Box::new(ArcShader::from_arc_mark(mark, self.dimensions())),
-            ),
-        ));
+        self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
+            self.device(),
+            self.texture_format(),
+            self.sample_count(),
+            Box::new(ArcShader::from_arc_mark(mark, self.dimensions())),
+        )));
         Ok(())
     }
 
@@ -126,38 +124,32 @@ pub trait Canvas {
     }
 
     fn add_symbol_mark(&mut self, mark: &SymbolMark) -> Result<(), Sg2dWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Instanced(
-            InstancedMarkRenderer::new(
-                self.device(),
-                self.texture_format(),
-                self.sample_count(),
-                Box::new(SymbolShader::from_symbol_mark(mark, self.dimensions())?),
-            ),
-        ));
+        self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
+            self.device(),
+            self.texture_format(),
+            self.sample_count(),
+            Box::new(SymbolShader::from_symbol_mark(mark, self.dimensions())?),
+        )));
         Ok(())
     }
 
     fn add_rect_mark(&mut self, mark: &RectMark) -> Result<(), Sg2dWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Instanced(
-            InstancedMarkRenderer::new(
-                self.device(),
-                self.texture_format(),
-                self.sample_count(),
-                Box::new(RectShader::from_rect_mark(mark, self.dimensions())),
-            ),
-        ));
+        self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
+            self.device(),
+            self.texture_format(),
+            self.sample_count(),
+            Box::new(RectShader::from_rect_mark(mark, self.dimensions())),
+        )));
         Ok(())
     }
 
     fn add_rule_mark(&mut self, mark: &RuleMark) -> Result<(), Sg2dWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Instanced(
-            InstancedMarkRenderer::new(
-                self.device(),
-                self.texture_format(),
-                self.sample_count(),
-                Box::new(RuleShader::from_rule_mark(mark, self.dimensions())),
-            ),
-        ));
+        self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
+            self.device(),
+            self.texture_format(),
+            self.sample_count(),
+            Box::new(RuleShader::from_rule_mark(mark, self.dimensions())),
+        )));
         Ok(())
     }
 

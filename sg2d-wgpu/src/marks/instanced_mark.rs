@@ -25,16 +25,6 @@ pub trait InstancedMarkShader {
     fn fragment_entry_point(&self) -> &str;
     fn instance_desc(&self) -> wgpu::VertexBufferLayout<'static>;
     fn vertex_desc(&self) -> wgpu::VertexBufferLayout<'static>;
-
-    fn mag_filter(&self) -> wgpu::FilterMode {
-        wgpu::FilterMode::Linear
-    }
-    fn min_filter(&self) -> wgpu::FilterMode {
-        wgpu::FilterMode::Nearest
-    }
-    fn mipmap_filter(&self) -> wgpu::FilterMode {
-        wgpu::FilterMode::Nearest
-    }
 }
 
 pub struct InstancedMarkRenderer {
