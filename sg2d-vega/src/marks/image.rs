@@ -1,6 +1,7 @@
 use crate::error::VegaSceneGraphError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
-use reqwest::blocking::Client;
+
+use crate::image::make_image_fetcher;
 use serde::{Deserialize, Serialize};
 use sg2d::marks::image::{ImageMark, RgbaImage};
 use sg2d::marks::mark::SceneMark;
@@ -53,7 +54,8 @@ impl VegaMarkContainer<VegaImageItem> {
         let mut images: Vec<RgbaImage> = Vec::new();
         let mut zindex = Vec::<i32>::new();
 
-        let client = Client::new();
+        // let client = Client::new();
+        let fetcher = make_image_fetcher()?;
 
         for item in &self.items {
             x.push(item.x + origin[0]);
@@ -69,10 +71,7 @@ impl VegaMarkContainer<VegaImageItem> {
                 item.url.clone()
             };
 
-            // TODO: don't panic when loading image and converting to rgba8
-            let img_data = client.get(&url).send().unwrap().bytes().unwrap().to_vec();
-            let diffuse_image = image::load_from_memory(img_data.as_slice()).unwrap();
-
+            let diffuse_image = fetcher.fetch_image(&url)?;
             let rgba_img = diffuse_image.to_rgba8();
             let img_width = rgba_img.width();
             let img_height = rgba_img.height();

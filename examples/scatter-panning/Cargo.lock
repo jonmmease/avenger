@@ -2193,11 +2193,11 @@ dependencies = [
 name = "sg2d-vega"
 version = "0.1.0"
 dependencies = [
+ "cfg-if",
  "csscolorparser",
  "image",
  "lyon_extra",
  "lyon_path",
- "reqwest",
  "serde",
  "serde_json",
  "sg2d",
