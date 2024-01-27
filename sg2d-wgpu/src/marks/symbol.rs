@@ -211,7 +211,11 @@ impl SymbolShader {
             uniform: SymbolUniform::new(dimensions),
             batches,
             texture_size,
-            shader: include_str!("symbol.wgsl").to_string(),
+            shader: format!(
+                "{}\n{}",
+                include_str!("symbol.wgsl").to_string(),
+                include_str!("gradient.wgsl").to_string()
+            ),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
         })
