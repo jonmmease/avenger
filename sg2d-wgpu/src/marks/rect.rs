@@ -2,6 +2,7 @@ use crate::canvas::CanvasDimensions;
 use crate::marks::gradient::{build_gradients_image, to_color_or_gradient_coord};
 use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
 use itertools::izip;
+use sg2d::marks::group::GroupBounds;
 use sg2d::marks::rect::RectMark;
 use wgpu::{Extent3d, VertexBufferLayout};
 
@@ -15,16 +16,27 @@ pub const GRADIENT_TEXTURE_WIDTH: u32 = 256;
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct RectUniform {
     pub size: [f32; 2],
+    pub origin: [f32; 2],
+    pub group_size: [f32; 2],
     pub scale: f32,
-    _pad: [f32; 1], // Pad to 16 bytes
+    pub clip: f32,
 }
 
 impl RectUniform {
-    pub fn new(dimensions: CanvasDimensions) -> Self {
+    pub fn new(dimensions: CanvasDimensions, group_bounds: GroupBounds, clip: bool) -> Self {
         Self {
             size: dimensions.size,
             scale: dimensions.scale,
-            _pad: [0.0],
+            origin: [group_bounds.x, group_bounds.y],
+            group_size: [
+                group_bounds.width.unwrap_or(0.0),
+                group_bounds.height.unwrap_or(0.0),
+            ],
+            clip: if clip && group_bounds.width.is_some() && group_bounds.height.is_some() {
+                1.0
+            } else {
+                0.0
+            },
         }
     }
 }
@@ -115,7 +127,11 @@ pub struct RectShader {
 }
 
 impl RectShader {
-    pub fn from_rect_mark(mark: &RectMark, dimensions: CanvasDimensions) -> Self {
+    pub fn from_rect_mark(
+        mark: &RectMark,
+        dimensions: CanvasDimensions,
+        group_bounds: GroupBounds,
+    ) -> Self {
         let (instances, img, texture_size) = RectInstance::from_spec(mark);
 
         let batches = vec![InstancedMarkBatch {
@@ -142,7 +158,7 @@ impl RectShader {
             instances,
             batches,
             texture_size,
-            uniform: RectUniform::new(dimensions),
+            uniform: RectUniform::new(dimensions, group_bounds, mark.clip),
             shader: format!(
                 "{}\n{}",
                 include_str!("rect.wgsl"),

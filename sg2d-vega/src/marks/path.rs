@@ -33,7 +33,7 @@ pub struct VegaPathItem {
 impl VegaMarkItem for VegaPathItem {}
 
 impl VegaMarkContainer<VegaPathItem> {
-    pub fn to_scene_graph(&self, origin: [f32; 2]) -> Result<SceneMark, VegaSceneGraphError> {
+    pub fn to_scene_graph(&self) -> Result<SceneMark, VegaSceneGraphError> {
         // Get shape of first item and use that for all items for now
         let first = self.items.first();
         let first_has_stroke = first.map(|item| item.stroke.is_some()).unwrap_or(false);
@@ -94,8 +94,8 @@ impl VegaMarkContainer<VegaPathItem> {
                     PathTransform::scale(item.scale_x.unwrap_or(1.0), item.scale_y.unwrap_or(1.0))
                         .then_rotate(Angle::degrees(item.angle.unwrap_or(0.0)))
                         .then_translate(Vector2D::new(
-                            item.x.unwrap_or(0.0) + origin[0],
-                            item.y.unwrap_or(0.0) + origin[1],
+                            item.x.unwrap_or(0.0),
+                            item.y.unwrap_or(0.0),
                         )),
                 )
             }
@@ -117,7 +117,7 @@ impl VegaMarkContainer<VegaPathItem> {
             mark.transform = EncodingValue::Array { values: transform };
         } else {
             mark.transform = EncodingValue::Scalar {
-                value: PathTransform::translation(origin[0], origin[1]),
+                value: PathTransform::identity(),
             }
         }
         if zindex.len() == len {

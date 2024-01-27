@@ -4,6 +4,7 @@ use glyphon::{
     TextAtlas, TextBounds, TextRenderer, Weight,
 };
 use itertools::izip;
+use sg2d::marks::group::GroupBounds;
 use sg2d::marks::text::{
     FontStyleSpec, FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec, TextMark,
 };
@@ -30,7 +31,12 @@ pub struct TextInstance {
 }
 
 impl TextInstance {
-    pub fn iter_from_spec(mark: &TextMark) -> impl Iterator<Item = TextInstance> + '_ {
+    pub fn iter_from_spec(
+        mark: &TextMark,
+        group_bounds: GroupBounds,
+    ) -> impl Iterator<Item = TextInstance> + '_ {
+        let group_x = group_bounds.x;
+        let group_y = group_bounds.y;
         izip!(
             mark.text_iter(),
             mark.x_iter(),
@@ -48,7 +54,7 @@ impl TextInstance {
             mark.limit_iter(),
         )
         .map(
-            |(
+            move |(
                 text,
                 x,
                 y,
@@ -66,7 +72,7 @@ impl TextInstance {
             )| {
                 TextInstance {
                     text: text.clone(),
-                    position: [*x, *y],
+                    position: [*x + group_x, *y + group_y],
                     color: *color,
                     align: *align,
                     angle: *angle,
@@ -91,6 +97,7 @@ pub struct TextMarkRenderer {
     pub text_renderer: TextRenderer,
     pub instances: Vec<TextInstance>,
     pub dimensions: CanvasDimensions,
+    pub group_bounds: GroupBounds,
 }
 
 impl TextMarkRenderer {
@@ -101,8 +108,9 @@ impl TextMarkRenderer {
         dimensions: CanvasDimensions,
         sample_count: u32,
         mark: &TextMark,
+        group_bounds: GroupBounds,
     ) -> Self {
-        let instances = TextInstance::iter_from_spec(mark).collect::<Vec<_>>();
+        let instances = TextInstance::iter_from_spec(mark, group_bounds).collect::<Vec<_>>();
         let font_system = FontSystem::new();
         let cache = SwashCache::new();
         let mut atlas = TextAtlas::new(device, queue, texture_format);
@@ -124,6 +132,7 @@ impl TextMarkRenderer {
             text_renderer,
             dimensions,
             instances,
+            group_bounds,
         }
     }
 

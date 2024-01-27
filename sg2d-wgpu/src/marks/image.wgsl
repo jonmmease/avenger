@@ -1,7 +1,9 @@
 struct ChartUniform {
     size: vec2<f32>,
+    origin: vec2<f32>,
+    group_size: vec2<f32>,
     scale: f32,
-    _pad: f32,
+    clip: f32,
 };
 
 @group(0) @binding(0)
@@ -23,9 +25,13 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
     out.tex_coords = model.tex_coords;
+
+    // Compute absolute position
+    let position = model.position + chart_uniforms.origin;
+
     let normalized_pos = vec2<f32>(
-        2.0 * model.position[0] / chart_uniforms.size[0] - 1.0,
-        2.0 * (chart_uniforms.size[1] - model.position[1]) / chart_uniforms.size[1] - 1.0,
+        2.0 * position[0] / chart_uniforms.size[0] - 1.0,
+        2.0 * (chart_uniforms.size[1] - position[1]) / chart_uniforms.size[1] - 1.0,
     );
     out.clip_position = vec4<f32>(normalized_pos, 0.0, 1.0);
     return out;

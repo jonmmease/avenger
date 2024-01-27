@@ -1,8 +1,10 @@
 // Vertex shader
 struct ChartUniform {
     size: vec2<f32>,
+    origin: vec2<f32>,
+    group_size: vec2<f32>,
     scale: f32,
-    _pad: f32, // for 16 byte alignment
+    clip: f32,
 };
 
 @group(0) @binding(0)
@@ -67,12 +69,15 @@ fn vs_main(
 
     let size_scale = sqrt(instance.size);
 
+    // Compute absolute position
+    let position = instance.position + chart_uniforms.origin;
+
     // Compute scenegraph x and y coordinates
     let angle_rad = PI * instance.angle / 180.0;
     let rot = mat2x2(cos(angle_rad), -sin(angle_rad), sin(angle_rad), cos(angle_rad));
     let rotated_pos = rot * model.position;
-    let sg_x = rotated_pos[0] * size_scale + instance.position[0];
-    let sg_y = rotated_pos[1] * size_scale + (chart_uniforms.size[1] - instance.position[1]);
+    let sg_x = rotated_pos[0] * size_scale + position[0];
+    let sg_y = rotated_pos[1] * size_scale + (chart_uniforms.size[1] - position[1]);
     let pos = vec2(sg_x, sg_y);
 
     if (model.kind == 0u) {
@@ -119,8 +124,8 @@ fn vs_main(
 
     // Compute circle center in fragment shader coordinates
     out.center = vec2<f32>(
-        instance.position[0] * chart_uniforms.scale,
-        instance.position[1] * chart_uniforms.scale,
+        position[0] * chart_uniforms.scale,
+        position[1] * chart_uniforms.scale,
     );
 
     // Compute radius in fragment shader coordinates

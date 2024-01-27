@@ -3,6 +3,7 @@ use crate::error::Sg2dWgpuError;
 use crate::marks::basic_mark::{BasicMarkBatch, BasicMarkShader};
 use etagere::Size;
 use itertools::izip;
+use sg2d::marks::group::GroupBounds;
 use sg2d::marks::image::ImageMark;
 use sg2d::marks::value::{ImageAlign, ImageBaseline};
 use wgpu::{Extent3d, FilterMode, VertexBufferLayout};
@@ -11,16 +12,27 @@ use wgpu::{Extent3d, FilterMode, VertexBufferLayout};
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ImageUniform {
     pub size: [f32; 2],
+    pub origin: [f32; 2],
+    pub group_size: [f32; 2],
     pub scale: f32,
-    _pad: [f32; 1], // Pad to 16 bytes
+    pub clip: f32,
 }
 
 impl ImageUniform {
-    pub fn new(dimensions: CanvasDimensions) -> Self {
+    pub fn new(dimensions: CanvasDimensions, group_bounds: GroupBounds, clip: bool) -> Self {
         Self {
             size: dimensions.size,
             scale: dimensions.scale,
-            _pad: [0.0],
+            origin: [group_bounds.x, group_bounds.y],
+            group_size: [
+                group_bounds.width.unwrap_or(0.0),
+                group_bounds.height.unwrap_or(0.0),
+            ],
+            clip: if clip && group_bounds.width.is_some() && group_bounds.height.is_some() {
+                1.0
+            } else {
+                0.0
+            },
         }
     }
 }
@@ -63,6 +75,7 @@ impl ImageShader {
     pub fn from_image_mark(
         mark: &ImageMark,
         dimensions: CanvasDimensions,
+        group_bounds: GroupBounds,
     ) -> Result<Self, Sg2dWgpuError> {
         let mut verts: Vec<ImageVertex> = Vec::new();
         let mut indices: Vec<u16> = Vec::new();
@@ -240,7 +253,7 @@ impl ImageShader {
         Ok(Self {
             verts,
             indices,
-            uniform: ImageUniform::new(dimensions),
+            uniform: ImageUniform::new(dimensions, group_bounds, mark.clip),
             smooth: mark.smooth,
             batches,
             texture_size,
