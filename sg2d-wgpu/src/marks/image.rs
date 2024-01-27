@@ -1,6 +1,6 @@
 use crate::canvas::CanvasDimensions;
 use crate::error::Sg2dWgpuError;
-use crate::marks::texture_mark::{TextureMarkBatch, TextureMarkShader};
+use crate::marks::basic_mark::{BasicMarkBatch, BasicMarkShader};
 use etagere::Size;
 use itertools::izip;
 use sg2d::marks::image::ImageMark;
@@ -54,7 +54,7 @@ pub struct ImageShader {
     shader: String,
     vertex_entry_point: String,
     fragment_entry_point: String,
-    batches: Vec<TextureMarkBatch>,
+    batches: Vec<BasicMarkBatch>,
     texture_size: Extent3d,
     mag_filter: wgpu::FilterMode,
 }
@@ -66,7 +66,7 @@ impl ImageShader {
     ) -> Result<Self, Sg2dWgpuError> {
         let mut verts: Vec<ImageVertex> = Vec::new();
         let mut indices: Vec<u16> = Vec::new();
-        let mut batches: Vec<TextureMarkBatch> = Vec::new();
+        let mut batches: Vec<BasicMarkBatch> = Vec::new();
         let aspect = mark.aspect;
 
         // Compute texture size
@@ -105,7 +105,7 @@ impl ImageShader {
                 None => {
                     // Current allocator is full
                     // Add previous batch
-                    batches.push(TextureMarkBatch {
+                    batches.push(BasicMarkBatch {
                         indices_range: start_index..indices.len() as u32,
                         image: image::DynamicImage::ImageRgba8(texture_image),
                     });
@@ -232,7 +232,7 @@ impl ImageShader {
             indices.push(offset + 2);
             indices.push(offset + 3);
         }
-        batches.push(TextureMarkBatch {
+        batches.push(BasicMarkBatch {
             indices_range: start_index..indices.len() as u32,
             image: image::DynamicImage::ImageRgba8(texture_image),
         });
@@ -255,7 +255,7 @@ impl ImageShader {
     }
 }
 
-impl TextureMarkShader for ImageShader {
+impl BasicMarkShader for ImageShader {
     type Vertex = ImageVertex;
     type Uniform = ImageUniform;
 
@@ -287,7 +287,7 @@ impl TextureMarkShader for ImageShader {
         ImageVertex::desc()
     }
 
-    fn batches(&self) -> &[TextureMarkBatch] {
+    fn batches(&self) -> &[BasicMarkBatch] {
         self.batches.as_slice()
     }
 

@@ -1,6 +1,6 @@
 use crate::canvas::CanvasDimensions;
 use crate::marks::gradient::to_color_or_gradient_coord;
-use crate::marks::texture_instanced_mark::{InstancedTextureMarkBatch, TextureInstancedMarkShader};
+use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
 use colorgrad::Color;
 use image::Rgba;
 use itertools::izip;
@@ -203,7 +203,7 @@ pub struct RectShader {
     indices: Vec<u16>,
     instances: Vec<RectInstance>,
     uniform: RectUniform,
-    batches: Vec<InstancedTextureMarkBatch>,
+    batches: Vec<InstancedMarkBatch>,
     texture_size: Extent3d,
     shader: String,
     vertex_entry_point: String,
@@ -214,7 +214,7 @@ impl RectShader {
     pub fn from_rect_mark(mark: &RectMark, dimensions: CanvasDimensions) -> Self {
         let (instances, img) = RectInstance::from_spec(mark);
 
-        let batches = vec![InstancedTextureMarkBatch {
+        let batches = vec![InstancedMarkBatch {
             instances_range: 0..instances.len() as u32,
             image: image::DynamicImage::ImageRgba8(img),
         }];
@@ -250,7 +250,7 @@ impl RectShader {
     }
 }
 
-impl TextureInstancedMarkShader for RectShader {
+impl InstancedMarkShader for RectShader {
     type Instance = RectInstance;
     type Vertex = RectVertex;
     type Uniform = RectUniform;
@@ -271,7 +271,7 @@ impl TextureInstancedMarkShader for RectShader {
         self.uniform
     }
 
-    fn batches(&self) -> &[InstancedTextureMarkBatch] {
+    fn batches(&self) -> &[InstancedMarkBatch] {
         self.batches.as_slice()
     }
 

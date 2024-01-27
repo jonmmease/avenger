@@ -1,7 +1,7 @@
 use crate::canvas::CanvasDimensions;
 use crate::marks::gradient::to_color_or_gradient_coord;
 use crate::marks::rect::{build_gradients_image, GRADIENT_TEXTURE_HEIGHT, GRADIENT_TEXTURE_WIDTH};
-use crate::marks::texture_instanced_mark::{InstancedTextureMarkBatch, TextureInstancedMarkShader};
+use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
 use itertools::izip;
 use sg2d::marks::rule::RuleMark;
 use sg2d::marks::value::StrokeCap;
@@ -182,7 +182,7 @@ pub struct RuleShader {
     indices: Vec<u16>,
     instances: Vec<RuleInstance>,
     uniform: RuleUniform,
-    batches: Vec<InstancedTextureMarkBatch>,
+    batches: Vec<InstancedMarkBatch>,
     texture_size: Extent3d,
     shader: String,
     vertex_entry_point: String,
@@ -192,7 +192,7 @@ pub struct RuleShader {
 impl RuleShader {
     pub fn from_rule_mark(mark: &RuleMark, dimensions: CanvasDimensions) -> Self {
         let (instances, gradient_image) = RuleInstance::from_spec(mark);
-        let batches = vec![InstancedTextureMarkBatch {
+        let batches = vec![InstancedMarkBatch {
             instances_range: 0..instances.len() as u32,
             image: image::DynamicImage::ImageRgba8(gradient_image),
         }];
@@ -227,7 +227,7 @@ impl RuleShader {
     }
 }
 
-impl TextureInstancedMarkShader for RuleShader {
+impl InstancedMarkShader for RuleShader {
     type Instance = RuleInstance;
     type Vertex = RuleVertex;
     type Uniform = RuleUniform;
@@ -248,7 +248,7 @@ impl TextureInstancedMarkShader for RuleShader {
         self.uniform
     }
 
-    fn batches(&self) -> &[InstancedTextureMarkBatch] {
+    fn batches(&self) -> &[InstancedMarkBatch] {
         self.batches.as_slice()
     }
 

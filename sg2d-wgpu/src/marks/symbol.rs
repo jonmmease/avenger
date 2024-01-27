@@ -2,7 +2,7 @@ use crate::canvas::CanvasDimensions;
 use crate::error::Sg2dWgpuError;
 use crate::marks::gradient::to_color_or_gradient_coord;
 use crate::marks::rect::{build_gradients_image, GRADIENT_TEXTURE_HEIGHT, GRADIENT_TEXTURE_WIDTH};
-use crate::marks::texture_instanced_mark::{InstancedTextureMarkBatch, TextureInstancedMarkShader};
+use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
 use itertools::izip;
 use lyon::lyon_tessellation::{
     BuffersBuilder, FillVertex, FillVertexConstructor, StrokeVertex, StrokeVertexConstructor,
@@ -119,7 +119,7 @@ pub struct SymbolShader {
     indices: Vec<u16>,
     instances: Vec<SymbolInstance>,
     uniform: SymbolUniform,
-    batches: Vec<InstancedTextureMarkBatch>,
+    batches: Vec<InstancedMarkBatch>,
     texture_size: Extent3d,
     shader: String,
     vertex_entry_point: String,
@@ -199,7 +199,7 @@ impl SymbolShader {
             }
         }
         let (instances, img) = SymbolInstance::from_spec(mark);
-        let batches = vec![InstancedTextureMarkBatch {
+        let batches = vec![InstancedMarkBatch {
             instances_range: 0..instances.len() as u32,
             image: image::DynamicImage::ImageRgba8(img),
         }];
@@ -221,7 +221,7 @@ impl SymbolShader {
     }
 }
 
-impl TextureInstancedMarkShader for SymbolShader {
+impl InstancedMarkShader for SymbolShader {
     type Instance = SymbolInstance;
     type Vertex = SymbolVertex;
     type Uniform = SymbolUniform;
@@ -242,7 +242,7 @@ impl TextureInstancedMarkShader for SymbolShader {
         self.uniform
     }
 
-    fn batches(&self) -> &[InstancedTextureMarkBatch] {
+    fn batches(&self) -> &[InstancedMarkBatch] {
         self.batches.as_slice()
     }
 

@@ -1,7 +1,7 @@
 use crate::canvas::CanvasDimensions;
 use crate::marks::gradient::to_color_or_gradient_coord;
 use crate::marks::rect::{build_gradients_image, GRADIENT_TEXTURE_HEIGHT, GRADIENT_TEXTURE_WIDTH};
-use crate::marks::texture_instanced_mark::{InstancedTextureMarkBatch, TextureInstancedMarkShader};
+use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
 use itertools::izip;
 use sg2d::marks::arc::ArcMark;
 use std::f32::consts::TAU;
@@ -146,7 +146,7 @@ pub struct ArcShader {
     indices: Vec<u16>,
     instances: Vec<ArcInstance>,
     uniform: ArcUniform,
-    batches: Vec<InstancedTextureMarkBatch>,
+    batches: Vec<InstancedMarkBatch>,
     texture_size: Extent3d,
     shader: String,
     vertex_entry_point: String,
@@ -156,7 +156,7 @@ pub struct ArcShader {
 impl ArcShader {
     pub fn from_arc_mark(mark: &ArcMark, dimensions: CanvasDimensions) -> Self {
         let (instances, img) = ArcInstance::from_spec(mark);
-        let batches = vec![InstancedTextureMarkBatch {
+        let batches = vec![InstancedMarkBatch {
             instances_range: 0..instances.len() as u32,
             image: image::DynamicImage::ImageRgba8(img),
         }];
@@ -192,7 +192,7 @@ impl ArcShader {
     }
 }
 
-impl TextureInstancedMarkShader for ArcShader {
+impl InstancedMarkShader for ArcShader {
     type Instance = ArcInstance;
     type Vertex = ArcVertex;
     type Uniform = ArcUniform;
@@ -213,7 +213,7 @@ impl TextureInstancedMarkShader for ArcShader {
         self.uniform
     }
 
-    fn batches(&self) -> &[InstancedTextureMarkBatch] {
+    fn batches(&self) -> &[InstancedMarkBatch] {
         self.batches.as_slice()
     }
 
