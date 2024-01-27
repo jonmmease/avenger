@@ -1,0 +1,127 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v5.json",
+  "description": "A simple pie chart with embedded data.",
+  "background": "white",
+  "padding": 5,
+  "width": 300,
+  "height": 300,
+  "style": "view",
+  "data": [{
+    "name": "data_0",
+    "values": [
+      {
+        "x": 30,
+        "y": 30,
+        "fill": {
+          "x1": 0.3,
+          "y1": 0.3,
+          "x2": 0.9,
+          "y2": 0.9,
+          "gradient": "linear",
+          "stops": [
+            {"offset": 0, "color": "yellow"},
+            {"offset": 0.3, "color": "deeppink"},
+            {"offset": 1, "color": "cyan"}
+          ]
+        },
+        "stroke": {
+          "x1": 0.3,
+          "y1": 1.0,
+          "x2": 0.8,
+          "y2": 1.0,
+          "gradient": "linear",
+          "stops": [
+            {"offset": 0, "color": "lightblue"},
+            {"offset": 1, "color": "deeppink"}
+          ]
+        },
+        "scaleX": 45,
+        "scaleY": 45,
+        "angle": 0,
+        "path": "M0,.5L.6,.8L.5,.1L1,-.3L.3,-.4L0,-1L-.3,-.4L-1,-.3L-.5,.1L-.6.8L0,.5Z"
+      },
+      {
+        "x": 100,
+        "y": 80,
+        "fill": {
+          "x1": 0.3,
+          "y1": 0.3,
+          "x2": 0.8,
+          "y2": 0.6,
+          "gradient": "linear",
+          "stops": [
+            {"offset": 0, "color": "lightblue"},
+            {"offset": 1, "color": "darkblue"}
+          ]
+        },
+        "stroke": {
+          "x1": 0.0,
+          "y1": 1.0,
+          "x2": 1.0,
+          "y2": 1.0,
+          "gradient": "linear",
+          "stops": [
+            {"offset": 0, "color": "black"},
+            {"offset": 1, "color": "cyan"}
+          ]
+        },
+        "scaleX": 15,
+        "scaleY": 30,
+        "angle": 10,
+        "path": "M2 1 h1 v1 h1 v1 h-1 v1 h-1 v-1 h-1 v-1 h1 z"
+      },
+      {
+        "x": 250,
+        "y": 200,
+        "fill": {
+          "x1": 0.3,
+          "y1": 1.0,
+          "x2": 0.8,
+          "y2": 1.0,
+          "gradient": "linear",
+          "stops": [
+            {"offset": 0, "color": "yellow"},
+            {"offset": 1, "color": "darkorange"}
+          ]
+        },
+        "stroke": {
+          "x1": 0.3,
+          "y1": 1.0,
+          "x2": 0.8,
+          "y2": 1.0,
+          "gradient": "linear",
+          "stops": [
+            {"offset": 0, "color": "blue"},
+            {"offset": 1, "color": "darkcyan"}
+          ]
+        },
+        "scaleX": 30,
+        "scaleY": 15,
+        "angle": -15,
+        "path": "M-1,-1L1,-1L1,1L-1,1Z"
+      }
+    ]
+  }],
+  "marks": [
+    {
+      "name": "marks",
+      "type": "path",
+      "from": {"data": "data_0"},
+      "style": ["arc"],
+      "encode": {
+        "update": {
+          "x": {"field": "x"},
+          "y": {"field": "y"},
+          "scaleX": {"field": "scaleX"},
+          "scaleY": {"field": "scaleY"},
+          "path": {"field": "path"},
+          "fill":  {"field": "fill"},
+          "fillOpacity": {"value": 0.6},
+          "angle":  {"field": "angle"},
+          "stroke": {"field": "stroke"},
+          "strokeWidth": {"value": 5}
+        }
+      }
+    }
+  ]
+}

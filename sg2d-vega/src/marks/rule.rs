@@ -1,10 +1,10 @@
 use crate::error::VegaSceneGraphError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
-use crate::marks::values::StrokeDashSpec;
+use crate::marks::values::{CssColorOrGradient, StrokeDashSpec};
 use serde::{Deserialize, Serialize};
 use sg2d::marks::mark::SceneMark;
 use sg2d::marks::rule::RuleMark;
-use sg2d::marks::value::{EncodingValue, StrokeCap};
+use sg2d::marks::value::{ColorOrGradient, EncodingValue, Gradient, StrokeCap};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -13,7 +13,7 @@ pub struct VegaRuleItem {
     pub y: f32,
     pub x2: Option<f32>,
     pub y2: Option<f32>,
-    pub stroke: Option<String>,
+    pub stroke: Option<CssColorOrGradient>,
     pub stroke_width: Option<f32>,
     pub stroke_cap: Option<StrokeCap>,
     pub stroke_opacity: Option<f32>,
@@ -40,11 +40,12 @@ impl VegaMarkContainer<VegaRuleItem> {
         let mut y0 = Vec::<f32>::new();
         let mut x1 = Vec::<f32>::new();
         let mut y1 = Vec::<f32>::new();
-        let mut stroke = Vec::<[f32; 4]>::new();
+        let mut stroke = Vec::<ColorOrGradient>::new();
         let mut stroke_width = Vec::<f32>::new();
         let mut stroke_cap = Vec::<StrokeCap>::new();
         let mut stroke_dash = Vec::<Vec<f32>>::new();
         let mut zindex = Vec::<i32>::new();
+        let mut gradients = Vec::<Gradient>::new();
 
         // For each item, append explicit values to corresponding vector
         for item in &self.items {
@@ -53,11 +54,9 @@ impl VegaMarkContainer<VegaRuleItem> {
             x1.push(item.x2.unwrap_or(item.x) + origin[0]);
             y1.push(item.y2.unwrap_or(item.y) + origin[1]);
 
-            if let Some(s) = &item.stroke {
-                let c = csscolorparser::parse(s)?;
-                let opacity =
-                    c.a as f32 * item.stroke_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
-                stroke.push([c.r as f32, c.g as f32, c.b as f32, opacity]);
+            if let Some(v) = &item.stroke {
+                let opacity = item.stroke_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
+                stroke.push(v.to_color_or_grad(opacity, &mut gradients)?);
             }
 
             if let Some(s) = item.stroke_width {
@@ -114,6 +113,9 @@ impl VegaMarkContainer<VegaRuleItem> {
             indices.sort_by_key(|i| zindex[*i]);
             mark.indices = Some(indices);
         }
+
+        // Add gradients
+        mark.gradients = gradients;
 
         Ok(SceneMark::Rule(mark))
     }

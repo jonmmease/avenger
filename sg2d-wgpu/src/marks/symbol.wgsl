@@ -38,10 +38,12 @@ struct VertexOutput {
     // Color of vertex when drawing geometric symbol based on a path
     @location(2) geom_color: vec4<f32>,
 
+    // Position and size of the shape
+    @location(3) center: vec2<f32>,
+    @location(4) radius: f32,
+
     // Properties of circle symbol. Circles are drawn in the fragment shader,
     // so more info must be passed through
-    @location(3) circle_center: vec2<f32>,
-    @location(4) circle_radius: f32,
     @location(5) circle_fill_color: vec4<f32>,
     @location(6) circle_stroke_color: vec4<f32>,
     @location(7) circle_stroke_width: f32,
@@ -113,16 +115,16 @@ fn vs_main(
         // Compute normalized position
         let normalized_pos = 2.0 * pos / chart_uniforms.size - 1.0;
         out.clip_position = vec4<f32>(normalized_pos, 0.0, 1.0);
-
-        // Compute circle center in fragment shader coordinates
-        out.circle_center = vec2<f32>(
-            instance.position[0] * chart_uniforms.scale,
-            instance.position[1] * chart_uniforms.scale,
-        );
-
-        // Compute radius in fragment shader coordinates
-        out.circle_radius = size_scale * chart_uniforms.scale / 2.0;
     }
+
+    // Compute circle center in fragment shader coordinates
+    out.center = vec2<f32>(
+        instance.position[0] * chart_uniforms.scale,
+        instance.position[1] * chart_uniforms.scale,
+    );
+
+    // Compute radius in fragment shader coordinates
+    out.radius = size_scale * chart_uniforms.scale / 2.0;
 
     return out;
 }
@@ -132,34 +134,56 @@ fn vs_main(
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if (in.draw_shape != 1.0) {
         discard;
-    } if (in.is_circle == 1.0) {
+    }
+
+    let top_left = in.center - in.radius;
+    let bottom_right = in.center + in.radius;
+    if (in.is_circle == 1.0) {
         // Draw anti-aliased circle
+        let circle_stroke_color = lookup_color(
+            in.circle_stroke_color, in.clip_position, top_left, bottom_right
+        );
+        let circle_fill_color = lookup_color(
+            in.circle_fill_color, in.clip_position, top_left, bottom_right
+        );
+
         let buffer = 0.5 * chart_uniforms.scale;
-        let dist = length(in.circle_center - vec2<f32>(in.clip_position[0], in.clip_position[1]));
+        let dist = length(in.center - vec2<f32>(in.clip_position[0], in.clip_position[1]));
 
         if (in.circle_stroke_width > 0.0) {
-            let inner_radius = in.circle_radius - in.circle_stroke_width * chart_uniforms.scale / 2.0;
-            let outer_radius = in.circle_radius + in.circle_stroke_width * chart_uniforms.scale / 2.0;
+            let inner_radius = in.radius - in.circle_stroke_width * chart_uniforms.scale / 2.0;
+            let outer_radius = in.radius + in.circle_stroke_width * chart_uniforms.scale / 2.0;
             if (dist > outer_radius + buffer * 2.0) {
                 discard;
             } else {
-                let alpha_factor = 1.0 - smoothstep(outer_radius - buffer, outer_radius + buffer, dist);
-                let mix_factor = 1.0 - smoothstep(inner_radius - buffer, inner_radius + buffer, dist);
-                var mixed_color: vec4<f32> = mix(in.circle_stroke_color, in.circle_fill_color, mix_factor);
-                mixed_color[3] *= alpha_factor;
+                let outer_factor = 1.0 - smoothstep(outer_radius - buffer, outer_radius + buffer, dist);
+                let inner_factor = 1.0 - smoothstep(inner_radius - buffer, inner_radius + buffer, dist);
+                var mixed_color: vec4<f32>;
+                if (circle_fill_color[3] == 0.0) {
+                    // No fill, so use opacity to fade out stroke rather than interpolate color
+                    mixed_color = circle_stroke_color;
+                    mixed_color[3] *= outer_factor * (1.0 - inner_factor);
+                } else {
+                    // Has fill, interpolate opacity outside of circle and interpolate color inside
+                    mixed_color = mix(circle_stroke_color, circle_fill_color, inner_factor);
+                    mixed_color[3] *= outer_factor;
+                }
+
                 return mixed_color;
             }
         } else {
-            let alpha_factor = 1.0 - smoothstep(in.circle_radius - buffer, in.circle_radius + buffer, dist);
-            var mixed_color: vec4<f32> = in.circle_fill_color;
+            let alpha_factor = 1.0 - smoothstep(in.radius - buffer, in.radius + buffer, dist);
+            var mixed_color: vec4<f32> = circle_fill_color;
             mixed_color[3] *= alpha_factor;
-            if (dist > in.circle_radius + buffer) {
+            if (dist > in.radius + buffer) {
                 discard;
             } else {
                 return mixed_color;
             }
         }
     } else {
-        return in.geom_color;
+        return lookup_color(
+           in.geom_color, in.clip_position, top_left, bottom_right
+        );
     }
 }

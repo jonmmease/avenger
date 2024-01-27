@@ -1,9 +1,29 @@
-use crate::marks::instanced_mark::InstancedMarkShader;
+use crate::canvas::CanvasDimensions;
+use crate::marks::gradient::{build_gradients_image, to_color_or_gradient_coord};
+use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
 use itertools::izip;
 use sg2d::marks::arc::ArcMark;
 use std::f32::consts::TAU;
 use std::mem;
-use wgpu::VertexBufferLayout;
+use wgpu::{Extent3d, VertexBufferLayout};
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ArcUniform {
+    pub size: [f32; 2],
+    pub scale: f32,
+    _pad: [f32; 1], // Pad to 16 bytes
+}
+
+impl ArcUniform {
+    pub fn new(dimensions: CanvasDimensions) -> Self {
+        Self {
+            size: dimensions.size,
+            scale: dimensions.scale,
+            _pad: [0.0],
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -56,8 +76,23 @@ const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 10] = wgpu::vertex_attr_array
 ];
 
 impl ArcInstance {
-    pub fn iter_from_spec(mark: &ArcMark) -> impl Iterator<Item = ArcInstance> + '_ {
-        izip!(
+    pub fn from_spec(mark: &ArcMark) -> (Vec<ArcInstance>, Option<image::DynamicImage>, Extent3d) {
+        let mut instances: Vec<ArcInstance> = Vec::new();
+        let (img, texture_size) = build_gradients_image(&mark.gradients);
+
+        for (
+            x,
+            y,
+            start_angle,
+            end_angle,
+            outer_radius,
+            inner_radius,
+            pad_angle,
+            corner_radius,
+            fill,
+            stroke,
+            stroke_width,
+        ) in izip!(
             mark.x_iter(),
             mark.y_iter(),
             mark.start_angle_iter(),
@@ -69,71 +104,62 @@ impl ArcInstance {
             mark.fill_iter(),
             mark.stroke_iter(),
             mark.stroke_width_iter(),
-        )
-        .map(
-            |(
-                x,
-                y,
+        ) {
+            // Normalize start and end angles so that start is in [0, TAU)
+            let mut start_angle = *start_angle;
+            let mut end_angle = *end_angle;
+            if end_angle < start_angle {
+                mem::swap(&mut start_angle, &mut end_angle);
+            }
+            while start_angle < 0.0 {
+                start_angle += TAU;
+                end_angle += TAU;
+            }
+            while start_angle >= TAU {
+                start_angle -= TAU;
+                end_angle -= TAU;
+            }
+
+            instances.push(ArcInstance {
+                position: [*x, *y],
                 start_angle,
                 end_angle,
-                outer_radius,
-                inner_radius,
-                pad_angle,
-                corner_radius,
-                fill,
-                stroke,
-                stroke_width,
-            )| {
-                // Normalize start and end angles so that start is in [0, TAU)
-                let mut start_angle = *start_angle;
-                let mut end_angle = *end_angle;
-                if end_angle < start_angle {
-                    mem::swap(&mut start_angle, &mut end_angle);
-                }
-                while start_angle < 0.0 {
-                    start_angle += TAU;
-                    end_angle += TAU;
-                }
-                while start_angle >= TAU {
-                    start_angle -= TAU;
-                    end_angle -= TAU;
-                }
+                // start_angle: *start_angle,
+                // end_angle: *end_angle,
+                outer_radius: outer_radius.max(*inner_radius),
+                inner_radius: inner_radius.min(*outer_radius),
+                pad_angle: *pad_angle,
+                corner_radius: *corner_radius,
+                fill: to_color_or_gradient_coord(fill, texture_size),
+                stroke: to_color_or_gradient_coord(stroke, texture_size),
+                stroke_width: *stroke_width,
+            });
+        }
 
-                ArcInstance {
-                    position: [*x, *y],
-                    start_angle,
-                    end_angle,
-                    // start_angle: *start_angle,
-                    // end_angle: *end_angle,
-                    outer_radius: outer_radius.max(*inner_radius),
-                    inner_radius: inner_radius.min(*outer_radius),
-                    pad_angle: *pad_angle,
-                    corner_radius: *corner_radius,
-                    fill: *fill,
-                    stroke: *stroke,
-                    stroke_width: *stroke_width,
-                }
-            },
-        )
+        (instances, img, texture_size)
     }
 }
 
 pub struct ArcShader {
     verts: Vec<ArcVertex>,
     indices: Vec<u16>,
+    instances: Vec<ArcInstance>,
+    uniform: ArcUniform,
+    batches: Vec<InstancedMarkBatch>,
+    texture_size: Extent3d,
     shader: String,
     vertex_entry_point: String,
     fragment_entry_point: String,
 }
 
-impl Default for ArcShader {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl ArcShader {
-    pub fn new() -> Self {
+    pub fn from_arc_mark(mark: &ArcMark, dimensions: CanvasDimensions) -> Self {
+        let (instances, img, texture_size) = ArcInstance::from_spec(mark);
+        let batches = vec![InstancedMarkBatch {
+            instances_range: 0..instances.len() as u32,
+            image: img,
+        }];
+
         Self {
             verts: vec![
                 ArcVertex {
@@ -150,7 +176,15 @@ impl ArcShader {
                 },
             ],
             indices: vec![0, 1, 2, 0, 2, 3],
-            shader: include_str!("arc.wgsl").to_string(),
+            instances,
+            uniform: ArcUniform::new(dimensions),
+            batches,
+            texture_size,
+            shader: format!(
+                "{}\n{}",
+                include_str!("arc.wgsl"),
+                include_str!("gradient.wgsl")
+            ),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
         }
@@ -160,6 +194,7 @@ impl ArcShader {
 impl InstancedMarkShader for ArcShader {
     type Instance = ArcInstance;
     type Vertex = ArcVertex;
+    type Uniform = ArcUniform;
 
     fn verts(&self) -> &[Self::Vertex] {
         self.verts.as_slice()
@@ -167,6 +202,22 @@ impl InstancedMarkShader for ArcShader {
 
     fn indices(&self) -> &[u16] {
         self.indices.as_slice()
+    }
+
+    fn instances(&self) -> &[Self::Instance] {
+        self.instances.as_slice()
+    }
+
+    fn uniform(&self) -> Self::Uniform {
+        self.uniform
+    }
+
+    fn batches(&self) -> &[InstancedMarkBatch] {
+        self.batches.as_slice()
+    }
+
+    fn texture_size(&self) -> Extent3d {
+        self.texture_size
     }
 
     fn shader(&self) -> &str {

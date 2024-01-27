@@ -598,6 +598,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d7b894f5411737b7867f4827955924d7c254fc9f4d91a6aad6b097804b1018b"
 
 [[package]]
+name = "colorgrad"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a5f405d474b9d05e0a093d3120e77e9bf26461b57a84b40aa2a221ac5617fb6"
+dependencies = [
+ "csscolorparser",
+]
+
+[[package]]
 name = "com-rs"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5288,6 +5297,7 @@ dependencies = [
  "bytemuck",
  "cfg-if",
  "cgmath",
+ "colorgrad",
  "dssim",
  "env_logger",
  "etagere",
@@ -6793,9 +6803,9 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 
 [[package]]
 name = "vl-convert-pdf"
-version = "1.2.1"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6a50212349f3ff58de1727c92e4de41124dbf96addaaec6d0082c250e1ce5a7"
+checksum = "27b3b03b3c21586c9a5a1143e8fd1767e661a2d4b0203451a76a2811d1c74758"
 dependencies = [
  "anyhow",
  "itertools 0.12.0",
@@ -6811,9 +6821,9 @@ dependencies = [
 
 [[package]]
 name = "vl-convert-rs"
-version = "1.2.1"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76abc570ecfb0b27ffb6a3157dfd4512ebd88d3e292c6cec36c1b112f1fc9256"
+checksum = "36758be8de965d0337feaf633663bdb6c8bbfc5a4b0423f4924a7f2e6729447b"
 dependencies = [
  "deno_core",
  "deno_emit",

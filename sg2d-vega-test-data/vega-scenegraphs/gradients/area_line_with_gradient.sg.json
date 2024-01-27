@@ -1,0 +1,3832 @@
+{
+  "width": 220,
+  "height": 217,
+  "origin": [
+    11,
+    6
+  ],
+  "scenegraph": {
+    "clip": false,
+    "interactive": true,
+    "items": [
+      {
+        "items": [
+          {
+            "clip": false,
+            "interactive": false,
+            "items": [
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 15,
+                        "y": -200,
+                        "y2": 0
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 51,
+                        "y": -200,
+                        "y2": 0
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 87,
+                        "y": -200,
+                        "y2": 0
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 122,
+                        "y": -200,
+                        "y2": 0
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 158,
+                        "y": -200,
+                        "y2": 0
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 194,
+                        "y": -200,
+                        "y2": 0
+                      }
+                    ],
+                    "marktype": "rule",
+                    "role": "axis-grid",
+                    "zindex": 0
+                  }
+                ],
+                "orient": "bottom",
+                "offset": 0,
+                "x": 0.5,
+                "y": 200.5
+              }
+            ],
+            "marktype": "group",
+            "role": "axis",
+            "zindex": 0,
+            "aria": false
+          },
+          {
+            "clip": false,
+            "interactive": false,
+            "items": [
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "y": 200,
+                        "x2": 200
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "y": 150,
+                        "x2": 200
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "y": 100,
+                        "x2": 200
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "y": 50,
+                        "x2": 200
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "y": 0,
+                        "x2": 200
+                      }
+                    ],
+                    "marktype": "rule",
+                    "role": "axis-grid",
+                    "zindex": 0
+                  }
+                ],
+                "orient": "left",
+                "offset": 0,
+                "x": 0.5,
+                "y": 0.5
+              }
+            ],
+            "marktype": "group",
+            "role": "axis",
+            "zindex": 0,
+            "aria": false
+          },
+          {
+            "clip": false,
+            "interactive": false,
+            "items": [
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 15
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 51
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 87
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 122
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 158
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 194
+                      }
+                    ],
+                    "marktype": "rule",
+                    "role": "axis-tick",
+                    "zindex": 0
+                  },
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "x2": 200,
+                        "y": 0
+                      }
+                    ],
+                    "marktype": "rule",
+                    "role": "axis-domain",
+                    "zindex": 0
+                  }
+                ],
+                "orient": "bottom",
+                "offset": 0,
+                "x": 0.5,
+                "y": 200.5
+              }
+            ],
+            "marktype": "group",
+            "role": "axis",
+            "zindex": 0
+          },
+          {
+            "clip": false,
+            "interactive": false,
+            "items": [
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 200,
+                        "x": 0,
+                        "x2": -5
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 150,
+                        "x": 0,
+                        "x2": -5
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 100,
+                        "x": 0,
+                        "x2": -5
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 50,
+                        "x": 0,
+                        "x2": -5
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "x": 0,
+                        "x2": -5
+                      }
+                    ],
+                    "marktype": "rule",
+                    "role": "axis-tick",
+                    "zindex": 0
+                  },
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "y": 200,
+                        "y2": 0
+                      }
+                    ],
+                    "marktype": "rule",
+                    "role": "axis-domain",
+                    "zindex": 0
+                  }
+                ],
+                "orient": "left",
+                "offset": 0,
+                "x": 0.5,
+                "y": 0.5
+              }
+            ],
+            "marktype": "group",
+            "role": "axis",
+            "zindex": 0
+          },
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Aug 01, 2004; price: 102.37",
+                "x": 0,
+                "y": 174.4075,
+                "y2": 200,
+                "defined": true,
+                "height": 25.5925
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Sep 01, 2004; price: 129.6",
+                "x": 3.0421360374542554,
+                "y": 167.6,
+                "y2": 200,
+                "defined": true,
+                "height": 32.400000000000006
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Oct 01, 2004; price: 190.64",
+                "x": 5.986138654345471,
+                "y": 152.34,
+                "y2": 200,
+                "defined": true,
+                "height": 47.66
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Nov 01, 2004; price: 181.98",
+                "x": 9.032363584323186,
+                "y": 154.505,
+                "y2": 200,
+                "defined": true,
+                "height": 45.495000000000005
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Dec 01, 2004; price: 192.79",
+                "x": 11.976366201214402,
+                "y": 151.8025,
+                "y2": 200,
+                "defined": true,
+                "height": 48.19749999999999
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Jan 01, 2005; price: 195.62",
+                "x": 15.018502238668658,
+                "y": 151.095,
+                "y2": 200,
+                "defined": true,
+                "height": 48.905
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Feb 01, 2005; price: 187.99",
+                "x": 18.060638276122912,
+                "y": 153.0025,
+                "y2": 200,
+                "defined": true,
+                "height": 46.9975
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Mar 01, 2005; price: 180.51",
+                "x": 20.808374051888045,
+                "y": 154.8725,
+                "y2": 200,
+                "defined": true,
+                "height": 45.1275
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Apr 01, 2005; price: 220",
+                "x": 23.850510089342304,
+                "y": 145,
+                "y2": 200,
+                "defined": true,
+                "height": 55
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: May 01, 2005; price: 277.27",
+                "x": 26.790423813710056,
+                "y": 130.6825,
+                "y2": 200,
+                "defined": true,
+                "height": 69.3175
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Jun 01, 2005; price: 294.15",
+                "x": 29.832559851164316,
+                "y": 126.4625,
+                "y2": 200,
+                "defined": true,
+                "height": 73.5375
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Jul 01, 2005; price: 287.76",
+                "x": 32.77656246805552,
+                "y": 128.06000000000003,
+                "y2": 200,
+                "defined": true,
+                "height": 71.93999999999997
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Aug 01, 2005; price: 286",
+                "x": 35.818698505509786,
+                "y": 128.5,
+                "y2": 200,
+                "defined": true,
+                "height": 71.5
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Sep 01, 2005; price: 316.46",
+                "x": 38.86083454296404,
+                "y": 120.88499999999999,
+                "y2": 200,
+                "defined": true,
+                "height": 79.11500000000001
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Oct 01, 2005; price: 372.14",
+                "x": 41.80483715985525,
+                "y": 106.965,
+                "y2": 200,
+                "defined": true,
+                "height": 93.035
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Nov 01, 2005; price: 404.91",
+                "x": 44.85106208983297,
+                "y": 98.7725,
+                "y2": 200,
+                "defined": true,
+                "height": 101.2275
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Dec 01, 2005; price: 414.86",
+                "x": 47.79506470672418,
+                "y": 96.285,
+                "y2": 200,
+                "defined": true,
+                "height": 103.715
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Jan 01, 2006; price: 432.66",
+                "x": 50.83720074417843,
+                "y": 91.835,
+                "y2": 200,
+                "defined": true,
+                "height": 108.165
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Feb 01, 2006; price: 362.62",
+                "x": 53.879336781632695,
+                "y": 109.345,
+                "y2": 200,
+                "defined": true,
+                "height": 90.655
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Mar 01, 2006; price: 390",
+                "x": 56.62707255739783,
+                "y": 102.49999999999999,
+                "y2": 200,
+                "defined": true,
+                "height": 97.50000000000001
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Apr 01, 2006; price: 417.94",
+                "x": 59.66920859485209,
+                "y": 95.515,
+                "y2": 200,
+                "defined": true,
+                "height": 104.485
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: May 01, 2006; price: 371.82",
+                "x": 62.609122319219836,
+                "y": 107.04500000000002,
+                "y2": 200,
+                "defined": true,
+                "height": 92.95499999999998
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Jun 01, 2006; price: 419.33",
+                "x": 65.65125835667409,
+                "y": 95.1675,
+                "y2": 200,
+                "defined": true,
+                "height": 104.8325
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Jul 01, 2006; price: 386.6",
+                "x": 68.5952609735653,
+                "y": 103.35000000000001,
+                "y2": 200,
+                "defined": true,
+                "height": 96.64999999999999
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Aug 01, 2006; price: 378.53",
+                "x": 71.63739701101957,
+                "y": 105.3675,
+                "y2": 200,
+                "defined": true,
+                "height": 94.6325
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Sep 01, 2006; price: 401.9",
+                "x": 74.67953304847383,
+                "y": 99.52499999999999,
+                "y2": 200,
+                "defined": true,
+                "height": 100.47500000000001
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Oct 01, 2006; price: 476.39",
+                "x": 77.62353566536504,
+                "y": 80.9025,
+                "y2": 200,
+                "defined": true,
+                "height": 119.0975
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Nov 01, 2006; price: 484.81",
+                "x": 80.66976059534275,
+                "y": 78.79750000000001,
+                "y2": 200,
+                "defined": true,
+                "height": 121.20249999999999
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Dec 01, 2006; price: 460.48",
+                "x": 83.61376321223398,
+                "y": 84.88,
+                "y2": 200,
+                "defined": true,
+                "height": 115.12
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Jan 01, 2007; price: 501.5",
+                "x": 86.65589924968822,
+                "y": 74.62500000000001,
+                "y2": 200,
+                "defined": true,
+                "height": 125.37499999999999
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Feb 01, 2007; price: 449.45",
+                "x": 89.69803528714247,
+                "y": 87.63750000000002,
+                "y2": 200,
+                "defined": true,
+                "height": 112.36249999999998
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Mar 01, 2007; price: 458.16",
+                "x": 92.44577106290761,
+                "y": 85.46000000000001,
+                "y2": 200,
+                "defined": true,
+                "height": 114.53999999999999
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Apr 01, 2007; price: 471.38",
+                "x": 95.48381820783841,
+                "y": 82.155,
+                "y2": 200,
+                "defined": true,
+                "height": 117.845
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: May 01, 2007; price: 497.91",
+                "x": 98.42782082472962,
+                "y": 75.52250000000001,
+                "y2": 200,
+                "defined": true,
+                "height": 124.47749999999999
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Jun 01, 2007; price: 522.7",
+                "x": 101.46995686218388,
+                "y": 69.32499999999999,
+                "y2": 200,
+                "defined": true,
+                "height": 130.675
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Jul 01, 2007; price: 510",
+                "x": 104.4139594790751,
+                "y": 72.50000000000001,
+                "y2": 200,
+                "defined": true,
+                "height": 127.49999999999999
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Aug 01, 2007; price: 515.25",
+                "x": 107.45609551652934,
+                "y": 71.1875,
+                "y2": 200,
+                "defined": true,
+                "height": 128.8125
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Sep 01, 2007; price: 567.27",
+                "x": 110.4982315539836,
+                "y": 58.182500000000005,
+                "y2": 200,
+                "defined": true,
+                "height": 141.8175
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Oct 01, 2007; price: 707",
+                "x": 113.44223417087483,
+                "y": 23.249999999999993,
+                "y2": 200,
+                "defined": true,
+                "height": 176.75
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Nov 01, 2007; price: 693",
+                "x": 116.48437020832907,
+                "y": 26.750000000000007,
+                "y2": 200,
+                "defined": true,
+                "height": 173.25
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Dec 01, 2007; price: 691.48",
+                "x": 119.43246171774375,
+                "y": 27.12999999999999,
+                "y2": 200,
+                "defined": true,
+                "height": 172.87
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Jan 01, 2008; price: 564.3",
+                "x": 122.474597755198,
+                "y": 58.925000000000004,
+                "y2": 200,
+                "defined": true,
+                "height": 141.075
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Feb 01, 2008; price: 471.18",
+                "x": 125.51673379265227,
+                "y": 82.205,
+                "y2": 200,
+                "defined": true,
+                "height": 117.795
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Mar 01, 2008; price: 440.47",
+                "x": 128.36260298898043,
+                "y": 89.8825,
+                "y2": 200,
+                "defined": true,
+                "height": 110.1175
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Apr 01, 2008; price: 574.29",
+                "x": 131.40065013391123,
+                "y": 56.42750000000001,
+                "y2": 200,
+                "defined": true,
+                "height": 143.5725
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: May 01, 2008; price: 585.8",
+                "x": 134.34465275080245,
+                "y": 53.55000000000001,
+                "y2": 200,
+                "defined": true,
+                "height": 146.45
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Jun 01, 2008; price: 526.42",
+                "x": 137.3867887882567,
+                "y": 68.39500000000001,
+                "y2": 200,
+                "defined": true,
+                "height": 131.605
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Jul 01, 2008; price: 473.75",
+                "x": 140.33079140514792,
+                "y": 81.5625,
+                "y2": 200,
+                "defined": true,
+                "height": 118.4375
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Aug 01, 2008; price: 463.29",
+                "x": 143.37292744260216,
+                "y": 84.1775,
+                "y2": 200,
+                "defined": true,
+                "height": 115.8225
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Sep 01, 2008; price: 400.52",
+                "x": 146.4150634800564,
+                "y": 99.87000000000002,
+                "y2": 200,
+                "defined": true,
+                "height": 100.12999999999998
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Oct 01, 2008; price: 359.36",
+                "x": 149.35906609694766,
+                "y": 110.16,
+                "y2": 200,
+                "defined": true,
+                "height": 89.84
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Nov 01, 2008; price: 292.96",
+                "x": 152.4012021344019,
+                "y": 126.76,
+                "y2": 200,
+                "defined": true,
+                "height": 73.24
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Dec 01, 2008; price: 307.65",
+                "x": 155.34929364381657,
+                "y": 123.08750000000002,
+                "y2": 200,
+                "defined": true,
+                "height": 76.91249999999998
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Jan 01, 2009; price: 338.53",
+                "x": 158.39142968127084,
+                "y": 115.36750000000002,
+                "y2": 200,
+                "defined": true,
+                "height": 84.63249999999998
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Feb 01, 2009; price: 337.99",
+                "x": 161.4335657187251,
+                "y": 115.5025,
+                "y2": 200,
+                "defined": true,
+                "height": 84.4975
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Mar 01, 2009; price: 348.06",
+                "x": 164.1813014944902,
+                "y": 112.985,
+                "y2": 200,
+                "defined": true,
+                "height": 87.015
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Apr 01, 2009; price: 395.97",
+                "x": 167.219348639421,
+                "y": 101.00750000000001,
+                "y2": 200,
+                "defined": true,
+                "height": 98.99249999999999
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: May 01, 2009; price: 417.23",
+                "x": 170.16335125631224,
+                "y": 95.6925,
+                "y2": 200,
+                "defined": true,
+                "height": 104.3075
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Jun 01, 2009; price: 421.59",
+                "x": 173.20548729376648,
+                "y": 94.6025,
+                "y2": 200,
+                "defined": true,
+                "height": 105.3975
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Jul 01, 2009; price: 443.05",
+                "x": 176.1494899106577,
+                "y": 89.2375,
+                "y2": 200,
+                "defined": true,
+                "height": 110.7625
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Aug 01, 2009; price: 461.67",
+                "x": 179.19162594811195,
+                "y": 84.58250000000001,
+                "y2": 200,
+                "defined": true,
+                "height": 115.41749999999999
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Sep 01, 2009; price: 495.85",
+                "x": 182.2337619855662,
+                "y": 76.03750000000001,
+                "y2": 200,
+                "defined": true,
+                "height": 123.96249999999999
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Oct 01, 2009; price: 536.12",
+                "x": 185.17776460245742,
+                "y": 65.97,
+                "y2": 200,
+                "defined": true,
+                "height": 134.03
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Nov 01, 2009; price: 583",
+                "x": 188.21990063991169,
+                "y": 54.25,
+                "y2": 200,
+                "defined": true,
+                "height": 145.75
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Dec 01, 2009; price: 619.98",
+                "x": 191.16799214932635,
+                "y": 45.00500000000001,
+                "y2": 200,
+                "defined": true,
+                "height": 154.995
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Jan 01, 2010; price: 529.94",
+                "x": 194.2101281867806,
+                "y": 67.51499999999999,
+                "y2": 200,
+                "defined": true,
+                "height": 132.485
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Feb 01, 2010; price: 526.8",
+                "x": 197.25226422423486,
+                "y": 68.30000000000001,
+                "y2": 200,
+                "defined": true,
+                "height": 131.7
+              },
+              {
+                "opacity": 0.7,
+                "orient": "vertical",
+                "fill": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "white"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "description": "date: Mar 01, 2010; price: 560.19",
+                "x": 200,
+                "y": 59.952499999999986,
+                "y2": 200,
+                "defined": true,
+                "height": 140.0475
+              }
+            ],
+            "marktype": "area",
+            "name": "layer_0_marks",
+            "role": "mark",
+            "zindex": 0
+          },
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Aug 01, 2004; price: 102.37",
+                "x": 0,
+                "y": 174.4075,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Sep 01, 2004; price: 129.6",
+                "x": 3.0421360374542554,
+                "y": 167.6,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Oct 01, 2004; price: 190.64",
+                "x": 5.986138654345471,
+                "y": 152.34,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Nov 01, 2004; price: 181.98",
+                "x": 9.032363584323186,
+                "y": 154.505,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Dec 01, 2004; price: 192.79",
+                "x": 11.976366201214402,
+                "y": 151.8025,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Jan 01, 2005; price: 195.62",
+                "x": 15.018502238668658,
+                "y": 151.095,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Feb 01, 2005; price: 187.99",
+                "x": 18.060638276122912,
+                "y": 153.0025,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Mar 01, 2005; price: 180.51",
+                "x": 20.808374051888045,
+                "y": 154.8725,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Apr 01, 2005; price: 220",
+                "x": 23.850510089342304,
+                "y": 145,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: May 01, 2005; price: 277.27",
+                "x": 26.790423813710056,
+                "y": 130.6825,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Jun 01, 2005; price: 294.15",
+                "x": 29.832559851164316,
+                "y": 126.4625,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Jul 01, 2005; price: 287.76",
+                "x": 32.77656246805552,
+                "y": 128.06000000000003,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Aug 01, 2005; price: 286",
+                "x": 35.818698505509786,
+                "y": 128.5,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Sep 01, 2005; price: 316.46",
+                "x": 38.86083454296404,
+                "y": 120.88499999999999,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Oct 01, 2005; price: 372.14",
+                "x": 41.80483715985525,
+                "y": 106.965,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Nov 01, 2005; price: 404.91",
+                "x": 44.85106208983297,
+                "y": 98.7725,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Dec 01, 2005; price: 414.86",
+                "x": 47.79506470672418,
+                "y": 96.285,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Jan 01, 2006; price: 432.66",
+                "x": 50.83720074417843,
+                "y": 91.835,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Feb 01, 2006; price: 362.62",
+                "x": 53.879336781632695,
+                "y": 109.345,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Mar 01, 2006; price: 390",
+                "x": 56.62707255739783,
+                "y": 102.49999999999999,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Apr 01, 2006; price: 417.94",
+                "x": 59.66920859485209,
+                "y": 95.515,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: May 01, 2006; price: 371.82",
+                "x": 62.609122319219836,
+                "y": 107.04500000000002,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Jun 01, 2006; price: 419.33",
+                "x": 65.65125835667409,
+                "y": 95.1675,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Jul 01, 2006; price: 386.6",
+                "x": 68.5952609735653,
+                "y": 103.35000000000001,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Aug 01, 2006; price: 378.53",
+                "x": 71.63739701101957,
+                "y": 105.3675,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Sep 01, 2006; price: 401.9",
+                "x": 74.67953304847383,
+                "y": 99.52499999999999,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Oct 01, 2006; price: 476.39",
+                "x": 77.62353566536504,
+                "y": 80.9025,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Nov 01, 2006; price: 484.81",
+                "x": 80.66976059534275,
+                "y": 78.79750000000001,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Dec 01, 2006; price: 460.48",
+                "x": 83.61376321223398,
+                "y": 84.88,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Jan 01, 2007; price: 501.5",
+                "x": 86.65589924968822,
+                "y": 74.62500000000001,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Feb 01, 2007; price: 449.45",
+                "x": 89.69803528714247,
+                "y": 87.63750000000002,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Mar 01, 2007; price: 458.16",
+                "x": 92.44577106290761,
+                "y": 85.46000000000001,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Apr 01, 2007; price: 471.38",
+                "x": 95.48381820783841,
+                "y": 82.155,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: May 01, 2007; price: 497.91",
+                "x": 98.42782082472962,
+                "y": 75.52250000000001,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Jun 01, 2007; price: 522.7",
+                "x": 101.46995686218388,
+                "y": 69.32499999999999,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Jul 01, 2007; price: 510",
+                "x": 104.4139594790751,
+                "y": 72.50000000000001,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Aug 01, 2007; price: 515.25",
+                "x": 107.45609551652934,
+                "y": 71.1875,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Sep 01, 2007; price: 567.27",
+                "x": 110.4982315539836,
+                "y": 58.182500000000005,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Oct 01, 2007; price: 707",
+                "x": 113.44223417087483,
+                "y": 23.249999999999993,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Nov 01, 2007; price: 693",
+                "x": 116.48437020832907,
+                "y": 26.750000000000007,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Dec 01, 2007; price: 691.48",
+                "x": 119.43246171774375,
+                "y": 27.12999999999999,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Jan 01, 2008; price: 564.3",
+                "x": 122.474597755198,
+                "y": 58.925000000000004,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Feb 01, 2008; price: 471.18",
+                "x": 125.51673379265227,
+                "y": 82.205,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Mar 01, 2008; price: 440.47",
+                "x": 128.36260298898043,
+                "y": 89.8825,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Apr 01, 2008; price: 574.29",
+                "x": 131.40065013391123,
+                "y": 56.42750000000001,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: May 01, 2008; price: 585.8",
+                "x": 134.34465275080245,
+                "y": 53.55000000000001,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Jun 01, 2008; price: 526.42",
+                "x": 137.3867887882567,
+                "y": 68.39500000000001,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Jul 01, 2008; price: 473.75",
+                "x": 140.33079140514792,
+                "y": 81.5625,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Aug 01, 2008; price: 463.29",
+                "x": 143.37292744260216,
+                "y": 84.1775,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Sep 01, 2008; price: 400.52",
+                "x": 146.4150634800564,
+                "y": 99.87000000000002,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Oct 01, 2008; price: 359.36",
+                "x": 149.35906609694766,
+                "y": 110.16,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Nov 01, 2008; price: 292.96",
+                "x": 152.4012021344019,
+                "y": 126.76,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Dec 01, 2008; price: 307.65",
+                "x": 155.34929364381657,
+                "y": 123.08750000000002,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Jan 01, 2009; price: 338.53",
+                "x": 158.39142968127084,
+                "y": 115.36750000000002,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Feb 01, 2009; price: 337.99",
+                "x": 161.4335657187251,
+                "y": 115.5025,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Mar 01, 2009; price: 348.06",
+                "x": 164.1813014944902,
+                "y": 112.985,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Apr 01, 2009; price: 395.97",
+                "x": 167.219348639421,
+                "y": 101.00750000000001,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: May 01, 2009; price: 417.23",
+                "x": 170.16335125631224,
+                "y": 95.6925,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Jun 01, 2009; price: 421.59",
+                "x": 173.20548729376648,
+                "y": 94.6025,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Jul 01, 2009; price: 443.05",
+                "x": 176.1494899106577,
+                "y": 89.2375,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Aug 01, 2009; price: 461.67",
+                "x": 179.19162594811195,
+                "y": 84.58250000000001,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Sep 01, 2009; price: 495.85",
+                "x": 182.2337619855662,
+                "y": 76.03750000000001,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Oct 01, 2009; price: 536.12",
+                "x": 185.17776460245742,
+                "y": 65.97,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Nov 01, 2009; price: 583",
+                "x": 188.21990063991169,
+                "y": 54.25,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Dec 01, 2009; price: 619.98",
+                "x": 191.16799214932635,
+                "y": 45.00500000000001,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Jan 01, 2010; price: 529.94",
+                "x": 194.2101281867806,
+                "y": 67.51499999999999,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Feb 01, 2010; price: 526.8",
+                "x": 197.25226422423486,
+                "y": 68.30000000000001,
+                "defined": true
+              },
+              {
+                "strokeWidth": 4,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "description": "date: Mar 01, 2010; price: 560.19",
+                "x": 200,
+                "y": 59.952499999999986,
+                "defined": true
+              }
+            ],
+            "marktype": "line",
+            "name": "layer_1_marks",
+            "role": "mark",
+            "zindex": 0
+          }
+        ],
+        "fill": "transparent",
+        "x": 0,
+        "y": 0,
+        "width": 200,
+        "height": 200,
+        "stroke": "transparent"
+      }
+    ],
+    "marktype": "group",
+    "name": "root",
+    "role": "frame",
+    "zindex": 0
+  }
+}

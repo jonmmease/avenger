@@ -1,7 +1,7 @@
 struct ChartUniform {
     size: vec2<f32>,
     scale: f32,
-    _pad: f32, // for 16 byte alignment
+    smooth_: f32,
 };
 
 @group(0) @binding(0)
@@ -33,11 +33,17 @@ fn vs_main(
 
 // Fragment shader
 @group(1) @binding(0)
-var t_diffuse: texture_2d<f32>;
+var texture_atlas: texture_2d<f32>;
 @group(1) @binding(1)
-var s_diffuse: sampler;
+var linear_sampler: sampler;
+@group(1) @binding(2)
+var nearest_sampler: sampler;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return textureSample(t_diffuse, s_diffuse, in.tex_coords);
+    if (chart_uniforms.smooth_ == 1.0) {
+        return textureSample(texture_atlas, linear_sampler, in.tex_coords);
+    } else {
+        return textureSample(texture_atlas, nearest_sampler, in.tex_coords);
+    }
 }

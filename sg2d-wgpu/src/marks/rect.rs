@@ -1,7 +1,33 @@
-use crate::marks::instanced_mark::InstancedMarkShader;
+use crate::canvas::CanvasDimensions;
+use crate::marks::gradient::{build_gradients_image, to_color_or_gradient_coord};
+use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
 use itertools::izip;
 use sg2d::marks::rect::RectMark;
-use wgpu::VertexBufferLayout;
+use wgpu::{Extent3d, VertexBufferLayout};
+
+pub const GRADIENT_LINEAR: f32 = 0.0;
+pub const GRADIENT_RADIAL: f32 = 1.0;
+
+pub const COLORWAY_LENGTH: u32 = 250;
+pub const GRADIENT_TEXTURE_WIDTH: u32 = 256;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct RectUniform {
+    pub size: [f32; 2],
+    pub scale: f32,
+    _pad: [f32; 1], // Pad to 16 bytes
+}
+
+impl RectUniform {
+    pub fn new(dimensions: CanvasDimensions) -> Self {
+        Self {
+            size: dimensions.size,
+            scale: dimensions.scale,
+            _pad: [0.0],
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -46,8 +72,13 @@ const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array!
 ];
 
 impl RectInstance {
-    pub fn iter_from_spec(mark: &RectMark) -> impl Iterator<Item = RectInstance> + '_ {
-        izip!(
+    pub fn from_spec(
+        mark: &RectMark,
+    ) -> (Vec<RectInstance>, Option<image::DynamicImage>, Extent3d) {
+        let mut instances: Vec<RectInstance> = Vec::new();
+        let (img, texture_size) = build_gradients_image(&mark.gradients);
+
+        for (x, y, width, height, fill, stroke, stroke_width, corner_radius) in izip!(
             mark.x_iter(),
             mark.y_iter(),
             mark.width_iter(),
@@ -56,37 +87,42 @@ impl RectInstance {
             mark.stroke_iter(),
             mark.stroke_width_iter(),
             mark.corner_radius_iter(),
-        )
-        .map(
-            |(x, y, width, height, fill, stroke, stroke_width, corner_radius)| RectInstance {
+        ) {
+            instances.push(RectInstance {
                 position: [*x, *y],
                 width: *width,
                 height: *height,
-                fill: *fill,
-                stroke: *stroke,
+                fill: to_color_or_gradient_coord(fill, texture_size),
+                stroke: to_color_or_gradient_coord(stroke, texture_size),
                 stroke_width: *stroke_width,
                 corner_radius: *corner_radius,
-            },
-        )
+            })
+        }
+        (instances, img, texture_size)
     }
 }
 
 pub struct RectShader {
     verts: Vec<RectVertex>,
     indices: Vec<u16>,
+    instances: Vec<RectInstance>,
+    uniform: RectUniform,
+    batches: Vec<InstancedMarkBatch>,
+    texture_size: Extent3d,
     shader: String,
     vertex_entry_point: String,
     fragment_entry_point: String,
 }
 
-impl Default for RectShader {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl RectShader {
-    pub fn new() -> Self {
+    pub fn from_rect_mark(mark: &RectMark, dimensions: CanvasDimensions) -> Self {
+        let (instances, img, texture_size) = RectInstance::from_spec(mark);
+
+        let batches = vec![InstancedMarkBatch {
+            instances_range: 0..instances.len() as u32,
+            image: img,
+        }];
+
         Self {
             verts: vec![
                 RectVertex {
@@ -103,7 +139,15 @@ impl RectShader {
                 },
             ],
             indices: vec![0, 1, 2, 0, 2, 3],
-            shader: include_str!("rect.wgsl").to_string(),
+            instances,
+            batches,
+            texture_size,
+            uniform: RectUniform::new(dimensions),
+            shader: format!(
+                "{}\n{}",
+                include_str!("rect.wgsl"),
+                include_str!("gradient.wgsl")
+            ),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
         }
@@ -113,6 +157,7 @@ impl RectShader {
 impl InstancedMarkShader for RectShader {
     type Instance = RectInstance;
     type Vertex = RectVertex;
+    type Uniform = RectUniform;
 
     fn verts(&self) -> &[Self::Vertex] {
         self.verts.as_slice()
@@ -120,6 +165,22 @@ impl InstancedMarkShader for RectShader {
 
     fn indices(&self) -> &[u16] {
         self.indices.as_slice()
+    }
+
+    fn instances(&self) -> &[Self::Instance] {
+        self.instances.as_slice()
+    }
+
+    fn uniform(&self) -> Self::Uniform {
+        self.uniform
+    }
+
+    fn batches(&self) -> &[InstancedMarkBatch] {
+        self.batches.as_slice()
+    }
+
+    fn texture_size(&self) -> Extent3d {
+        self.texture_size
     }
 
     fn shader(&self) -> &str {

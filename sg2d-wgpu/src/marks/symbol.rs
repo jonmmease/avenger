@@ -1,5 +1,7 @@
+use crate::canvas::CanvasDimensions;
 use crate::error::Sg2dWgpuError;
-use crate::marks::instanced_mark::InstancedMarkShader;
+use crate::marks::gradient::{build_gradients_image, to_color_or_gradient_coord};
+use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
 use itertools::izip;
 use lyon::lyon_tessellation::{
     BuffersBuilder, FillVertex, FillVertexConstructor, StrokeVertex, StrokeVertexConstructor,
@@ -7,11 +9,29 @@ use lyon::lyon_tessellation::{
 use lyon::tessellation::geometry_builder::VertexBuffers;
 use lyon::tessellation::{FillOptions, FillTessellator, StrokeOptions, StrokeTessellator};
 use sg2d::marks::symbol::{SymbolMark, SymbolShape};
-use wgpu::VertexBufferLayout;
+use wgpu::{Extent3d, VertexBufferLayout};
 
 const FILL_KIND: u32 = 0;
 const STROKE_KIND: u32 = 1;
 const CIRCLE_KIND: u32 = 2;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SymbolUniform {
+    pub size: [f32; 2],
+    pub scale: f32,
+    _pad: [f32; 1], // Pad to 16 bytes
+}
+
+impl SymbolUniform {
+    pub fn new(dimensions: CanvasDimensions) -> Self {
+        Self {
+            size: dimensions.size,
+            scale: dimensions.scale,
+            _pad: [0.0],
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -64,9 +84,14 @@ const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array!
 ];
 
 impl SymbolInstance {
-    pub fn iter_from_spec(mark: &SymbolMark) -> impl Iterator<Item = SymbolInstance> + '_ {
+    pub fn from_spec(
+        mark: &SymbolMark,
+    ) -> (Vec<SymbolInstance>, Option<image::DynamicImage>, Extent3d) {
         let stroke_width = mark.stroke_width.unwrap_or(0.0);
-        izip!(
+        let mut instances: Vec<SymbolInstance> = Vec::new();
+        let (img, texture_size) = build_gradients_image(&mark.gradients);
+
+        for (x, y, fill, size, stroke, angle, shape_index) in izip!(
             mark.x_iter(),
             mark.y_iter(),
             mark.fill_iter(),
@@ -74,42 +99,48 @@ impl SymbolInstance {
             mark.stroke_iter(),
             mark.angle_iter(),
             mark.shape_index_iter(),
-        )
-        .map(
-            move |(x, y, fill, size, stroke, angle, shape_index)| SymbolInstance {
+        ) {
+            instances.push(SymbolInstance {
                 position: [*x, *y],
-                fill_color: *fill,
-                stroke_color: *stroke,
+                fill_color: to_color_or_gradient_coord(fill, texture_size),
+                stroke_color: to_color_or_gradient_coord(stroke, texture_size),
                 stroke_width,
                 size: *size,
                 angle: *angle,
                 shape_index: (*shape_index) as u32,
-            },
-        )
+            });
+        }
+
+        (instances, img, texture_size)
     }
 }
 
 pub struct SymbolShader {
     verts: Vec<SymbolVertex>,
     indices: Vec<u16>,
+    instances: Vec<SymbolInstance>,
+    uniform: SymbolUniform,
+    batches: Vec<InstancedMarkBatch>,
+    texture_size: Extent3d,
     shader: String,
     vertex_entry_point: String,
     fragment_entry_point: String,
 }
 
 impl SymbolShader {
-    pub fn try_new(
-        shapes: Vec<SymbolShape>,
-        has_fill: bool,
-        has_stroke: bool,
+    pub fn from_symbol_mark(
+        mark: &SymbolMark,
+        dimensions: CanvasDimensions,
     ) -> Result<Self, Sg2dWgpuError> {
+        let shapes = &mark.shapes;
+        let has_stroke = mark.stroke_width.is_some();
         let mut verts: Vec<SymbolVertex> = Vec::new();
         let mut indices: Vec<u16> = Vec::new();
         for (shape_index, shape) in shapes.iter().enumerate() {
             let shape_index = shape_index as u32;
             match shape {
                 SymbolShape::Circle => {
-                    let r = if has_stroke { 0.9 } else { 0.6 };
+                    let r = if has_stroke { 1.0 } else { 0.6 };
                     let normal: [f32; 2] = [0.0, 0.0];
                     let kind = CIRCLE_KIND;
                     let index_offset = verts.len() as u16;
@@ -149,14 +180,12 @@ impl SymbolShader {
                         BuffersBuilder::new(&mut buffers, VertexPositions { shape_index });
 
                     // Tesselate fill
-                    if has_fill {
-                        let mut fill_tessellator = FillTessellator::new();
-                        let fill_options = FillOptions::default().with_tolerance(0.01);
-                        fill_tessellator.tessellate_path(path, &fill_options, &mut builder)?;
-                    }
+                    let mut fill_tessellator = FillTessellator::new();
+                    let fill_options = FillOptions::default().with_tolerance(0.01);
+                    fill_tessellator.tessellate_path(path, &fill_options, &mut builder)?;
 
                     // Tesselate stroke
-                    if has_stroke {
+                    if mark.stroke_width.is_some() {
                         let mut stroke_tessellator = StrokeTessellator::new();
                         let stroke_options = StrokeOptions::default()
                             .with_tolerance(0.01)
@@ -170,10 +199,23 @@ impl SymbolShader {
                 }
             }
         }
+        let (instances, img, texture_size) = SymbolInstance::from_spec(mark);
+        let batches = vec![InstancedMarkBatch {
+            instances_range: 0..instances.len() as u32,
+            image: img,
+        }];
         Ok(Self {
             verts,
             indices,
-            shader: include_str!("symbol.wgsl").to_string(),
+            instances,
+            uniform: SymbolUniform::new(dimensions),
+            batches,
+            texture_size,
+            shader: format!(
+                "{}\n{}",
+                include_str!("symbol.wgsl"),
+                include_str!("gradient.wgsl")
+            ),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
         })
@@ -183,6 +225,7 @@ impl SymbolShader {
 impl InstancedMarkShader for SymbolShader {
     type Instance = SymbolInstance;
     type Vertex = SymbolVertex;
+    type Uniform = SymbolUniform;
 
     fn verts(&self) -> &[Self::Vertex] {
         self.verts.as_slice()
@@ -190,6 +233,22 @@ impl InstancedMarkShader for SymbolShader {
 
     fn indices(&self) -> &[u16] {
         self.indices.as_slice()
+    }
+
+    fn instances(&self) -> &[Self::Instance] {
+        self.instances.as_slice()
+    }
+
+    fn uniform(&self) -> Self::Uniform {
+        self.uniform
+    }
+
+    fn batches(&self) -> &[InstancedMarkBatch] {
+        self.batches.as_slice()
+    }
+
+    fn texture_size(&self) -> Extent3d {
+        self.texture_size
     }
 
     fn shader(&self) -> &str {

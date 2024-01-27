@@ -1,10 +1,11 @@
 use crate::error::VegaSceneGraphError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::symbol::parse_svg_path;
+use crate::marks::values::CssColorOrGradient;
 use serde::{Deserialize, Serialize};
 use sg2d::marks::mark::SceneMark;
 use sg2d::marks::path::{PathMark, PathTransform};
-use sg2d::marks::value::{EncodingValue, StrokeCap, StrokeJoin};
+use sg2d::marks::value::{ColorOrGradient, EncodingValue, Gradient, StrokeCap, StrokeJoin};
 use std::collections::HashSet;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -16,9 +17,9 @@ pub struct VegaShapeItem {
     pub stroke_cap: Option<StrokeCap>,
     pub stroke_join: Option<StrokeJoin>,
     pub opacity: Option<f32>,
-    pub fill: Option<String>,
+    pub fill: Option<CssColorOrGradient>,
     pub fill_opacity: Option<f32>,
-    pub stroke: Option<String>,
+    pub stroke: Option<CssColorOrGradient>,
     pub stroke_opacity: Option<f32>,
     pub stroke_width: Option<f32>,
     pub zindex: Option<i32>,
@@ -56,24 +57,23 @@ impl VegaMarkContainer<VegaShapeItem> {
 
         // Init vector for each encoding channel
         let mut path_str = Vec::<String>::new();
-        let mut fill = Vec::<[f32; 4]>::new();
-        let mut stroke = Vec::<[f32; 4]>::new();
+        let mut fill = Vec::<ColorOrGradient>::new();
+        let mut stroke = Vec::<ColorOrGradient>::new();
         let mut transform = Vec::<PathTransform>::new();
         let mut zindex = Vec::<i32>::new();
+        let mut gradients = Vec::<Gradient>::new();
 
         for item in &self.items {
             path_str.push(item.shape.clone());
 
             let base_opacity = item.opacity.unwrap_or(1.0);
-            if let Some(c) = &item.fill {
-                let c = csscolorparser::parse(c)?;
-                let fill_opacity = c.a as f32 * item.fill_opacity.unwrap_or(1.0) * base_opacity;
-                fill.push([c.r as f32, c.g as f32, c.b as f32, fill_opacity])
+            if let Some(v) = &item.fill {
+                let fill_opacity = item.fill_opacity.unwrap_or(1.0) * base_opacity;
+                fill.push(v.to_color_or_grad(fill_opacity, &mut gradients)?);
             }
-            if let Some(c) = &item.stroke {
-                let c = csscolorparser::parse(c)?;
-                let stroke_opacity = c.a as f32 * item.stroke_opacity.unwrap_or(1.0) * base_opacity;
-                stroke.push([c.r as f32, c.g as f32, c.b as f32, stroke_opacity])
+            if let Some(v) = &item.stroke {
+                let stroke_opacity = item.stroke_opacity.unwrap_or(1.0) * base_opacity;
+                stroke.push(v.to_color_or_grad(stroke_opacity, &mut gradients)?);
             }
 
             // Build transform
@@ -127,6 +127,9 @@ impl VegaMarkContainer<VegaShapeItem> {
 
             mark.path = EncodingValue::Array { values: paths };
         }
+
+        // Add gradients
+        mark.gradients = gradients;
 
         Ok(SceneMark::Path(mark))
     }

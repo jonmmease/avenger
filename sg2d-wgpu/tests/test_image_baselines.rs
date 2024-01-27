@@ -4,7 +4,7 @@ mod test_image_baselines {
     use rstest::rstest;
     use sg2d::scene_graph::SceneGraph;
     use sg2d_vega::scene_graph::VegaSceneGraph;
-    use sg2d_wgpu::canvas::{Canvas, PngCanvas};
+    use sg2d_wgpu::canvas::{Canvas, CanvasDimensions, PngCanvas};
     use std::fs;
     use std::path::Path;
 
@@ -107,8 +107,32 @@ mod test_image_baselines {
         case("image", "smooth_true", 0.001),
         case("image", "many_images", 0.001),
         case("image", "large_images", 0.001),
+
+        case("gradients", "heatmap_with_colorbar", 0.001),
+        case("gradients", "diagonal_gradient_bars_rounded", 0.001),
+        case("gradients", "default_gradient_bars_rounded_stroke", 0.0015),
+        case("gradients", "residuals_colorscale", 0.0015),
+        case("gradients", "stroke_rect_gradient", 0.002),
+        case("gradients", "area_with_gradient", 0.001),
+        case("gradients", "area_line_with_gradient", 0.001),
+        case("gradients", "trail_gradient", 0.001),
+
+        // vl-convert/resvg messes up scaled paths with strokes
+        case("gradients", "path_with_stroke_gradients", 0.5),
+        case("gradients", "rules_with_gradients", 0.004), // Slight difference in bounding box for square caps
+        case("gradients", "symbol_cross_gradient", 0.001),
+        case("gradients", "symbol_circles_gradient_stroke", 0.001),
+
+        // Our gradient bounding box for arc marks is the full circle, not the bounding box around the arc wedge
+        case("gradients", "arc_gradient", 0.1),
+
+        // vl-convert/resvg doesn't handle focus radius properly
+        case("gradients", "radial_concentric_gradient_bars", 0.03),
+        case("gradients", "radial_offset_gradient_bars", 0.02),
+        case("gradients", "symbol_radial_gradient", 0.002),
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
+        println!("{spec_name}");
         let specs_dir = format!(
             "{}/../sg2d-vega-test-data/vega-scenegraphs/{category}",
             env!("CARGO_MANIFEST_DIR")
@@ -120,6 +144,7 @@ mod test_image_baselines {
         let scene_spec_str =
             fs::read_to_string(format!("{specs_dir}/{spec_name}.sg.json")).unwrap();
         let scene_spec: VegaSceneGraph = serde_json::from_str(&scene_spec_str).unwrap();
+        // println!("{scene_spec:#?}");
 
         // Read expected png
         let expected_dssim = dssim::load_image(
@@ -134,8 +159,11 @@ mod test_image_baselines {
             .to_scene_graph()
             .expect("Failed to parse scene graph");
 
-        let mut png_canvas =
-            pollster::block_on(PngCanvas::new(scene_graph.width, scene_graph.height, 2.0)).unwrap();
+        let mut png_canvas = pollster::block_on(PngCanvas::new(CanvasDimensions {
+            size: [scene_graph.width, scene_graph.height],
+            scale: 2.0,
+        }))
+        .unwrap();
         png_canvas.set_scene(&scene_graph).unwrap();
         let img = pollster::block_on(png_canvas.render()).expect("Failed to render PNG image");
         let result_path = format!("{output_dir}/{category}-{spec_name}.png");

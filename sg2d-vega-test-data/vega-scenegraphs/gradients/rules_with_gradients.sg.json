@@ -1,0 +1,140 @@
+{
+  "width": 210,
+  "height": 225,
+  "origin": [
+    5,
+    10
+  ],
+  "scenegraph": {
+    "clip": false,
+    "interactive": true,
+    "items": [
+      {
+        "items": [
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "strokeWidth": 12,
+                "stroke": {
+                  "x1": 1,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 0,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.65,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.7,
+                      "color": "darkgreen"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "lightgreen"
+                    }
+                  ]
+                },
+                "x": 140,
+                "x2": 60,
+                "y": 15,
+                "y2": 180,
+                "opacity": 0.8,
+                "strokeCap": "butt"
+              },
+              {
+                "strokeWidth": 16,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "lightblue"
+                    },
+                    {
+                      "offset": 0.25,
+                      "color": "blue"
+                    },
+                    {
+                      "offset": 0.3,
+                      "color": "pink"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "red"
+                    }
+                  ]
+                },
+                "x": 20,
+                "x2": 120,
+                "y": 45,
+                "y2": 140,
+                "opacity": 0.8,
+                "strokeCap": "square"
+              },
+              {
+                "strokeWidth": 20,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 0,
+                  "x2": 1,
+                  "y2": 1,
+                  "gradient": "linear",
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "lightblue"
+                    },
+                    {
+                      "offset": 0.25,
+                      "color": "blue"
+                    },
+                    {
+                      "offset": 0.3,
+                      "color": "slategray"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "cyan"
+                    }
+                  ]
+                },
+                "x": 50,
+                "x2": 120,
+                "y": 15,
+                "y2": 190,
+                "opacity": 0.8,
+                "strokeCap": "round"
+              }
+            ],
+            "marktype": "rule",
+            "name": "marks",
+            "role": "mark",
+            "zindex": 0
+          }
+        ],
+        "fill": "transparent",
+        "stroke": "transparent",
+        "x": 0,
+        "y": 0,
+        "width": 200,
+        "height": 200
+      }
+    ],
+    "marktype": "group",
+    "name": "root",
+    "role": "frame",
+    "zindex": 0
+  }
+}
