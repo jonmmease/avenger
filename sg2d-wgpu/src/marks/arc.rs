@@ -3,6 +3,7 @@ use crate::marks::gradient::{build_gradients_image, to_color_or_gradient_coord};
 use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
 use itertools::izip;
 use sg2d::marks::arc::ArcMark;
+use sg2d::marks::group::GroupBounds;
 use std::f32::consts::TAU;
 use std::mem;
 use wgpu::{Extent3d, VertexBufferLayout};
@@ -11,16 +12,27 @@ use wgpu::{Extent3d, VertexBufferLayout};
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ArcUniform {
     pub size: [f32; 2],
+    pub origin: [f32; 2],
+    pub group_size: [f32; 2],
     pub scale: f32,
-    _pad: [f32; 1], // Pad to 16 bytes
+    pub clip: f32,
 }
 
 impl ArcUniform {
-    pub fn new(dimensions: CanvasDimensions) -> Self {
+    pub fn new(dimensions: CanvasDimensions, group_bounds: GroupBounds, clip: bool) -> Self {
         Self {
             size: dimensions.size,
             scale: dimensions.scale,
-            _pad: [0.0],
+            origin: [group_bounds.x, group_bounds.y],
+            group_size: [
+                group_bounds.width.unwrap_or(0.0),
+                group_bounds.height.unwrap_or(0.0),
+            ],
+            clip: if clip && group_bounds.width.is_some() && group_bounds.height.is_some() {
+                1.0
+            } else {
+                0.0
+            },
         }
     }
 }
@@ -153,7 +165,11 @@ pub struct ArcShader {
 }
 
 impl ArcShader {
-    pub fn from_arc_mark(mark: &ArcMark, dimensions: CanvasDimensions) -> Self {
+    pub fn from_arc_mark(
+        mark: &ArcMark,
+        dimensions: CanvasDimensions,
+        group_bounds: GroupBounds,
+    ) -> Self {
         let (instances, img, texture_size) = ArcInstance::from_spec(mark);
         let batches = vec![InstancedMarkBatch {
             instances_range: 0..instances.len() as u32,
@@ -177,7 +193,7 @@ impl ArcShader {
             ],
             indices: vec![0, 1, 2, 0, 2, 3],
             instances,
-            uniform: ArcUniform::new(dimensions),
+            uniform: ArcUniform::new(dimensions, group_bounds, mark.clip),
             batches,
             texture_size,
             shader: format!(

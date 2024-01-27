@@ -29,7 +29,7 @@ pub struct VegaArcItem {
 impl VegaMarkItem for VegaArcItem {}
 
 impl VegaMarkContainer<VegaArcItem> {
-    pub fn to_scene_graph(&self, origin: [f32; 2]) -> Result<SceneMark, VegaSceneGraphError> {
+    pub fn to_scene_graph(&self) -> Result<SceneMark, VegaSceneGraphError> {
         // Init mark with scalar defaults
         let mut mark = ArcMark {
             clip: self.clip,
@@ -56,8 +56,8 @@ impl VegaMarkContainer<VegaArcItem> {
 
         // For each item, append explicit values to corresponding vector
         for item in &self.items {
-            x.push(item.x + origin[0]);
-            y.push(item.y + origin[1]);
+            x.push(item.x);
+            y.push(item.y);
 
             if let Some(s) = item.start_angle {
                 start_angle.push(s);

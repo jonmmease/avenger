@@ -33,7 +33,7 @@ pub struct VegaTextItem {
 impl VegaMarkItem for VegaTextItem {}
 
 impl VegaMarkContainer<VegaTextItem> {
-    pub fn to_scene_graph(&self, origin: [f32; 2]) -> Result<SceneMark, VegaSceneGraphError> {
+    pub fn to_scene_graph(&self) -> Result<SceneMark, VegaSceneGraphError> {
         // Init mark with scalar defaults
         let mut mark = TextMark {
             clip: self.clip,
@@ -61,8 +61,8 @@ impl VegaMarkContainer<VegaTextItem> {
         let mut zindex = Vec::<i32>::new();
 
         for item in &self.items {
-            x.push(item.x + origin[0]);
-            y.push(item.y + origin[1]);
+            x.push(item.x);
+            y.push(item.y);
             text.push(item.text.clone());
 
             if let Some(v) = item.align {

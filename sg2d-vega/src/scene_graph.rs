@@ -18,13 +18,14 @@ impl VegaSceneGraph {
             .scenegraph
             .items
             .iter()
-            .map(|group| group.to_scene_graph(self.origin))
+            .map(|group| group.to_scene_graph())
             .collect::<Result<Vec<_>, VegaSceneGraphError>>()?;
 
         Ok(SceneGraph {
             groups,
             width: self.width,
             height: self.height,
+            origin: self.origin,
         })
     }
 }

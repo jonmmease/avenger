@@ -37,7 +37,7 @@ pub struct VegaSymbolItem {
 impl VegaMarkItem for VegaSymbolItem {}
 
 impl VegaMarkContainer<VegaSymbolItem> {
-    pub fn to_scene_graph(&self, origin: [f32; 2]) -> Result<SceneMark, VegaSceneGraphError> {
+    pub fn to_scene_graph(&self) -> Result<SceneMark, VegaSceneGraphError> {
         // Get shape of first item and use that for all items for now
         let first = self.items.first();
         let first_shape = first
@@ -64,14 +64,9 @@ impl VegaMarkContainer<VegaSymbolItem> {
                     clip: false,
                     len: 2,
                     x: EncodingValue::Array {
-                        values: vec![
-                            origin[0] + item.x - width / 2.0,
-                            origin[0] + item.x + width / 2.0,
-                        ],
+                        values: vec![item.x - width / 2.0, item.x + width / 2.0],
                     },
-                    y: EncodingValue::Scalar {
-                        value: origin[1] + item.y,
-                    },
+                    y: EncodingValue::Scalar { value: item.y },
                     stroke,
                     stroke_width: item.stroke_width.unwrap_or(1.0),
                     stroke_cap: item.stroke_cap.unwrap_or_default(),
@@ -132,8 +127,8 @@ impl VegaMarkContainer<VegaSymbolItem> {
 
         // For each item, append explicit values to corresponding vector
         for item in &self.items {
-            x.push(item.x + origin[0]);
-            y.push(item.y + origin[1]);
+            x.push(item.x);
+            y.push(item.y);
 
             let base_opacity = item.opacity.unwrap_or(1.0);
             if let Some(v) = &item.fill {
