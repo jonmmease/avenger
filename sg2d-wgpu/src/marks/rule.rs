@@ -3,6 +3,7 @@ use crate::marks::gradient::{build_gradients_image, to_color_or_gradient_coord};
 use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
 use image::DynamicImage;
 use itertools::izip;
+use sg2d::marks::group::GroupBounds;
 use sg2d::marks::rule::RuleMark;
 use sg2d::marks::value::StrokeCap;
 use wgpu::{Extent3d, VertexBufferLayout};
@@ -11,16 +12,27 @@ use wgpu::{Extent3d, VertexBufferLayout};
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct RuleUniform {
     pub size: [f32; 2],
+    pub origin: [f32; 2],
+    pub group_size: [f32; 2],
     pub scale: f32,
-    _pad: [f32; 1], // Pad to 16 bytes
+    pub clip: f32,
 }
 
 impl RuleUniform {
-    pub fn new(dimensions: CanvasDimensions) -> Self {
+    pub fn new(dimensions: CanvasDimensions, group_bounds: GroupBounds, clip: bool) -> Self {
         Self {
             size: dimensions.size,
             scale: dimensions.scale,
-            _pad: [0.0],
+            origin: [group_bounds.x, group_bounds.y],
+            group_size: [
+                group_bounds.width.unwrap_or(0.0),
+                group_bounds.height.unwrap_or(0.0),
+            ],
+            clip: if clip && group_bounds.width.is_some() && group_bounds.height.is_some() {
+                1.0
+            } else {
+                0.0
+            },
         }
     }
 }
@@ -190,7 +202,11 @@ pub struct RuleShader {
 }
 
 impl RuleShader {
-    pub fn from_rule_mark(mark: &RuleMark, dimensions: CanvasDimensions) -> Self {
+    pub fn from_rule_mark(
+        mark: &RuleMark,
+        dimensions: CanvasDimensions,
+        group_bounds: GroupBounds,
+    ) -> Self {
         let (instances, gradient_image, texture_size) = RuleInstance::from_spec(mark);
         let batches = vec![InstancedMarkBatch {
             instances_range: 0..instances.len() as u32,
@@ -213,7 +229,7 @@ impl RuleShader {
             ],
             indices: vec![0, 1, 2, 0, 2, 3],
             instances,
-            uniform: RuleUniform::new(dimensions),
+            uniform: RuleUniform::new(dimensions, group_bounds, mark.clip),
             batches,
             texture_size,
             shader: format!(

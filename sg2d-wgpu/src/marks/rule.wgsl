@@ -2,8 +2,10 @@
 
 struct ChartUniform {
     size: vec2<f32>,
+    origin: vec2<f32>,
+    group_size: vec2<f32>,
     scale: f32,
-    _pad: f32, // for 16 byte alignment
+    clip: f32,
 };
 
 @group(0) @binding(0)
@@ -47,8 +49,8 @@ fn vs_main(
     out.color = instance.stroke;
 
     var width: f32 = instance.stroke_width;
-    var p0: vec2<f32> = vec2(instance.x0, instance.y0);
-    var p1: vec2<f32> = vec2(instance.x1, instance.y1);
+    var p0: vec2<f32> = vec2(instance.x0, instance.y0) + chart_uniforms.origin;
+    var p1: vec2<f32> = vec2(instance.x1, instance.y1) + chart_uniforms.origin;
     let mid = (p0 + p1) / 2.0;
     var len: f32 = distance(p0, p1);
     if (instance.stroke_cap == STROKE_CAP_ROUND) {
@@ -62,7 +64,7 @@ fn vs_main(
         p1 += p0p1_norm * (width / 2.0);
     }
 
-    let should_anitalias = instance.stroke_cap == STROKE_CAP_ROUND || (instance.x0 != instance.x1 && instance.y0 != instance.y1);
+    let should_anitalias = instance.stroke_cap == STROKE_CAP_ROUND || (p0[0] != p1[0] && p0[1] != p1[1]);
     if (should_anitalias) {
         // Add anti-aliasing buffer for rules with rounded caps and all diagonal rules.
         // Non-round rules that are vertical or horizontal don't get anti-aliasing.

@@ -9,6 +9,17 @@ pub struct GroupBounds {
     pub height: Option<f32>,
 }
 
+impl Default for GroupBounds {
+    fn default() -> Self {
+        Self {
+            x: 0.0,
+            y: 0.0,
+            width: None,
+            height: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SceneGroup {
     pub bounds: GroupBounds,

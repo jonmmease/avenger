@@ -1,8 +1,10 @@
 // Vertex shader
 struct ChartUniform {
     size: vec2<f32>,
+    origin: vec2<f32>,
+    group_size: vec2<f32>,
     scale: f32,
-    _pad: f32, // for 16 byte alignment
+    clip: f32,
 };
 
 @group(0) @binding(0)
@@ -53,19 +55,22 @@ fn vs_main(
     let corner_radius = min(instance.corner_radius, instance.height / 2.0);
     out.corner_radius = corner_radius;
 
+    // Compute absolute position
+    let position = instance.position + chart_uniforms.origin;
+
     // Compute corner points in fragment shader coordinates
     let half_stroke = instance.stroke_width / 2.0;
     let width_height = vec2<f32>(instance.width, instance.height);
-    out.outer_top_left = (instance.position - half_stroke) * chart_uniforms.scale;
-    out.outer_bottom_right = (instance.position + width_height + half_stroke) * chart_uniforms.scale;
+    out.outer_top_left = (position - half_stroke) * chart_uniforms.scale;
+    out.outer_bottom_right = (position + width_height + half_stroke) * chart_uniforms.scale;
 
     // Compute corner radius center points in fragment shader coordinates
-    out.inner_top_left = (instance.position + corner_radius) * chart_uniforms.scale;
-    out.inner_bottom_right = (instance.position + width_height - corner_radius) * chart_uniforms.scale;
+    out.inner_top_left = (position + corner_radius) * chart_uniforms.scale;
+    out.inner_bottom_right = (position + width_height - corner_radius) * chart_uniforms.scale;
 
     // Compute vertex coordinates
-    let x = 2.0 * (model.position[0] * (instance.width + instance.stroke_width) + instance.position[0] - half_stroke) / chart_uniforms.size[0] - 1.0;
-    let y = 2.0 * (model.position[1] * (instance.height + instance.stroke_width) + (chart_uniforms.size[1] - instance.position[1] - instance.height - half_stroke)) / chart_uniforms.size[1] - 1.0;
+    let x = 2.0 * (model.position[0] * (instance.width + instance.stroke_width) + position[0] - half_stroke) / chart_uniforms.size[0] - 1.0;
+    let y = 2.0 * (model.position[1] * (instance.height + instance.stroke_width) + (chart_uniforms.size[1] - position[1] - instance.height - half_stroke)) / chart_uniforms.size[1] - 1.0;
     out.clip_position = vec4<f32>(x, y, 0.0, 1.0);
     return out;
 }

@@ -25,7 +25,7 @@ pub struct VegaRuleItem {
 impl VegaMarkItem for VegaRuleItem {}
 
 impl VegaMarkContainer<VegaRuleItem> {
-    pub fn to_scene_graph(&self, origin: [f32; 2]) -> Result<SceneMark, VegaSceneGraphError> {
+    pub fn to_scene_graph(&self) -> Result<SceneMark, VegaSceneGraphError> {
         // Init mark with scalar defaults
         let mut mark = RuleMark {
             clip: self.clip,
@@ -49,10 +49,10 @@ impl VegaMarkContainer<VegaRuleItem> {
 
         // For each item, append explicit values to corresponding vector
         for item in &self.items {
-            x0.push(item.x + origin[0]);
-            y0.push(item.y + origin[1]);
-            x1.push(item.x2.unwrap_or(item.x) + origin[0]);
-            y1.push(item.y2.unwrap_or(item.y) + origin[1]);
+            x0.push(item.x);
+            y0.push(item.y);
+            x1.push(item.x2.unwrap_or(item.x));
+            y1.push(item.y2.unwrap_or(item.y));
 
             if let Some(v) = &item.stroke {
                 let opacity = item.stroke_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
