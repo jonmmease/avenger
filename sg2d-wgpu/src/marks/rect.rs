@@ -5,8 +5,8 @@ use itertools::izip;
 use sg2d::marks::rect::RectMark;
 use wgpu::{Extent3d, VertexBufferLayout};
 
-pub const GRADIENT_LINEAR: f32 = 1.0;
-pub const GRADIENT_RADIAL: f32 = 2.0;
+pub const GRADIENT_LINEAR: f32 = 0.0;
+pub const GRADIENT_RADIAL: f32 = 1.0;
 
 pub const COLORWAY_LENGTH: u32 = 250;
 pub const GRADIENT_TEXTURE_WIDTH: u32 = 256;

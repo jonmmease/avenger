@@ -125,6 +125,11 @@ mod test_image_baselines {
 
         // Our gradient bounding box for arc marks is the full circle, not the bounding box around the arc wedge
         case("gradients", "arc_gradient", 0.1),
+
+        // vl-convert/resvg doesn't handle focus radius properly
+        case("gradients", "radial_concentric_gradient_bars", 0.03),
+        case("gradients", "radial_offset_gradient_bars", 0.02),
+        case("gradients", "symbol_radial_gradient", 0.002),
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
         println!("{spec_name}");
@@ -139,6 +144,7 @@ mod test_image_baselines {
         let scene_spec_str =
             fs::read_to_string(format!("{specs_dir}/{spec_name}.sg.json")).unwrap();
         let scene_spec: VegaSceneGraph = serde_json::from_str(&scene_spec_str).unwrap();
+        // println!("{scene_spec:#?}");
 
         // Read expected png
         let expected_dssim = dssim::load_image(
