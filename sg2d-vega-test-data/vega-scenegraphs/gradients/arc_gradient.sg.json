@@ -1,0 +1,153 @@
+{
+  "width": 210,
+  "height": 210,
+  "origin": [
+    5,
+    5
+  ],
+  "scenegraph": {
+    "clip": false,
+    "interactive": true,
+    "items": [
+      {
+        "items": [
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "x": 100,
+                "y": 100,
+                "outerRadius": 80,
+                "innerRadius": 20,
+                "startAngle": 5,
+                "endAngle": 7,
+                "fill": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "darkgreen"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "fillOpacity": 0.6,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 0,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "purple"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "purple"
+                    }
+                  ]
+                },
+                "strokeWidth": 4
+              },
+              {
+                "x": 100,
+                "y": 100,
+                "outerRadius": 80,
+                "innerRadius": 20,
+                "startAngle": 8,
+                "endAngle": 9,
+                "fill": {
+                  "x1": 0,
+                  "y1": 0,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "orange"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "purple"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "purple"
+                    }
+                  ]
+                },
+                "fillOpacity": 0.6,
+                "stroke": {
+                  "x1": 0,
+                  "y1": 1,
+                  "x2": 1,
+                  "y2": 1,
+                  "stops": [
+                    {
+                      "offset": 0,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.4,
+                      "color": "yellow"
+                    },
+                    {
+                      "offset": 0.6,
+                      "color": "darkgreen"
+                    },
+                    {
+                      "offset": 1,
+                      "color": "darkgreen"
+                    }
+                  ]
+                },
+                "strokeWidth": 4
+              }
+            ],
+            "marktype": "arc",
+            "name": "marks",
+            "role": "mark",
+            "zindex": 0
+          }
+        ],
+        "fill": "transparent",
+        "x": 0,
+        "y": 0,
+        "width": 200,
+        "height": 200
+      }
+    ],
+    "marktype": "group",
+    "name": "root",
+    "role": "frame",
+    "zindex": 0
+  }
+}

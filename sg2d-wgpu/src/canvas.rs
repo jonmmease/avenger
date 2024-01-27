@@ -78,12 +78,14 @@ pub trait Canvas {
     fn sample_count(&self) -> u32;
 
     fn add_arc_mark(&mut self, mark: &ArcMark) -> Result<(), Sg2dWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
-            self.device(),
-            self.texture_format(),
-            self.sample_count(),
-            Box::new(ArcShader::from_arc_mark(mark, self.dimensions())),
-        )));
+        self.add_mark_renderer(MarkRenderer::TextureInstanced(
+            TextureInstancedMarkRenderer::new(
+                self.device(),
+                self.texture_format(),
+                self.sample_count(),
+                Box::new(ArcShader::from_arc_mark(mark, self.dimensions())),
+            ),
+        ));
         Ok(())
     }
 

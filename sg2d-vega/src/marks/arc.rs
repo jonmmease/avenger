@@ -1,9 +1,10 @@
 use crate::error::VegaSceneGraphError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
+use crate::marks::values::CssColorOrGradient;
 use serde::{Deserialize, Serialize};
 use sg2d::marks::arc::ArcMark;
 use sg2d::marks::mark::SceneMark;
-use sg2d::marks::value::EncodingValue;
+use sg2d::marks::value::{ColorOrGradient, EncodingValue, Gradient};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -16,9 +17,9 @@ pub struct VegaArcItem {
     pub inner_radius: Option<f32>,  // default 0.0
     pub pad_angle: Option<f32>,     // default 0.0
     pub corner_radius: Option<f32>, // default 0.0
-    pub fill: Option<String>,
+    pub fill: Option<CssColorOrGradient>,
     pub fill_opacity: Option<f32>, // default 1.0
-    pub stroke: Option<String>,
+    pub stroke: Option<CssColorOrGradient>,
     pub stroke_width: Option<f32>,   // default 0.0
     pub stroke_opacity: Option<f32>, // default 1.0
     pub opacity: Option<f32>,
@@ -47,10 +48,11 @@ impl VegaMarkContainer<VegaArcItem> {
         let mut inner_radius = Vec::<f32>::new();
         let mut pad_angle = Vec::<f32>::new();
         let mut corner_radius = Vec::<f32>::new();
-        let mut fill = Vec::<[f32; 4]>::new();
-        let mut stroke = Vec::<[f32; 4]>::new();
+        let mut fill = Vec::<ColorOrGradient>::new();
+        let mut stroke = Vec::<ColorOrGradient>::new();
         let mut stroke_width = Vec::<f32>::new();
         let mut zindex = Vec::<i32>::new();
+        let mut gradients = Vec::<Gradient>::new();
 
         // For each item, append explicit values to corresponding vector
         for item in &self.items {
@@ -75,17 +77,13 @@ impl VegaMarkContainer<VegaArcItem> {
             if let Some(s) = item.corner_radius {
                 corner_radius.push(s);
             }
-            if let Some(s) = &item.fill {
-                let c = csscolorparser::parse(s)?;
-                let opacity =
-                    c.a as f32 * item.fill_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
-                fill.push([c.r as f32, c.g as f32, c.b as f32, opacity]);
+            if let Some(v) = &item.fill {
+                let opacity = item.fill_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
+                fill.push(v.to_color_or_grad(opacity, &mut gradients)?);
             }
-            if let Some(s) = &item.stroke {
-                let c = csscolorparser::parse(s)?;
-                let opacity =
-                    c.a as f32 * item.stroke_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
-                stroke.push([c.r as f32, c.g as f32, c.b as f32, opacity]);
+            if let Some(v) = &item.stroke {
+                let opacity = item.stroke_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
+                stroke.push(v.to_color_or_grad(opacity, &mut gradients)?);
             }
             if let Some(s) = item.stroke_width {
                 stroke_width.push(s);
@@ -147,6 +145,9 @@ impl VegaMarkContainer<VegaArcItem> {
             indices.sort_by_key(|i| zindex[*i]);
             mark.indices = Some(indices);
         }
+
+        // Add gradients
+        mark.gradients = gradients;
 
         Ok(SceneMark::Arc(mark))
     }

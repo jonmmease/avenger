@@ -1,10 +1,12 @@
 use crate::canvas::CanvasDimensions;
-use crate::marks::instanced_mark::InstancedMarkShader;
+use crate::marks::gradient::to_color_or_gradient_coord;
+use crate::marks::rect::{build_gradients_image, GRADIENT_TEXTURE_HEIGHT, GRADIENT_TEXTURE_WIDTH};
+use crate::marks::texture_instanced_mark::{InstancedTextureMarkBatch, TextureInstancedMarkShader};
 use itertools::izip;
 use sg2d::marks::arc::ArcMark;
 use std::f32::consts::TAU;
 use std::mem;
-use wgpu::VertexBufferLayout;
+use wgpu::{Extent3d, VertexBufferLayout};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -75,8 +77,23 @@ const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 10] = wgpu::vertex_attr_array
 ];
 
 impl ArcInstance {
-    pub fn iter_from_spec(mark: &ArcMark) -> impl Iterator<Item = ArcInstance> + '_ {
-        izip!(
+    pub fn from_spec(mark: &ArcMark) -> (Vec<ArcInstance>, image::RgbaImage) {
+        let mut instances: Vec<ArcInstance> = Vec::new();
+        let img = build_gradients_image(&mark.gradients);
+
+        for (
+            x,
+            y,
+            start_angle,
+            end_angle,
+            outer_radius,
+            inner_radius,
+            pad_angle,
+            corner_radius,
+            fill,
+            stroke,
+            stroke_width,
+        ) in izip!(
             mark.x_iter(),
             mark.y_iter(),
             mark.start_angle_iter(),
@@ -88,52 +105,39 @@ impl ArcInstance {
             mark.fill_iter(),
             mark.stroke_iter(),
             mark.stroke_width_iter(),
-        )
-        .map(
-            |(
-                x,
-                y,
+        ) {
+            // Normalize start and end angles so that start is in [0, TAU)
+            let mut start_angle = *start_angle;
+            let mut end_angle = *end_angle;
+            if end_angle < start_angle {
+                mem::swap(&mut start_angle, &mut end_angle);
+            }
+            while start_angle < 0.0 {
+                start_angle += TAU;
+                end_angle += TAU;
+            }
+            while start_angle >= TAU {
+                start_angle -= TAU;
+                end_angle -= TAU;
+            }
+
+            instances.push(ArcInstance {
+                position: [*x, *y],
                 start_angle,
                 end_angle,
-                outer_radius,
-                inner_radius,
-                pad_angle,
-                corner_radius,
-                fill,
-                stroke,
-                stroke_width,
-            )| {
-                // Normalize start and end angles so that start is in [0, TAU)
-                let mut start_angle = *start_angle;
-                let mut end_angle = *end_angle;
-                if end_angle < start_angle {
-                    mem::swap(&mut start_angle, &mut end_angle);
-                }
-                while start_angle < 0.0 {
-                    start_angle += TAU;
-                    end_angle += TAU;
-                }
-                while start_angle >= TAU {
-                    start_angle -= TAU;
-                    end_angle -= TAU;
-                }
+                // start_angle: *start_angle,
+                // end_angle: *end_angle,
+                outer_radius: outer_radius.max(*inner_radius),
+                inner_radius: inner_radius.min(*outer_radius),
+                pad_angle: *pad_angle,
+                corner_radius: *corner_radius,
+                fill: to_color_or_gradient_coord(fill),
+                stroke: to_color_or_gradient_coord(stroke),
+                stroke_width: *stroke_width,
+            });
+        }
 
-                ArcInstance {
-                    position: [*x, *y],
-                    start_angle,
-                    end_angle,
-                    // start_angle: *start_angle,
-                    // end_angle: *end_angle,
-                    outer_radius: outer_radius.max(*inner_radius),
-                    inner_radius: inner_radius.min(*outer_radius),
-                    pad_angle: *pad_angle,
-                    corner_radius: *corner_radius,
-                    fill: *fill,
-                    stroke: *stroke,
-                    stroke_width: *stroke_width,
-                }
-            },
-        )
+        (instances, img)
     }
 }
 
@@ -142,6 +146,8 @@ pub struct ArcShader {
     indices: Vec<u16>,
     instances: Vec<ArcInstance>,
     uniform: ArcUniform,
+    batches: Vec<InstancedTextureMarkBatch>,
+    texture_size: Extent3d,
     shader: String,
     vertex_entry_point: String,
     fragment_entry_point: String,
@@ -149,7 +155,12 @@ pub struct ArcShader {
 
 impl ArcShader {
     pub fn from_arc_mark(mark: &ArcMark, dimensions: CanvasDimensions) -> Self {
-        let instances = ArcInstance::iter_from_spec(mark).collect::<Vec<_>>();
+        let (instances, img) = ArcInstance::from_spec(mark);
+        let batches = vec![InstancedTextureMarkBatch {
+            instances_range: 0..instances.len() as u32,
+            image: image::DynamicImage::ImageRgba8(img),
+        }];
+
         Self {
             verts: vec![
                 ArcVertex {
@@ -168,6 +179,12 @@ impl ArcShader {
             indices: vec![0, 1, 2, 0, 2, 3],
             instances,
             uniform: ArcUniform::new(dimensions),
+            batches,
+            texture_size: Extent3d {
+                width: GRADIENT_TEXTURE_WIDTH,
+                height: GRADIENT_TEXTURE_HEIGHT,
+                depth_or_array_layers: 1,
+            },
             shader: include_str!("arc.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
@@ -175,7 +192,7 @@ impl ArcShader {
     }
 }
 
-impl InstancedMarkShader for ArcShader {
+impl TextureInstancedMarkShader for ArcShader {
     type Instance = ArcInstance;
     type Vertex = ArcVertex;
     type Uniform = ArcUniform;
@@ -194,6 +211,14 @@ impl InstancedMarkShader for ArcShader {
 
     fn uniform(&self) -> Self::Uniform {
         self.uniform
+    }
+
+    fn batches(&self) -> &[InstancedTextureMarkBatch] {
+        self.batches.as_slice()
+    }
+
+    fn texture_size(&self) -> Extent3d {
+        self.texture_size
     }
 
     fn shader(&self) -> &str {
