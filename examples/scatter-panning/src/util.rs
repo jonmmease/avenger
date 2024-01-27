@@ -3,14 +3,13 @@ use sg2d::marks::group::{GroupBounds, SceneGroup};
 use sg2d::marks::mark::SceneMark;
 use sg2d::marks::symbol::{SymbolMark, SymbolShape};
 use sg2d::scene_graph::SceneGraph;
-use sg2d::value::EncodingValue;
-use sg2d_vega::dims::VegaSceneGraphDims;
 use sg2d_vega::marks::symbol::shape_to_path;
 use sg2d_vega::scene_graph::VegaSceneGraph;
-use sg2d_wgpu::canvas::{Canvas, WindowCanvas};
+use sg2d_wgpu::canvas::{Canvas, CanvasDimensions, WindowCanvas};
 use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
+use sg2d::marks::value::{ColorOrGradient, EncodingValue};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -63,7 +62,7 @@ pub async fn run() {
 
     let mut x: Vec<f32> = Vec::new();
     let mut y: Vec<f32> = Vec::new();
-    let mut fill: Vec<[f32; 4]> = Vec::new();
+    let mut fill: Vec<ColorOrGradient> = Vec::new();
     let mut size: Vec<f32> = Vec::new();
 
     let n = 100000;
@@ -71,13 +70,17 @@ pub async fn run() {
         x.push(rng.gen::<f32>() * inner_width + margin);
         y.push(rng.gen::<f32>() * inner_height + margin);
         size.push(rng.gen::<f32>() * 300.0 + 100.0);
-        fill.push([0.5, 0.5, rng.gen::<f32>(), 0.4]);
+        fill.push(ColorOrGradient::Color([0.5, 0.5, rng.gen::<f32>(), 0.4]));
     }
 
     let scene_graph = make_sg(width, height, &shape, &x, &y, &fill, &size, 0.0, 0.0);
 
     // Save to png
-    let mut canvas = WindowCanvas::new(window, width, height, scale)
+    let dimensions = CanvasDimensions {
+        size: [width, height],
+        scale:scale,
+    };
+    let mut canvas = WindowCanvas::new(window, dimensions)
         .await
         .unwrap();
 
@@ -171,14 +174,14 @@ fn make_sg(
     shape: &SymbolShape,
     x: &[f32],
     y: &[f32],
-    fill: &[[f32; 4]],
+    fill: &[ColorOrGradient],
     size: &[f32],
     x_offset: f32,
     y_offset: f32,
 ) -> SceneGraph {
     let x: Vec<f32> = x.iter().map(|v| *v + x_offset).collect();
     let y: Vec<f32> = y.iter().map(|v| *v + y_offset).collect();
-    let fill: Vec<[f32; 4]> = Vec::from(fill);
+    let fill: Vec<ColorOrGradient> = Vec::from(fill);
     let size: Vec<f32> = Vec::from(size);
 
     SceneGraph {
@@ -192,7 +195,7 @@ fn make_sg(
             marks: vec![SceneMark::Symbol(SymbolMark {
                 name: "scatter".to_string(),
                 clip: false,
-                shape: shape.clone(),
+                shapes: vec![shape.clone()],
                 stroke_width: None,
                 len: x.len() as u32,
                 x: EncodingValue::Array { values: x },
@@ -200,10 +203,12 @@ fn make_sg(
                 fill: EncodingValue::Array { values: fill },
                 size: EncodingValue::Array { values: size },
                 stroke: EncodingValue::Scalar {
-                    value: [0.0, 0.0, 0.0, 0.0],
+                    value: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
                 },
                 angle: EncodingValue::Scalar { value: 0.0 },
                 indices: None,
+                gradients: vec![],
+                shape_index: EncodingValue::Scalar { value: 0 }
             })],
         }],
         width,

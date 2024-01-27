@@ -25,6 +25,16 @@ pub trait InstancedMarkShader {
     fn fragment_entry_point(&self) -> &str;
     fn instance_desc(&self) -> wgpu::VertexBufferLayout<'static>;
     fn vertex_desc(&self) -> wgpu::VertexBufferLayout<'static>;
+
+    fn mag_filter(&self) -> wgpu::FilterMode {
+        wgpu::FilterMode::Nearest
+    }
+    fn min_filter(&self) -> wgpu::FilterMode {
+        wgpu::FilterMode::Nearest
+    }
+    fn mipmap_filter(&self) -> wgpu::FilterMode {
+        wgpu::FilterMode::Nearest
+    }
 }
 
 pub struct InstancedMarkRenderer {
@@ -96,23 +106,13 @@ impl InstancedMarkRenderer {
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Create sampler
-        let linear_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        });
-
-        let nearest_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mag_filter: mark_shader.mag_filter(),
+            min_filter: mark_shader.min_filter(),
+            mipmap_filter: mark_shader.mipmap_filter(),
             ..Default::default()
         });
 
@@ -138,12 +138,6 @@ impl InstancedMarkRenderer {
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
                 ],
                 label: Some("texture_bind_group_layout"),
             });
@@ -157,11 +151,7 @@ impl InstancedMarkRenderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&linear_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&nearest_sampler),
+                    resource: wgpu::BindingResource::Sampler(&sampler),
                 },
             ],
             label: Some("texture_bind_group"),
