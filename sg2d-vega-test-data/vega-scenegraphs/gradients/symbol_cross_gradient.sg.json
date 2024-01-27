@@ -21,6 +21,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -37,6 +38,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -60,6 +62,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -76,6 +79,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -99,6 +103,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -115,6 +120,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -138,6 +144,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -154,6 +161,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -177,6 +185,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -193,6 +202,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -216,6 +226,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -232,6 +243,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -255,6 +267,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -271,6 +284,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -294,6 +308,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -310,6 +325,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -333,6 +349,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -349,6 +366,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -372,6 +390,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -388,6 +407,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -411,6 +431,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -427,6 +448,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -450,6 +472,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -466,6 +489,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -489,6 +513,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -505,6 +530,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -528,6 +554,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -544,6 +571,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -567,6 +595,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -583,6 +612,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -606,6 +636,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -622,6 +653,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -645,6 +677,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -661,6 +694,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -684,6 +718,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -700,6 +735,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -723,6 +759,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -739,6 +776,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -762,6 +800,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -778,6 +817,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -801,6 +841,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -817,6 +858,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -840,6 +882,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -856,6 +899,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -879,6 +923,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -895,6 +940,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -918,6 +964,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -934,6 +981,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -957,6 +1005,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -973,6 +1022,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -996,6 +1046,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1012,6 +1063,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1035,6 +1087,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1051,6 +1104,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1074,6 +1128,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1090,6 +1145,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1113,6 +1169,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1129,6 +1186,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1152,6 +1210,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1168,6 +1227,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1191,6 +1251,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1207,6 +1268,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1230,6 +1292,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1246,6 +1309,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1269,6 +1333,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1285,6 +1350,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1308,6 +1374,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1324,6 +1391,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1347,6 +1415,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1363,6 +1432,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1386,6 +1456,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1402,6 +1473,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1425,6 +1497,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1441,6 +1514,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1464,6 +1538,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1480,6 +1555,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1503,6 +1579,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1519,6 +1596,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1542,6 +1620,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1558,6 +1637,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1581,6 +1661,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1597,6 +1678,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1620,6 +1702,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1636,6 +1719,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1659,6 +1743,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1675,6 +1760,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1698,6 +1784,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1714,6 +1801,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1737,6 +1825,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1753,6 +1842,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1776,6 +1866,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1792,6 +1883,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1815,6 +1907,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1831,6 +1924,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1854,6 +1948,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1870,6 +1965,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1893,6 +1989,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1909,6 +2006,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1932,6 +2030,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1948,6 +2047,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1971,6 +2071,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -1987,6 +2088,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2010,6 +2112,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2026,6 +2129,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2049,6 +2153,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2065,6 +2170,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2088,6 +2194,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2104,6 +2211,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2127,6 +2235,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2143,6 +2252,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2166,6 +2276,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2182,6 +2293,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2205,6 +2317,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2221,6 +2334,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2244,6 +2358,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2260,6 +2375,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2283,6 +2399,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2299,6 +2416,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2322,6 +2440,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2338,6 +2457,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2361,6 +2481,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2377,6 +2498,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2400,6 +2522,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2416,6 +2539,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2439,6 +2563,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2455,6 +2580,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2478,6 +2604,7 @@
                   "y1": 0.7,
                   "x2": 0.7,
                   "y2": 0.1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,
@@ -2494,6 +2621,7 @@
                   "y1": 1,
                   "x2": 0.9,
                   "y2": 1,
+                  "gradient": "linear",
                   "stops": [
                     {
                       "offset": 0,

@@ -1,6 +1,6 @@
 {
-  "width": 321,
-  "height": 219,
+  "width": 316,
+  "height": 217,
   "origin": [
     11,
     6
@@ -265,8 +265,7 @@
             "interactive": true,
             "items": [
               {
-                "stroke": "blue",
-                "strokeWidth": 8,
+                "fill": "blue",
                 "cornerRadius": 10,
                 "ariaRoleDescription": "bar",
                 "description": "a: A; b: 28",
@@ -277,12 +276,14 @@
                 "height": 56
               },
               {
-                "stroke": {
-                  "x1": 0.9,
-                  "y1": 0.7,
-                  "x2": 0.7,
-                  "y2": 0.1,
-                  "gradient": "linear",
+                "fill": {
+                  "gradient": "radial",
+                  "x1": 0.5,
+                  "y1": 0.5,
+                  "x2": 0.5,
+                  "y2": 0.5,
+                  "r1": 0,
+                  "r2": 0.5,
                   "stops": [
                     {
                       "offset": 0,
@@ -294,7 +295,6 @@
                     }
                   ]
                 },
-                "strokeWidth": 8,
                 "cornerRadius": 10,
                 "ariaRoleDescription": "bar",
                 "description": "a: B; b: 55",
@@ -305,12 +305,14 @@
                 "height": 110.00000000000001
               },
               {
-                "stroke": {
-                  "x1": 0.2,
-                  "y1": 1,
-                  "x2": 0.9,
-                  "y2": 1,
-                  "gradient": "linear",
+                "fill": {
+                  "gradient": "radial",
+                  "x1": 0.5,
+                  "y1": 0.4,
+                  "x2": 0.5,
+                  "y2": 0.4,
+                  "r1": 0.15,
+                  "r2": 0.4,
                   "stops": [
                     {
                       "offset": 0,
@@ -326,7 +328,6 @@
                     }
                   ]
                 },
-                "strokeWidth": 8,
                 "cornerRadius": 10,
                 "ariaRoleDescription": "bar",
                 "description": "a: C; b: 43",
@@ -337,12 +338,14 @@
                 "height": 85.99999999999999
               },
               {
-                "stroke": {
+                "fill": {
+                  "gradient": "radial",
                   "x1": 0.2,
-                  "y1": 0.9,
-                  "x2": 0.7,
-                  "y2": 0.1,
-                  "gradient": "linear",
+                  "y1": 0.2,
+                  "x2": 0.2,
+                  "y2": 0.2,
+                  "r1": 0,
+                  "r2": 0.4,
                   "stops": [
                     {
                       "offset": 0,
@@ -358,7 +361,6 @@
                     }
                   ]
                 },
-                "strokeWidth": 8,
                 "cornerRadius": 10,
                 "ariaRoleDescription": "bar",
                 "description": "a: D; b: 91",
@@ -369,8 +371,7 @@
                 "height": 182
               },
               {
-                "stroke": "black",
-                "strokeWidth": 8,
+                "fill": "black",
                 "cornerRadius": 10,
                 "ariaRoleDescription": "bar",
                 "description": "a: E; b: 81",

@@ -6803,9 +6803,9 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 
 [[package]]
 name = "vl-convert-pdf"
-version = "1.2.1"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6a50212349f3ff58de1727c92e4de41124dbf96addaaec6d0082c250e1ce5a7"
+checksum = "27b3b03b3c21586c9a5a1143e8fd1767e661a2d4b0203451a76a2811d1c74758"
 dependencies = [
  "anyhow",
  "itertools 0.12.0",
@@ -6821,9 +6821,9 @@ dependencies = [
 
 [[package]]
 name = "vl-convert-rs"
-version = "1.2.2"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0dc3c1e77e3a5836c9b0c39ac6c55cf6b7ff9f50f238527d900649dce3d7c2d7"
+checksum = "36758be8de965d0337feaf633663bdb6c8bbfc5a4b0423f4924a7f2e6729447b"
 dependencies = [
  "deno_core",
  "deno_emit",

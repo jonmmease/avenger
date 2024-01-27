@@ -36138,6 +36138,7 @@
                                 "stroke": "#ddd",
                                 "strokeWidth": 0,
                                 "fill": {
+                                  "gradient": "linear",
                                   "x1": 0,
                                   "y1": 0,
                                   "x2": 1,
