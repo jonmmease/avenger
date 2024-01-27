@@ -90,6 +90,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let inner_stroke_radius = inner_radius - half_stroke;
     let mid_radius = (outer_radius + inner_radius) / 2.0;
 
+    let top_left = scaled_center - outer_radius;
+    let bottom_right = scaled_center + outer_radius;
+    let fill = lookup_color(in.fill, in.clip_position, top_left, bottom_right);
+    let stroke = lookup_color(in.stroke, in.clip_position, top_left, bottom_right);
+
     // Compute position of fragment relative to arc center
     let frag_pos = vec2<f32>(in.clip_position[0], in.clip_position[1]);
     let relative_frag = frag_pos - scaled_center;
@@ -178,9 +183,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     var mixed_color: vec4<f32>;
     if (in.stroke_width > 0.0) {
-        mixed_color = mix(in.stroke, in.fill, min(radius_mix_factor, angle_mix_factor));
+        mixed_color = mix(stroke, fill, min(radius_mix_factor, angle_mix_factor));
     } else {
-        mixed_color = in.fill;
+        mixed_color = fill;
     }
 
     mixed_color[3] *= min(radius_alpha_factor, angle_alpha_factor);

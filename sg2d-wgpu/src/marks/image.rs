@@ -1,10 +1,29 @@
+use crate::canvas::CanvasDimensions;
 use crate::error::Sg2dWgpuError;
-use crate::marks::texture_mark::{TextureMarkBatch, TextureMarkShader};
+use crate::marks::basic_mark::{BasicMarkBatch, BasicMarkShader};
 use etagere::Size;
 use itertools::izip;
 use sg2d::marks::image::ImageMark;
 use sg2d::marks::value::{ImageAlign, ImageBaseline};
-use wgpu::{Extent3d, FilterMode, VertexBufferLayout};
+use wgpu::{Extent3d, VertexBufferLayout};
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ImageUniform {
+    pub size: [f32; 2],
+    pub scale: f32,
+    pub smooth: f32,
+}
+
+impl ImageUniform {
+    pub fn new(dimensions: CanvasDimensions, smooth: bool) -> Self {
+        Self {
+            size: dimensions.size,
+            scale: dimensions.scale,
+            smooth: if smooth { 1.0 } else { 0.0 },
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -31,19 +50,22 @@ impl ImageVertex {
 pub struct ImageShader {
     verts: Vec<ImageVertex>,
     indices: Vec<u16>,
+    uniform: ImageUniform,
     shader: String,
     vertex_entry_point: String,
     fragment_entry_point: String,
-    batches: Vec<TextureMarkBatch>,
+    batches: Vec<BasicMarkBatch>,
     texture_size: Extent3d,
-    mag_filter: wgpu::FilterMode,
 }
 
 impl ImageShader {
-    pub fn from_image_mark(mark: &ImageMark) -> Result<Self, Sg2dWgpuError> {
+    pub fn from_image_mark(
+        mark: &ImageMark,
+        dimensions: CanvasDimensions,
+    ) -> Result<Self, Sg2dWgpuError> {
         let mut verts: Vec<ImageVertex> = Vec::new();
         let mut indices: Vec<u16> = Vec::new();
-        let mut batches: Vec<TextureMarkBatch> = Vec::new();
+        let mut batches: Vec<BasicMarkBatch> = Vec::new();
         let aspect = mark.aspect;
 
         // Compute texture size
@@ -82,9 +104,9 @@ impl ImageShader {
                 None => {
                     // Current allocator is full
                     // Add previous batch
-                    batches.push(TextureMarkBatch {
-                        indices: start_index..indices.len() as u32,
-                        image: image::DynamicImage::ImageRgba8(texture_image),
+                    batches.push(BasicMarkBatch {
+                        indices_range: start_index..indices.len() as u32,
+                        image: Some(image::DynamicImage::ImageRgba8(texture_image)),
                     });
 
                     // create new allocator, new texture image, new batch
@@ -209,30 +231,27 @@ impl ImageShader {
             indices.push(offset + 2);
             indices.push(offset + 3);
         }
-        batches.push(TextureMarkBatch {
-            indices: start_index..indices.len() as u32,
-            image: image::DynamicImage::ImageRgba8(texture_image),
+        batches.push(BasicMarkBatch {
+            indices_range: start_index..indices.len() as u32,
+            image: Some(image::DynamicImage::ImageRgba8(texture_image)),
         });
 
         Ok(Self {
             verts,
             indices,
+            uniform: ImageUniform::new(dimensions, mark.smooth),
             batches,
             texture_size,
             shader: include_str!("image.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
-            mag_filter: if mark.smooth {
-                wgpu::FilterMode::Linear
-            } else {
-                wgpu::FilterMode::Nearest
-            },
         })
     }
 }
 
-impl TextureMarkShader for ImageShader {
+impl BasicMarkShader for ImageShader {
     type Vertex = ImageVertex;
+    type Uniform = ImageUniform;
 
     fn verts(&self) -> &[Self::Vertex] {
         self.verts.as_slice()
@@ -240,6 +259,10 @@ impl TextureMarkShader for ImageShader {
 
     fn indices(&self) -> &[u16] {
         self.indices.as_slice()
+    }
+
+    fn uniform(&self) -> Self::Uniform {
+        self.uniform
     }
 
     fn shader(&self) -> &str {
@@ -258,15 +281,11 @@ impl TextureMarkShader for ImageShader {
         ImageVertex::desc()
     }
 
-    fn batches(&self) -> &[TextureMarkBatch] {
+    fn batches(&self) -> &[BasicMarkBatch] {
         self.batches.as_slice()
     }
 
     fn texture_size(&self) -> Extent3d {
         self.texture_size
-    }
-
-    fn mag_filter(&self) -> FilterMode {
-        self.mag_filter
     }
 }

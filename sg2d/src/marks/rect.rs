@@ -1,4 +1,4 @@
-use crate::marks::value::EncodingValue;
+use crate::marks::value::{ColorOrGradient, EncodingValue, Gradient};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -7,12 +7,13 @@ pub struct RectMark {
     pub name: String,
     pub clip: bool,
     pub len: u32,
+    pub gradients: Vec<Gradient>,
     pub x: EncodingValue<f32>,
     pub y: EncodingValue<f32>,
     pub width: EncodingValue<f32>,
     pub height: EncodingValue<f32>,
-    pub fill: EncodingValue<[f32; 4]>,
-    pub stroke: EncodingValue<[f32; 4]>,
+    pub fill: EncodingValue<ColorOrGradient>,
+    pub stroke: EncodingValue<ColorOrGradient>,
     pub stroke_width: EncodingValue<f32>,
     pub corner_radius: EncodingValue<f32>,
     pub indices: Option<Vec<usize>>,
@@ -36,11 +37,11 @@ impl RectMark {
             .as_iter(self.len as usize, self.indices.as_ref())
     }
 
-    pub fn fill_iter(&self) -> Box<dyn Iterator<Item = &[f32; 4]> + '_> {
+    pub fn fill_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
         self.fill.as_iter(self.len as usize, self.indices.as_ref())
     }
 
-    pub fn stroke_iter(&self) -> Box<dyn Iterator<Item = &[f32; 4]> + '_> {
+    pub fn stroke_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
         self.stroke
             .as_iter(self.len as usize, self.indices.as_ref())
     }
@@ -62,15 +63,16 @@ impl Default for RectMark {
             name: "rule_mark".to_string(),
             clip: true,
             len: 1,
+            gradients: vec![],
             x: EncodingValue::Scalar { value: 0.0 },
             y: EncodingValue::Scalar { value: 0.0 },
             width: EncodingValue::Scalar { value: 0.0 },
             height: EncodingValue::Scalar { value: 0.0 },
             fill: EncodingValue::Scalar {
-                value: [0.0, 0.0, 0.0, 0.0],
+                value: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
             },
             stroke: EncodingValue::Scalar {
-                value: [0.0, 0.0, 0.0, 0.0],
+                value: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
             },
             stroke_width: EncodingValue::Scalar { value: 0.0 },
             corner_radius: EncodingValue::Scalar { value: 0.0 },

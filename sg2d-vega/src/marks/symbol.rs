@@ -1,6 +1,6 @@
 use crate::error::VegaSceneGraphError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
-use crate::marks::values::StrokeDashSpec;
+use crate::marks::values::{CssColorOrGradient, StrokeDashSpec};
 use lyon_extra::euclid::Point2D;
 use lyon_extra::parser::{ParserOptions, Source};
 use lyon_path::geom::{Box2D, Point, Scale};
@@ -10,7 +10,7 @@ use sg2d::marks::group::{GroupBounds, SceneGroup};
 use sg2d::marks::line::LineMark;
 use sg2d::marks::mark::SceneMark;
 use sg2d::marks::symbol::{SymbolMark, SymbolShape};
-use sg2d::marks::value::{EncodingValue, StrokeCap, StrokeJoin};
+use sg2d::marks::value::{ColorOrGradient, EncodingValue, Gradient, StrokeCap, StrokeJoin};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -19,12 +19,12 @@ pub struct VegaSymbolItem {
     pub x: f32,
     #[serde(default)]
     pub y: f32,
-    pub fill: Option<String>,
+    pub fill: Option<CssColorOrGradient>,
     pub opacity: Option<f32>,
     pub fill_opacity: Option<f32>,
     pub size: Option<f32>,
     pub shape: Option<String>,
-    pub stroke: Option<String>,
+    pub stroke: Option<CssColorOrGradient>,
     pub stroke_width: Option<f32>,
     pub stroke_cap: Option<StrokeCap>,
     pub stroke_join: Option<StrokeJoin>,
@@ -50,15 +50,14 @@ impl VegaMarkContainer<VegaSymbolItem> {
             // stroke symbols are converted to a group of lines
             let mut line_marks: Vec<SceneMark> = Vec::new();
             for item in &self.items {
+                let mut gradients = Vec::<Gradient>::new();
                 let width = item.size.unwrap_or(100.0).sqrt();
                 let stroke = if let Some(c) = &item.stroke {
-                    let c = csscolorparser::parse(c)?;
                     let base_opacity = item.opacity.unwrap_or(1.0);
-                    let stroke_opacity =
-                        c.a as f32 * item.stroke_opacity.unwrap_or(1.0) * base_opacity;
-                    [c.r as f32, c.g as f32, c.b as f32, stroke_opacity]
+                    let stroke_opacity = item.stroke_opacity.unwrap_or(1.0) * base_opacity;
+                    c.to_color_or_grad(stroke_opacity, &mut gradients)?
                 } else {
-                    [0.0, 0.0, 0.0, 1.0]
+                    ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])
                 };
                 let mark = LineMark {
                     name: "".to_string(),
@@ -82,6 +81,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
                         .clone()
                         .map(|d| Ok::<Vec<f32>, VegaSceneGraphError>(d.to_array()?.to_vec()))
                         .transpose()?,
+                    gradients,
                     ..Default::default()
                 };
                 line_marks.push(SceneMark::Line(mark));
@@ -120,11 +120,12 @@ impl VegaMarkContainer<VegaSymbolItem> {
         // Init vector for each encoding channel
         let mut x = Vec::<f32>::new();
         let mut y = Vec::<f32>::new();
-        let mut fill = Vec::<[f32; 4]>::new();
+        let mut fill = Vec::<ColorOrGradient>::new();
         let mut size = Vec::<f32>::new();
-        let mut stroke = Vec::<[f32; 4]>::new();
+        let mut stroke = Vec::<ColorOrGradient>::new();
         let mut angle = Vec::<f32>::new();
         let mut zindex = Vec::<i32>::new();
+        let mut gradients = Vec::<Gradient>::new();
 
         let mut shape_strings = Vec::<String>::new();
         let mut shape_index = Vec::<usize>::new();
@@ -135,20 +136,18 @@ impl VegaMarkContainer<VegaSymbolItem> {
             y.push(item.y + origin[1]);
 
             let base_opacity = item.opacity.unwrap_or(1.0);
-            if let Some(c) = &item.fill {
-                let c = csscolorparser::parse(c)?;
-                let fill_opacity = c.a as f32 * item.fill_opacity.unwrap_or(1.0) * base_opacity;
-                fill.push([c.r as f32, c.g as f32, c.b as f32, fill_opacity])
+            if let Some(v) = &item.fill {
+                let fill_opacity = item.fill_opacity.unwrap_or(1.0) * base_opacity;
+                fill.push(v.to_color_or_grad(fill_opacity, &mut gradients)?);
             }
 
             if let Some(s) = item.size {
                 size.push(s);
             }
 
-            if let Some(c) = &item.stroke {
-                let c = csscolorparser::parse(c)?;
-                let stroke_opacity = c.a as f32 * item.stroke_opacity.unwrap_or(1.0) * base_opacity;
-                stroke.push([c.r as f32, c.g as f32, c.b as f32, stroke_opacity])
+            if let Some(v) = &item.stroke {
+                let stroke_opacity = item.stroke_opacity.unwrap_or(1.0) * base_opacity;
+                stroke.push(v.to_color_or_grad(stroke_opacity, &mut gradients)?);
             }
             if let Some(v) = item.angle {
                 angle.push(v);
@@ -205,6 +204,9 @@ impl VegaMarkContainer<VegaSymbolItem> {
                 .map(|s| shape_to_path(s))
                 .collect::<Result<Vec<SymbolShape>, VegaSceneGraphError>>()?;
         }
+
+        // Add gradients
+        mark.gradients = gradients;
 
         Ok(SceneMark::Symbol(mark))
     }

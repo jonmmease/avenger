@@ -1,4 +1,4 @@
-use crate::marks::value::{EncodingValue, StrokeCap, StrokeJoin};
+use crate::marks::value::{ColorOrGradient, EncodingValue, Gradient, StrokeCap, StrokeJoin};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -8,13 +8,14 @@ pub struct AreaMark {
     pub clip: bool,
     pub len: u32,
     pub orientation: AreaOrientation,
+    pub gradients: Vec<Gradient>,
     pub x: EncodingValue<f32>,
     pub y: EncodingValue<f32>,
     pub x2: EncodingValue<f32>,
     pub y2: EncodingValue<f32>,
     pub defined: EncodingValue<bool>,
-    pub fill: [f32; 4],
-    pub stroke: [f32; 4],
+    pub fill: ColorOrGradient,
+    pub stroke: ColorOrGradient,
     pub stroke_width: f32,
     pub stroke_cap: StrokeCap,
     pub stroke_join: StrokeJoin,
@@ -50,13 +51,14 @@ impl Default for AreaMark {
             clip: true,
             len: 1,
             orientation: Default::default(),
+            gradients: vec![],
             x: EncodingValue::Scalar { value: 0.0 },
             y: EncodingValue::Scalar { value: 0.0 },
             x2: EncodingValue::Scalar { value: 0.0 },
             y2: EncodingValue::Scalar { value: 0.0 },
             defined: EncodingValue::Scalar { value: true },
-            fill: [0.0, 0.0, 0.0, 0.0],
-            stroke: [0.0, 0.0, 0.0, 0.0],
+            fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
+            stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
             stroke_width: 1.0,
             stroke_cap: Default::default(),
             stroke_join: Default::default(),

@@ -96,12 +96,23 @@ fn vs_main(
 // Fragment shader
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+
+    let top_left = vec2<f32>(
+        min(in.p0[0], in.p1[0]),
+        min(in.p0[1], in.p1[1]),
+    );
+    let bottom_right = vec2<f32>(
+       max(in.p0[0], in.p1[0]),
+       max(in.p0[1], in.p1[1]),
+    );
+    let color = lookup_color(in.color, in.clip_position, top_left, bottom_right);
+
     let should_antialias = in.radius > 0.0 || (in.p0[0] != in.p1[0] && in.p0[1] != in.p1[1]);
     if (!should_antialias) {
         // This is a butt or square cap and fully vertical or horizontal
         // vertex boundary matches desired rule area and we don't need to do any
         // anti-aliasing.
-        return in.color;
+        return color;
     }
 
     let frag_pos = vec2<f32>(in.clip_position[0], in.clip_position[1]);
@@ -141,7 +152,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let buffer = chart_uniforms.scale / 2.0;
     let alpha_factor = 1.0 - smoothstep(in.stroke_half_width - buffer, in.stroke_half_width + buffer, dist);
-    var adjusted_color = in.color;
+    var adjusted_color = color;
     adjusted_color[3] *= alpha_factor;
     return adjusted_color;
 }

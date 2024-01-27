@@ -1,0 +1,95 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v5.json",
+  "description": "Stock prices of 5 Tech Companies over Time.",
+  "background": "white",
+  "padding": 5,
+  "width": 400,
+  "height": 400,
+  "style": "cell",
+  "config": {"style": {"cell": {"stroke": "transparent"}}},
+  "data": [
+    {
+      "name": "source_0",
+      "url": "data/stocks.csv",
+      "format": {"type": "csv", "parse": {"date": "date"}, "delimiter": ","},
+      "transform": [
+        {
+          "type": "filter",
+          "expr": "datum.symbol === 'GOOG'"
+        }
+      ]
+    }
+  ],
+  "marks": [
+    {
+      "name": "marks",
+      "type": "trail",
+      "style": ["trail"],
+      "from": {"data": "source_0"},
+      "encode": {
+        "update": {
+          "fill": {
+            "value": {
+              "x1": 0,
+              "y1": 1,
+              "x2": 1,
+              "y2": 1,
+              "gradient": "linear",
+              "stops": [
+                {"offset": 0, "color": "yellow"},
+                {"offset": 0.2, "color": "orange"},
+                {"offset": 0.4, "color": "red"},
+                {"offset": 0.6, "color": "cyan"},
+                {"offset": 1, "color": "green"}
+              ]
+            }
+          },
+          "description": {
+            "signal": "\"date: \" + (timeFormat(datum[\"date\"], '%b %d, %Y')) + \"; price: \" + (format(datum[\"price\"], \"\")) + \"; symbol: \" + (isValid(datum[\"symbol\"]) ? datum[\"symbol\"] : \"\"+datum[\"symbol\"])"
+          },
+          "x": {"scale": "x", "field": "date"},
+          "y": {"scale": "y", "field": "price"},
+          "size": {"scale": "size", "field": "price"},
+          "defined": {
+            "signal": "isValid(datum[\"date\"]) && isFinite(+datum[\"date\"]) && isValid(datum[\"price\"]) && isFinite(+datum[\"price\"])"
+          }
+        }
+      }
+    }
+  ],
+  "scales": [
+    {
+      "name": "x",
+      "type": "time",
+      "domain": {"data": "source_0", "field": "date"},
+      "range": [0, {"signal": "width"}]
+    },
+    {
+      "name": "y",
+      "type": "linear",
+      "domain": {"data": "source_0", "field": "price"},
+      "range": [{"signal": "height"}, 0],
+      "nice": true,
+      "zero": true
+    },
+    {
+      "name": "color",
+      "type": "ordinal",
+      "domain": {"data": "source_0", "field": "symbol", "sort": true},
+      "range": [
+        "red",
+        "blue",
+        "green",
+        "yellow",
+        "cyan"
+      ]
+    },
+    {
+      "name": "size",
+      "type": "linear",
+      "domain": {"data": "source_0", "field": "price"},
+      "range": [1, 8],
+      "zero": true
+    }
+  ]
+}

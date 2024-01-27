@@ -7,5 +7,5 @@ edition = "2021"
 
 [dependencies]
 serde_json = {workspace = true}
-vl-convert-rs = "1.2.1"
+vl-convert-rs = "1.2.3"
 pollster = "0.3"
