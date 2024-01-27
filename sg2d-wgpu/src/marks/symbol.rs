@@ -1,8 +1,7 @@
 use crate::canvas::CanvasDimensions;
 use crate::error::Sg2dWgpuError;
-use crate::marks::gradient::to_color_or_gradient_coord;
+use crate::marks::gradient::{build_gradients_image, to_color_or_gradient_coord};
 use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
-use crate::marks::rect::{build_gradients_image, GRADIENT_TEXTURE_HEIGHT, GRADIENT_TEXTURE_WIDTH};
 use itertools::izip;
 use lyon::lyon_tessellation::{
     BuffersBuilder, FillVertex, FillVertexConstructor, StrokeVertex, StrokeVertexConstructor,
@@ -85,10 +84,12 @@ const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array!
 ];
 
 impl SymbolInstance {
-    pub fn from_spec(mark: &SymbolMark) -> (Vec<SymbolInstance>, image::RgbaImage) {
+    pub fn from_spec(
+        mark: &SymbolMark,
+    ) -> (Vec<SymbolInstance>, Option<image::DynamicImage>, Extent3d) {
         let stroke_width = mark.stroke_width.unwrap_or(0.0);
         let mut instances: Vec<SymbolInstance> = Vec::new();
-        let img = build_gradients_image(&mark.gradients);
+        let (img, texture_size) = build_gradients_image(&mark.gradients);
 
         for (x, y, fill, size, stroke, angle, shape_index) in izip!(
             mark.x_iter(),
@@ -101,8 +102,8 @@ impl SymbolInstance {
         ) {
             instances.push(SymbolInstance {
                 position: [*x, *y],
-                fill_color: to_color_or_gradient_coord(fill),
-                stroke_color: to_color_or_gradient_coord(stroke),
+                fill_color: to_color_or_gradient_coord(fill, texture_size),
+                stroke_color: to_color_or_gradient_coord(stroke, texture_size),
                 stroke_width,
                 size: *size,
                 angle: *angle,
@@ -110,7 +111,7 @@ impl SymbolInstance {
             });
         }
 
-        (instances, img)
+        (instances, img, texture_size)
     }
 }
 
@@ -198,10 +199,10 @@ impl SymbolShader {
                 }
             }
         }
-        let (instances, img) = SymbolInstance::from_spec(mark);
+        let (instances, img, texture_size) = SymbolInstance::from_spec(mark);
         let batches = vec![InstancedMarkBatch {
             instances_range: 0..instances.len() as u32,
-            image: image::DynamicImage::ImageRgba8(img),
+            image: img,
         }];
         Ok(Self {
             verts,
@@ -209,11 +210,7 @@ impl SymbolShader {
             instances,
             uniform: SymbolUniform::new(dimensions),
             batches,
-            texture_size: Extent3d {
-                width: GRADIENT_TEXTURE_WIDTH,
-                height: GRADIENT_TEXTURE_HEIGHT,
-                depth_or_array_layers: 1,
-            },
+            texture_size,
             shader: include_str!("symbol.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),

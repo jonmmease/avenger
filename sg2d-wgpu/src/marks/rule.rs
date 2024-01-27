@@ -1,7 +1,7 @@
 use crate::canvas::CanvasDimensions;
-use crate::marks::gradient::to_color_or_gradient_coord;
+use crate::marks::gradient::{build_gradients_image, to_color_or_gradient_coord};
 use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
-use crate::marks::rect::{build_gradients_image, GRADIENT_TEXTURE_HEIGHT, GRADIENT_TEXTURE_WIDTH};
+use image::DynamicImage;
 use itertools::izip;
 use sg2d::marks::rule::RuleMark;
 use sg2d::marks::value::StrokeCap;
@@ -72,9 +72,9 @@ const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array!
 ];
 
 impl RuleInstance {
-    pub fn from_spec(mark: &RuleMark) -> (Vec<RuleInstance>, image::RgbaImage) {
+    pub fn from_spec(mark: &RuleMark) -> (Vec<RuleInstance>, Option<DynamicImage>, Extent3d) {
         let mut instances: Vec<RuleInstance> = Vec::new();
-        let img = build_gradients_image(&mark.gradients);
+        let (img, texture_size) = build_gradients_image(&mark.gradients);
 
         if let Some(stroke_dash_iter) = mark.stroke_dash_iter() {
             // Rule has a dash specification, so we create an individual RuleInstance for each dash
@@ -127,7 +127,7 @@ impl RuleInstance {
                             y0: dash_y0,
                             x1: dash_x1,
                             y1: dash_y1,
-                            stroke: to_color_or_gradient_coord(stroke),
+                            stroke: to_color_or_gradient_coord(stroke, texture_size),
                             stroke_width: *stroke_width,
                             stroke_cap: match cap {
                                 StrokeCap::Butt => STROKE_CAP_BUTT,
@@ -163,7 +163,7 @@ impl RuleInstance {
                     y0: *y0,
                     x1: *x1,
                     y1: *y1,
-                    stroke: to_color_or_gradient_coord(stroke),
+                    stroke: to_color_or_gradient_coord(stroke, texture_size),
                     stroke_width: *stroke_width,
                     stroke_cap: match cap {
                         StrokeCap::Butt => STROKE_CAP_BUTT,
@@ -173,7 +173,7 @@ impl RuleInstance {
                 })
             }
         }
-        (instances, img)
+        (instances, img, texture_size)
     }
 }
 
@@ -191,10 +191,10 @@ pub struct RuleShader {
 
 impl RuleShader {
     pub fn from_rule_mark(mark: &RuleMark, dimensions: CanvasDimensions) -> Self {
-        let (instances, gradient_image) = RuleInstance::from_spec(mark);
+        let (instances, gradient_image, texture_size) = RuleInstance::from_spec(mark);
         let batches = vec![InstancedMarkBatch {
             instances_range: 0..instances.len() as u32,
-            image: image::DynamicImage::ImageRgba8(gradient_image),
+            image: gradient_image,
         }];
         Self {
             verts: vec![
@@ -215,11 +215,7 @@ impl RuleShader {
             instances,
             uniform: RuleUniform::new(dimensions),
             batches,
-            texture_size: Extent3d {
-                width: GRADIENT_TEXTURE_WIDTH,
-                height: GRADIENT_TEXTURE_HEIGHT,
-                depth_or_array_layers: 1,
-            },
+            texture_size,
             shader: include_str!("rule.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),

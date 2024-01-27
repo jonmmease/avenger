@@ -1,8 +1,7 @@
 use crate::canvas::CanvasDimensions;
 use crate::error::Sg2dWgpuError;
 use crate::marks::basic_mark::{BasicMarkBatch, BasicMarkShader};
-use crate::marks::gradient::to_color_or_gradient_coord;
-use crate::marks::rect::build_gradients_image;
+use crate::marks::gradient::{build_gradients_image, to_color_or_gradient_coord};
 use itertools::izip;
 use lyon::algorithms::aabb::bounding_box;
 use lyon::algorithms::measure::{PathMeasurements, PathSampler, SampleType};
@@ -69,6 +68,7 @@ pub struct PathShader {
     indices: Vec<u16>,
     uniform: PathUniform,
     batches: Vec<BasicMarkBatch>,
+    texture_size: Extent3d,
     shader: String,
     vertex_entry_point: String,
     fragment_entry_point: String,
@@ -79,7 +79,8 @@ impl PathShader {
         mark: &PathMark,
         dimensions: CanvasDimensions,
     ) -> Result<Self, Sg2dWgpuError> {
-        let gradients_image = build_gradients_image(&mark.gradients);
+        let (gradients_image, texture_size) = build_gradients_image(&mark.gradients);
+
         let mut verts: Vec<PathVertex> = Vec::new();
         let mut indices: Vec<u16> = Vec::new();
 
@@ -99,8 +100,8 @@ impl PathShader {
             let mut builder = BuffersBuilder::new(
                 &mut buffers,
                 VertexPositions {
-                    fill: to_color_or_gradient_coord(fill),
-                    stroke: to_color_or_gradient_coord(stroke),
+                    fill: to_color_or_gradient_coord(fill, texture_size),
+                    stroke: to_color_or_gradient_coord(stroke, texture_size),
                     top_left: bbox.min.to_array(),
                     bottom_right: bbox.max.to_array(),
                 },
@@ -143,8 +144,9 @@ impl PathShader {
             uniform: PathUniform::new(dimensions),
             batches: vec![BasicMarkBatch {
                 indices_range,
-                image: image::DynamicImage::ImageRgba8(gradients_image),
+                image: gradients_image,
             }],
+            texture_size,
             shader: include_str!("path.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
@@ -156,7 +158,7 @@ impl PathShader {
         dimensions: CanvasDimensions,
     ) -> Result<Self, Sg2dWgpuError> {
         // Handle gradients:
-        let gradients_image = build_gradients_image(&mark.gradients);
+        let (gradients_image, texture_size) = build_gradients_image(&mark.gradients);
 
         let mut path_builder = lyon::path::Path::builder().with_svg();
         let mut tail: Vec<(f32, f32)> = Vec::new();
@@ -224,8 +226,8 @@ impl PathShader {
         let mut buffers_builder = BuffersBuilder::new(
             &mut buffers,
             VertexPositions {
-                fill: to_color_or_gradient_coord(&mark.fill),
-                stroke: to_color_or_gradient_coord(&mark.stroke),
+                fill: to_color_or_gradient_coord(&mark.fill, texture_size),
+                stroke: to_color_or_gradient_coord(&mark.stroke, texture_size),
                 top_left: bbox.min.to_array(),
                 bottom_right: bbox.max.to_array(),
             },
@@ -262,8 +264,9 @@ impl PathShader {
             uniform: PathUniform::new(dimensions),
             batches: vec![BasicMarkBatch {
                 indices_range,
-                image: image::DynamicImage::ImageRgba8(gradients_image),
+                image: gradients_image,
             }],
+            texture_size,
             shader: include_str!("path.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
@@ -274,7 +277,7 @@ impl PathShader {
         mark: &LineMark,
         dimensions: CanvasDimensions,
     ) -> Result<Self, Sg2dWgpuError> {
-        let gradients_image = build_gradients_image(&mark.gradients);
+        let (gradients_image, texture_size) = build_gradients_image(&mark.gradients);
         let mut defined_paths: Vec<Path> = Vec::new();
 
         // Build path for each defined line segment
@@ -365,7 +368,7 @@ impl PathShader {
                 &mut buffers,
                 VertexPositions {
                     fill: [0.0, 0.0, 0.0, 0.0],
-                    stroke: to_color_or_gradient_coord(&mark.stroke),
+                    stroke: to_color_or_gradient_coord(&mark.stroke, texture_size),
                     top_left: bbox.min.to_array(),
                     bottom_right: bbox.max.to_array(),
                 },
@@ -400,8 +403,9 @@ impl PathShader {
             uniform: PathUniform::new(dimensions),
             batches: vec![BasicMarkBatch {
                 indices_range,
-                image: image::DynamicImage::ImageRgba8(gradients_image),
+                image: gradients_image,
             }],
+            texture_size,
             shader: include_str!("path.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
@@ -412,7 +416,7 @@ impl PathShader {
         mark: &TrailMark,
         dimensions: CanvasDimensions,
     ) -> Result<Self, Sg2dWgpuError> {
-        let gradients_image = build_gradients_image(&mark.gradients);
+        let (gradients_image, texture_size) = build_gradients_image(&mark.gradients);
 
         let size_idx: AttributeIndex = 0;
         let mut path_builder = lyon::path::Path::builder_with_attributes(1);
@@ -454,7 +458,7 @@ impl PathShader {
             &mut buffers,
             VertexPositions {
                 fill: [0.0, 0.0, 0.0, 0.0],
-                stroke: to_color_or_gradient_coord(&mark.stroke),
+                stroke: to_color_or_gradient_coord(&mark.stroke, texture_size),
                 top_left: bbox.min.to_array(),
                 bottom_right: bbox.max.to_array(),
             },
@@ -476,8 +480,9 @@ impl PathShader {
             uniform: PathUniform::new(dimensions),
             batches: vec![BasicMarkBatch {
                 indices_range,
-                image: image::DynamicImage::ImageRgba8(gradients_image),
+                image: gradients_image,
             }],
+            texture_size,
             shader: include_str!("path.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
@@ -506,11 +511,7 @@ impl BasicMarkShader for PathShader {
     }
 
     fn texture_size(&self) -> Extent3d {
-        Extent3d {
-            width: self.batches[0].image.width(),
-            height: self.batches[0].image.height(),
-            depth_or_array_layers: 1,
-        }
+        self.texture_size
     }
 
     fn shader(&self) -> &str {
