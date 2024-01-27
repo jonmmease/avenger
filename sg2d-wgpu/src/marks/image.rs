@@ -5,22 +5,22 @@ use etagere::Size;
 use itertools::izip;
 use sg2d::marks::image::ImageMark;
 use sg2d::marks::value::{ImageAlign, ImageBaseline};
-use wgpu::{Extent3d, FilterMode, VertexBufferLayout};
+use wgpu::{Extent3d, VertexBufferLayout};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ImageUniform {
     pub size: [f32; 2],
     pub scale: f32,
-    _pad: [f32; 1], // Pad to 16 bytes
+    pub smooth: f32,
 }
 
 impl ImageUniform {
-    pub fn new(dimensions: CanvasDimensions) -> Self {
+    pub fn new(dimensions: CanvasDimensions, smooth: bool) -> Self {
         Self {
             size: dimensions.size,
             scale: dimensions.scale,
-            _pad: [0.0],
+            smooth: if smooth { 1.0 } else { 0.0 },
         }
     }
 }
@@ -56,7 +56,6 @@ pub struct ImageShader {
     fragment_entry_point: String,
     batches: Vec<BasicMarkBatch>,
     texture_size: Extent3d,
-    mag_filter: wgpu::FilterMode,
 }
 
 impl ImageShader {
@@ -240,17 +239,12 @@ impl ImageShader {
         Ok(Self {
             verts,
             indices,
-            uniform: ImageUniform::new(dimensions),
+            uniform: ImageUniform::new(dimensions, mark.smooth),
             batches,
             texture_size,
             shader: include_str!("image.wgsl").to_string(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
-            mag_filter: if mark.smooth {
-                wgpu::FilterMode::Linear
-            } else {
-                wgpu::FilterMode::Nearest
-            },
         })
     }
 }
@@ -293,9 +287,5 @@ impl BasicMarkShader for ImageShader {
 
     fn texture_size(&self) -> Extent3d {
         self.texture_size
-    }
-
-    fn mag_filter(&self) -> FilterMode {
-        self.mag_filter
     }
 }

@@ -21,16 +21,6 @@ pub trait BasicMarkShader {
     fn vertex_entry_point(&self) -> &str;
     fn fragment_entry_point(&self) -> &str;
     fn vertex_desc(&self) -> wgpu::VertexBufferLayout<'static>;
-
-    fn mag_filter(&self) -> wgpu::FilterMode {
-        wgpu::FilterMode::Linear
-    }
-    fn min_filter(&self) -> wgpu::FilterMode {
-        wgpu::FilterMode::Nearest
-    }
-    fn mipmap_filter(&self) -> wgpu::FilterMode {
-        wgpu::FilterMode::Nearest
-    }
 }
 
 pub struct BasicMarkRenderer {
