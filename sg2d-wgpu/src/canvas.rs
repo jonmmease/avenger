@@ -14,9 +14,7 @@ use winit::window::Window;
 
 use crate::error::Sg2dWgpuError;
 use crate::marks::arc::ArcShader;
-use crate::marks::basic_mark::BasicMarkRenderer;
 use crate::marks::image::ImageShader;
-use crate::marks::instanced_mark::InstancedMarkRenderer;
 use crate::marks::path::PathShader;
 use crate::marks::rect::RectShader;
 use crate::marks::rule::RuleShader;
@@ -36,8 +34,6 @@ use sg2d::{
 };
 
 pub enum MarkRenderer {
-    Basic(BasicMarkRenderer),
-    Instanced(InstancedMarkRenderer),
     Texture(TextureMarkRenderer),
     TextureInstanced(TextureInstancedMarkRenderer),
     Text(TextMarkRenderer),
@@ -460,20 +456,6 @@ impl WindowCanvas {
 
         for mark in &mut self.marks {
             let command = match mark {
-                MarkRenderer::Basic(renderer) => {
-                    if self.sample_count > 1 {
-                        renderer.render(&self.device, &self.multisampled_framebuffer, Some(&view))
-                    } else {
-                        renderer.render(&self.device, &view, None)
-                    }
-                }
-                MarkRenderer::Instanced(renderer) => {
-                    if self.sample_count > 1 {
-                        renderer.render(&self.device, &self.multisampled_framebuffer, Some(&view))
-                    } else {
-                        renderer.render(&self.device, &view, None)
-                    }
-                }
                 MarkRenderer::Texture(renderer) => {
                     if self.sample_count > 1 {
                         renderer.render(&self.device, &self.multisampled_framebuffer, Some(&view))
@@ -643,28 +625,6 @@ impl PngCanvas {
 
         for mark in &mut self.marks {
             let command = match mark {
-                MarkRenderer::Basic(renderer) => {
-                    if self.sample_count > 1 {
-                        renderer.render(
-                            &self.device,
-                            &self.multisampled_framebuffer,
-                            Some(&self.texture_view),
-                        )
-                    } else {
-                        renderer.render(&self.device, &self.texture_view, None)
-                    }
-                }
-                MarkRenderer::Instanced(mark) => {
-                    if self.sample_count > 1 {
-                        mark.render(
-                            &self.device,
-                            &self.multisampled_framebuffer,
-                            Some(&self.texture_view),
-                        )
-                    } else {
-                        mark.render(&self.device, &self.texture_view, None)
-                    }
-                }
                 MarkRenderer::Texture(renderer) => {
                     if self.sample_count > 1 {
                         renderer.render(
