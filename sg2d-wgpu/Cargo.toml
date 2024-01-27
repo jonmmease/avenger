@@ -29,7 +29,7 @@ glyphon = { git = "https://github.com/jonmmease/glyphon.git", rev="c468f5dacd413
 lyon = { workspace = true }
 
 [dev-dependencies]
-sg2d-vega = { path = "../sg2d-vega" }
+sg2d-vega = { path = "../sg2d-vega", features = ["image-request"] }
 serde_json = { version = "1.0.111" }
 dssim = "3.2.4"
 rstest = "0.18.2"

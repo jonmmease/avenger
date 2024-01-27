@@ -1,6 +1,6 @@
 use sg2d::scene_graph::SceneGraph;
 use sg2d_vega::scene_graph::VegaSceneGraph;
-use sg2d_wgpu::canvas::{Canvas, WindowCanvas};
+use sg2d_wgpu::canvas::{Canvas, CanvasDimensions, WindowCanvas};
 use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
@@ -53,7 +53,11 @@ pub async fn run() {
         .expect("Failed to parse scene graph");
 
     // Save to png
-    let mut canvas = WindowCanvas::new(window, scene_graph.width, scene_graph.height, scale)
+    let dimensions = CanvasDimensions {
+        size: [scene_graph.width, scene_graph.height],
+        scale,
+    };
+    let mut canvas = WindowCanvas::new(window, dimensions)
         .await
         .unwrap();
 
