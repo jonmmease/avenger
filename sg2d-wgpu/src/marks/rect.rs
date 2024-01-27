@@ -92,8 +92,8 @@ impl RectInstance {
                 position: [*x, *y],
                 width: *width,
                 height: *height,
-                fill: to_color_or_gradient_coord(&fill, texture_size),
-                stroke: to_color_or_gradient_coord(&stroke, texture_size),
+                fill: to_color_or_gradient_coord(fill, texture_size),
+                stroke: to_color_or_gradient_coord(stroke, texture_size),
                 stroke_width: *stroke_width,
                 corner_radius: *corner_radius,
             })
@@ -145,8 +145,8 @@ impl RectShader {
             uniform: RectUniform::new(dimensions),
             shader: format!(
                 "{}\n{}",
-                include_str!("rect.wgsl").to_string(),
-                include_str!("gradient.wgsl").to_string()
+                include_str!("rect.wgsl"),
+                include_str!("gradient.wgsl")
             ),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),

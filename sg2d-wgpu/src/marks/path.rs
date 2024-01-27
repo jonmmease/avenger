@@ -149,8 +149,8 @@ impl PathShader {
             texture_size,
             shader: format!(
                 "{}\n{}",
-                include_str!("path.wgsl").to_string(),
-                include_str!("gradient.wgsl").to_string()
+                include_str!("path.wgsl"),
+                include_str!("gradient.wgsl")
             ),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
@@ -273,8 +273,8 @@ impl PathShader {
             texture_size,
             shader: format!(
                 "{}\n{}",
-                include_str!("path.wgsl").to_string(),
-                include_str!("gradient.wgsl").to_string()
+                include_str!("path.wgsl"),
+                include_str!("gradient.wgsl")
             ),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
@@ -416,8 +416,8 @@ impl PathShader {
             texture_size,
             shader: format!(
                 "{}\n{}",
-                include_str!("path.wgsl").to_string(),
-                include_str!("gradient.wgsl").to_string()
+                include_str!("path.wgsl"),
+                include_str!("gradient.wgsl")
             ),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
@@ -497,8 +497,8 @@ impl PathShader {
             texture_size,
             shader: format!(
                 "{}\n{}",
-                include_str!("path.wgsl").to_string(),
-                include_str!("gradient.wgsl").to_string()
+                include_str!("path.wgsl"),
+                include_str!("gradient.wgsl")
             ),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
