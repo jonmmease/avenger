@@ -26,7 +26,7 @@ pub struct VegaLineItem {
 impl VegaMarkItem for VegaLineItem {}
 
 impl VegaMarkContainer<VegaLineItem> {
-    pub fn to_scene_graph(&self, origin: [f32; 2]) -> Result<SceneMark, VegaSceneGraphError> {
+    pub fn to_scene_graph(&self) -> Result<SceneMark, VegaSceneGraphError> {
         // Get shape of first item and use that for all items for now
         let first = self.items.first();
         let stroke_width = first.and_then(|item| item.stroke_width).unwrap_or(1.0);
@@ -65,8 +65,8 @@ impl VegaMarkContainer<VegaLineItem> {
         let mut defined = Vec::<bool>::new();
 
         for item in &self.items {
-            x.push(item.x + origin[0]);
-            y.push(item.y + origin[1]);
+            x.push(item.x);
+            y.push(item.y);
             if let Some(v) = item.defined {
                 defined.push(v);
             }

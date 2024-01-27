@@ -23,6 +23,7 @@ use crate::marks::rule::RuleShader;
 use crate::marks::symbol::SymbolShader;
 use sg2d::marks::arc::ArcMark;
 use sg2d::marks::area::AreaMark;
+use sg2d::marks::group::GroupBounds;
 use sg2d::marks::image::ImageMark;
 use sg2d::marks::line::LineMark;
 use sg2d::marks::path::PathMark;
@@ -76,87 +77,155 @@ pub trait Canvas {
 
     fn sample_count(&self) -> u32;
 
-    fn add_arc_mark(&mut self, mark: &ArcMark) -> Result<(), Sg2dWgpuError> {
+    fn add_arc_mark(
+        &mut self,
+        mark: &ArcMark,
+        group_bounds: GroupBounds,
+    ) -> Result<(), Sg2dWgpuError> {
         self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
             self.device(),
             self.texture_format(),
             self.sample_count(),
-            Box::new(ArcShader::from_arc_mark(mark, self.dimensions())),
+            Box::new(ArcShader::from_arc_mark(
+                mark,
+                self.dimensions(),
+                group_bounds,
+            )),
         )));
         Ok(())
     }
 
-    fn add_path_mark(&mut self, mark: &PathMark) -> Result<(), Sg2dWgpuError> {
+    fn add_path_mark(
+        &mut self,
+        mark: &PathMark,
+        group_bounds: GroupBounds,
+    ) -> Result<(), Sg2dWgpuError> {
         self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
             self.device(),
             self.texture_format(),
             self.sample_count(),
-            Box::new(PathShader::from_path_mark(mark, self.dimensions())?),
+            Box::new(PathShader::from_path_mark(
+                mark,
+                self.dimensions(),
+                group_bounds,
+            )?),
         )));
         Ok(())
     }
 
-    fn add_line_mark(&mut self, mark: &LineMark) -> Result<(), Sg2dWgpuError> {
+    fn add_line_mark(
+        &mut self,
+        mark: &LineMark,
+        group_bounds: GroupBounds,
+    ) -> Result<(), Sg2dWgpuError> {
         self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
             self.device(),
             self.texture_format(),
             self.sample_count(),
-            Box::new(PathShader::from_line_mark(mark, self.dimensions())?),
+            Box::new(PathShader::from_line_mark(
+                mark,
+                self.dimensions(),
+                group_bounds,
+            )?),
         )));
         Ok(())
     }
 
-    fn add_trail_mark(&mut self, mark: &TrailMark) -> Result<(), Sg2dWgpuError> {
+    fn add_trail_mark(
+        &mut self,
+        mark: &TrailMark,
+        group_bounds: GroupBounds,
+    ) -> Result<(), Sg2dWgpuError> {
         self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
             self.device(),
             self.texture_format(),
             self.sample_count(),
-            Box::new(PathShader::from_trail_mark(mark, self.dimensions())?),
+            Box::new(PathShader::from_trail_mark(
+                mark,
+                self.dimensions(),
+                group_bounds,
+            )?),
         )));
         Ok(())
     }
 
-    fn add_area_mark(&mut self, mark: &AreaMark) -> Result<(), Sg2dWgpuError> {
+    fn add_area_mark(
+        &mut self,
+        mark: &AreaMark,
+        group_bounds: GroupBounds,
+    ) -> Result<(), Sg2dWgpuError> {
         self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
             self.device(),
             self.texture_format(),
             self.sample_count(),
-            Box::new(PathShader::from_area_mark(mark, self.dimensions())?),
+            Box::new(PathShader::from_area_mark(
+                mark,
+                self.dimensions(),
+                group_bounds,
+            )?),
         )));
         Ok(())
     }
 
-    fn add_symbol_mark(&mut self, mark: &SymbolMark) -> Result<(), Sg2dWgpuError> {
+    fn add_symbol_mark(
+        &mut self,
+        mark: &SymbolMark,
+        group_bounds: GroupBounds,
+    ) -> Result<(), Sg2dWgpuError> {
         self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
             self.device(),
             self.texture_format(),
             self.sample_count(),
-            Box::new(SymbolShader::from_symbol_mark(mark, self.dimensions())?),
+            Box::new(SymbolShader::from_symbol_mark(
+                mark,
+                self.dimensions(),
+                group_bounds,
+            )?),
         )));
         Ok(())
     }
 
-    fn add_rect_mark(&mut self, mark: &RectMark) -> Result<(), Sg2dWgpuError> {
+    fn add_rect_mark(
+        &mut self,
+        mark: &RectMark,
+        group_bounds: GroupBounds,
+    ) -> Result<(), Sg2dWgpuError> {
         self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
             self.device(),
             self.texture_format(),
             self.sample_count(),
-            Box::new(RectShader::from_rect_mark(mark, self.dimensions())),
+            Box::new(RectShader::from_rect_mark(
+                mark,
+                self.dimensions(),
+                group_bounds,
+            )),
         )));
         Ok(())
     }
 
-    fn add_rule_mark(&mut self, mark: &RuleMark) -> Result<(), Sg2dWgpuError> {
+    fn add_rule_mark(
+        &mut self,
+        mark: &RuleMark,
+        group_bounds: GroupBounds,
+    ) -> Result<(), Sg2dWgpuError> {
         self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
             self.device(),
             self.texture_format(),
             self.sample_count(),
-            Box::new(RuleShader::from_rule_mark(mark, self.dimensions())),
+            Box::new(RuleShader::from_rule_mark(
+                mark,
+                self.dimensions(),
+                group_bounds,
+            )),
         )));
         Ok(())
     }
 
-    fn add_text_mark(&mut self, mark: &TextMark) -> Result<(), Sg2dWgpuError> {
+    fn add_text_mark(
+        &mut self,
+        mark: &TextMark,
+        group_bounds: GroupBounds,
+    ) -> Result<(), Sg2dWgpuError> {
         cfg_if::cfg_if! {
             if #[cfg(feature = "text-glyphon")] {
                 self.add_mark_renderer(MarkRenderer::Text(TextMarkRenderer::new(
@@ -166,6 +235,7 @@ pub trait Canvas {
                     self.dimensions(),
                     self.sample_count(),
                     mark,
+                    group_bounds,
                 )));
                 Ok(())
             } else {
@@ -174,51 +244,69 @@ pub trait Canvas {
         }
     }
 
-    fn add_image_mark(&mut self, mark: &ImageMark) -> Result<(), Sg2dWgpuError> {
+    fn add_image_mark(
+        &mut self,
+        mark: &ImageMark,
+        group_bounds: GroupBounds,
+    ) -> Result<(), Sg2dWgpuError> {
         self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
             self.device(),
             self.texture_format(),
             self.sample_count(),
-            Box::new(ImageShader::from_image_mark(mark, self.dimensions())?),
+            Box::new(ImageShader::from_image_mark(
+                mark,
+                self.dimensions(),
+                group_bounds,
+            )?),
         )));
         Ok(())
     }
 
-    fn add_group_mark(&mut self, group: &SceneGroup) -> Result<(), Sg2dWgpuError> {
+    fn add_group_mark(
+        &mut self,
+        group: &SceneGroup,
+        group_bounds: GroupBounds,
+    ) -> Result<(), Sg2dWgpuError> {
+        // Compute new group bounds
+        let group_bounds = GroupBounds {
+            x: group_bounds.x + group.bounds.x,
+            y: group_bounds.y + group.bounds.y,
+            ..group.bounds
+        };
         for mark in &group.marks {
             match mark {
                 SceneMark::Arc(mark) => {
-                    self.add_arc_mark(mark)?;
+                    self.add_arc_mark(mark, group_bounds)?;
                 }
                 SceneMark::Symbol(mark) => {
-                    self.add_symbol_mark(mark)?;
+                    self.add_symbol_mark(mark, group_bounds)?;
                 }
                 SceneMark::Rect(mark) => {
-                    self.add_rect_mark(mark)?;
+                    self.add_rect_mark(mark, group_bounds)?;
                 }
                 SceneMark::Rule(mark) => {
-                    self.add_rule_mark(mark)?;
+                    self.add_rule_mark(mark, group_bounds)?;
                 }
                 SceneMark::Path(mark) => {
-                    self.add_path_mark(mark)?;
+                    self.add_path_mark(mark, group_bounds)?;
                 }
                 SceneMark::Line(mark) => {
-                    self.add_line_mark(mark)?;
+                    self.add_line_mark(mark, group_bounds)?;
                 }
                 SceneMark::Trail(mark) => {
-                    self.add_trail_mark(mark)?;
+                    self.add_trail_mark(mark, group_bounds)?;
                 }
                 SceneMark::Area(mark) => {
-                    self.add_area_mark(mark)?;
+                    self.add_area_mark(mark, group_bounds)?;
                 }
                 SceneMark::Text(mark) => {
-                    self.add_text_mark(mark)?;
+                    self.add_text_mark(mark, group_bounds)?;
                 }
                 SceneMark::Image(mark) => {
-                    self.add_image_mark(mark)?;
+                    self.add_image_mark(mark, group_bounds)?;
                 }
                 SceneMark::Group(group) => {
-                    self.add_group_mark(group)?;
+                    self.add_group_mark(group, group_bounds)?;
                 }
             }
         }
@@ -230,8 +318,14 @@ pub trait Canvas {
         self.clear_mark_renderer();
 
         // Add marks
+        let group_bounds = GroupBounds {
+            x: scene_graph.origin[0],
+            y: scene_graph.origin[1],
+            width: None,
+            height: None,
+        };
         for group in &scene_graph.groups {
-            self.add_group_mark(group)?;
+            self.add_group_mark(group, group_bounds)?;
         }
 
         Ok(())

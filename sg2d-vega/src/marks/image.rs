@@ -35,7 +35,7 @@ fn default_true() -> bool {
 impl VegaMarkItem for VegaImageItem {}
 
 impl VegaMarkContainer<VegaImageItem> {
-    pub fn to_scene_graph(&self, origin: [f32; 2]) -> Result<SceneMark, VegaSceneGraphError> {
+    pub fn to_scene_graph(&self) -> Result<SceneMark, VegaSceneGraphError> {
         let name = self
             .name
             .clone()
@@ -58,8 +58,8 @@ impl VegaMarkContainer<VegaImageItem> {
         let fetcher = make_image_fetcher()?;
 
         for item in &self.items {
-            x.push(item.x + origin[0]);
-            y.push(item.y + origin[1]);
+            x.push(item.x);
+            y.push(item.y);
             align.push(item.align);
             baseline.push(item.baseline);
 

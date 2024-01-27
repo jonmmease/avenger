@@ -21,7 +21,7 @@ pub struct VegaTrailItem {
 impl VegaMarkItem for VegaTrailItem {}
 
 impl VegaMarkContainer<VegaTrailItem> {
-    pub fn to_scene_graph(&self, origin: [f32; 2]) -> Result<SceneMark, VegaSceneGraphError> {
+    pub fn to_scene_graph(&self) -> Result<SceneMark, VegaSceneGraphError> {
         // Get shape of first item and use that for all items for now
         let first = self.items.first();
         let mut gradients = Vec::<Gradient>::new();
@@ -50,8 +50,8 @@ impl VegaMarkContainer<VegaTrailItem> {
         let mut defined = Vec::<bool>::new();
 
         for item in &self.items {
-            x.push(item.x + origin[0]);
-            y.push(item.y + origin[1]);
+            x.push(item.x);
+            y.push(item.y);
             if let Some(v) = item.size {
                 size.push(v);
             }

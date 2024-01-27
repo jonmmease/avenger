@@ -28,7 +28,7 @@ pub struct VegaRectItem {
 impl VegaMarkItem for VegaRectItem {}
 
 impl VegaMarkContainer<VegaRectItem> {
-    pub fn to_scene_graph(&self, origin: [f32; 2]) -> Result<SceneMark, VegaSceneGraphError> {
+    pub fn to_scene_graph(&self) -> Result<SceneMark, VegaSceneGraphError> {
         let mut mark = RectMark {
             clip: self.clip,
             ..Default::default()
@@ -52,8 +52,8 @@ impl VegaMarkContainer<VegaRectItem> {
 
         // For each item, append explicit values to corresponding vector
         for item in &self.items {
-            x.push(item.x + origin[0]);
-            y.push(item.y + origin[1]);
+            x.push(item.x);
+            y.push(item.y);
             if let Some(v) = item.width {
                 width.push(v);
             }

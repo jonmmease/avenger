@@ -1,8 +1,10 @@
 // Vertex shader
 struct ChartUniform {
     size: vec2<f32>,
+    origin: vec2<f32>,
+    group_size: vec2<f32>,
     scale: f32,
-    _pad: f32, // for 16 byte alignment
+    clip: f32,
 };
 
 @group(0) @binding(0)
@@ -48,7 +50,11 @@ fn vs_main(
     instance: InstanceInput,
 ) -> VertexOutput {
     var out: VertexOutput;
-    out.position = instance.position;
+
+    // Compute absolute position
+    let position = instance.position + chart_uniforms.origin;
+
+    out.position = position;
     out.start_angle = instance.start_angle;
     out.end_angle = instance.end_angle;
     out.outer_radius = instance.outer_radius;
@@ -62,8 +68,8 @@ fn vs_main(
     let buffer = 0.5;
     let half_stroke = out.stroke_width / 2.0;
     let buffered_radius = instance.outer_radius + half_stroke + buffer;
-    let x = 2.0 * (model.position[0] * buffered_radius + instance.position[0]) / chart_uniforms.size[0] - 1.0;
-    let y = 2.0 * (model.position[1] * buffered_radius + (chart_uniforms.size[1] - instance.position[1])) / chart_uniforms.size[1] - 1.0;
+    let x = 2.0 * (model.position[0] * buffered_radius + position[0]) / chart_uniforms.size[0] - 1.0;
+    let y = 2.0 * (model.position[1] * buffered_radius + (chart_uniforms.size[1] - position[1])) / chart_uniforms.size[1] - 1.0;
 
     out.clip_position = vec4<f32>(x, y, 0.0, 1.0);
 
