@@ -42,7 +42,7 @@ pub async fn run() {
     }
     // Load scene graph
     let scene_spec: VegaSceneGraph = serde_json::from_str(include_str!(
-        "../../../sg2d-vega-test-data/vega-scenegraphs/symbol/binned_scatter_cross_stroke.sg.json"
+        "../../../sg2d-vega-test-data/vega-scenegraphs/gradients/symbol_radial_gradient.sg.json"
     ))
     .unwrap();
 

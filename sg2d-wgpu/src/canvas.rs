@@ -21,7 +21,6 @@ use crate::marks::path::PathShader;
 use crate::marks::rect::RectShader;
 use crate::marks::rule::RuleShader;
 use crate::marks::symbol::SymbolShader;
-use crate::marks::text::TextMarkRenderer;
 use sg2d::marks::arc::ArcMark;
 use sg2d::marks::area::AreaMark;
 use sg2d::marks::image::ImageMark;
@@ -33,9 +32,13 @@ use sg2d::{
     marks::symbol::SymbolMark, marks::text::TextMark, scene_graph::SceneGraph,
 };
 
+#[cfg(feature = "text-glyphon")]
+use crate::marks::text::TextMarkRenderer;
+
 pub enum MarkRenderer {
     Basic(BasicMarkRenderer),
     Instanced(InstancedMarkRenderer),
+    #[cfg(feature = "text-glyphon")]
     Text(TextMarkRenderer),
 }
 
@@ -154,15 +157,21 @@ pub trait Canvas {
     }
 
     fn add_text_mark(&mut self, mark: &TextMark) -> Result<(), Sg2dWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Text(TextMarkRenderer::new(
-            self.device(),
-            self.queue(),
-            self.texture_format(),
-            self.dimensions(),
-            self.sample_count(),
-            mark,
-        )));
-        Ok(())
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "text-glyphon")] {
+                self.add_mark_renderer(MarkRenderer::Text(TextMarkRenderer::new(
+                    self.device(),
+                    self.queue(),
+                    self.texture_format(),
+                    self.dimensions(),
+                    self.sample_count(),
+                    mark,
+                )));
+                Ok(())
+            } else {
+                Err(Sg2dWgpuError::TextNotEnabled("Use the text-glyphon feature flag to enable text".to_string()))
+            }
+        }
     }
 
     fn add_image_mark(&mut self, mark: &ImageMark) -> Result<(), Sg2dWgpuError> {
@@ -462,6 +471,7 @@ impl WindowCanvas {
                         renderer.render(&self.device, &view, None)
                     }
                 }
+                #[cfg(feature = "text-glyphon")]
                 MarkRenderer::Text(renderer) => {
                     if self.sample_count > 1 {
                         renderer.render(
@@ -639,6 +649,7 @@ impl PngCanvas {
                         renderer.render(&self.device, &self.texture_view, None)
                     }
                 }
+                #[cfg(feature = "text-glyphon")]
                 MarkRenderer::Text(mark) => {
                     if self.sample_count > 1 {
                         mark.render(

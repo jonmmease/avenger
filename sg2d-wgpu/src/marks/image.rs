@@ -5,22 +5,22 @@ use etagere::Size;
 use itertools::izip;
 use sg2d::marks::image::ImageMark;
 use sg2d::marks::value::{ImageAlign, ImageBaseline};
-use wgpu::{Extent3d, VertexBufferLayout};
+use wgpu::{Extent3d, FilterMode, VertexBufferLayout};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ImageUniform {
     pub size: [f32; 2],
     pub scale: f32,
-    pub smooth: f32,
+    _pad: [f32; 1], // Pad to 16 bytes
 }
 
 impl ImageUniform {
-    pub fn new(dimensions: CanvasDimensions, smooth: bool) -> Self {
+    pub fn new(dimensions: CanvasDimensions) -> Self {
         Self {
             size: dimensions.size,
             scale: dimensions.scale,
-            smooth: if smooth { 1.0 } else { 0.0 },
+            _pad: [0.0],
         }
     }
 }
@@ -51,6 +51,7 @@ pub struct ImageShader {
     verts: Vec<ImageVertex>,
     indices: Vec<u16>,
     uniform: ImageUniform,
+    smooth: bool,
     shader: String,
     vertex_entry_point: String,
     fragment_entry_point: String,
@@ -239,7 +240,8 @@ impl ImageShader {
         Ok(Self {
             verts,
             indices,
-            uniform: ImageUniform::new(dimensions, mark.smooth),
+            uniform: ImageUniform::new(dimensions),
+            smooth: mark.smooth,
             batches,
             texture_size,
             shader: include_str!("image.wgsl").to_string(),
@@ -287,5 +289,13 @@ impl BasicMarkShader for ImageShader {
 
     fn texture_size(&self) -> Extent3d {
         self.texture_size
+    }
+
+    fn mag_filter(&self) -> FilterMode {
+        if self.smooth {
+            FilterMode::Linear
+        } else {
+            FilterMode::Nearest
+        }
     }
 }

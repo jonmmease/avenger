@@ -7,4 +7,6 @@ pub mod path;
 pub mod rect;
 pub mod rule;
 pub mod symbol;
+
+#[cfg(feature = "text-glyphon")]
 pub mod text;
