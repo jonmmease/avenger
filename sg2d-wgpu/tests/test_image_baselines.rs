@@ -122,6 +122,9 @@ mod test_image_baselines {
         case("gradients", "rules_with_gradients", 0.004), // Slight difference in bounding box for square caps
         case("gradients", "symbol_cross_gradient", 0.001),
         case("gradients", "symbol_circles_gradient_stroke", 0.001),
+
+        // Our gradient bounding box for arc marks is the full circle, not the bounding box around the arc wedge
+        case("gradients", "arc_gradient", 0.1),
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
         let specs_dir = format!(
