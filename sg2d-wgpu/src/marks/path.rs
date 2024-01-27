@@ -2,7 +2,7 @@ use crate::canvas::CanvasDimensions;
 use crate::error::Sg2dWgpuError;
 use crate::marks::gradient::to_color_or_gradient_coord;
 use crate::marks::rect::build_gradients_image;
-use crate::marks::texture_mark::{TextureMarkBatch, TextureMarkShader};
+use crate::marks::basic_mark::{BasicMarkBatch, BasicMarkShader};
 use itertools::izip;
 use lyon::algorithms::aabb::bounding_box;
 use lyon::algorithms::measure::{PathMeasurements, PathSampler, SampleType};
@@ -68,7 +68,7 @@ pub struct PathShader {
     verts: Vec<PathVertex>,
     indices: Vec<u16>,
     uniform: PathUniform,
-    batches: Vec<TextureMarkBatch>,
+    batches: Vec<BasicMarkBatch>,
     shader: String,
     vertex_entry_point: String,
     fragment_entry_point: String,
@@ -141,7 +141,7 @@ impl PathShader {
             verts,
             indices,
             uniform: PathUniform::new(dimensions),
-            batches: vec![TextureMarkBatch {
+            batches: vec![BasicMarkBatch {
                 indices_range,
                 image: image::DynamicImage::ImageRgba8(gradients_image),
             }],
@@ -260,7 +260,7 @@ impl PathShader {
             verts: buffers.vertices,
             indices: buffers.indices,
             uniform: PathUniform::new(dimensions),
-            batches: vec![TextureMarkBatch {
+            batches: vec![BasicMarkBatch {
                 indices_range,
                 image: image::DynamicImage::ImageRgba8(gradients_image),
             }],
@@ -398,7 +398,7 @@ impl PathShader {
             verts,
             indices,
             uniform: PathUniform::new(dimensions),
-            batches: vec![TextureMarkBatch {
+            batches: vec![BasicMarkBatch {
                 indices_range,
                 image: image::DynamicImage::ImageRgba8(gradients_image),
             }],
@@ -474,7 +474,7 @@ impl PathShader {
             verts: buffers.vertices,
             indices: buffers.indices,
             uniform: PathUniform::new(dimensions),
-            batches: vec![TextureMarkBatch {
+            batches: vec![BasicMarkBatch {
                 indices_range,
                 image: image::DynamicImage::ImageRgba8(gradients_image),
             }],
@@ -485,7 +485,7 @@ impl PathShader {
     }
 }
 
-impl TextureMarkShader for PathShader {
+impl BasicMarkShader for PathShader {
     type Vertex = PathVertex;
     type Uniform = PathUniform;
 
@@ -501,7 +501,7 @@ impl TextureMarkShader for PathShader {
         self.uniform
     }
 
-    fn batches(&self) -> &[TextureMarkBatch] {
+    fn batches(&self) -> &[BasicMarkBatch] {
         self.batches.as_slice()
     }
 

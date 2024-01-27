@@ -20,8 +20,8 @@ use crate::marks::rect::RectShader;
 use crate::marks::rule::RuleShader;
 use crate::marks::symbol::SymbolShader;
 use crate::marks::text::TextMarkRenderer;
-use crate::marks::texture_instanced_mark::TextureInstancedMarkRenderer;
-use crate::marks::texture_mark::TextureMarkRenderer;
+use crate::marks::instanced_mark::InstancedMarkRenderer;
+use crate::marks::basic_mark::BasicMarkRenderer;
 use sg2d::marks::arc::ArcMark;
 use sg2d::marks::area::AreaMark;
 use sg2d::marks::image::ImageMark;
@@ -34,8 +34,8 @@ use sg2d::{
 };
 
 pub enum MarkRenderer {
-    Texture(TextureMarkRenderer),
-    TextureInstanced(TextureInstancedMarkRenderer),
+    Basic(BasicMarkRenderer),
+    Instanced(InstancedMarkRenderer),
     Text(TextMarkRenderer),
 }
 
@@ -74,8 +74,8 @@ pub trait Canvas {
     fn sample_count(&self) -> u32;
 
     fn add_arc_mark(&mut self, mark: &ArcMark) -> Result<(), Sg2dWgpuError> {
-        self.add_mark_renderer(MarkRenderer::TextureInstanced(
-            TextureInstancedMarkRenderer::new(
+        self.add_mark_renderer(MarkRenderer::Instanced(
+            InstancedMarkRenderer::new(
                 self.device(),
                 self.texture_format(),
                 self.sample_count(),
@@ -86,7 +86,7 @@ pub trait Canvas {
     }
 
     fn add_path_mark(&mut self, mark: &PathMark) -> Result<(), Sg2dWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Texture(TextureMarkRenderer::new(
+        self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
             self.device(),
             self.texture_format(),
             self.sample_count(),
@@ -96,7 +96,7 @@ pub trait Canvas {
     }
 
     fn add_line_mark(&mut self, mark: &LineMark) -> Result<(), Sg2dWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Texture(TextureMarkRenderer::new(
+        self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
             self.device(),
             self.texture_format(),
             self.sample_count(),
@@ -106,7 +106,7 @@ pub trait Canvas {
     }
 
     fn add_trail_mark(&mut self, mark: &TrailMark) -> Result<(), Sg2dWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Texture(TextureMarkRenderer::new(
+        self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
             self.device(),
             self.texture_format(),
             self.sample_count(),
@@ -116,7 +116,7 @@ pub trait Canvas {
     }
 
     fn add_area_mark(&mut self, mark: &AreaMark) -> Result<(), Sg2dWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Texture(TextureMarkRenderer::new(
+        self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
             self.device(),
             self.texture_format(),
             self.sample_count(),
@@ -126,8 +126,8 @@ pub trait Canvas {
     }
 
     fn add_symbol_mark(&mut self, mark: &SymbolMark) -> Result<(), Sg2dWgpuError> {
-        self.add_mark_renderer(MarkRenderer::TextureInstanced(
-            TextureInstancedMarkRenderer::new(
+        self.add_mark_renderer(MarkRenderer::Instanced(
+            InstancedMarkRenderer::new(
                 self.device(),
                 self.texture_format(),
                 self.sample_count(),
@@ -138,8 +138,8 @@ pub trait Canvas {
     }
 
     fn add_rect_mark(&mut self, mark: &RectMark) -> Result<(), Sg2dWgpuError> {
-        self.add_mark_renderer(MarkRenderer::TextureInstanced(
-            TextureInstancedMarkRenderer::new(
+        self.add_mark_renderer(MarkRenderer::Instanced(
+            InstancedMarkRenderer::new(
                 self.device(),
                 self.texture_format(),
                 self.sample_count(),
@@ -150,8 +150,8 @@ pub trait Canvas {
     }
 
     fn add_rule_mark(&mut self, mark: &RuleMark) -> Result<(), Sg2dWgpuError> {
-        self.add_mark_renderer(MarkRenderer::TextureInstanced(
-            TextureInstancedMarkRenderer::new(
+        self.add_mark_renderer(MarkRenderer::Instanced(
+            InstancedMarkRenderer::new(
                 self.device(),
                 self.texture_format(),
                 self.sample_count(),
@@ -174,7 +174,7 @@ pub trait Canvas {
     }
 
     fn add_image_mark(&mut self, mark: &ImageMark) -> Result<(), Sg2dWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Texture(TextureMarkRenderer::new(
+        self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
             self.device(),
             self.texture_format(),
             self.sample_count(),
@@ -456,14 +456,14 @@ impl WindowCanvas {
 
         for mark in &mut self.marks {
             let command = match mark {
-                MarkRenderer::Texture(renderer) => {
+                MarkRenderer::Basic(renderer) => {
                     if self.sample_count > 1 {
                         renderer.render(&self.device, &self.multisampled_framebuffer, Some(&view))
                     } else {
                         renderer.render(&self.device, &view, None)
                     }
                 }
-                MarkRenderer::TextureInstanced(renderer) => {
+                MarkRenderer::Instanced(renderer) => {
                     if self.sample_count > 1 {
                         renderer.render(&self.device, &self.multisampled_framebuffer, Some(&view))
                     } else {
@@ -625,7 +625,7 @@ impl PngCanvas {
 
         for mark in &mut self.marks {
             let command = match mark {
-                MarkRenderer::Texture(renderer) => {
+                MarkRenderer::Basic(renderer) => {
                     if self.sample_count > 1 {
                         renderer.render(
                             &self.device,
@@ -636,7 +636,7 @@ impl PngCanvas {
                         renderer.render(&self.device, &self.texture_view, None)
                     }
                 }
-                MarkRenderer::TextureInstanced(renderer) => {
+                MarkRenderer::Instanced(renderer) => {
                     if self.sample_count > 1 {
                         renderer.render(
                             &self.device,

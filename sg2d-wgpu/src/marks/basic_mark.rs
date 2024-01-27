@@ -3,27 +3,23 @@ use wgpu::util::DeviceExt;
 use wgpu::{CommandBuffer, Device, Extent3d, ImageDataLayout, TextureFormat, TextureView};
 
 #[derive(Clone)]
-pub struct InstancedTextureMarkBatch {
-    pub instances_range: Range<u32>,
+pub struct BasicMarkBatch {
+    pub indices_range: Range<u32>,
     pub image: image::DynamicImage,
 }
 
-pub trait TextureInstancedMarkShader {
-    type Instance: bytemuck::Pod + bytemuck::Zeroable;
+pub trait BasicMarkShader {
     type Vertex: bytemuck::Pod + bytemuck::Zeroable;
     type Uniform: bytemuck::Pod + bytemuck::Zeroable;
 
     fn verts(&self) -> &[Self::Vertex];
     fn indices(&self) -> &[u16];
-    fn instances(&self) -> &[Self::Instance];
     fn uniform(&self) -> Self::Uniform;
-    fn batches(&self) -> &[InstancedTextureMarkBatch];
+    fn batches(&self) -> &[BasicMarkBatch];
     fn texture_size(&self) -> Extent3d;
-
     fn shader(&self) -> &str;
     fn vertex_entry_point(&self) -> &str;
     fn fragment_entry_point(&self) -> &str;
-    fn instance_desc(&self) -> wgpu::VertexBufferLayout<'static>;
     fn vertex_desc(&self) -> wgpu::VertexBufferLayout<'static>;
 
     fn mag_filter(&self) -> wgpu::FilterMode {
@@ -37,28 +33,25 @@ pub trait TextureInstancedMarkShader {
     }
 }
 
-pub struct TextureInstancedMarkRenderer {
-    pub render_pipeline: wgpu::RenderPipeline,
-    pub vertex_buffer: wgpu::Buffer,
-    pub index_buffer: wgpu::Buffer,
-    pub num_indices: u32,
-    pub instance_buffer: wgpu::Buffer,
-    pub batches: Vec<InstancedTextureMarkBatch>,
-    pub uniform_bind_group: wgpu::BindGroup,
-    pub texture: wgpu::Texture,
-    pub texture_size: wgpu::Extent3d,
-    pub texture_bind_group: wgpu::BindGroup,
+pub struct BasicMarkRenderer {
+    render_pipeline: wgpu::RenderPipeline,
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    batches: Vec<BasicMarkBatch>,
+    uniform_bind_group: wgpu::BindGroup,
+    texture: wgpu::Texture,
+    texture_size: wgpu::Extent3d,
+    texture_bind_group: wgpu::BindGroup,
 }
 
-impl TextureInstancedMarkRenderer {
-    pub fn new<I, V, U>(
+impl BasicMarkRenderer {
+    pub fn new<V, U>(
         device: &Device,
         texture_format: TextureFormat,
         sample_count: u32,
-        mark_shader: Box<dyn TextureInstancedMarkShader<Instance = I, Vertex = V, Uniform = U>>,
+        mark_shader: Box<dyn BasicMarkShader<Vertex = V, Uniform = U>>,
     ) -> Self
     where
-        I: bytemuck::Pod + bytemuck::Zeroable,
         V: bytemuck::Pod + bytemuck::Zeroable,
         U: bytemuck::Pod + bytemuck::Zeroable,
     {
@@ -196,7 +189,7 @@ impl TextureInstancedMarkRenderer {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: mark_shader.vertex_entry_point(),
-                buffers: &[mark_shader.vertex_desc(), mark_shader.instance_desc()],
+                buffers: &[mark_shader.vertex_desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -236,21 +229,12 @@ impl TextureInstancedMarkRenderer {
             contents: bytemuck::cast_slice(mark_shader.indices()),
             usage: wgpu::BufferUsages::INDEX,
         });
-        let num_indices = mark_shader.indices().len() as u32;
-
-        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Instance Buffer"),
-            contents: bytemuck::cast_slice(mark_shader.instances()),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
 
         Self {
             render_pipeline,
             vertex_buffer,
             index_buffer,
             batches: Vec::from(mark_shader.batches()),
-            num_indices,
-            instance_buffer,
             uniform_bind_group,
             texture,
             texture_size: mark_shader.texture_size(),
@@ -312,10 +296,9 @@ impl TextureInstancedMarkRenderer {
                 render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 render_pass.set_bind_group(1, &self.texture_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
                 render_pass
                     .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                render_pass.draw_indexed(0..self.num_indices, 0, batch.instances_range.clone());
+                render_pass.draw_indexed(batch.indices_range.clone(), 0, 0..1);
             }
         }
 
