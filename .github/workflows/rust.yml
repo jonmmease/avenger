@@ -48,15 +48,15 @@ jobs:
       - name: Install latest stable toolchain
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: 1.74.1
           override: true
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "test-macos"
-      - name: Run cargo check
-        uses: actions-rs/cargo@v1
-        with:
-          command: test --verbose -- --nocapture
+      - name: version
+        run: rustc --version
+      - name: test
+        run:  cd sg2d-wgpu/ && cargo test -- --nocapture
       - name: Update images
         uses: actions/upload-artifact@v4
         with:
