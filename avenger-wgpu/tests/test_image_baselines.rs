@@ -2,9 +2,9 @@
 mod test_image_baselines {
     use dssim::Dssim;
     use rstest::rstest;
-    use sg2d::scene_graph::SceneGraph;
-    use sg2d_vega::scene_graph::VegaSceneGraph;
-    use sg2d_wgpu::canvas::{Canvas, CanvasDimensions, PngCanvas};
+    use avenger::scene_graph::SceneGraph;
+    use avenger_vega::scene_graph::VegaSceneGraph;
+    use avenger_wgpu::canvas::{Canvas, CanvasDimensions, PngCanvas};
     use std::fs;
     use std::path::Path;
 
@@ -134,7 +134,7 @@ mod test_image_baselines {
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
         println!("{spec_name}");
         let specs_dir = format!(
-            "{}/../sg2d-vega-test-data/vega-scenegraphs/{category}",
+            "{}/../avenger-vega-test-data/vega-scenegraphs/{category}",
             env!("CARGO_MANIFEST_DIR")
         );
         let output_dir = format!("{}/tests/output", env!("CARGO_MANIFEST_DIR"));
