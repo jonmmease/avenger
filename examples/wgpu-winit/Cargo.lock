@@ -130,6 +130,54 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
+name = "avenger"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "lyon_path",
+ "reqwest",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "avenger-vega"
+version = "0.1.0"
+dependencies = [
+ "avenger",
+ "cfg-if",
+ "csscolorparser",
+ "image",
+ "lyon_extra",
+ "lyon_path",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "avenger-wgpu"
+version = "0.1.0"
+dependencies = [
+ "avenger",
+ "bytemuck",
+ "cfg-if",
+ "cgmath",
+ "colorgrad",
+ "env_logger",
+ "etagere",
+ "futures-intrusive",
+ "image",
+ "itertools",
+ "log",
+ "lyon",
+ "pollster",
+ "thiserror",
+ "wgpu",
+ "winit",
+]
+
+[[package]]
 name = "backtrace"
 version = "0.3.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2025,54 +2073,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sg2d"
-version = "0.1.0"
-dependencies = [
- "image",
- "lyon_path",
- "reqwest",
- "serde",
- "thiserror",
-]
-
-[[package]]
-name = "sg2d-vega"
-version = "0.1.0"
-dependencies = [
- "cfg-if",
- "csscolorparser",
- "image",
- "lyon_extra",
- "lyon_path",
- "serde",
- "serde_json",
- "sg2d",
- "thiserror",
-]
-
-[[package]]
-name = "sg2d-wgpu"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "cfg-if",
- "cgmath",
- "colorgrad",
- "env_logger",
- "etagere",
- "futures-intrusive",
- "image",
- "itertools",
- "log",
- "lyon",
- "pollster",
- "sg2d",
- "thiserror",
- "wgpu",
- "winit",
-]
-
-[[package]]
 name = "simd-adler32"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2742,6 +2742,9 @@ dependencies = [
 name = "wgpu-winit"
 version = "0.1.0"
 dependencies = [
+ "avenger",
+ "avenger-vega",
+ "avenger-wgpu",
  "cfg-if",
  "console_error_panic_hook",
  "console_log",
@@ -2749,9 +2752,6 @@ dependencies = [
  "log",
  "pollster",
  "serde_json",
- "sg2d",
- "sg2d-vega",
- "sg2d-wgpu",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",

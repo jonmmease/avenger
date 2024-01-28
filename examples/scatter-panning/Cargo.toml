@@ -10,9 +10,9 @@ crate-type = ["cdylib", "rlib"]
 [workspace]
 
 [dependencies]
-sg2d-vega = { path = "../../sg2d-vega" }
-sg2d-wgpu = { path = "../../sg2d-wgpu" }
-sg2d = { path = "../../sg2d" }
+avenger-vega = { path = "../../avenger-vega" }
+avenger-wgpu = { path = "../../avenger-wgpu" }
+avenger = { path = "../../avenger" }
 
 cfg-if = "1"
 winit = "0.28"

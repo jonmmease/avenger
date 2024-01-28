@@ -5,4 +5,6 @@
 examples/wgpu-winit/pkg/
 examples/wgpu-winit/target/
 examples/scatter-panning/pkg/
-examples/scatter-panning/target/
+examples/scatter-panning/target/# pixi environments
+.pixi
+
