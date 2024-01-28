@@ -1,6 +1,6 @@
-use sg2d::scene_graph::SceneGraph;
-use sg2d_vega::scene_graph::VegaSceneGraph;
-use sg2d_wgpu::canvas::{Canvas, CanvasDimensions, WindowCanvas};
+use avenger::scene_graph::SceneGraph;
+use avenger_vega::scene_graph::VegaSceneGraph;
+use avenger_wgpu::canvas::{Canvas, CanvasDimensions, WindowCanvas};
 use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
@@ -42,7 +42,7 @@ pub async fn run() {
     }
     // Load scene graph
     let scene_spec: VegaSceneGraph = serde_json::from_str(include_str!(
-        "../../../sg2d-vega-test-data/vega-scenegraphs/gradients/symbol_radial_gradient.sg.json"
+        "../../../avenger-vega-test-data/vega-scenegraphs/gradients/symbol_radial_gradient.sg.json"
     ))
     .unwrap();
 
