@@ -1,9 +1,9 @@
 [workspace]
 members = [
-    "sg2d",
-    "sg2d-vega",
-    "sg2d-wgpu",
-    "sg2d-vega-test-data",
+    "avenger",
+    "avenger-vega",
+    "avenger-wgpu",
+    "avenger-vega-test-data",
 ]
 
 resolver = "2"

@@ -1,0 +1,13 @@
+[package]
+name = "avenger"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true }
+lyon_path = { workspace = true, features = ["serialization"] }
+image = { workspace = true, features = ["png"] }
+reqwest = { version="0.11.23" , features = ["blocking"]}

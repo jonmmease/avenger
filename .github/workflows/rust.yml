@@ -56,9 +56,9 @@ jobs:
       - name: version
         run: rustc --version
       - name: test
-        run:  cd sg2d-wgpu/ && cargo test -- --nocapture
+        run:  cd avenger-wgpu/ && cargo test -- --nocapture
       - name: Update images
         uses: actions/upload-artifact@v4
         with:
           name: images-macos
-          path: sg2d-wgpu/tests/output
+          path: avenger-wgpu/tests/output
