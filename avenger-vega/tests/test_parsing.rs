@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use sg2d_vega::scene_graph::VegaSceneGraph;
+    use avenger_vega::scene_graph::VegaSceneGraph;
     use std::fs;
 
     #[test]
@@ -8,7 +8,7 @@ mod tests {
         let category = "rule";
         let spec_name = "wide_rule_axes";
         let specs_dir = format!(
-            "{}/../sg2d-vega-test-data/vega-scenegraphs/{category}",
+            "{}/../avenger-vega-test-data/vega-scenegraphs/{category}",
             env!("CARGO_MANIFEST_DIR")
         );
 
