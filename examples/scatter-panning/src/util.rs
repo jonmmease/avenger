@@ -1,15 +1,15 @@
 use rand::Rng;
-use sg2d::marks::group::{GroupBounds, SceneGroup};
-use sg2d::marks::mark::SceneMark;
-use sg2d::marks::symbol::{SymbolMark, SymbolShape};
-use sg2d::scene_graph::SceneGraph;
-use sg2d_vega::marks::symbol::shape_to_path;
-use sg2d_vega::scene_graph::VegaSceneGraph;
-use sg2d_wgpu::canvas::{Canvas, CanvasDimensions, WindowCanvas};
+use avenger::marks::group::{GroupBounds, SceneGroup};
+use avenger::marks::mark::SceneMark;
+use avenger::marks::symbol::{SymbolMark, SymbolShape};
+use avenger::scene_graph::SceneGraph;
+use avenger_vega::marks::symbol::shape_to_path;
+use avenger_vega::scene_graph::VegaSceneGraph;
+use avenger_wgpu::canvas::{Canvas, CanvasDimensions, WindowCanvas};
 use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
-use sg2d::marks::value::{ColorOrGradient, EncodingValue};
+use avenger::marks::value::{ColorOrGradient, EncodingValue};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -213,5 +213,6 @@ fn make_sg(
         }],
         width,
         height,
+        origin: [0.0, 0.0],
     }
 }
