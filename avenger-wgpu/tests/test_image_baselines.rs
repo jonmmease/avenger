@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod test_image_baselines {
-    use dssim::Dssim;
-    use rstest::rstest;
     use avenger::scene_graph::SceneGraph;
     use avenger_vega::scene_graph::VegaSceneGraph;
     use avenger_wgpu::canvas::{Canvas, CanvasDimensions, PngCanvas};
+    use dssim::Dssim;
+    use rstest::rstest;
     use std::fs;
     use std::path::Path;
 
