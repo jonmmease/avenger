@@ -20,6 +20,9 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/checkout@v3
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "check-linux"
       - name: Check cargo fmt compliance
         run: cargo fmt --all -- --check
       - name: Check no rustc warnings
@@ -31,3 +34,31 @@ jobs:
 #  # Tests currently fail with `MakeWgpuAdapterError`
 #      - name: Run tests
 #        run: cargo test --verbose
+
+  test-rs-macos:
+    runs-on: macos-latest
+    env:
+      RUSTFLAGS: "-D warnings"
+    steps:
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v3
+      - name: Install latest stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "test-macos"
+      - name: version
+        run: rustc --version
+      - name: test
+        run:  cd sg2d-wgpu/ && cargo test -- --nocapture
+      - name: Update images
+        uses: actions/upload-artifact@v4
+        with:
+          name: images-macos
+          path: sg2d-wgpu/tests/output
