@@ -20,6 +20,7 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/checkout@v3
+      - uses: Swatinem/rust-cache@v2
       - name: Check cargo fmt compliance
         run: cargo fmt --all -- --check
       - name: Check no rustc warnings
@@ -50,8 +51,14 @@ jobs:
 #        run: cargo clippy
 #      - name: Build
 #        run: cargo build --verbose
+      - uses: Swatinem/rust-cache@v2
       - name: Run tests
-        run: cargo test --verbose
+        run: cd sg2d-wgpu && cargo test --verbose -- --nocapture
+      - name: Update images
+        uses: actions/upload-artifact@v4
+        with:
+          name: images-win
+          path: sg2d-wgpu/tests/output
 
   test-rs-macos:
     runs-on: macos-latest
@@ -71,5 +78,11 @@ jobs:
 #        run: cargo clippy
 #      - name: Build
 #        run: cargo build --verbose
+      - uses: Swatinem/rust-cache@v2
       - name: Run tests
-        run: cargo test --verbose
+        run: cd sg2d-wgpu && cargo test --verbose -- --nocapture
+      - name: Update images
+        uses: actions/upload-artifact@v4
+        with:
+          name: images-macos
+          path: sg2d-wgpu/tests/output
