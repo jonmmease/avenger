@@ -267,6 +267,11 @@ pub trait Canvas {
         group: &SceneGroup,
         group_bounds: GroupBounds,
     ) -> Result<(), Sg2dWgpuError> {
+        // Maybe add rect around group boundary
+        if let Some(rect) = group.make_rect() {
+            self.add_rect_mark(&rect, group_bounds)?;
+        }
+
         // Compute new group bounds
         let group_bounds = GroupBounds {
             x: group_bounds.x + group.bounds.x,
