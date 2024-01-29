@@ -8,10 +8,16 @@ use glyphon::{
     TextAtlas, TextBounds, TextRenderer, Weight,
 };
 use itertools::izip;
+use std::sync::Mutex;
 use wgpu::{
     CommandBuffer, CommandEncoderDescriptor, Device, MultisampleState, Operations, Queue,
     RenderPassColorAttachment, RenderPassDescriptor, TextureFormat, TextureView,
 };
+
+lazy_static! {
+    static ref FONT_SYTEM: Mutex<FontSystem> = Mutex::new(FontSystem::new());
+    static ref SWASH_CACHE: Mutex<SwashCache> = Mutex::new(SwashCache::new());
+}
 
 #[derive(Clone, Debug)]
 pub struct TextInstance {
@@ -91,8 +97,6 @@ impl TextInstance {
 }
 
 pub struct TextMarkRenderer {
-    pub font_system: FontSystem,
-    pub cache: SwashCache,
     pub atlas: TextAtlas,
     pub text_renderer: TextRenderer,
     pub instances: Vec<TextInstance>,
@@ -111,8 +115,6 @@ impl TextMarkRenderer {
         group_bounds: GroupBounds,
     ) -> Self {
         let instances = TextInstance::iter_from_spec(mark, group_bounds).collect::<Vec<_>>();
-        let font_system = FontSystem::new();
-        let cache = SwashCache::new();
         let mut atlas = TextAtlas::new(device, queue, texture_format);
         let text_renderer = TextRenderer::new(
             &mut atlas,
@@ -126,8 +128,6 @@ impl TextMarkRenderer {
         );
 
         Self {
-            font_system,
-            cache,
             atlas,
             text_renderer,
             dimensions,
@@ -143,6 +143,9 @@ impl TextMarkRenderer {
         texture_view: &TextureView,
         resolve_target: Option<&TextureView>,
     ) -> CommandBuffer {
+        let mut font_system = FONT_SYTEM.lock().unwrap();
+        let mut cache = SWASH_CACHE.lock().unwrap();
+
         // Collect buffer into a vector first so that they live as long as the text areas
         // that reference them below
         let buffers = self
@@ -152,7 +155,7 @@ impl TextMarkRenderer {
                 // Ad-hoc size adjustment for better match with resvg
                 let font_size_scale = 0.99f32;
                 let mut buffer = Buffer::new(
-                    &mut self.font_system,
+                    &mut font_system,
                     Metrics::new(
                         instance.font_size * self.dimensions.scale * font_size_scale,
                         instance.font_size * self.dimensions.scale * font_size_scale,
@@ -173,17 +176,17 @@ impl TextMarkRenderer {
                 };
 
                 buffer.set_text(
-                    &mut self.font_system,
+                    &mut font_system,
                     &instance.text,
                     Attrs::new().family(family).weight(weight),
                     Shaping::Advanced,
                 );
                 buffer.set_size(
-                    &mut self.font_system,
+                    &mut font_system,
                     self.dimensions.size[0] * self.dimensions.scale,
                     self.dimensions.size[1] * self.dimensions.scale,
                 );
-                buffer.shape_until_scroll(&mut self.font_system);
+                buffer.shape_until_scroll(&mut font_system);
 
                 buffer
             })
@@ -241,14 +244,14 @@ impl TextMarkRenderer {
             .prepare(
                 device,
                 queue,
-                &mut self.font_system,
+                &mut font_system,
                 &mut self.atlas,
                 Resolution {
                     width: self.dimensions.to_physical_width(),
                     height: self.dimensions.to_physical_height(),
                 },
                 areas,
-                &mut self.cache,
+                &mut cache,
             )
             .unwrap();
 
