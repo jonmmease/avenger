@@ -170,6 +170,7 @@ dependencies = [
  "glyphon",
  "image",
  "itertools",
+ "lazy_static",
  "log",
  "lyon",
  "pollster",
