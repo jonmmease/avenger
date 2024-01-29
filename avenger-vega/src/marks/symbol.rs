@@ -82,6 +82,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
                 line_marks.push(SceneMark::Line(mark));
             }
             return Ok(SceneMark::Group(SceneGroup {
+                name: "symbol_line_legend".to_string(),
                 bounds: GroupBounds {
                     x: 0.0,
                     y: 0.0,
@@ -89,6 +90,12 @@ impl VegaMarkContainer<VegaSymbolItem> {
                     height: None,
                 },
                 marks: line_marks,
+                gradients: vec![],
+                fill: None,
+                stroke: None,
+                stroke_width: None,
+                stroke_offset: None,
+                corner_radius: None,
             }));
         }
 
