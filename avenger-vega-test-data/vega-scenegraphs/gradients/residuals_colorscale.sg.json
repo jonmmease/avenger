@@ -36296,11 +36296,11 @@
           }
         ],
         "fill": "transparent",
+        "stroke": "#ddd",
         "x": 0,
         "y": 0,
         "width": 300,
-        "height": 300,
-        "stroke": "transparent"
+        "height": 300
       }
     ],
     "marktype": "group",
