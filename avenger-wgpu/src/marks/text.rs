@@ -3,11 +3,13 @@ use avenger::marks::group::GroupBounds;
 use avenger::marks::text::{
     FontStyleSpec, FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec, TextMark,
 };
+use glyphon::fontdb::Database;
 use glyphon::{
     Attrs, Buffer, Color, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache, TextArea,
     TextAtlas, TextBounds, TextRenderer, Weight,
 };
 use itertools::izip;
+use std::collections::HashSet;
 use std::sync::Mutex;
 use wgpu::{
     CommandBuffer, CommandEncoderDescriptor, Device, MultisampleState, Operations, Queue,
@@ -15,8 +17,67 @@ use wgpu::{
 };
 
 lazy_static! {
-    static ref FONT_SYTEM: Mutex<FontSystem> = Mutex::new(FontSystem::new());
+    static ref FONT_SYSTEM: Mutex<FontSystem> = Mutex::new(build_font_system());
     static ref SWASH_CACHE: Mutex<SwashCache> = Mutex::new(SwashCache::new());
+}
+
+fn build_font_system() -> FontSystem {
+    let mut font_system = FontSystem::new();
+    let swash_cache = SwashCache::new();
+
+    let serif_family = Family::Serif;
+    let sans_serif_family = Family::SansSerif;
+    let cursive_family = Family::Cursive;
+    let fantasy_family = Family::Fantasy;
+    let monospace_family = Family::Monospace;
+
+    // Override default families based on what system fonts are available
+    let mut fontdb = font_system.db_mut();
+    let families: HashSet<String> = fontdb
+        .faces()
+        .flat_map(|face| {
+            face.families
+                .iter()
+                .map(|(fam, _lang)| fam.clone())
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    // Set default sans serif
+    for family in ["Helvetica", "Arial", "Liberation Sans"] {
+        if families.contains(family) {
+            fontdb.set_sans_serif_family(family);
+            break;
+        }
+    }
+
+    // Set default monospace font family
+    for family in [
+        "Courier New",
+        "Courier",
+        "Liberation Mono",
+        "DejaVu Sans Mono",
+    ] {
+        if families.contains(family) {
+            fontdb.set_monospace_family(family);
+            break;
+        }
+    }
+
+    // Set default serif font family
+    for family in [
+        "Times New Roman",
+        "Times",
+        "Liberation Serif",
+        "DejaVu Serif",
+    ] {
+        if families.contains(family) {
+            fontdb.set_serif_family(family);
+            break;
+        }
+    }
+
+    font_system
 }
 
 #[derive(Clone, Debug)]
@@ -143,8 +204,12 @@ impl TextMarkRenderer {
         texture_view: &TextureView,
         resolve_target: Option<&TextureView>,
     ) -> CommandBuffer {
-        let mut font_system = FONT_SYTEM.lock().unwrap();
-        let mut cache = SWASH_CACHE.lock().unwrap();
+        let mut font_system = FONT_SYSTEM
+            .lock()
+            .expect("Failed to acquire lock on FONT_SYSTEM");
+        let mut cache = SWASH_CACHE
+            .lock()
+            .expect("Failed to acquire lock on SWASH_CACHE");
 
         // Collect buffer into a vector first so that they live as long as the text areas
         // that reference them below
@@ -163,7 +228,7 @@ impl TextMarkRenderer {
                 );
                 let family = match instance.font.to_lowercase().as_str() {
                     "serif" => Family::Serif,
-                    "sans serif" => Family::SansSerif,
+                    "sans serif" | "sans-serif" => Family::SansSerif,
                     "cursive" => Family::Cursive,
                     "fantasy" => Family::Fantasy,
                     "monospace" => Family::Monospace,
