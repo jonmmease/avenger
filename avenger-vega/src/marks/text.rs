@@ -10,8 +10,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VegaTextItem {
-    // Required
+    #[serde(default)]
     pub x: f32,
+    #[serde(default)]
     pub y: f32,
     pub text: String,
 

@@ -5,8 +5,8 @@ use avenger::marks::text::{
 };
 use glyphon::fontdb::Database;
 use glyphon::{
-    Attrs, Buffer, Color, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache, TextArea,
-    TextAtlas, TextBounds, TextRenderer, Weight,
+    Attrs, Buffer, Color, ColorMode, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache,
+    TextArea, TextAtlas, TextBounds, TextRenderer, Weight,
 };
 use itertools::izip;
 use std::collections::HashSet;
@@ -176,7 +176,7 @@ impl TextMarkRenderer {
         group_bounds: GroupBounds,
     ) -> Self {
         let instances = TextInstance::iter_from_spec(mark, group_bounds).collect::<Vec<_>>();
-        let mut atlas = TextAtlas::new(device, queue, texture_format);
+        let mut atlas = TextAtlas::with_color_mode(device, queue, texture_format, ColorMode::Web);
         let text_renderer = TextRenderer::new(
             &mut atlas,
             device,
