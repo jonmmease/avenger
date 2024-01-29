@@ -1243,11 +1243,11 @@
           }
         ],
         "fill": "transparent",
+        "stroke": "#ddd",
         "x": 0,
         "y": 0,
         "width": 300,
-        "height": 200,
-        "stroke": "transparent"
+        "height": 200
       }
     ],
     "marktype": "group",

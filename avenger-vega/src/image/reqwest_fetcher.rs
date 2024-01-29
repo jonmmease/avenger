@@ -7,6 +7,12 @@ pub struct ReqwestImageFetcher {
     client: Client,
 }
 
+impl Default for ReqwestImageFetcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ReqwestImageFetcher {
     pub fn new() -> Self {
         Self {

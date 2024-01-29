@@ -16,3 +16,4 @@ lyon_path = "1.0.1"
 lyon_extra = "1.0.1"
 lyon = "1.0.1"
 image = { version="0.24.8", default-features = false }
+lazy_static = "1.4.0"

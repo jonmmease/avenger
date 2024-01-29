@@ -48,6 +48,9 @@ mod test_image_baselines {
         case("text", "bar_axis_labels", 0.01),
         case("text", "text_rotation", 0.015),
         case("text", "letter_scatter", 0.012),
+
+        // vl-convert doesn't support emoji at all
+        case("text", "emoji", 2.0),
         case("arc", "single_arc_no_inner", 0.0005),
         case("arc", "single_arc_with_inner_radius", 0.0005),
         case("arc", "single_arc_with_inner_radius_wrap", 0.0005),

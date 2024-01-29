@@ -3106,11 +3106,11 @@
           }
         ],
         "fill": "transparent",
+        "stroke": "#ddd",
         "x": 0,
         "y": 0,
         "width": 403,
-        "height": 156,
-        "stroke": "transparent"
+        "height": 156
       }
     ],
     "marktype": "group",
