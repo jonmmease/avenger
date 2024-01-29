@@ -1,10 +1,10 @@
 use crate::error::VegaSceneGraphError;
 use crate::marks::mark::{VegaMark, VegaMarkItem};
+use crate::marks::values::CssColorOrGradient;
 use avenger::marks::group::{GroupBounds, SceneGroup};
 use avenger::marks::mark::SceneMark;
+use avenger::marks::value::Gradient;
 use serde::{Deserialize, Serialize};
-use avenger::marks::value::{Gradient};
-use crate::marks::values::CssColorOrGradient;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VegaGroupItem {
@@ -91,7 +91,10 @@ impl VegaGroupItem {
         };
 
         Ok(SceneGroup {
-            name: self.name.clone().unwrap_or_else(|| "group_item".to_string()),
+            name: self
+                .name
+                .clone()
+                .unwrap_or_else(|| "group_item".to_string()),
             bounds: GroupBounds {
                 x: self.x,
                 y: self.y,
