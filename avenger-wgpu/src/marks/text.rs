@@ -3,7 +3,7 @@ use avenger::marks::group::GroupBounds;
 use avenger::marks::text::{
     FontStyleSpec, FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec, TextMark,
 };
-use glyphon::fontdb::Database;
+
 use glyphon::{
     Attrs, Buffer, Color, ColorMode, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache,
     TextArea, TextAtlas, TextBounds, TextRenderer, Weight,
@@ -23,16 +23,9 @@ lazy_static! {
 
 fn build_font_system() -> FontSystem {
     let mut font_system = FontSystem::new();
-    let swash_cache = SwashCache::new();
-
-    let serif_family = Family::Serif;
-    let sans_serif_family = Family::SansSerif;
-    let cursive_family = Family::Cursive;
-    let fantasy_family = Family::Fantasy;
-    let monospace_family = Family::Monospace;
 
     // Override default families based on what system fonts are available
-    let mut fontdb = font_system.db_mut();
+    let fontdb = font_system.db_mut();
     let families: HashSet<String> = fontdb
         .faces()
         .flat_map(|face| {
