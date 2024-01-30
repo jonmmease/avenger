@@ -8,7 +8,7 @@ platforms = ["osx-arm64"]
 
 [tasks]
 dev-py = { cmd = ["maturin", "develop", "-m", "avenger-python/Cargo.toml", "--release"]}
-
+bump-version = { cmd = ["python", "automation/bump_version.py"] }
 
 [dependencies]
 python = "3.12.*"
@@ -20,3 +20,5 @@ altair = ">=5.2.0,<5.3"
 vega_datasets = ">=0.9.0,<0.10"
 vegafusion = ">=1.6.1,<1.7"
 vegafusion-python-embed = ">=1.6.1,<1.7"
+click = ">=8.1.7,<8.2"
+toml = ">=0.10.2,<0.11"

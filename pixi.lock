@@ -769,6 +769,29 @@ package:
   purls:
   - pkg:pypi/charset-normalizer
 - platform: osx-arm64
+  name: click
+  version: 8.1.7
+  category: main
+  manager: conda
+  dependencies:
+  - __unix
+  - python >=3.8
+  url: https://conda.anaconda.org/conda-forge/noarch/click-8.1.7-unix_pyh707e725_0.conda
+  hash:
+    md5: f3ad426304898027fc619827ff428eca
+    sha256: f0016cbab6ac4138a429e28dbcb904a90305b34b3fe41a9b89d697c90401caec
+  build: unix_pyh707e725_0
+  arch: aarch64
+  subdir: osx-arm64
+  build_number: 0
+  license: BSD-3-Clause
+  license_family: BSD
+  noarch: python
+  size: 84437
+  timestamp: 1692311973840
+  purls:
+  - pkg:pypi/click
+- platform: osx-arm64
   name: comm
   version: 0.2.1
   category: main
@@ -3955,6 +3978,28 @@ package:
   license_family: BSD
   size: 3145523
   timestamp: 1699202432999
+- platform: osx-arm64
+  name: toml
+  version: 0.10.2
+  category: main
+  manager: conda
+  dependencies:
+  - python >=2.7
+  url: https://conda.anaconda.org/conda-forge/noarch/toml-0.10.2-pyhd8ed1ab_0.tar.bz2
+  hash:
+    md5: f832c45a477c78bebd107098db465095
+    sha256: f0f3d697349d6580e4c2f35ba9ce05c65dc34f9f049e85e45da03800b46139c1
+  build: pyhd8ed1ab_0
+  arch: aarch64
+  subdir: osx-arm64
+  build_number: 0
+  license: MIT
+  license_family: MIT
+  noarch: python
+  size: 18433
+  timestamp: 1604308660817
+  purls:
+  - pkg:pypi/toml
 - platform: osx-arm64
   name: tomli
   version: 2.0.1
