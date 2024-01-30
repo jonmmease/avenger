@@ -1,0 +1,143 @@
+name: Python
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-python-macos:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        target:
+          - x86_64
+          - aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.9
+          architecture: x64
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "build-python-macos-${{ matrix.target }}"
+      - name: Build wheels - x86_64
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist --sdist -m avenger-python/Cargo.toml --strip
+      - name: Install built wheel - x86_64
+        if: matrix.target == 'x86_64'
+        run: |
+          pip install avenger --no-index --find-links dist --force-reinstall
+          python -c "import avenger"
+      - name: Upload wheels
+        uses: actions/upload-artifact@v3
+        with:
+          name: python-wheels
+          path: dist
+
+  build-python-windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        target:
+          - x64
+          # - x86
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.9
+          architecture: ${{ matrix.target }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "build-python-windows-${{ matrix.target }}"
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist -m avenger-python/Cargo.toml --strip
+      - name: Install built wheel
+        run: |
+          pip install avenger --no-index --find-links dist --force-reinstall
+          python -c "import avenger"
+      - name: Upload wheels
+        uses: actions/upload-artifact@v3
+        with:
+          name: python-wheels
+          path: dist
+
+  build-python-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [x86_64]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.9
+          architecture: x64
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          manylinux: auto
+          args: --release --out dist -m avenger-python/Cargo.toml --strip
+      - name: Install built wheel and import
+        if: matrix.target == 'x86_64'
+        run: |
+          pip install avenger --no-index --find-links dist --force-reinstall
+          python -c "import avenger"
+      - name: Upload wheels
+        uses: actions/upload-artifact@v3
+        with:
+          name: python-wheels
+          path: dist
+
+  build-python-linux-cross:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - aarch64
+          # # Add additional architectures in the future
+          # - armv7
+          # - s390x
+          # - ppc64le
+          # - ppc64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.9
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          manylinux: auto
+          args: --release --out dist -m avenger-python/Cargo.toml
+      - uses: uraimo/run-on-arch-action@v2.6.0
+        if: matrix.target != 'ppc64'
+        name: Install built wheel
+        with:
+          arch: ${{ matrix.target }}
+          distro: ubuntu20.04
+          githubToken: ${{ github.token }}
+          install: |
+            apt-get update
+            apt-get install -y --no-install-recommends python3 python3-pip
+            pip3 install -U pip
+          run: |
+            pip3 install avenger --no-index --find-links dist/ --force-reinstall
+            python3 -c "import avenger"
+      - name: Upload wheels
+        uses: actions/upload-artifact@v3
+        with:
+          name: python-wheels
+          path: dist
