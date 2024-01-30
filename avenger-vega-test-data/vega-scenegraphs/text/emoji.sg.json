@@ -294,7 +294,7 @@
                   }
                 ],
                 "fill": "transparent",
-                "stroke": "transparent",
+                "stroke": "#ddd",
                 "width": 550,
                 "height": 140,
                 "x": 0,
@@ -556,7 +556,7 @@
                   }
                 ],
                 "fill": "transparent",
-                "stroke": "transparent",
+                "stroke": "#ddd",
                 "width": 550,
                 "height": 140,
                 "x": 0,

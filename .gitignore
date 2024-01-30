@@ -11,3 +11,4 @@ scratch/
 # pixi environments
 .pixi
 
+/avenger-python/avenger/_avenger.abi3.so

@@ -11,7 +11,7 @@ a non-Vega application, please open an issue.
 ## Run native
 To launch a wgpu rendered visualization in a native window, run the following:
 ```
-cd sg2d-wgpu
+cd examples/wgpu-winit
 cargo run
 ```
 
@@ -45,7 +45,7 @@ image export, and to VegaFusion to support serverside rendering of large marks.
 # Testing
 To start with, the most valuable contribution of this project is probably the testing infrastructure. By relying on
 vl-convert, a collection of input Vega specs are rendered to PNG and converted to scene graphs. The GPU rendered
-PNG images are then compared for similarity to the baselines using structural similarity. See the `gen-test-data`
+PNG images are then compared for similarity to the baselines using structural similarity. See the `avenger-vega-test-data`
 crate for more information.
 
 Note: These tests aren't running on GitHub Actions yet due to a `MakeWgpuAdapterError` error that

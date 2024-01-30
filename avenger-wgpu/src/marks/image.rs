@@ -1,5 +1,5 @@
 use crate::canvas::CanvasDimensions;
-use crate::error::Sg2dWgpuError;
+use crate::error::AvengerWgpuError;
 use crate::marks::basic_mark::{BasicMarkBatch, BasicMarkShader};
 use avenger::marks::group::GroupBounds;
 use avenger::marks::image::ImageMark;
@@ -76,7 +76,7 @@ impl ImageShader {
         mark: &ImageMark,
         dimensions: CanvasDimensions,
         group_bounds: GroupBounds,
-    ) -> Result<Self, Sg2dWgpuError> {
+    ) -> Result<Self, AvengerWgpuError> {
         let mut verts: Vec<ImageVertex> = Vec::new();
         let mut indices: Vec<u16> = Vec::new();
         let mut batches: Vec<BasicMarkBatch> = Vec::new();
@@ -133,12 +133,12 @@ impl ImageShader {
                         atlas_allocator.allocate(Size::new(img.width as i32, img.height as i32))
                     else {
                         if img.width > texture_size.width || img.height > texture_size.height {
-                            return Err(Sg2dWgpuError::ImageAllocationError(format!(
+                            return Err(AvengerWgpuError::ImageAllocationError(format!(
                                 "Image dimensions ({}, {}) exceed the maximum size of ({}, {})",
                                 img.width, img.height, texture_size.width, texture_size.height
                             )));
                         } else {
-                            return Err(Sg2dWgpuError::ImageAllocationError(
+                            return Err(AvengerWgpuError::ImageAllocationError(
                                 "Unknown error".to_string(),
                             ));
                         }

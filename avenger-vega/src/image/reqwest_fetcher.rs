@@ -1,4 +1,4 @@
-use crate::error::VegaSceneGraphError;
+use crate::error::AvengerVegaError;
 use crate::image::ImageFetcher;
 use image::DynamicImage;
 use reqwest::blocking::Client;
@@ -22,7 +22,7 @@ impl ReqwestImageFetcher {
 }
 
 impl ImageFetcher for ReqwestImageFetcher {
-    fn fetch_image(&self, url: &str) -> Result<DynamicImage, VegaSceneGraphError> {
+    fn fetch_image(&self, url: &str) -> Result<DynamicImage, AvengerVegaError> {
         let img_data = self.client.get(url).send()?.bytes()?.to_vec();
         let diffuse_image = image::load_from_memory(img_data.as_slice())?;
         Ok(diffuse_image)

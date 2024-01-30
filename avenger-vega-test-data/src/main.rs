@@ -3,8 +3,8 @@ use std::path::Path;
 use std::{fs, io};
 use vl_convert_rs::VlConverter;
 
-/// Generate test data for each Vega spec located in `sg2d-vega-test-data/vega-specs`
-/// For each spec, the following three files are saved to `sg2d-vega-test-data/vega-scenegraphs`
+/// Generate test data for each Vega spec located in `avenger-vega-test-data/vega-specs`
+/// For each spec, the following three files are saved to `avenger-vega-test-data/vega-scenegraphs`
 ///   1. spec_name.dims.json: This is a JSON file containing the chart's width, height, and origin
 ///   2. spec_name.sg.json: This is a JSON file containing the chart's scene graph
 ///   3. spec_name.png: This is a PNG rendering of the chart using vl-convert with resvg

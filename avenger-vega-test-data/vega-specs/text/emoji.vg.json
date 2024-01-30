@@ -2,7 +2,6 @@
   "$schema": "https://vega.github.io/schema/vega/v5.json",
   "background": "white",
   "padding": 5,
-  "config": {"style": {"cell": {"stroke": "transparent"}}},
   "data": [
     {
       "name": "data-006229bd86d4a5200814600dc915ef80",
