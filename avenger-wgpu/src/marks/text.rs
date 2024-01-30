@@ -4,7 +4,7 @@ use avenger::marks::text::{
     FontStyleSpec, FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec, TextMark,
 };
 
-use glyphon::{
+use avenger_glyphon::{
     Attrs, Buffer, Color, ColorMode, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache,
     TextArea, TextAtlas, TextBounds, TextRenderer, Weight,
 };
