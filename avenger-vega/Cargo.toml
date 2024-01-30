@@ -2,6 +2,8 @@
 name = "avenger-vega"
 version = "0.0.1-a1"
 edition = "2021"
+description = "Utilities for importing Vega scenegraphs into Avenger"
+license = "BSD-3"
 
 [features]
 image-request = [ "reqwest",]
