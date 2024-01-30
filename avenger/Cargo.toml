@@ -3,7 +3,7 @@ name = "avenger"
 version = "0.0.1-a1"
 edition = "2021"
 description = "A visualization engine and renderer"
-license = "BSD-3"
+license = "BSD-3-Clause"
 
 [dependencies.thiserror]
 workspace = true
