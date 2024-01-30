@@ -309,7 +309,7 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
 name = "avenger"
-version = "0.0.1-a1"
+version = "0.0.2-a0"
 dependencies = [
  "image",
  "lyon_path",
@@ -319,8 +319,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-glyphon"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d920ac3f753f808c8d6590b394d19573decc02f7152ee85d88118cc70c79360"
+dependencies = [
+ "cosmic-text",
+ "etagere",
+ "lru",
+ "wgpu",
+]
+
+[[package]]
 name = "avenger-python"
-version = "0.0.1-a1"
+version = "0.0.2-a0"
 dependencies = [
  "avenger",
  "avenger-vega",
@@ -334,7 +346,7 @@ dependencies = [
 
 [[package]]
 name = "avenger-vega"
-version = "0.0.1-a1"
+version = "0.0.2-a0"
 dependencies = [
  "avenger",
  "cfg-if",
@@ -351,7 +363,7 @@ dependencies = [
 
 [[package]]
 name = "avenger-vega-test-data"
-version = "0.0.1-a1"
+version = "0.0.2-a0"
 dependencies = [
  "pollster",
  "serde_json",
@@ -360,9 +372,10 @@ dependencies = [
 
 [[package]]
 name = "avenger-wgpu"
-version = "0.0.1-a1"
+version = "0.0.2-a0"
 dependencies = [
  "avenger",
+ "avenger-glyphon",
  "avenger-vega",
  "bytemuck",
  "cfg-if",
@@ -372,7 +385,6 @@ dependencies = [
  "env_logger",
  "etagere",
  "futures-intrusive",
- "glyphon",
  "image",
  "itertools 0.12.0",
  "lazy_static",
@@ -2520,17 +2532,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c8098adac955faa2d31079b65dc48841251f69efd3ac25477903fc424362ead"
 dependencies = [
  "gl_generator",
-]
-
-[[package]]
-name = "glyphon"
-version = "0.3.0"
-source = "git+https://github.com/jonmmease/glyphon.git?rev=c468f5dacd4130b27a29b098c4de3f4d5c146209#c468f5dacd4130b27a29b098c4de3f4d5c146209"
-dependencies = [
- "cosmic-text",
- "etagere",
- "lru",
- "wgpu",
 ]
 
 [[package]]
