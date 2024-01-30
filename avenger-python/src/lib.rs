@@ -22,6 +22,7 @@ impl SceneGraph {
         Ok(Self { inner })
     }
 
+    #[allow(clippy::wrong_self_convention)]
     fn to_png(&mut self, py: Python, scale: Option<f32>) -> PyResult<PyObject> {
         let mut png_canvas = pollster::block_on(PngCanvas::new(CanvasDimensions {
             size: [self.inner.width, self.inner.height],
