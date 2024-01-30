@@ -1,6 +1,6 @@
 [package]
 name = "avenger-vega"
-version = "0.0.2-a0"
+version = "0.0.1-a1"
 edition = "2021"
 description = "Utilities for importing Vega scenegraphs into Avenger"
 license = "BSD-3-Clause"
@@ -14,7 +14,7 @@ csscolorparser = "0.6.2"
 
 [dependencies.avenger]
 path = "../avenger"
-version = "0.0.2-a0"
+version = "0.0.1-a1"
 
 [dependencies.thiserror]
 workspace = true
