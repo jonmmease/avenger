@@ -314,7 +314,6 @@ dependencies = [
  "image",
  "lyon_path",
  "pyo3",
- "reqwest",
  "serde",
  "thiserror",
 ]
