@@ -9,7 +9,7 @@ license = "BSD-3-Clause"
 crate-type = [ "cdylib", "rlib",]
 
 [features]
-text-glyphon = [ "glyphon",]
+text-glyphon = [ "avenger-glyphon",]
 default = [ "text-glyphon",]
 
 [dependencies]
@@ -48,9 +48,8 @@ workspace = true
 workspace = true
 optional = true
 
-[dependencies.glyphon]
-git = "https://github.com/jonmmease/glyphon.git"
-rev = "c468f5dacd4130b27a29b098c4de3f4d5c146209"
+[dependencies.avenger-glyphon]
+version = "0.3.0"
 optional = true
 
 [dependencies.lyon]
