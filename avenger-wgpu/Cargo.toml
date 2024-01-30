@@ -28,6 +28,7 @@ futures-intrusive = "^0.5"
 etagere = "0.2.10"
 colorgrad = "0.6.2"
 lazy_static = { workspace=true }
+pyo3 = { workspace = true, optional = true }
 
 # glyphon branch that includes text rotation support: https://github.com/jonmmease/glyphon/pull/1
 glyphon = { git = "https://github.com/jonmmease/glyphon.git", rev="c468f5dacd4130b27a29b098c4de3f4d5c146209", optional = true }

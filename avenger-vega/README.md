@@ -1,3 +1,3 @@
-## sg2d-vega
+## avenger-vega
 
-This crate contains the logic for parsing vega scenegraphs and building sg2d scenegraphs 
+This crate contains the logic for parsing vega scenegraphs and building avenger scenegraphs 

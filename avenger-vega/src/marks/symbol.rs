@@ -1,4 +1,4 @@
-use crate::error::VegaSceneGraphError;
+use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::{CssColorOrGradient, StrokeDashSpec};
 use avenger::marks::group::{GroupBounds, SceneGroup};
@@ -37,7 +37,7 @@ pub struct VegaSymbolItem {
 impl VegaMarkItem for VegaSymbolItem {}
 
 impl VegaMarkContainer<VegaSymbolItem> {
-    pub fn to_scene_graph(&self) -> Result<SceneMark, VegaSceneGraphError> {
+    pub fn to_scene_graph(&self) -> Result<SceneMark, AvengerVegaError> {
         // Get shape of first item and use that for all items for now
         let first = self.items.first();
         let first_shape = first
@@ -74,7 +74,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
                     stroke_dash: item
                         .stroke_dash
                         .clone()
-                        .map(|d| Ok::<Vec<f32>, VegaSceneGraphError>(d.to_array()?.to_vec()))
+                        .map(|d| Ok::<Vec<f32>, AvengerVegaError>(d.to_array()?.to_vec()))
                         .transpose()?,
                     gradients,
                     ..Default::default()
@@ -204,7 +204,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
             mark.shapes = shape_strings
                 .iter()
                 .map(|s| shape_to_path(s))
-                .collect::<Result<Vec<SymbolShape>, VegaSceneGraphError>>()?;
+                .collect::<Result<Vec<SymbolShape>, AvengerVegaError>>()?;
         }
 
         // Add gradients
@@ -214,7 +214,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
     }
 }
 
-pub fn shape_to_path(shape: &str) -> Result<SymbolShape, VegaSceneGraphError> {
+pub fn shape_to_path(shape: &str) -> Result<SymbolShape, AvengerVegaError> {
     let tan30: f32 = (30.0 * std::f32::consts::PI / 180.0).tan();
     let sqrt3: f32 = 3.0f32.sqrt();
 
@@ -353,7 +353,7 @@ pub fn shape_to_path(shape: &str) -> Result<SymbolShape, VegaSceneGraphError> {
     })
 }
 
-pub fn parse_svg_path(path: &str) -> Result<Path, VegaSceneGraphError> {
+pub fn parse_svg_path(path: &str) -> Result<Path, AvengerVegaError> {
     let mut source = Source::new(path.chars());
     let mut parser = lyon_extra::parser::PathParser::new();
     let opts = ParserOptions::DEFAULT;

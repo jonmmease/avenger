@@ -1,4 +1,4 @@
-use crate::error::VegaSceneGraphError;
+use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use avenger::marks::mark::SceneMark;
 use avenger::marks::text::{
@@ -36,7 +36,7 @@ pub struct VegaTextItem {
 impl VegaMarkItem for VegaTextItem {}
 
 impl VegaMarkContainer<VegaTextItem> {
-    pub fn to_scene_graph(&self) -> Result<SceneMark, VegaSceneGraphError> {
+    pub fn to_scene_graph(&self) -> Result<SceneMark, AvengerVegaError> {
         // Init mark with scalar defaults
         let mut mark = TextMark {
             clip: self.clip,

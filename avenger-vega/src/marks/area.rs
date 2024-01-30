@@ -1,4 +1,4 @@
-use crate::error::VegaSceneGraphError;
+use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::{CssColorOrGradient, StrokeDashSpec};
 use avenger::marks::area::{AreaMark, AreaOrientation};
@@ -29,7 +29,7 @@ pub struct VegaAreaItem {
 impl VegaMarkItem for VegaAreaItem {}
 
 impl VegaMarkContainer<VegaAreaItem> {
-    pub fn to_scene_graph(&self) -> Result<SceneMark, VegaSceneGraphError> {
+    pub fn to_scene_graph(&self) -> Result<SceneMark, AvengerVegaError> {
         // Get shape of first item and use that for all items for now
         let first = self.items.first();
         let stroke_cap = first.and_then(|item| item.stroke_cap).unwrap_or_default();
