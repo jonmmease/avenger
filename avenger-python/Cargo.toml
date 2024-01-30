@@ -3,6 +3,7 @@ name = "avenger-python"
 version = "0.0.1-a1"
 edition = "2021"
 license = "BSD-3-Clause"
+description = "Python API to Avenger visualization framework"
 publish = false
 
 [lib]

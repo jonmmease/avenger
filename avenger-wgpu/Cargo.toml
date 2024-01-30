@@ -3,7 +3,7 @@ name = "avenger-wgpu"
 version = "0.0.1-a1"
 edition = "2021"
 description = "WGPU rendering engine for the Avenger visualization framework"
-license = "BSD-3"
+license = "BSD-3-Clause"
 
 [lib]
 crate-type = [ "cdylib", "rlib",]
