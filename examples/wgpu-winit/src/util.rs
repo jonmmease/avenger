@@ -1,6 +1,7 @@
 use avenger::scene_graph::SceneGraph;
 use avenger_vega::scene_graph::VegaSceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasDimensions, WindowCanvas};
+use avenger_wgpu::error::AvengerWgpuError;
 use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
@@ -95,16 +96,27 @@ pub async fn run() {
             }
             Event::RedrawRequested(window_id) if window_id == canvas.window().id() => {
                 canvas.update();
+
                 match canvas.render() {
                     Ok(_) => {}
                     // Reconfigure the surface if it's lost or outdated
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                        canvas.resize(canvas.get_size())
+                    Err(AvengerWgpuError::SurfaceError(err)) => {
+                        match err {
+                            wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
+                                canvas.resize(canvas.get_size());
+                            }
+                            wgpu::SurfaceError::OutOfMemory => {
+                                // The system is out of memory, we should probably quit
+                                *control_flow = ControlFlow::Exit;
+                            }
+                            wgpu::SurfaceError::Timeout => {
+                                log::warn!("Surface timeout");
+                            }
+                        }
                     }
-                    // The system is out of memory, we should probably quit
-                    Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-
-                    Err(wgpu::SurfaceError::Timeout) => log::warn!("Surface timeout"),
+                    Err(err) => {
+                        log::error!("{:?}", err);
+                    }
                 }
             }
             Event::RedrawEventsCleared => {

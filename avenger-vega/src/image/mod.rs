@@ -16,7 +16,7 @@ pub fn make_image_fetcher() -> Result<Box<dyn ImageFetcher>, AvengerVegaError> {
         if #[cfg(feature = "image-request")] {
             Ok(Box::new(ReqwestImageFetcher::new()))
         } else {
-            Err(VegaSceneGraphError::NoImageFetcherConfigured(
+            Err(AvengerVegaError::NoImageFetcherConfigured(
                 "Image fetching requeres the image-reqwest feature flag".to_string()
             ))
         }
