@@ -4,15 +4,14 @@ use wgpu::{
     CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, ImageCopyBuffer,
     ImageCopyTexture, ImageDataLayout, LoadOp, MapMode, Operations, Origin3d, PowerPreference,
     Queue, RenderPassColorAttachment, RenderPassDescriptor, RequestAdapterOptions, StoreOp,
-    Surface, SurfaceConfiguration, SurfaceError, Texture, TextureAspect, TextureDescriptor,
-    TextureDimension, TextureFormat, TextureFormatFeatureFlags, TextureUsages, TextureView,
-    TextureViewDescriptor,
+    Surface, SurfaceConfiguration, Texture, TextureAspect, TextureDescriptor, TextureDimension,
+    TextureFormat, TextureFormatFeatureFlags, TextureUsages, TextureView, TextureViewDescriptor,
 };
 use winit::dpi::Size;
 use winit::event::WindowEvent;
 use winit::window::Window;
 
-use crate::error::Sg2dWgpuError;
+use crate::error::AvengerWgpuError;
 use crate::marks::arc::ArcShader;
 use crate::marks::basic_mark::BasicMarkRenderer;
 use crate::marks::image::ImageShader;
@@ -81,7 +80,7 @@ pub trait Canvas {
         &mut self,
         mark: &ArcMark,
         group_bounds: GroupBounds,
-    ) -> Result<(), Sg2dWgpuError> {
+    ) -> Result<(), AvengerWgpuError> {
         self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
             self.device(),
             self.texture_format(),
@@ -99,7 +98,7 @@ pub trait Canvas {
         &mut self,
         mark: &PathMark,
         group_bounds: GroupBounds,
-    ) -> Result<(), Sg2dWgpuError> {
+    ) -> Result<(), AvengerWgpuError> {
         self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
             self.device(),
             self.texture_format(),
@@ -117,7 +116,7 @@ pub trait Canvas {
         &mut self,
         mark: &LineMark,
         group_bounds: GroupBounds,
-    ) -> Result<(), Sg2dWgpuError> {
+    ) -> Result<(), AvengerWgpuError> {
         self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
             self.device(),
             self.texture_format(),
@@ -135,7 +134,7 @@ pub trait Canvas {
         &mut self,
         mark: &TrailMark,
         group_bounds: GroupBounds,
-    ) -> Result<(), Sg2dWgpuError> {
+    ) -> Result<(), AvengerWgpuError> {
         self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
             self.device(),
             self.texture_format(),
@@ -153,7 +152,7 @@ pub trait Canvas {
         &mut self,
         mark: &AreaMark,
         group_bounds: GroupBounds,
-    ) -> Result<(), Sg2dWgpuError> {
+    ) -> Result<(), AvengerWgpuError> {
         self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
             self.device(),
             self.texture_format(),
@@ -171,7 +170,7 @@ pub trait Canvas {
         &mut self,
         mark: &SymbolMark,
         group_bounds: GroupBounds,
-    ) -> Result<(), Sg2dWgpuError> {
+    ) -> Result<(), AvengerWgpuError> {
         self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
             self.device(),
             self.texture_format(),
@@ -189,7 +188,7 @@ pub trait Canvas {
         &mut self,
         mark: &RectMark,
         group_bounds: GroupBounds,
-    ) -> Result<(), Sg2dWgpuError> {
+    ) -> Result<(), AvengerWgpuError> {
         self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
             self.device(),
             self.texture_format(),
@@ -207,7 +206,7 @@ pub trait Canvas {
         &mut self,
         mark: &RuleMark,
         group_bounds: GroupBounds,
-    ) -> Result<(), Sg2dWgpuError> {
+    ) -> Result<(), AvengerWgpuError> {
         self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
             self.device(),
             self.texture_format(),
@@ -225,7 +224,7 @@ pub trait Canvas {
         &mut self,
         mark: &TextMark,
         group_bounds: GroupBounds,
-    ) -> Result<(), Sg2dWgpuError> {
+    ) -> Result<(), AvengerWgpuError> {
         cfg_if::cfg_if! {
             if #[cfg(feature = "text-glyphon")] {
                 self.add_mark_renderer(MarkRenderer::Text(TextMarkRenderer::new(
@@ -239,7 +238,7 @@ pub trait Canvas {
                 )));
                 Ok(())
             } else {
-                Err(Sg2dWgpuError::TextNotEnabled("Use the text-glyphon feature flag to enable text".to_string()))
+                Err(AvengerWgpuError::TextNotEnabled("Use the text-glyphon feature flag to enable text".to_string()))
             }
         }
     }
@@ -248,7 +247,7 @@ pub trait Canvas {
         &mut self,
         mark: &ImageMark,
         group_bounds: GroupBounds,
-    ) -> Result<(), Sg2dWgpuError> {
+    ) -> Result<(), AvengerWgpuError> {
         self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
             self.device(),
             self.texture_format(),
@@ -266,7 +265,7 @@ pub trait Canvas {
         &mut self,
         group: &SceneGroup,
         group_bounds: GroupBounds,
-    ) -> Result<(), Sg2dWgpuError> {
+    ) -> Result<(), AvengerWgpuError> {
         // Maybe add rect around group boundary
         if let Some(rect) = group.make_rect() {
             self.add_rect_mark(&rect, group_bounds)?;
@@ -318,7 +317,7 @@ pub trait Canvas {
         Ok(())
     }
 
-    fn set_scene(&mut self, scene_graph: &SceneGraph) -> Result<(), Sg2dWgpuError> {
+    fn set_scene(&mut self, scene_graph: &SceneGraph) -> Result<(), AvengerWgpuError> {
         // Clear existing marks
         self.clear_mark_renderer();
 
@@ -384,7 +383,7 @@ fn make_wgpu_instance() -> wgpu::Instance {
 async fn make_wgpu_adapter(
     instance: &wgpu::Instance,
     compatible_surface: Option<&Surface>,
-) -> Result<Adapter, Sg2dWgpuError> {
+) -> Result<Adapter, AvengerWgpuError> {
     instance
         .request_adapter(&RequestAdapterOptions {
             power_preference: PowerPreference::default(),
@@ -392,10 +391,10 @@ async fn make_wgpu_adapter(
             force_fallback_adapter: false,
         })
         .await
-        .ok_or(Sg2dWgpuError::MakeWgpuAdapterError)
+        .ok_or(AvengerWgpuError::MakeWgpuAdapterError)
 }
 
-async fn request_wgpu_device(adapter: &Adapter) -> Result<(Device, Queue), Sg2dWgpuError> {
+async fn request_wgpu_device(adapter: &Adapter) -> Result<(Device, Queue), AvengerWgpuError> {
     Ok(adapter
         .request_device(
             &DeviceDescriptor {
@@ -466,7 +465,10 @@ pub struct WindowCanvas {
 }
 
 impl WindowCanvas {
-    pub async fn new(window: Window, dimensions: CanvasDimensions) -> Result<Self, Sg2dWgpuError> {
+    pub async fn new(
+        window: Window,
+        dimensions: CanvasDimensions,
+    ) -> Result<Self, AvengerWgpuError> {
         window.set_inner_size(Size::Physical(dimensions.to_physical_size()));
         let instance = make_wgpu_instance();
         let surface = unsafe { instance.create_surface(&window) }?;
@@ -541,7 +543,7 @@ impl WindowCanvas {
 
     pub fn update(&mut self) {}
 
-    pub fn render(&mut self) -> Result<(), SurfaceError> {
+    pub fn render(&mut self) -> Result<(), AvengerWgpuError> {
         let output = self.surface.get_current_texture()?;
         let view = output
             .texture
@@ -641,7 +643,7 @@ pub struct PngCanvas {
 }
 
 impl PngCanvas {
-    pub async fn new(dimensions: CanvasDimensions) -> Result<Self, Sg2dWgpuError> {
+    pub async fn new(dimensions: CanvasDimensions) -> Result<Self, AvengerWgpuError> {
         let instance = make_wgpu_instance();
         let adapter = make_wgpu_adapter(&instance, None).await?;
         let (device, queue) = request_wgpu_device(&adapter).await?;
@@ -710,7 +712,7 @@ impl PngCanvas {
         })
     }
 
-    pub async fn render(&mut self) -> Result<image::RgbaImage, SurfaceError> {
+    pub async fn render(&mut self) -> Result<image::RgbaImage, AvengerWgpuError> {
         // Build encoder for chart background
         let background_command = if self.sample_count > 1 {
             make_background_command(

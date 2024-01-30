@@ -1,0 +1,20 @@
+[package]
+name = "avenger-python"
+version = "0.0.1"
+edition = "2021"
+license = "BSD-3-Clause"
+publish = false
+
+[lib]
+name = "avenger"
+crate-type = ["cdylib"]
+
+[dependencies]
+avenger = { path = "../avenger", features = ["pyo3"] }
+avenger-vega = { path = "../avenger-vega", features = ["pyo3"] }
+avenger-wgpu = { path = "../avenger-wgpu", features = ["pyo3"] }
+pyo3 = { workspace = true, features = ["extension-module", "abi3-py38"] }
+pythonize = "0.20.0"
+serde = {workspace = true}
+pollster = "0.3"
+image = {workspace = true}

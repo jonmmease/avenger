@@ -1,4 +1,4 @@
-use crate::error::VegaSceneGraphError;
+use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::{CssColorOrGradient, StrokeDashSpec};
 use avenger::marks::mark::SceneMark;
@@ -25,7 +25,7 @@ pub struct VegaRuleItem {
 impl VegaMarkItem for VegaRuleItem {}
 
 impl VegaMarkContainer<VegaRuleItem> {
-    pub fn to_scene_graph(&self) -> Result<SceneMark, VegaSceneGraphError> {
+    pub fn to_scene_graph(&self) -> Result<SceneMark, AvengerVegaError> {
         // Init mark with scalar defaults
         let mut mark = RuleMark {
             clip: self.clip,

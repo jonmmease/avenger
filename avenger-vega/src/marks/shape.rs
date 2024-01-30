@@ -1,4 +1,4 @@
-use crate::error::VegaSceneGraphError;
+use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::symbol::parse_svg_path;
 use crate::marks::values::CssColorOrGradient;
@@ -28,7 +28,7 @@ pub struct VegaShapeItem {
 impl VegaMarkItem for VegaShapeItem {}
 
 impl VegaMarkContainer<VegaShapeItem> {
-    pub fn to_scene_graph(&self) -> Result<SceneMark, VegaSceneGraphError> {
+    pub fn to_scene_graph(&self) -> Result<SceneMark, AvengerVegaError> {
         // Get shape of first item and use that for all items for now
         let first = self.items.first();
         let first_has_stroke = first.map(|item| item.stroke.is_some()).unwrap_or(false);
@@ -123,7 +123,7 @@ impl VegaMarkContainer<VegaShapeItem> {
             let paths = path_str
                 .iter()
                 .map(|p| parse_svg_path(p))
-                .collect::<Result<Vec<_>, VegaSceneGraphError>>()?;
+                .collect::<Result<Vec<_>, AvengerVegaError>>()?;
 
             mark.path = EncodingValue::Array { values: paths };
         }

@@ -1,4 +1,4 @@
-use crate::error::VegaSceneGraphError;
+use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::CssColorOrGradient;
 use avenger::marks::mark::SceneMark;
@@ -21,7 +21,7 @@ pub struct VegaTrailItem {
 impl VegaMarkItem for VegaTrailItem {}
 
 impl VegaMarkContainer<VegaTrailItem> {
-    pub fn to_scene_graph(&self) -> Result<SceneMark, VegaSceneGraphError> {
+    pub fn to_scene_graph(&self) -> Result<SceneMark, AvengerVegaError> {
         // Get shape of first item and use that for all items for now
         let first = self.items.first();
         let mut gradients = Vec::<Gradient>::new();
