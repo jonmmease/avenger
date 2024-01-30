@@ -1,14 +1,13 @@
 [project]
 name = "avenger"
-version = "0.0.1"
+version = "0.0.2-a0"
+
+[build-system]
+requires = [ "maturin>=1.1.0,<2",]
+build-backend = "maturin"
 
 [tool.maturin]
 module-name = "avenger._avenger"
 
-[build-system]
-requires = ["maturin>=1.1.0,<2"]
-build-backend = "maturin"
-
-# Register Altair renderer plugin
 [project.entry-points."altair.vegalite.v5.renderer"]
 avenger-png = "avenger.altair_utils:avenger_png_renderer"
