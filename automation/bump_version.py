@@ -42,6 +42,12 @@ def bump_version(version):
         cargo_toml_path.write_text(toml.dumps(cargo_toml))
         print(f"Updated version in {cargo_toml_path}")
 
+    # pyproject.toml
+    pyproject_toml_path = (root / "avenger-python" / "pyproject.toml")
+    pyproject_toml = toml.loads(pyproject_toml_path.read_text())
+    pyproject_toml["project"]["version"] = version
+    pyproject_toml_path.write_text(toml.dumps(pyproject_toml))
+
 
 if __name__ == '__main__':
     bump_version()
