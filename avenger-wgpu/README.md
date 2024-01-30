@@ -1,3 +1,3 @@
-## sg2d-wgpu
+## avenger-wgpu
 
-This crate supports rendering sg2d SceneGraphs using wgpu
+This crate supports rendering Avenger SceneGraphs using wgpu

@@ -1,4 +1,4 @@
-use crate::error::VegaSceneGraphError;
+use crate::error::AvengerVegaError;
 use avenger::marks::value::{
     ColorOrGradient, Gradient, GradientStop, LinearGradient, RadialGradient,
 };
@@ -13,7 +13,7 @@ pub enum StrokeDashSpec {
 }
 
 impl StrokeDashSpec {
-    pub fn to_array(&self) -> Result<Cow<Vec<f32>>, VegaSceneGraphError> {
+    pub fn to_array(&self) -> Result<Cow<Vec<f32>>, AvengerVegaError> {
         match self {
             StrokeDashSpec::Array(a) => Ok(Cow::Borrowed(a)),
             StrokeDashSpec::String(s) => {
@@ -22,7 +22,7 @@ impl StrokeDashSpec {
                 for s in clean_dash_str.split_whitespace() {
                     let d = s
                         .parse::<f32>()
-                        .map_err(|_| VegaSceneGraphError::InvalidDashString(s.to_string()))?
+                        .map_err(|_| AvengerVegaError::InvalidDashString(s.to_string()))?
                         .abs();
                     dashes.push(d);
                 }
@@ -44,7 +44,7 @@ impl CssColorOrGradient {
         &self,
         opacity: f32,
         gradients: &mut Vec<Gradient>,
-    ) -> Result<ColorOrGradient, VegaSceneGraphError> {
+    ) -> Result<ColorOrGradient, AvengerVegaError> {
         match self {
             CssColorOrGradient::Color(c) => {
                 let c = csscolorparser::parse(c)?;
@@ -67,7 +67,7 @@ impl CssColorOrGradient {
                             .stops
                             .iter()
                             .map(|s| s.to_grad_stop(opacity))
-                            .collect::<Result<Vec<_>, VegaSceneGraphError>>()?,
+                            .collect::<Result<Vec<_>, AvengerVegaError>>()?,
                     }),
                     VegaGradientType::Radial => Gradient::RadialGradient(RadialGradient {
                         x0: grad.x1.unwrap_or(0.5),
@@ -80,7 +80,7 @@ impl CssColorOrGradient {
                             .stops
                             .iter()
                             .map(|s| s.to_grad_stop(opacity))
-                            .collect::<Result<Vec<_>, VegaSceneGraphError>>()?,
+                            .collect::<Result<Vec<_>, AvengerVegaError>>()?,
                     }),
                 };
 
@@ -127,7 +127,7 @@ pub struct CssGradientStop {
 }
 
 impl CssGradientStop {
-    pub fn to_grad_stop(&self, opacity: f32) -> Result<GradientStop, VegaSceneGraphError> {
+    pub fn to_grad_stop(&self, opacity: f32) -> Result<GradientStop, AvengerVegaError> {
         let c = csscolorparser::parse(&self.color)?;
         Ok(GradientStop {
             offset: self.offset,

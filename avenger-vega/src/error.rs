@@ -1,9 +1,12 @@
 use thiserror::Error;
 
+#[cfg(feature = "pyo3")]
+use pyo3::{exceptions::PyValueError, PyErr};
+
 #[derive(Error, Debug)]
-pub enum VegaSceneGraphError {
-    #[error("SceneGraph error")]
-    SceneGraphError(#[from] avenger::error::SceneGraphError),
+pub enum AvengerVegaError {
+    #[error("Avenger error")]
+    AvengerError(#[from] avenger::error::AvengerError),
 
     #[error("css color parse error")]
     InvalidColor(#[from] csscolorparser::ParseColorError),
@@ -26,8 +29,15 @@ pub enum VegaSceneGraphError {
     ReqwestError(#[from] reqwest::Error),
 }
 
-impl From<lyon_extra::parser::ParseError> for VegaSceneGraphError {
+impl From<lyon_extra::parser::ParseError> for AvengerVegaError {
     fn from(value: lyon_extra::parser::ParseError) -> Self {
         Self::InvalidSvgPath(value)
+    }
+}
+
+#[cfg(feature = "pyo3")]
+impl From<AvengerVegaError> for PyErr {
+    fn from(err: AvengerVegaError) -> PyErr {
+        PyValueError::new_err(err.to_string())
     }
 }

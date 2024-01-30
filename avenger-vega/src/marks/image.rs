@@ -1,4 +1,4 @@
-use crate::error::VegaSceneGraphError;
+use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 
 use crate::image::make_image_fetcher;
@@ -35,7 +35,7 @@ fn default_true() -> bool {
 impl VegaMarkItem for VegaImageItem {}
 
 impl VegaMarkContainer<VegaImageItem> {
-    pub fn to_scene_graph(&self) -> Result<SceneMark, VegaSceneGraphError> {
+    pub fn to_scene_graph(&self) -> Result<SceneMark, AvengerVegaError> {
         let name = self
             .name
             .clone()

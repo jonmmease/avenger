@@ -1,5 +1,5 @@
 use crate::canvas::CanvasDimensions;
-use crate::error::Sg2dWgpuError;
+use crate::error::AvengerWgpuError;
 use crate::marks::basic_mark::{BasicMarkBatch, BasicMarkShader};
 use crate::marks::gradient::{build_gradients_image, to_color_or_gradient_coord};
 use avenger::marks::area::{AreaMark, AreaOrientation};
@@ -91,7 +91,7 @@ impl PathShader {
         mark: &PathMark,
         dimensions: CanvasDimensions,
         group_bounds: GroupBounds,
-    ) -> Result<Self, Sg2dWgpuError> {
+    ) -> Result<Self, AvengerWgpuError> {
         let (gradients_image, texture_size) = build_gradients_image(&mark.gradients);
 
         let mut verts: Vec<PathVertex> = Vec::new();
@@ -174,7 +174,7 @@ impl PathShader {
         mark: &AreaMark,
         dimensions: CanvasDimensions,
         group_bounds: GroupBounds,
-    ) -> Result<Self, Sg2dWgpuError> {
+    ) -> Result<Self, AvengerWgpuError> {
         // Handle gradients:
         let (gradients_image, texture_size) = build_gradients_image(&mark.gradients);
 
@@ -299,7 +299,7 @@ impl PathShader {
         mark: &LineMark,
         dimensions: CanvasDimensions,
         group_bounds: GroupBounds,
-    ) -> Result<Self, Sg2dWgpuError> {
+    ) -> Result<Self, AvengerWgpuError> {
         let (gradients_image, texture_size) = build_gradients_image(&mark.gradients);
         let mut defined_paths: Vec<Path> = Vec::new();
 
@@ -443,7 +443,7 @@ impl PathShader {
         mark: &TrailMark,
         dimensions: CanvasDimensions,
         group_bounds: GroupBounds,
-    ) -> Result<Self, Sg2dWgpuError> {
+    ) -> Result<Self, AvengerWgpuError> {
         let (gradients_image, texture_size) = build_gradients_image(&mark.gradients);
 
         let size_idx: AttributeIndex = 0;

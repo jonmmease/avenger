@@ -1,0 +1,39 @@
+[package]
+name = "avenger-python"
+version = "0.0.1-a1"
+edition = "2021"
+license = "BSD-3-Clause"
+publish = false
+
+[lib]
+name = "avenger"
+crate-type = [ "cdylib",]
+
+[dependencies]
+pythonize = "0.20.0"
+pollster = "0.3"
+
+[dependencies.avenger]
+path = "../avenger"
+features = [ "pyo3",]
+version = "0.0.1-a1"
+
+[dependencies.avenger-vega]
+path = "../avenger-vega"
+features = [ "pyo3",]
+version = "0.0.1-a1"
+
+[dependencies.avenger-wgpu]
+path = "../avenger-wgpu"
+features = [ "pyo3",]
+version = "0.0.1-a1"
+
+[dependencies.pyo3]
+workspace = true
+features = [ "extension-module", "abi3-py38",]
+
+[dependencies.serde]
+workspace = true
+
+[dependencies.image]
+workspace = true

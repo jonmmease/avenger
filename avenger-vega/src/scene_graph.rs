@@ -1,4 +1,4 @@
-use crate::error::VegaSceneGraphError;
+use crate::error::AvengerVegaError;
 use crate::marks::group::VegaGroupItem;
 use crate::marks::mark::VegaMarkContainer;
 use avenger::scene_graph::SceneGraph;
@@ -13,13 +13,13 @@ pub struct VegaSceneGraph {
 }
 
 impl VegaSceneGraph {
-    pub fn to_scene_graph(&self) -> Result<SceneGraph, VegaSceneGraphError> {
+    pub fn to_scene_graph(&self) -> Result<SceneGraph, AvengerVegaError> {
         let groups = self
             .scenegraph
             .items
             .iter()
             .map(|group| group.to_scene_graph())
-            .collect::<Result<Vec<_>, VegaSceneGraphError>>()?;
+            .collect::<Result<Vec<_>, AvengerVegaError>>()?;
 
         Ok(SceneGraph {
             groups,

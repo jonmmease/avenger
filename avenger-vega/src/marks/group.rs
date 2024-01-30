@@ -1,4 +1,4 @@
-use crate::error::VegaSceneGraphError;
+use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMark, VegaMarkItem};
 use crate::marks::values::CssColorOrGradient;
 use avenger::marks::group::{GroupBounds, SceneGroup};
@@ -30,7 +30,7 @@ pub struct VegaGroupItem {
 impl VegaMarkItem for VegaGroupItem {}
 
 impl VegaGroupItem {
-    pub fn to_scene_graph(&self) -> Result<SceneGroup, VegaSceneGraphError> {
+    pub fn to_scene_graph(&self) -> Result<SceneGroup, AvengerVegaError> {
         let mut marks: Vec<SceneMark> = Vec::new();
         for item in &self.items {
             let item_marks: Vec<_> = match item {
@@ -38,7 +38,7 @@ impl VegaGroupItem {
                     .items
                     .iter()
                     .map(|item| Ok(SceneMark::Group(item.to_scene_graph()?)))
-                    .collect::<Result<Vec<_>, VegaSceneGraphError>>()?,
+                    .collect::<Result<Vec<_>, AvengerVegaError>>()?,
                 VegaMark::Rect(mark) => {
                     vec![mark.to_scene_graph()?]
                 }

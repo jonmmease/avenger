@@ -1,5 +1,5 @@
 use crate::canvas::CanvasDimensions;
-use crate::error::Sg2dWgpuError;
+use crate::error::AvengerWgpuError;
 use crate::marks::gradient::{build_gradients_image, to_color_or_gradient_coord};
 use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
 use avenger::marks::group::GroupBounds;
@@ -144,7 +144,7 @@ impl SymbolShader {
         mark: &SymbolMark,
         dimensions: CanvasDimensions,
         group_bounds: GroupBounds,
-    ) -> Result<Self, Sg2dWgpuError> {
+    ) -> Result<Self, AvengerWgpuError> {
         let shapes = &mark.shapes;
         let has_stroke = mark.stroke_width.is_some();
         let mut verts: Vec<SymbolVertex> = Vec::new();
