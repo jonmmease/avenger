@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VegaTrailItem {
-    pub x: f32,
-    pub y: f32,
+    pub x: Option<f32>,
+    pub y: Option<f32>,
     pub defined: Option<bool>,
     pub size: Option<f32>,
     pub fill: Option<CssColorOrGradient>,
@@ -50,8 +50,8 @@ impl VegaMarkContainer<VegaTrailItem> {
         let mut defined = Vec::<bool>::new();
 
         for item in &self.items {
-            x.push(item.x);
-            y.push(item.y);
+            x.push(item.x.unwrap_or(0.0));
+            y.push(item.y.unwrap_or(0.0));
             if let Some(v) = item.size {
                 size.push(v);
             }

@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VegaAreaItem {
-    pub x: f32,
-    pub y: f32,
+    pub x: Option<f32>,
+    pub y: Option<f32>,
     pub x2: Option<f32>,
     pub y2: Option<f32>,
     pub orient: Option<AreaOrientation>,
@@ -80,8 +80,8 @@ impl VegaMarkContainer<VegaAreaItem> {
         let mut defined = Vec::<bool>::new();
 
         for item in &self.items {
-            x.push(item.x);
-            y.push(item.y);
+            x.push(item.x.unwrap_or(0.0));
+            y.push(item.y.unwrap_or(0.0));
             if let Some(v) = &item.x2 {
                 x2.push(*v);
             }

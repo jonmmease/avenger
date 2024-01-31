@@ -10,11 +10,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VegaTextItem {
-    #[serde(default)]
-    pub x: f32,
-    #[serde(default)]
-    pub y: f32,
-    pub text: String,
+    pub x: Option<f32>,
+    pub y: Option<f32>,
 
     // Optional
     pub align: Option<TextAlignSpec>,
@@ -64,9 +61,8 @@ impl VegaMarkContainer<VegaTextItem> {
         let mut zindex = Vec::<i32>::new();
 
         for item in &self.items {
-            x.push(item.x + item.dx.unwrap_or(0.0));
-            y.push(item.y + item.dy.unwrap_or(0.0));
-            text.push(item.text.clone());
+            x.push(item.x.unwrap_or(0.0) + item.dx.unwrap_or(0.0));
+            y.push(item.y.unwrap_or(0.0) + item.dy.unwrap_or(0.0));
 
             if let Some(v) = item.align {
                 align.push(v);

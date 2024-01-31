@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VegaArcItem {
-    pub x: f32,
-    pub y: f32,
+    pub x: Option<f32>,
+    pub y: Option<f32>,
     pub start_angle: Option<f32>,   // default 0.0
     pub end_angle: Option<f32>,     // default 0.0
     pub outer_radius: Option<f32>,  // default 0.0
@@ -56,8 +56,8 @@ impl VegaMarkContainer<VegaArcItem> {
 
         // For each item, append explicit values to corresponding vector
         for item in &self.items {
-            x.push(item.x);
-            y.push(item.y);
+            x.push(item.x.unwrap_or(0.0));
+            y.push(item.y.unwrap_or(0.0));
 
             if let Some(s) = item.start_angle {
                 start_angle.push(s);
