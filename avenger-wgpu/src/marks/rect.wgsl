@@ -78,6 +78,10 @@ fn vs_main(
 // Fragment shader
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    if (should_clip(in.clip_position)) {
+        discard;
+    }
+
     let scaled_radius = in.corner_radius * chart_uniforms.scale;
     let scaled_stroke_width = in.stroke_width * chart_uniforms.scale;
     let frag_xy = vec2<f32>(in.clip_position[0], in.clip_position[1]);

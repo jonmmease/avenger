@@ -160,9 +160,10 @@ impl RectShader {
             texture_size,
             uniform: RectUniform::new(dimensions, group_bounds, mark.clip),
             shader: format!(
-                "{}\n{}",
+                "{}\n{}\n{}\n",
                 include_str!("rect.wgsl"),
-                include_str!("gradient.wgsl")
+                include_str!("gradient.wgsl"),
+                include_str!("clip.wgsl"),
             ),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
