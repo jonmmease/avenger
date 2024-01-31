@@ -4,6 +4,7 @@ use avenger::marks::text::{
     FontStyleSpec, FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec, TextMark,
 };
 
+use avenger_glyphon::fontdb::Database;
 use avenger_glyphon::{
     Attrs, Buffer, Color, ColorMode, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache,
     TextArea, TextAtlas, TextBounds, TextRenderer, Weight,
@@ -26,6 +27,11 @@ fn build_font_system() -> FontSystem {
 
     // Override default families based on what system fonts are available
     let fontdb = font_system.db_mut();
+    setup_default_fonts(fontdb);
+    font_system
+}
+
+fn setup_default_fonts(fontdb: &mut Database) {
     let families: HashSet<String> = fontdb
         .faces()
         .flat_map(|face| {
@@ -69,8 +75,15 @@ fn build_font_system() -> FontSystem {
             break;
         }
     }
+}
 
-    font_system
+pub fn register_font_directory(dir: &str) {
+    let mut font_system = FONT_SYSTEM
+        .lock()
+        .expect("Failed to acquire lock on FONT_SYSTEM");
+    let fontdb = font_system.db_mut();
+    fontdb.load_fonts_dir(dir);
+    setup_default_fonts(fontdb);
 }
 
 #[derive(Clone, Debug)]

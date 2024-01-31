@@ -1,5 +1,23 @@
+use avenger_wgpu::register_font_directory;
+use std::path::Path;
+use std::sync::Once;
+
+static INIT: Once = Once::new();
+
+pub fn initialize() {
+    INIT.call_once(|| {
+        let root_path = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let fonts_dir = root_path
+            .join("..")
+            .join("avenger-vega-test-data")
+            .join("fonts");
+        register_font_directory(fonts_dir.to_str().unwrap());
+    });
+}
+
 #[cfg(test)]
 mod test_image_baselines {
+    use crate::initialize;
     use avenger::scene_graph::SceneGraph;
     use avenger_vega::scene_graph::VegaSceneGraph;
     use avenger_wgpu::canvas::{Canvas, CanvasDimensions, PngCanvas};
@@ -153,8 +171,11 @@ mod test_image_baselines {
         case("vl-convert", "seattle-weather", 0.01),
         case("vl-convert", "stocks_locale", 0.01),
         case("vl-convert", "table_heatmap", 0.02),
+        case("vl-convert", "stacked_bar_h", 0.02),
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
+        initialize();
+
         println!("{spec_name}");
         let specs_dir = format!(
             "{}/../avenger-vega-test-data/vega-scenegraphs/{category}",
