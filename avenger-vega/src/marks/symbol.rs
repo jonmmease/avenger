@@ -15,10 +15,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VegaSymbolItem {
-    #[serde(default)]
-    pub x: f32,
-    #[serde(default)]
-    pub y: f32,
+    pub x: Option<f32>,
+    pub y: Option<f32>,
     pub fill: Option<CssColorOrGradient>,
     pub opacity: Option<f32>,
     pub fill_opacity: Option<f32>,
@@ -59,14 +57,16 @@ impl VegaMarkContainer<VegaSymbolItem> {
                 } else {
                     ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])
                 };
+                let x = item.x.unwrap_or(0.0);
+                let y = item.y.unwrap_or(0.0);
                 let mark = LineMark {
                     name: "".to_string(),
                     clip: false,
                     len: 2,
                     x: EncodingValue::Array {
-                        values: vec![item.x - width / 2.0, item.x + width / 2.0],
+                        values: vec![x - width / 2.0, x + width / 2.0],
                     },
-                    y: EncodingValue::Scalar { value: item.y },
+                    y: EncodingValue::Scalar { value: y },
                     stroke,
                     stroke_width: item.stroke_width.unwrap_or(1.0),
                     stroke_cap: item.stroke_cap.unwrap_or_default(),
@@ -134,8 +134,8 @@ impl VegaMarkContainer<VegaSymbolItem> {
 
         // For each item, append explicit values to corresponding vector
         for item in &self.items {
-            x.push(item.x);
-            y.push(item.y);
+            x.push(item.x.unwrap_or(0.0));
+            y.push(item.y.unwrap_or(0.0));
 
             let base_opacity = item.opacity.unwrap_or(1.0);
             if let Some(v) = &item.fill {

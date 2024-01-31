@@ -10,10 +10,8 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct VegaGroupItem {
     pub items: Vec<VegaMark>,
-    #[serde(default)]
-    pub(crate) x: f32,
-    #[serde(default)]
-    pub(crate) y: f32,
+    pub x: Option<f32>,
+    pub y: Option<f32>,
     pub name: Option<String>,
     pub width: Option<f32>,
     pub height: Option<f32>,
@@ -97,8 +95,8 @@ impl VegaGroupItem {
                 .clone()
                 .unwrap_or_else(|| "group_item".to_string()),
             bounds: GroupBounds {
-                x: self.x,
-                y: self.y,
+                x: self.x.unwrap_or(0.0),
+                y: self.y.unwrap_or(0.0),
                 width: self.width,
                 height: self.height,
             },
