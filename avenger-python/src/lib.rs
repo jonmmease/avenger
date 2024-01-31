@@ -1,6 +1,7 @@
 use avenger::scene_graph::SceneGraph as RsSceneGraph;
 use avenger_vega::scene_graph::VegaSceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasDimensions, PngCanvas};
+use avenger_wgpu::register_font_directory as register_font_directory_rs;
 use image::{EncodableLayout, ImageOutputFormat};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -41,6 +42,16 @@ impl SceneGraph {
 
         Ok(PyObject::from(PyBytes::new(py, png_data.as_bytes())))
     }
+}
+
+/// Register a directory of fonts for use in subsequent rendering
+///
+/// Args:
+///     font_dir (str): Absolute path to a directory containing font files
+#[pyfunction]
+#[pyo3(text_signature = "(font_dir)")]
+fn register_font_directory(font_dir: &str) {
+    register_font_directory_rs(font_dir);
 }
 
 #[pymodule]
