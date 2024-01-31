@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 pub struct VegaTextItem {
     pub x: Option<f32>,
     pub y: Option<f32>,
+    pub text: Option<serde_json::Value>,
 
     // Optional
     pub align: Option<TextAlignSpec>,
@@ -63,6 +64,11 @@ impl VegaMarkContainer<VegaTextItem> {
         for item in &self.items {
             x.push(item.x.unwrap_or(0.0) + item.dx.unwrap_or(0.0));
             y.push(item.y.unwrap_or(0.0) + item.dy.unwrap_or(0.0));
+            text.push(match item.text.clone() {
+                Some(serde_json::Value::String(s)) => s,
+                Some(serde_json::Value::Null) | None => "".to_string(),
+                Some(v) => v.to_string(),
+            });
 
             if let Some(v) = item.align {
                 align.push(v);
