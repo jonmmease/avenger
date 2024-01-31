@@ -14,8 +14,6 @@ pub struct TextMark {
     pub baseline: EncodingValue<TextBaselineSpec>,
     pub angle: EncodingValue<f32>,
     pub color: EncodingValue<[f32; 4]>,
-    pub dx: EncodingValue<f32>,
-    pub dy: EncodingValue<f32>,
     pub font: EncodingValue<String>,
     pub font_size: EncodingValue<f32>,
     pub font_weight: EncodingValue<FontWeightSpec>,
@@ -46,12 +44,6 @@ impl TextMark {
     }
     pub fn color_iter(&self) -> Box<dyn Iterator<Item = &[f32; 4]> + '_> {
         self.color.as_iter(self.len as usize, self.indices.as_ref())
-    }
-    pub fn dx_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.dx.as_iter(self.len as usize, self.indices.as_ref())
-    }
-    pub fn dy_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.dx.as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn font_iter(&self) -> Box<dyn Iterator<Item = &String> + '_> {
         self.font.as_iter(self.len as usize, self.indices.as_ref())
@@ -94,8 +86,6 @@ impl Default for TextMark {
             color: EncodingValue::Scalar {
                 value: [0.0, 0.0, 0.0, 1.0],
             },
-            dx: EncodingValue::Scalar { value: 0.0 },
-            dy: EncodingValue::Scalar { value: 0.0 },
             font: EncodingValue::Scalar {
                 value: "sans serif".to_string(),
             },
