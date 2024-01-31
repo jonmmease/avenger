@@ -1,6 +1,9 @@
 #[cfg(feature = "image-request")]
 pub mod reqwest_fetcher;
 
+#[cfg(feature = "svg")]
+pub mod svg;
+
 #[cfg(feature = "image-request")]
 use crate::image::reqwest_fetcher::ReqwestImageFetcher;
 
@@ -17,7 +20,7 @@ pub fn make_image_fetcher() -> Result<Box<dyn ImageFetcher>, AvengerVegaError> {
             Ok(Box::new(ReqwestImageFetcher::new()))
         } else {
             Err(AvengerVegaError::NoImageFetcherConfigured(
-                "Image fetching requeres the image-reqwest feature flag".to_string()
+                "Image fetching requires the image-reqwest feature flag".to_string()
             ))
         }
     }

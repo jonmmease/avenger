@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate lazy_static;
+
 pub mod error;
 pub mod image;
 pub mod marks;
