@@ -1,7 +1,19 @@
 use std::fs::DirEntry;
 use std::path::Path;
+use std::sync::Once;
 use std::{fs, io};
+use vl_convert_rs::text::register_font_directory;
 use vl_convert_rs::VlConverter;
+static INIT: Once = Once::new();
+
+pub fn initialize() {
+    INIT.call_once(|| {
+        let root_path = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let fonts_dir = root_path.join("fonts");
+        register_font_directory(fonts_dir.to_str().unwrap())
+            .expect("Failed to register test font directory");
+    });
+}
 
 /// Generate test data for each Vega spec located in `avenger-vega-test-data/vega-specs`
 /// For each spec, the following three files are saved to `avenger-vega-test-data/vega-scenegraphs`
@@ -9,6 +21,7 @@ use vl_convert_rs::VlConverter;
 ///   2. spec_name.sg.json: This is a JSON file containing the chart's scene graph
 ///   3. spec_name.png: This is a PNG rendering of the chart using vl-convert with resvg
 fn main() {
+    initialize();
     let mut converter = VlConverter::new();
 
     let specs_dir = format!("{}/vega-specs", env!("CARGO_MANIFEST_DIR"));
