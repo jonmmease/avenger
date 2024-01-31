@@ -1,11 +1,13 @@
 use crate::error::AvengerVegaError;
 use crate::image::ImageFetcher;
 use image::DynamicImage;
-use reqwest::blocking::Client;
+use reqwest::blocking::{Client, ClientBuilder};
 
 pub struct ReqwestImageFetcher {
     client: Client,
 }
+
+static USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 
 impl Default for ReqwestImageFetcher {
     fn default() -> Self {
@@ -16,7 +18,10 @@ impl Default for ReqwestImageFetcher {
 impl ReqwestImageFetcher {
     pub fn new() -> Self {
         Self {
-            client: Client::new(),
+            client: ClientBuilder::new()
+                .user_agent(USER_AGENT)
+                .build()
+                .expect("Failed to construct reqwest client"),
         }
     }
 }
