@@ -61,7 +61,7 @@ impl ImageVertex {
 
 pub struct ImageShader {
     verts: Vec<ImageVertex>,
-    indices: Vec<u16>,
+    indices: Vec<u32>,
     uniform: ImageUniform,
     smooth: bool,
     shader: String,
@@ -78,7 +78,7 @@ impl ImageShader {
         group_bounds: GroupBounds,
     ) -> Result<Self, AvengerWgpuError> {
         let mut verts: Vec<ImageVertex> = Vec::new();
-        let mut indices: Vec<u16> = Vec::new();
+        let mut indices: Vec<u32> = Vec::new();
         let mut batches: Vec<BasicMarkBatch> = Vec::new();
         let aspect = mark.aspect;
 
@@ -178,7 +178,7 @@ impl ImageShader {
             let tex_y1 = y1 as f32 / texture_size.height as f32;
 
             // Vertex index offset
-            let offset = verts.len() as u16;
+            let offset = verts.len() as u32;
 
             // Compute image left
             let left = match *align {
@@ -276,7 +276,7 @@ impl BasicMarkShader for ImageShader {
         self.verts.as_slice()
     }
 
-    fn indices(&self) -> &[u16] {
+    fn indices(&self) -> &[u32] {
         self.indices.as_slice()
     }
 
