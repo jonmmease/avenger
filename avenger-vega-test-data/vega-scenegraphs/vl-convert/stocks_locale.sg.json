@@ -1,0 +1,1777 @@
+{
+  "width": 426,
+  "height": 347,
+  "origin": [
+    55,
+    10
+  ],
+  "scenegraph": {
+    "clip": false,
+    "interactive": true,
+    "items": [
+      {
+        "items": [
+          {
+            "clip": false,
+            "interactive": false,
+            "items": [
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "y": -300,
+                        "y2": 0
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 28,
+                        "y": -300,
+                        "y2": 0
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 53,
+                        "y": -300,
+                        "y2": 0
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 81,
+                        "y": -300,
+                        "y2": 0
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 108,
+                        "y": -300,
+                        "y2": 0
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 136,
+                        "y": -300,
+                        "y2": 0
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 163,
+                        "y": -300,
+                        "y2": 0
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 190,
+                        "y": -300,
+                        "y2": 0
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 218,
+                        "y": -300,
+                        "y2": 0
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 245,
+                        "y": -300,
+                        "y2": 0
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 273,
+                        "y": -300,
+                        "y2": 0
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 300,
+                        "y": -300,
+                        "y2": 0
+                      }
+                    ],
+                    "marktype": "rule",
+                    "role": "axis-grid",
+                    "zindex": 0
+                  }
+                ],
+                "orient": "bottom",
+                "offset": 0,
+                "x": 0.5,
+                "y": 300.5
+              }
+            ],
+            "marktype": "group",
+            "role": "axis",
+            "zindex": 0,
+            "aria": false
+          },
+          {
+            "clip": false,
+            "interactive": false,
+            "items": [
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "y": 300,
+                        "x2": 300
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "y": 250,
+                        "x2": 300
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "y": 200,
+                        "x2": 300
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "y": 150,
+                        "x2": 300
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "y": 100,
+                        "x2": 300
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "y": 50,
+                        "x2": 300
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#ddd",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "y": 0,
+                        "x2": 300
+                      }
+                    ],
+                    "marktype": "rule",
+                    "role": "axis-grid",
+                    "zindex": 0
+                  }
+                ],
+                "orient": "left",
+                "offset": 0,
+                "x": 0.5,
+                "y": 0.5
+              }
+            ],
+            "marktype": "group",
+            "role": "axis",
+            "zindex": 0,
+            "aria": false
+          },
+          {
+            "clip": false,
+            "interactive": false,
+            "items": [
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 0
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 28
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 53
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 81
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 108
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 136
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 163
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 190
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 218
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 245
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 273
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "y2": 5,
+                        "x": 300
+                      }
+                    ],
+                    "marktype": "rule",
+                    "role": "axis-tick",
+                    "zindex": 0
+                  },
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "fill": "#000",
+                        "font": "sans-serif",
+                        "fontSize": 10,
+                        "opacity": 1,
+                        "x": 0,
+                        "y": 7,
+                        "angle": 0,
+                        "limit": 180,
+                        "text": "2009",
+                        "align": "left",
+                        "baseline": "top"
+                      },
+                      {
+                        "fill": "#000",
+                        "font": "sans-serif",
+                        "fontSize": 10,
+                        "opacity": 0,
+                        "x": 27.844311377245507,
+                        "y": 7,
+                        "angle": 0,
+                        "limit": 180,
+                        "text": "February",
+                        "align": "center",
+                        "baseline": "top"
+                      },
+                      {
+                        "fill": "#000",
+                        "font": "sans-serif",
+                        "fontSize": 10,
+                        "opacity": 1,
+                        "x": 52.99401197604791,
+                        "y": 7,
+                        "angle": 0,
+                        "limit": 180,
+                        "text": "March",
+                        "align": "center",
+                        "baseline": "top"
+                      },
+                      {
+                        "fill": "#000",
+                        "font": "sans-serif",
+                        "fontSize": 10,
+                        "opacity": 0,
+                        "x": 80.80089820359281,
+                        "y": 7,
+                        "angle": 0,
+                        "limit": 180,
+                        "text": "April",
+                        "align": "center",
+                        "baseline": "top"
+                      },
+                      {
+                        "fill": "#000",
+                        "font": "sans-serif",
+                        "fontSize": 10,
+                        "opacity": 1,
+                        "x": 107.74700598802394,
+                        "y": 7,
+                        "angle": 0,
+                        "limit": 180,
+                        "text": "May",
+                        "align": "center",
+                        "baseline": "top"
+                      },
+                      {
+                        "fill": "#000",
+                        "font": "sans-serif",
+                        "fontSize": 10,
+                        "opacity": 0,
+                        "x": 135.59131736526945,
+                        "y": 7,
+                        "angle": 0,
+                        "limit": 180,
+                        "text": "June",
+                        "align": "center",
+                        "baseline": "top"
+                      },
+                      {
+                        "fill": "#000",
+                        "font": "sans-serif",
+                        "fontSize": 10,
+                        "opacity": 1,
+                        "x": 162.5374251497006,
+                        "y": 7,
+                        "angle": 0,
+                        "limit": 180,
+                        "text": "July",
+                        "align": "center",
+                        "baseline": "top"
+                      },
+                      {
+                        "fill": "#000",
+                        "font": "sans-serif",
+                        "fontSize": 10,
+                        "opacity": 0,
+                        "x": 190.38173652694613,
+                        "y": 7,
+                        "angle": 0,
+                        "limit": 180,
+                        "text": "August",
+                        "align": "center",
+                        "baseline": "top"
+                      },
+                      {
+                        "fill": "#000",
+                        "font": "sans-serif",
+                        "fontSize": 10,
+                        "opacity": 1,
+                        "x": 218.2260479041916,
+                        "y": 7,
+                        "angle": 0,
+                        "limit": 180,
+                        "text": "September",
+                        "align": "center",
+                        "baseline": "top"
+                      },
+                      {
+                        "fill": "#000",
+                        "font": "sans-serif",
+                        "fontSize": 10,
+                        "opacity": 0,
+                        "x": 245.17215568862275,
+                        "y": 7,
+                        "angle": 0,
+                        "limit": 180,
+                        "text": "October",
+                        "align": "center",
+                        "baseline": "top"
+                      },
+                      {
+                        "fill": "#000",
+                        "font": "sans-serif",
+                        "fontSize": 10,
+                        "opacity": 1,
+                        "x": 273.01646706586826,
+                        "y": 7,
+                        "angle": 0,
+                        "limit": 180,
+                        "text": "November",
+                        "align": "center",
+                        "baseline": "top"
+                      },
+                      {
+                        "fill": "#000",
+                        "font": "sans-serif",
+                        "fontSize": 10,
+                        "opacity": 0,
+                        "x": 300,
+                        "y": 7,
+                        "angle": 0,
+                        "limit": 180,
+                        "text": "December",
+                        "align": "right",
+                        "baseline": "top"
+                      }
+                    ],
+                    "marktype": "text",
+                    "role": "axis-label",
+                    "zindex": 0
+                  },
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "x2": 300,
+                        "y": 0
+                      }
+                    ],
+                    "marktype": "rule",
+                    "role": "axis-domain",
+                    "zindex": 0
+                  },
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "fill": "#000",
+                        "font": "sans-serif",
+                        "fontSize": 11,
+                        "fontWeight": "bold",
+                        "opacity": 1,
+                        "align": "center",
+                        "angle": 0,
+                        "baseline": "top",
+                        "text": "date",
+                        "x": 150,
+                        "y": 21
+                      }
+                    ],
+                    "marktype": "text",
+                    "role": "axis-title",
+                    "zindex": 0
+                  }
+                ],
+                "orient": "bottom",
+                "offset": 0,
+                "x": 0.5,
+                "y": 300.5
+              }
+            ],
+            "marktype": "group",
+            "role": "axis",
+            "zindex": 0
+          },
+          {
+            "clip": false,
+            "interactive": false,
+            "items": [
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 300,
+                        "x": 0,
+                        "x2": -5
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 250,
+                        "x": 0,
+                        "x2": -5
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 200,
+                        "x": 0,
+                        "x2": -5
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 150,
+                        "x": 0,
+                        "x2": -5
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 100,
+                        "x": 0,
+                        "x2": -5
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 50,
+                        "x": 0,
+                        "x2": -5
+                      },
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "y": 0,
+                        "x": 0,
+                        "x2": -5
+                      }
+                    ],
+                    "marktype": "rule",
+                    "role": "axis-tick",
+                    "zindex": 0
+                  },
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "fill": "#000",
+                        "font": "sans-serif",
+                        "fontSize": 10,
+                        "opacity": 1,
+                        "x": -7,
+                        "y": 300,
+                        "angle": 0,
+                        "limit": 180,
+                        "text": "$0",
+                        "align": "right",
+                        "baseline": "middle"
+                      },
+                      {
+                        "fill": "#000",
+                        "font": "sans-serif",
+                        "fontSize": 10,
+                        "opacity": 1,
+                        "x": -7,
+                        "y": 250,
+                        "angle": 0,
+                        "limit": 180,
+                        "text": "$200",
+                        "align": "right",
+                        "baseline": "middle"
+                      },
+                      {
+                        "fill": "#000",
+                        "font": "sans-serif",
+                        "fontSize": 10,
+                        "opacity": 1,
+                        "x": -7,
+                        "y": 200.00000000000003,
+                        "angle": 0,
+                        "limit": 180,
+                        "text": "$400",
+                        "align": "right",
+                        "baseline": "middle"
+                      },
+                      {
+                        "fill": "#000",
+                        "font": "sans-serif",
+                        "fontSize": 10,
+                        "opacity": 1,
+                        "x": -7,
+                        "y": 150,
+                        "angle": 0,
+                        "limit": 180,
+                        "text": "$600",
+                        "align": "right",
+                        "baseline": "middle"
+                      },
+                      {
+                        "fill": "#000",
+                        "font": "sans-serif",
+                        "fontSize": 10,
+                        "opacity": 1,
+                        "x": -7,
+                        "y": 100.00000000000001,
+                        "angle": 0,
+                        "limit": 180,
+                        "text": "$800",
+                        "align": "right",
+                        "baseline": "middle"
+                      },
+                      {
+                        "fill": "#000",
+                        "font": "sans-serif",
+                        "fontSize": 10,
+                        "opacity": 1,
+                        "x": -7,
+                        "y": 49.999999999999986,
+                        "angle": 0,
+                        "limit": 180,
+                        "text": "$1000",
+                        "align": "right",
+                        "baseline": "middle"
+                      },
+                      {
+                        "fill": "#000",
+                        "font": "sans-serif",
+                        "fontSize": 10,
+                        "opacity": 1,
+                        "x": -7,
+                        "y": 0,
+                        "angle": 0,
+                        "limit": 180,
+                        "text": "$1200",
+                        "align": "right",
+                        "baseline": "middle"
+                      }
+                    ],
+                    "marktype": "text",
+                    "role": "axis-label",
+                    "zindex": 0
+                  },
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "opacity": 1,
+                        "stroke": "#888",
+                        "strokeWidth": 1,
+                        "x": 0,
+                        "y": 300,
+                        "y2": 0
+                      }
+                    ],
+                    "marktype": "rule",
+                    "role": "axis-domain",
+                    "zindex": 0
+                  },
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "fill": "#000",
+                        "font": "sans-serif",
+                        "fontSize": 11,
+                        "fontWeight": "bold",
+                        "opacity": 1,
+                        "align": "center",
+                        "angle": -90,
+                        "baseline": "bottom",
+                        "text": "price",
+                        "y": 150,
+                        "x": -38.8076171875
+                      }
+                    ],
+                    "marktype": "text",
+                    "role": "axis-title",
+                    "zindex": 0
+                  }
+                ],
+                "orient": "left",
+                "offset": 0,
+                "x": 0.5,
+                "y": 0.5
+              }
+            ],
+            "marktype": "group",
+            "role": "axis",
+            "zindex": 0
+          },
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": true,
+                    "items": [
+                      {
+                        "orient": "vertical",
+                        "fill": "#54a24b",
+                        "description": "date: Jan 01, 2009; price: $17; symbol: MSFT",
+                        "x": 0,
+                        "y": 295.84250000000003,
+                        "y2": 300,
+                        "defined": true,
+                        "height": 4.15749999999997
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#54a24b",
+                        "description": "date: Feb 01, 2009; price: $16; symbol: MSFT",
+                        "x": 27.844311377245507,
+                        "y": 296.0475,
+                        "y2": 300,
+                        "defined": true,
+                        "height": 3.9524999999999864
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#54a24b",
+                        "description": "date: Mar 01, 2009; price: $18; symbol: MSFT",
+                        "x": 52.99401197604791,
+                        "y": 295.5025,
+                        "y2": 300,
+                        "defined": true,
+                        "height": 4.497500000000002
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#54a24b",
+                        "description": "date: Apr 01, 2009; price: $20; symbol: MSFT",
+                        "x": 80.80089820359281,
+                        "y": 295.04,
+                        "y2": 300,
+                        "defined": true,
+                        "height": 4.9599999999999795
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#54a24b",
+                        "description": "date: May 01, 2009; price: $21; symbol: MSFT",
+                        "x": 107.74700598802394,
+                        "y": 294.85249999999996,
+                        "y2": 300,
+                        "defined": true,
+                        "height": 5.147500000000036
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#54a24b",
+                        "description": "date: Jun 01, 2009; price: $23; symbol: MSFT",
+                        "x": 135.59131736526945,
+                        "y": 294.14500000000004,
+                        "y2": 300,
+                        "defined": true,
+                        "height": 5.854999999999961
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#54a24b",
+                        "description": "date: Jul 01, 2009; price: $23; symbol: MSFT",
+                        "x": 162.5374251497006,
+                        "y": 294.205,
+                        "y2": 300,
+                        "defined": true,
+                        "height": 5.795000000000016
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#54a24b",
+                        "description": "date: Aug 01, 2009; price: $24; symbol: MSFT",
+                        "x": 190.38173652694613,
+                        "y": 293.8925,
+                        "y2": 300,
+                        "defined": true,
+                        "height": 6.107500000000016
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#54a24b",
+                        "description": "date: Sep 01, 2009; price: $25; symbol: MSFT",
+                        "x": 218.2260479041916,
+                        "y": 293.6275,
+                        "y2": 300,
+                        "defined": true,
+                        "height": 6.372500000000002
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#54a24b",
+                        "description": "date: Oct 01, 2009; price: $27; symbol: MSFT",
+                        "x": 245.17215568862275,
+                        "y": 293.13,
+                        "y2": 300,
+                        "defined": true,
+                        "height": 6.8700000000000045
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#54a24b",
+                        "description": "date: Nov 01, 2009; price: $29; symbol: MSFT",
+                        "x": 273.01646706586826,
+                        "y": 292.6825,
+                        "y2": 300,
+                        "defined": true,
+                        "height": 7.3174999999999955
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#54a24b",
+                        "description": "date: Dec 01, 2009; price: $30; symbol: MSFT",
+                        "x": 300,
+                        "y": 292.415,
+                        "y2": 300,
+                        "defined": true,
+                        "height": 7.5849999999999795
+                      }
+                    ],
+                    "marktype": "area",
+                    "name": "marks",
+                    "role": "mark",
+                    "zindex": 0
+                  }
+                ],
+                "width": 300,
+                "height": 300
+              },
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": true,
+                    "items": [
+                      {
+                        "orient": "vertical",
+                        "fill": "#f58518",
+                        "description": "date: Jan 01, 2009; price: $59; symbol: AMZN",
+                        "x": 0,
+                        "y": 174.14000000000001,
+                        "y2": 188.84500000000003,
+                        "defined": true,
+                        "height": 14.705000000000013
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#f58518",
+                        "description": "date: Feb 01, 2009; price: $65; symbol: AMZN",
+                        "x": 27.844311377245507,
+                        "y": 172.77249999999998,
+                        "y2": 188.97,
+                        "defined": true,
+                        "height": 16.19750000000002
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#f58518",
+                        "description": "date: Mar 01, 2009; price: $73; symbol: AMZN",
+                        "x": 52.99401197604791,
+                        "y": 166.35500000000002,
+                        "y2": 184.715,
+                        "defined": true,
+                        "height": 18.359999999999985
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#f58518",
+                        "description": "date: Apr 01, 2009; price: $81; symbol: AMZN",
+                        "x": 80.80089820359281,
+                        "y": 150.595,
+                        "y2": 170.72500000000002,
+                        "defined": true,
+                        "height": 20.130000000000024
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#f58518",
+                        "description": "date: May 01, 2009; price: $78; symbol: AMZN",
+                        "x": 107.74700598802394,
+                        "y": 144.83499999999998,
+                        "y2": 164.33249999999998,
+                        "defined": true,
+                        "height": 19.497500000000002
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#f58518",
+                        "description": "date: Jun 01, 2009; price: $84; symbol: AMZN",
+                        "x": 135.59131736526945,
+                        "y": 142.08,
+                        "y2": 162.995,
+                        "defined": true,
+                        "height": 20.914999999999992
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#f58518",
+                        "description": "date: Jul 01, 2009; price: $86; symbol: AMZN",
+                        "x": 162.5374251497006,
+                        "y": 132.9175,
+                        "y2": 154.35749999999996,
+                        "defined": true,
+                        "height": 21.43999999999997
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#f58518",
+                        "description": "date: Aug 01, 2009; price: $81; symbol: AMZN",
+                        "x": 190.38173652694613,
+                        "y": 128.9275,
+                        "y2": 149.225,
+                        "defined": true,
+                        "height": 20.297499999999985
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#f58518",
+                        "description": "date: Sep 01, 2009; price: $93; symbol: AMZN",
+                        "x": 218.2260479041916,
+                        "y": 116.68749999999999,
+                        "y2": 140.0275,
+                        "defined": true,
+                        "height": 23.340000000000018
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#f58518",
+                        "description": "date: Oct 01, 2009; price: $119; symbol: AMZN",
+                        "x": 245.17215568862275,
+                        "y": 99.51249999999999,
+                        "y2": 129.215,
+                        "defined": true,
+                        "height": 29.702500000000015
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#f58518",
+                        "description": "date: Nov 01, 2009; price: $136; symbol: AMZN",
+                        "x": 273.01646706586826,
+                        "y": 81.50750000000004,
+                        "y2": 115.485,
+                        "defined": true,
+                        "height": 33.977499999999964
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#f58518",
+                        "description": "date: Dec 01, 2009; price: $135; symbol: AMZN",
+                        "x": 300,
+                        "y": 71.21000000000002,
+                        "y2": 104.84000000000002,
+                        "defined": true,
+                        "height": 33.629999999999995
+                      }
+                    ],
+                    "marktype": "area",
+                    "name": "marks",
+                    "role": "mark",
+                    "zindex": 0
+                  }
+                ],
+                "width": 300,
+                "height": 300
+              },
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": true,
+                    "items": [
+                      {
+                        "orient": "vertical",
+                        "fill": "#72b7b2",
+                        "description": "date: Jan 01, 2009; price: $89; symbol: IBM",
+                        "x": 0,
+                        "y": 273.4775,
+                        "y2": 295.84250000000003,
+                        "defined": true,
+                        "height": 22.36500000000001
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#72b7b2",
+                        "description": "date: Feb 01, 2009; price: $90; symbol: IBM",
+                        "x": 27.844311377245507,
+                        "y": 273.46750000000003,
+                        "y2": 296.0475,
+                        "defined": true,
+                        "height": 22.579999999999984
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#72b7b2",
+                        "description": "date: Mar 01, 2009; price: $95; symbol: IBM",
+                        "x": 52.99401197604791,
+                        "y": 271.72999999999996,
+                        "y2": 295.5025,
+                        "defined": true,
+                        "height": 23.772500000000036
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#72b7b2",
+                        "description": "date: Apr 01, 2009; price: $101; symbol: IBM",
+                        "x": 80.80089820359281,
+                        "y": 269.7175,
+                        "y2": 295.04,
+                        "defined": true,
+                        "height": 25.322500000000048
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#72b7b2",
+                        "description": "date: May 01, 2009; price: $105; symbol: IBM",
+                        "x": 107.74700598802394,
+                        "y": 268.64,
+                        "y2": 294.85249999999996,
+                        "defined": true,
+                        "height": 26.212499999999977
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#72b7b2",
+                        "description": "date: Jun 01, 2009; price: $103; symbol: IBM",
+                        "x": 135.59131736526945,
+                        "y": 268.3925,
+                        "y2": 294.14500000000004,
+                        "defined": true,
+                        "height": 25.752500000000055
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#72b7b2",
+                        "description": "date: Jul 01, 2009; price: $116; symbol: IBM",
+                        "x": 162.5374251497006,
+                        "y": 265.12,
+                        "y2": 294.205,
+                        "defined": true,
+                        "height": 29.08499999999998
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#72b7b2",
+                        "description": "date: Aug 01, 2009; price: $117; symbol: IBM",
+                        "x": 190.38173652694613,
+                        "y": 264.6425,
+                        "y2": 293.8925,
+                        "defined": true,
+                        "height": 29.25
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#72b7b2",
+                        "description": "date: Sep 01, 2009; price: $119; symbol: IBM",
+                        "x": 218.2260479041916,
+                        "y": 263.99,
+                        "y2": 293.6275,
+                        "defined": true,
+                        "height": 29.63749999999999
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#72b7b2",
+                        "description": "date: Oct 01, 2009; price: $120; symbol: IBM",
+                        "x": 245.17215568862275,
+                        "y": 263.245,
+                        "y2": 293.13,
+                        "defined": true,
+                        "height": 29.88499999999999
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#72b7b2",
+                        "description": "date: Nov 01, 2009; price: $126; symbol: IBM",
+                        "x": 273.01646706586826,
+                        "y": 261.235,
+                        "y2": 292.6825,
+                        "defined": true,
+                        "height": 31.44749999999999
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#72b7b2",
+                        "description": "date: Dec 01, 2009; price: $130; symbol: IBM",
+                        "x": 300,
+                        "y": 259.835,
+                        "y2": 292.415,
+                        "defined": true,
+                        "height": 32.58000000000004
+                      }
+                    ],
+                    "marktype": "area",
+                    "name": "marks",
+                    "role": "mark",
+                    "zindex": 0
+                  }
+                ],
+                "width": 300,
+                "height": 300
+              },
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": true,
+                    "items": [
+                      {
+                        "orient": "vertical",
+                        "fill": "#e45756",
+                        "description": "date: Jan 01, 2009; price: $339; symbol: GOOG",
+                        "x": 0,
+                        "y": 188.84500000000003,
+                        "y2": 273.4775,
+                        "defined": true,
+                        "height": 84.6325
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#e45756",
+                        "description": "date: Feb 01, 2009; price: $338; symbol: GOOG",
+                        "x": 27.844311377245507,
+                        "y": 188.97,
+                        "y2": 273.46750000000003,
+                        "defined": true,
+                        "height": 84.49750000000003
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#e45756",
+                        "description": "date: Mar 01, 2009; price: $348; symbol: GOOG",
+                        "x": 52.99401197604791,
+                        "y": 184.715,
+                        "y2": 271.72999999999996,
+                        "defined": true,
+                        "height": 87.01499999999996
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#e45756",
+                        "description": "date: Apr 01, 2009; price: $396; symbol: GOOG",
+                        "x": 80.80089820359281,
+                        "y": 170.72500000000002,
+                        "y2": 269.7175,
+                        "defined": true,
+                        "height": 98.99249999999995
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#e45756",
+                        "description": "date: May 01, 2009; price: $417; symbol: GOOG",
+                        "x": 107.74700598802394,
+                        "y": 164.33249999999998,
+                        "y2": 268.64,
+                        "defined": true,
+                        "height": 104.3075
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#e45756",
+                        "description": "date: Jun 01, 2009; price: $422; symbol: GOOG",
+                        "x": 135.59131736526945,
+                        "y": 162.995,
+                        "y2": 268.3925,
+                        "defined": true,
+                        "height": 105.39749999999998
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#e45756",
+                        "description": "date: Jul 01, 2009; price: $443; symbol: GOOG",
+                        "x": 162.5374251497006,
+                        "y": 154.35749999999996,
+                        "y2": 265.12,
+                        "defined": true,
+                        "height": 110.76250000000005
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#e45756",
+                        "description": "date: Aug 01, 2009; price: $462; symbol: GOOG",
+                        "x": 190.38173652694613,
+                        "y": 149.225,
+                        "y2": 264.6425,
+                        "defined": true,
+                        "height": 115.41749999999999
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#e45756",
+                        "description": "date: Sep 01, 2009; price: $496; symbol: GOOG",
+                        "x": 218.2260479041916,
+                        "y": 140.0275,
+                        "y2": 263.99,
+                        "defined": true,
+                        "height": 123.9625
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#e45756",
+                        "description": "date: Oct 01, 2009; price: $536; symbol: GOOG",
+                        "x": 245.17215568862275,
+                        "y": 129.215,
+                        "y2": 263.245,
+                        "defined": true,
+                        "height": 134.03
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#e45756",
+                        "description": "date: Nov 01, 2009; price: $583; symbol: GOOG",
+                        "x": 273.01646706586826,
+                        "y": 115.485,
+                        "y2": 261.235,
+                        "defined": true,
+                        "height": 145.75
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#e45756",
+                        "description": "date: Dec 01, 2009; price: $620; symbol: GOOG",
+                        "x": 300,
+                        "y": 104.84000000000002,
+                        "y2": 259.835,
+                        "defined": true,
+                        "height": 154.99499999999995
+                      }
+                    ],
+                    "marktype": "area",
+                    "name": "marks",
+                    "role": "mark",
+                    "zindex": 0
+                  }
+                ],
+                "width": 300,
+                "height": 300
+              },
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": true,
+                    "items": [
+                      {
+                        "orient": "vertical",
+                        "fill": "#4c78a8",
+                        "description": "date: Jan 01, 2009; price: $90; symbol: AAPL",
+                        "x": 0,
+                        "y": 151.60750000000002,
+                        "y2": 174.14000000000001,
+                        "defined": true,
+                        "height": 22.5325
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#4c78a8",
+                        "description": "date: Feb 01, 2009; price: $89; symbol: AAPL",
+                        "x": 27.844311377245507,
+                        "y": 150.445,
+                        "y2": 172.77249999999998,
+                        "defined": true,
+                        "height": 22.327499999999986
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#4c78a8",
+                        "description": "date: Mar 01, 2009; price: $105; symbol: AAPL",
+                        "x": 52.99401197604791,
+                        "y": 140.07500000000002,
+                        "y2": 166.35500000000002,
+                        "defined": true,
+                        "height": 26.28
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#4c78a8",
+                        "description": "date: Apr 01, 2009; price: $126; symbol: AAPL",
+                        "x": 80.80089820359281,
+                        "y": 119.13749999999999,
+                        "y2": 150.595,
+                        "defined": true,
+                        "height": 31.45750000000001
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#4c78a8",
+                        "description": "date: May 01, 2009; price: $136; symbol: AAPL",
+                        "x": 107.74700598802394,
+                        "y": 110.8825,
+                        "y2": 144.83499999999998,
+                        "defined": true,
+                        "height": 33.952499999999986
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#4c78a8",
+                        "description": "date: Jun 01, 2009; price: $142; symbol: AAPL",
+                        "x": 135.59131736526945,
+                        "y": 106.47250000000001,
+                        "y2": 142.08,
+                        "defined": true,
+                        "height": 35.6075
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#4c78a8",
+                        "description": "date: Jul 01, 2009; price: $163; symbol: AAPL",
+                        "x": 162.5374251497006,
+                        "y": 92.06999999999998,
+                        "y2": 132.9175,
+                        "defined": true,
+                        "height": 40.84750000000001
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#4c78a8",
+                        "description": "date: Aug 01, 2009; price: $168; symbol: AAPL",
+                        "x": 190.38173652694613,
+                        "y": 86.87499999999999,
+                        "y2": 128.9275,
+                        "defined": true,
+                        "height": 42.05250000000002
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#4c78a8",
+                        "description": "date: Sep 01, 2009; price: $185; symbol: AAPL",
+                        "x": 218.2260479041916,
+                        "y": 70.34999999999998,
+                        "y2": 116.68749999999999,
+                        "defined": true,
+                        "height": 46.337500000000006
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#4c78a8",
+                        "description": "date: Oct 01, 2009; price: $189; symbol: AAPL",
+                        "x": 245.17215568862275,
+                        "y": 52.387499999999974,
+                        "y2": 99.51249999999999,
+                        "defined": true,
+                        "height": 47.125000000000014
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#4c78a8",
+                        "description": "date: Nov 01, 2009; price: $200; symbol: AAPL",
+                        "x": 273.01646706586826,
+                        "y": 31.530000000000026,
+                        "y2": 81.50750000000004,
+                        "defined": true,
+                        "height": 49.977500000000006
+                      },
+                      {
+                        "orient": "vertical",
+                        "fill": "#4c78a8",
+                        "description": "date: Dec 01, 2009; price: $211; symbol: AAPL",
+                        "x": 300,
+                        "y": 18.527500000000042,
+                        "y2": 71.21000000000002,
+                        "defined": true,
+                        "height": 52.682499999999976
+                      }
+                    ],
+                    "marktype": "area",
+                    "name": "marks",
+                    "role": "mark",
+                    "zindex": 0
+                  }
+                ],
+                "width": 300,
+                "height": 300
+              }
+            ],
+            "marktype": "group",
+            "name": "pathgroup",
+            "role": "scope",
+            "zindex": 0
+          },
+          {
+            "clip": false,
+            "interactive": false,
+            "items": [
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "items": [
+                          {
+                            "clip": false,
+                            "interactive": false,
+                            "items": [
+                              {
+                                "items": [
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "opacity": 1,
+                                        "x": 6,
+                                        "y": 6,
+                                        "shape": "circle",
+                                        "size": 100,
+                                        "strokeWidth": 1.5,
+                                        "fill": "#4c78a8"
+                                      }
+                                    ],
+                                    "marktype": "symbol",
+                                    "role": "legend-symbol",
+                                    "zindex": 0
+                                  },
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "fill": "#000",
+                                        "font": "sans-serif",
+                                        "fontSize": 10,
+                                        "opacity": 1,
+                                        "x": 16,
+                                        "y": 6,
+                                        "align": "left",
+                                        "baseline": "middle",
+                                        "limit": 160,
+                                        "text": "AAPL"
+                                      }
+                                    ],
+                                    "marktype": "text",
+                                    "role": "legend-label",
+                                    "zindex": 0
+                                  }
+                                ],
+                                "width": 47.11328125,
+                                "height": 11,
+                                "opacity": 1,
+                                "x": 0,
+                                "y": 0
+                              },
+                              {
+                                "items": [
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "opacity": 1,
+                                        "x": 6,
+                                        "y": 6,
+                                        "shape": "circle",
+                                        "size": 100,
+                                        "strokeWidth": 1.5,
+                                        "fill": "#f58518"
+                                      }
+                                    ],
+                                    "marktype": "symbol",
+                                    "role": "legend-symbol",
+                                    "zindex": 0
+                                  },
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "fill": "#000",
+                                        "font": "sans-serif",
+                                        "fontSize": 10,
+                                        "opacity": 1,
+                                        "x": 16,
+                                        "y": 6,
+                                        "align": "left",
+                                        "baseline": "middle",
+                                        "limit": 160,
+                                        "text": "AMZN"
+                                      }
+                                    ],
+                                    "marktype": "text",
+                                    "role": "legend-label",
+                                    "zindex": 0
+                                  }
+                                ],
+                                "width": 47.11328125,
+                                "height": 11,
+                                "opacity": 1,
+                                "x": 0,
+                                "y": 13
+                              },
+                              {
+                                "items": [
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "opacity": 1,
+                                        "x": 6,
+                                        "y": 6,
+                                        "shape": "circle",
+                                        "size": 100,
+                                        "strokeWidth": 1.5,
+                                        "fill": "#e45756"
+                                      }
+                                    ],
+                                    "marktype": "symbol",
+                                    "role": "legend-symbol",
+                                    "zindex": 0
+                                  },
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "fill": "#000",
+                                        "font": "sans-serif",
+                                        "fontSize": 10,
+                                        "opacity": 1,
+                                        "x": 16,
+                                        "y": 6,
+                                        "align": "left",
+                                        "baseline": "middle",
+                                        "limit": 160,
+                                        "text": "GOOG"
+                                      }
+                                    ],
+                                    "marktype": "text",
+                                    "role": "legend-label",
+                                    "zindex": 0
+                                  }
+                                ],
+                                "width": 47.11328125,
+                                "height": 11,
+                                "opacity": 1,
+                                "x": 0,
+                                "y": 26
+                              },
+                              {
+                                "items": [
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "opacity": 1,
+                                        "x": 6,
+                                        "y": 6,
+                                        "shape": "circle",
+                                        "size": 100,
+                                        "strokeWidth": 1.5,
+                                        "fill": "#72b7b2"
+                                      }
+                                    ],
+                                    "marktype": "symbol",
+                                    "role": "legend-symbol",
+                                    "zindex": 0
+                                  },
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "fill": "#000",
+                                        "font": "sans-serif",
+                                        "fontSize": 10,
+                                        "opacity": 1,
+                                        "x": 16,
+                                        "y": 6,
+                                        "align": "left",
+                                        "baseline": "middle",
+                                        "limit": 160,
+                                        "text": "IBM"
+                                      }
+                                    ],
+                                    "marktype": "text",
+                                    "role": "legend-label",
+                                    "zindex": 0
+                                  }
+                                ],
+                                "width": 47.11328125,
+                                "height": 11,
+                                "opacity": 1,
+                                "x": 0,
+                                "y": 39
+                              },
+                              {
+                                "items": [
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "opacity": 1,
+                                        "x": 6,
+                                        "y": 6,
+                                        "shape": "circle",
+                                        "size": 100,
+                                        "strokeWidth": 1.5,
+                                        "fill": "#54a24b"
+                                      }
+                                    ],
+                                    "marktype": "symbol",
+                                    "role": "legend-symbol",
+                                    "zindex": 0
+                                  },
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "fill": "#000",
+                                        "font": "sans-serif",
+                                        "fontSize": 10,
+                                        "opacity": 1,
+                                        "x": 16,
+                                        "y": 6,
+                                        "align": "left",
+                                        "baseline": "middle",
+                                        "limit": 160,
+                                        "text": "MSFT"
+                                      }
+                                    ],
+                                    "marktype": "text",
+                                    "role": "legend-label",
+                                    "zindex": 0
+                                  }
+                                ],
+                                "width": 47.11328125,
+                                "height": 11,
+                                "opacity": 1,
+                                "x": 0,
+                                "y": 52
+                              }
+                            ],
+                            "marktype": "group",
+                            "role": "scope",
+                            "zindex": 0
+                          }
+                        ],
+                        "x": 0,
+                        "y": 16
+                      }
+                    ],
+                    "marktype": "group",
+                    "role": "legend-entry",
+                    "zindex": 0
+                  },
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "fill": "#000",
+                        "font": "sans-serif",
+                        "fontSize": 11,
+                        "fontWeight": "bold",
+                        "opacity": 1,
+                        "orient": "top",
+                        "text": "symbol",
+                        "limit": 180,
+                        "x": 0,
+                        "y": 0,
+                        "angle": 0,
+                        "align": "left",
+                        "baseline": "top"
+                      }
+                    ],
+                    "marktype": "text",
+                    "role": "legend-title",
+                    "zindex": 0
+                  }
+                ],
+                "orient": "right",
+                "x": 318,
+                "y": 0,
+                "width": 48,
+                "height": 79
+              }
+            ],
+            "marktype": "group",
+            "role": "legend",
+            "zindex": 0
+          }
+        ],
+        "fill": "transparent",
+        "stroke": "#ddd",
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 300
+      }
+    ],
+    "marktype": "group",
+    "name": "root",
+    "role": "frame",
+    "zindex": 0
+  }
+}

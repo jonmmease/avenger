@@ -9,10 +9,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VegaLineItem {
-    #[serde(default)]
-    pub x: f32,
-    #[serde(default)]
-    pub y: f32,
+    pub x: Option<f32>,
+    pub y: Option<f32>,
     pub defined: Option<bool>,
     pub stroke_cap: Option<StrokeCap>,
     pub stroke_join: Option<StrokeJoin>,
@@ -50,6 +48,7 @@ impl VegaMarkContainer<VegaLineItem> {
 
         let mut mark = LineMark {
             clip: self.clip,
+            zindex: self.zindex,
             stroke,
             stroke_width,
             stroke_cap,
@@ -65,8 +64,8 @@ impl VegaMarkContainer<VegaLineItem> {
         let mut defined = Vec::<bool>::new();
 
         for item in &self.items {
-            x.push(item.x);
-            y.push(item.y);
+            x.push(item.x.unwrap_or(0.0));
+            y.push(item.y.unwrap_or(0.0));
             if let Some(v) = item.defined {
                 defined.push(v);
             }

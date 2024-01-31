@@ -10,11 +10,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VegaTextItem {
-    #[serde(default)]
-    pub x: f32,
-    #[serde(default)]
-    pub y: f32,
-    pub text: String,
+    pub x: Option<f32>,
+    pub y: Option<f32>,
+    pub text: Option<serde_json::Value>,
 
     // Optional
     pub align: Option<TextAlignSpec>,
@@ -40,6 +38,7 @@ impl VegaMarkContainer<VegaTextItem> {
         // Init mark with scalar defaults
         let mut mark = TextMark {
             clip: self.clip,
+            zindex: self.zindex,
             ..Default::default()
         };
         if let Some(name) = &self.name {
@@ -64,9 +63,13 @@ impl VegaMarkContainer<VegaTextItem> {
         let mut zindex = Vec::<i32>::new();
 
         for item in &self.items {
-            x.push(item.x);
-            y.push(item.y);
-            text.push(item.text.clone());
+            x.push(item.x.unwrap_or(0.0) + item.dx.unwrap_or(0.0));
+            y.push(item.y.unwrap_or(0.0) + item.dy.unwrap_or(0.0));
+            text.push(match item.text.clone() {
+                Some(serde_json::Value::String(s)) => s,
+                Some(serde_json::Value::Null) | None => "".to_string(),
+                Some(v) => v.to_string(),
+            });
 
             if let Some(v) = item.align {
                 align.push(v);
@@ -144,12 +147,6 @@ impl VegaMarkContainer<VegaTextItem> {
         }
         if color.len() == len {
             mark.color = EncodingValue::Array { values: color };
-        }
-        if dx.len() == len {
-            mark.dx = EncodingValue::Array { values: dx };
-        }
-        if dy.len() == len {
-            mark.dy = EncodingValue::Array { values: dy };
         }
         if font.len() == len {
             mark.font = EncodingValue::Array { values: font };

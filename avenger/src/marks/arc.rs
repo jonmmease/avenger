@@ -20,6 +20,7 @@ pub struct ArcMark {
     pub stroke: EncodingValue<ColorOrGradient>,
     pub stroke_width: EncodingValue<f32>,
     pub indices: Option<Vec<usize>>,
+    pub zindex: Option<i32>,
 }
 
 impl ArcMark {
@@ -89,6 +90,7 @@ impl Default for ArcMark {
             },
             stroke_width: EncodingValue::Scalar { value: 0.0 },
             indices: None,
+            zindex: None,
         }
     }
 }

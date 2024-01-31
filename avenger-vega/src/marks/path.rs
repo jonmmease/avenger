@@ -50,6 +50,7 @@ impl VegaMarkContainer<VegaPathItem> {
         // Init mark with scalar defaults
         let mut mark = PathMark {
             clip: self.clip,
+            zindex: self.zindex,
             stroke_cap: first_cap,
             stroke_join: first_join,
             stroke_width,

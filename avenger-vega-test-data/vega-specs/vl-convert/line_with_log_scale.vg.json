@@ -1,0 +1,101 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v5.json",
+  "background": "white",
+  "padding": 5,
+  "height": 300,
+  "style": "cell",
+  "data": [
+    {
+      "name": "source_0",
+      "url": "https://cdn.jsdelivr.net/npm/vega-datasets@v1.29.0/data/population.json",
+      "format": {"type": "json"},
+      "transform": [
+        {
+          "type": "aggregate",
+          "groupby": ["year"],
+          "ops": ["sum"],
+          "fields": ["people"],
+          "as": ["sum_people"]
+        }
+      ]
+    }
+  ],
+  "signals": [
+    {"name": "x_step", "value": 20},
+    {
+      "name": "width",
+      "update": "bandspace(domain('x').length, 1, 0.5) * x_step"
+    }
+  ],
+  "marks": [
+    {
+      "name": "marks",
+      "type": "line",
+      "style": ["line"],
+      "sort": {"field": "datum[\"year\"]"},
+      "from": {"data": "source_0"},
+      "encode": {
+        "update": {
+          "stroke": {"value": "#4c78a8"},
+          "description": {
+            "signal": "\"year: \" + (isValid(datum[\"year\"]) ? datum[\"year\"] : \"\"+datum[\"year\"]) + \"; Sum of people: \" + (format(datum[\"sum_people\"], \"\"))"
+          },
+          "x": {"scale": "x", "field": "year"},
+          "y": {"scale": "y", "field": "sum_people"},
+          "defined": {
+            "signal": "isValid(datum[\"sum_people\"]) && isFinite(+datum[\"sum_people\"])"
+          }
+        }
+      }
+    }
+  ],
+  "scales": [
+    {
+      "name": "x",
+      "type": "point",
+      "domain": {"data": "source_0", "field": "year", "sort": true},
+      "range": {"step": {"signal": "x_step"}},
+      "padding": 0.5
+    },
+    {
+      "name": "y",
+      "type": "log",
+      "domain": {"data": "source_0", "field": "sum_people"},
+      "range": [{"signal": "height"}, 0],
+      "nice": true
+    }
+  ],
+  "axes": [
+    {
+      "scale": "y",
+      "orient": "left",
+      "gridScale": "x",
+      "grid": true,
+      "domain": false,
+      "labels": false,
+      "aria": false,
+      "maxExtent": 0,
+      "minExtent": 0,
+      "ticks": false,
+      "zindex": 0
+    },
+    {
+      "scale": "x",
+      "orient": "bottom",
+      "grid": false,
+      "title": "year",
+      "labelAlign": "right",
+      "labelAngle": 270,
+      "labelBaseline": "middle",
+      "zindex": 0
+    },
+    {
+      "scale": "y",
+      "orient": "left",
+      "grid": false,
+      "title": "Sum of people",
+      "labelOverlap": "greedy",
+      "zindex": 0
+    }
+  ]
+}

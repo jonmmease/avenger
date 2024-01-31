@@ -18,6 +18,7 @@ pub struct SymbolMark {
     pub stroke: EncodingValue<ColorOrGradient>,
     pub angle: EncodingValue<f32>,
     pub indices: Option<Vec<usize>>,
+    pub zindex: Option<i32>,
 }
 
 impl SymbolMark {
@@ -70,6 +71,7 @@ impl Default for SymbolMark {
             angle: EncodingValue::Scalar { value: 0.0 },
             indices: None,
             gradients: vec![],
+            zindex: None,
         }
     }
 }

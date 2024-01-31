@@ -271,13 +271,19 @@ pub trait Canvas {
             self.add_rect_mark(&rect, group_bounds)?;
         }
 
+        // Add groups in order of zindex
+        let zindex = group.marks.iter().map(|m| m.zindex()).collect::<Vec<_>>();
+        let mut indices: Vec<usize> = (0..zindex.len()).collect();
+        indices.sort_by_key(|i| zindex[*i].unwrap_or(0));
+
         // Compute new group bounds
         let group_bounds = GroupBounds {
             x: group_bounds.x + group.bounds.x,
             y: group_bounds.y + group.bounds.y,
             ..group.bounds
         };
-        for mark in &group.marks {
+        for mark_ind in indices {
+            let mark = &group.marks[mark_ind];
             match mark {
                 SceneMark::Arc(mark) => {
                     self.add_arc_mark(mark, group_bounds)?;
@@ -328,7 +334,18 @@ pub trait Canvas {
             width: None,
             height: None,
         };
-        for group in &scene_graph.groups {
+
+        // Sort groups by zindex
+        let zindex = scene_graph
+            .groups
+            .iter()
+            .map(|g| g.zindex)
+            .collect::<Vec<_>>();
+        let mut indices: Vec<usize> = (0..zindex.len()).collect();
+        indices.sort_by_key(|i| zindex[*i].unwrap_or(0));
+
+        for group_ind in &indices {
+            let group = &scene_graph.groups[*group_ind];
             self.add_group_mark(group, group_bounds)?;
         }
 

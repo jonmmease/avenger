@@ -24,9 +24,20 @@ pub enum AvengerVegaError {
     #[error("Image fetching is not enabled: {0}")]
     NoImageFetcherConfigured(String),
 
+    #[error("SVG image support is not enabled: {0}")]
+    SvgSupportDisabled(String),
+
     #[cfg(feature = "image-request")]
     #[error("css color parse error")]
     ReqwestError(#[from] reqwest::Error),
+
+    #[cfg(feature = "svg")]
+    #[error("usvg error: {0}")]
+    UsvgError(#[from] usvg::Error),
+
+    #[cfg(feature = "svg")]
+    #[error("roxml Error: {0}")]
+    RoxmlError(#[from] usvg::roxmltree::Error),
 }
 
 impl From<lyon_extra::parser::ParseError> for AvengerVegaError {

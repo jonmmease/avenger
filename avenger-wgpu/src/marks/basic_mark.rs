@@ -13,7 +13,7 @@ pub trait BasicMarkShader {
     type Uniform: bytemuck::Pod + bytemuck::Zeroable;
 
     fn verts(&self) -> &[Self::Vertex];
-    fn indices(&self) -> &[u16];
+    fn indices(&self) -> &[u32];
     fn uniform(&self) -> Self::Uniform;
     fn batches(&self) -> &[BasicMarkBatch];
     fn texture_size(&self) -> Extent3d;
@@ -280,7 +280,7 @@ impl BasicMarkRenderer {
                 render_pass.set_bind_group(1, &self.texture_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                 render_pass
-                    .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                    .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 render_pass.draw_indexed(batch.indices_range.clone(), 0, 0..1);
             }
         }

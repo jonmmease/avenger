@@ -19,6 +19,7 @@ pub struct PathMark {
     pub stroke: EncodingValue<ColorOrGradient>,
     pub transform: EncodingValue<PathTransform>,
     pub indices: Option<Vec<usize>>,
+    pub zindex: Option<i32>,
 }
 
 impl PathMark {
@@ -62,6 +63,7 @@ impl Default for PathMark {
                 value: PathTransform::identity(),
             },
             indices: None,
+            zindex: None,
         }
     }
 }

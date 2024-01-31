@@ -13,6 +13,7 @@ pub struct TrailMark {
     pub y: EncodingValue<f32>,
     pub size: EncodingValue<f32>,
     pub defined: EncodingValue<bool>,
+    pub zindex: Option<i32>,
 }
 
 impl TrailMark {
@@ -45,6 +46,7 @@ impl Default for TrailMark {
             defined: EncodingValue::Scalar { value: true },
             stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]),
             gradients: vec![],
+            zindex: None,
         }
     }
 }

@@ -17,6 +17,7 @@ pub struct RuleMark {
     pub stroke_width: EncodingValue<f32>,
     pub stroke_cap: EncodingValue<StrokeCap>,
     pub indices: Option<Vec<usize>>,
+    pub zindex: Option<i32>,
 }
 
 impl RuleMark {
@@ -73,6 +74,7 @@ impl Default for RuleMark {
                 value: StrokeCap::Butt,
             },
             indices: None,
+            zindex: None,
         }
     }
 }

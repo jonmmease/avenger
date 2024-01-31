@@ -11,10 +11,8 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct VegaImageItem {
     pub url: String,
-    #[serde(default)]
-    pub x: f32,
-    #[serde(default)]
-    pub y: f32,
+    pub x: Option<f32>,
+    pub y: Option<f32>,
     pub width: Option<f32>,
     pub height: Option<f32>,
     #[serde(default = "default_true")]
@@ -58,8 +56,8 @@ impl VegaMarkContainer<VegaImageItem> {
         let fetcher = make_image_fetcher()?;
 
         for item in &self.items {
-            x.push(item.x);
-            y.push(item.y);
+            x.push(item.x.unwrap_or(0.0));
+            y.push(item.y.unwrap_or(0.0));
             align.push(item.align);
             baseline.push(item.baseline);
 
@@ -110,6 +108,7 @@ impl VegaMarkContainer<VegaImageItem> {
             width: EncodingValue::Array { values: width },
             height: EncodingValue::Array { values: height },
             indices,
+            zindex: self.zindex,
         })))
     }
 }
