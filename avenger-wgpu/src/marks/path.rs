@@ -77,7 +77,7 @@ impl PathVertex {
 
 pub struct PathShader {
     verts: Vec<PathVertex>,
-    indices: Vec<u16>,
+    indices: Vec<u32>,
     uniform: PathUniform,
     batches: Vec<BasicMarkBatch>,
     texture_size: Extent3d,
@@ -95,7 +95,7 @@ impl PathShader {
         let (gradients_image, texture_size) = build_gradients_image(&mark.gradients);
 
         let mut verts: Vec<PathVertex> = Vec::new();
-        let mut indices: Vec<u16> = Vec::new();
+        let mut indices: Vec<u32> = Vec::new();
 
         // Here, add style info to PathVertex
         for (path, fill, stroke, transform) in izip!(
@@ -109,7 +109,7 @@ impl PathShader {
             let bbox = bounding_box(&path);
 
             // Create vertex/index buffer builder
-            let mut buffers: VertexBuffers<PathVertex, u16> = VertexBuffers::new();
+            let mut buffers: VertexBuffers<PathVertex, u32> = VertexBuffers::new();
             let mut builder = BuffersBuilder::new(
                 &mut buffers,
                 VertexPositions {
@@ -145,7 +145,7 @@ impl PathShader {
                 stroke_tessellator.tessellate_path(&path, &stroke_options, &mut builder)?;
             }
 
-            let index_offset = verts.len() as u16;
+            let index_offset = verts.len() as u32;
             verts.extend(buffers.vertices);
             indices.extend(buffers.indices.into_iter().map(|i| i + index_offset));
         }
@@ -241,7 +241,7 @@ impl PathShader {
         let bbox = bounding_box(&path);
 
         // Create vertex/index buffer builder
-        let mut buffers: VertexBuffers<PathVertex, u16> = VertexBuffers::new();
+        let mut buffers: VertexBuffers<PathVertex, u32> = VertexBuffers::new();
         let mut buffers_builder = BuffersBuilder::new(
             &mut buffers,
             VertexPositions {
@@ -383,12 +383,12 @@ impl PathShader {
         };
 
         let mut verts: Vec<PathVertex> = Vec::new();
-        let mut indices: Vec<u16> = Vec::new();
+        let mut indices: Vec<u32> = Vec::new();
 
         for path in &defined_paths {
             let bbox = bounding_box(path);
             // Create vertex/index buffer builder
-            let mut buffers: VertexBuffers<PathVertex, u16> = VertexBuffers::new();
+            let mut buffers: VertexBuffers<PathVertex, u32> = VertexBuffers::new();
             let mut buffers_builder = BuffersBuilder::new(
                 &mut buffers,
                 VertexPositions {
@@ -416,7 +416,7 @@ impl PathShader {
                 .with_line_width(mark.stroke_width);
             stroke_tessellator.tessellate_path(path, &stroke_options, &mut buffers_builder)?;
 
-            let index_offset = verts.len() as u16;
+            let index_offset = verts.len() as u32;
             verts.extend(buffers.vertices);
             indices.extend(buffers.indices.into_iter().map(|i| i + index_offset));
         }
@@ -484,7 +484,7 @@ impl PathShader {
         let bbox = bounding_box(&path);
 
         // Create vertex/index buffer builder
-        let mut buffers: VertexBuffers<PathVertex, u16> = VertexBuffers::new();
+        let mut buffers: VertexBuffers<PathVertex, u32> = VertexBuffers::new();
         let mut buffers_builder = BuffersBuilder::new(
             &mut buffers,
             VertexPositions {
@@ -534,7 +534,7 @@ impl BasicMarkShader for PathShader {
         self.verts.as_slice()
     }
 
-    fn indices(&self) -> &[u16] {
+    fn indices(&self) -> &[u32] {
         self.indices.as_slice()
     }
 
