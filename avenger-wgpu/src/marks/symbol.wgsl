@@ -158,7 +158,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let buffer = 0.5 * chart_uniforms.scale;
         let dist = length(in.center - vec2<f32>(in.clip_position[0], in.clip_position[1]));
 
-        if (in.circle_stroke_width > 0.0) {
+        if (circle_stroke_color[3] > 0.0 && in.circle_stroke_width > 0.0) {
             let inner_radius = in.radius - in.circle_stroke_width * chart_uniforms.scale / 2.0;
             let outer_radius = in.radius + in.circle_stroke_width * chart_uniforms.scale / 2.0;
             if (dist > outer_radius + buffer * 2.0) {
