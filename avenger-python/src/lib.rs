@@ -57,6 +57,7 @@ fn register_font_directory(font_dir: &str) {
 #[pymodule]
 fn _avenger(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<SceneGraph>()?;
+    m.add_function(wrap_pyfunction!(register_font_directory, m)?)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }
