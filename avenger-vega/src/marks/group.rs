@@ -38,7 +38,7 @@ impl VegaMarkContainer<VegaGroupItem> {
                     VegaMark::Group(mark) => mark
                         .to_scene_graph()?
                         .into_iter()
-                        .map(|g| SceneMark::Group(g))
+                        .map(SceneMark::Group)
                         .collect(),
                     VegaMark::Rect(mark) => {
                         vec![mark.to_scene_graph()?]

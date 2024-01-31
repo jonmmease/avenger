@@ -32,7 +32,6 @@ pub fn svg_to_png(svg: &str, scale: f32) -> Result<Vec<u8>, AvengerVegaError> {
         rtree.postprocess(
             PostProcessingSteps {
                 convert_text_into_paths: true,
-                ..Default::default()
             },
             &font_database,
         );
