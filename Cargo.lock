@@ -352,13 +352,17 @@ dependencies = [
  "cfg-if",
  "csscolorparser",
  "image",
+ "lazy_static",
  "lyon_extra",
  "lyon_path",
  "pyo3",
  "reqwest",
+ "resvg 0.38.0",
  "serde",
  "serde_json",
  "thiserror",
+ "tiny-skia 0.11.3",
+ "usvg 0.38.0",
 ]
 
 [[package]]
@@ -772,7 +776,7 @@ version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75acbfb314aeb4f5210d379af45ed1ec2c98c7f1790bf57b8a4c562ac0c51b71"
 dependencies = [
- "fontdb",
+ "fontdb 0.15.0",
  "libm",
  "log",
  "rangemap",
@@ -2211,7 +2215,7 @@ version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "674e258f4b5d2dcd63888c01c68413c51f565e8af99d2f7701c7b81d79ef41c4"
 dependencies = [
- "roxmltree",
+ "roxmltree 0.18.1",
 ]
 
 [[package]]
@@ -2226,6 +2230,20 @@ dependencies = [
  "slotmap",
  "tinyvec",
  "ttf-parser 0.19.2",
+]
+
+[[package]]
+name = "fontdb"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98b88c54a38407f7352dd2c4238830115a6377741098ffd1f997c813d0e088a6"
+dependencies = [
+ "fontconfig-parser",
+ "log",
+ "memmap2 0.9.4",
+ "slotmap",
+ "tinyvec",
+ "ttf-parser 0.20.0",
 ]
 
 [[package]]
@@ -3529,6 +3547,15 @@ name = "memmap2"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "43a5a03cefb0d953ec0be133036f14e109412fa594edc2f77227249db66cc3ed"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "memmap2"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe751422e4a8caa417e13c3ea66452215d7d63e19e604f4980461212f3ae1322"
 dependencies = [
  "libc",
 ]
@@ -4911,9 +4938,26 @@ dependencies = [
  "pico-args",
  "png",
  "rgb",
- "svgtypes",
+ "svgtypes 0.12.0",
  "tiny-skia 0.11.3",
- "usvg",
+ "usvg 0.36.0",
+]
+
+[[package]]
+name = "resvg"
+version = "0.38.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c34501046959e06470ba62a2dc7f31c15f94ac250d842a45f9e012f4ee40c1e"
+dependencies = [
+ "gif",
+ "jpeg-decoder",
+ "log",
+ "pico-args",
+ "png",
+ "rgb",
+ "svgtypes 0.13.0",
+ "tiny-skia 0.11.3",
+ "usvg 0.38.0",
 ]
 
 [[package]]
@@ -4975,6 +5019,12 @@ checksum = "862340e351ce1b271a378ec53f304a5558f7db87f3769dc655a8f6ecbb68b302"
 dependencies = [
  "xmlparser",
 ]
+
+[[package]]
+name = "roxmltree"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3cd14fd5e3b777a7422cca79358c57a8f6e3a703d9ac187448d0daf220c2407f"
 
 [[package]]
 name = "rsa"
@@ -5176,6 +5226,22 @@ dependencies = [
  "bitflags 1.3.2",
  "bytemuck",
  "libm",
+ "smallvec",
+ "ttf-parser 0.20.0",
+ "unicode-bidi-mirroring",
+ "unicode-ccc",
+ "unicode-properties",
+ "unicode-script",
+]
+
+[[package]]
+name = "rustybuzz"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0ae5692c5beaad6a9e22830deeed7874eae8a4e3ba4076fb48e12c56856222c"
+dependencies = [
+ "bitflags 2.4.1",
+ "bytemuck",
  "smallvec",
  "ttf-parser 0.20.0",
  "unicode-bidi-mirroring",
@@ -5723,7 +5789,7 @@ dependencies = [
  "miniz_oxide",
  "once_cell",
  "pdf-writer",
- "usvg",
+ "usvg 0.36.0",
 ]
 
 [[package]]
@@ -5737,6 +5803,16 @@ name = "svgtypes"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d71499ff2d42f59d26edb21369a308ede691421f79ebc0f001e2b1fd3a7c9e52"
+dependencies = [
+ "kurbo",
+ "siphasher 0.3.11",
+]
+
+[[package]]
+name = "svgtypes"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e44e288cd960318917cbd540340968b90becc8bc81f171345d706e7a89d9d70"
 dependencies = [
  "kurbo",
  "siphasher 0.3.11",
@@ -6814,9 +6890,24 @@ dependencies = [
  "base64 0.21.5",
  "log",
  "pico-args",
- "usvg-parser",
- "usvg-text-layout",
- "usvg-tree",
+ "usvg-parser 0.36.0",
+ "usvg-text-layout 0.36.0",
+ "usvg-tree 0.36.0",
+ "xmlwriter",
+]
+
+[[package]]
+name = "usvg"
+version = "0.38.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "377f62b4a3c173de8654c1aa80ab1dac1154e6f13a779a9943e53780120d1625"
+dependencies = [
+ "base64 0.21.5",
+ "log",
+ "pico-args",
+ "usvg-parser 0.38.0",
+ "usvg-text-layout 0.38.0",
+ "usvg-tree 0.38.0",
  "xmlwriter",
 ]
 
@@ -6831,11 +6922,29 @@ dependencies = [
  "imagesize",
  "kurbo",
  "log",
- "roxmltree",
+ "roxmltree 0.18.1",
  "simplecss",
  "siphasher 0.3.11",
- "svgtypes",
- "usvg-tree",
+ "svgtypes 0.12.0",
+ "usvg-tree 0.36.0",
+]
+
+[[package]]
+name = "usvg-parser"
+version = "0.38.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "351a05e6f2023d6b4e946f734240a3927aefdcf930d7d42587a2c8a8869814b0"
+dependencies = [
+ "data-url",
+ "flate2",
+ "imagesize",
+ "kurbo",
+ "log",
+ "roxmltree 0.19.0",
+ "simplecss",
+ "siphasher 0.3.11",
+ "svgtypes 0.13.0",
+ "usvg-tree 0.38.0",
 ]
 
 [[package]]
@@ -6844,14 +6953,30 @@ version = "0.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4d2374378cb7a3fb8f33894e0fdb8625e1bbc4f25312db8d91f862130b541593"
 dependencies = [
- "fontdb",
+ "fontdb 0.15.0",
  "kurbo",
  "log",
  "rustybuzz 0.10.0",
  "unicode-bidi",
  "unicode-script",
  "unicode-vo",
- "usvg-tree",
+ "usvg-tree 0.36.0",
+]
+
+[[package]]
+name = "usvg-text-layout"
+version = "0.38.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c41888b9d5cf431fe852eaf9d047bbde83251b98f1749c2f08b1071e6db46e2"
+dependencies = [
+ "fontdb 0.16.0",
+ "kurbo",
+ "log",
+ "rustybuzz 0.12.1",
+ "unicode-bidi",
+ "unicode-script",
+ "unicode-vo",
+ "usvg-tree 0.38.0",
 ]
 
 [[package]]
@@ -6862,7 +6987,18 @@ checksum = "6cacb0c5edeaf3e80e5afcf5b0d4004cc1d36318befc9a7c6606507e5d0f4062"
 dependencies = [
  "rctree",
  "strict-num",
- "svgtypes",
+ "svgtypes 0.12.0",
+ "tiny-skia-path 0.11.3",
+]
+
+[[package]]
+name = "usvg-tree"
+version = "0.38.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18863e0404ed153d6e56362c5b1146db9f4f262a3244e3cf2dbe7d8a85909f05"
+dependencies = [
+ "strict-num",
+ "svgtypes 0.13.0",
  "tiny-skia-path 0.11.3",
 ]
 
@@ -6933,7 +7069,7 @@ dependencies = [
  "svg2pdf",
  "ttf-parser 0.20.0",
  "unicode-bidi",
- "usvg",
+ "usvg 0.36.0",
 ]
 
 [[package]]
@@ -6947,7 +7083,7 @@ dependencies = [
  "deno_graph",
  "deno_runtime",
  "env_logger",
- "fontdb",
+ "fontdb 0.15.0",
  "futures",
  "futures-util",
  "http",
@@ -6958,13 +7094,13 @@ dependencies = [
  "png",
  "regex",
  "reqwest",
- "resvg",
+ "resvg 0.36.0",
  "serde",
  "serde_json",
  "tempfile",
  "tiny-skia 0.11.3",
  "tokio",
- "usvg",
+ "usvg 0.36.0",
  "vl-convert-pdf",
 ]
 

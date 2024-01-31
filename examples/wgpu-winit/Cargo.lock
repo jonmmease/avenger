@@ -147,6 +147,7 @@ dependencies = [
  "cfg-if",
  "csscolorparser",
  "image",
+ "lazy_static",
  "lyon_extra",
  "lyon_path",
  "serde",
