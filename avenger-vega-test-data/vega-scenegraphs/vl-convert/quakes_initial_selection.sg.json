@@ -1,0 +1,1635 @@
+{
+  "width": 375,
+  "height": 310,
+  "origin": [
+    8,
+    5
+  ],
+  "scenegraph": {
+    "clip": false,
+    "interactive": true,
+    "items": [
+      {
+        "items": [
+          {
+            "clip": true,
+            "interactive": true,
+            "items": [
+              {
+                "fill": "#333",
+                "fillOpacity": 0.125,
+                "x": 42.773173956930336,
+                "y": 0,
+                "x2": 97.99857027585085,
+                "y2": 300,
+                "width": 55.22539631892052,
+                "height": 300
+              }
+            ],
+            "marktype": "rect",
+            "name": "param_9_brush_bg",
+            "role": "mark",
+            "zindex": 0
+          },
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −118.6671667; lat: 34.4945; mag: 2",
+                "x": 34.795712024102826,
+                "y": 140.48954562962263,
+                "size": 7.65722615576843,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −118.0873333; lat: 34.12; mag: 1.6",
+                "x": 35.329404179335285,
+                "y": 140.9068439844251,
+                "size": 3.7267998334027492,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −116.7943333; lat: 33.518; mag: 0.54",
+                "x": 36.519511470008,
+                "y": 141.57379112002116,
+                "size": 1.0353792292544775,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −149.145; lat: 55.7729; mag: 3.8",
+                "x": 6.743204975194601,
+                "y": 112.22896149087725,
+                "size": 87.75763698458974,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −122.8560028; lat: 38.8246651; mag: 0.66",
+                "x": 30.94020979514447,
+                "y": 135.51871439755743,
+                "size": 1.0789494429987505,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −149.6259; lat: 63.8969; mag: 1.7",
+                "x": 6.300573423698438,
+                "y": 97.26091412801722,
+                "size": 4.475113660974593,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −148.6001; lat: 56.5687; mag: 3.1",
+                "x": 7.244743616097594,
+                "y": 110.9132081376506,
+                "size": 39.42555097875886,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −117.137; lat: 34.0473333; mag: 1.23",
+                "x": 36.204113064794726,
+                "y": 140.98760045064552,
+                "size": 1.9523438332319867,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −148.6645; lat: 56.2823; mag: 2.8",
+                "x": 7.18546835738195,
+                "y": 111.38988233795362,
+                "size": 26.57439999999999,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −150.2399; lat: 61.7028; mag: 3.8",
+                "x": 5.735433534701485,
+                "y": 101.68129995714621,
+                "size": 87.75763698458974,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −149.8542; lat: 61.6978; mag: 3.5",
+                "x": 6.0904407907049745,
+                "y": 101.69100735133237,
+                "size": 63.4375,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −147.408; lat: 64.9794; mag: 1.4",
+                "x": 8.34198019862734,
+                "y": 94.95144288625006,
+                "size": 2.5983999999999994,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −156.4712; lat: 57.8731; mag: 2.6",
+                "x": -2.842170943040401e-14,
+                "y": 108.69535132137388,
+                "size": 20.013703623490215,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −122.8541641; lat: 38.8250008; mag: 0.96",
+                "x": 30.941902177414647,
+                "y": 135.51831778678377,
+                "size": 1.353393258408996,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: 121.6773; lat: 23.9887; mag: 4.7",
+                "x": 256.0143524668878,
+                "y": 151.59689383836056,
+                "size": 204.03212490628906,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −116.7895; lat: 33.5021667; mag: 0.48",
+                "x": 36.523960151808495,
+                "y": 141.5912695750725,
+                "size": 1.0220870786505623,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: 121.7221; lat: 24.0424; mag: 4.7",
+                "x": 256.05558742947255,
+                "y": 151.54278300368296,
+                "size": 204.03212490628906,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −150.4985; lat: 62.0043; mag: 1.9",
+                "x": 5.497412076566945,
+                "y": 101.09301425441078,
+                "size": 6.422352311536859,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −151.5091; lat: 63.0943; mag: 1",
+                "x": 4.567232317901926,
+                "y": 98.91639639825875,
+                "size": 1.416076634735527,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −120.5753326; lat: 36.0098343; mag: 1.56",
+                "x": 33.03939172294032,
+                "y": 138.7814920721249,
+                "size": 3.464175989604332,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −117.2048; lat: 40.7226; mag: 2.1",
+                "x": 36.14170836695435,
+                "y": 133.2455632141873,
+                "size": 9.0919,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −116.6631667; lat: 33.6496667; mag: 0.33",
+                "x": 36.64024026115476,
+                "y": 141.42831946059255,
+                "size": 1.004934340187422,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −116.7865; lat: 33.4858333; mag: 0.82",
+                "x": 36.526721421624416,
+                "y": 141.60929674294573,
+                "size": 1.1881173003915035,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −116.3719; lat: 40.9433; mag: 2",
+                "x": 36.908328910188175,
+                "y": 132.97708239753666,
+                "size": 7.65722615576843,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: 72.5446; lat: 38.1608; mag: 5",
+                "x": 210.79147197157732,
+                "y": 136.2994154212011,
+                "size": 261.0478967097043,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −122.7938309; lat: 38.8209991; mag: 0.55",
+                "x": 30.997434258767797,
+                "y": 135.52304544980217,
+                "size": 1.0380736125572678,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: 70.4201; lat: 36.6781; mag: 4.2",
+                "x": 208.83603273025156,
+                "y": 138.0178488588793,
+                "size": 130.4704,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −118.9148; lat: 38.3974; mag: 1.6",
+                "x": 34.56778457186512,
+                "y": 136.02199907915437,
+                "size": 3.7267998334027492,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "goldenrod",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −84.6085; lat: 9.4429; mag: 4.4",
+                "x": 66.14410146746151,
+                "y": 165.62044077402547,
+                "size": 156.94951703456897,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −147.7124; lat: 61.0186; mag: 1.4",
+                "x": 8.061803354636027,
+                "y": 102.99527944381555,
+                "size": 2.5983999999999994,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −149.8753; lat: 62.34; mag: 1.8",
+                "x": 6.071019859666137,
+                "y": 100.43110605519156,
+                "size": 5.367806080799667,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −149.3296; lat: 55.8526; mag: 3.9",
+                "x": 6.57329483918673,
+                "y": 112.09840826811515,
+                "size": 97.25687459391919,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: 121.7366; lat: 24.054; mag: 4.9",
+                "x": 256.0689335669163,
+                "y": 151.53109128742983,
+                "size": 240.85990000000007,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −148.4808; lat: 62.2947; mag: 3",
+                "x": 7.354550112445054,
+                "y": 100.5208553543167,
+                "size": 34.702207413577675,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −152.7284; lat: 60.2249; mag: 2.4",
+                "x": 3.4449602223742772,
+                "y": 104.48452296249599,
+                "size": 14.804424156601415,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −152.9563; lat: 60.0371; mag: 2.3",
+                "x": 3.2351957586895708,
+                "y": 104.83161045373625,
+                "size": 12.643530154102452,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −152.5878; lat: 59.8703; mag: 2.1",
+                "x": 3.574371734414939,
+                "y": 105.13823534694578,
+                "size": 9.0919,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −121.5946655; lat: 36.9138336; mag: 1.51",
+                "x": 32.101173999883414,
+                "y": 137.7468920827037,
+                "size": 3.1631225131153684,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −155.3447; lat: 58.1913; mag: 1",
+                "x": 1.0368568158877451,
+                "y": 108.1421638656581,
+                "size": 1.416076634735527,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −116.7953333; lat: 33.4961667; mag: 0.53",
+                "x": 36.518591046736034,
+                "y": 141.5978921681538,
+                "size": 1.032830447809246,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −117.0976667; lat: 33.7835; mag: 0.63",
+                "x": 36.240316349478576,
+                "y": 141.28022580830444,
+                "size": 1.06554439,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "goldenrod",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −70.3349; lat: −32.4714; mag: 4.5",
+                "x": 79.2818550824239,
+                "y": 205.98067020500977,
+                "size": 171.61742503123696,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −117.1061667; lat: 33.2346667; mag: 0.95",
+                "x": 36.232492751666726,
+                "y": 141.88608283637012,
+                "size": 1.3388970194710537,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −153.399; lat: 58.9587; mag: 2.6",
+                "x": 2.827724376183113,
+                "y": 106.78736763851174,
+                "size": 20.013703623490215,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: 121.7751; lat: 23.9506; mag: 4.8",
+                "x": 256.1043698628876,
+                "y": 151.63527163733983,
+                "size": 221.87078650562265,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: 72.1924; lat: 37.7994; mag: 4",
+                "x": 210.46729889518528,
+                "y": 136.7214299337766,
+                "size": 107.51561849229488,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −121.1765; lat: 40.2825; mag: 2.31",
+                "x": 32.486063257623414,
+                "y": 133.778299868071,
+                "size": 12.84735079,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −122.7841644; lat: 38.8380013; mag: 0.56",
+                "x": 31.006331530326435,
+                "y": 135.502956984377,
+                "size": 1.0409190400000001,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: 121.7566; lat: 23.942; mag: 5.4",
+                "x": 256.08734203235593,
+                "y": 151.64393277384045,
+                "size": 354.7922925447731,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −117.5008333; lat: 35.6961667; mag: 1.1",
+                "x": 35.86923242835273,
+                "y": 139.13769161405912,
+                "size": 1.6091778009162852,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −122.8290024; lat: 38.8371658; mag: 0.57",
+                "x": 30.96506159165729,
+                "y": 135.5039442577268,
+                "size": 1.0439210537234487,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: 169.4658; lat: −18.9718; mag: 5.6",
+                "x": 300,
+                "y": 192.1417353362897,
+                "size": 410.19039999999984,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −118.1963; lat: 37.2339; mag: 0.2",
+                "x": 35.229108692784195,
+                "y": 137.37765717693964,
+                "size": 1.0006657226155768,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "goldenrod",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −68.4818; lat: 18.171; mag: 2.71",
+                "x": 80.98749144773376,
+                "y": 157.33888031945963,
+                "size": 23.44142815709704,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: 121.759; lat: 24.0413; mag: 5.3",
+                "x": 256.0895510482087,
+                "y": 151.5438916460893,
+                "size": 329.30447809246147,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: 121.756; lat: 24.0521; mag: 5.2",
+                "x": 256.08678977839276,
+                "y": 151.5330063822614,
+                "size": 305.21925797584345,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −115.5586; lat: 39.9385; mag: 2",
+                "x": 37.65690915729114,
+                "y": 134.19229747624095,
+                "size": 7.65722615576843,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "goldenrod",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −66.7358; lat: 17.911; mag: 1.71",
+                "x": 82.59455048061434,
+                "y": 157.59056464233834,
+                "size": 4.557605351599333,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −120.6545; lat: 39.8157; mag: 0.5",
+                "x": 32.966524205598006,
+                "y": 134.33958033804706,
+                "size": 1.0260047896709705,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −116.5465; lat: 33.1596667; mag: 0.5",
+                "x": 36.74762300690011,
+                "y": 141.96857861178063,
+                "size": 1.0260047896709705,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −122.8040009; lat: 38.8214989; mag: 1",
+                "x": 30.988073554091727,
+                "y": 135.52245499377787,
+                "size": 1.416076634735527,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −155.2733333; lat: 19.3948333; mag: 1.4",
+                "x": 1.1025443874123084,
+                "y": 156.14904498240418,
+                "size": 2.5983999999999994,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −116.2853333; lat: 33.3198333; mag: 1.12",
+                "x": 36.988006915446846,
+                "y": 141.7923185270382,
+                "size": 1.6547046400000003,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −155.2771667; lat: 19.3831667; mag: 0.93",
+                "x": 1.0990160368414763,
+                "y": 156.1604288103102,
+                "size": 1.3112469629279468,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −122.2388306; lat: 37.9975014; mag: 1.1",
+                "x": 31.508269450844807,
+                "y": 136.4903601339301,
+                "size": 1.6091778009162852,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −122.8034973; lat: 38.8223343; mag: 0.88",
+                "x": 30.988537079251515,
+                "y": 135.52146805582797,
+                "size": 1.2495192272553104,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −149.9556; lat: 65.4043; mag: 1.4",
+                "x": 5.997109870925954,
+                "y": 94.01932979499026,
+                "size": 2.5983999999999994,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −155.5506667; lat: 19.1508333; mag: 1.97",
+                "x": 0.8472802719544177,
+                "y": 156.3869619179531,
+                "size": 7.266690306201582,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −150.0793; lat: 56.1815; mag: 3.7",
+                "x": 5.883253512181824,
+                "y": 111.5568007342081,
+                "size": 78.97946018325699,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: 121.654; lat: 23.9342; mag: 5.1",
+                "x": 255.9929066046506,
+                "y": 151.65178772404948,
+                "size": 282.4842065389421,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −118.9056; lat: 38.3726; mag: 1.1",
+                "x": 34.57625246596734,
+                "y": 136.05111985668324,
+                "size": 1.6091778009162852,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −116.6651667; lat: 33.577; mag: 0.52",
+                "x": 36.6383994146108,
+                "y": 141.5086325460333,
+                "size": 1.0304219257975844,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: 121.653; lat: 24.1737; mag: 6.4",
+                "x": 255.99198618137865,
+                "y": 151.41038304250506,
+                "size": 699.0607573511038,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −116.814; lat: 33.5786667; mag: 1.37",
+                "x": 36.501409781644924,
+                "y": 141.50679122504565,
+                "size": 2.4657354670512293,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −116.7773333; lat: 33.4973333; mag: 0.46",
+                "x": 36.53515866563171,
+                "y": 141.59660455125203,
+                "size": 1.018629648246564,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −112.6238333; lat: 45.3583333; mag: −0.07",
+                "x": 40.358136725808976,
+                "y": 127.4031777647053,
+                "size": 0.99999001,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −116.9461667; lat: 33.6703333; mag: 0.89",
+                "x": 36.37976047518384,
+                "y": 141.40546583025468,
+                "size": 1.261055804910454,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −148.3011; lat: 56.2507; mag: 4.4",
+                "x": 7.519950174420217,
+                "y": 111.44225720948245,
+                "size": 156.94951703456897,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −155.2419; lat: 57.9207; mag: 1",
+                "x": 1.1314763282474871,
+                "y": 108.61291155084974,
+                "size": 1.416076634735527,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −121.0294; lat: 40.0627; mag: 1.4",
+                "x": 32.62145752093197,
+                "y": 134.04306641030655,
+                "size": 2.5983999999999994,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −118.9343338; lat: 37.6343346; mag: 1.66",
+                "x": 34.549805207754886,
+                "y": 136.91349289423687,
+                "size": 4.1594077587005405,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −121.0054; lat: 40.048; mag: 1.7",
+                "x": 32.64354767945953,
+                "y": 134.06074319809034,
+                "size": 4.475113660974593,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "goldenrod",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −68.3323; lat: 19.0268; mag: 3.24",
+                "x": 81.12509472689507,
+                "y": 156.50776786679305,
+                "size": 46.8514811138026,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −116.3998333; lat: 33.2496667; mag: 0.81",
+                "x": 36.88261845080491,
+                "y": 141.8695751951073,
+                "size": 1.1791073481007914,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −121.1480026; lat: 36.5584984; mag: 0.88",
+                "x": 32.512292927774396,
+                "y": 138.155003647513,
+                "size": 1.2495192272553104,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −121.4188309; lat: 36.9329987; mag: 1.7",
+                "x": 32.26301625774305,
+                "y": 137.72482660970846,
+                "size": 4.475113660974593,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −152.0545; lat: 60.5649; mag: 1.5",
+                "x": 4.065233465362951,
+                "y": 103.85105127110756,
+                "size": 3.106387963348605,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: 140.8677; lat: 36.7501; mag: 4.2",
+                "x": 273.6776432255313,
+                "y": 137.93517904275183,
+                "size": 130.4704,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −147.3152; lat: 61.4805; mag: 1.9",
+                "x": 8.427395478267272,
+                "y": 102.1113789209504,
+                "size": 6.422352311536859,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −116.0961667; lat: 33.7426667; mag: 1.09",
+                "x": 37.16212025636857,
+                "y": 141.32543450485446,
+                "size": 1.587326125943357,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −147.1244; lat: 60.5003; mag: 2.3",
+                "x": 8.603012238561433,
+                "y": 103.97192126404482,
+                "size": 12.643530154102452,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −116.09; lat: 33.7415; mag: 0.86",
+                "x": 37.1677962305599,
+                "y": 141.32672590347303,
+                "size": 1.2275973143856727,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "goldenrod",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −67.1968; lat: 18.2985; mag: 2.68",
+                "x": 82.17023535223066,
+                "y": 157.21532150106435,
+                "size": 22.46409116628072,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −118.976; lat: 37.5316667; mag: 0.41",
+                "x": 34.51145466761983,
+                "y": 137.03273763070925,
+                "size": 1.011757331274469,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −146.414; lat: 61.5779; mag: 1.9",
+                "x": 9.256880930977474,
+                "y": 101.92332086377532,
+                "size": 6.422352311536859,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −121.1191635; lat: 36.5750008; mag: 1",
+                "x": 32.538837106557395,
+                "y": 138.13609193649037,
+                "size": 1.416076634735527,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −122.831665; lat: 38.8371658; mag: 0.81",
+                "x": 30.9626108726533,
+                "y": 135.5039442577268,
+                "size": 1.1791073481007914,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −118.8825; lat: 38.0526; mag: 0.7",
+                "x": 34.59751424355014,
+                "y": 136.42598109841583,
+                "size": 1.0998999999999999,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −116.5515; lat: 33.4958333; mag: 0.64",
+                "x": 36.743020890540194,
+                "y": 141.59826015011518,
+                "size": 1.0698060757351104,
+                "shape": "circle"
+              },
+              {
+                "strokeWidth": 2,
+                "opacity": 0.35,
+                "fill": "steelblue",
+                "ariaRoleDescription": "circle",
+                "description": "lon: −118.9881667; lat: 37.6145; mag: 0.43",
+                "x": 34.50025615379661,
+                "y": 136.93654282667552,
+                "size": 1.0142248321491045,
+                "shape": "circle"
+              }
+            ],
+            "marktype": "symbol",
+            "name": "view_10_marks",
+            "role": "mark",
+            "zindex": 0
+          },
+          {
+            "clip": true,
+            "interactive": true,
+            "items": [
+              {
+                "fill": "transparent",
+                "x": 42.773173956930336,
+                "y": 0,
+                "x2": 97.99857027585085,
+                "y2": 300,
+                "stroke": "white",
+                "width": 55.22539631892052,
+                "height": 300
+              }
+            ],
+            "marktype": "rect",
+            "name": "param_9_brush",
+            "role": "mark",
+            "zindex": 0
+          },
+          {
+            "clip": false,
+            "interactive": false,
+            "items": [
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "items": [
+                          {
+                            "clip": false,
+                            "interactive": false,
+                            "items": [
+                              {
+                                "items": [
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "opacity": 0.35,
+                                        "x": 17,
+                                        "y": 5,
+                                        "fill": "steelblue",
+                                        "shape": "circle",
+                                        "size": 1,
+                                        "stroke": "transparent",
+                                        "strokeWidth": 1.5
+                                      }
+                                    ],
+                                    "marktype": "symbol",
+                                    "role": "legend-symbol",
+                                    "zindex": 0
+                                  },
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "fill": "#000",
+                                        "font": "sans-serif",
+                                        "fontSize": 10,
+                                        "opacity": 1,
+                                        "x": 38,
+                                        "y": 5,
+                                        "align": "left",
+                                        "baseline": "middle",
+                                        "limit": 160,
+                                        "text": "0"
+                                      }
+                                    ],
+                                    "marktype": "text",
+                                    "role": "legend-label",
+                                    "zindex": 0
+                                  }
+                                ],
+                                "width": 43.5615234375,
+                                "height": 10,
+                                "opacity": 1,
+                                "x": 0,
+                                "y": 0
+                              },
+                              {
+                                "items": [
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "opacity": 0.35,
+                                        "x": 17,
+                                        "y": 5,
+                                        "fill": "steelblue",
+                                        "shape": "circle",
+                                        "size": 1.416076634735527,
+                                        "stroke": "transparent",
+                                        "strokeWidth": 1.5
+                                      }
+                                    ],
+                                    "marktype": "symbol",
+                                    "role": "legend-symbol",
+                                    "zindex": 0
+                                  },
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "fill": "#000",
+                                        "font": "sans-serif",
+                                        "fontSize": 10,
+                                        "opacity": 1,
+                                        "x": 38,
+                                        "y": 5,
+                                        "align": "left",
+                                        "baseline": "middle",
+                                        "limit": 160,
+                                        "text": "1"
+                                      }
+                                    ],
+                                    "marktype": "text",
+                                    "role": "legend-label",
+                                    "zindex": 0
+                                  }
+                                ],
+                                "width": 43.5615234375,
+                                "height": 10,
+                                "opacity": 1,
+                                "x": 0,
+                                "y": 12
+                              },
+                              {
+                                "items": [
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "opacity": 0.35,
+                                        "x": 17,
+                                        "y": 5,
+                                        "fill": "steelblue",
+                                        "shape": "circle",
+                                        "size": 7.65722615576843,
+                                        "stroke": "transparent",
+                                        "strokeWidth": 1.5
+                                      }
+                                    ],
+                                    "marktype": "symbol",
+                                    "role": "legend-symbol",
+                                    "zindex": 0
+                                  },
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "fill": "#000",
+                                        "font": "sans-serif",
+                                        "fontSize": 10,
+                                        "opacity": 1,
+                                        "x": 38,
+                                        "y": 5,
+                                        "align": "left",
+                                        "baseline": "middle",
+                                        "limit": 160,
+                                        "text": "2"
+                                      }
+                                    ],
+                                    "marktype": "text",
+                                    "role": "legend-label",
+                                    "zindex": 0
+                                  }
+                                ],
+                                "width": 43.5615234375,
+                                "height": 10,
+                                "opacity": 1,
+                                "x": 0,
+                                "y": 24
+                              },
+                              {
+                                "items": [
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "opacity": 0.35,
+                                        "x": 17,
+                                        "y": 5,
+                                        "fill": "steelblue",
+                                        "shape": "circle",
+                                        "size": 34.702207413577675,
+                                        "stroke": "transparent",
+                                        "strokeWidth": 1.5
+                                      }
+                                    ],
+                                    "marktype": "symbol",
+                                    "role": "legend-symbol",
+                                    "zindex": 0
+                                  },
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "fill": "#000",
+                                        "font": "sans-serif",
+                                        "fontSize": 10,
+                                        "opacity": 1,
+                                        "x": 38,
+                                        "y": 5,
+                                        "align": "left",
+                                        "baseline": "middle",
+                                        "limit": 160,
+                                        "text": "3"
+                                      }
+                                    ],
+                                    "marktype": "text",
+                                    "role": "legend-label",
+                                    "zindex": 0
+                                  }
+                                ],
+                                "width": 43.5615234375,
+                                "height": 10,
+                                "opacity": 1,
+                                "x": 0,
+                                "y": 36
+                              },
+                              {
+                                "items": [
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "opacity": 0.35,
+                                        "x": 17,
+                                        "y": 6,
+                                        "fill": "steelblue",
+                                        "shape": "circle",
+                                        "size": 107.51561849229488,
+                                        "stroke": "transparent",
+                                        "strokeWidth": 1.5
+                                      }
+                                    ],
+                                    "marktype": "symbol",
+                                    "role": "legend-symbol",
+                                    "zindex": 0
+                                  },
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "fill": "#000",
+                                        "font": "sans-serif",
+                                        "fontSize": 10,
+                                        "opacity": 1,
+                                        "x": 38,
+                                        "y": 6,
+                                        "align": "left",
+                                        "baseline": "middle",
+                                        "limit": 160,
+                                        "text": "4"
+                                      }
+                                    ],
+                                    "marktype": "text",
+                                    "role": "legend-label",
+                                    "zindex": 0
+                                  }
+                                ],
+                                "width": 43.5615234375,
+                                "height": 12.68448691994432,
+                                "opacity": 1,
+                                "x": 0,
+                                "y": 49
+                              },
+                              {
+                                "items": [
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "opacity": 0.35,
+                                        "x": 17,
+                                        "y": 9,
+                                        "fill": "steelblue",
+                                        "shape": "circle",
+                                        "size": 261.0478967097043,
+                                        "stroke": "transparent",
+                                        "strokeWidth": 1.5
+                                      }
+                                    ],
+                                    "marktype": "symbol",
+                                    "role": "legend-symbol",
+                                    "zindex": 0
+                                  },
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "fill": "#000",
+                                        "font": "sans-serif",
+                                        "fontSize": 10,
+                                        "opacity": 1,
+                                        "x": 38,
+                                        "y": 9,
+                                        "align": "left",
+                                        "baseline": "middle",
+                                        "limit": 160,
+                                        "text": "5"
+                                      }
+                                    ],
+                                    "marktype": "text",
+                                    "role": "legend-label",
+                                    "zindex": 0
+                                  }
+                                ],
+                                "width": 43.5615234375,
+                                "height": 18.578488359676328,
+                                "opacity": 1,
+                                "x": 0,
+                                "y": 65
+                              },
+                              {
+                                "items": [
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "opacity": 0.35,
+                                        "x": 17,
+                                        "y": 12.5,
+                                        "fill": "steelblue",
+                                        "shape": "circle",
+                                        "size": 540.2353186172428,
+                                        "stroke": "transparent",
+                                        "strokeWidth": 1.5
+                                      }
+                                    ],
+                                    "marktype": "symbol",
+                                    "role": "legend-symbol",
+                                    "zindex": 0
+                                  },
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "fill": "#000",
+                                        "font": "sans-serif",
+                                        "fontSize": 10,
+                                        "opacity": 1,
+                                        "x": 38,
+                                        "y": 12.5,
+                                        "align": "left",
+                                        "baseline": "middle",
+                                        "limit": 160,
+                                        "text": "6"
+                                      }
+                                    ],
+                                    "marktype": "text",
+                                    "role": "legend-label",
+                                    "zindex": 0
+                                  }
+                                ],
+                                "width": 43.5615234375,
+                                "height": 25.621481388115313,
+                                "opacity": 1,
+                                "x": 0,
+                                "y": 87
+                              },
+                              {
+                                "items": [
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "opacity": 0.35,
+                                        "x": 17,
+                                        "y": 17,
+                                        "fill": "steelblue",
+                                        "shape": "circle",
+                                        "size": 1000,
+                                        "stroke": "transparent",
+                                        "strokeWidth": 1.5
+                                      }
+                                    ],
+                                    "marktype": "symbol",
+                                    "role": "legend-symbol",
+                                    "zindex": 0
+                                  },
+                                  {
+                                    "clip": false,
+                                    "interactive": false,
+                                    "items": [
+                                      {
+                                        "fill": "#000",
+                                        "font": "sans-serif",
+                                        "fontSize": 10,
+                                        "opacity": 1,
+                                        "x": 38,
+                                        "y": 17,
+                                        "align": "left",
+                                        "baseline": "middle",
+                                        "limit": 160,
+                                        "text": "7"
+                                      }
+                                    ],
+                                    "marktype": "text",
+                                    "role": "legend-label",
+                                    "zindex": 0
+                                  }
+                                ],
+                                "width": 43.5615234375,
+                                "height": 34.311388300841884,
+                                "opacity": 1,
+                                "x": 0,
+                                "y": 116
+                              }
+                            ],
+                            "marktype": "group",
+                            "role": "scope",
+                            "zindex": 0
+                          }
+                        ],
+                        "x": 0,
+                        "y": 16
+                      }
+                    ],
+                    "marktype": "group",
+                    "role": "legend-entry",
+                    "zindex": 0
+                  },
+                  {
+                    "clip": false,
+                    "interactive": false,
+                    "items": [
+                      {
+                        "fill": "#000",
+                        "font": "sans-serif",
+                        "fontSize": 11,
+                        "fontWeight": "bold",
+                        "opacity": 1,
+                        "orient": "top",
+                        "text": "mag",
+                        "limit": 180,
+                        "x": 0,
+                        "y": 0,
+                        "angle": 0,
+                        "align": "left",
+                        "baseline": "top"
+                      }
+                    ],
+                    "marktype": "text",
+                    "role": "legend-title",
+                    "zindex": 0
+                  }
+                ],
+                "orient": "right",
+                "x": 318,
+                "y": 0,
+                "width": 44,
+                "height": 167
+              }
+            ],
+            "marktype": "group",
+            "role": "legend",
+            "zindex": 0
+          }
+        ],
+        "fill": "transparent",
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 300
+      }
+    ],
+    "marktype": "group",
+    "name": "root",
+    "role": "frame",
+    "zindex": 0
+  }
+}
