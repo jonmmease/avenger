@@ -7,6 +7,7 @@ use avenger::marks::value::Gradient;
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VegaGroupItem {
     pub items: Vec<VegaMark>,
     #[serde(default)]

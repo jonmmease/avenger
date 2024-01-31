@@ -140,6 +140,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if (in.draw_shape != 1.0) {
         discard;
     }
+    if (should_clip(in.clip_position)) {
+        discard;
+    }
 
     let top_left = in.center - in.radius;
     let bottom_right = in.center + in.radius;

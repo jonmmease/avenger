@@ -47,5 +47,8 @@ var nearest_sampler: sampler;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    if (should_clip(in.clip_position)) {
+        discard;
+    }
     return textureSample(texture_atlas, texture_sampler, in.tex_coords);
 }

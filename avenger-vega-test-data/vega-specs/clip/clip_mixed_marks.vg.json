@@ -1,0 +1,199 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v5.json",
+  "description": "A simple bar chart with embedded data.",
+  "background": "white",
+  "padding": 5,
+  "height": 400,
+  "width": 200,
+  "style": "cell",
+  "marks": [
+    {
+      "type": "group",
+      "encode": {
+        "update": {
+          "x": {"value": 20},
+          "y": {"value": 20},
+          "width": {"value": 160},
+          "height": {"value": 360},
+          "stroke": {"value": "gray"},
+          "strokeWidth": {"value": 2}
+        }
+      },
+      "marks": [
+        {
+          "type": "rect",
+          "clip": true,
+          "encode": {
+            "update": {
+              "fill": {"value": "crimson"},
+              "x": {"value": -10},
+              "width": {"value": 50},
+              "y": {"value": 10},
+              "height": {"value": 50}
+            }
+          }
+        },
+        {
+          "type": "rect",
+          "clip": false,
+          "encode": {
+            "update": {
+              "fill": {"value": "crimson"},
+              "x": {"value": -10},
+              "width": {"value": 50},
+              "y": {"value": 70},
+              "height": {"value": 50}
+            }
+          }
+        },
+        {
+          "type": "rule",
+          "encode": {
+            "update": {
+              "stroke": {"value": "blue"},
+              "strokeWidth": {"value": 10},
+              "strokeCap": {"value": "round"},
+              "x": {"value": 130},
+              "x2": {"value": 165},
+              "y": {"value": 130},
+              "y2": {"value": 150}
+            }
+          }
+        },
+        {
+          "type": "rule",
+          "clip": true,
+          "encode": {
+            "update": {
+              "stroke": {"value": "blue"},
+              "strokeWidth": {"value": 10},
+              "strokeCap": {"value": "round"},
+              "x": {"value": 130},
+              "x2": {"value": 165},
+              "y": {"value": 150},
+              "y2": {"value": 170}
+            }
+          }
+        },
+        {
+          "type": "path",
+          "encode": {
+            "update": {
+              "x": {"value": 0},
+              "y": {"value": 200},
+              "fill": {"value": "green"},
+              "scaleX": {"value": 15},
+              "scaleY": {"value": 15},
+              "path": {
+                "value": "M0,.5L.6,.8L.5,.1L1,-.3L.3,-.4L0,-1L-.3,-.4L-1,-.3L-.5,.1L-.6.8L0,.5Z"
+              }
+            }
+          }
+        },
+        {
+          "type": "path",
+          "clip": true,
+          "encode": {
+            "update": {
+              "x": {"value": 0},
+              "y": {"value": 230},
+              "fill": {"value": "green"},
+              "scaleX": {"value": 15},
+              "scaleY": {"value": 15},
+              "path": {
+                "value": "M0,.5L.6,.8L.5,.1L1,-.3L.3,-.4L0,-1L-.3,-.4L-1,-.3L-.5,.1L-.6.8L0,.5Z"
+              }
+            }
+          }
+        },
+        {
+          "type": "arc",
+          "encode": {
+            "update": {
+              "x": {"value": 70},
+              "y": {"value": 260},
+              "outerRadius": {"value": 80},
+              "innerRadius": {"value": 20},
+              "startAngle": {"value": -1.5},
+              "endAngle": {"value": -1.8},
+              "fill": {"value": "lightblue"},
+              "stroke": {"value": "deeppink"},
+              "strokeWidth": {"value": 3}
+            }
+          }
+        },
+        {
+          "type": "arc",
+          "clip": true,
+          "encode": {
+            "update": {
+              "x": {"value": 70},
+              "y": {"value": 300},
+              "outerRadius": {"value": 80},
+              "innerRadius": {"value": 20},
+              "startAngle": {"value": -1.5},
+              "endAngle": {"value": -1.8},
+              "fill": {"value": "lightblue"},
+              "stroke": {"value": "deeppink"},
+              "strokeWidth": {"value": 3}
+            }
+          }
+        },
+        {
+          "type": "image",
+          "encode": {
+            "update": {
+              "x": {"value": 30},
+              "y": {"value": 320},
+              "width": {"value": 50},
+              "height": {"value": 50},
+              "url": {"value": "data/ffox.png"}
+            }
+          }
+        },
+        {
+          "type": "image",
+          "clip": true,
+          "encode": {
+            "update": {
+              "x": {"value": 90},
+              "y": {"value": 320},
+              "width": {"value": 50},
+              "height": {"value": 50},
+              "url": {"value": "data/ffox.png"}
+            }
+          }
+        },
+        {
+          "type": "symbol",
+          "encode": {
+            "update": {
+              "x": {"value": 60},
+              "y": {"value": 3},
+              "fill": {"value": "orange"},
+              "size": {"value": 350},
+              "shape": {
+                "value": "cross"
+              }
+            }
+          }
+        },
+        {
+          "type": "symbol",
+          "clip": true,
+          "encode": {
+            "update": {
+              "x": {"value": 90},
+              "y": {"value": 3},
+              "fill": {"value": "orange"},
+              "size": {"value": 350},
+              "shape": {
+                "value": "cross"
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
