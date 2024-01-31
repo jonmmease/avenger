@@ -64,8 +64,8 @@ impl VegaMarkContainer<VegaTextItem> {
         let mut zindex = Vec::<i32>::new();
 
         for item in &self.items {
-            x.push(item.x);
-            y.push(item.y);
+            x.push(item.x + item.dx.unwrap_or(0.0));
+            y.push(item.y + item.dy.unwrap_or(0.0));
             text.push(item.text.clone());
 
             if let Some(v) = item.align {
@@ -144,12 +144,6 @@ impl VegaMarkContainer<VegaTextItem> {
         }
         if color.len() == len {
             mark.color = EncodingValue::Array { values: color };
-        }
-        if dx.len() == len {
-            mark.dx = EncodingValue::Array { values: dx };
-        }
-        if dy.len() == len {
-            mark.dy = EncodingValue::Array { values: dy };
         }
         if font.len() == len {
             mark.font = EncodingValue::Array { values: font };
