@@ -47,5 +47,8 @@ fn vs_main(
 // Fragment shader
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    if (should_clip(in.clip_position)) {
+        discard;
+    }
     return lookup_color(in.color, in.clip_position, in.top_left, in.bottom_right);
 }

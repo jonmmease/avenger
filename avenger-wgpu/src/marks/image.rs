@@ -257,7 +257,11 @@ impl ImageShader {
             smooth: mark.smooth,
             batches,
             texture_size,
-            shader: include_str!("image.wgsl").to_string(),
+            shader: format!(
+                "{}\n{}\n",
+                include_str!("image.wgsl"),
+                include_str!("clip.wgsl")
+            ),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
         })

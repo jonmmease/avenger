@@ -86,6 +86,9 @@ fn mod_tau(v: f32) -> f32 {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    if (should_clip(in.clip_position)) {
+        discard;
+    }
 
     // Compute scaled values position
     let scaled_center = in.position * chart_uniforms.scale;
