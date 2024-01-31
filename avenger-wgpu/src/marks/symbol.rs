@@ -225,9 +225,10 @@ impl SymbolShader {
             batches,
             texture_size,
             shader: format!(
-                "{}\n{}",
+                "{}\n{}\n{}\n",
                 include_str!("symbol.wgsl"),
-                include_str!("gradient.wgsl")
+                include_str!("gradient.wgsl"),
+                include_str!("clip.wgsl"),
             ),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),

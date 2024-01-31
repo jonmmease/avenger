@@ -156,6 +156,7 @@ pub struct TextMarkRenderer {
     pub instances: Vec<TextInstance>,
     pub dimensions: CanvasDimensions,
     pub group_bounds: GroupBounds,
+    pub clip: bool,
 }
 
 impl TextMarkRenderer {
@@ -187,6 +188,7 @@ impl TextMarkRenderer {
             dimensions,
             instances,
             group_bounds,
+            clip: mark.clip,
         }
     }
 
@@ -275,17 +277,34 @@ impl TextMarkRenderer {
                 // Add half pixel for top baseline for better match with resvg
                 top += 0.5 * self.dimensions.scale;
 
+                let text_bounds = if self.clip
+                    && self.group_bounds.width.is_some()
+                    && self.group_bounds.height.is_some()
+                {
+                    TextBounds {
+                        left: (self.group_bounds.x * self.dimensions.scale) as i32,
+                        top: (self.group_bounds.y * self.dimensions.scale) as i32,
+                        right: ((self.group_bounds.x + self.group_bounds.width.unwrap())
+                            * self.dimensions.scale) as i32,
+                        bottom: ((self.group_bounds.y + self.group_bounds.height.unwrap())
+                            * self.dimensions.scale) as i32,
+                    }
+                } else {
+                    // Don't clip
+                    TextBounds {
+                        left: 0,
+                        top: 0,
+                        right: (self.dimensions.size[0] * self.dimensions.scale) as i32,
+                        bottom: (self.dimensions.size[1] * self.dimensions.scale) as i32,
+                    }
+                };
+
                 TextArea {
                     buffer,
                     left,
                     top,
                     scale: 1.0,
-                    bounds: TextBounds {
-                        left: 0,
-                        top: 0,
-                        right: (self.dimensions.size[0] * self.dimensions.scale) as i32,
-                        bottom: (self.dimensions.size[1] * self.dimensions.scale) as i32,
-                    },
+                    bounds: text_bounds,
                     default_color: Color::rgba(
                         (instance.color[0] * 255.0) as u8,
                         (instance.color[1] * 255.0) as u8,

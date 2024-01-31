@@ -98,6 +98,9 @@ fn vs_main(
 // Fragment shader
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    if (should_clip(in.clip_position)) {
+        discard;
+    }
 
     let top_left = vec2<f32>(
         min(in.p0[0], in.p1[0]),
