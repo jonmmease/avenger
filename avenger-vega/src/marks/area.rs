@@ -62,6 +62,7 @@ impl VegaMarkContainer<VegaAreaItem> {
 
         let mut mark = AreaMark {
             clip: self.clip,
+            zindex: self.zindex,
             orientation,
             fill,
             stroke,

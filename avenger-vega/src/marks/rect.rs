@@ -31,6 +31,7 @@ impl VegaMarkContainer<VegaRectItem> {
     pub fn to_scene_graph(&self) -> Result<SceneMark, AvengerVegaError> {
         let mut mark = RectMark {
             clip: self.clip,
+            zindex: self.zindex,
             ..Default::default()
         };
 

@@ -25,3 +25,21 @@ pub enum SceneMark {
     Image(Box<ImageMark>),
     Group(SceneGroup),
 }
+
+impl SceneMark {
+    pub fn zindex(&self) -> Option<i32> {
+        match self {
+            Self::Arc(mark) => mark.zindex,
+            Self::Area(mark) => mark.zindex,
+            Self::Path(mark) => mark.zindex,
+            Self::Symbol(mark) => mark.zindex,
+            Self::Line(mark) => mark.zindex,
+            Self::Trail(mark) => mark.zindex,
+            Self::Rect(mark) => mark.zindex,
+            Self::Rule(mark) => mark.zindex,
+            Self::Text(mark) => mark.zindex,
+            Self::Image(mark) => mark.zindex,
+            Self::Group(mark) => mark.zindex,
+        }
+    }
+}

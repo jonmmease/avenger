@@ -108,6 +108,7 @@ impl VegaMarkContainer<VegaImageItem> {
             width: EncodingValue::Array { values: width },
             height: EncodingValue::Array { values: height },
             indices,
+            zindex: self.zindex,
         })))
     }
 }

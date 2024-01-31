@@ -38,6 +38,7 @@ impl VegaMarkContainer<VegaTrailItem> {
 
         let mut mark = TrailMark {
             clip: self.clip,
+            zindex: self.zindex,
             gradients,
             stroke,
             ..Default::default()
