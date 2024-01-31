@@ -20,6 +20,7 @@ pub struct TextMark {
     pub font_style: EncodingValue<FontStyleSpec>,
     pub limit: EncodingValue<f32>,
     pub indices: Option<Vec<usize>>,
+    pub zindex: Option<i32>,
 }
 
 impl TextMark {
@@ -98,6 +99,7 @@ impl Default for TextMark {
             },
             limit: EncodingValue::Scalar { value: 0.0 },
             indices: None,
+            zindex: None,
         }
     }
 }

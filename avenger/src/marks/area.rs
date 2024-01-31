@@ -20,6 +20,7 @@ pub struct AreaMark {
     pub stroke_cap: StrokeCap,
     pub stroke_join: StrokeJoin,
     pub stroke_dash: Option<Vec<f32>>,
+    pub zindex: Option<i32>,
 }
 
 impl AreaMark {
@@ -63,6 +64,7 @@ impl Default for AreaMark {
             stroke_cap: Default::default(),
             stroke_join: Default::default(),
             stroke_dash: None,
+            zindex: None,
         }
     }
 }

@@ -33,6 +33,7 @@ pub struct SceneGroup {
     pub stroke_width: Option<f32>,
     pub stroke_offset: Option<f32>,
     pub corner_radius: Option<f32>,
+    pub zindex: Option<i32>,
 }
 
 impl SceneGroup {
@@ -89,6 +90,7 @@ impl SceneGroup {
                 value: self.corner_radius.unwrap_or(0.0),
             },
             indices: None,
+            zindex: self.zindex,
         })
     }
 }

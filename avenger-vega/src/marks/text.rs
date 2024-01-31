@@ -38,6 +38,7 @@ impl VegaMarkContainer<VegaTextItem> {
         // Init mark with scalar defaults
         let mut mark = TextMark {
             clip: self.clip,
+            zindex: self.zindex,
             ..Default::default()
         };
         if let Some(name) = &self.name {

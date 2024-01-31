@@ -17,6 +17,7 @@ pub struct ImageMark {
     pub align: EncodingValue<ImageAlign>,
     pub baseline: EncodingValue<ImageBaseline>,
     pub indices: Option<Vec<usize>>,
+    pub zindex: Option<i32>,
 }
 
 impl ImageMark {

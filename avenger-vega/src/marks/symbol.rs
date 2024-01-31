@@ -62,6 +62,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
                 let mark = LineMark {
                     name: "".to_string(),
                     clip: false,
+                    zindex: self.zindex,
                     len: 2,
                     x: EncodingValue::Array {
                         values: vec![x - width / 2.0, x + width / 2.0],
@@ -96,6 +97,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
                 stroke_width: None,
                 stroke_offset: None,
                 corner_radius: None,
+                zindex: None,
             }));
         }
 
@@ -112,6 +114,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
         let mut mark = SymbolMark {
             stroke_width,
             clip: self.clip,
+            zindex: self.zindex,
             ..Default::default()
         };
 

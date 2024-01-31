@@ -29,6 +29,7 @@ impl VegaMarkContainer<VegaRuleItem> {
         // Init mark with scalar defaults
         let mut mark = RuleMark {
             clip: self.clip,
+            zindex: self.zindex,
             ..Default::default()
         };
         if let Some(name) = &self.name {

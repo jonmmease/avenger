@@ -1,5 +1,5 @@
 use crate::error::AvengerVegaError;
-use crate::marks::mark::{VegaMark, VegaMarkItem};
+use crate::marks::mark::{VegaMark, VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::CssColorOrGradient;
 use avenger::marks::group::{GroupBounds, SceneGroup};
 use avenger::marks::mark::SceneMark;
@@ -28,85 +28,89 @@ pub struct VegaGroupItem {
 
 impl VegaMarkItem for VegaGroupItem {}
 
-impl VegaGroupItem {
-    pub fn to_scene_graph(&self) -> Result<SceneGroup, AvengerVegaError> {
-        let mut marks: Vec<SceneMark> = Vec::new();
-        for item in &self.items {
-            let item_marks: Vec<_> = match item {
-                VegaMark::Group(group) => group
-                    .items
-                    .iter()
-                    .map(|item| Ok(SceneMark::Group(item.to_scene_graph()?)))
-                    .collect::<Result<Vec<_>, AvengerVegaError>>()?,
-                VegaMark::Rect(mark) => {
-                    vec![mark.to_scene_graph()?]
-                }
-                VegaMark::Rule(mark) => {
-                    vec![mark.to_scene_graph()?]
-                }
-                VegaMark::Symbol(mark) => {
-                    vec![mark.to_scene_graph()?]
-                }
-                VegaMark::Text(mark) => {
-                    vec![mark.to_scene_graph()?]
-                }
-                VegaMark::Arc(mark) => {
-                    vec![mark.to_scene_graph()?]
-                }
-                VegaMark::Path(mark) => {
-                    vec![mark.to_scene_graph()?]
-                }
-                VegaMark::Shape(mark) => {
-                    vec![mark.to_scene_graph()?]
-                }
-                VegaMark::Line(mark) => {
-                    vec![mark.to_scene_graph()?]
-                }
-                VegaMark::Area(mark) => {
-                    vec![mark.to_scene_graph()?]
-                }
-                VegaMark::Trail(mark) => {
-                    vec![mark.to_scene_graph()?]
-                }
-                VegaMark::Image(mark) => {
-                    vec![mark.to_scene_graph()?]
-                }
+impl VegaMarkContainer<VegaGroupItem> {
+    pub fn to_scene_graph(&self) -> Result<Vec<SceneGroup>, AvengerVegaError> {
+        let mut groups: Vec<SceneGroup> = Vec::new();
+        for group_item in &self.items {
+            let mut marks: Vec<SceneMark> = Vec::new();
+            for item in &group_item.items {
+                let item_marks: Vec<SceneMark> = match item {
+                    VegaMark::Group(mark) => mark
+                        .to_scene_graph()?
+                        .into_iter()
+                        .map(|g| SceneMark::Group(g))
+                        .collect(),
+                    VegaMark::Rect(mark) => {
+                        vec![mark.to_scene_graph()?]
+                    }
+                    VegaMark::Rule(mark) => {
+                        vec![mark.to_scene_graph()?]
+                    }
+                    VegaMark::Symbol(mark) => {
+                        vec![mark.to_scene_graph()?]
+                    }
+                    VegaMark::Text(mark) => {
+                        vec![mark.to_scene_graph()?]
+                    }
+                    VegaMark::Arc(mark) => {
+                        vec![mark.to_scene_graph()?]
+                    }
+                    VegaMark::Path(mark) => {
+                        vec![mark.to_scene_graph()?]
+                    }
+                    VegaMark::Shape(mark) => {
+                        vec![mark.to_scene_graph()?]
+                    }
+                    VegaMark::Line(mark) => {
+                        vec![mark.to_scene_graph()?]
+                    }
+                    VegaMark::Area(mark) => {
+                        vec![mark.to_scene_graph()?]
+                    }
+                    VegaMark::Trail(mark) => {
+                        vec![mark.to_scene_graph()?]
+                    }
+                    VegaMark::Image(mark) => {
+                        vec![mark.to_scene_graph()?]
+                    }
+                };
+                marks.extend(item_marks);
+            }
+
+            let mut gradients = Vec::<Gradient>::new();
+            let fill = if let Some(v) = &group_item.fill {
+                let opacity =
+                    group_item.fill_opacity.unwrap_or(1.0) * group_item.opacity.unwrap_or(1.0);
+                Some(v.to_color_or_grad(opacity, &mut gradients)?)
+            } else {
+                None
             };
-            marks.extend(item_marks);
+            let stroke = if let Some(v) = &group_item.stroke {
+                let opacity =
+                    group_item.fill_opacity.unwrap_or(1.0) * group_item.opacity.unwrap_or(1.0);
+                Some(v.to_color_or_grad(opacity, &mut gradients)?)
+            } else {
+                None
+            };
+
+            groups.push(SceneGroup {
+                name: self.name.clone().unwrap_or("group_mark".to_string()),
+                zindex: self.zindex,
+                bounds: GroupBounds {
+                    x: group_item.x.unwrap_or(0.0),
+                    y: group_item.y.unwrap_or(0.0),
+                    width: group_item.width,
+                    height: group_item.height,
+                },
+                marks,
+                gradients,
+                fill,
+                stroke,
+                stroke_width: group_item.stroke_width,
+                stroke_offset: group_item.stroke_offset,
+                corner_radius: group_item.corner_radius,
+            })
         }
-
-        let mut gradients = Vec::<Gradient>::new();
-        let fill = if let Some(v) = &self.fill {
-            let opacity = self.fill_opacity.unwrap_or(1.0) * self.opacity.unwrap_or(1.0);
-            Some(v.to_color_or_grad(opacity, &mut gradients)?)
-        } else {
-            None
-        };
-        let stroke = if let Some(v) = &self.stroke {
-            let opacity = self.fill_opacity.unwrap_or(1.0) * self.opacity.unwrap_or(1.0);
-            Some(v.to_color_or_grad(opacity, &mut gradients)?)
-        } else {
-            None
-        };
-
-        Ok(SceneGroup {
-            name: self
-                .name
-                .clone()
-                .unwrap_or_else(|| "group_item".to_string()),
-            bounds: GroupBounds {
-                x: self.x.unwrap_or(0.0),
-                y: self.y.unwrap_or(0.0),
-                width: self.width,
-                height: self.height,
-            },
-            marks,
-            gradients,
-            fill,
-            stroke,
-            stroke_width: self.stroke_width,
-            stroke_offset: self.stroke_offset,
-            corner_radius: self.corner_radius,
-        })
+        Ok(groups)
     }
 }

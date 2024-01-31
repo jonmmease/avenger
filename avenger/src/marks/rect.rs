@@ -17,6 +17,7 @@ pub struct RectMark {
     pub stroke_width: EncodingValue<f32>,
     pub corner_radius: EncodingValue<f32>,
     pub indices: Option<Vec<usize>>,
+    pub zindex: Option<i32>,
 }
 
 impl RectMark {
@@ -77,6 +78,7 @@ impl Default for RectMark {
             stroke_width: EncodingValue::Scalar { value: 0.0 },
             corner_radius: EncodingValue::Scalar { value: 0.0 },
             indices: None,
+            zindex: None,
         }
     }
 }

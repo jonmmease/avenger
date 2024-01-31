@@ -48,6 +48,7 @@ impl VegaMarkContainer<VegaLineItem> {
 
         let mut mark = LineMark {
             clip: self.clip,
+            zindex: self.zindex,
             stroke,
             stroke_width,
             stroke_cap,
