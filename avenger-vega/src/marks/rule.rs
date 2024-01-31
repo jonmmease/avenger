@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VegaRuleItem {
-    pub x: f32,
-    pub y: f32,
+    pub x: Option<f32>,
+    pub y: Option<f32>,
     pub x2: Option<f32>,
     pub y2: Option<f32>,
     pub stroke: Option<CssColorOrGradient>,
@@ -29,6 +29,7 @@ impl VegaMarkContainer<VegaRuleItem> {
         // Init mark with scalar defaults
         let mut mark = RuleMark {
             clip: self.clip,
+            zindex: self.zindex,
             ..Default::default()
         };
         if let Some(name) = &self.name {
@@ -49,10 +50,12 @@ impl VegaMarkContainer<VegaRuleItem> {
 
         // For each item, append explicit values to corresponding vector
         for item in &self.items {
-            x0.push(item.x);
-            y0.push(item.y);
-            x1.push(item.x2.unwrap_or(item.x));
-            y1.push(item.y2.unwrap_or(item.y));
+            let x = item.x.unwrap_or(0.0);
+            let y = item.y.unwrap_or(0.0);
+            x0.push(x);
+            y0.push(y);
+            x1.push(item.x2.unwrap_or(x));
+            y1.push(item.y2.unwrap_or(y));
 
             if let Some(v) = &item.stroke {
                 let opacity = item.stroke_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);

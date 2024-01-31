@@ -57,7 +57,7 @@ workspace = true
 
 [dev-dependencies.avenger-vega]
 path = "../avenger-vega"
-features = [ "image-request",]
+features = [ "image-request", "svg"]
 version = "0.0.2-a0"
 
 [dev-dependencies.serde_json]

@@ -40,6 +40,6 @@ pub struct VegaMarkContainer<T: VegaMarkItem> {
     #[serde(default)]
     pub items: Vec<T>,
     pub name: Option<String>,
-    role: Option<String>,
-    zindex: Option<i64>,
+    pub role: Option<String>,
+    pub zindex: Option<i32>,
 }

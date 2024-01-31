@@ -1,0 +1,87 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v5.json",
+  "background": "white",
+  "padding": 5,
+  "width": 300,
+  "height": 175,
+  "style": "view",
+  "data": [
+    {
+      "name": "source_1",
+      "url": "https://cdn.jsdelivr.net/npm/vega-datasets@v1.29.0/data/us-10m.json",
+      "format": {"feature": "states", "type": "topojson"}
+    },
+    {
+      "name": "source_0",
+      "url": "https://cdn.jsdelivr.net/npm/vega-datasets@v1.29.0/data/income.json",
+      "format": {"type": "json"},
+      "transform": [
+        {
+          "type": "lookup",
+          "from": "source_1",
+          "key": "id",
+          "fields": ["id"],
+          "as": ["geo"]
+        },
+        {"type": "filter", "expr": "isValid(datum[\"geo\"])"},
+        {"type": "geojson", "geojson": "geo", "signal": "geojson_0"},
+        {
+          "type": "filter",
+          "expr": "isValid(datum[\"pct\"]) && isFinite(+datum[\"pct\"])"
+        }
+      ]
+    }
+  ],
+  "projections": [
+    {
+      "name": "projection",
+      "size": {"signal": "[width, height]"},
+      "fit": {"signal": "geojson_0"},
+      "type": "albersUsa"
+    }
+  ],
+  "marks": [
+    {
+      "name": "marks",
+      "type": "shape",
+      "style": ["geoshape"],
+      "from": {"data": "source_0"},
+      "encode": {
+        "update": {
+          "fill": {"scale": "color", "field": "pct"},
+          "tooltip": {
+            "signal": "{\"name\": isValid(datum[\"name\"]) ? datum[\"name\"] : \"\"+datum[\"name\"], \"pct\": format(datum[\"pct\"], \"\")}"
+          },
+          "ariaRoleDescription": {"value": "geoshape"},
+          "description": {
+            "signal": "\"pct: \" + (format(datum[\"pct\"], \"\")) + \"; geo: \" + (isValid(datum[\"geo\"]) ? datum[\"geo\"] : \"\"+datum[\"geo\"]) + \"; name: \" + (isValid(datum[\"name\"]) ? datum[\"name\"] : \"\"+datum[\"name\"])"
+          }
+        }
+      },
+      "transform": [
+        {
+          "type": "geoshape",
+          "projection": "projection",
+          "field": "datum[\"geo\"]"
+        }
+      ]
+    }
+  ],
+  "scales": [
+    {
+      "name": "color",
+      "type": "linear",
+      "domain": {"data": "source_0", "field": "pct"},
+      "range": "heatmap",
+      "interpolate": "hcl",
+      "zero": false
+    }
+  ],
+  "legends": [
+    {
+      "fill": "color",
+      "gradientLength": {"signal": "clamp(height, 64, 200)"},
+      "title": "pct"
+    }
+  ]
+}
