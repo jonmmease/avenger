@@ -88,7 +88,7 @@ impl Default for TextMark {
                 value: TextAlignSpec::Left,
             },
             baseline: EncodingValue::Scalar {
-                value: TextBaselineSpec::Bottom,
+                value: TextBaselineSpec::Alphabetic,
             },
             angle: EncodingValue::Scalar { value: 0.0 },
             color: EncodingValue::Scalar {

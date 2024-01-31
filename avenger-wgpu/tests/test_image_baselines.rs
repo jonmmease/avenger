@@ -134,6 +134,7 @@ mod test_image_baselines {
         case("gradients", "radial_offset_gradient_bars", 0.02),
         case("gradients", "symbol_radial_gradient", 0.002),
         case("clip", "clip_mixed_marks", 0.002),
+        case("clip", "text_clip", 0.02),
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
         println!("{spec_name}");
