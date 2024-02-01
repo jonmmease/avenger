@@ -1,6 +1,6 @@
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
-use crate::marks::values::{CssColorOrGradient, StrokeDashSpec};
+use crate::marks::values::{CssColorOrGradient, MissingNullOrValue, StrokeDashSpec};
 use avenger::marks::mark::SceneMark;
 use avenger::marks::rule::RuleMark;
 use avenger::marks::value::{ColorOrGradient, EncodingValue, Gradient, StrokeCap};
@@ -13,7 +13,7 @@ pub struct VegaRuleItem {
     pub y: Option<f32>,
     pub x2: Option<f32>,
     pub y2: Option<f32>,
-    pub stroke: Option<CssColorOrGradient>,
+    pub stroke: MissingNullOrValue<CssColorOrGradient>,
     pub stroke_width: Option<f32>,
     pub stroke_cap: Option<StrokeCap>,
     pub stroke_opacity: Option<f32>,
@@ -48,19 +48,24 @@ impl VegaMarkContainer<VegaRuleItem> {
         let mut zindex = Vec::<i32>::new();
         let mut gradients = Vec::<Gradient>::new();
 
+        let mut len: usize = 0;
         // For each item, append explicit values to corresponding vector
         for item in &self.items {
+            if item.stroke.is_null() {
+                // Skip rules with stroke set to explicit null value (not just missing)
+                continue;
+            }
+            if let Some(v) = item.stroke.as_option() {
+                let opacity = item.stroke_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
+                stroke.push(v.to_color_or_grad(opacity, &mut gradients)?);
+            }
+
             let x = item.x.unwrap_or(0.0);
             let y = item.y.unwrap_or(0.0);
             x0.push(x);
             y0.push(y);
             x1.push(item.x2.unwrap_or(x));
             y1.push(item.y2.unwrap_or(y));
-
-            if let Some(v) = &item.stroke {
-                let opacity = item.stroke_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
-                stroke.push(v.to_color_or_grad(opacity, &mut gradients)?);
-            }
 
             if let Some(s) = item.stroke_width {
                 stroke_width.push(s);
@@ -77,10 +82,11 @@ impl VegaMarkContainer<VegaRuleItem> {
             if let Some(v) = item.zindex {
                 zindex.push(v);
             }
+
+            len += 1;
         }
 
         // Override values with vectors
-        let len = self.items.len();
         mark.len = len as u32;
 
         if x0.len() == len {

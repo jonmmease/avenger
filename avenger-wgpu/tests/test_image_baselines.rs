@@ -66,6 +66,7 @@ mod test_image_baselines {
         case("text", "bar_axis_labels", 0.01),
         case("text", "text_rotation", 0.015),
         case("text", "letter_scatter", 0.012),
+        case("text", "lasagna_plot", 0.01),
 
         // vl-convert doesn't support emoji at all
         case("text", "emoji", 2.0),
