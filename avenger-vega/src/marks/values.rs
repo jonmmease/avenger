@@ -2,7 +2,7 @@ use crate::error::AvengerVegaError;
 use avenger::marks::value::{
     ColorOrGradient, Gradient, GradientStop, LinearGradient, RadialGradient,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::borrow::Cow;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -133,5 +133,62 @@ impl CssGradientStop {
             offset: self.offset,
             color: [c.r as f32, c.g as f32, c.b as f32, c.a as f32 * opacity],
         })
+    }
+}
+
+/// Helper struct that will not drop null values on round trip (de)serialization
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum MissingNullOrValue<V> {
+    #[default]
+    Missing,
+    Null,
+    Value(V),
+}
+
+impl<V> MissingNullOrValue<V> {
+    pub fn is_missing(&self) -> bool {
+        matches!(self, MissingNullOrValue::Missing)
+    }
+
+    pub fn is_null(&self) -> bool {
+        matches!(self, MissingNullOrValue::Null)
+    }
+
+    pub fn as_option(&self) -> Option<&V> {
+        match self {
+            MissingNullOrValue::Missing | MissingNullOrValue::Null => None,
+            MissingNullOrValue::Value(v) => Some(v),
+        }
+    }
+}
+
+impl<V> From<Option<V>> for MissingNullOrValue<V> {
+    fn from(opt: Option<V>) -> MissingNullOrValue<V> {
+        match opt {
+            Some(v) => MissingNullOrValue::Value(v),
+            None => MissingNullOrValue::Null,
+        }
+    }
+}
+
+impl<'de, V: Deserialize<'de>> Deserialize<'de> for MissingNullOrValue<V> {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Option::deserialize(deserializer).map(Into::into)
+    }
+}
+
+impl<V: Serialize> Serialize for MissingNullOrValue<V> {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            MissingNullOrValue::Missing => None::<Option<String>>.serialize(serializer),
+            MissingNullOrValue::Null => serde_json::Value::Null.serialize(serializer),
+            MissingNullOrValue::Value(v) => v.serialize(serializer),
+        }
     }
 }

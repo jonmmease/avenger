@@ -1,5 +1,6 @@
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
+use crate::marks::values::MissingNullOrValue;
 use avenger::marks::mark::SceneMark;
 use avenger::marks::text::{
     FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec, TextMark,
@@ -20,7 +21,7 @@ pub struct VegaTextItem {
     pub baseline: Option<TextBaselineSpec>,
     pub dx: Option<f32>,
     pub dy: Option<f32>,
-    pub fill: Option<String>,
+    pub fill: MissingNullOrValue<String>,
     pub opacity: Option<f32>,
     pub fill_opacity: Option<f32>,
     pub font: Option<String>,
@@ -62,7 +63,20 @@ impl VegaMarkContainer<VegaTextItem> {
         let mut limit = Vec::<f32>::new();
         let mut zindex = Vec::<i32>::new();
 
+        let mut len: usize = 0;
         for item in &self.items {
+            // When fill is set to null literal (not just missing) we skip the
+            // text item all together
+            if item.fill.is_null() {
+                continue;
+            }
+            if let Some(v) = item.fill.as_option() {
+                let c = csscolorparser::parse(v)?;
+                let opacity =
+                    c.a as f32 * item.fill_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
+                color.push([c.r as f32, c.g as f32, c.b as f32, opacity])
+            }
+
             x.push(item.x.unwrap_or(0.0) + item.dx.unwrap_or(0.0));
             y.push(item.y.unwrap_or(0.0) + item.dy.unwrap_or(0.0));
             text.push(match item.text.clone() {
@@ -81,13 +95,6 @@ impl VegaMarkContainer<VegaTextItem> {
 
             if let Some(v) = item.angle {
                 angle.push(v);
-            }
-
-            if let Some(v) = &item.fill {
-                let c = csscolorparser::parse(v)?;
-                let opacity =
-                    c.a as f32 * item.fill_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
-                color.push([c.r as f32, c.g as f32, c.b as f32, opacity])
             }
 
             if let Some(v) = item.dx {
@@ -121,12 +128,14 @@ impl VegaMarkContainer<VegaTextItem> {
             if let Some(v) = item.zindex {
                 zindex.push(v);
             }
+
+            len += 1;
         }
 
-        // Override values with vectors
-        let len = self.items.len();
+        // Update len
         mark.len = len as u32;
 
+        // Override values with vectors
         if x.len() == len {
             mark.x = EncodingValue::Array { values: x };
         }
