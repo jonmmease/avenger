@@ -1,0 +1,191 @@
+{
+  "width": 211,
+  "height": 221,
+  "origin": [
+    6,
+    6
+  ],
+  "scenegraph": {
+    "clip": false,
+    "interactive": true,
+    "items": [
+      {
+        "items": [
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "stroke": "#fff",
+                "innerRadius": 20,
+                "fill": "#f58518",
+                "description": "data: 12",
+                "x": 100,
+                "y": 100,
+                "outerRadius": 58.43075691322092,
+                "startAngle": 0.7113039970391984,
+                "endAngle": 0.23710133234639946
+              },
+              {
+                "stroke": "#fff",
+                "innerRadius": 20,
+                "fill": "#72b7b2",
+                "description": "data: 23",
+                "x": 100,
+                "y": 100,
+                "outerRadius": 73.20497374089409,
+                "startAngle": 2.371013323463995,
+                "endAngle": 1.4621248828027968
+              },
+              {
+                "stroke": "#fff",
+                "innerRadius": 20,
+                "fill": "#54a24b",
+                "description": "data: 47",
+                "x": 100,
+                "y": 100,
+                "outerRadius": 96.05665904189708,
+                "startAngle": 4.22830709351079,
+                "endAngle": 2.371013323463995
+              },
+              {
+                "stroke": "#fff",
+                "innerRadius": 20,
+                "fill": "#4c78a8",
+                "description": "data: 6",
+                "x": 100,
+                "y": 100,
+                "outerRadius": 47.1746488194703,
+                "startAngle": 0.23710133234639946,
+                "endAngle": 0
+              },
+              {
+                "stroke": "#fff",
+                "innerRadius": 20,
+                "fill": "#eeca3b",
+                "description": "data: 52",
+                "x": 100,
+                "y": 100,
+                "outerRadius": 100,
+                "startAngle": 6.283185307179586,
+                "endAngle": 4.22830709351079
+              },
+              {
+                "stroke": "#fff",
+                "innerRadius": 20,
+                "fill": "#e45756",
+                "description": "data: 19",
+                "x": 100,
+                "y": 100,
+                "outerRadius": 68.35764198615911,
+                "startAngle": 1.4621248828027968,
+                "endAngle": 0.7113039970391984
+              }
+            ],
+            "marktype": "arc",
+            "name": "layer_0_marks",
+            "role": "mark",
+            "zindex": 0
+          },
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "font": "sans-serif",
+                "fontSize": 11,
+                "fill": "#f58518",
+                "description": "data: 12",
+                "x": 100,
+                "y": 100,
+                "text": "12",
+                "align": "center",
+                "baseline": "middle",
+                "radius": 68.43075691322092,
+                "theta": 0.4742026646927989
+              },
+              {
+                "font": "sans-serif",
+                "fontSize": 11,
+                "fill": "#72b7b2",
+                "description": "data: 23",
+                "x": 100,
+                "y": 100,
+                "text": "23",
+                "align": "center",
+                "baseline": "middle",
+                "radius": 83.20497374089409,
+                "theta": 1.9165691031333958
+              },
+              {
+                "font": "sans-serif",
+                "fontSize": 11,
+                "fill": "#54a24b",
+                "description": "data: 47",
+                "x": 100,
+                "y": 100,
+                "text": "47",
+                "align": "center",
+                "baseline": "middle",
+                "radius": 106.05665904189708,
+                "theta": 3.299660208487393
+              },
+              {
+                "font": "sans-serif",
+                "fontSize": 11,
+                "fill": "#4c78a8",
+                "description": "data: 6",
+                "x": 100,
+                "y": 100,
+                "text": "6",
+                "align": "center",
+                "baseline": "middle",
+                "radius": 57.1746488194703,
+                "theta": 0.11855066617319973
+              },
+              {
+                "font": "sans-serif",
+                "fontSize": 11,
+                "fill": "#eeca3b",
+                "description": "data: 52",
+                "x": 100,
+                "y": 100,
+                "text": "52",
+                "align": "center",
+                "baseline": "middle",
+                "radius": 110,
+                "theta": 5.255746200345189
+              },
+              {
+                "font": "sans-serif",
+                "fontSize": 11,
+                "fill": "#e45756",
+                "description": "data: 19",
+                "x": 100,
+                "y": 100,
+                "text": "19",
+                "align": "center",
+                "baseline": "middle",
+                "radius": 78.35764198615911,
+                "theta": 1.0867144399209976
+              }
+            ],
+            "marktype": "text",
+            "name": "layer_1_marks",
+            "role": "mark",
+            "zindex": 0
+          }
+        ],
+        "fill": "transparent",
+        "x": 0,
+        "y": 0,
+        "width": 200,
+        "height": 200
+      }
+    ],
+    "marktype": "group",
+    "name": "root",
+    "role": "frame",
+    "zindex": 0
+  }
+}
