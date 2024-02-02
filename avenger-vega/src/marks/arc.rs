@@ -85,9 +85,7 @@ impl VegaMarkContainer<VegaArcItem> {
             if let Some(v) = &item.stroke {
                 let opacity = item.stroke_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
                 stroke.push(v.to_color_or_grad(opacity, &mut gradients)?);
-            }
-            if let Some(s) = item.stroke_width {
-                stroke_width.push(s);
+                stroke_width.push(item.stroke_width.unwrap_or(1.0));
             }
             if let Some(v) = item.zindex {
                 zindex.push(v);
