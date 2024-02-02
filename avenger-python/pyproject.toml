@@ -1,6 +1,6 @@
 [project]
 name = "avenger"
-version = "0.0.2-a0"
+version = "0.0.2"
 
 [build-system]
 requires = [ "maturin>=1.1.0,<2",]
