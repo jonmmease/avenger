@@ -7,6 +7,7 @@ use avenger::marks::text::{
 };
 use avenger::marks::value::EncodingValue;
 use serde::{Deserialize, Serialize};
+use std::f32::consts::PI;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -16,6 +17,8 @@ pub struct VegaTextItem {
     pub text: Option<serde_json::Value>,
 
     // Optional
+    pub radius: Option<f32>,
+    pub theta: Option<f32>,
     pub align: Option<TextAlignSpec>,
     pub angle: Option<f32>,
     pub baseline: Option<TextBaselineSpec>,
@@ -77,8 +80,17 @@ impl VegaMarkContainer<VegaTextItem> {
                 color.push([c.r as f32, c.g as f32, c.b as f32, opacity])
             }
 
-            x.push(item.x.unwrap_or(0.0) + item.dx.unwrap_or(0.0));
-            y.push(item.y.unwrap_or(0.0) + item.dy.unwrap_or(0.0));
+            // Compute x and y
+            let mut item_x = item.x.unwrap_or(0.0);
+            let mut item_y = item.y.unwrap_or(0.0);
+            if let (Some(radius), Some(theta)) = (item.radius, item.theta) {
+                item_x += radius * f32::cos(theta - PI / 2.0);
+                item_y += radius * f32::sin(theta - PI / 2.0);
+            }
+            item_x += item.dx.unwrap_or(0.0);
+            item_y += item.dy.unwrap_or(0.0);
+            x.push(item_x);
+            y.push(item_y);
             text.push(match item.text.clone() {
                 Some(serde_json::Value::String(s)) => s,
                 Some(serde_json::Value::Null) | None => "".to_string(),
