@@ -8,6 +8,7 @@ platforms = ["osx-arm64"]
 
 [tasks]
 dev-py = { cmd = ["maturin", "develop", "-m", "avenger-python/Cargo.toml", "--release"]}
+build-py = { cmd = ["maturin", "build", "-m", "avenger-python/Cargo.toml", "--sdist", "--release"]}
 bump-version = { cmd = ["python", "automation/bump_version.py"] }
 
 [tasks.publish-rs]

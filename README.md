@@ -31,7 +31,7 @@ chart = alt.Chart(source).mark_circle(size=60).encode(
 )
 chart
 ```
-![cars_scatter.png](doc%2Fimages%2Fcars_scatter.png)
+![cars_scatter](https://github.com/jonmmease/avenger/assets/15064365/d661e142-c7c5-4816-a375-49a73985bb6d)
 
 Or, convert the chart to a PNG rendered by Avenger:
 
@@ -46,7 +46,7 @@ There aren't currently many advantages to using Avenger to render Altar charts t
 
 One advantage is that Avenger's text rendering support is based on [COSMIC Text](https://github.com/pop-os/cosmic-text), which supports emoji (unlike resvg's text handling). For example, here is the result of rendering the emoji example from https://altair-viz.github.io/gallery/isotype_emoji.html using Avenger:
 
-![isotype_emoji.png](doc%2Fimages%2Fisotype_emoji.png)
+![isotype_emoji](https://github.com/jonmmease/avenger/assets/15064365/91a1db89-9bdd-46f3-b540-c7d7bcaac3c2)
 
 # Try it out from Rust
 Avenger is written in Rust, and may be used directly from Rust.
