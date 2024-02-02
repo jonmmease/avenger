@@ -1,6 +1,9 @@
 [project]
 name = "avenger"
-version = "0.0.2-a0"
+version = "0.0.2"
+readme = "README.md"
+description = "A Visualization Engine and Renderer"
+license = {file = "LICENSE"}
 
 [build-system]
 requires = [ "maturin>=1.1.0,<2",]
