@@ -131,7 +131,7 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
 name = "avenger"
-version = "0.0.2-a0"
+version = "0.0.2"
 dependencies = [
  "image",
  "lyon_path",
@@ -141,7 +141,7 @@ dependencies = [
 
 [[package]]
 name = "avenger-vega"
-version = "0.0.2-a0"
+version = "0.0.2"
 dependencies = [
  "avenger",
  "cfg-if",
@@ -157,7 +157,7 @@ dependencies = [
 
 [[package]]
 name = "avenger-wgpu"
-version = "0.0.2-a0"
+version = "0.0.2"
 dependencies = [
  "avenger",
  "bytemuck",
