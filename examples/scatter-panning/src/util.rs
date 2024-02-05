@@ -1,16 +1,16 @@
-use rand::Rng;
 use avenger::marks::group::{GroupBounds, SceneGroup};
 use avenger::marks::mark::SceneMark;
 use avenger::marks::symbol::{SymbolMark, SymbolShape};
+use avenger::marks::value::{ColorOrGradient, EncodingValue};
 use avenger::scene_graph::SceneGraph;
 use avenger_vega::marks::symbol::shape_to_path;
 use avenger_vega::scene_graph::VegaSceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasDimensions, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
+use rand::Rng;
 use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
-use avenger::marks::value::{ColorOrGradient, EncodingValue};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -79,11 +79,9 @@ pub async fn run() {
     // Save to png
     let dimensions = CanvasDimensions {
         size: [width, height],
-        scale:scale,
+        scale,
     };
-    let mut canvas = WindowCanvas::new(window, dimensions)
-        .await
-        .unwrap();
+    let mut canvas = WindowCanvas::new(window, dimensions).await.unwrap();
 
     canvas.set_scene(&scene_graph).unwrap();
 
@@ -220,7 +218,7 @@ fn make_sg(
                 angle: EncodingValue::Scalar { value: 0.0 },
                 indices: None,
                 gradients: vec![],
-                shape_index: EncodingValue::Scalar { value: 0 }
+                shape_index: EncodingValue::Scalar { value: 0 },
             })],
             gradients: vec![],
             fill: None,

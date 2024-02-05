@@ -16,6 +16,7 @@ use crate::marks::arc::ArcShader;
 use crate::marks::basic_mark::BasicMarkRenderer;
 use crate::marks::image::ImageShader;
 use crate::marks::instanced_mark::InstancedMarkRenderer;
+use crate::marks::multi::MultiMarkRenderer;
 use crate::marks::path::PathShader;
 use crate::marks::rect::RectShader;
 use crate::marks::rule::RuleShader;
@@ -40,6 +41,7 @@ pub enum MarkRenderer {
     Instanced(InstancedMarkRenderer),
     #[cfg(feature = "text-glyphon")]
     Text(TextMarkRenderer),
+    Multi(MultiMarkRenderer),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -99,16 +101,9 @@ pub trait Canvas {
         mark: &PathMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
-            self.device(),
-            self.texture_format(),
-            self.sample_count(),
-            Box::new(PathShader::from_path_mark(
-                mark,
-                self.dimensions(),
-                group_bounds,
-            )?),
-        )));
+        let mut renderer = MultiMarkRenderer::new(self.dimensions());
+        renderer.add_path_mark(mark, group_bounds)?;
+        self.add_mark_renderer(MarkRenderer::Multi(renderer));
         Ok(())
     }
 
@@ -572,7 +567,7 @@ impl WindowCanvas {
             make_background_command(self, &view, None)
         };
         let mut commands = vec![background_command];
-
+        let texture_format = self.texture_format();
         for mark in &mut self.marks {
             let command = match mark {
                 MarkRenderer::Basic(renderer) => {
@@ -600,6 +595,27 @@ impl WindowCanvas {
                         )
                     } else {
                         renderer.render(&self.device, &self.queue, &view, None)
+                    }
+                }
+                MarkRenderer::Multi(renderer) => {
+                    if self.sample_count > 1 {
+                        renderer.render(
+                            &self.device,
+                            &self.queue,
+                            texture_format,
+                            self.sample_count,
+                            &self.multisampled_framebuffer,
+                            Some(&view),
+                        )
+                    } else {
+                        renderer.render(
+                            &self.device,
+                            &self.queue,
+                            texture_format,
+                            self.sample_count,
+                            &view,
+                            None,
+                        )
                     }
                 }
             };
@@ -742,7 +758,7 @@ impl PngCanvas {
         };
 
         let mut commands = vec![background_command];
-
+        let texture_format = self.texture_format();
         for mark in &mut self.marks {
             let command = match mark {
                 MarkRenderer::Basic(renderer) => {
@@ -778,6 +794,27 @@ impl PngCanvas {
                         )
                     } else {
                         mark.render(&self.device, &self.queue, &self.texture_view, None)
+                    }
+                }
+                MarkRenderer::Multi(renderer) => {
+                    if self.sample_count > 1 {
+                        renderer.render(
+                            &self.device,
+                            &self.queue,
+                            texture_format,
+                            self.sample_count,
+                            &self.multisampled_framebuffer,
+                            Some(&self.texture_view),
+                        )
+                    } else {
+                        renderer.render(
+                            &self.device,
+                            &self.queue,
+                            texture_format,
+                            self.sample_count,
+                            &self.texture_view,
+                            None,
+                        )
                     }
                 }
             };
