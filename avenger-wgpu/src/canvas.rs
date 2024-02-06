@@ -78,6 +78,8 @@ pub trait Canvas {
 
     fn sample_count(&self) -> u32;
 
+    fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer;
+
     fn add_arc_mark(
         &mut self,
         mark: &ArcMark,
@@ -101,9 +103,8 @@ pub trait Canvas {
         mark: &PathMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        let mut renderer = MultiMarkRenderer::new(self.dimensions());
-        renderer.add_path_mark(mark, group_bounds)?;
-        self.add_mark_renderer(MarkRenderer::Multi(renderer));
+        self.get_multi_renderer()
+            .add_path_mark(mark, group_bounds)?;
         Ok(())
     }
 
@@ -112,9 +113,8 @@ pub trait Canvas {
         mark: &LineMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        let mut renderer = MultiMarkRenderer::new(self.dimensions());
-        renderer.add_line_mark(mark, group_bounds)?;
-        self.add_mark_renderer(MarkRenderer::Multi(renderer));
+        self.get_multi_renderer()
+            .add_line_mark(mark, group_bounds)?;
         Ok(())
     }
 
@@ -123,9 +123,8 @@ pub trait Canvas {
         mark: &TrailMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        let mut renderer = MultiMarkRenderer::new(self.dimensions());
-        renderer.add_trail_mark(mark, group_bounds)?;
-        self.add_mark_renderer(MarkRenderer::Multi(renderer));
+        self.get_multi_renderer()
+            .add_trail_mark(mark, group_bounds)?;
         Ok(())
     }
 
@@ -134,9 +133,8 @@ pub trait Canvas {
         mark: &AreaMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        let mut renderer = MultiMarkRenderer::new(self.dimensions());
-        renderer.add_area_mark(mark, group_bounds)?;
-        self.add_mark_renderer(MarkRenderer::Multi(renderer));
+        self.get_multi_renderer()
+            .add_area_mark(mark, group_bounds)?;
         Ok(())
     }
 
@@ -155,10 +153,8 @@ pub trait Canvas {
         //         group_bounds,
         //     )?),
         // )));
-
-        let mut renderer = MultiMarkRenderer::new(self.dimensions());
-        renderer.add_symbol_mark(mark, group_bounds)?;
-        self.add_mark_renderer(MarkRenderer::Multi(renderer));
+        self.get_multi_renderer()
+            .add_symbol_mark(mark, group_bounds)?;
         Ok(())
     }
 
@@ -177,9 +173,8 @@ pub trait Canvas {
         //         group_bounds,
         //     )),
         // )));
-        let mut renderer = MultiMarkRenderer::new(self.dimensions());
-        renderer.add_rect_mark(mark, group_bounds)?;
-        self.add_mark_renderer(MarkRenderer::Multi(renderer));
+        self.get_multi_renderer()
+            .add_rect_mark(mark, group_bounds)?;
         Ok(())
     }
 
@@ -188,9 +183,8 @@ pub trait Canvas {
         mark: &RuleMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        let mut renderer = MultiMarkRenderer::new(self.dimensions());
-        renderer.add_rule_mark(mark, group_bounds)?;
-        self.add_mark_renderer(MarkRenderer::Multi(renderer));
+        self.get_multi_renderer()
+            .add_rule_mark(mark, group_bounds)?;
         Ok(())
     }
 
@@ -222,9 +216,8 @@ pub trait Canvas {
         mark: &ImageMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        let mut renderer = MultiMarkRenderer::new(self.dimensions());
-        renderer.add_image_mark(mark, group_bounds)?;
-        self.add_mark_renderer(MarkRenderer::Multi(renderer));
+        self.get_multi_renderer()
+            .add_image_mark(mark, group_bounds)?;
         Ok(())
     }
 
@@ -446,6 +439,7 @@ pub struct WindowCanvas {
     config: SurfaceConfiguration,
     dimensions: CanvasDimensions,
     marks: Vec<MarkRenderer>,
+    multi_renderer: Option<MultiMarkRenderer>,
 }
 
 impl WindowCanvas {
@@ -500,6 +494,7 @@ impl WindowCanvas {
             dimensions,
             window,
             marks: Vec::new(),
+            multi_renderer: None,
         })
     }
 
@@ -532,6 +527,11 @@ impl WindowCanvas {
         let view = output
             .texture
             .create_view(&TextureViewDescriptor::default());
+
+        // Commit open multi-renderer
+        if let Some(multi_renderer) = self.multi_renderer.take() {
+            self.marks.push(MarkRenderer::Multi(multi_renderer));
+        }
 
         let background_command = if self.sample_count > 1 {
             make_background_command(self, &self.multisampled_framebuffer, Some(&view))
@@ -603,7 +603,17 @@ impl WindowCanvas {
 }
 
 impl Canvas for WindowCanvas {
+    fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
+        if self.multi_renderer.is_none() {
+            self.multi_renderer = Some(MultiMarkRenderer::new(self.dimensions));
+        }
+        self.multi_renderer.as_mut().unwrap()
+    }
+
     fn add_mark_renderer(&mut self, mark_renderer: MarkRenderer) {
+        if let Some(multi_renderer) = self.multi_renderer.take() {
+            self.marks.push(MarkRenderer::Multi(multi_renderer));
+        }
         self.marks.push(mark_renderer);
     }
 
@@ -645,6 +655,7 @@ pub struct PngCanvas {
     pub texture_size: Extent3d,
     pub padded_width: u32,
     pub padded_height: u32,
+    multi_renderer: Option<MultiMarkRenderer>,
 }
 
 impl PngCanvas {
@@ -714,10 +725,16 @@ impl PngCanvas {
             padded_width,
             padded_height,
             marks: Vec::new(),
+            multi_renderer: None,
         })
     }
 
     pub async fn render(&mut self) -> Result<image::RgbaImage, AvengerWgpuError> {
+        // Commit open multi mark renderer
+        if let Some(multi_renderer) = self.multi_renderer.take() {
+            self.marks.push(MarkRenderer::Multi(multi_renderer));
+        }
+
         // Build encoder for chart background
         let background_command = if self.sample_count > 1 {
             make_background_command(
@@ -861,7 +878,17 @@ impl PngCanvas {
 }
 
 impl Canvas for PngCanvas {
+    fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
+        if self.multi_renderer.is_none() {
+            self.multi_renderer = Some(MultiMarkRenderer::new(self.dimensions));
+        }
+        self.multi_renderer.as_mut().unwrap()
+    }
+
     fn add_mark_renderer(&mut self, mark_renderer: MarkRenderer) {
+        if let Some(multi_renderer) = self.multi_renderer.take() {
+            self.marks.push(MarkRenderer::Multi(multi_renderer));
+        }
         self.marks.push(mark_renderer);
     }
 
