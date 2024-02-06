@@ -63,6 +63,8 @@ var image_texture: texture_2d<f32>;
 @group(2) @binding(1)
 var image_sampler: sampler;
 
+const GRADIENT_TEXTURE_CODE = -1.0;
+const IMAGE_TEXTURE_CODE = -2.0;
 
 const GRADIENT_LINEAR = 0.0;
 const GRADIENT_RADIAL = 1.0;
@@ -72,11 +74,10 @@ const GRADIENT_TEXTURE_HEIGHT = 256.0;
 
 // Compute final color, potentially computing gradient
 fn lookup_color(color: vec4<f32>, clip_position: vec4<f32>, top_left: vec2<f32>, bottom_right: vec2<f32>) -> vec4<f32> {
-    if (color[0] < 0.0) {
-        // If the first color coordinate is negative, this indicates that we need to compute a gradient.
-        // The negative of this value is the y-coordinate into the gradient texture where the gradient control
-        // points and gradient colorway are stored.
-        let tex_coord_y = -color[0];
+    if (color[0] == GRADIENT_TEXTURE_CODE) {
+        // If the first color coordinate is a negative value, this indicates that we are computing a color from a texture
+        // For gradient texture, the second color component stores the gradient texture y-coordinate
+        let tex_coord_y = color[1];
 
         // Extract gradient type from fist pixel using nearest sampler (so that not interpolation is performed)
         let control0 = textureSample(gradient_texture, gradient_sampler, vec2<f32>(0.0, tex_coord_y));
@@ -182,6 +183,10 @@ fn lookup_color(color: vec4<f32>, clip_position: vec4<f32>, top_left: vec2<f32>,
             let tex_coord_x = compute_tex_x_coord(grad_dist);
             return textureSample(gradient_texture, gradient_sampler, vec2<f32>(tex_coord_x, tex_coord_y));
         }
+    } else if (color[0] == IMAGE_TEXTURE_CODE) {
+        // Texture coordinates are stored in the second and third color components
+        let tex_coords = vec2<f32>(color[1], color[2]);
+        return textureSample(image_texture, image_sampler, tex_coords);
     } else {
         return color;
     }
