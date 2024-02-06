@@ -1,3 +1,4 @@
+use crate::marks::multi::GRADIENT_TEXTURE_CODE;
 use avenger::marks::value::{ColorOrGradient, Gradient};
 use colorgrad::Color;
 use image::{DynamicImage, Rgba};
@@ -160,8 +161,11 @@ pub fn to_color_or_gradient_coord(
 ) -> [f32; 4] {
     match color_or_gradient {
         ColorOrGradient::Color(c) => *c,
-        ColorOrGradient::GradientIndex(grad_idx) => {
-            [-grad_coords[*grad_idx as usize], 0.0, 0.0, 0.0]
-        }
+        ColorOrGradient::GradientIndex(grad_idx) => [
+            GRADIENT_TEXTURE_CODE,
+            grad_coords[*grad_idx as usize],
+            0.0,
+            0.0,
+        ],
     }
 }

@@ -243,16 +243,9 @@ pub trait Canvas {
         mark: &ImageMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
-            self.device(),
-            self.texture_format(),
-            self.sample_count(),
-            Box::new(ImageShader::from_image_mark(
-                mark,
-                self.dimensions(),
-                group_bounds,
-            )?),
-        )));
+        let mut renderer = MultiMarkRenderer::new(self.dimensions());
+        renderer.add_image_mark(mark, group_bounds)?;
+        self.add_mark_renderer(MarkRenderer::Multi(renderer));
         Ok(())
     }
 

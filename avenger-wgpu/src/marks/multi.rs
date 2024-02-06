@@ -4,9 +4,10 @@ use crate::error::AvengerWgpuError;
 use crate::marks::gradient2::{to_color_or_gradient_coord, GradientAtlasBuilder};
 use crate::marks::image2::ImageAtlasBuilder;
 use avenger::marks::group::GroupBounds;
+use avenger::marks::image::ImageMark;
 use avenger::marks::line::LineMark;
 use avenger::marks::path::PathMark;
-use avenger::marks::value::{Gradient, StrokeCap, StrokeJoin};
+use avenger::marks::value::{Gradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin};
 use image::DynamicImage;
 use itertools::izip;
 use lyon::algorithms::aabb::bounding_box;
@@ -22,6 +23,9 @@ use wgpu::{
     BindGroup, BindGroupLayout, CommandBuffer, Device, Extent3d, Queue, TextureFormat, TextureView,
     VertexBufferLayout,
 };
+
+pub const GRADIENT_TEXTURE_CODE: f32 = -1.0;
+pub const IMAGE_TEXTURE_CODE: f32 = -2.0;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -185,6 +189,139 @@ impl MultiMarkRenderer {
         todo!()
     }
 
+    pub fn add_image_mark(
+        &mut self,
+        mark: &ImageMark,
+        bounds: GroupBounds,
+    ) -> Result<(), AvengerWgpuError> {
+        let verts_inds = izip!(
+            mark.image_iter(),
+            mark.x_iter(),
+            mark.y_iter(),
+            mark.width_iter(),
+            mark.height_iter(),
+            mark.baseline_iter(),
+            mark.align_iter(),
+        ).map(|(img, x, y, width, height, baseline, align)| -> Result<(usize, Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+            let x = *x + bounds.x;
+            let y = *y + bounds.y;
+
+            let Some(rgba_image) = img.to_image() else {
+                return Err(AvengerWgpuError::ConversionError("Failed to convert raw image to rgba image".to_string()))
+            };
+
+            let (atlas_index, tex_coords) = self.image_atlas_builder.register_image(&rgba_image)?;
+
+            // Compute image left
+            let left = match *align {
+                ImageAlign::Left => x,
+                ImageAlign::Center => x - *width / 2.0,
+                ImageAlign::Right => x - *width,
+            };
+
+            // Compute image top
+            let top = match *baseline {
+                ImageBaseline::Top => y,
+                ImageBaseline::Middle => y - *height / 2.0,
+                ImageBaseline::Bottom => y - *height,
+            };
+
+            // Adjust position and dimensions if aspect ratio should be preserved
+            let (left, top, width, height) = if mark.aspect {
+                let img_aspect = img.width as f32 / img.height as f32;
+                let outline_aspect = *width / *height;
+                if img_aspect > outline_aspect {
+                    // image is wider than the box, so we scale
+                    // image to box width and center vertically
+                    let aspect_height = *width / img_aspect;
+                    let aspect_top = top + (*height - aspect_height) / 2.0;
+                    (left, aspect_top, *width, aspect_height)
+                } else if img_aspect < outline_aspect {
+                    // image is taller than the box, so we scale
+                    // image to box height an center horizontally
+                    let aspect_width = *height * img_aspect;
+                    let aspect_left = left + (*width - aspect_width) / 2.0;
+                    (aspect_left, top, aspect_width, *height)
+                } else {
+                    (left, top, *width, *height)
+                }
+            } else {
+                (left, top, *width, *height)
+            };
+
+            let top_left = [top, left];
+            let bottom_right = [top + height, left + width];
+            let verts = vec![
+                // Upper left
+                MultiVertex {
+                    color: [IMAGE_TEXTURE_CODE, tex_coords.x0, tex_coords.y0, 0.0],
+                    position: [left, top],
+                    top_left,
+                    bottom_right,
+                },
+                // Lower left
+                MultiVertex {
+                    color: [IMAGE_TEXTURE_CODE, tex_coords.x0, tex_coords.y1, 0.0],
+                    position: [left, top + height],
+                    top_left,
+                    bottom_right,
+                },
+                // Lower right
+                MultiVertex {
+                    color: [IMAGE_TEXTURE_CODE, tex_coords.x1, tex_coords.y1, 0.0],
+                    position: [left + width, top + height],
+                    top_left,
+                    bottom_right,
+                },
+                // Upper right
+                MultiVertex {
+                    color: [IMAGE_TEXTURE_CODE, tex_coords.x1, tex_coords.y0, 0.0],
+                    position: [left + width, top],
+                    top_left,
+                    bottom_right,
+                },
+            ];
+            let indices: Vec<u32> = vec![0, 1, 2, 0, 2, 3];
+            Ok((atlas_index, verts, indices))
+        }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
+
+        // Construct batches, one batch per image atlas index
+        let start_ind = self.num_indices() as u32;
+        let mut next_batch = MultiMarkBatch {
+            indices_range: start_ind..start_ind,
+            clip: None,
+            image_atlas_index: None,
+            gradient_atlas_index: None,
+        };
+
+        for (atlas_index, verts, inds) in verts_inds {
+            if next_batch.image_atlas_index.unwrap_or(atlas_index) == atlas_index {
+                // update next batch with atlas index and inds range
+                next_batch.image_atlas_index = Some(atlas_index);
+                next_batch.indices_range = next_batch.indices_range.start
+                    ..(next_batch.indices_range.end + inds.len() as u32);
+            } else {
+                // create new batch
+                let start_ind = next_batch.indices_range.end;
+                // Initialize new next_batch and swap to avoid extra mem copy
+                let mut full_batch = MultiMarkBatch {
+                    indices_range: start_ind..(start_ind + inds.len() as u32),
+                    clip: None,
+                    image_atlas_index: Some(atlas_index),
+                    gradient_atlas_index: None,
+                };
+                std::mem::swap(&mut full_batch, &mut next_batch);
+                self.batches.push(full_batch);
+            }
+
+            // Add verts and indices
+            self.verts_inds.push((verts, inds))
+        }
+
+        self.batches.push(next_batch);
+        Ok(())
+    }
+
     fn num_indices(&self) -> usize {
         self.verts_inds.iter().map(|(_, inds)| inds.len()).sum()
     }
@@ -251,11 +388,7 @@ impl MultiMarkRenderer {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[
-                    &uniform_layout,
-                    &gradient_layout,
-                    // &image_layout
-                ],
+                bind_group_layouts: &[&uniform_layout, &gradient_layout, &image_layout],
                 push_constant_ranges: &[],
             });
 
@@ -365,7 +498,6 @@ impl MultiMarkRenderer {
                 }
 
                 // Update bind groups
-                let grad_ind = batch.gradient_atlas_index;
                 if let Some(grad_ind) = batch.gradient_atlas_index {
                     if grad_ind != last_grad_ind {
                         render_pass.set_bind_group(1, &gradient_texture_bind_groups[grad_ind], &[]);
@@ -442,8 +574,8 @@ impl MultiMarkRenderer {
                 address_mode_u: wgpu::AddressMode::ClampToEdge,
                 address_mode_v: wgpu::AddressMode::ClampToEdge,
                 address_mode_w: wgpu::AddressMode::ClampToEdge,
-                mag_filter: wgpu::FilterMode::Nearest,
-                min_filter: wgpu::FilterMode::Nearest,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
                 mipmap_filter: wgpu::FilterMode::Nearest,
                 ..Default::default()
             });

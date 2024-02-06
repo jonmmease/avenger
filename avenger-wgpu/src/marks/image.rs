@@ -216,6 +216,7 @@ impl ImageShader {
                 (left, top, *width, *height)
             };
 
+            // Upper left
             verts.push(ImageVertex {
                 position: [left, top],
                 tex_coord: [tex_x0, tex_y0],

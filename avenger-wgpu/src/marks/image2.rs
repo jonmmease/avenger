@@ -34,9 +34,9 @@ impl ImageAtlasBuilder {
         }
     }
 
-    fn register_image(
+    pub fn register_image(
         &mut self,
-        img: image::RgbaImage,
+        img: &image::RgbaImage,
     ) -> Result<(usize, ImageAtlasCoords), AvengerWgpuError> {
         if !self.initialized {
             let limits = wgpu::Limits::downlevel_webgl2_defaults();
@@ -125,8 +125,8 @@ impl ImageAtlasBuilder {
         // Compute texture coordinates
         let coords = ImageAtlasCoords {
             x0: x0 as f32 / self.extent.width as f32,
-            y0: x1 as f32 / self.extent.width as f32,
-            x1: y0 as f32 / self.extent.height as f32,
+            x1: x1 as f32 / self.extent.width as f32,
+            y0: y0 as f32 / self.extent.height as f32,
             y1: y1 as f32 / self.extent.height as f32,
         };
 
