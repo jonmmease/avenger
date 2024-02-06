@@ -1,6 +1,7 @@
 use crate::canvas::CanvasDimensions;
 use crate::error::AvengerWgpuError;
-use crate::marks::gradient::to_color_or_gradient_coord;
+
+use crate::marks::gradient2::{to_color_or_gradient_coord, GradientBuilder};
 use avenger::marks::group::GroupBounds;
 use avenger::marks::line::LineMark;
 use avenger::marks::path::PathMark;
@@ -68,17 +69,17 @@ pub struct MultiMarkBatch {
     pub indices_range: Range<u32>,
     pub clip: Option<ClipRect>,
     pub image_atlas_index: Option<usize>,
-    pub gradient_atlas_index: Option<usize>,
+    pub gradient_atlas_index: usize,
 }
 
 pub struct MultiMarkRenderer {
     verts_inds: Vec<(Vec<MultiVertex>, Vec<u32>)>,
-    gradient_atlases: Vec<DynamicImage>,
     image_atlases: Vec<DynamicImage>,
     batches: Vec<MultiMarkBatch>,
     uniform: MultiUniform,
 
-    gradient_size: Extent3d,
+    gradient_builder: GradientBuilder,
+
     image_size: Extent3d,
     dimensions: CanvasDimensions,
 }
@@ -87,7 +88,6 @@ impl MultiMarkRenderer {
     pub fn new(dimensions: CanvasDimensions) -> Self {
         Self {
             verts_inds: vec![],
-            gradient_atlases: vec![],
             image_atlases: vec![],
             batches: vec![],
             dimensions,
@@ -96,11 +96,7 @@ impl MultiMarkRenderer {
                 scale: dimensions.scale,
                 _pad: [0.0],
             },
-            gradient_size: Extent3d {
-                width: 256,
-                height: 128,
-                depth_or_array_layers: 1,
-            },
+            gradient_builder: GradientBuilder::new(),
             image_size: Extent3d {
                 width: 2048,
                 height: 2048,
@@ -109,19 +105,13 @@ impl MultiMarkRenderer {
         }
     }
 
-    fn register_gradients(&mut self, gradients: &[Gradient]) -> (Option<usize>, Extent3d, u32) {
-        // Add gradients to image, return offset to apply to indices
-        // todo!()
-        (None, Extent3d::default(), 0)
-    }
-
     pub fn add_path_mark(
         &mut self,
         mark: &PathMark,
         bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        let (gradient_atlas_index, grad_extent, grad_offset) =
-            self.register_gradients(&mark.gradients);
+        let (gradient_atlas_index, grad_coords) =
+            self.gradient_builder.register_gradients(&mark.gradients);
 
         let verts_inds = izip!(
             mark.path_iter(),
@@ -140,8 +130,8 @@ impl MultiMarkRenderer {
             let mut builder = BuffersBuilder::new(
                 &mut buffers,
                 VertexPositions {
-                    fill: to_color_or_gradient_coord(fill, grad_extent),
-                    stroke: to_color_or_gradient_coord(stroke, grad_extent),
+                    fill: to_color_or_gradient_coord(fill, &grad_coords),
+                    stroke: to_color_or_gradient_coord(stroke, &grad_coords),
                     top_left: bbox.min.to_array(),
                     bottom_right: bbox.max.to_array(),
                 },
@@ -247,12 +237,13 @@ impl MultiMarkRenderer {
         });
 
         // Gradient Textures
+        let (grad_texture_size, grad_images) = self.gradient_builder.build();
         let (gradient_layout, gradient_texture_bind_groups) =
-            Self::make_texture_bind_groups(device, queue, self.gradient_atlases.as_slice());
+            Self::make_texture_bind_groups(device, queue, grad_texture_size, &grad_images);
 
-        // Image Textures
-        let (image_layout, image_texture_bind_groups) =
-            Self::make_texture_bind_groups(device, queue, self.image_atlases.as_slice());
+        // // Image Textures
+        // let (image_layout, image_texture_bind_groups) =
+        //     Self::make_texture_bind_groups(device, queue, Default::default(), self.image_atlases.as_slice());
 
         // Shaders
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -263,7 +254,11 @@ impl MultiMarkRenderer {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&uniform_layout, &gradient_layout, &image_layout],
+                bind_group_layouts: &[
+                    &uniform_layout,
+                    &gradient_layout,
+                    // &image_layout
+                ],
                 push_constant_ranges: &[],
             });
 
@@ -354,7 +349,7 @@ impl MultiMarkRenderer {
             let mut last_grad_ind = 0;
             let mut last_img_ind = 0;
             render_pass.set_bind_group(1, &gradient_texture_bind_groups[last_grad_ind], &[]);
-            render_pass.set_bind_group(2, &image_texture_bind_groups[last_img_ind], &[]);
+            // render_pass.set_bind_group(2, &image_texture_bind_groups[last_img_ind], &[]);
             render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
             render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
@@ -373,18 +368,18 @@ impl MultiMarkRenderer {
                 }
 
                 // Update bind groups
-                if let Some(grad_ind) = batch.gradient_atlas_index {
-                    if grad_ind != last_grad_ind {
-                        render_pass.set_bind_group(1, &gradient_texture_bind_groups[grad_ind], &[]);
-                    }
-                    last_grad_ind = grad_ind;
+                let grad_ind = batch.gradient_atlas_index;
+                if grad_ind != last_grad_ind {
+                    render_pass.set_bind_group(1, &gradient_texture_bind_groups[grad_ind], &[]);
                 }
-                if let Some(img_ind) = batch.image_atlas_index {
-                    if img_ind != last_img_ind {
-                        render_pass.set_bind_group(2, &image_texture_bind_groups[img_ind], &[]);
-                    }
-                    last_img_ind = img_ind;
-                }
+                last_grad_ind = grad_ind;
+
+                // if let Some(img_ind) = batch.image_atlas_index {
+                //     if img_ind != last_img_ind {
+                //         render_pass.set_bind_group(2, &image_texture_bind_groups[img_ind], &[]);
+                //     }
+                //     last_img_ind = img_ind;
+                // }
 
                 // draw inds
                 render_pass.draw_indexed(batch.indices_range.clone(), 0, 0..1);
@@ -397,6 +392,7 @@ impl MultiMarkRenderer {
     fn make_texture_bind_groups(
         device: &Device,
         queue: &Queue,
+        size: Extent3d,
         images: &[DynamicImage],
     ) -> (BindGroupLayout, Vec<BindGroup>) {
         // Create texture for each image
@@ -428,14 +424,10 @@ impl MultiMarkRenderer {
                 label: Some("texture_bind_group_layout"),
             });
 
-        if images.is_empty() {
-            // If there are no images, create bind group with 1x1 texture so that there's something to bind to
+        for image in images {
+            // Create Texture
             let texture = device.create_texture(&wgpu::TextureDescriptor {
-                size: Extent3d {
-                    width: 1,
-                    height: 1,
-                    depth_or_array_layers: 1,
-                },
+                size,
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
@@ -469,77 +461,31 @@ impl MultiMarkRenderer {
                         resource: wgpu::BindingResource::Sampler(&sampler),
                     },
                 ],
-                label: Some("empty texture_bind_group"),
+                label: Some("texture_bind_group"),
             });
+
+            queue.write_texture(
+                // Tells wgpu where to copy the pixel data
+                wgpu::ImageCopyTexture {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                // The actual pixel data
+                image.to_rgba8().as_raw(),
+                // The layout of the texture
+                wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4 * image.width()),
+                    rows_per_image: Some(image.height()),
+                },
+                size,
+            );
+
             texture_bind_groups.push(texture_bind_group);
-        } else {
-            for image in images {
-                // Create Texture
-                let size = Extent3d {
-                    width: image.width(),
-                    height: image.height(),
-                    depth_or_array_layers: 1,
-                };
-                let texture = device.create_texture(&wgpu::TextureDescriptor {
-                    size,
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                    label: Some("diffuse_texture"),
-                    view_formats: &[],
-                });
-                let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-                // Create sampler
-                let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-                    address_mode_u: wgpu::AddressMode::ClampToEdge,
-                    address_mode_v: wgpu::AddressMode::ClampToEdge,
-                    address_mode_w: wgpu::AddressMode::ClampToEdge,
-                    mag_filter: wgpu::FilterMode::Nearest,
-                    min_filter: wgpu::FilterMode::Nearest,
-                    mipmap_filter: wgpu::FilterMode::Nearest,
-                    ..Default::default()
-                });
-
-                let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &texture_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(&texture_view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::Sampler(&sampler),
-                        },
-                    ],
-                    label: Some("texture_bind_group"),
-                });
-
-                queue.write_texture(
-                    // Tells wgpu where to copy the pixel data
-                    wgpu::ImageCopyTexture {
-                        texture: &texture,
-                        mip_level: 0,
-                        origin: wgpu::Origin3d::ZERO,
-                        aspect: wgpu::TextureAspect::All,
-                    },
-                    // The actual pixel data
-                    image.to_rgba8().as_raw(),
-                    // The layout of the texture
-                    wgpu::ImageDataLayout {
-                        offset: 0,
-                        bytes_per_row: Some(4 * image.width()),
-                        rows_per_image: Some(image.height()),
-                    },
-                    size,
-                );
-
-                texture_bind_groups.push(texture_bind_group);
-            }
         }
+
         (texture_bind_group_layout, texture_bind_groups)
     }
 }
