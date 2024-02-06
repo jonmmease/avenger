@@ -79,7 +79,7 @@ fn lookup_color(color: vec4<f32>, clip_position: vec4<f32>, top_left: vec2<f32>,
         // For gradient texture, the second color component stores the gradient texture y-coordinate
         let tex_coord_y = color[1];
 
-        // Extract gradient type from fist pixel using nearest sampler (so that not interpolation is performed)
+        // Extract gradient type from fist pixel
         let control0 = textureSample(gradient_texture, gradient_sampler, vec2<f32>(0.0, tex_coord_y));
         let gradient_type = control0[0];
 

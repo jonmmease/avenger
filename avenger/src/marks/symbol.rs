@@ -1,5 +1,7 @@
 use crate::marks::value::{ColorOrGradient, EncodingValue, Gradient};
+use lyon_path::Winding;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -83,4 +85,17 @@ pub enum SymbolShape {
     Circle,
     /// Path with origin top-left
     Path(lyon_path::Path),
+}
+
+impl SymbolShape {
+    pub fn as_path(&self) -> Cow<lyon_path::Path> {
+        match self {
+            SymbolShape::Circle => {
+                let mut builder = lyon_path::Path::builder();
+                builder.add_circle(lyon_path::geom::point(0.0, 0.0), 0.5, Winding::Positive);
+                Cow::Owned(builder.build())
+            }
+            SymbolShape::Path(path) => Cow::Borrowed(path),
+        }
+    }
 }
