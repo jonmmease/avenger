@@ -9,6 +9,8 @@ pub mod rect;
 pub mod rule;
 pub mod symbol;
 
-mod gradient2;
+pub mod gradient2;
+pub mod image2;
+
 #[cfg(feature = "text-glyphon")]
 pub mod text;

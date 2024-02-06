@@ -1,7 +1,8 @@
 use crate::canvas::CanvasDimensions;
 use crate::error::AvengerWgpuError;
 
-use crate::marks::gradient2::{to_color_or_gradient_coord, GradientBuilder};
+use crate::marks::gradient2::{to_color_or_gradient_coord, GradientAtlasBuilder};
+use crate::marks::image2::ImageAtlasBuilder;
 use avenger::marks::group::GroupBounds;
 use avenger::marks::line::LineMark;
 use avenger::marks::path::PathMark;
@@ -69,7 +70,7 @@ pub struct MultiMarkBatch {
     pub indices_range: Range<u32>,
     pub clip: Option<ClipRect>,
     pub image_atlas_index: Option<usize>,
-    pub gradient_atlas_index: usize,
+    pub gradient_atlas_index: Option<usize>,
 }
 
 pub struct MultiMarkRenderer {
@@ -77,10 +78,8 @@ pub struct MultiMarkRenderer {
     image_atlases: Vec<DynamicImage>,
     batches: Vec<MultiMarkBatch>,
     uniform: MultiUniform,
-
-    gradient_builder: GradientBuilder,
-
-    image_size: Extent3d,
+    gradient_atlas_builder: GradientAtlasBuilder,
+    image_atlas_builder: ImageAtlasBuilder,
     dimensions: CanvasDimensions,
 }
 
@@ -96,12 +95,8 @@ impl MultiMarkRenderer {
                 scale: dimensions.scale,
                 _pad: [0.0],
             },
-            gradient_builder: GradientBuilder::new(),
-            image_size: Extent3d {
-                width: 2048,
-                height: 2048,
-                depth_or_array_layers: 1,
-            },
+            gradient_atlas_builder: GradientAtlasBuilder::new(),
+            image_atlas_builder: ImageAtlasBuilder::new(),
         }
     }
 
@@ -110,8 +105,9 @@ impl MultiMarkRenderer {
         mark: &PathMark,
         bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        let (gradient_atlas_index, grad_coords) =
-            self.gradient_builder.register_gradients(&mark.gradients);
+        let (gradient_atlas_index, grad_coords) = self
+            .gradient_atlas_builder
+            .register_gradients(&mark.gradients);
 
         let verts_inds = izip!(
             mark.path_iter(),
@@ -237,13 +233,14 @@ impl MultiMarkRenderer {
         });
 
         // Gradient Textures
-        let (grad_texture_size, grad_images) = self.gradient_builder.build();
+        let (grad_texture_size, grad_images) = self.gradient_atlas_builder.build();
         let (gradient_layout, gradient_texture_bind_groups) =
             Self::make_texture_bind_groups(device, queue, grad_texture_size, &grad_images);
 
-        // // Image Textures
-        // let (image_layout, image_texture_bind_groups) =
-        //     Self::make_texture_bind_groups(device, queue, Default::default(), self.image_atlases.as_slice());
+        // Image Textures
+        let (image_texture_size, image_images) = self.image_atlas_builder.build();
+        let (image_layout, image_texture_bind_groups) =
+            Self::make_texture_bind_groups(device, queue, image_texture_size, &image_images);
 
         // Shaders
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -349,7 +346,7 @@ impl MultiMarkRenderer {
             let mut last_grad_ind = 0;
             let mut last_img_ind = 0;
             render_pass.set_bind_group(1, &gradient_texture_bind_groups[last_grad_ind], &[]);
-            // render_pass.set_bind_group(2, &image_texture_bind_groups[last_img_ind], &[]);
+            render_pass.set_bind_group(2, &image_texture_bind_groups[last_img_ind], &[]);
             render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
             render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
@@ -369,17 +366,19 @@ impl MultiMarkRenderer {
 
                 // Update bind groups
                 let grad_ind = batch.gradient_atlas_index;
-                if grad_ind != last_grad_ind {
-                    render_pass.set_bind_group(1, &gradient_texture_bind_groups[grad_ind], &[]);
+                if let Some(grad_ind) = batch.gradient_atlas_index {
+                    if grad_ind != last_grad_ind {
+                        render_pass.set_bind_group(1, &gradient_texture_bind_groups[grad_ind], &[]);
+                        last_grad_ind = grad_ind;
+                    }
                 }
-                last_grad_ind = grad_ind;
 
-                // if let Some(img_ind) = batch.image_atlas_index {
-                //     if img_ind != last_img_ind {
-                //         render_pass.set_bind_group(2, &image_texture_bind_groups[img_ind], &[]);
-                //     }
-                //     last_img_ind = img_ind;
-                // }
+                if let Some(img_ind) = batch.image_atlas_index {
+                    if img_ind != last_img_ind {
+                        render_pass.set_bind_group(2, &image_texture_bind_groups[img_ind], &[]);
+                    }
+                    last_img_ind = img_ind;
+                }
 
                 // draw inds
                 render_pass.draw_indexed(batch.indices_range.clone(), 0, 0..1);

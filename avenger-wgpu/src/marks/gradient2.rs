@@ -9,7 +9,7 @@ pub const GRADIENT_LINEAR: f32 = 0.0;
 pub const GRADIENT_RADIAL: f32 = 1.0;
 pub const COLORWAY_LENGTH: u32 = 250;
 
-pub struct GradientBuilder {
+pub struct GradientAtlasBuilder {
     extent: Extent3d,
     next_image: image::RgbaImage,
     images: Vec<DynamicImage>,
@@ -17,7 +17,7 @@ pub struct GradientBuilder {
     initialized: bool,
 }
 
-impl GradientBuilder {
+impl GradientAtlasBuilder {
     pub fn new() -> Self {
         // Initialize with single pixel image
         Self {
@@ -33,16 +33,15 @@ impl GradientBuilder {
         }
     }
 
-    pub fn register_gradients(&mut self, gradients: &[Gradient]) -> (usize, Vec<f32>) {
+    pub fn register_gradients(&mut self, gradients: &[Gradient]) -> (Option<usize>, Vec<f32>) {
+        if gradients.is_empty() {
+            return (None, Vec::new());
+        }
+
         // Handle initialization
         if !self.initialized {
             // Initialze next_image that we can write to
-            // self.next_image = image::RgbaImage::new(GRADIENT_WIDTH, GRADIENT_HEIGH);
-            self.next_image = image::RgbaImage::from_pixel(
-                GRADIENT_WIDTH,
-                GRADIENT_HEIGH,
-                Rgba::from([255, 0, 0, 255]),
-            );
+            self.next_image = image::RgbaImage::new(GRADIENT_WIDTH, GRADIENT_HEIGH);
             self.extent = Extent3d {
                 width: GRADIENT_WIDTH,
                 height: GRADIENT_HEIGH,
@@ -141,11 +140,11 @@ impl GradientBuilder {
         // handled on the next call to register_gradients.
         self.next_grad_row += gradients.len();
 
-        // Compute gradient image index (index into the vector if images that will be
+        // Compute gradient atlas index (index into the vector if images that will be
         // returned by build).
-        let gradient_index = self.images.len();
+        let atlas_index = self.images.len();
 
-        (gradient_index, coords)
+        (Some(atlas_index), coords)
     }
 
     pub fn build(&self) -> (Extent3d, Vec<DynamicImage>) {
