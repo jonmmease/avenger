@@ -21,6 +21,7 @@ use crate::marks::path::PathShader;
 use crate::marks::rect::RectShader;
 use crate::marks::rule::RuleShader;
 use crate::marks::symbol::SymbolShader;
+use crate::marks::text::TextInstance;
 use avenger::marks::arc::ArcMark;
 use avenger::marks::area::AreaMark;
 use avenger::marks::group::GroupBounds;
@@ -79,6 +80,8 @@ pub trait Canvas {
     fn sample_count(&self) -> u32;
 
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer;
+
+    fn add_overlay_text(&mut self, text_instances: Vec<TextInstance>);
 
     fn add_arc_mark(
         &mut self,
@@ -195,15 +198,8 @@ pub trait Canvas {
     ) -> Result<(), AvengerWgpuError> {
         cfg_if::cfg_if! {
             if #[cfg(feature = "text-glyphon")] {
-                self.add_mark_renderer(MarkRenderer::Text(TextMarkRenderer::new(
-                    self.device(),
-                    self.queue(),
-                    self.texture_format(),
-                    self.dimensions(),
-                    self.sample_count(),
-                    mark,
-                    group_bounds,
-                )));
+                let instances = TextInstance::iter_from_spec(mark, group_bounds).collect::<Vec<_>>();
+                self.add_overlay_text(instances);
                 Ok(())
             } else {
                 Err(AvengerWgpuError::TextNotEnabled("Use the text-glyphon feature flag to enable text".to_string()))
@@ -440,6 +436,7 @@ pub struct WindowCanvas {
     dimensions: CanvasDimensions,
     marks: Vec<MarkRenderer>,
     multi_renderer: Option<MultiMarkRenderer>,
+    overlay_text: Vec<TextInstance>,
 }
 
 impl WindowCanvas {
@@ -495,6 +492,7 @@ impl WindowCanvas {
             window,
             marks: Vec::new(),
             multi_renderer: None,
+            overlay_text: vec![],
         })
     }
 
@@ -531,6 +529,21 @@ impl WindowCanvas {
         // Commit open multi-renderer
         if let Some(multi_renderer) = self.multi_renderer.take() {
             self.marks.push(MarkRenderer::Multi(multi_renderer));
+        }
+
+        // Create overlay text renderer
+        if !self.overlay_text.is_empty() {
+            let mut instances: Vec<TextInstance> = Vec::new();
+            std::mem::swap(&mut instances, &mut self.overlay_text);
+            self.marks.push(MarkRenderer::Text(TextMarkRenderer::new(
+                self.device(),
+                self.queue(),
+                self.texture_format(),
+                self.dimensions(),
+                self.sample_count(),
+                instances,
+                false,
+            )));
         }
 
         let background_command = if self.sample_count > 1 {
@@ -610,6 +623,10 @@ impl Canvas for WindowCanvas {
         self.multi_renderer.as_mut().unwrap()
     }
 
+    fn add_overlay_text(&mut self, text_instances: Vec<TextInstance>) {
+        self.overlay_text.extend(text_instances)
+    }
+
     fn add_mark_renderer(&mut self, mark_renderer: MarkRenderer) {
         if let Some(multi_renderer) = self.multi_renderer.take() {
             self.marks.push(MarkRenderer::Multi(multi_renderer));
@@ -656,6 +673,7 @@ pub struct PngCanvas {
     pub padded_width: u32,
     pub padded_height: u32,
     multi_renderer: Option<MultiMarkRenderer>,
+    overlay_text: Vec<TextInstance>,
 }
 
 impl PngCanvas {
@@ -726,6 +744,7 @@ impl PngCanvas {
             padded_height,
             marks: Vec::new(),
             multi_renderer: None,
+            overlay_text: vec![],
         })
     }
 
@@ -733,6 +752,21 @@ impl PngCanvas {
         // Commit open multi mark renderer
         if let Some(multi_renderer) = self.multi_renderer.take() {
             self.marks.push(MarkRenderer::Multi(multi_renderer));
+        }
+
+        // Create overlay text renderer
+        if !self.overlay_text.is_empty() {
+            let mut instances: Vec<TextInstance> = Vec::new();
+            std::mem::swap(&mut instances, &mut self.overlay_text);
+            self.marks.push(MarkRenderer::Text(TextMarkRenderer::new(
+                self.device(),
+                self.queue(),
+                self.texture_format(),
+                self.dimensions(),
+                self.sample_count(),
+                instances,
+                false,
+            )));
         }
 
         // Build encoder for chart background
@@ -883,6 +917,10 @@ impl Canvas for PngCanvas {
             self.multi_renderer = Some(MultiMarkRenderer::new(self.dimensions));
         }
         self.multi_renderer.as_mut().unwrap()
+    }
+
+    fn add_overlay_text(&mut self, text_instances: Vec<TextInstance>) {
+        self.overlay_text.extend(text_instances)
     }
 
     fn add_mark_renderer(&mut self, mark_renderer: MarkRenderer) {
