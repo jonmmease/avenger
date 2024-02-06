@@ -112,16 +112,9 @@ pub trait Canvas {
         mark: &LineMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
-            self.device(),
-            self.texture_format(),
-            self.sample_count(),
-            Box::new(PathShader::from_line_mark(
-                mark,
-                self.dimensions(),
-                group_bounds,
-            )?),
-        )));
+        let mut renderer = MultiMarkRenderer::new(self.dimensions());
+        renderer.add_line_mark(mark, group_bounds)?;
+        self.add_mark_renderer(MarkRenderer::Multi(renderer));
         Ok(())
     }
 
@@ -130,16 +123,9 @@ pub trait Canvas {
         mark: &TrailMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
-            self.device(),
-            self.texture_format(),
-            self.sample_count(),
-            Box::new(PathShader::from_trail_mark(
-                mark,
-                self.dimensions(),
-                group_bounds,
-            )?),
-        )));
+        let mut renderer = MultiMarkRenderer::new(self.dimensions());
+        renderer.add_trail_mark(mark, group_bounds)?;
+        self.add_mark_renderer(MarkRenderer::Multi(renderer));
         Ok(())
     }
 
@@ -148,16 +134,9 @@ pub trait Canvas {
         mark: &AreaMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
-            self.device(),
-            self.texture_format(),
-            self.sample_count(),
-            Box::new(PathShader::from_area_mark(
-                mark,
-                self.dimensions(),
-                group_bounds,
-            )?),
-        )));
+        let mut renderer = MultiMarkRenderer::new(self.dimensions());
+        renderer.add_area_mark(mark, group_bounds)?;
+        self.add_mark_renderer(MarkRenderer::Multi(renderer));
         Ok(())
     }
 
@@ -166,16 +145,20 @@ pub trait Canvas {
         mark: &SymbolMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
-            self.device(),
-            self.texture_format(),
-            self.sample_count(),
-            Box::new(SymbolShader::from_symbol_mark(
-                mark,
-                self.dimensions(),
-                group_bounds,
-            )?),
-        )));
+        // self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
+        //     self.device(),
+        //     self.texture_format(),
+        //     self.sample_count(),
+        //     Box::new(SymbolShader::from_symbol_mark(
+        //         mark,
+        //         self.dimensions(),
+        //         group_bounds,
+        //     )?),
+        // )));
+
+        let mut renderer = MultiMarkRenderer::new(self.dimensions());
+        renderer.add_symbol_mark(mark, group_bounds)?;
+        self.add_mark_renderer(MarkRenderer::Multi(renderer));
         Ok(())
     }
 
