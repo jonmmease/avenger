@@ -10,6 +10,7 @@ use avenger::marks::group::GroupBounds;
 use avenger::marks::image::ImageMark;
 use avenger::marks::line::LineMark;
 use avenger::marks::path::{PathMark, PathTransform};
+use avenger::marks::rect::RectMark;
 use avenger::marks::rule::RuleMark;
 use avenger::marks::symbol::SymbolMark;
 use avenger::marks::trail::TrailMark;
@@ -18,16 +19,16 @@ use image::DynamicImage;
 use itertools::izip;
 use lyon::algorithms::aabb::bounding_box;
 use lyon::algorithms::measure::{PathMeasurements, PathSampler, SampleType};
-use lyon::geom::euclid::Vector2D;
-use lyon::geom::{Angle, Point};
+use lyon::geom::euclid::{Point2D, Vector2D};
+use lyon::geom::{Angle, Box2D, Point};
 use lyon::lyon_tessellation::{
     AttributeIndex, BuffersBuilder, FillOptions, FillTessellator, FillVertex,
     FillVertexConstructor, LineCap, LineJoin, StrokeOptions, StrokeTessellator, StrokeVertex,
     StrokeVertexConstructor, VertexBuffers,
 };
-use lyon::path::builder::WithSvg;
+use lyon::path::builder::{BorderRadii, WithSvg};
 use lyon::path::path::BuilderImpl;
-use lyon::path::Path;
+use lyon::path::{Path, Winding};
 use std::ops::Range;
 use wgpu::util::DeviceExt;
 use wgpu::{
@@ -257,6 +258,105 @@ impl MultiMarkRenderer {
 
             }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
         };
+
+        let start_ind = self.num_indices();
+        let inds_len: usize = verts_inds.iter().map(|(_, i)| i.len()).sum();
+        let indices_range = (start_ind as u32)..((start_ind + inds_len) as u32);
+
+        let batch = MultiMarkBatch {
+            indices_range,
+            clip: None,
+            image_atlas_index: None,
+            gradient_atlas_index,
+        };
+
+        self.verts_inds.extend(verts_inds);
+        self.batches.push(batch);
+        Ok(())
+    }
+
+    pub fn add_rect_mark(
+        &mut self,
+        mark: &RectMark,
+        bounds: GroupBounds,
+    ) -> Result<(), AvengerWgpuError> {
+        let (gradient_atlas_index, grad_coords) = self
+            .gradient_atlas_builder
+            .register_gradients(&mark.gradients);
+
+        let verts_inds = izip!(
+            mark.x_iter(),
+            mark.y_iter(),
+            mark.width_iter(),
+            mark.height_iter(),
+            mark.fill_iter(),
+            mark.stroke_iter(),
+            mark.stroke_width_iter(),
+            mark.corner_radius_iter(),
+        ).map(|(x, y, width, height, fill, stroke, stroke_width, corner_radius)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+            // Create rect path
+            let mut path_builder = lyon::path::Path::builder();
+            let x0 = *x + bounds.x;
+            let y0 = *y + bounds.y;
+            let x1 = x0 + width;
+            let y1 = y0 + height;
+            if *corner_radius > 0.0 {
+                path_builder.add_rounded_rectangle(
+                    &Box2D::new(
+                        Point2D::new(x0, y0),
+                        Point2D::new(x1, y1),
+                    ),
+                    &BorderRadii {
+                        top_left: *corner_radius,
+                        top_right: *corner_radius,
+                        bottom_left: *corner_radius,
+                        bottom_right: *corner_radius,
+                    },
+                    Winding::Positive
+                );
+            } else {
+                path_builder.add_rectangle(
+                    &Box2D::new(
+                        Point2D::new(x0, y0),
+                        Point2D::new(x1, y1),
+                    ),
+                    Winding::Positive
+                );
+            }
+
+            // Apply transform to path
+            let path = path_builder.build();
+            let bbox = bounding_box(&path);
+
+            // Create vertex/index buffer builder
+            let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
+            let mut builder = BuffersBuilder::new(
+                &mut buffers,
+                VertexPositions {
+                    fill: to_color_or_gradient_coord(fill, &grad_coords),
+                    stroke: to_color_or_gradient_coord(stroke, &grad_coords),
+                    top_left: bbox.min.to_array(),
+                    bottom_right: bbox.max.to_array(),
+                },
+            );
+
+            // Tesselate fill
+            let mut fill_tessellator = FillTessellator::new();
+            let fill_options = FillOptions::default().with_tolerance(0.05);
+
+            fill_tessellator.tessellate_path(&path, &fill_options, &mut builder)?;
+
+            // Tesselate stroke
+            if *stroke_width > 0.0 {
+                let mut stroke_tessellator = StrokeTessellator::new();
+                let stroke_options = StrokeOptions::default()
+                    .with_tolerance(0.05)
+                    .with_line_width(*stroke_width);
+                stroke_tessellator.tessellate_path(&path, &stroke_options, &mut builder)?;
+            }
+
+            Ok((buffers.vertices, buffers.indices))
+        }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
 
         let start_ind = self.num_indices();
         let inds_len: usize = verts_inds.iter().map(|(_, i)| i.len()).sum();

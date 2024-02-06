@@ -167,16 +167,19 @@ pub trait Canvas {
         mark: &RectMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
-            self.device(),
-            self.texture_format(),
-            self.sample_count(),
-            Box::new(RectShader::from_rect_mark(
-                mark,
-                self.dimensions(),
-                group_bounds,
-            )),
-        )));
+        // self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
+        //     self.device(),
+        //     self.texture_format(),
+        //     self.sample_count(),
+        //     Box::new(RectShader::from_rect_mark(
+        //         mark,
+        //         self.dimensions(),
+        //         group_bounds,
+        //     )),
+        // )));
+        let mut renderer = MultiMarkRenderer::new(self.dimensions());
+        renderer.add_rect_mark(mark, group_bounds)?;
+        self.add_mark_renderer(MarkRenderer::Multi(renderer));
         Ok(())
     }
 
