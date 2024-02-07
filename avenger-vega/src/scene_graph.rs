@@ -13,6 +13,7 @@ pub struct VegaSceneGraph {
 }
 
 impl VegaSceneGraph {
+    #[tracing::instrument(skip_all)]
     pub fn to_scene_graph(&self) -> Result<SceneGraph, AvengerVegaError> {
         Ok(SceneGraph {
             groups: self.scenegraph.to_scene_graph()?,
