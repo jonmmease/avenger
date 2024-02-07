@@ -25,3 +25,6 @@ optional = true
 
 [dependencies.tracing]
 workspace = true
+
+[dependencies.rayon]
+workspace = true

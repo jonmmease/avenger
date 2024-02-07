@@ -2,12 +2,12 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
-pub enum EncodingValue<T> {
+pub enum EncodingValue<T: Sync + Clone> {
     Scalar { value: T },
     Array { values: Vec<T> },
 }
 
-impl<T> EncodingValue<T> {
+impl<T: Sync + Clone> EncodingValue<T> {
     pub fn as_iter<'a>(
         &'a self,
         scalar_len: usize,
@@ -20,6 +20,12 @@ impl<T> EncodingValue<T> {
                 Some(indices) => Box::new(indices.iter().map(|i| &values[*i])),
             },
         }
+    }
+
+    pub fn as_vec(&self, scalar_len: usize, indices: Option<&Vec<usize>>) -> Vec<T> {
+        self.as_iter(scalar_len, indices)
+            .cloned()
+            .collect::<Vec<_>>()
     }
 }
 

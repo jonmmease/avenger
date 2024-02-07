@@ -26,17 +26,36 @@ impl PathMark {
     pub fn path_iter(&self) -> Box<dyn Iterator<Item = &lyon_path::Path> + '_> {
         self.path.as_iter(self.len as usize, self.indices.as_ref())
     }
+
+    pub fn path_vec(&self) -> Vec<lyon_path::Path> {
+        self.path.as_vec(self.len as usize, self.indices.as_ref())
+    }
+
     pub fn fill_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
         self.fill.as_iter(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn fill_vec(&self) -> Vec<ColorOrGradient> {
+        self.fill.as_vec(self.len as usize, self.indices.as_ref())
     }
 
     pub fn stroke_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
         self.stroke
             .as_iter(self.len as usize, self.indices.as_ref())
     }
+
+    pub fn stroke_vec(&self) -> Vec<ColorOrGradient> {
+        self.stroke.as_vec(self.len as usize, self.indices.as_ref())
+    }
+
     pub fn transform_iter(&self) -> Box<dyn Iterator<Item = &PathTransform> + '_> {
         self.transform
             .as_iter(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn transform_vec(&self) -> Vec<PathTransform> {
+        self.transform
+            .as_vec(self.len as usize, self.indices.as_ref())
     }
 }
 
