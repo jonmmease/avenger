@@ -116,6 +116,7 @@ impl MultiMarkRenderer {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn add_rule_mark(
         &mut self,
         mark: &RuleMark,
@@ -275,6 +276,7 @@ impl MultiMarkRenderer {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn add_rect_mark(
         &mut self,
         mark: &RectMark,
@@ -374,6 +376,7 @@ impl MultiMarkRenderer {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn add_path_mark(
         &mut self,
         mark: &PathMark,
@@ -451,6 +454,7 @@ impl MultiMarkRenderer {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn add_symbol_mark(
         &mut self,
         mark: &SymbolMark,
@@ -528,6 +532,7 @@ impl MultiMarkRenderer {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn add_line_mark(
         &mut self,
         mark: &LineMark,
@@ -670,6 +675,7 @@ impl MultiMarkRenderer {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn add_area_mark(
         &mut self,
         mark: &AreaMark,
@@ -791,6 +797,7 @@ impl MultiMarkRenderer {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn add_trail_mark(
         &mut self,
         mark: &TrailMark,
@@ -872,6 +879,7 @@ impl MultiMarkRenderer {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn add_image_mark(
         &mut self,
         mark: &ImageMark,
@@ -1013,6 +1021,7 @@ impl MultiMarkRenderer {
         self.verts_inds.iter().map(|(v, _)| v.len()).sum()
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn render(
         &self,
         device: &Device,

@@ -194,6 +194,7 @@ impl TextMarkRenderer {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn render(
         &mut self,
         device: &Device,

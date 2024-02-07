@@ -279,6 +279,7 @@ pub trait Canvas {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all)]
     fn set_scene(&mut self, scene_graph: &SceneGraph) -> Result<(), AvengerWgpuError> {
         // Clear existing marks
         self.clear_mark_renderer();
@@ -677,6 +678,7 @@ pub struct PngCanvas {
 }
 
 impl PngCanvas {
+    #[tracing::instrument(skip_all)]
     pub async fn new(dimensions: CanvasDimensions) -> Result<Self, AvengerWgpuError> {
         let instance = make_wgpu_instance();
         let adapter = make_wgpu_adapter(&instance, None).await?;
@@ -748,6 +750,7 @@ impl PngCanvas {
         })
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn render(&mut self) -> Result<image::RgbaImage, AvengerWgpuError> {
         // Commit open multi mark renderer
         if let Some(multi_renderer) = self.multi_renderer.take() {

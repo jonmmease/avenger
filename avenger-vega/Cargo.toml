@@ -28,6 +28,9 @@ optional = true
 [dependencies.lazy_static]
 workspace = true
 
+[dependencies.tracing]
+workspace = true
+
 [dependencies.avenger]
 path = "../avenger"
 version = "0.0.2"

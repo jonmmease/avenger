@@ -34,6 +34,9 @@ rstest = "0.18.2"
 path = "../avenger"
 version = "0.0.2"
 
+[dependencies.tracing]
+workspace = true
+
 [dependencies.thiserror]
 workspace = true
 

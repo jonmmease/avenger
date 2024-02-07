@@ -22,3 +22,6 @@ features = [ "png",]
 [dependencies.pyo3]
 workspace = true
 optional = true
+
+[dependencies.tracing]
+workspace = true

@@ -38,3 +38,13 @@ workspace = true
 
 [dependencies.image]
 workspace = true
+
+[dependencies.tracing]
+workspace = true
+
+[dependencies.tracing-subscriber]
+workspace = true
+features = ["env-filter"]
+
+[dependencies.lazy_static]
+workspace = true
