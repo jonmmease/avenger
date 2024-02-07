@@ -11,8 +11,8 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use pythonize::depythonize;
 use std::io::Cursor;
-use tracing_subscriber::{fmt, fmt::format::FmtSpan, prelude::*, EnvFilter};
 use tracing::info_span;
+use tracing_subscriber::{fmt, fmt::format::FmtSpan, prelude::*, EnvFilter};
 
 #[pyclass]
 pub struct SceneGraph {
@@ -23,7 +23,8 @@ pub struct SceneGraph {
 impl SceneGraph {
     #[staticmethod]
     fn from_vega_scenegraph(vega_sg: &PyAny) -> PyResult<Self> {
-        let vega_sg: VegaSceneGraph = info_span!("depythonize").in_scope(|| depythonize(vega_sg))?;
+        let vega_sg: VegaSceneGraph =
+            info_span!("depythonize").in_scope(|| depythonize(vega_sg))?;
         let inner = vega_sg.to_scene_graph()?;
         Ok(Self { inner })
     }
@@ -34,7 +35,8 @@ impl SceneGraph {
             let mut png_canvas = PngCanvas::new(CanvasDimensions {
                 size: [self.inner.width, self.inner.height],
                 scale: scale.unwrap_or(1.0),
-            }).await?;
+            })
+            .await?;
             png_canvas.set_scene(&self.inner)?;
 
             png_canvas.render().await

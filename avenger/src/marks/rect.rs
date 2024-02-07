@@ -25,12 +25,24 @@ impl RectMark {
         self.x.as_iter(self.len as usize, self.indices.as_ref())
     }
 
+    pub fn x_vec(&self) -> Vec<f32> {
+        self.x.as_vec(self.len as usize, self.indices.as_ref())
+    }
+
     pub fn y_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
         self.y.as_iter(self.len as usize, self.indices.as_ref())
     }
 
+    pub fn y_vec(&self) -> Vec<f32> {
+        self.y.as_vec(self.len as usize, self.indices.as_ref())
+    }
+
     pub fn width_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
         self.width.as_iter(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn width_vec(&self) -> Vec<f32> {
+        self.width.as_vec(self.len as usize, self.indices.as_ref())
     }
 
     pub fn height_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
@@ -38,8 +50,16 @@ impl RectMark {
             .as_iter(self.len as usize, self.indices.as_ref())
     }
 
+    pub fn height_vec(&self) -> Vec<f32> {
+        self.height.as_vec(self.len as usize, self.indices.as_ref())
+    }
+
     pub fn fill_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
         self.fill.as_iter(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn fill_vec(&self) -> Vec<ColorOrGradient> {
+        self.fill.as_vec(self.len as usize, self.indices.as_ref())
     }
 
     pub fn stroke_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
@@ -47,14 +67,28 @@ impl RectMark {
             .as_iter(self.len as usize, self.indices.as_ref())
     }
 
+    pub fn stroke_vec(&self) -> Vec<ColorOrGradient> {
+        self.stroke.as_vec(self.len as usize, self.indices.as_ref())
+    }
+
     pub fn stroke_width_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
         self.stroke_width
             .as_iter(self.len as usize, self.indices.as_ref())
     }
 
+    pub fn stroke_width_vec(&self) -> Vec<f32> {
+        self.stroke_width
+            .as_vec(self.len as usize, self.indices.as_ref())
+    }
+
     pub fn corner_radius_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
         self.corner_radius
             .as_iter(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn corner_radius_vec(&self) -> Vec<f32> {
+        self.corner_radius
+            .as_vec(self.len as usize, self.indices.as_ref())
     }
 }
 

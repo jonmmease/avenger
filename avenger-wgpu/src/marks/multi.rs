@@ -14,7 +14,9 @@ use avenger::marks::rect::RectMark;
 use avenger::marks::rule::RuleMark;
 use avenger::marks::symbol::SymbolMark;
 use avenger::marks::trail::TrailMark;
-use avenger::marks::value::{Gradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin};
+use avenger::marks::value::{
+    ColorOrGradient, Gradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin,
+};
 use image::DynamicImage;
 use itertools::izip;
 use lyon::algorithms::aabb::bounding_box;
@@ -35,6 +37,10 @@ use wgpu::{
     BindGroup, BindGroupLayout, CommandBuffer, Device, Extent3d, Queue, TextureFormat, TextureView,
     VertexBufferLayout,
 };
+
+// Import rayon prelude as required by par_izip.
+use crate::par_izip;
+use rayon::prelude::*;
 
 pub const GRADIENT_TEXTURE_CODE: f32 = -1.0;
 pub const IMAGE_TEXTURE_CODE: f32 = -2.0;
@@ -286,16 +292,15 @@ impl MultiMarkRenderer {
             .gradient_atlas_builder
             .register_gradients(&mark.gradients);
 
-        let verts_inds = izip!(
-            mark.x_iter(),
-            mark.y_iter(),
-            mark.width_iter(),
-            mark.height_iter(),
-            mark.fill_iter(),
-            mark.stroke_iter(),
-            mark.stroke_width_iter(),
-            mark.corner_radius_iter(),
-        ).map(|(x, y, width, height, fill, stroke, stroke_width, corner_radius)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+        let build_verts_inds = |x: &f32,
+                                y: &f32,
+                                width: &f32,
+                                height: &f32,
+                                fill: &ColorOrGradient,
+                                stroke: &ColorOrGradient,
+                                stroke_width: &f32,
+                                corner_radius: &f32|
+         -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
             // Create rect path
             let mut path_builder = lyon::path::Path::builder();
             let x0 = *x + bounds.x;
@@ -304,25 +309,19 @@ impl MultiMarkRenderer {
             let y1 = y0 + height;
             if *corner_radius > 0.0 {
                 path_builder.add_rounded_rectangle(
-                    &Box2D::new(
-                        Point2D::new(x0, y0),
-                        Point2D::new(x1, y1),
-                    ),
+                    &Box2D::new(Point2D::new(x0, y0), Point2D::new(x1, y1)),
                     &BorderRadii {
                         top_left: *corner_radius,
                         top_right: *corner_radius,
                         bottom_left: *corner_radius,
                         bottom_right: *corner_radius,
                     },
-                    Winding::Positive
+                    Winding::Positive,
                 );
             } else {
                 path_builder.add_rectangle(
-                    &Box2D::new(
-                        Point2D::new(x0, y0),
-                        Point2D::new(x1, y1),
-                    ),
-                    Winding::Positive
+                    &Box2D::new(Point2D::new(x0, y0), Point2D::new(x1, y1)),
+                    Winding::Positive,
                 );
             }
 
@@ -358,7 +357,37 @@ impl MultiMarkRenderer {
             }
 
             Ok((buffers.vertices, buffers.indices))
-        }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
+        };
+
+        let use_par = mark.len > 100;
+
+        let verts_inds = if use_par {
+            par_izip!(
+                mark.x_vec(),
+                mark.y_vec(),
+                mark.width_vec(),
+                mark.height_vec(),
+                mark.fill_vec(),
+                mark.stroke_vec(),
+                mark.stroke_width_vec(),
+                mark.corner_radius_vec(),
+            ).map(|(x, y, width, height, fill, stroke, stroke_width, corner_radius)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+                build_verts_inds(&x, &y, &width, &height, &fill, &stroke, &stroke_width, &corner_radius)
+            }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
+        } else {
+            izip!(
+                mark.x_iter(),
+                mark.y_iter(),
+                mark.width_iter(),
+                mark.height_iter(),
+                mark.fill_iter(),
+                mark.stroke_iter(),
+                mark.stroke_width_iter(),
+                mark.corner_radius_iter(),
+            ).map(|(x, y, width, height, fill, stroke, stroke_width, corner_radius)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+                    build_verts_inds(x, y, width, height, fill, stroke, stroke_width, corner_radius)
+            }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
+        };
 
         let start_ind = self.num_indices();
         let inds_len: usize = verts_inds.iter().map(|(_, i)| i.len()).sum();
@@ -386,23 +415,22 @@ impl MultiMarkRenderer {
             .gradient_atlas_builder
             .register_gradients(&mark.gradients);
 
-        let verts_inds = izip!(
-            mark.path_iter(),
-            mark.fill_iter(),
-            mark.stroke_iter(),
-            mark.transform_iter(),
-        ).map(|(path, fill, stroke, transform)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+        let build_verts_inds = |path: &lyon::path::Path,
+                                fill: &ColorOrGradient,
+                                stroke: &ColorOrGradient,
+                                transform: &PathTransform|
+         -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
             // Apply transform to path
-            let path = path.clone().transformed(
-                &transform.then_translate(Vector2D::new(bounds.x, bounds.y))
-            );
+            let path = path
+                .clone()
+                .transformed(&transform.then_translate(Vector2D::new(bounds.x, bounds.y)));
             let bbox = bounding_box(&path);
 
             // Create vertex/index buffer builder
             let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
             let mut builder = BuffersBuilder::new(
                 &mut buffers,
-                VertexPositions {
+                crate::marks::multi::VertexPositions {
                     fill: to_color_or_gradient_coord(fill, &grad_coords),
                     stroke: to_color_or_gradient_coord(stroke, &grad_coords),
                     top_left: bbox.min.to_array(),
@@ -436,7 +464,28 @@ impl MultiMarkRenderer {
             }
 
             Ok((buffers.vertices, buffers.indices))
-        }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
+        };
+
+        let use_par = mark.len > 32;
+        let verts_inds = if use_par {
+            par_izip!(
+                mark.path_vec(),
+                mark.fill_vec(),
+                mark.stroke_vec(),
+                mark.transform_vec(),
+            ).map(|(path, fill, stroke, transform)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+                build_verts_inds(&path, &fill, &stroke, &transform)
+            }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
+        } else {
+            izip!(
+                mark.path_iter(),
+                mark.fill_iter(),
+                mark.stroke_iter(),
+                mark.transform_iter(),
+            ).map(|(path, fill, stroke, transform)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+                build_verts_inds(path, fill, stroke, transform)
+            }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
+        };
 
         let start_ind = self.num_indices();
         let inds_len: usize = verts_inds.iter().map(|(_, i)| i.len()).sum();
@@ -466,20 +515,20 @@ impl MultiMarkRenderer {
             .gradient_atlas_builder
             .register_gradients(&mark.gradients);
 
-        let verts_inds = izip!(
-            mark.x_iter(),
-            mark.y_iter(),
-            mark.fill_iter(),
-            mark.size_iter(),
-            mark.stroke_iter(),
-            mark.angle_iter(),
-            mark.shape_index_iter(),
-        ).map(|(x, y, fill, size, stroke, angle, shape_index)| -> Result<(Vec<MultiVertex >, Vec<u32>), AvengerWgpuError> {
+        // Builder function that we'll call from either single-threaded or parallel iterations paths
+        let build_verts_inds = |x: &f32,
+                                y: &f32,
+                                fill: &ColorOrGradient,
+                                size: &f32,
+                                stroke: &ColorOrGradient,
+                                angle: &f32,
+                                shape_index: &usize|
+         -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
             let path = &paths[*shape_index];
             let scale = size.sqrt();
             let transform = PathTransform::scale(scale, scale)
                 .then_rotate(Angle::degrees(*angle))
-                .then_translate(Vector2D::new(*x + bounds.x, *y + bounds.y));
+                .then_translate(Vector2D::new(x + bounds.x, y + bounds.y));
             let path = path.as_ref().clone().transformed(&transform);
 
             let bbox = bounding_box(&path);
@@ -489,8 +538,8 @@ impl MultiMarkRenderer {
             let mut builder = BuffersBuilder::new(
                 &mut buffers,
                 VertexPositions {
-                    fill: to_color_or_gradient_coord(fill, &grad_coords),
-                    stroke: to_color_or_gradient_coord(stroke, &grad_coords),
+                    fill: to_color_or_gradient_coord(&fill, &grad_coords),
+                    stroke: to_color_or_gradient_coord(&stroke, &grad_coords),
                     top_left: bbox.min.to_array(),
                     bottom_right: bbox.max.to_array(),
                 },
@@ -514,7 +563,34 @@ impl MultiMarkRenderer {
             }
 
             Ok((buffers.vertices, buffers.indices))
-        }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
+        };
+
+        let use_par = mark.len > 100;
+        let verts_inds = if use_par {
+            par_izip!(
+                mark.x_vec(),
+                mark.y_vec(),
+                mark.fill_vec(),
+                mark.size_vec(),
+                mark.stroke_vec(),
+                mark.angle_vec(),
+                mark.shape_index_vec(),
+        ).map(|(x, y, fill, size, stroke, angle, shape_index)| -> Result<(Vec<MultiVertex >, Vec<u32>), AvengerWgpuError> {
+                build_verts_inds(&x, &y, &fill, &size, &stroke, &angle, &shape_index)
+            }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
+        } else {
+            izip!(
+                mark.x_iter(),
+                mark.y_iter(),
+                mark.fill_iter(),
+                mark.size_iter(),
+                mark.stroke_iter(),
+                mark.angle_iter(),
+                mark.shape_index_iter(),
+            ).map(|(x, y, fill, size, stroke, angle, shape_index)| -> Result<(Vec<MultiVertex >, Vec<u32>), AvengerWgpuError> {
+                build_verts_inds(x, y, fill, size, stroke, angle, shape_index)
+            }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
+        };
 
         let start_ind = self.num_indices();
         let inds_len: usize = verts_inds.iter().map(|(_, i)| i.len()).sum();

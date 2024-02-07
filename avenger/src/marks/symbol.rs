@@ -28,27 +28,59 @@ impl SymbolMark {
         self.x.as_iter(self.len as usize, self.indices.as_ref())
     }
 
+    pub fn x_vec(&self) -> Vec<f32> {
+        self.x.as_vec(self.len as usize, self.indices.as_ref())
+    }
+
     pub fn y_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
         self.y.as_iter(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn y_vec(&self) -> Vec<f32> {
+        self.y.as_vec(self.len as usize, self.indices.as_ref())
     }
 
     pub fn fill_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
         self.fill.as_iter(self.len as usize, self.indices.as_ref())
     }
 
+    pub fn fill_vec(&self) -> Vec<ColorOrGradient> {
+        self.fill.as_vec(self.len as usize, self.indices.as_ref())
+    }
+
     pub fn size_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
         self.size.as_iter(self.len as usize, self.indices.as_ref())
     }
+
+    pub fn size_vec(&self) -> Vec<f32> {
+        self.size.as_vec(self.len as usize, self.indices.as_ref())
+    }
+
     pub fn stroke_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
         self.stroke
             .as_iter(self.len as usize, self.indices.as_ref())
     }
+
+    pub fn stroke_vec(&self) -> Vec<ColorOrGradient> {
+        self.stroke.as_vec(self.len as usize, self.indices.as_ref())
+    }
+
     pub fn angle_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
         self.angle.as_iter(self.len as usize, self.indices.as_ref())
     }
+
+    pub fn angle_vec(&self) -> Vec<f32> {
+        self.angle.as_vec(self.len as usize, self.indices.as_ref())
+    }
+
     pub fn shape_index_iter(&self) -> Box<dyn Iterator<Item = &usize> + '_> {
         self.shape_index
             .as_iter(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn shape_index_vec(&self) -> Vec<usize> {
+        self.shape_index
+            .as_vec(self.len as usize, self.indices.as_ref())
     }
 }
 
