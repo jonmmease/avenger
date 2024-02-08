@@ -31,7 +31,8 @@ use lyon::lyon_tessellation::{
 use lyon::path::builder::{BorderRadii, WithSvg};
 use lyon::path::path::BuilderImpl;
 use lyon::path::{Path, Winding};
-use std::ops::Range;
+use lyon::path::builder::SvgPathBuilder;
+use std::ops::{Mul, Neg, Range};
 use wgpu::util::DeviceExt;
 use wgpu::{
     BindGroup, BindGroupLayout, CommandBuffer, Device, Extent3d, Queue, TextureFormat, TextureView,
@@ -41,6 +42,7 @@ use wgpu::{
 // Import rayon prelude as required by par_izip.
 use crate::par_izip;
 use rayon::prelude::*;
+use avenger::marks::arc::ArcMark;
 
 pub const GRADIENT_TEXTURE_CODE: f32 = -1.0;
 pub const IMAGE_TEXTURE_CODE: f32 = -2.0;
@@ -575,7 +577,7 @@ impl MultiMarkRenderer {
                 mark.stroke_vec(),
                 mark.angle_vec(),
                 mark.shape_index_vec(),
-        ).map(|(x, y, fill, size, stroke, angle, shape_index)| -> Result<(Vec<MultiVertex >, Vec<u32>), AvengerWgpuError> {
+        ).map(|(x, y, fill, size, stroke, angle, shape_index)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
                 build_verts_inds(&x, &y, &fill, &size, &stroke, &angle, &shape_index)
             }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
         } else {
@@ -587,7 +589,7 @@ impl MultiMarkRenderer {
                 mark.stroke_iter(),
                 mark.angle_iter(),
                 mark.shape_index_iter(),
-            ).map(|(x, y, fill, size, stroke, angle, shape_index)| -> Result<(Vec<MultiVertex >, Vec<u32>), AvengerWgpuError> {
+            ).map(|(x, y, fill, size, stroke, angle, shape_index)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
                 build_verts_inds(x, y, fill, size, stroke, angle, shape_index)
             }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
         };
@@ -951,6 +953,143 @@ impl MultiMarkRenderer {
         };
 
         self.verts_inds.push((buffers.vertices, buffers.indices));
+        self.batches.push(batch);
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub fn add_arc_mark(
+        &mut self,
+        mark: &ArcMark,
+        bounds: GroupBounds,
+    ) -> Result<(), AvengerWgpuError> {
+        let (gradient_atlas_index, grad_coords) = self
+            .gradient_atlas_builder
+            .register_gradients(&mark.gradients);
+
+        let verts_inds = izip!(
+            mark.x_iter(),
+            mark.y_iter(),
+            mark.start_angle_iter(),
+            mark.end_angle_iter(),
+            mark.outer_radius_iter(),
+            mark.inner_radius_iter(),
+            mark.fill_iter(),
+            mark.stroke_iter(),
+            mark.stroke_width_iter(),
+        ).map(|(
+           x,
+           y,
+           start_angle,
+           end_angle,
+           outer_radius,
+           inner_radius,
+           fill,
+           stroke,
+           stroke_width,
+       )| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+            // Compute angle
+            let total_angle = end_angle - start_angle;
+
+            // Normalize inner/outer radius
+            let (inner_radius, outer_radius) = if *inner_radius > *outer_radius {
+                (*outer_radius, *inner_radius)
+            } else {
+                (*inner_radius, *outer_radius)
+            };
+
+            let mut path_builder = lyon::path::Path::builder().with_svg();
+
+            // Orient arc starting along vertical y-axis
+            path_builder.move_to(lyon::geom::Point::new(0.0, -inner_radius));
+            path_builder.line_to(lyon::geom::Point::new( 0.0, -outer_radius));
+
+            // Draw outer arc
+            path_builder.arc(
+                lyon::geom::Point::new(0.0, 0.0),
+                lyon::math::Vector::new(outer_radius, outer_radius),
+                lyon::geom::Angle::radians(total_angle),
+                lyon::geom::Angle::radians(0.0),
+            );
+
+            if inner_radius != 0.0 {
+                // Compute vector from outer arc corner to arc corner
+                let inner_radius_vec = path_builder
+                    .current_position()
+                    .to_vector()
+                    .neg()
+                    .normalize()
+                    .mul(outer_radius - inner_radius);
+                path_builder.relative_line_to(inner_radius_vec);
+
+                // Draw inner
+                path_builder.arc(
+                    lyon::geom::Point::new(0.0, 0.0),
+                    lyon::math::Vector::new(inner_radius, inner_radius),
+                    lyon::geom::Angle::radians(-total_angle),
+                    lyon::geom::Angle::radians(0.0),
+                );
+
+            } else {
+                // Draw line back to origin
+                path_builder.line_to(lyon::geom::Point::new(0.0, 0.0));
+            }
+
+            path_builder.close();
+            let path = path_builder.build();
+
+            // Transform path to account for start angle and position
+            let path = path.transformed(
+                &PathTransform::rotation(lyon::geom::Angle::radians(*start_angle))
+                    .then_translate(Vector2D::new(*x + bounds.x, *y + bounds.y))
+            );
+
+            // Compute bounding box
+            let bbox = bounding_box(&path);
+
+            // Create vertex/index buffer builder
+            let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
+            let mut builder = BuffersBuilder::new(
+                &mut buffers,
+                VertexPositions {
+                    fill: to_color_or_gradient_coord(&fill, &grad_coords),
+                    stroke: to_color_or_gradient_coord(&stroke, &grad_coords),
+                    top_left: bbox.min.to_array(),
+                    bottom_right: bbox.max.to_array(),
+                },
+            );
+
+            // Tesselate fill
+            let mut fill_tessellator = FillTessellator::new();
+            let fill_options = FillOptions::default().with_tolerance(0.05);
+            fill_tessellator.tessellate_path(&path, &fill_options, &mut builder)?;
+
+            // Tesselate stroke
+            if *stroke_width > 0.0 {
+                let mut stroke_tessellator = StrokeTessellator::new();
+                let stroke_options = StrokeOptions::default()
+                    .with_tolerance(0.05)
+                    .with_line_join(LineJoin::Miter)
+                    .with_line_cap(LineCap::Butt)
+                    .with_line_width(*stroke_width);
+                stroke_tessellator.tessellate_path(&path, &stroke_options, &mut builder)?;
+            }
+
+            Ok((buffers.vertices, buffers.indices))
+        }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
+
+        let start_ind = self.num_indices();
+        let inds_len: usize = verts_inds.iter().map(|(_, i)| i.len()).sum();
+        let indices_range = (start_ind as u32)..((start_ind + inds_len) as u32);
+
+        let batch = MultiMarkBatch {
+            indices_range,
+            clip: None,
+            image_atlas_index: None,
+            gradient_atlas_index,
+        };
+
+        self.verts_inds.extend(verts_inds);
         self.batches.push(batch);
         Ok(())
     }

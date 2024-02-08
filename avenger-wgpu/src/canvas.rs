@@ -89,16 +89,8 @@ pub trait Canvas {
         mark: &ArcMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
-            self.device(),
-            self.texture_format(),
-            self.sample_count(),
-            Box::new(ArcShader::from_arc_mark(
-                mark,
-                self.dimensions(),
-                group_bounds,
-            )),
-        )));
+        self.get_multi_renderer()
+            .add_arc_mark(mark, group_bounds)?;
         Ok(())
     }
 
