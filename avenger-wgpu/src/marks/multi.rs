@@ -33,6 +33,8 @@ use lyon::path::path::BuilderImpl;
 use lyon::path::{Path, Winding};
 use lyon::path::builder::SvgPathBuilder;
 use std::ops::{Mul, Neg, Range};
+use etagere::euclid::UnknownUnit;
+use lyon::geom::euclid::default::Rotation2D;
 use wgpu::util::DeviceExt;
 use wgpu::{
     BindGroup, BindGroupLayout, CommandBuffer, Device, Extent3d, Queue, TextureFormat, TextureView,
@@ -46,6 +48,8 @@ use avenger::marks::arc::ArcMark;
 
 pub const GRADIENT_TEXTURE_CODE: f32 = -1.0;
 pub const IMAGE_TEXTURE_CODE: f32 = -2.0;
+
+const NORMALIZED_SYMBOL_STROKE_WIDTH: f32 = 0.1;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -513,9 +517,42 @@ impl MultiMarkRenderer {
     ) -> Result<(), AvengerWgpuError> {
         let paths = mark.shapes.iter().map(|s| s.as_path()).collect::<Vec<_>>();
 
+        // Compute cradients
         let (gradient_atlas_index, grad_coords) = self
             .gradient_atlas_builder
             .register_gradients(&mark.gradients);
+
+        // Tesselate paths
+        let mut shape_verts_inds: Vec<(Vec<SymbolVertex>, Vec<u32>)> = Vec::new();
+        for path in paths {
+            // Create vertex/index buffer builder
+            let mut buffers: VertexBuffers<SymbolVertex, u32> = VertexBuffers::new();
+            let mut builder = BuffersBuilder::new(
+                &mut buffers,
+                SymbolVertexPositions
+            );
+
+            // Tesselate fill
+            let mut fill_tessellator = FillTessellator::new();
+            let fill_options = FillOptions::default().with_tolerance(0.05);
+
+            fill_tessellator.tessellate_path(path.as_ref(), &fill_options, &mut builder)?;
+
+            // Tesselate stroke
+            if let Some(stroke_width) = mark.stroke_width {
+                let mut stroke_tessellator = StrokeTessellator::new();
+                let stroke_options = StrokeOptions::default()
+                    .with_tolerance(0.05)
+                    .with_line_join(LineJoin::Miter)
+                    .with_line_cap(LineCap::Butt)
+                    .with_line_width(NORMALIZED_SYMBOL_STROKE_WIDTH);
+                stroke_tessellator.tessellate_path(path.as_ref(), &stroke_options, &mut builder)?;
+            }
+
+            shape_verts_inds.push((buffers.vertices, buffers.indices));
+        }
+
+        let stroke_width = mark.stroke_width.unwrap_or(0.0);
 
         // Builder function that we'll call from either single-threaded or parallel iterations paths
         let build_verts_inds = |x: &f32,
@@ -526,45 +563,14 @@ impl MultiMarkRenderer {
                                 angle: &f32,
                                 shape_index: &usize|
          -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-            let path = &paths[*shape_index];
-            let scale = size.sqrt();
-            let transform = PathTransform::scale(scale, scale)
-                .then_rotate(Angle::degrees(*angle))
-                .then_translate(Vector2D::new(x + bounds.x, y + bounds.y));
-            let path = path.as_ref().clone().transformed(&transform);
+            let (symbol_verts, indices) = &shape_verts_inds[*shape_index];
+            let fill = to_color_or_gradient_coord(fill, &grad_coords);
+            let stroke = to_color_or_gradient_coord(stroke, &grad_coords);
 
-            let bbox = bounding_box(&path);
-
-            // Create vertex/index buffer builder
-            let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
-            let mut builder = BuffersBuilder::new(
-                &mut buffers,
-                VertexPositions {
-                    fill: to_color_or_gradient_coord(&fill, &grad_coords),
-                    stroke: to_color_or_gradient_coord(&stroke, &grad_coords),
-                    top_left: bbox.min.to_array(),
-                    bottom_right: bbox.max.to_array(),
-                },
-            );
-
-            // Tesselate fill
-            let mut fill_tessellator = FillTessellator::new();
-            let fill_options = FillOptions::default().with_tolerance(0.05);
-
-            fill_tessellator.tessellate_path(&path, &fill_options, &mut builder)?;
-
-            // Tesselate stroke
-            if let Some(stroke_width) = mark.stroke_width {
-                let mut stroke_tessellator = StrokeTessellator::new();
-                let stroke_options = StrokeOptions::default()
-                    .with_tolerance(0.05)
-                    .with_line_join(LineJoin::Miter)
-                    .with_line_cap(LineCap::Butt)
-                    .with_line_width(stroke_width);
-                stroke_tessellator.tessellate_path(&path, &stroke_options, &mut builder)?;
-            }
-
-            Ok((buffers.vertices, buffers.indices))
+            let multi_verts = symbol_verts.iter().map(
+                |sv| sv.as_multi_vertex(*size, *x + bounds.x, *y + bounds.y, *angle, fill, stroke, stroke_width)
+            ).collect::<Vec<_>>();
+            Ok((multi_verts, indices.clone()))
         };
 
         let use_par = mark.len > 100;
@@ -1567,6 +1573,64 @@ impl StrokeVertexConstructor<MultiVertex> for VertexPositions {
             color: self.stroke,
             top_left: self.top_left,
             bottom_right: self.bottom_right,
+        }
+    }
+}
+
+// Symbol vertex construction that takes line width into account
+pub struct SymbolVertexPositions;
+
+impl FillVertexConstructor<SymbolVertex> for SymbolVertexPositions {
+    fn new_vertex(&mut self, vertex: FillVertex) -> SymbolVertex {
+        SymbolVertex {
+            position: [vertex.position().x, vertex.position().y].into(),
+            normal: None,
+        }
+    }
+}
+
+impl StrokeVertexConstructor<SymbolVertex> for SymbolVertexPositions {
+    fn new_vertex(&mut self, vertex: StrokeVertex) -> SymbolVertex {
+        SymbolVertex {
+            position: [vertex.position().x, vertex.position().y].into(),
+            normal: Some(vertex.normal()),
+        }
+    }
+}
+
+pub struct SymbolVertex {
+    position: Point2D<f32, UnknownUnit>,
+    normal: Option<Vector2D<f32, UnknownUnit>>,
+}
+
+impl SymbolVertex {
+    pub fn as_multi_vertex(&self, size: f32, x: f32, y: f32, angle: f32, fill: [f32; 4], stroke: [f32; 4], line_width: f32) -> MultiVertex {
+        let angle = Angle::degrees(angle);
+        let scale = size.sqrt();
+
+        // Scale
+        let mut transform = PathTransform::scale(scale, scale);
+
+        // Compute adjustment factor for stroke vertices to compensate for scaling and
+        // achieve the correct final line width.
+        let color = if let Some(normal) = self.normal {
+            let scaled_line_width = scale * NORMALIZED_SYMBOL_STROKE_WIDTH;
+            let line_width_adjustment = normal.mul((line_width - scaled_line_width) / 2.0);
+            transform = transform.then_translate(line_width_adjustment);
+            stroke
+        } else {
+            fill
+        };
+
+        // Rotate then Translate
+        transform = transform.then_rotate(angle).then_translate(Vector2D::new(x, y));
+        let position = transform.transform_point(self.position);
+
+        MultiVertex {
+            position: position.to_array(),
+            color,
+            top_left: [x - scale, y - scale],
+            bottom_right: [x + scale, y + scale],
         }
     }
 }
