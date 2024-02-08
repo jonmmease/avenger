@@ -8,6 +8,10 @@ use avenger_vega::scene_graph::VegaSceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasDimensions, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
 use rand::Rng;
+use tracing_subscriber::{EnvFilter, fmt};
+use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
@@ -22,7 +26,11 @@ pub async fn run() {
             std::panic::set_hook(Box::new(console_error_panic_hook::hook));
             console_log::init_with_level(log::Level::Warn).expect("Couldn't initialize logger");
         } else {
-            env_logger::init();
+            // Initialize logging controlled by RUST_LOG environment variable
+            tracing_subscriber::registry()
+                .with(fmt::layer().with_span_events(FmtSpan::CLOSE))
+                .with(EnvFilter::from_default_env())
+                .init();
         }
     }
 
@@ -219,6 +227,7 @@ fn make_sg(
                 indices: None,
                 gradients: vec![],
                 shape_index: EncodingValue::Scalar { value: 0 },
+                zindex: None,
             })],
             gradients: vec![],
             fill: None,
@@ -226,6 +235,7 @@ fn make_sg(
             stroke_width: None,
             stroke_offset: None,
             corner_radius: None,
+            zindex: None,
         }],
         width,
         height,
