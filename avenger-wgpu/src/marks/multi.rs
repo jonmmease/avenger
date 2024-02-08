@@ -14,9 +14,7 @@ use avenger::marks::rect::RectMark;
 use avenger::marks::rule::RuleMark;
 use avenger::marks::symbol::SymbolMark;
 use avenger::marks::trail::TrailMark;
-use avenger::marks::value::{
-    ColorOrGradient, Gradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin,
-};
+use avenger::marks::value::{ColorOrGradient, EncodingValue, Gradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin};
 use image::DynamicImage;
 use itertools::izip;
 use lyon::algorithms::aabb::bounding_box;
@@ -522,31 +520,43 @@ impl MultiMarkRenderer {
             .gradient_atlas_builder
             .register_gradients(&mark.gradients);
 
+        // Find max size
+        let max_size = match &mark.size {
+            EncodingValue::Scalar {value: size} => *size,
+            EncodingValue::Array { values } => {
+                *values.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap_or(&1.0)
+            }
+        };
+        let max_scale = max_size.sqrt();
+
         // Tesselate paths
         let mut shape_verts_inds: Vec<(Vec<SymbolVertex>, Vec<u32>)> = Vec::new();
         for path in paths {
+            // Scale path to max size
+            let path = path.as_ref().clone().transformed(&PathTransform::scale(max_scale, max_scale));
+
             // Create vertex/index buffer builder
             let mut buffers: VertexBuffers<SymbolVertex, u32> = VertexBuffers::new();
             let mut builder = BuffersBuilder::new(
                 &mut buffers,
-                SymbolVertexPositions
+                SymbolVertexPositions { scale: max_scale }
             );
 
             // Tesselate fill
             let mut fill_tessellator = FillTessellator::new();
-            let fill_options = FillOptions::default().with_tolerance(0.05);
+            let fill_options = FillOptions::default().with_tolerance(0.1);
 
-            fill_tessellator.tessellate_path(path.as_ref(), &fill_options, &mut builder)?;
+            fill_tessellator.tessellate_path(&path, &fill_options, &mut builder)?;
 
             // Tesselate stroke
             if let Some(stroke_width) = mark.stroke_width {
                 let mut stroke_tessellator = StrokeTessellator::new();
                 let stroke_options = StrokeOptions::default()
-                    .with_tolerance(0.05)
+                    .with_tolerance(0.1)
                     .with_line_join(LineJoin::Miter)
                     .with_line_cap(LineCap::Butt)
                     .with_line_width(NORMALIZED_SYMBOL_STROKE_WIDTH);
-                stroke_tessellator.tessellate_path(path.as_ref(), &stroke_options, &mut builder)?;
+                stroke_tessellator.tessellate_path(&path, &stroke_options, &mut builder)?;
             }
 
             shape_verts_inds.push((buffers.vertices, buffers.indices));
@@ -1578,13 +1588,14 @@ impl StrokeVertexConstructor<MultiVertex> for VertexPositions {
 }
 
 // Symbol vertex construction that takes line width into account
-pub struct SymbolVertexPositions;
+pub struct SymbolVertexPositions { scale: f32 }
 
 impl FillVertexConstructor<SymbolVertex> for SymbolVertexPositions {
     fn new_vertex(&mut self, vertex: FillVertex) -> SymbolVertex {
         SymbolVertex {
             position: [vertex.position().x, vertex.position().y].into(),
             normal: None,
+            scale: self.scale,
         }
     }
 }
@@ -1594,6 +1605,7 @@ impl StrokeVertexConstructor<SymbolVertex> for SymbolVertexPositions {
         SymbolVertex {
             position: [vertex.position().x, vertex.position().y].into(),
             normal: Some(vertex.normal()),
+            scale: self.scale,
         }
     }
 }
@@ -1601,12 +1613,13 @@ impl StrokeVertexConstructor<SymbolVertex> for SymbolVertexPositions {
 pub struct SymbolVertex {
     position: Point2D<f32, UnknownUnit>,
     normal: Option<Vector2D<f32, UnknownUnit>>,
+    scale: f32,
 }
 
 impl SymbolVertex {
     pub fn as_multi_vertex(&self, size: f32, x: f32, y: f32, angle: f32, fill: [f32; 4], stroke: [f32; 4], line_width: f32) -> MultiVertex {
         let angle = Angle::degrees(angle);
-        let scale = size.sqrt();
+        let scale = self.scale / size.sqrt();
 
         // Scale
         let mut transform = PathTransform::scale(scale, scale);
