@@ -139,21 +139,24 @@ pub trait Canvas {
         mark: &SymbolMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        if mark.len >= 2000 {
-            self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
-                self.device(),
-                self.texture_format(),
-                self.sample_count(),
-                Box::new(SymbolShader::from_symbol_mark(
-                    mark,
-                    self.dimensions(),
-                    group_bounds,
-                )?),
-            )));
-        } else {
-            self.get_multi_renderer()
-                .add_symbol_mark(mark, group_bounds)?;
-        }
+        self.get_multi_renderer()
+            .add_symbol_mark(mark, group_bounds)?;
+
+        // if mark.len >= 2000 {
+        //     self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
+        //         self.device(),
+        //         self.texture_format(),
+        //         self.sample_count(),
+        //         Box::new(SymbolShader::from_symbol_mark(
+        //             mark,
+        //             self.dimensions(),
+        //             group_bounds,
+        //         )?),
+        //     )));
+        // } else {
+        //     self.get_multi_renderer()
+        //         .add_symbol_mark(mark, group_bounds)?;
+        // }
 
         Ok(())
     }
