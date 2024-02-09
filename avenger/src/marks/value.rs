@@ -29,6 +29,15 @@ impl<T: Sync + Clone> EncodingValue<T> {
     }
 }
 
+impl EncodingValue<f32> {
+    pub fn equals_scalar(&self, v: f32) -> bool {
+        match self {
+            EncodingValue::Scalar { value } => v == *value,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum StrokeCap {
@@ -70,6 +79,15 @@ pub enum ImageBaseline {
 pub enum ColorOrGradient {
     Color([f32; 4]),
     GradientIndex(u32),
+}
+
+impl ColorOrGradient {
+    pub fn color_or_transparent(&self) -> [f32; 4] {
+        match self {
+            ColorOrGradient::Color(c) => *c,
+            _ => [0.0, 0.0, 0.0, 0.0],
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

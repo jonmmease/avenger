@@ -82,6 +82,16 @@ impl SymbolMark {
         self.shape_index
             .as_vec(self.len as usize, self.indices.as_ref())
     }
+
+    pub fn max_size(&self) -> f32 {
+        match &self.size {
+            EncodingValue::Scalar { value: size } => *size,
+            EncodingValue::Array { values } => *values
+                .iter()
+                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap_or(&1.0),
+        }
+    }
 }
 
 impl Default for SymbolMark {

@@ -1,10 +1,8 @@
 use crate::canvas::CanvasDimensions;
 use crate::error::AvengerWgpuError;
 
-use crate::marks::gradient2::{to_color_or_gradient_coord, GradientAtlasBuilder};
-use crate::marks::image2::ImageAtlasBuilder;
-use crate::marks::path::PathVertex;
-use crate::marks::rule::RuleInstance;
+use crate::marks::gradient::{to_color_or_gradient_coord, GradientAtlasBuilder};
+use crate::marks::image::ImageAtlasBuilder;
 use avenger::marks::area::{AreaMark, AreaOrientation};
 use avenger::marks::group::GroupBounds;
 use avenger::marks::image::ImageMark;
@@ -15,14 +13,13 @@ use avenger::marks::rule::RuleMark;
 use avenger::marks::symbol::SymbolMark;
 use avenger::marks::trail::TrailMark;
 use avenger::marks::value::{
-    ColorOrGradient, EncodingValue, Gradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin,
+    ColorOrGradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin,
 };
 use etagere::euclid::UnknownUnit;
 use image::DynamicImage;
 use itertools::izip;
 use lyon::algorithms::aabb::bounding_box;
 use lyon::algorithms::measure::{PathMeasurements, PathSampler, SampleType};
-use lyon::geom::euclid::default::Rotation2D;
 use lyon::geom::euclid::{Point2D, Vector2D};
 use lyon::geom::{Angle, Box2D, Point};
 use lyon::lyon_tessellation::{
@@ -103,7 +100,6 @@ pub struct MultiMarkBatch {
 
 pub struct MultiMarkRenderer {
     verts_inds: Vec<(Vec<MultiVertex>, Vec<u32>)>,
-    image_atlases: Vec<DynamicImage>,
     batches: Vec<MultiMarkBatch>,
     uniform: MultiUniform,
     gradient_atlas_builder: GradientAtlasBuilder,
@@ -115,7 +111,6 @@ impl MultiMarkRenderer {
     pub fn new(dimensions: CanvasDimensions) -> Self {
         Self {
             verts_inds: vec![],
-            image_atlases: vec![],
             batches: vec![],
             dimensions,
             uniform: MultiUniform {
@@ -525,6 +520,9 @@ impl MultiMarkRenderer {
         // Find max size
         let max_scale = mark.max_size().sqrt();
 
+        // Compute stroke_width
+        let stroke_width = mark.stroke_width.unwrap_or(0.0);
+
         // Tesselate paths
         let mut shape_verts_inds: Vec<(Vec<SymbolVertex>, Vec<u32>)> = Vec::new();
         for path in paths {
@@ -546,7 +544,7 @@ impl MultiMarkRenderer {
             fill_tessellator.tessellate_path(&path, &fill_options, &mut builder)?;
 
             // Tesselate stroke
-            if let Some(stroke_width) = mark.stroke_width {
+            if stroke_width > 0.0 {
                 let mut stroke_tessellator = StrokeTessellator::new();
                 let stroke_options = StrokeOptions::default()
                     .with_tolerance(0.1)
@@ -558,8 +556,6 @@ impl MultiMarkRenderer {
 
             shape_verts_inds.push((buffers.vertices, buffers.indices));
         }
-
-        let stroke_width = mark.stroke_width.unwrap_or(0.0);
 
         // Builder function that we'll call from either single-threaded or parallel iterations paths
         let build_verts_inds = |x: &f32,
@@ -1258,10 +1254,6 @@ impl MultiMarkRenderer {
 
     fn num_indices(&self) -> usize {
         self.verts_inds.iter().map(|(_, inds)| inds.len()).sum()
-    }
-
-    fn num_verticies(&self) -> usize {
-        self.verts_inds.iter().map(|(v, _)| v.len()).sum()
     }
 
     #[tracing::instrument(skip_all)]

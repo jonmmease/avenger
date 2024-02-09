@@ -1,5 +1,4 @@
 use image::imageops::crop_imm;
-use tracing::info_span;
 use wgpu::{
     Adapter, Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandBuffer,
     CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, ImageCopyBuffer,
@@ -13,14 +12,9 @@ use winit::event::WindowEvent;
 use winit::window::Window;
 
 use crate::error::AvengerWgpuError;
-use crate::marks::arc::ArcShader;
-use crate::marks::basic_mark::BasicMarkRenderer;
-use crate::marks::image::ImageShader;
 use crate::marks::instanced_mark::InstancedMarkRenderer;
 use crate::marks::multi::MultiMarkRenderer;
-use crate::marks::path::PathShader;
 use crate::marks::rect::RectShader;
-use crate::marks::rule::RuleShader;
 use crate::marks::symbol::SymbolShader;
 use crate::marks::text::TextInstance;
 use avenger::marks::arc::ArcMark;
@@ -39,7 +33,6 @@ use avenger::{
 use crate::marks::text::TextMarkRenderer;
 
 pub enum MarkRenderer {
-    Basic(BasicMarkRenderer),
     Instanced(InstancedMarkRenderer),
     #[cfg(feature = "text-glyphon")]
     Text(TextMarkRenderer),
@@ -162,18 +155,28 @@ pub trait Canvas {
         mark: &RectMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        // self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
-        //     self.device(),
-        //     self.texture_format(),
-        //     self.sample_count(),
-        //     Box::new(RectShader::from_rect_mark(
-        //         mark,
-        //         self.dimensions(),
-        //         group_bounds,
-        //     )),
-        // )));
-        self.get_multi_renderer()
-            .add_rect_mark(mark, group_bounds)?;
+        if mark.len >= 10000
+            && mark.gradients.is_empty()
+            && mark.stroke_width.equals_scalar(0.0)
+            && mark.corner_radius.equals_scalar(0.0)
+        {
+            // Lots of instances, no stroke, corner radius, or gradients. Use instanced renderer
+            self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
+                self.device(),
+                self.texture_format(),
+                self.sample_count(),
+                Box::new(RectShader::from_rect_mark(
+                    mark,
+                    self.dimensions(),
+                    group_bounds,
+                )),
+            )));
+        } else {
+            // Otherwise use general purpose multi renderer
+            self.get_multi_renderer()
+                .add_rect_mark(mark, group_bounds)?;
+        }
+
         Ok(())
     }
 
@@ -552,13 +555,6 @@ impl WindowCanvas {
         let texture_format = self.texture_format();
         for mark in &mut self.marks {
             let command = match mark {
-                MarkRenderer::Basic(renderer) => {
-                    if self.sample_count > 1 {
-                        renderer.render(&self.device, &self.multisampled_framebuffer, Some(&view))
-                    } else {
-                        renderer.render(&self.device, &view, None)
-                    }
-                }
                 MarkRenderer::Instanced(renderer) => {
                     if self.sample_count > 1 {
                         renderer.render(&self.device, &self.multisampled_framebuffer, Some(&view))
@@ -783,17 +779,6 @@ impl PngCanvas {
         let texture_format = self.texture_format();
         for mark in &mut self.marks {
             let command = match mark {
-                MarkRenderer::Basic(renderer) => {
-                    if self.sample_count > 1 {
-                        renderer.render(
-                            &self.device,
-                            &self.multisampled_framebuffer,
-                            Some(&self.texture_view),
-                        )
-                    } else {
-                        renderer.render(&self.device, &self.texture_view, None)
-                    }
-                }
                 MarkRenderer::Instanced(renderer) => {
                     if self.sample_count > 1 {
                         renderer.render(
