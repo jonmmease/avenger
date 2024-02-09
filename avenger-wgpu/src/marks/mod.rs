@@ -1,6 +1,5 @@
 pub mod instanced_mark;
 pub mod multi;
-pub mod rect;
 pub mod symbol;
 
 pub mod gradient;

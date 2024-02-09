@@ -12,9 +12,7 @@ use avenger::marks::rect::RectMark;
 use avenger::marks::rule::RuleMark;
 use avenger::marks::symbol::SymbolMark;
 use avenger::marks::trail::TrailMark;
-use avenger::marks::value::{
-    ColorOrGradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin,
-};
+use avenger::marks::value::{ColorOrGradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin};
 use etagere::euclid::UnknownUnit;
 use image::DynamicImage;
 use itertools::izip;
@@ -293,77 +291,141 @@ impl MultiMarkRenderer {
             .gradient_atlas_builder
             .register_gradients(&mark.gradients);
 
-        let build_verts_inds = |x: &f32,
-                                y: &f32,
-                                width: &f32,
-                                height: &f32,
-                                fill: &ColorOrGradient,
-                                stroke: &ColorOrGradient,
-                                stroke_width: &f32,
-                                corner_radius: &f32|
-         -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-            // Create rect path
-            let mut path_builder = lyon::path::Path::builder();
-            let x0 = *x + bounds.x;
-            let y0 = *y + bounds.y;
-            let x1 = x0 + width;
-            let y1 = y0 + height;
-            if *corner_radius > 0.0 {
-                path_builder.add_rounded_rectangle(
-                    &Box2D::new(Point2D::new(x0, y0), Point2D::new(x1, y1)),
-                    &BorderRadii {
-                        top_left: *corner_radius,
-                        top_right: *corner_radius,
-                        bottom_left: *corner_radius,
-                        bottom_right: *corner_radius,
-                    },
-                    Winding::Positive,
-                );
-            } else {
-                path_builder.add_rectangle(
-                    &Box2D::new(Point2D::new(x0, y0), Point2D::new(x1, y1)),
-                    Winding::Positive,
-                );
+        let verts_inds = if mark.gradients.is_empty()
+            && mark.stroke_width.equals_scalar(0.0)
+            && mark.corner_radius.equals_scalar(0.0)
+        {
+            // Handle simple case of no stroke, rounded corners, or gradient. In this case we don't need
+            // lyon to perform the tesselation, which saves a bit of time. The contents of this loop are so
+            // fast that parallelization doesn't help.
+            let mut verts: Vec<MultiVertex> = Vec::with_capacity((mark.len * 4) as usize);
+            let mut indicies: Vec<u32> = Vec::with_capacity((mark.len * 6) as usize);
+
+            for (i, x, y, width, height, fill) in izip!(
+                0..mark.len,
+                mark.x_iter(),
+                mark.y_iter(),
+                mark.width_iter(),
+                mark.height_iter(),
+                mark.fill_iter()
+            ) {
+                let x0 = *x + bounds.x;
+                let y0 = *y + bounds.y;
+                let x1 = x0 + width;
+                let y1 = y0 + height;
+                let top_left = [x0, y0];
+                let bottom_right = [x1, y1];
+                let color = fill.color_or_transparent();
+                verts.push(MultiVertex {
+                    position: [x0, y0],
+                    color,
+                    top_left,
+                    bottom_right,
+                });
+                verts.push(MultiVertex {
+                    position: [x0, y1],
+                    color,
+                    top_left,
+                    bottom_right,
+                });
+                verts.push(MultiVertex {
+                    position: [x1, y1],
+                    color,
+                    top_left,
+                    bottom_right,
+                });
+                verts.push(MultiVertex {
+                    position: [x1, y0],
+                    color,
+                    top_left,
+                    bottom_right,
+                });
+                let offset = i * 4;
+                indicies.extend([
+                    offset,
+                    offset + 1,
+                    offset + 2,
+                    offset,
+                    offset + 2,
+                    offset + 3,
+                ])
             }
 
-            // Apply transform to path
-            let path = path_builder.build();
-            let bbox = bounding_box(&path);
+            vec![(verts, indicies)]
+        } else {
+            // General rects
+            let build_verts_inds =
+                |x: &f32,
+                 y: &f32,
+                 width: &f32,
+                 height: &f32,
+                 fill: &ColorOrGradient,
+                 stroke: &ColorOrGradient,
+                 stroke_width: &f32,
+                 corner_radius: &f32|
+                 -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+                    // Create rect path
+                    let mut path_builder = lyon::path::Path::builder();
+                    let x0 = *x + bounds.x;
+                    let y0 = *y + bounds.y;
+                    let x1 = x0 + width;
+                    let y1 = y0 + height;
+                    if *corner_radius > 0.0 {
+                        path_builder.add_rounded_rectangle(
+                            &Box2D::new(Point2D::new(x0, y0), Point2D::new(x1, y1)),
+                            &BorderRadii {
+                                top_left: *corner_radius,
+                                top_right: *corner_radius,
+                                bottom_left: *corner_radius,
+                                bottom_right: *corner_radius,
+                            },
+                            Winding::Positive,
+                        );
+                    } else {
+                        path_builder.add_rectangle(
+                            &Box2D::new(Point2D::new(x0, y0), Point2D::new(x1, y1)),
+                            Winding::Positive,
+                        );
+                    }
 
-            // Create vertex/index buffer builder
-            let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
-            let mut builder = BuffersBuilder::new(
-                &mut buffers,
-                VertexPositions {
-                    fill: to_color_or_gradient_coord(fill, &grad_coords),
-                    stroke: to_color_or_gradient_coord(stroke, &grad_coords),
-                    top_left: bbox.min.to_array(),
-                    bottom_right: bbox.max.to_array(),
-                },
-            );
+                    // Apply transform to path
+                    let path = path_builder.build();
+                    let bbox = bounding_box(&path);
 
-            // Tesselate fill
-            let mut fill_tessellator = FillTessellator::new();
-            let fill_options = FillOptions::default().with_tolerance(0.05);
+                    // Create vertex/index buffer builder
+                    let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
+                    let mut builder = BuffersBuilder::new(
+                        &mut buffers,
+                        VertexPositions {
+                            fill: to_color_or_gradient_coord(fill, &grad_coords),
+                            stroke: to_color_or_gradient_coord(stroke, &grad_coords),
+                            top_left: bbox.min.to_array(),
+                            bottom_right: bbox.max.to_array(),
+                        },
+                    );
 
-            fill_tessellator.tessellate_path(&path, &fill_options, &mut builder)?;
+                    // Tesselate fill
+                    let mut fill_tessellator = FillTessellator::new();
+                    let fill_options = FillOptions::default().with_tolerance(0.05);
 
-            // Tesselate stroke
-            if *stroke_width > 0.0 {
-                let mut stroke_tessellator = StrokeTessellator::new();
-                let stroke_options = StrokeOptions::default()
-                    .with_tolerance(0.05)
-                    .with_line_width(*stroke_width);
-                stroke_tessellator.tessellate_path(&path, &stroke_options, &mut builder)?;
-            }
+                    fill_tessellator.tessellate_path(&path, &fill_options, &mut builder)?;
 
-            Ok((buffers.vertices, buffers.indices))
-        };
+                    // Tesselate stroke
+                    if *stroke_width > 0.0 {
+                        let mut stroke_tessellator = StrokeTessellator::new();
+                        let stroke_options = StrokeOptions::default()
+                            .with_tolerance(0.05)
+                            .with_line_width(*stroke_width);
+                        stroke_tessellator.tessellate_path(&path, &stroke_options, &mut builder)?;
+                    }
 
-        let use_par = mark.len > 100;
+                    Ok((buffers.vertices, buffers.indices))
+                };
 
-        let verts_inds = if use_par {
-            par_izip!(
+            let use_par = mark.len > 100;
+
+            if use_par {
+                par_izip!(
                 mark.x_vec(),
                 mark.y_vec(),
                 mark.width_vec(),
@@ -373,10 +435,10 @@ impl MultiMarkRenderer {
                 mark.stroke_width_vec(),
                 mark.corner_radius_vec(),
             ).map(|(x, y, width, height, fill, stroke, stroke_width, corner_radius)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                build_verts_inds(&x, &y, &width, &height, &fill, &stroke, &stroke_width, &corner_radius)
-            }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
-        } else {
-            izip!(
+                    build_verts_inds(&x, &y, &width, &height, &fill, &stroke, &stroke_width, &corner_radius)
+                }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
+            } else {
+                izip!(
                 mark.x_iter(),
                 mark.y_iter(),
                 mark.width_iter(),
@@ -387,7 +449,8 @@ impl MultiMarkRenderer {
                 mark.corner_radius_iter(),
             ).map(|(x, y, width, height, fill, stroke, stroke_width, corner_radius)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
                     build_verts_inds(x, y, width, height, fill, stroke, stroke_width, corner_radius)
-            }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
+                }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
+            }
         };
 
         let start_ind = self.num_indices();

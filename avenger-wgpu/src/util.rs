@@ -32,7 +32,6 @@ macro_rules! par_izip {
     };
 }
 
-
 #[cfg(test)]
 mod tests {
     use rayon::prelude::*;
