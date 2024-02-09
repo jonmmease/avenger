@@ -14,7 +14,6 @@ use winit::window::Window;
 use crate::error::AvengerWgpuError;
 use crate::marks::instanced_mark::InstancedMarkRenderer;
 use crate::marks::multi::MultiMarkRenderer;
-use crate::marks::rect::RectShader;
 use crate::marks::symbol::SymbolShader;
 use crate::marks::text::TextInstance;
 use avenger::marks::arc::ArcMark;
@@ -155,28 +154,8 @@ pub trait Canvas {
         mark: &RectMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        if mark.len >= 10000
-            && mark.gradients.is_empty()
-            && mark.stroke_width.equals_scalar(0.0)
-            && mark.corner_radius.equals_scalar(0.0)
-        {
-            // Lots of instances, no stroke, corner radius, or gradients. Use instanced renderer
-            self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
-                self.device(),
-                self.texture_format(),
-                self.sample_count(),
-                Box::new(RectShader::from_rect_mark(
-                    mark,
-                    self.dimensions(),
-                    group_bounds,
-                )),
-            )));
-        } else {
-            // Otherwise use general purpose multi renderer
-            self.get_multi_renderer()
-                .add_rect_mark(mark, group_bounds)?;
-        }
-
+        self.get_multi_renderer()
+            .add_rect_mark(mark, group_bounds)?;
         Ok(())
     }
 
