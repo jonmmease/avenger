@@ -14,11 +14,15 @@ use avenger::marks::rect::RectMark;
 use avenger::marks::rule::RuleMark;
 use avenger::marks::symbol::SymbolMark;
 use avenger::marks::trail::TrailMark;
-use avenger::marks::value::{ColorOrGradient, EncodingValue, Gradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin};
+use avenger::marks::value::{
+    ColorOrGradient, EncodingValue, Gradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin,
+};
+use etagere::euclid::UnknownUnit;
 use image::DynamicImage;
 use itertools::izip;
 use lyon::algorithms::aabb::bounding_box;
 use lyon::algorithms::measure::{PathMeasurements, PathSampler, SampleType};
+use lyon::geom::euclid::default::Rotation2D;
 use lyon::geom::euclid::{Point2D, Vector2D};
 use lyon::geom::{Angle, Box2D, Point};
 use lyon::lyon_tessellation::{
@@ -26,13 +30,11 @@ use lyon::lyon_tessellation::{
     FillVertexConstructor, LineCap, LineJoin, StrokeOptions, StrokeTessellator, StrokeVertex,
     StrokeVertexConstructor, VertexBuffers,
 };
+use lyon::path::builder::SvgPathBuilder;
 use lyon::path::builder::{BorderRadii, WithSvg};
 use lyon::path::path::BuilderImpl;
 use lyon::path::{Path, Winding};
-use lyon::path::builder::SvgPathBuilder;
 use std::ops::{Mul, Neg, Range};
-use etagere::euclid::UnknownUnit;
-use lyon::geom::euclid::default::Rotation2D;
 use wgpu::util::DeviceExt;
 use wgpu::{
     BindGroup, BindGroupLayout, CommandBuffer, Device, Extent3d, Queue, TextureFormat, TextureView,
@@ -41,8 +43,8 @@ use wgpu::{
 
 // Import rayon prelude as required by par_izip.
 use crate::par_izip;
-use rayon::prelude::*;
 use avenger::marks::arc::ArcMark;
+use rayon::prelude::*;
 
 pub const GRADIENT_TEXTURE_CODE: f32 = -1.0;
 pub const IMAGE_TEXTURE_CODE: f32 = -2.0;
@@ -521,26 +523,21 @@ impl MultiMarkRenderer {
             .register_gradients(&mark.gradients);
 
         // Find max size
-        let max_size = match &mark.size {
-            EncodingValue::Scalar {value: size} => *size,
-            EncodingValue::Array { values } => {
-                *values.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap_or(&1.0)
-            }
-        };
-        let max_scale = max_size.sqrt();
+        let max_scale = mark.max_size().sqrt();
 
         // Tesselate paths
         let mut shape_verts_inds: Vec<(Vec<SymbolVertex>, Vec<u32>)> = Vec::new();
         for path in paths {
             // Scale path to max size
-            let path = path.as_ref().clone().transformed(&PathTransform::scale(max_scale, max_scale));
+            let path = path
+                .as_ref()
+                .clone()
+                .transformed(&PathTransform::scale(max_scale, max_scale));
 
             // Create vertex/index buffer builder
             let mut buffers: VertexBuffers<SymbolVertex, u32> = VertexBuffers::new();
-            let mut builder = BuffersBuilder::new(
-                &mut buffers,
-                SymbolVertexPositions { scale: max_scale }
-            );
+            let mut builder =
+                BuffersBuilder::new(&mut buffers, SymbolVertexPositions { scale: max_scale });
 
             // Tesselate fill
             let mut fill_tessellator = FillTessellator::new();
@@ -577,9 +574,20 @@ impl MultiMarkRenderer {
             let fill = to_color_or_gradient_coord(fill, &grad_coords);
             let stroke = to_color_or_gradient_coord(stroke, &grad_coords);
 
-            let multi_verts = symbol_verts.iter().map(
-                |sv| sv.as_multi_vertex(*size, *x + bounds.x, *y + bounds.y, *angle, fill, stroke, stroke_width)
-            ).collect::<Vec<_>>();
+            let multi_verts = symbol_verts
+                .iter()
+                .map(|sv| {
+                    sv.as_multi_vertex(
+                        *size,
+                        *x + bounds.x,
+                        *y + bounds.y,
+                        *angle,
+                        fill,
+                        stroke,
+                        stroke_width,
+                    )
+                })
+                .collect::<Vec<_>>();
             Ok((multi_verts, indices.clone()))
         };
 
@@ -993,106 +1001,110 @@ impl MultiMarkRenderer {
             mark.fill_iter(),
             mark.stroke_iter(),
             mark.stroke_width_iter(),
-        ).map(|(
-           x,
-           y,
-           start_angle,
-           end_angle,
-           outer_radius,
-           inner_radius,
-           fill,
-           stroke,
-           stroke_width,
-       )| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-            // Compute angle
-            let total_angle = end_angle - start_angle;
+        )
+        .map(
+            |(
+                x,
+                y,
+                start_angle,
+                end_angle,
+                outer_radius,
+                inner_radius,
+                fill,
+                stroke,
+                stroke_width,
+            )|
+             -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+                // Compute angle
+                let total_angle = end_angle - start_angle;
 
-            // Normalize inner/outer radius
-            let (inner_radius, outer_radius) = if *inner_radius > *outer_radius {
-                (*outer_radius, *inner_radius)
-            } else {
-                (*inner_radius, *outer_radius)
-            };
+                // Normalize inner/outer radius
+                let (inner_radius, outer_radius) = if *inner_radius > *outer_radius {
+                    (*outer_radius, *inner_radius)
+                } else {
+                    (*inner_radius, *outer_radius)
+                };
 
-            let mut path_builder = lyon::path::Path::builder().with_svg();
+                let mut path_builder = lyon::path::Path::builder().with_svg();
 
-            // Orient arc starting along vertical y-axis
-            path_builder.move_to(lyon::geom::Point::new(0.0, -inner_radius));
-            path_builder.line_to(lyon::geom::Point::new( 0.0, -outer_radius));
+                // Orient arc starting along vertical y-axis
+                path_builder.move_to(lyon::geom::Point::new(0.0, -inner_radius));
+                path_builder.line_to(lyon::geom::Point::new(0.0, -outer_radius));
 
-            // Draw outer arc
-            path_builder.arc(
-                lyon::geom::Point::new(0.0, 0.0),
-                lyon::math::Vector::new(outer_radius, outer_radius),
-                lyon::geom::Angle::radians(total_angle),
-                lyon::geom::Angle::radians(0.0),
-            );
-
-            if inner_radius != 0.0 {
-                // Compute vector from outer arc corner to arc corner
-                let inner_radius_vec = path_builder
-                    .current_position()
-                    .to_vector()
-                    .neg()
-                    .normalize()
-                    .mul(outer_radius - inner_radius);
-                path_builder.relative_line_to(inner_radius_vec);
-
-                // Draw inner
+                // Draw outer arc
                 path_builder.arc(
                     lyon::geom::Point::new(0.0, 0.0),
-                    lyon::math::Vector::new(inner_radius, inner_radius),
-                    lyon::geom::Angle::radians(-total_angle),
+                    lyon::math::Vector::new(outer_radius, outer_radius),
+                    lyon::geom::Angle::radians(total_angle),
                     lyon::geom::Angle::radians(0.0),
                 );
 
-            } else {
-                // Draw line back to origin
-                path_builder.line_to(lyon::geom::Point::new(0.0, 0.0));
-            }
+                if inner_radius != 0.0 {
+                    // Compute vector from outer arc corner to arc corner
+                    let inner_radius_vec = path_builder
+                        .current_position()
+                        .to_vector()
+                        .neg()
+                        .normalize()
+                        .mul(outer_radius - inner_radius);
+                    path_builder.relative_line_to(inner_radius_vec);
 
-            path_builder.close();
-            let path = path_builder.build();
+                    // Draw inner
+                    path_builder.arc(
+                        lyon::geom::Point::new(0.0, 0.0),
+                        lyon::math::Vector::new(inner_radius, inner_radius),
+                        lyon::geom::Angle::radians(-total_angle),
+                        lyon::geom::Angle::radians(0.0),
+                    );
+                } else {
+                    // Draw line back to origin
+                    path_builder.line_to(lyon::geom::Point::new(0.0, 0.0));
+                }
 
-            // Transform path to account for start angle and position
-            let path = path.transformed(
-                &PathTransform::rotation(lyon::geom::Angle::radians(*start_angle))
-                    .then_translate(Vector2D::new(*x + bounds.x, *y + bounds.y))
-            );
+                path_builder.close();
+                let path = path_builder.build();
 
-            // Compute bounding box
-            let bbox = bounding_box(&path);
+                // Transform path to account for start angle and position
+                let path = path.transformed(
+                    &PathTransform::rotation(lyon::geom::Angle::radians(*start_angle))
+                        .then_translate(Vector2D::new(*x + bounds.x, *y + bounds.y)),
+                );
 
-            // Create vertex/index buffer builder
-            let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
-            let mut builder = BuffersBuilder::new(
-                &mut buffers,
-                VertexPositions {
-                    fill: to_color_or_gradient_coord(&fill, &grad_coords),
-                    stroke: to_color_or_gradient_coord(&stroke, &grad_coords),
-                    top_left: bbox.min.to_array(),
-                    bottom_right: bbox.max.to_array(),
-                },
-            );
+                // Compute bounding box
+                let bbox = bounding_box(&path);
 
-            // Tesselate fill
-            let mut fill_tessellator = FillTessellator::new();
-            let fill_options = FillOptions::default().with_tolerance(0.05);
-            fill_tessellator.tessellate_path(&path, &fill_options, &mut builder)?;
+                // Create vertex/index buffer builder
+                let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
+                let mut builder = BuffersBuilder::new(
+                    &mut buffers,
+                    VertexPositions {
+                        fill: to_color_or_gradient_coord(&fill, &grad_coords),
+                        stroke: to_color_or_gradient_coord(&stroke, &grad_coords),
+                        top_left: bbox.min.to_array(),
+                        bottom_right: bbox.max.to_array(),
+                    },
+                );
 
-            // Tesselate stroke
-            if *stroke_width > 0.0 {
-                let mut stroke_tessellator = StrokeTessellator::new();
-                let stroke_options = StrokeOptions::default()
-                    .with_tolerance(0.05)
-                    .with_line_join(LineJoin::Miter)
-                    .with_line_cap(LineCap::Butt)
-                    .with_line_width(*stroke_width);
-                stroke_tessellator.tessellate_path(&path, &stroke_options, &mut builder)?;
-            }
+                // Tesselate fill
+                let mut fill_tessellator = FillTessellator::new();
+                let fill_options = FillOptions::default().with_tolerance(0.05);
+                fill_tessellator.tessellate_path(&path, &fill_options, &mut builder)?;
 
-            Ok((buffers.vertices, buffers.indices))
-        }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
+                // Tesselate stroke
+                if *stroke_width > 0.0 {
+                    let mut stroke_tessellator = StrokeTessellator::new();
+                    let stroke_options = StrokeOptions::default()
+                        .with_tolerance(0.05)
+                        .with_line_join(LineJoin::Miter)
+                        .with_line_cap(LineCap::Butt)
+                        .with_line_width(*stroke_width);
+                    stroke_tessellator.tessellate_path(&path, &stroke_options, &mut builder)?;
+                }
+
+                Ok((buffers.vertices, buffers.indices))
+            },
+        )
+        .collect::<Result<Vec<_>, AvengerWgpuError>>()?;
 
         let start_ind = self.num_indices();
         let inds_len: usize = verts_inds.iter().map(|(_, i)| i.len()).sum();
@@ -1588,7 +1600,9 @@ impl StrokeVertexConstructor<MultiVertex> for VertexPositions {
 }
 
 // Symbol vertex construction that takes line width into account
-pub struct SymbolVertexPositions { scale: f32 }
+pub struct SymbolVertexPositions {
+    scale: f32,
+}
 
 impl FillVertexConstructor<SymbolVertex> for SymbolVertexPositions {
     fn new_vertex(&mut self, vertex: FillVertex) -> SymbolVertex {
@@ -1617,17 +1631,27 @@ pub struct SymbolVertex {
 }
 
 impl SymbolVertex {
-    pub fn as_multi_vertex(&self, size: f32, x: f32, y: f32, angle: f32, fill: [f32; 4], stroke: [f32; 4], line_width: f32) -> MultiVertex {
+    pub fn as_multi_vertex(
+        &self,
+        size: f32,
+        x: f32,
+        y: f32,
+        angle: f32,
+        fill: [f32; 4],
+        stroke: [f32; 4],
+        line_width: f32,
+    ) -> MultiVertex {
         let angle = Angle::degrees(angle);
-        let scale = self.scale / size.sqrt();
+        let absolue_scale = size.sqrt();
+        let relative_scale = absolue_scale / self.scale;
 
         // Scale
-        let mut transform = PathTransform::scale(scale, scale);
+        let mut transform = PathTransform::scale(relative_scale, relative_scale);
 
         // Compute adjustment factor for stroke vertices to compensate for scaling and
         // achieve the correct final line width.
         let color = if let Some(normal) = self.normal {
-            let scaled_line_width = scale * NORMALIZED_SYMBOL_STROKE_WIDTH;
+            let scaled_line_width = relative_scale * NORMALIZED_SYMBOL_STROKE_WIDTH;
             let line_width_adjustment = normal.mul((line_width - scaled_line_width) / 2.0);
             transform = transform.then_translate(line_width_adjustment);
             stroke
@@ -1636,14 +1660,16 @@ impl SymbolVertex {
         };
 
         // Rotate then Translate
-        transform = transform.then_rotate(angle).then_translate(Vector2D::new(x, y));
+        transform = transform
+            .then_rotate(angle)
+            .then_translate(Vector2D::new(x, y));
         let position = transform.transform_point(self.position);
 
         MultiVertex {
             position: position.to_array(),
             color,
-            top_left: [x - scale, y - scale],
-            bottom_right: [x + scale, y + scale],
+            top_left: [x - absolue_scale / 2.0, y - absolue_scale / 2.0],
+            bottom_right: [x + absolue_scale / 2.0, y + absolue_scale / 2.0],
         }
     }
 }

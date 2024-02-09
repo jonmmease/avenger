@@ -89,8 +89,7 @@ pub trait Canvas {
         mark: &ArcMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        self.get_multi_renderer()
-            .add_arc_mark(mark, group_bounds)?;
+        self.get_multi_renderer().add_arc_mark(mark, group_bounds)?;
         Ok(())
     }
 
@@ -139,24 +138,21 @@ pub trait Canvas {
         mark: &SymbolMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        self.get_multi_renderer()
-            .add_symbol_mark(mark, group_bounds)?;
-
-        // if mark.len >= 2000 {
-        //     self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
-        //         self.device(),
-        //         self.texture_format(),
-        //         self.sample_count(),
-        //         Box::new(SymbolShader::from_symbol_mark(
-        //             mark,
-        //             self.dimensions(),
-        //             group_bounds,
-        //         )?),
-        //     )));
-        // } else {
-        //     self.get_multi_renderer()
-        //         .add_symbol_mark(mark, group_bounds)?;
-        // }
+        if mark.len >= 10000 && mark.gradients.is_empty() {
+            self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
+                self.device(),
+                self.texture_format(),
+                self.sample_count(),
+                Box::new(SymbolShader::from_symbol_mark(
+                    mark,
+                    self.dimensions(),
+                    group_bounds,
+                )?),
+            )));
+        } else {
+            self.get_multi_renderer()
+                .add_symbol_mark(mark, group_bounds)?;
+        }
 
         Ok(())
     }
