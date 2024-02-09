@@ -1,4 +1,4 @@
-use crate::canvas::CanvasDimensions;
+use crate::canvas::{CanvasDimensions, ClipRect};
 use crate::error::AvengerWgpuError;
 
 use crate::marks::gradient::{to_color_or_gradient_coord, GradientAtlasBuilder};
@@ -52,14 +52,6 @@ pub struct MultiUniform {
     pub size: [f32; 2],
     pub scale: f32,
     _pad: [f32; 1],
-}
-
-#[derive(Clone, Copy)]
-pub struct ClipRect {
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
 }
 
 #[repr(C)]
@@ -271,7 +263,7 @@ impl MultiMarkRenderer {
 
         let batch = MultiMarkBatch {
             indices_range,
-            clip: None,
+            clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
             image_atlas_index: None,
             gradient_atlas_index,
         };
@@ -459,7 +451,7 @@ impl MultiMarkRenderer {
 
         let batch = MultiMarkBatch {
             indices_range,
-            clip: None,
+            clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
             image_atlas_index: None,
             gradient_atlas_index,
         };
@@ -557,7 +549,7 @@ impl MultiMarkRenderer {
 
         let batch = MultiMarkBatch {
             indices_range,
-            clip: None,
+            clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
             image_atlas_index: None,
             gradient_atlas_index,
         };
@@ -683,7 +675,7 @@ impl MultiMarkRenderer {
 
         let batch = MultiMarkBatch {
             indices_range,
-            clip: None,
+            clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
             image_atlas_index: None,
             gradient_atlas_index,
         };
@@ -826,7 +818,7 @@ impl MultiMarkRenderer {
 
         let batch = MultiMarkBatch {
             indices_range,
-            clip: None,
+            clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
             image_atlas_index: None,
             gradient_atlas_index,
         };
@@ -948,7 +940,7 @@ impl MultiMarkRenderer {
 
         let batch = MultiMarkBatch {
             indices_range,
-            clip: None,
+            clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
             image_atlas_index: None,
             gradient_atlas_index,
         };
@@ -1030,7 +1022,7 @@ impl MultiMarkRenderer {
 
         let batch = MultiMarkBatch {
             indices_range,
-            clip: None,
+            clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
             image_atlas_index: None,
             gradient_atlas_index,
         };
@@ -1171,7 +1163,7 @@ impl MultiMarkRenderer {
 
         let batch = MultiMarkBatch {
             indices_range,
-            clip: None,
+            clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
             image_atlas_index: None,
             gradient_atlas_index,
         };
@@ -1282,7 +1274,7 @@ impl MultiMarkRenderer {
         let start_ind = self.num_indices() as u32;
         let mut next_batch = MultiMarkBatch {
             indices_range: start_ind..start_ind,
-            clip: None,
+            clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
             image_atlas_index: None,
             gradient_atlas_index: None,
         };
@@ -1299,7 +1291,7 @@ impl MultiMarkRenderer {
                 // Initialize new next_batch and swap to avoid extra mem copy
                 let mut full_batch = MultiMarkBatch {
                     indices_range: start_ind..(start_ind + inds.len() as u32),
-                    clip: None,
+                    clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
                     image_atlas_index: Some(atlas_index),
                     gradient_atlas_index: None,
                 };

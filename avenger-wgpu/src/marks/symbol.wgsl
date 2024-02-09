@@ -2,9 +2,7 @@
 struct ChartUniform {
     size: vec2<f32>,
     origin: vec2<f32>,
-    group_size: vec2<f32>,
     scale: f32,
-    clip: f32,
 };
 
 @group(0) @binding(0)
@@ -100,9 +98,6 @@ fn vs_main(
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if (in.draw_shape != 1.0) {
-        discard;
-    }
-    if (should_clip(in.clip_position)) {
         discard;
     }
     return in.color;
