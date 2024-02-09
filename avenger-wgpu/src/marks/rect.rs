@@ -1,5 +1,4 @@
 use crate::canvas::CanvasDimensions;
-use crate::marks::gradient::{build_gradients_image, to_color_or_gradient_coord};
 use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
 use avenger::marks::group::GroupBounds;
 use avenger::marks::rect::RectMark;
@@ -68,19 +67,13 @@ pub struct RectInstance {
     pub fill: [f32; 4],
     pub width: f32,
     pub height: f32,
-    pub stroke: [f32; 4],
-    pub stroke_width: f32,
-    pub corner_radius: f32,
 }
 
-const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
+const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
     1 => Float32x2,     // position
     2 => Float32x4,     // color
     3 => Float32,       // width
     4 => Float32,       // height
-    5 => Float32x4,     // stroke
-    6 => Float32,       // stroke_width
-    7 => Float32,       // corner_radius
 ];
 
 impl RectInstance {
@@ -88,29 +81,21 @@ impl RectInstance {
         mark: &RectMark,
     ) -> (Vec<RectInstance>, Option<image::DynamicImage>, Extent3d) {
         let mut instances: Vec<RectInstance> = Vec::new();
-        let (img, texture_size) = build_gradients_image(&mark.gradients);
-
-        for (x, y, width, height, fill, stroke, stroke_width, corner_radius) in izip!(
+        for (x, y, width, height, fill) in izip!(
             mark.x_iter(),
             mark.y_iter(),
             mark.width_iter(),
             mark.height_iter(),
-            mark.fill_iter(),
-            mark.stroke_iter(),
-            mark.stroke_width_iter(),
-            mark.corner_radius_iter(),
+            mark.fill_iter()
         ) {
             instances.push(RectInstance {
                 position: [*x, *y],
                 width: *width,
                 height: *height,
-                fill: to_color_or_gradient_coord(fill, texture_size),
-                stroke: to_color_or_gradient_coord(stroke, texture_size),
-                stroke_width: *stroke_width,
-                corner_radius: *corner_radius,
+                fill: fill.color_or_transparent(),
             })
         }
-        (instances, img, texture_size)
+        (instances, None, Default::default())
     }
 }
 
@@ -160,9 +145,8 @@ impl RectShader {
             texture_size,
             uniform: RectUniform::new(dimensions, group_bounds, mark.clip),
             shader: format!(
-                "{}\n{}\n{}\n",
+                "{}\n{}\n",
                 include_str!("rect.wgsl"),
-                include_str!("gradient.wgsl"),
                 include_str!("clip.wgsl"),
             ),
             vertex_entry_point: "vs_main".to_string(),

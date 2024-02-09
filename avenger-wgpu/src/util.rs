@@ -1,5 +1,3 @@
-use rayon::prelude::*;
-
 #[macro_export]
 macro_rules! par_izip {
     // Define the closure for flattening the tuple in a map call for parallel processing.
@@ -34,13 +32,19 @@ macro_rules! par_izip {
     };
 }
 
-#[test]
-fn try_it() {
-    let v = par_izip!(vec![1, 2, 3], vec![1, 2, 3], vec![1, 2, 3])
-        .map(|(a, b, c)| {
-            println!("{a}, {b}, {c}");
-            a + b + c
-        })
-        .collect::<Vec<_>>();
-    println!("{v:?}");
+
+#[cfg(test)]
+mod tests {
+    use rayon::prelude::*;
+
+    #[test]
+    fn try_it() {
+        let v = par_izip!(vec![1, 2, 3], vec![1, 2, 3], vec![1, 2, 3])
+            .map(|(a, b, c)| {
+                println!("{a}, {b}, {c}");
+                a + b + c
+            })
+            .collect::<Vec<_>>();
+        println!("{v:?}");
+    }
 }

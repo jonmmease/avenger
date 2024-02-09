@@ -68,13 +68,14 @@ pub async fn run() {
 
     let shape = shape_to_path("circle").unwrap();
     // let shape = shape_to_path("cross").unwrap();
-
     let mut x: Vec<f32> = Vec::new();
     let mut y: Vec<f32> = Vec::new();
     let mut fill: Vec<ColorOrGradient> = Vec::new();
     let mut size: Vec<f32> = Vec::new();
 
     let n = 100000;
+    // let n = 50000;
+    // let n = 50;
     for _ in 0..n {
         x.push(rng.gen::<f32>() * inner_width + margin);
         y.push(rng.gen::<f32>() * inner_height + margin);

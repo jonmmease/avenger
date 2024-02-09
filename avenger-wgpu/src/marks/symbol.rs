@@ -1,15 +1,13 @@
 use crate::canvas::CanvasDimensions;
 use crate::error::AvengerWgpuError;
-use crate::marks::gradient::{build_gradients_image, to_color_or_gradient_coord};
 use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
 use avenger::marks::group::GroupBounds;
 use avenger::marks::path::PathTransform;
-use avenger::marks::symbol::{SymbolMark, SymbolShape};
+use avenger::marks::symbol::SymbolMark;
 use itertools::izip;
 use lyon::lyon_tessellation::{
     BuffersBuilder, FillVertex, FillVertexConstructor, StrokeVertex, StrokeVertexConstructor,
 };
-use lyon::path::Winding;
 use lyon::tessellation::geometry_builder::VertexBuffers;
 use lyon::tessellation::{FillOptions, FillTessellator, StrokeOptions, StrokeTessellator};
 use wgpu::{Extent3d, VertexBufferLayout};
@@ -149,7 +147,6 @@ impl SymbolShader {
         let shapes = &mark.shapes;
         let max_size = mark.max_size();
         let max_scale = max_size.sqrt();
-        let has_stroke = mark.stroke_width.is_some();
         let mut verts: Vec<SymbolVertex> = Vec::new();
         let mut indices: Vec<u16> = Vec::new();
         for (shape_index, shape) in shapes.iter().enumerate() {
