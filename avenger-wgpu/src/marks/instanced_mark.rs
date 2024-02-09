@@ -1,6 +1,7 @@
 use std::ops::Range;
 use wgpu::util::DeviceExt;
 use wgpu::{CommandBuffer, Device, Extent3d, ImageDataLayout, TextureFormat, TextureView};
+use crate::canvas::ClipRect;
 
 #[derive(Clone)]
 pub struct InstancedMarkBatch {
@@ -48,6 +49,7 @@ pub struct InstancedMarkRenderer {
     pub texture: wgpu::Texture,
     pub texture_size: wgpu::Extent3d,
     pub texture_bind_group: wgpu::BindGroup,
+    pub clip_rect: Option<ClipRect>
 }
 
 impl InstancedMarkRenderer {
@@ -56,6 +58,7 @@ impl InstancedMarkRenderer {
         texture_format: TextureFormat,
         sample_count: u32,
         mark_shader: Box<dyn InstancedMarkShader<Instance = I, Vertex = V, Uniform = U>>,
+        clip_rect: Option<ClipRect>,
     ) -> Self
     where
         I: bytemuck::Pod + bytemuck::Zeroable,
@@ -235,6 +238,7 @@ impl InstancedMarkRenderer {
             texture,
             texture_size: mark_shader.texture_size(),
             texture_bind_group,
+            clip_rect,
         }
     }
 
@@ -297,6 +301,11 @@ impl InstancedMarkRenderer {
                 render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
                 render_pass
                     .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+
+                if let Some(clip_rect) = self.clip_rect {
+                    render_pass.set_scissor_rect(clip_rect.x, clip_rect.y, clip_rect.width, clip_rect.height);
+                }
+
                 render_pass.draw_indexed(0..self.num_indices, 0, batch.instances_range.clone());
             }
         }

@@ -20,26 +20,17 @@ const STROKE_KIND: u32 = 1;
 pub struct SymbolUniform {
     pub size: [f32; 2],
     pub origin: [f32; 2],
-    pub group_size: [f32; 2],
     pub scale: f32,
-    pub clip: f32,
+    _pad: [f32; 3],
 }
 
 impl SymbolUniform {
-    pub fn new(dimensions: CanvasDimensions, group_bounds: GroupBounds, clip: bool) -> Self {
+    pub fn new(dimensions: CanvasDimensions, group_bounds: GroupBounds) -> Self {
         Self {
             size: dimensions.size,
             scale: dimensions.scale,
             origin: [group_bounds.x, group_bounds.y],
-            group_size: [
-                group_bounds.width.unwrap_or(0.0),
-                group_bounds.height.unwrap_or(0.0),
-            ],
-            clip: if clip && group_bounds.width.is_some() && group_bounds.height.is_some() {
-                1.0
-            } else {
-                0.0
-            },
+            _pad: [0.0, 0.0, 0.0],
         }
     }
 }
@@ -189,14 +180,10 @@ impl SymbolShader {
             verts,
             indices,
             instances,
-            uniform: SymbolUniform::new(dimensions, group_bounds, mark.clip),
+            uniform: SymbolUniform::new(dimensions, group_bounds),
             batches,
             texture_size,
-            shader: format!(
-                "{}\n{}\n",
-                include_str!("symbol.wgsl"),
-                include_str!("clip.wgsl"),
-            ),
+            shader: include_str!("symbol.wgsl").into(),
             vertex_entry_point: "vs_main".to_string(),
             fragment_entry_point: "fs_main".to_string(),
         })

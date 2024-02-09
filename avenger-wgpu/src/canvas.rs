@@ -38,6 +38,29 @@ pub enum MarkRenderer {
     Multi(MultiMarkRenderer),
 }
 
+#[derive(Clone, Copy)]
+pub struct ClipRect {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl ClipRect {
+    pub fn maybe_from_group_bounds(scale: f32, bounds: GroupBounds, clip: bool) -> Option<Self> {
+        if let (true, Some(width), Some(height)) = (clip, bounds.width, bounds.height) {
+            Some(Self {
+                x: (bounds.x * scale) as u32,
+                y: (bounds.y * scale) as u32,
+                width: (width * scale) as u32,
+                height: (height * scale) as u32,
+            })
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 pub struct CanvasDimensions {
     pub size: [f32; 2],
@@ -140,6 +163,7 @@ pub trait Canvas {
                     self.dimensions(),
                     group_bounds,
                 )?),
+                ClipRect::maybe_from_group_bounds(self.dimensions().scale, group_bounds, mark.clip),
             )));
         } else {
             self.get_multi_renderer()

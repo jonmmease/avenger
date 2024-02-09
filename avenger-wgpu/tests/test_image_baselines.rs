@@ -172,16 +172,15 @@ mod test_image_baselines {
         case("vl-convert", "stocks_locale", 0.01),
         case("vl-convert", "table_heatmap", 0.02),
         case("vl-convert", "stacked_bar_h", 0.02),
+        case("vl-convert", "geoScale", 0.01),
+        case("vl-convert", "maptile_background", 0.01),
+        case("clip", "clip_mixed_marks", 0.0001),
 
         // Disabled:
-        // Text is currently overlaid
+        // Text is always on top
         // case("vl-convert", "no_text_in_font_metrics", 0.01),
-
-        // Clipping not implemented
-        // case("clip", "clip_mixed_marks", 0.002),
+        // Text is not clipped
         // case("clip", "text_clip", 0.02),
-        // case("vl-convert", "geoScale", 0.01),
-        // case("vl-convert", "maptile_background", 0.01),
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
         initialize();
