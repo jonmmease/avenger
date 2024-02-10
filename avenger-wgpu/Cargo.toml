@@ -9,8 +9,7 @@ license = "BSD-3-Clause"
 crate-type = [ "cdylib", "rlib",]
 
 [features]
-text-glyphon = [ "avenger-glyphon",]
-default = [ "text-glyphon",]
+default = [ "cosmic-text", "rayon"]
 
 [dependencies]
 cfg-if = "1"
@@ -34,6 +33,13 @@ rstest = "0.18.2"
 path = "../avenger"
 version = "0.0.2"
 
+[dependencies.rayon]
+workspace = true
+optional = true
+
+[dependencies.tracing]
+workspace = true
+
 [dependencies.thiserror]
 workspace = true
 
@@ -48,8 +54,8 @@ workspace = true
 workspace = true
 optional = true
 
-[dependencies.avenger-glyphon]
-version = "0.3.0"
+[dependencies.cosmic-text]
+version = "0.11.2"
 optional = true
 
 [dependencies.lyon]

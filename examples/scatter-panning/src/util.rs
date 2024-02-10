@@ -1,16 +1,20 @@
-use rand::Rng;
 use avenger::marks::group::{GroupBounds, SceneGroup};
 use avenger::marks::mark::SceneMark;
 use avenger::marks::symbol::{SymbolMark, SymbolShape};
+use avenger::marks::value::{ColorOrGradient, EncodingValue};
 use avenger::scene_graph::SceneGraph;
 use avenger_vega::marks::symbol::shape_to_path;
 use avenger_vega::scene_graph::VegaSceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasDimensions, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
+use rand::Rng;
+use tracing_subscriber::{EnvFilter, fmt};
+use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
-use avenger::marks::value::{ColorOrGradient, EncodingValue};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -22,7 +26,11 @@ pub async fn run() {
             std::panic::set_hook(Box::new(console_error_panic_hook::hook));
             console_log::init_with_level(log::Level::Warn).expect("Couldn't initialize logger");
         } else {
-            env_logger::init();
+            // Initialize logging controlled by RUST_LOG environment variable
+            tracing_subscriber::registry()
+                .with(fmt::layer().with_span_events(FmtSpan::CLOSE))
+                .with(EnvFilter::from_default_env())
+                .init();
         }
     }
 
@@ -60,13 +68,14 @@ pub async fn run() {
 
     let shape = shape_to_path("circle").unwrap();
     // let shape = shape_to_path("cross").unwrap();
-
     let mut x: Vec<f32> = Vec::new();
     let mut y: Vec<f32> = Vec::new();
     let mut fill: Vec<ColorOrGradient> = Vec::new();
     let mut size: Vec<f32> = Vec::new();
 
     let n = 100000;
+    // let n = 50000;
+    // let n = 50;
     for _ in 0..n {
         x.push(rng.gen::<f32>() * inner_width + margin);
         y.push(rng.gen::<f32>() * inner_height + margin);
@@ -79,11 +88,9 @@ pub async fn run() {
     // Save to png
     let dimensions = CanvasDimensions {
         size: [width, height],
-        scale:scale,
+        scale,
     };
-    let mut canvas = WindowCanvas::new(window, dimensions)
-        .await
-        .unwrap();
+    let mut canvas = WindowCanvas::new(window, dimensions).await.unwrap();
 
     canvas.set_scene(&scene_graph).unwrap();
 
@@ -220,7 +227,8 @@ fn make_sg(
                 angle: EncodingValue::Scalar { value: 0.0 },
                 indices: None,
                 gradients: vec![],
-                shape_index: EncodingValue::Scalar { value: 0 }
+                shape_index: EncodingValue::Scalar { value: 0 },
+                zindex: None,
             })],
             gradients: vec![],
             fill: None,
@@ -228,6 +236,7 @@ fn make_sg(
             stroke_width: None,
             stroke_offset: None,
             corner_radius: None,
+            zindex: None,
         }],
         width,
         height,

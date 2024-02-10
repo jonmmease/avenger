@@ -12,13 +12,8 @@ use winit::event::WindowEvent;
 use winit::window::Window;
 
 use crate::error::AvengerWgpuError;
-use crate::marks::arc::ArcShader;
-use crate::marks::basic_mark::BasicMarkRenderer;
-use crate::marks::image::ImageShader;
 use crate::marks::instanced_mark::InstancedMarkRenderer;
-use crate::marks::path::PathShader;
-use crate::marks::rect::RectShader;
-use crate::marks::rule::RuleShader;
+use crate::marks::multi::MultiMarkRenderer;
 use crate::marks::symbol::SymbolShader;
 use avenger::marks::arc::ArcMark;
 use avenger::marks::area::AreaMark;
@@ -32,14 +27,32 @@ use avenger::{
     marks::symbol::SymbolMark, marks::text::TextMark, scene_graph::SceneGraph,
 };
 
-#[cfg(feature = "text-glyphon")]
-use crate::marks::text::TextMarkRenderer;
-
 pub enum MarkRenderer {
-    Basic(BasicMarkRenderer),
     Instanced(InstancedMarkRenderer),
-    #[cfg(feature = "text-glyphon")]
-    Text(TextMarkRenderer),
+    Multi(Box<MultiMarkRenderer>),
+}
+
+#[derive(Clone, Copy)]
+pub struct ClipRect {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl ClipRect {
+    pub fn maybe_from_group_bounds(scale: f32, bounds: GroupBounds, clip: bool) -> Option<Self> {
+        if let (true, Some(width), Some(height)) = (clip, bounds.width, bounds.height) {
+            Some(Self {
+                x: (bounds.x * scale) as u32,
+                y: (bounds.y * scale) as u32,
+                width: (width * scale) as u32,
+                height: (height * scale) as u32,
+            })
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -76,21 +89,14 @@ pub trait Canvas {
 
     fn sample_count(&self) -> u32;
 
+    fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer;
+
     fn add_arc_mark(
         &mut self,
         mark: &ArcMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
-            self.device(),
-            self.texture_format(),
-            self.sample_count(),
-            Box::new(ArcShader::from_arc_mark(
-                mark,
-                self.dimensions(),
-                group_bounds,
-            )),
-        )));
+        self.get_multi_renderer().add_arc_mark(mark, group_bounds)?;
         Ok(())
     }
 
@@ -99,16 +105,8 @@ pub trait Canvas {
         mark: &PathMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
-            self.device(),
-            self.texture_format(),
-            self.sample_count(),
-            Box::new(PathShader::from_path_mark(
-                mark,
-                self.dimensions(),
-                group_bounds,
-            )?),
-        )));
+        self.get_multi_renderer()
+            .add_path_mark(mark, group_bounds)?;
         Ok(())
     }
 
@@ -117,16 +115,8 @@ pub trait Canvas {
         mark: &LineMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
-            self.device(),
-            self.texture_format(),
-            self.sample_count(),
-            Box::new(PathShader::from_line_mark(
-                mark,
-                self.dimensions(),
-                group_bounds,
-            )?),
-        )));
+        self.get_multi_renderer()
+            .add_line_mark(mark, group_bounds)?;
         Ok(())
     }
 
@@ -135,16 +125,8 @@ pub trait Canvas {
         mark: &TrailMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
-            self.device(),
-            self.texture_format(),
-            self.sample_count(),
-            Box::new(PathShader::from_trail_mark(
-                mark,
-                self.dimensions(),
-                group_bounds,
-            )?),
-        )));
+        self.get_multi_renderer()
+            .add_trail_mark(mark, group_bounds)?;
         Ok(())
     }
 
@@ -153,16 +135,8 @@ pub trait Canvas {
         mark: &AreaMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
-            self.device(),
-            self.texture_format(),
-            self.sample_count(),
-            Box::new(PathShader::from_area_mark(
-                mark,
-                self.dimensions(),
-                group_bounds,
-            )?),
-        )));
+        self.get_multi_renderer()
+            .add_area_mark(mark, group_bounds)?;
         Ok(())
     }
 
@@ -171,16 +145,23 @@ pub trait Canvas {
         mark: &SymbolMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
-            self.device(),
-            self.texture_format(),
-            self.sample_count(),
-            Box::new(SymbolShader::from_symbol_mark(
-                mark,
-                self.dimensions(),
-                group_bounds,
-            )?),
-        )));
+        if mark.len >= 10000 && mark.gradients.is_empty() {
+            self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
+                self.device(),
+                self.texture_format(),
+                self.sample_count(),
+                Box::new(SymbolShader::from_symbol_mark(
+                    mark,
+                    self.dimensions(),
+                    group_bounds,
+                )?),
+                ClipRect::maybe_from_group_bounds(self.dimensions().scale, group_bounds, mark.clip),
+            )));
+        } else {
+            self.get_multi_renderer()
+                .add_symbol_mark(mark, group_bounds)?;
+        }
+
         Ok(())
     }
 
@@ -189,16 +170,8 @@ pub trait Canvas {
         mark: &RectMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
-            self.device(),
-            self.texture_format(),
-            self.sample_count(),
-            Box::new(RectShader::from_rect_mark(
-                mark,
-                self.dimensions(),
-                group_bounds,
-            )),
-        )));
+        self.get_multi_renderer()
+            .add_rect_mark(mark, group_bounds)?;
         Ok(())
     }
 
@@ -207,16 +180,8 @@ pub trait Canvas {
         mark: &RuleMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
-            self.device(),
-            self.texture_format(),
-            self.sample_count(),
-            Box::new(RuleShader::from_rule_mark(
-                mark,
-                self.dimensions(),
-                group_bounds,
-            )),
-        )));
+        self.get_multi_renderer()
+            .add_rule_mark(mark, group_bounds)?;
         Ok(())
     }
 
@@ -226,19 +191,11 @@ pub trait Canvas {
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
         cfg_if::cfg_if! {
-            if #[cfg(feature = "text-glyphon")] {
-                self.add_mark_renderer(MarkRenderer::Text(TextMarkRenderer::new(
-                    self.device(),
-                    self.queue(),
-                    self.texture_format(),
-                    self.dimensions(),
-                    self.sample_count(),
-                    mark,
-                    group_bounds,
-                )));
+            if #[cfg(feature = "cosmic-text")] {
+                self.get_multi_renderer().add_text_mark(mark, group_bounds)?;
                 Ok(())
             } else {
-                Err(AvengerWgpuError::TextNotEnabled("Use the text-glyphon feature flag to enable text".to_string()))
+                Err(AvengerWgpuError::TextNotEnabled("Use the cosmic-text feature flag to enable text".to_string()))
             }
         }
     }
@@ -248,16 +205,8 @@ pub trait Canvas {
         mark: &ImageMark,
         group_bounds: GroupBounds,
     ) -> Result<(), AvengerWgpuError> {
-        self.add_mark_renderer(MarkRenderer::Basic(BasicMarkRenderer::new(
-            self.device(),
-            self.texture_format(),
-            self.sample_count(),
-            Box::new(ImageShader::from_image_mark(
-                mark,
-                self.dimensions(),
-                group_bounds,
-            )?),
-        )));
+        self.get_multi_renderer()
+            .add_image_mark(mark, group_bounds)?;
         Ok(())
     }
 
@@ -323,6 +272,7 @@ pub trait Canvas {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all)]
     fn set_scene(&mut self, scene_graph: &SceneGraph) -> Result<(), AvengerWgpuError> {
         // Clear existing marks
         self.clear_mark_renderer();
@@ -479,6 +429,7 @@ pub struct WindowCanvas {
     config: SurfaceConfiguration,
     dimensions: CanvasDimensions,
     marks: Vec<MarkRenderer>,
+    multi_renderer: Option<MultiMarkRenderer>,
 }
 
 impl WindowCanvas {
@@ -533,6 +484,7 @@ impl WindowCanvas {
             dimensions,
             window,
             marks: Vec::new(),
+            multi_renderer: None,
         })
     }
 
@@ -566,22 +518,21 @@ impl WindowCanvas {
             .texture
             .create_view(&TextureViewDescriptor::default());
 
+        // Commit open multi-renderer
+        if let Some(multi_renderer) = self.multi_renderer.take() {
+            self.marks
+                .push(MarkRenderer::Multi(Box::new(multi_renderer)));
+        }
+
         let background_command = if self.sample_count > 1 {
             make_background_command(self, &self.multisampled_framebuffer, Some(&view))
         } else {
             make_background_command(self, &view, None)
         };
         let mut commands = vec![background_command];
-
+        let texture_format = self.texture_format();
         for mark in &mut self.marks {
             let command = match mark {
-                MarkRenderer::Basic(renderer) => {
-                    if self.sample_count > 1 {
-                        renderer.render(&self.device, &self.multisampled_framebuffer, Some(&view))
-                    } else {
-                        renderer.render(&self.device, &view, None)
-                    }
-                }
                 MarkRenderer::Instanced(renderer) => {
                     if self.sample_count > 1 {
                         renderer.render(&self.device, &self.multisampled_framebuffer, Some(&view))
@@ -589,17 +540,25 @@ impl WindowCanvas {
                         renderer.render(&self.device, &view, None)
                     }
                 }
-                #[cfg(feature = "text-glyphon")]
-                MarkRenderer::Text(renderer) => {
+                MarkRenderer::Multi(renderer) => {
                     if self.sample_count > 1 {
                         renderer.render(
                             &self.device,
                             &self.queue,
+                            texture_format,
+                            self.sample_count,
                             &self.multisampled_framebuffer,
                             Some(&view),
                         )
                     } else {
-                        renderer.render(&self.device, &self.queue, &view, None)
+                        renderer.render(
+                            &self.device,
+                            &self.queue,
+                            texture_format,
+                            self.sample_count,
+                            &view,
+                            None,
+                        )
                     }
                 }
             };
@@ -615,7 +574,18 @@ impl WindowCanvas {
 }
 
 impl Canvas for WindowCanvas {
+    fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
+        if self.multi_renderer.is_none() {
+            self.multi_renderer = Some(MultiMarkRenderer::new(self.dimensions));
+        }
+        self.multi_renderer.as_mut().unwrap()
+    }
+
     fn add_mark_renderer(&mut self, mark_renderer: MarkRenderer) {
+        if let Some(multi_renderer) = self.multi_renderer.take() {
+            self.marks
+                .push(MarkRenderer::Multi(Box::new(multi_renderer)));
+        }
         self.marks.push(mark_renderer);
     }
 
@@ -657,9 +627,11 @@ pub struct PngCanvas {
     pub texture_size: Extent3d,
     pub padded_width: u32,
     pub padded_height: u32,
+    multi_renderer: Option<MultiMarkRenderer>,
 }
 
 impl PngCanvas {
+    #[tracing::instrument(skip_all)]
     pub async fn new(dimensions: CanvasDimensions) -> Result<Self, AvengerWgpuError> {
         let instance = make_wgpu_instance();
         let adapter = make_wgpu_adapter(&instance, None).await?;
@@ -726,10 +698,18 @@ impl PngCanvas {
             padded_width,
             padded_height,
             marks: Vec::new(),
+            multi_renderer: None,
         })
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn render(&mut self) -> Result<image::RgbaImage, AvengerWgpuError> {
+        // Commit open multi mark renderer
+        if let Some(multi_renderer) = self.multi_renderer.take() {
+            self.marks
+                .push(MarkRenderer::Multi(Box::new(multi_renderer)));
+        }
+
         // Build encoder for chart background
         let background_command = if self.sample_count > 1 {
             make_background_command(
@@ -742,20 +722,9 @@ impl PngCanvas {
         };
 
         let mut commands = vec![background_command];
-
+        let texture_format = self.texture_format();
         for mark in &mut self.marks {
             let command = match mark {
-                MarkRenderer::Basic(renderer) => {
-                    if self.sample_count > 1 {
-                        renderer.render(
-                            &self.device,
-                            &self.multisampled_framebuffer,
-                            Some(&self.texture_view),
-                        )
-                    } else {
-                        renderer.render(&self.device, &self.texture_view, None)
-                    }
-                }
                 MarkRenderer::Instanced(renderer) => {
                     if self.sample_count > 1 {
                         renderer.render(
@@ -767,17 +736,25 @@ impl PngCanvas {
                         renderer.render(&self.device, &self.texture_view, None)
                     }
                 }
-                #[cfg(feature = "text-glyphon")]
-                MarkRenderer::Text(mark) => {
+                MarkRenderer::Multi(renderer) => {
                     if self.sample_count > 1 {
-                        mark.render(
+                        renderer.render(
                             &self.device,
                             &self.queue,
+                            texture_format,
+                            self.sample_count,
                             &self.multisampled_framebuffer,
                             Some(&self.texture_view),
                         )
                     } else {
-                        mark.render(&self.device, &self.queue, &self.texture_view, None)
+                        renderer.render(
+                            &self.device,
+                            &self.queue,
+                            texture_format,
+                            self.sample_count,
+                            &self.texture_view,
+                            None,
+                        )
                     }
                 }
             };
@@ -852,7 +829,18 @@ impl PngCanvas {
 }
 
 impl Canvas for PngCanvas {
+    fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
+        if self.multi_renderer.is_none() {
+            self.multi_renderer = Some(MultiMarkRenderer::new(self.dimensions));
+        }
+        self.multi_renderer.as_mut().unwrap()
+    }
+
     fn add_mark_renderer(&mut self, mark_renderer: MarkRenderer) {
+        if let Some(multi_renderer) = self.multi_renderer.take() {
+            self.marks
+                .push(MarkRenderer::Multi(Box::new(multi_renderer)));
+        }
         self.marks.push(mark_renderer);
     }
 
