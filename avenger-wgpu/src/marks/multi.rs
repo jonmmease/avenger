@@ -38,12 +38,17 @@ use wgpu::{
 
 // Import rayon prelude as required by par_izip.
 use crate::marks::text::TextAtlasBuilder;
-use crate::par_izip;
+
 use avenger::marks::arc::ArcMark;
 use avenger::marks::text::{
     FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec, TextMark,
 };
-use rayon::prelude::*;
+
+#[cfg(feature = "rayon")]
+use {
+    rayon::prelude::*,
+    crate::par_izip
+};
 
 pub const GRADIENT_TEXTURE_CODE: f32 = -1.0;
 pub const IMAGE_TEXTURE_CODE: f32 = -2.0;
@@ -423,34 +428,34 @@ impl MultiMarkRenderer {
                     Ok((buffers.vertices, buffers.indices))
                 };
 
-            let use_par = mark.len > 100;
-
-            if use_par {
-                par_izip!(
-                mark.x_vec(),
-                mark.y_vec(),
-                mark.width_vec(),
-                mark.height_vec(),
-                mark.fill_vec(),
-                mark.stroke_vec(),
-                mark.stroke_width_vec(),
-                mark.corner_radius_vec(),
-            ).map(|(x, y, width, height, fill, stroke, stroke_width, corner_radius)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                    build_verts_inds(&x, &y, &width, &height, &fill, &stroke, &stroke_width, &corner_radius)
-                }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
-            } else {
-                izip!(
-                mark.x_iter(),
-                mark.y_iter(),
-                mark.width_iter(),
-                mark.height_iter(),
-                mark.fill_iter(),
-                mark.stroke_iter(),
-                mark.stroke_width_iter(),
-                mark.corner_radius_iter(),
-            ).map(|(x, y, width, height, fill, stroke, stroke_width, corner_radius)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                    build_verts_inds(x, y, width, height, fill, stroke, stroke_width, corner_radius)
-                }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
+            cfg_if::cfg_if! {
+                if #[cfg(feature = "rayon")] {
+                    par_izip!(
+                        mark.x_vec(),
+                        mark.y_vec(),
+                        mark.width_vec(),
+                        mark.height_vec(),
+                        mark.fill_vec(),
+                        mark.stroke_vec(),
+                        mark.stroke_width_vec(),
+                        mark.corner_radius_vec(),
+                    ).map(|(x, y, width, height, fill, stroke, stroke_width, corner_radius)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+                        build_verts_inds(&x, &y, &width, &height, &fill, &stroke, &stroke_width, &corner_radius)
+                    }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
+                } else {
+                    izip!(
+                        mark.x_iter(),
+                        mark.y_iter(),
+                        mark.width_iter(),
+                        mark.height_iter(),
+                        mark.fill_iter(),
+                        mark.stroke_iter(),
+                        mark.stroke_width_iter(),
+                        mark.corner_radius_iter(),
+                    ).map(|(x, y, width, height, fill, stroke, stroke_width, corner_radius)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+                            build_verts_inds(x, y, width, height, fill, stroke, stroke_width, corner_radius)
+                        }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
+                }
             }
         };
 
@@ -532,26 +537,27 @@ impl MultiMarkRenderer {
             Ok((buffers.vertices, buffers.indices))
         };
 
-        let use_par = mark.len > 32;
-        let verts_inds = if use_par {
-            par_izip!(
-                mark.path_vec(),
-                mark.fill_vec(),
-                mark.stroke_vec(),
-                mark.transform_vec(),
-            ).map(|(path, fill, stroke, transform)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                build_verts_inds(&path, &fill, &stroke, &transform)
-            }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
-        } else {
-            izip!(
-                mark.path_iter(),
-                mark.fill_iter(),
-                mark.stroke_iter(),
-                mark.transform_iter(),
-            ).map(|(path, fill, stroke, transform)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                build_verts_inds(path, fill, stroke, transform)
-            }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
-        };
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "rayon")] {
+                let verts_inds = par_izip!(
+                    mark.path_vec(),
+                    mark.fill_vec(),
+                    mark.stroke_vec(),
+                    mark.transform_vec(),
+                ).map(|(path, fill, stroke, transform)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+                    build_verts_inds(&path, &fill, &stroke, &transform)
+                }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
+            } else {
+                let verts_inds = izip!(
+                    mark.path_iter(),
+                    mark.fill_iter(),
+                    mark.stroke_iter(),
+                    mark.transform_iter(),
+                ).map(|(path, fill, stroke, transform)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+                    build_verts_inds(path, fill, stroke, transform)
+                }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
+            }
+        }
 
         let start_ind = self.num_indices();
         let inds_len: usize = verts_inds.iter().map(|(_, i)| i.len()).sum();
@@ -653,31 +659,32 @@ impl MultiMarkRenderer {
             Ok((multi_verts, indices.clone()))
         };
 
-        let use_par = mark.len > 100;
-        let verts_inds = if use_par {
-            par_izip!(
-                mark.x_vec(),
-                mark.y_vec(),
-                mark.fill_vec(),
-                mark.size_vec(),
-                mark.stroke_vec(),
-                mark.angle_vec(),
-                mark.shape_index_vec(),
-        ).map(|(x, y, fill, size, stroke, angle, shape_index)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                build_verts_inds(&x, &y, &fill, &size, &stroke, &angle, &shape_index)
-            }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
-        } else {
-            izip!(
-                mark.x_iter(),
-                mark.y_iter(),
-                mark.fill_iter(),
-                mark.size_iter(),
-                mark.stroke_iter(),
-                mark.angle_iter(),
-                mark.shape_index_iter(),
-            ).map(|(x, y, fill, size, stroke, angle, shape_index)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                build_verts_inds(x, y, fill, size, stroke, angle, shape_index)
-            }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "rayon")] {
+                let verts_inds = par_izip!(
+                    mark.x_vec(),
+                    mark.y_vec(),
+                    mark.fill_vec(),
+                    mark.size_vec(),
+                    mark.stroke_vec(),
+                    mark.angle_vec(),
+                    mark.shape_index_vec(),
+                ).map(|(x, y, fill, size, stroke, angle, shape_index)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+                    build_verts_inds(&x, &y, &fill, &size, &stroke, &angle, &shape_index)
+                }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
+            } else {
+                let verts_inds = izip!(
+                    mark.x_iter(),
+                    mark.y_iter(),
+                    mark.fill_iter(),
+                    mark.size_iter(),
+                    mark.stroke_iter(),
+                    mark.angle_iter(),
+                    mark.shape_index_iter(),
+                ).map(|(x, y, fill, size, stroke, angle, shape_index)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+                    build_verts_inds(x, y, fill, size, stroke, angle, shape_index)
+                }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
+            }
         };
 
         let start_ind = self.num_indices();

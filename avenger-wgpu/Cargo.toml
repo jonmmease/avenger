@@ -9,7 +9,7 @@ license = "BSD-3-Clause"
 crate-type = [ "cdylib", "rlib",]
 
 [features]
-default = [ "cosmic-text"]
+default = [ "cosmic-text", "rayon"]
 
 [dependencies]
 cfg-if = "1"
@@ -35,6 +35,7 @@ version = "0.0.2"
 
 [dependencies.rayon]
 workspace = true
+optional = true
 
 [dependencies.tracing]
 workspace = true
