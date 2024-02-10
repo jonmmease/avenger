@@ -22,9 +22,9 @@ impl TextAtlasBuilder for NullTextAtlasBuilder {
         _text: TextInstance,
         _dimensions: CanvasDimensions,
     ) -> Result<Vec<TextAtlasRegistration>, AvengerWgpuError> {
-        return Err(crate::error::AvengerWgpuError::TextNotEnabled(
+        Err(crate::error::AvengerWgpuError::TextNotEnabled(
             "Text support is not enabled".to_string(),
-        ));
+        ))
     }
 
     fn build(&self) -> (Extent3d, Vec<DynamicImage>) {

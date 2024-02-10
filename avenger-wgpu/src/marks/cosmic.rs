@@ -111,6 +111,12 @@ pub struct CosmicTextAtlasBuilder {
     allocator: etagere::AtlasAllocator,
 }
 
+impl Default for CosmicTextAtlasBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CosmicTextAtlasBuilder {
     pub fn new() -> Self {
         Self {
@@ -185,7 +191,7 @@ impl TextAtlasBuilder for CosmicTextAtlasBuilder {
 
         buffer.set_text(
             &mut font_system,
-            &text.text,
+            text.text,
             Attrs::new().family(family).weight(weight),
             Shaping::Advanced,
         );
@@ -363,7 +369,7 @@ impl TextAtlasBuilder for CosmicTextAtlasBuilder {
                                     let pixel_lum = img.get_pixel(src_x as u32, src_y as u32).0[0];
 
                                     // Compute pixel color, adjusting alpha by pixel luminance
-                                    let mut pixel_color = text_color.clone();
+                                    let mut pixel_color = text_color;
                                     pixel_color[3] =
                                         ((text_color[3] as f32) * (pixel_lum as f32 / 255.0))
                                             .round() as u8;

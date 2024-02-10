@@ -19,6 +19,12 @@ pub struct ImageAtlasCoords {
     pub y1: f32,
 }
 
+impl Default for ImageAtlasBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ImageAtlasBuilder {
     pub fn new() -> Self {
         Self {
