@@ -45,9 +45,6 @@ fn vs_main(
 // Fragment shader
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    if (should_clip(in.clip_position)) {
-        discard;
-    }
     return lookup_color(in.color, in.clip_position, in.top_left, in.bottom_right);
 }
 
@@ -63,8 +60,15 @@ var image_texture: texture_2d<f32>;
 @group(2) @binding(1)
 var image_sampler: sampler;
 
+// Text texture binding
+@group(3) @binding(0)
+var text_texture: texture_2d<f32>;
+@group(3) @binding(1)
+var text_sampler: sampler;
+
 const GRADIENT_TEXTURE_CODE = -1.0;
 const IMAGE_TEXTURE_CODE = -2.0;
+const TEXT_TEXTURE_CODE = -3.0;
 
 const GRADIENT_LINEAR = 0.0;
 const GRADIENT_RADIAL = 1.0;
@@ -184,9 +188,13 @@ fn lookup_color(color: vec4<f32>, clip_position: vec4<f32>, top_left: vec2<f32>,
             return textureSample(gradient_texture, gradient_sampler, vec2<f32>(tex_coord_x, tex_coord_y));
         }
     } else if (color[0] == IMAGE_TEXTURE_CODE) {
-        // Texture coordinates are stored in the second and third color components
+        // Image texture coordinates are stored in the second and third color components
         let tex_coords = vec2<f32>(color[1], color[2]);
         return textureSample(image_texture, image_sampler, tex_coords);
+    } else if (color[0] == TEXT_TEXTURE_CODE) {
+        // Text texture coordinates are stored in the second and third color components
+        let tex_coords = vec2<f32>(color[1], color[2]);
+        return textureSample(text_texture, text_sampler, tex_coords);
     } else {
         return color;
     }
@@ -195,16 +203,4 @@ fn lookup_color(color: vec4<f32>, clip_position: vec4<f32>, top_left: vec2<f32>,
 fn compute_tex_x_coord(grad_dist: f32) -> f32 {
     let col_offset = GRADIENT_TEXTURE_WIDTH - COLORWAY_LENGTH;
     return clamp(grad_dist, 0.0, 1.0) * COLORWAY_LENGTH / GRADIENT_TEXTURE_WIDTH + col_offset / GRADIENT_TEXTURE_WIDTH;
-}
-
-fn should_clip(clip_position: vec4<f32>) -> bool {
-    return false;
-//    let scaled_top_left = chart_uniforms.origin * chart_uniforms.scale;
-//    let scaled_bottom_right = scaled_top_left + chart_uniforms.group_size * chart_uniforms.scale;
-//    return chart_uniforms.clip == 1.0 && (
-//        clip_position[0] < scaled_top_left[0]
-//            || clip_position[1] < scaled_top_left[1]
-//            || clip_position[0] > scaled_bottom_right[0]
-//            || clip_position[1] > scaled_bottom_right[1]
-//        );
 }

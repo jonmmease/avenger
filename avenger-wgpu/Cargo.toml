@@ -9,8 +9,7 @@ license = "BSD-3-Clause"
 crate-type = [ "cdylib", "rlib",]
 
 [features]
-text-glyphon = [ "avenger-glyphon",]
-default = [ "text-glyphon",]
+default = [ "cosmic-text"]
 
 [dependencies]
 cfg-if = "1"
@@ -54,8 +53,8 @@ workspace = true
 workspace = true
 optional = true
 
-[dependencies.avenger-glyphon]
-version = "0.3.0"
+[dependencies.cosmic-text]
+version = "0.11.2"
 optional = true
 
 [dependencies.lyon]

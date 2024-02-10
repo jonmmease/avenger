@@ -5,5 +5,5 @@ pub mod symbol;
 pub mod gradient;
 pub mod image;
 
-#[cfg(feature = "text-glyphon")]
+#[cfg(feature = "cosmic-text")]
 pub mod text;
