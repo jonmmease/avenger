@@ -37,12 +37,17 @@ use wgpu::{
 };
 
 // Import rayon prelude as required by par_izip.
+use crate::marks::text::TextAtlasBuilder;
 use crate::par_izip;
 use avenger::marks::arc::ArcMark;
+use avenger::marks::text::{
+    FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec, TextMark,
+};
 use rayon::prelude::*;
 
 pub const GRADIENT_TEXTURE_CODE: f32 = -1.0;
 pub const IMAGE_TEXTURE_CODE: f32 = -2.0;
+pub const TEXT_TEXTURE_CODE: f32 = -3.0;
 
 const NORMALIZED_SYMBOL_STROKE_WIDTH: f32 = 0.1;
 
@@ -86,6 +91,7 @@ pub struct MultiMarkBatch {
     pub clip: Option<ClipRect>,
     pub image_atlas_index: Option<usize>,
     pub gradient_atlas_index: Option<usize>,
+    pub text_atlas_index: Option<usize>,
 }
 
 pub struct MultiMarkRenderer {
@@ -94,6 +100,7 @@ pub struct MultiMarkRenderer {
     uniform: MultiUniform,
     gradient_atlas_builder: GradientAtlasBuilder,
     image_atlas_builder: ImageAtlasBuilder,
+    text_atlas_builder: TextAtlasBuilder,
     dimensions: CanvasDimensions,
 }
 
@@ -110,6 +117,7 @@ impl MultiMarkRenderer {
             },
             gradient_atlas_builder: GradientAtlasBuilder::new(),
             image_atlas_builder: ImageAtlasBuilder::new(),
+            text_atlas_builder: TextAtlasBuilder::new(),
         }
     }
 
@@ -266,6 +274,7 @@ impl MultiMarkRenderer {
             clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
             image_atlas_index: None,
             gradient_atlas_index,
+            text_atlas_index: None,
         };
 
         self.verts_inds.extend(verts_inds);
@@ -454,6 +463,7 @@ impl MultiMarkRenderer {
             clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
             image_atlas_index: None,
             gradient_atlas_index,
+            text_atlas_index: None,
         };
 
         self.verts_inds.extend(verts_inds);
@@ -552,6 +562,7 @@ impl MultiMarkRenderer {
             clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
             image_atlas_index: None,
             gradient_atlas_index,
+            text_atlas_index: None,
         };
 
         self.verts_inds.extend(verts_inds);
@@ -678,6 +689,7 @@ impl MultiMarkRenderer {
             clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
             image_atlas_index: None,
             gradient_atlas_index,
+            text_atlas_index: None,
         };
 
         self.verts_inds.extend(verts_inds);
@@ -821,6 +833,7 @@ impl MultiMarkRenderer {
             clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
             image_atlas_index: None,
             gradient_atlas_index,
+            text_atlas_index: None,
         };
 
         self.verts_inds.push((verts, indices));
@@ -943,6 +956,7 @@ impl MultiMarkRenderer {
             clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
             image_atlas_index: None,
             gradient_atlas_index,
+            text_atlas_index: None,
         };
 
         self.verts_inds.push((buffers.vertices, buffers.indices));
@@ -1025,6 +1039,7 @@ impl MultiMarkRenderer {
             clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
             image_atlas_index: None,
             gradient_atlas_index,
+            text_atlas_index: None,
         };
 
         self.verts_inds.push((buffers.vertices, buffers.indices));
@@ -1166,6 +1181,7 @@ impl MultiMarkRenderer {
             clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
             image_atlas_index: None,
             gradient_atlas_index,
+            text_atlas_index: None,
         };
 
         self.verts_inds.extend(verts_inds);
@@ -1277,6 +1293,7 @@ impl MultiMarkRenderer {
             clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
             image_atlas_index: None,
             gradient_atlas_index: None,
+            text_atlas_index: None,
         };
 
         for (atlas_index, verts, inds) in verts_inds {
@@ -1294,6 +1311,108 @@ impl MultiMarkRenderer {
                     clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
                     image_atlas_index: Some(atlas_index),
                     gradient_atlas_index: None,
+                    text_atlas_index: None,
+                };
+                std::mem::swap(&mut full_batch, &mut next_batch);
+                self.batches.push(full_batch);
+            }
+
+            // Add verts and indices
+            self.verts_inds.push((verts, inds))
+        }
+
+        self.batches.push(next_batch);
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub fn add_text_mark(
+        &mut self,
+        mark: &TextMark,
+        bounds: GroupBounds,
+    ) -> Result<(), AvengerWgpuError> {
+        let registrations = izip!(
+            mark.text_iter(),
+            mark.x_iter(),
+            mark.y_iter(),
+            mark.color_iter(),
+            mark.align_iter(),
+            mark.angle_iter(),
+            mark.baseline_iter(),
+            mark.font_iter(),
+            mark.font_size_iter(),
+            mark.font_weight_iter(),
+            mark.font_style_iter(),
+            mark.limit_iter(),
+        )
+        .map(
+            |(
+                text,
+                x,
+                y,
+                color,
+                align,
+                angle,
+                baseline,
+                font,
+                font_size,
+                font_weight,
+                font_style,
+                limit,
+            )| {
+                let instance = TextInstance {
+                    text,
+                    position: [*x + bounds.x, *y + bounds.y],
+                    color,
+                    align,
+                    angle: *angle,
+                    baseline,
+                    font,
+                    font_size: *font_size,
+                    font_weight,
+                    font_style,
+                    limit: *limit,
+                };
+                self.text_atlas_builder
+                    .register_text(instance, self.dimensions)
+            },
+        )
+        .collect::<Result<Vec<_>, AvengerWgpuError>>()?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+
+        // Construct batches, one batch per text atlas index
+        let start_ind = self.num_indices() as u32;
+        let mut next_batch = MultiMarkBatch {
+            indices_range: start_ind..start_ind,
+            clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
+            image_atlas_index: None,
+            gradient_atlas_index: None,
+            text_atlas_index: None,
+        };
+
+        for registration in registrations {
+            let atlas_index = registration.atlas_index;
+            let verts = registration.verts;
+            let inds = registration.indices;
+
+            // (atlas_index, verts, inds)
+            if next_batch.text_atlas_index.unwrap_or(atlas_index) == atlas_index {
+                // update next batch with atlas index and inds range
+                next_batch.text_atlas_index = Some(atlas_index);
+                next_batch.indices_range = next_batch.indices_range.start
+                    ..(next_batch.indices_range.end + inds.len() as u32);
+            } else {
+                // create new batch
+                let start_ind = next_batch.indices_range.end;
+                // Initialize new next_batch and swap to avoid extra mem copy
+                let mut full_batch = MultiMarkBatch {
+                    indices_range: start_ind..(start_ind + inds.len() as u32),
+                    clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
+                    image_atlas_index: None,
+                    gradient_atlas_index: None,
+                    text_atlas_index: Some(atlas_index),
                 };
                 std::mem::swap(&mut full_batch, &mut next_batch);
                 self.batches.push(full_batch);
@@ -1373,6 +1492,17 @@ impl MultiMarkRenderer {
             wgpu::FilterMode::Linear,
         );
 
+        // Text Textures
+        let (text_texture_size, text_images) = self.text_atlas_builder.build();
+        let (text_layout, text_texture_bind_groups) = Self::make_texture_bind_groups(
+            device,
+            queue,
+            text_texture_size,
+            &text_images,
+            wgpu::FilterMode::Linear,
+            wgpu::FilterMode::Linear,
+        );
+
         // Shaders
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
@@ -1382,7 +1512,12 @@ impl MultiMarkRenderer {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&uniform_layout, &gradient_layout, &image_layout],
+                bind_group_layouts: &[
+                    &uniform_layout,
+                    &gradient_layout,
+                    &image_layout,
+                    &text_layout,
+                ],
                 push_constant_ranges: &[],
             });
 
@@ -1472,8 +1607,10 @@ impl MultiMarkRenderer {
             render_pass.set_bind_group(0, &uniform_bind_group, &[]);
             let mut last_grad_ind = 0;
             let mut last_img_ind = 0;
+            let mut last_text_ind = 0;
             render_pass.set_bind_group(1, &gradient_texture_bind_groups[last_grad_ind], &[]);
             render_pass.set_bind_group(2, &image_texture_bind_groups[last_img_ind], &[]);
+            render_pass.set_bind_group(3, &text_texture_bind_groups[last_img_ind], &[]);
             render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
             render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
@@ -1504,6 +1641,13 @@ impl MultiMarkRenderer {
                         render_pass.set_bind_group(2, &image_texture_bind_groups[img_ind], &[]);
                     }
                     last_img_ind = img_ind;
+                }
+
+                if let Some(text_ind) = batch.text_atlas_index {
+                    if text_ind != last_text_ind {
+                        render_pass.set_bind_group(3, &text_texture_bind_groups[text_ind], &[]);
+                    }
+                    last_text_ind = text_ind;
                 }
 
                 // draw inds
@@ -1719,4 +1863,19 @@ impl SymbolVertex {
             bottom_right: [x + absolue_scale / 2.0, y + absolue_scale / 2.0],
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct TextInstance<'a> {
+    pub position: [f32; 2],
+    pub text: &'a String,
+    pub color: &'a [f32; 4],
+    pub align: &'a TextAlignSpec,
+    pub angle: f32,
+    pub baseline: &'a TextBaselineSpec,
+    pub font: &'a String,
+    pub font_size: f32,
+    pub font_weight: &'a FontWeightSpec,
+    pub font_style: &'a FontStyleSpec,
+    pub limit: f32,
 }
