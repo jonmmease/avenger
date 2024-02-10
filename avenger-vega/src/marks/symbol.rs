@@ -122,18 +122,22 @@ impl VegaMarkContainer<VegaSymbolItem> {
             mark.name = name.clone();
         }
 
-        // Init vector for each encoding channel
-        let mut x = Vec::<f32>::new();
-        let mut y = Vec::<f32>::new();
-        let mut fill = Vec::<ColorOrGradient>::new();
-        let mut size = Vec::<f32>::new();
-        let mut stroke = Vec::<ColorOrGradient>::new();
-        let mut angle = Vec::<f32>::new();
-        let mut zindex = Vec::<i32>::new();
-        let mut gradients = Vec::<Gradient>::new();
+        // Override values with vectors
+        let len = self.items.len();
+        mark.len = len as u32;
 
-        let mut shape_strings = Vec::<String>::new();
-        let mut shape_index = Vec::<usize>::new();
+        // Init vector for each encoding channel
+        let mut x = Vec::<f32>::with_capacity(len);
+        let mut y = Vec::<f32>::with_capacity(len);
+        let mut fill = Vec::<ColorOrGradient>::with_capacity(len);
+        let mut size = Vec::<f32>::with_capacity(len);
+        let mut stroke = Vec::<ColorOrGradient>::with_capacity(len);
+        let mut angle = Vec::<f32>::with_capacity(len);
+        let mut zindex = Vec::<i32>::with_capacity(len);
+        let mut gradients = Vec::<Gradient>::with_capacity(len);
+
+        let mut shape_strings = Vec::<String>::with_capacity(len);
+        let mut shape_index = Vec::<usize>::with_capacity(len);
 
         // For each item, append explicit values to corresponding vector
         for item in &self.items {
@@ -172,10 +176,6 @@ impl VegaMarkContainer<VegaSymbolItem> {
                 }
             }
         }
-
-        // Override values with vectors
-        let len = self.items.len();
-        mark.len = len as u32;
 
         if x.len() == len {
             mark.x = EncodingValue::Array { values: x };

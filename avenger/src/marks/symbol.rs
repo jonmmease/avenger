@@ -1,5 +1,7 @@
 use crate::marks::value::{ColorOrGradient, EncodingValue, Gradient};
+use lyon_path::Winding;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -26,27 +28,69 @@ impl SymbolMark {
         self.x.as_iter(self.len as usize, self.indices.as_ref())
     }
 
+    pub fn x_vec(&self) -> Vec<f32> {
+        self.x.as_vec(self.len as usize, self.indices.as_ref())
+    }
+
     pub fn y_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
         self.y.as_iter(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn y_vec(&self) -> Vec<f32> {
+        self.y.as_vec(self.len as usize, self.indices.as_ref())
     }
 
     pub fn fill_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
         self.fill.as_iter(self.len as usize, self.indices.as_ref())
     }
 
+    pub fn fill_vec(&self) -> Vec<ColorOrGradient> {
+        self.fill.as_vec(self.len as usize, self.indices.as_ref())
+    }
+
     pub fn size_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
         self.size.as_iter(self.len as usize, self.indices.as_ref())
     }
+
+    pub fn size_vec(&self) -> Vec<f32> {
+        self.size.as_vec(self.len as usize, self.indices.as_ref())
+    }
+
     pub fn stroke_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
         self.stroke
             .as_iter(self.len as usize, self.indices.as_ref())
     }
+
+    pub fn stroke_vec(&self) -> Vec<ColorOrGradient> {
+        self.stroke.as_vec(self.len as usize, self.indices.as_ref())
+    }
+
     pub fn angle_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
         self.angle.as_iter(self.len as usize, self.indices.as_ref())
     }
+
+    pub fn angle_vec(&self) -> Vec<f32> {
+        self.angle.as_vec(self.len as usize, self.indices.as_ref())
+    }
+
     pub fn shape_index_iter(&self) -> Box<dyn Iterator<Item = &usize> + '_> {
         self.shape_index
             .as_iter(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn shape_index_vec(&self) -> Vec<usize> {
+        self.shape_index
+            .as_vec(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn max_size(&self) -> f32 {
+        match &self.size {
+            EncodingValue::Scalar { value: size } => *size,
+            EncodingValue::Array { values } => *values
+                .iter()
+                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap_or(&1.0),
+        }
     }
 }
 
@@ -83,4 +127,17 @@ pub enum SymbolShape {
     Circle,
     /// Path with origin top-left
     Path(lyon_path::Path),
+}
+
+impl SymbolShape {
+    pub fn as_path(&self) -> Cow<lyon_path::Path> {
+        match self {
+            SymbolShape::Circle => {
+                let mut builder = lyon_path::Path::builder();
+                builder.add_circle(lyon_path::geom::point(0.0, 0.0), 0.5, Winding::Positive);
+                Cow::Owned(builder.build())
+            }
+            SymbolShape::Path(path) => Cow::Borrowed(path),
+        }
+    }
 }

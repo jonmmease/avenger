@@ -27,6 +27,9 @@ pub enum AvengerWgpuError {
     #[error("Image allocation error: {0}")]
     ImageAllocationError(String),
 
+    #[error("Conversion error: {0}")]
+    ConversionError(String),
+
     #[error("Text support is not enabled: {0}")]
     TextNotEnabled(String),
 }

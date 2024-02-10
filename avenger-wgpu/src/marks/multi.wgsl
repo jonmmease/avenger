@@ -1,28 +1,89 @@
-// Gradient color logic that provides the `lookup_color` function.
-// This is intended to be concatenated to the end of shader files that support
-// gradients
+struct ChartUniform {
+    size: vec2<f32>,
+    scale: f32,
+    _pad: f32,
+};
 
-const GRADIENT_LINEAR = 0.0;
-const GRADIENT_RADIAL = 1.0;
+@group(0) @binding(0)
+var<uniform> chart_uniforms: ChartUniform;
 
-const COLORWAY_LENGTH = 250.0;
-const GRADIENT_TEXTURE_WIDTH = 256.0;
-const GRADIENT_TEXTURE_HEIGHT = 256.0;
+struct VertexInput {
+    @location(0) position: vec2<f32>,
+    @location(1) color: vec4<f32>,
+    @location(2) top_left: vec2<f32>,
+    @location(3) bottom_right: vec2<f32>,
+};
 
+struct VertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+    @location(1) top_left: vec2<f32>,
+    @location(2) bottom_right: vec2<f32>,
+ }
+
+ // Vertex shader
+@vertex
+fn vs_main(
+  model: VertexInput
+) -> VertexOutput {
+    var out: VertexOutput;
+
+    // Compute absolute position
+    let position = model.position;
+
+    // Compute vertex coordinates
+    let x = 2.0 * position[0] / chart_uniforms.size[0] - 1.0;
+    let y = 2.0 * (chart_uniforms.size[1] - position[1]) / chart_uniforms.size[1] - 1.0;
+    out.clip_position = vec4<f32>(x, y, 0.0, 1.0);
+
+    out.color = model.color;
+    out.top_left = model.top_left * chart_uniforms.scale;
+    out.bottom_right = model.bottom_right * chart_uniforms.scale;
+    return out;
+}
+
+// Fragment shader
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    return lookup_color(in.color, in.clip_position, in.top_left, in.bottom_right);
+}
+
+// Gradient texture binding
 @group(1) @binding(0)
 var gradient_texture: texture_2d<f32>;
 @group(1) @binding(1)
 var gradient_sampler: sampler;
 
+// Image texture binding
+@group(2) @binding(0)
+var image_texture: texture_2d<f32>;
+@group(2) @binding(1)
+var image_sampler: sampler;
+
+// Text texture binding
+@group(3) @binding(0)
+var text_texture: texture_2d<f32>;
+@group(3) @binding(1)
+var text_sampler: sampler;
+
+const GRADIENT_TEXTURE_CODE = -1.0;
+const IMAGE_TEXTURE_CODE = -2.0;
+const TEXT_TEXTURE_CODE = -3.0;
+
+const GRADIENT_LINEAR = 0.0;
+const GRADIENT_RADIAL = 1.0;
+const COLORWAY_LENGTH = 250.0;
+const GRADIENT_TEXTURE_WIDTH = 256.0;
+const GRADIENT_TEXTURE_HEIGHT = 256.0;
+
 // Compute final color, potentially computing gradient
 fn lookup_color(color: vec4<f32>, clip_position: vec4<f32>, top_left: vec2<f32>, bottom_right: vec2<f32>) -> vec4<f32> {
-    if (color[0] < 0.0) {
-        // If the first color coordinate is negative, this indicates that we need to compute a gradient.
-        // The negative of this value is the y-coordinate into the gradient texture where the gradient control
-        // points and gradient colorway are stored.
-        let tex_coord_y = -color[0];
+    if (color[0] == GRADIENT_TEXTURE_CODE) {
+        // If the first color coordinate is a negative value, this indicates that we are computing a color from a texture
+        // For gradient texture, the second color component stores the gradient texture y-coordinate
+        let tex_coord_y = color[1];
 
-        // Extract gradient type from fist pixel using nearest sampler (so that not interpolation is performed)
+        // Extract gradient type from fist pixel
         let control0 = textureSample(gradient_texture, gradient_sampler, vec2<f32>(0.0, tex_coord_y));
         let gradient_type = control0[0];
 
@@ -126,6 +187,14 @@ fn lookup_color(color: vec4<f32>, clip_position: vec4<f32>, top_left: vec2<f32>,
             let tex_coord_x = compute_tex_x_coord(grad_dist);
             return textureSample(gradient_texture, gradient_sampler, vec2<f32>(tex_coord_x, tex_coord_y));
         }
+    } else if (color[0] == IMAGE_TEXTURE_CODE) {
+        // Image texture coordinates are stored in the second and third color components
+        let tex_coords = vec2<f32>(color[1], color[2]);
+        return textureSample(image_texture, image_sampler, tex_coords);
+    } else if (color[0] == TEXT_TEXTURE_CODE) {
+        // Text texture coordinates are stored in the second and third color components
+        let tex_coords = vec2<f32>(color[1], color[2]);
+        return textureSample(text_texture, text_sampler, tex_coords);
     } else {
         return color;
     }

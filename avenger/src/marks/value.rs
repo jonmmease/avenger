@@ -2,12 +2,12 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
-pub enum EncodingValue<T> {
+pub enum EncodingValue<T: Sync + Clone> {
     Scalar { value: T },
     Array { values: Vec<T> },
 }
 
-impl<T> EncodingValue<T> {
+impl<T: Sync + Clone> EncodingValue<T> {
     pub fn as_iter<'a>(
         &'a self,
         scalar_len: usize,
@@ -19,6 +19,21 @@ impl<T> EncodingValue<T> {
                 None => Box::new(values.iter()),
                 Some(indices) => Box::new(indices.iter().map(|i| &values[*i])),
             },
+        }
+    }
+
+    pub fn as_vec(&self, scalar_len: usize, indices: Option<&Vec<usize>>) -> Vec<T> {
+        self.as_iter(scalar_len, indices)
+            .cloned()
+            .collect::<Vec<_>>()
+    }
+}
+
+impl EncodingValue<f32> {
+    pub fn equals_scalar(&self, v: f32) -> bool {
+        match self {
+            EncodingValue::Scalar { value } => v == *value,
+            _ => false,
         }
     }
 }
@@ -64,6 +79,15 @@ pub enum ImageBaseline {
 pub enum ColorOrGradient {
     Color([f32; 4]),
     GradientIndex(u32),
+}
+
+impl ColorOrGradient {
+    pub fn color_or_transparent(&self) -> [f32; 4] {
+        match self {
+            ColorOrGradient::Color(c) => *c,
+            _ => [0.0, 0.0, 0.0, 0.0],
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

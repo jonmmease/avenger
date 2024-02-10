@@ -12,3 +12,4 @@ scratch/
 .pixi
 
 /avenger-python/avenger/_avenger.abi3.so
+__pycache__/
