@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate lazy_static;
-
 use avenger::scene_graph::SceneGraph as RsSceneGraph;
 use avenger_vega::scene_graph::VegaSceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasDimensions, PngCanvas};
