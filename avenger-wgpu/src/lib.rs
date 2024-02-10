@@ -7,4 +7,4 @@ pub mod marks;
 pub mod util;
 
 #[cfg(feature = "cosmic-text")]
-pub use crate::marks::text::register_font_directory;
+pub use crate::marks::cosmic::register_font_directory;

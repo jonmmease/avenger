@@ -37,18 +37,13 @@ use wgpu::{
 };
 
 // Import rayon prelude as required by par_izip.
-use crate::marks::text::TextAtlasBuilder;
+use crate::marks::text::{TextAtlasBuilder, TextInstance};
 
 use avenger::marks::arc::ArcMark;
-use avenger::marks::text::{
-    FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec, TextMark,
-};
+use avenger::marks::text::TextMark;
 
 #[cfg(feature = "rayon")]
-use {
-    rayon::prelude::*,
-    crate::par_izip
-};
+use {crate::par_izip, rayon::prelude::*};
 
 pub const GRADIENT_TEXTURE_CODE: f32 = -1.0;
 pub const IMAGE_TEXTURE_CODE: f32 = -2.0;
@@ -105,12 +100,22 @@ pub struct MultiMarkRenderer {
     uniform: MultiUniform,
     gradient_atlas_builder: GradientAtlasBuilder,
     image_atlas_builder: ImageAtlasBuilder,
-    text_atlas_builder: TextAtlasBuilder,
+    text_atlas_builder: Box<dyn TextAtlasBuilder>,
     dimensions: CanvasDimensions,
 }
 
 impl MultiMarkRenderer {
     pub fn new(dimensions: CanvasDimensions) -> Self {
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "cosmic-text")] {
+                use crate::marks::cosmic::CosmicTextAtlasBuilder;
+                let text_atlas_builder: Box<dyn TextAtlasBuilder> = Box::new(CosmicTextAtlasBuilder::new());
+            } else {
+                use crate::marks::text::NullTextAtlasBuilder;
+                let text_atlas_builder: Box<dyn TextAtlasBuilder> = Box::new(NullTextAtlasBuilder);
+            }
+        };
+
         Self {
             verts_inds: vec![],
             batches: vec![],
@@ -122,7 +127,7 @@ impl MultiMarkRenderer {
             },
             gradient_atlas_builder: GradientAtlasBuilder::new(),
             image_atlas_builder: ImageAtlasBuilder::new(),
-            text_atlas_builder: TextAtlasBuilder::new(),
+            text_atlas_builder,
         }
     }
 
@@ -1870,19 +1875,4 @@ impl SymbolVertex {
             bottom_right: [x + absolue_scale / 2.0, y + absolue_scale / 2.0],
         }
     }
-}
-
-#[derive(Clone, Debug)]
-pub struct TextInstance<'a> {
-    pub position: [f32; 2],
-    pub text: &'a String,
-    pub color: &'a [f32; 4],
-    pub align: &'a TextAlignSpec,
-    pub angle: f32,
-    pub baseline: &'a TextBaselineSpec,
-    pub font: &'a String,
-    pub font_size: f32,
-    pub font_weight: &'a FontWeightSpec,
-    pub font_style: &'a FontStyleSpec,
-    pub limit: f32,
 }
