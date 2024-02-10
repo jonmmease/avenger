@@ -21,7 +21,7 @@ pub struct SymbolUniform {
     pub size: [f32; 2],
     pub origin: [f32; 2],
     pub scale: f32,
-    _pad: [f32; 3],
+    _pad: [f32; 5],
 }
 
 impl SymbolUniform {
@@ -30,7 +30,7 @@ impl SymbolUniform {
             size: dimensions.size,
             scale: dimensions.scale,
             origin: [group_bounds.x, group_bounds.y],
-            _pad: [0.0, 0.0, 0.0],
+            _pad: [0.0, 0.0, 0.0, 0.0, 0.0],
         }
     }
 }

@@ -3,6 +3,7 @@ struct ChartUniform {
     size: vec2<f32>,
     origin: vec2<f32>,
     scale: f32,
+    _pad: vec2<f32>,
 };
 
 @group(0) @binding(0)
