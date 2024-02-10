@@ -18,6 +18,12 @@ pub struct GradientAtlasBuilder {
     initialized: bool,
 }
 
+impl Default for GradientAtlasBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GradientAtlasBuilder {
     pub fn new() -> Self {
         // Initialize with single pixel image

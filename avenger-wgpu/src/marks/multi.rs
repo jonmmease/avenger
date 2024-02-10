@@ -445,7 +445,7 @@ impl MultiMarkRenderer {
                         mark.stroke_width_vec(),
                         mark.corner_radius_vec(),
                     ).map(|(x, y, width, height, fill, stroke, stroke_width, corner_radius)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                        build_verts_inds(&x, &y, &width, &height, &fill, &stroke, &stroke_width, &corner_radius)
+                        build_verts_inds(x, &y, &width, &height, &fill, &stroke, &stroke_width, &corner_radius)
                     }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
                 } else {
                     izip!(
@@ -550,7 +550,7 @@ impl MultiMarkRenderer {
                     mark.stroke_vec(),
                     mark.transform_vec(),
                 ).map(|(path, fill, stroke, transform)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                    build_verts_inds(&path, &fill, &stroke, &transform)
+                    build_verts_inds(path, &fill, &stroke, &transform)
                 }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
             } else {
                 let verts_inds = izip!(
@@ -675,7 +675,7 @@ impl MultiMarkRenderer {
                     mark.angle_vec(),
                     mark.shape_index_vec(),
                 ).map(|(x, y, fill, size, stroke, angle, shape_index)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                    build_verts_inds(&x, &y, &fill, &size, &stroke, &angle, &shape_index)
+                    build_verts_inds(x, &y, &fill, &size, &stroke, &angle, &shape_index)
                 }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
             } else {
                 let verts_inds = izip!(
@@ -1156,8 +1156,8 @@ impl MultiMarkRenderer {
                 let mut builder = BuffersBuilder::new(
                     &mut buffers,
                     VertexPositions {
-                        fill: to_color_or_gradient_coord(&fill, &grad_coords),
-                        stroke: to_color_or_gradient_coord(&stroke, &grad_coords),
+                        fill: to_color_or_gradient_coord(fill, &grad_coords),
+                        stroke: to_color_or_gradient_coord(stroke, &grad_coords),
                         top_left: bbox.min.to_array(),
                         bottom_right: bbox.max.to_array(),
                     },
