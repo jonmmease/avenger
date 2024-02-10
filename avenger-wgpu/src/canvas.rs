@@ -29,7 +29,7 @@ use avenger::{
 
 pub enum MarkRenderer {
     Instanced(InstancedMarkRenderer),
-    Multi(MultiMarkRenderer),
+    Multi(Box<MultiMarkRenderer>),
 }
 
 #[derive(Clone, Copy)]
@@ -520,7 +520,8 @@ impl WindowCanvas {
 
         // Commit open multi-renderer
         if let Some(multi_renderer) = self.multi_renderer.take() {
-            self.marks.push(MarkRenderer::Multi(multi_renderer));
+            self.marks
+                .push(MarkRenderer::Multi(Box::new(multi_renderer)));
         }
 
         let background_command = if self.sample_count > 1 {
@@ -582,7 +583,8 @@ impl Canvas for WindowCanvas {
 
     fn add_mark_renderer(&mut self, mark_renderer: MarkRenderer) {
         if let Some(multi_renderer) = self.multi_renderer.take() {
-            self.marks.push(MarkRenderer::Multi(multi_renderer));
+            self.marks
+                .push(MarkRenderer::Multi(Box::new(multi_renderer)));
         }
         self.marks.push(mark_renderer);
     }
@@ -704,7 +706,8 @@ impl PngCanvas {
     pub async fn render(&mut self) -> Result<image::RgbaImage, AvengerWgpuError> {
         // Commit open multi mark renderer
         if let Some(multi_renderer) = self.multi_renderer.take() {
-            self.marks.push(MarkRenderer::Multi(multi_renderer));
+            self.marks
+                .push(MarkRenderer::Multi(Box::new(multi_renderer)));
         }
 
         // Build encoder for chart background
@@ -835,7 +838,8 @@ impl Canvas for PngCanvas {
 
     fn add_mark_renderer(&mut self, mark_renderer: MarkRenderer) {
         if let Some(multi_renderer) = self.multi_renderer.take() {
-            self.marks.push(MarkRenderer::Multi(multi_renderer));
+            self.marks
+                .push(MarkRenderer::Multi(Box::new(multi_renderer)));
         }
         self.marks.push(mark_renderer);
     }
