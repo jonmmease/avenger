@@ -404,8 +404,8 @@ impl TextAtlasBuilder for CosmicTextAtlasBuilder {
                 let x0 = (physical_glyph.x as f32 + details.left) / dimensions.scale;
                 let y0 = (run.line_y).round()
                     + (physical_glyph.y as f32 - details.top) / dimensions.scale;
-                let x1 = x0 + details.width as f32 / dimensions.scale;
-                let y1 = y0 + details.height as f32 / dimensions.scale;
+                let x1 = x0 + details.width / dimensions.scale;
+                let y1 = y0 + details.height / dimensions.scale;
 
                 let top_left = rotation_transform
                     .transform_point(Point2D::new(x0, y0))

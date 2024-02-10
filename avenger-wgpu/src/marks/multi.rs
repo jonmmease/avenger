@@ -1834,6 +1834,7 @@ pub struct SymbolVertex {
 }
 
 impl SymbolVertex {
+    #[allow(clippy::too_many_arguments)]
     pub fn as_multi_vertex(
         &self,
         size: f32,
