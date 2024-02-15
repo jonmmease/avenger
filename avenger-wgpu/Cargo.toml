@@ -1,6 +1,6 @@
 [package]
 name = "avenger-wgpu"
-version = "0.0.2"
+version = "0.0.3"
 edition = "2021"
 description = "WGPU rendering engine for the Avenger visualization framework"
 license = "BSD-3-Clause"
@@ -9,7 +9,7 @@ license = "BSD-3-Clause"
 crate-type = [ "cdylib", "rlib",]
 
 [features]
-default = [ "cosmic-text", "rayon"]
+default = [ "cosmic-text", "rayon",]
 
 [dependencies]
 cfg-if = "1"
@@ -31,7 +31,7 @@ rstest = "0.18.2"
 
 [dependencies.avenger]
 path = "../avenger"
-version = "0.0.2"
+version = "0.0.3"
 
 [dependencies.rayon]
 workspace = true
@@ -64,7 +64,7 @@ workspace = true
 [dev-dependencies.avenger-vega]
 path = "../avenger-vega"
 features = [ "image-request", "svg",]
-version = "0.0.2"
+version = "0.0.3"
 
 [dev-dependencies.serde_json]
 version = "1.0.111"
