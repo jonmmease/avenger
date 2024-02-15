@@ -1,13 +1,15 @@
 [project]
 name = "avenger"
-version = "0.0.2"
+version = "0.0.3"
 readme = "README.md"
 description = "A Visualization Engine and Renderer"
-license = {file = "LICENSE"}
 
 [build-system]
 requires = [ "maturin>=1.1.0,<2",]
 build-backend = "maturin"
+
+[project.license]
+file = "LICENSE"
 
 [tool.maturin]
 module-name = "avenger._avenger"
