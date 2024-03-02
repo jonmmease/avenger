@@ -38,10 +38,10 @@ pub struct VegaTextItem {
 impl VegaMarkItem for VegaTextItem {}
 
 impl VegaMarkContainer<VegaTextItem> {
-    pub fn to_scene_graph(&self) -> Result<SceneMark, AvengerVegaError> {
+    pub fn to_scene_graph(&self, force_clip: bool) -> Result<SceneMark, AvengerVegaError> {
         // Init mark with scalar defaults
         let mut mark = TextMark {
-            clip: self.clip,
+            clip: self.clip || force_clip,
             zindex: self.zindex,
             ..Default::default()
         };

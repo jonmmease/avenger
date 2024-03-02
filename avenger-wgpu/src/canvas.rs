@@ -206,6 +206,7 @@ pub trait Canvas {
         &mut self,
         group: &SceneGroup,
         parent_origin: [f32; 2],
+        parent_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
         // Maybe add rect around group boundary
         if let Some(rect) = group.make_path_mark() {
@@ -224,7 +225,13 @@ pub trait Canvas {
         ];
 
         // Compute new clip
-        let clip = group.clip.translate(origin[0], origin[1]);
+        let clip = if let Clip::None = group.clip {
+            // No clip defined for this group, propagate parent clip down
+            parent_clip.clone()
+        } else {
+            // Translate clip to absolute coordinates
+            group.clip.translate(origin[0], origin[1])
+        };
 
         for mark_ind in indices {
             let mark = &group.marks[mark_ind];
@@ -260,7 +267,7 @@ pub trait Canvas {
                     self.add_image_mark(mark, origin, &clip)?;
                 }
                 SceneMark::Group(group) => {
-                    self.add_group_mark(group, origin)?;
+                    self.add_group_mark(group, origin, &clip)?;
                 }
             }
         }
@@ -283,7 +290,7 @@ pub trait Canvas {
 
         for group_ind in &indices {
             let group = &scene_graph.groups[*group_ind];
-            self.add_group_mark(group, scene_graph.origin)?;
+            self.add_group_mark(group, scene_graph.origin, &Clip::None)?;
         }
 
         Ok(())

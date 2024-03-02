@@ -28,9 +28,9 @@ pub struct VegaRectItem {
 impl VegaMarkItem for VegaRectItem {}
 
 impl VegaMarkContainer<VegaRectItem> {
-    pub fn to_scene_graph(&self) -> Result<SceneMark, AvengerVegaError> {
+    pub fn to_scene_graph(&self, force_clip: bool) -> Result<SceneMark, AvengerVegaError> {
         let mut mark = RectMark {
-            clip: self.clip,
+            clip: self.clip || force_clip,
             zindex: self.zindex,
             ..Default::default()
         };

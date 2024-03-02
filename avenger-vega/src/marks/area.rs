@@ -29,7 +29,7 @@ pub struct VegaAreaItem {
 impl VegaMarkItem for VegaAreaItem {}
 
 impl VegaMarkContainer<VegaAreaItem> {
-    pub fn to_scene_graph(&self) -> Result<SceneMark, AvengerVegaError> {
+    pub fn to_scene_graph(&self, force_clip: bool) -> Result<SceneMark, AvengerVegaError> {
         // Get shape of first item and use that for all items for now
         let first = self.items.first();
         let stroke_cap = first.and_then(|item| item.stroke_cap).unwrap_or_default();
@@ -61,7 +61,7 @@ impl VegaMarkContainer<VegaAreaItem> {
         }
 
         let mut mark = AreaMark {
-            clip: self.clip,
+            clip: self.clip || force_clip,
             zindex: self.zindex,
             orientation,
             fill,

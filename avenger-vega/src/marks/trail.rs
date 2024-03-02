@@ -21,7 +21,7 @@ pub struct VegaTrailItem {
 impl VegaMarkItem for VegaTrailItem {}
 
 impl VegaMarkContainer<VegaTrailItem> {
-    pub fn to_scene_graph(&self) -> Result<SceneMark, AvengerVegaError> {
+    pub fn to_scene_graph(&self, force_clip: bool) -> Result<SceneMark, AvengerVegaError> {
         // Get shape of first item and use that for all items for now
         let first = self.items.first();
         let mut gradients = Vec::<Gradient>::new();
@@ -37,7 +37,7 @@ impl VegaMarkContainer<VegaTrailItem> {
         }
 
         let mut mark = TrailMark {
-            clip: self.clip,
+            clip: self.clip || force_clip,
             zindex: self.zindex,
             gradients,
             stroke,
