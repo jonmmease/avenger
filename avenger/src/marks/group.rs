@@ -106,9 +106,10 @@ impl SceneGroup {
                 );
                 builder.build()
             }
-            Clip::Path(path) => path
-                .clone()
-                .transformed(&PathTransform::translation(stroke_offset, stroke_offset)),
+            Clip::Path(path) => path.clone().transformed(&PathTransform::translation(
+                self.origin[0] + stroke_offset,
+                self.origin[1] + stroke_offset,
+            )),
         };
 
         Some(PathMark {
