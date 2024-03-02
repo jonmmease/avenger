@@ -1,0 +1,102 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v5.json",
+  "description": "A simple bar chart with embedded data.",
+  "background": "white",
+  "padding": 5,
+  "height": 200,
+  "width": 200,
+  "style": "cell",
+  "marks": [
+    {
+      "type": "group",
+      "encode": {
+        "update": {
+          "x": {"value": 20},
+          "y": {"value": 20},
+          "width": {"value": 160},
+          "height": {"value": 160},
+          "stroke": {"value": "gray"},
+          "strokeWidth": {"value": 2},
+          "cornerRadius": {"value": 50}
+        }
+      },
+      "marks": [
+        {
+          "type": "text",
+          "clip": true,
+          "encode": {
+            "update": {
+              "fill": {"value": "crimson"},
+              "text": {"value": "Hello"},
+
+              "fontSize": {"value": 30},
+              "x": {"value": -10},
+              "width": {"value": 50},
+              "y": {"value": 30},
+              "height": {"value": 50}
+            }
+          }
+        },
+        {
+          "type": "text",
+          "encode": {
+            "update": {
+              "fill": {"value": "crimson"},
+              "text": {"value": "Hello"},
+
+              "fontSize": {"value": 30},
+              "x": {"value": -10},
+              "y": {"value": 70}
+            }
+          }
+        },
+        {
+          "type": "text",
+          "clip": true,
+          "encode": {
+            "update": {
+              "fill": {"value": "crimson"},
+              "text": {"value": "Hello"},
+
+              "fontSize": {"value": 30},
+              "x": {"value": 100},
+              "y": {"value": 80}
+            }
+          }
+        },
+        {
+          "type": "text",
+          "clip": true,
+          "encode": {
+            "update": {
+              "fill": {"value": "crimson"},
+              "text": {"value": "Hello"},
+
+              "fontSize": {"value": 30},
+              "x": {"value": 80},
+              "width": {"value": 50},
+              "y": {"value": 15},
+              "height": {"value": 50}
+            }
+          }
+        },
+        {
+          "type": "text",
+          "clip": true,
+          "encode": {
+            "update": {
+              "fill": {"value": "crimson"},
+              "text": {"value": "Hello"},
+
+              "fontSize": {"value": 30},
+              "x": {"value": 90},
+              "width": {"value": 50},
+              "y": {"value": 160},
+              "height": {"value": 50}
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
