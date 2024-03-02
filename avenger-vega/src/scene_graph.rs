@@ -16,7 +16,7 @@ impl VegaSceneGraph {
     #[tracing::instrument(skip_all)]
     pub fn to_scene_graph(&self) -> Result<SceneGraph, AvengerVegaError> {
         Ok(SceneGraph {
-            groups: self.scenegraph.to_scene_graph()?,
+            groups: self.scenegraph.to_scene_graph(false)?,
             width: self.width,
             height: self.height,
             origin: self.origin,
