@@ -1,23 +1,56 @@
 use crate::marks::mark::SceneMark;
-use crate::marks::rect::RectMark;
+use crate::marks::path::{PathMark, PathTransform};
 use crate::marks::value::{ColorOrGradient, EncodingValue, Gradient};
+use lyon_path::geom::euclid::Point2D;
+use lyon_path::geom::Box2D;
+use lyon_path::Winding;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct GroupBounds {
-    pub x: f32,
-    pub y: f32,
-    pub width: Option<f32>,
-    pub height: Option<f32>,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Clip {
+    None,
+    Rect {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    },
+    Path(lyon_path::Path),
 }
 
-impl Default for GroupBounds {
+impl Default for Clip {
     fn default() -> Self {
-        Self {
-            x: 0.0,
-            y: 0.0,
-            width: None,
-            height: None,
+        Self::None
+    }
+}
+
+impl Clip {
+    pub fn maybe_clip(&self, should_clip: bool) -> Self {
+        if !should_clip {
+            Self::None
+        } else {
+            self.clone()
+        }
+    }
+
+    pub fn translate(&self, translate_x: f32, translate_y: f32) -> Self {
+        match self {
+            Clip::None => Clip::None,
+            Clip::Rect {
+                x,
+                y,
+                width,
+                height,
+            } => Clip::Rect {
+                x: *x + translate_x,
+                y: *y + translate_y,
+                width: *width,
+                height: *height,
+            },
+            Clip::Path(path) => Clip::Path(
+                path.clone()
+                    .transformed(&PathTransform::translation(translate_x, translate_y)),
+            ),
         }
     }
 }
@@ -25,19 +58,19 @@ impl Default for GroupBounds {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SceneGroup {
     pub name: String,
-    pub bounds: GroupBounds,
+    pub origin: [f32; 2],
+    pub clip: Clip,
     pub marks: Vec<SceneMark>,
     pub gradients: Vec<Gradient>,
     pub fill: Option<ColorOrGradient>,
     pub stroke: Option<ColorOrGradient>,
     pub stroke_width: Option<f32>,
     pub stroke_offset: Option<f32>,
-    pub corner_radius: Option<f32>,
     pub zindex: Option<i32>,
 }
 
 impl SceneGroup {
-    pub fn make_rect(&self) -> Option<RectMark> {
+    pub fn make_path_mark(&self) -> Option<PathMark> {
         if self.fill.is_none() && self.stroke.is_none() {
             return None;
         }
@@ -54,23 +87,36 @@ impl SceneGroup {
                 0.0
             }
         };
-        Some(RectMark {
-            name: format!("rect_{}", self.name),
+
+        // Convert clip region to path
+        let path = match &self.clip {
+            Clip::None => return None,
+            Clip::Rect {
+                x,
+                y,
+                width,
+                height,
+            } => {
+                let mut builder = lyon_path::Path::builder();
+                let x = self.origin[0] + *x + stroke_offset;
+                let y = self.origin[1] + *y + stroke_offset;
+                builder.add_rectangle(
+                    &Box2D::new(Point2D::new(x, y), Point2D::new(x + width, y + height)),
+                    Winding::Positive,
+                );
+                builder.build()
+            }
+            Clip::Path(path) => path
+                .clone()
+                .transformed(&PathTransform::translation(stroke_offset, stroke_offset)),
+        };
+
+        Some(PathMark {
+            name: format!("path_{}", self.name),
             clip: false,
             len: 1,
             gradients: self.gradients.clone(),
-            x: EncodingValue::Scalar {
-                value: self.bounds.x + stroke_offset,
-            },
-            y: EncodingValue::Scalar {
-                value: self.bounds.y + stroke_offset,
-            },
-            width: EncodingValue::Scalar {
-                value: self.bounds.width.unwrap_or(0.0),
-            },
-            height: EncodingValue::Scalar {
-                value: self.bounds.height.unwrap_or(0.0),
-            },
+            path: EncodingValue::Scalar { value: path },
             fill: EncodingValue::Scalar {
                 value: self
                     .fill
@@ -83,11 +129,11 @@ impl SceneGroup {
                     .clone()
                     .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             },
-            stroke_width: EncodingValue::Scalar {
-                value: stroke_width,
-            },
-            corner_radius: EncodingValue::Scalar {
-                value: self.corner_radius.unwrap_or(0.0),
+            stroke_width: Some(stroke_width),
+            stroke_cap: Default::default(),
+            stroke_join: Default::default(),
+            transform: EncodingValue::Scalar {
+                value: PathTransform::identity(),
             },
             indices: None,
             zindex: self.zindex,

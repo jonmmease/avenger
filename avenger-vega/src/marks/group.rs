@@ -1,9 +1,12 @@
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMark, VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::CssColorOrGradient;
-use avenger::marks::group::{GroupBounds, SceneGroup};
+use avenger::marks::group::{Clip, SceneGroup};
 use avenger::marks::mark::SceneMark;
 use avenger::marks::value::Gradient;
+use lyon_extra::euclid::{Box2D, Point2D};
+use lyon_path::builder::BorderRadii;
+use lyon_path::Winding;
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -93,22 +96,40 @@ impl VegaMarkContainer<VegaGroupItem> {
                 None
             };
 
+            let clip = if let (Some(width), Some(height)) = (group_item.width, group_item.height) {
+                if let Some(corner_radius) = group_item.corner_radius {
+                    // Rounded rectange path
+                    let mut builder = lyon_path::Path::builder();
+                    builder.add_rounded_rectangle(
+                        &Box2D::new(Point2D::new(0.0, 0.0), Point2D::new(width, height)),
+                        &BorderRadii::new(corner_radius),
+                        Winding::Positive,
+                    );
+                    Clip::Path(builder.build())
+                } else {
+                    // Rect
+                    Clip::Rect {
+                        x: 0.0, // x and y are zero to align with origin
+                        y: 0.0,
+                        width,
+                        height,
+                    }
+                }
+            } else {
+                Clip::None
+            };
+
             groups.push(SceneGroup {
                 name: self.name.clone().unwrap_or("group_mark".to_string()),
                 zindex: self.zindex,
-                bounds: GroupBounds {
-                    x: group_item.x.unwrap_or(0.0),
-                    y: group_item.y.unwrap_or(0.0),
-                    width: group_item.width,
-                    height: group_item.height,
-                },
+                origin: [group_item.x.unwrap_or(0.0), group_item.y.unwrap_or(0.0)],
+                clip,
                 marks,
                 gradients,
                 fill,
                 stroke,
                 stroke_width: group_item.stroke_width,
                 stroke_offset: group_item.stroke_offset,
-                corner_radius: group_item.corner_radius,
             })
         }
         Ok(groups)
