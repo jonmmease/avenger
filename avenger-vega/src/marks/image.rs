@@ -33,7 +33,7 @@ fn default_true() -> bool {
 impl VegaMarkItem for VegaImageItem {}
 
 impl VegaMarkContainer<VegaImageItem> {
-    pub fn to_scene_graph(&self) -> Result<SceneMark, AvengerVegaError> {
+    pub fn to_scene_graph(&self, force_clip: bool) -> Result<SceneMark, AvengerVegaError> {
         let name = self
             .name
             .clone()
@@ -96,7 +96,7 @@ impl VegaMarkContainer<VegaImageItem> {
 
         Ok(SceneMark::Image(Box::new(ImageMark {
             name,
-            clip: self.clip,
+            clip: self.clip || force_clip,
             len: self.items.len() as u32,
             aspect,
             smooth,

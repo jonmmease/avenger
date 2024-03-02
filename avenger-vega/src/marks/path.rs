@@ -33,7 +33,7 @@ pub struct VegaPathItem {
 impl VegaMarkItem for VegaPathItem {}
 
 impl VegaMarkContainer<VegaPathItem> {
-    pub fn to_scene_graph(&self) -> Result<SceneMark, AvengerVegaError> {
+    pub fn to_scene_graph(&self, force_clip: bool) -> Result<SceneMark, AvengerVegaError> {
         // Get shape of first item and use that for all items for now
         let first = self.items.first();
         let first_has_stroke = first.map(|item| item.stroke.is_some()).unwrap_or(false);
@@ -49,7 +49,7 @@ impl VegaMarkContainer<VegaPathItem> {
 
         // Init mark with scalar defaults
         let mut mark = PathMark {
-            clip: self.clip,
+            clip: self.clip || force_clip,
             zindex: self.zindex,
             stroke_cap: first_cap,
             stroke_join: first_join,

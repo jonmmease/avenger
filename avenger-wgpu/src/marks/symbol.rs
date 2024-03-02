@@ -1,7 +1,6 @@
 use crate::canvas::CanvasDimensions;
 use crate::error::AvengerWgpuError;
 use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
-use avenger::marks::group::GroupBounds;
 use avenger::marks::path::PathTransform;
 use avenger::marks::symbol::SymbolMark;
 use itertools::izip;
@@ -25,11 +24,11 @@ pub struct SymbolUniform {
 }
 
 impl SymbolUniform {
-    pub fn new(dimensions: CanvasDimensions, group_bounds: GroupBounds) -> Self {
+    pub fn new(dimensions: CanvasDimensions, origin: [f32; 2]) -> Self {
         Self {
             size: dimensions.size,
             scale: dimensions.scale,
-            origin: [group_bounds.x, group_bounds.y],
+            origin,
             _pad: [0.0, 0.0, 0.0, 0.0, 0.0],
         }
     }
@@ -133,7 +132,7 @@ impl SymbolShader {
     pub fn from_symbol_mark(
         mark: &SymbolMark,
         dimensions: CanvasDimensions,
-        group_bounds: GroupBounds,
+        origin: [f32; 2],
     ) -> Result<Self, AvengerWgpuError> {
         let shapes = &mark.shapes;
         let max_size = mark.max_size();
@@ -180,7 +179,7 @@ impl SymbolShader {
             verts,
             indices,
             instances,
-            uniform: SymbolUniform::new(dimensions, group_bounds),
+            uniform: SymbolUniform::new(dimensions, origin),
             batches,
             texture_size,
             shader: include_str!("symbol.wgsl").into(),

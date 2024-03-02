@@ -1,7 +1,7 @@
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::{CssColorOrGradient, StrokeDashSpec};
-use avenger::marks::group::{GroupBounds, SceneGroup};
+use avenger::marks::group::{Clip, SceneGroup};
 use avenger::marks::line::LineMark;
 use avenger::marks::mark::SceneMark;
 use avenger::marks::symbol::{SymbolMark, SymbolShape};
@@ -35,7 +35,7 @@ pub struct VegaSymbolItem {
 impl VegaMarkItem for VegaSymbolItem {}
 
 impl VegaMarkContainer<VegaSymbolItem> {
-    pub fn to_scene_graph(&self) -> Result<SceneMark, AvengerVegaError> {
+    pub fn to_scene_graph(&self, force_clip: bool) -> Result<SceneMark, AvengerVegaError> {
         // Get shape of first item and use that for all items for now
         let first = self.items.first();
         let first_shape = first
@@ -84,19 +84,14 @@ impl VegaMarkContainer<VegaSymbolItem> {
             }
             return Ok(SceneMark::Group(SceneGroup {
                 name: "symbol_line_legend".to_string(),
-                bounds: GroupBounds {
-                    x: 0.0,
-                    y: 0.0,
-                    width: None,
-                    height: None,
-                },
+                origin: [0.0, 0.0],
+                clip: Clip::None,
                 marks: line_marks,
                 gradients: vec![],
                 fill: None,
                 stroke: None,
                 stroke_width: None,
                 stroke_offset: None,
-                corner_radius: None,
                 zindex: None,
             }));
         }
@@ -113,7 +108,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
         // Init mark with scalar defaults
         let mut mark = SymbolMark {
             stroke_width,
-            clip: self.clip,
+            clip: self.clip || force_clip,
             zindex: self.zindex,
             ..Default::default()
         };

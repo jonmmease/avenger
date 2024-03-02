@@ -1,4 +1,4 @@
-use crate::canvas::ClipRect;
+use avenger::marks::group::Clip;
 use std::ops::Range;
 use wgpu::util::DeviceExt;
 use wgpu::{CommandBuffer, Device, Extent3d, ImageDataLayout, TextureFormat, TextureView};
@@ -49,7 +49,8 @@ pub struct InstancedMarkRenderer {
     pub texture: wgpu::Texture,
     pub texture_size: wgpu::Extent3d,
     pub texture_bind_group: wgpu::BindGroup,
-    pub clip_rect: Option<ClipRect>,
+    pub clip: Clip,
+    pub scale: f32,
 }
 
 impl InstancedMarkRenderer {
@@ -58,7 +59,8 @@ impl InstancedMarkRenderer {
         texture_format: TextureFormat,
         sample_count: u32,
         mark_shader: Box<dyn InstancedMarkShader<Instance = I, Vertex = V, Uniform = U>>,
-        clip_rect: Option<ClipRect>,
+        clip: Clip,
+        scale: f32,
     ) -> Self
     where
         I: bytemuck::Pod + bytemuck::Zeroable,
@@ -238,7 +240,8 @@ impl InstancedMarkRenderer {
             texture,
             texture_size: mark_shader.texture_size(),
             texture_bind_group,
-            clip_rect,
+            clip,
+            scale,
         }
     }
 
@@ -302,12 +305,18 @@ impl InstancedMarkRenderer {
                 render_pass
                     .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
-                if let Some(clip_rect) = self.clip_rect {
+                if let Clip::Rect {
+                    x,
+                    y,
+                    width,
+                    height,
+                } = self.clip
+                {
                     render_pass.set_scissor_rect(
-                        clip_rect.x,
-                        clip_rect.y,
-                        clip_rect.width,
-                        clip_rect.height,
+                        (x * self.scale) as u32,
+                        (y * self.scale) as u32,
+                        (width * self.scale) as u32,
+                        (height * self.scale) as u32,
                     );
                 }
 
