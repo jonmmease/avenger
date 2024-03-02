@@ -39,8 +39,8 @@ use wgpu::{
 use crate::marks::text::{TextAtlasBuilder, TextInstance};
 
 use avenger::marks::arc::ArcMark;
-use avenger::marks::text::TextMark;
 use avenger::marks::group::Clip;
+use avenger::marks::text::TextMark;
 
 #[cfg(feature = "rayon")]
 use {crate::par_izip, rayon::prelude::*};
@@ -89,6 +89,7 @@ impl MultiVertex {
 pub struct MultiMarkBatch {
     pub indices_range: Range<u32>,
     pub clip: Clip,
+    pub clip_indices_range: Option<Range<u32>>,
     pub image_atlas_index: Option<usize>,
     pub gradient_atlas_index: Option<usize>,
     pub text_atlas_index: Option<usize>,
@@ -96,6 +97,7 @@ pub struct MultiMarkBatch {
 
 pub struct MultiMarkRenderer {
     verts_inds: Vec<(Vec<MultiVertex>, Vec<u32>)>,
+    clip_verts_inds: Vec<(Vec<MultiVertex>, Vec<u32>)>,
     batches: Vec<MultiMarkBatch>,
     uniform: MultiUniform,
     gradient_atlas_builder: GradientAtlasBuilder,
@@ -118,6 +120,7 @@ impl MultiMarkRenderer {
 
         Self {
             verts_inds: vec![],
+            clip_verts_inds: vec![],
             batches: vec![],
             dimensions,
             uniform: MultiUniform {
@@ -128,6 +131,46 @@ impl MultiMarkRenderer {
             gradient_atlas_builder: GradientAtlasBuilder::new(),
             image_atlas_builder: ImageAtlasBuilder::new(),
             text_atlas_builder,
+        }
+    }
+
+    fn add_clip_path(
+        &mut self,
+        clip: &Clip,
+        should_clip: bool,
+    ) -> Result<Option<Range<u32>>, AvengerWgpuError> {
+        if !should_clip {
+            return Ok(None);
+        }
+
+        if let Clip::Path(path) = &clip {
+            // Tesselate path
+            let bbox = bounding_box(path);
+
+            // Create vertex/index buffer builder
+            let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
+            let mut builder = BuffersBuilder::new(
+                &mut buffers,
+                crate::marks::multi::VertexPositions {
+                    fill: [0.0, 0.0, 0.0, 1.0],
+                    stroke: [0.0, 0.0, 0.0, 0.0],
+                    top_left: bbox.min.to_array(),
+                    bottom_right: bbox.max.to_array(),
+                },
+            );
+
+            // Tesselate fill
+            let mut fill_tessellator = FillTessellator::new();
+            let fill_options = FillOptions::default().with_tolerance(0.05);
+            fill_tessellator.tessellate_path(path, &fill_options, &mut builder)?;
+
+            let start_index = self.num_clip_indices() as u32;
+            self.clip_verts_inds
+                .push((buffers.vertices, buffers.indices));
+            let end_index = self.num_clip_indices() as u32;
+            Ok(Some(start_index..end_index))
+        } else {
+            Ok(None)
         }
     }
 
@@ -283,6 +326,7 @@ impl MultiMarkRenderer {
         let batch = MultiMarkBatch {
             indices_range,
             clip: clip.maybe_clip(mark.clip),
+            clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             image_atlas_index: None,
             gradient_atlas_index,
             text_atlas_index: None,
@@ -473,6 +517,7 @@ impl MultiMarkRenderer {
         let batch = MultiMarkBatch {
             indices_range,
             clip: clip.maybe_clip(mark.clip),
+            clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             image_atlas_index: None,
             gradient_atlas_index,
             text_atlas_index: None,
@@ -574,6 +619,7 @@ impl MultiMarkRenderer {
         let batch = MultiMarkBatch {
             indices_range,
             clip: clip.maybe_clip(mark.clip),
+            clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             image_atlas_index: None,
             gradient_atlas_index,
             text_atlas_index: None,
@@ -703,6 +749,7 @@ impl MultiMarkRenderer {
         let batch = MultiMarkBatch {
             indices_range,
             clip: clip.maybe_clip(mark.clip),
+            clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             image_atlas_index: None,
             gradient_atlas_index,
             text_atlas_index: None,
@@ -848,6 +895,7 @@ impl MultiMarkRenderer {
         let batch = MultiMarkBatch {
             indices_range,
             clip: clip.maybe_clip(mark.clip),
+            clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             image_atlas_index: None,
             gradient_atlas_index,
             text_atlas_index: None,
@@ -972,6 +1020,7 @@ impl MultiMarkRenderer {
         let batch = MultiMarkBatch {
             indices_range,
             clip: clip.maybe_clip(mark.clip),
+            clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             image_atlas_index: None,
             gradient_atlas_index,
             text_atlas_index: None,
@@ -1057,6 +1106,7 @@ impl MultiMarkRenderer {
         let batch = MultiMarkBatch {
             indices_range,
             clip: clip.maybe_clip(mark.clip),
+            clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             image_atlas_index: None,
             gradient_atlas_index,
             text_atlas_index: None,
@@ -1200,6 +1250,7 @@ impl MultiMarkRenderer {
         let batch = MultiMarkBatch {
             indices_range,
             clip: clip.maybe_clip(mark.clip),
+            clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             image_atlas_index: None,
             gradient_atlas_index,
             text_atlas_index: None,
@@ -1313,6 +1364,7 @@ impl MultiMarkRenderer {
         let mut next_batch = MultiMarkBatch {
             indices_range: start_ind..start_ind,
             clip: clip.maybe_clip(mark.clip),
+            clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             image_atlas_index: None,
             gradient_atlas_index: None,
             text_atlas_index: None,
@@ -1331,6 +1383,7 @@ impl MultiMarkRenderer {
                 let mut full_batch = MultiMarkBatch {
                     indices_range: start_ind..(start_ind + inds.len() as u32),
                     clip: clip.maybe_clip(mark.clip),
+                    clip_indices_range: self.add_clip_path(clip, mark.clip)?,
                     image_atlas_index: Some(atlas_index),
                     gradient_atlas_index: None,
                     text_atlas_index: None,
@@ -1410,6 +1463,7 @@ impl MultiMarkRenderer {
         let mut next_batch = MultiMarkBatch {
             indices_range: start_ind..start_ind,
             clip: clip.maybe_clip(mark.clip),
+            clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             image_atlas_index: None,
             gradient_atlas_index: None,
             text_atlas_index: None,
@@ -1433,6 +1487,7 @@ impl MultiMarkRenderer {
                 let mut full_batch = MultiMarkBatch {
                     indices_range: start_ind..(start_ind + inds.len() as u32),
                     clip: clip.maybe_clip(mark.clip),
+                    clip_indices_range: self.add_clip_path(clip, mark.clip)?,
                     image_atlas_index: None,
                     gradient_atlas_index: None,
                     text_atlas_index: Some(atlas_index),
@@ -1451,6 +1506,13 @@ impl MultiMarkRenderer {
 
     fn num_indices(&self) -> usize {
         self.verts_inds.iter().map(|(_, inds)| inds.len()).sum()
+    }
+
+    fn num_clip_indices(&self) -> usize {
+        self.clip_verts_inds
+            .iter()
+            .map(|(_, inds)| inds.len())
+            .sum()
     }
 
     #[tracing::instrument(skip_all)]
@@ -1570,13 +1632,85 @@ impl MultiMarkRenderer {
                 unclipped_depth: false,
                 conservative: false,
             },
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Stencil8,
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::Always,
+                stencil: wgpu::StencilState {
+                    front: wgpu::StencilFaceState {
+                        // Draw pixel if stencil reference value is less than or equal to stencil value
+                        compare: wgpu::CompareFunction::LessEqual,
+                        ..Default::default()
+                    },
+                    back: wgpu::StencilFaceState::IGNORE,
+                    read_mask: !0,
+                    write_mask: !0,
+                },
+                bias: Default::default(),
+            }),
             multisample: wgpu::MultisampleState {
                 count: sample_count,
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
             multiview: None,
+        });
+
+        let stencil_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: None,
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_main",
+                buffers: &[MultiVertex::desc()],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_main",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: texture_format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::empty(),
+                })],
+            }),
+            primitive: Default::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Stencil8,
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::Always,
+                stencil: wgpu::StencilState {
+                    front: wgpu::StencilFaceState {
+                        compare: wgpu::CompareFunction::Always,
+                        pass_op: wgpu::StencilOperation::Replace,
+                        ..Default::default()
+                    },
+                    back: wgpu::StencilFaceState::IGNORE,
+                    read_mask: !0,
+                    write_mask: !0,
+                },
+                bias: Default::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: sample_count,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+        });
+
+        let stencil_buffer = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Stencil buffer"),
+            size: Extent3d {
+                width: self.dimensions.to_physical_width(),
+                height: self.dimensions.to_physical_height(),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Stencil8,
+            view_formats: &[],
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         });
 
         // flatten verts and inds
@@ -1589,6 +1723,21 @@ impl MultiMarkRenderer {
             let offset = verticies.len() as u32;
             indices.extend(inds.iter().map(|i| *i + offset));
             verticies.extend(vs);
+        }
+
+        let num_clip_verts = self.clip_verts_inds.iter().map(|(v, _)| v.len()).sum();
+        let num_clip_inds = self
+            .clip_verts_inds
+            .iter()
+            .map(|(_, inds)| inds.len())
+            .sum();
+        let mut clip_verticies: Vec<MultiVertex> = Vec::with_capacity(num_clip_verts);
+        let mut clip_indices: Vec<u32> = Vec::with_capacity(num_clip_inds);
+
+        for (vs, inds) in &self.clip_verts_inds {
+            let offset = clip_verticies.len() as u32;
+            clip_indices.extend(inds.iter().map(|i| *i + offset));
+            clip_verticies.extend(vs);
         }
 
         // Create vertex and index buffers
@@ -1604,6 +1753,18 @@ impl MultiMarkRenderer {
             usage: wgpu::BufferUsages::INDEX,
         });
 
+        let clip_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Clip Vertex Buffer"),
+            contents: bytemuck::cast_slice(clip_verticies.as_slice()),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let clip_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Clip Index Buffer"),
+            contents: bytemuck::cast_slice(clip_indices.as_slice()),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
         // Create command encoder for marks
         let mut mark_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Multi Mark Render Encoder"),
@@ -1611,6 +1772,7 @@ impl MultiMarkRenderer {
 
         // Render batches
         {
+            let depth_view = stencil_buffer.create_view(&Default::default());
             let mut render_pass = mark_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Multi Mark Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1621,7 +1783,14 @@ impl MultiMarkRenderer {
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &depth_view,
+                    depth_ops: None,
+                    stencil_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                }),
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
@@ -1631,6 +1800,7 @@ impl MultiMarkRenderer {
             let mut last_grad_ind = 0;
             let mut last_img_ind = 0;
             let mut last_text_ind = 0;
+            let mut stencil_index: u32 = 1;
             render_pass.set_bind_group(1, &gradient_texture_bind_groups[last_grad_ind], &[]);
             render_pass.set_bind_group(2, &image_texture_bind_groups[last_img_ind], &[]);
             render_pass.set_bind_group(3, &text_texture_bind_groups[last_img_ind], &[]);
@@ -1639,7 +1809,27 @@ impl MultiMarkRenderer {
 
             // Initialze textures with first entry
             for batch in &self.batches {
-                // Update clip
+                if let Some(clip_inds_range) = &batch.clip_indices_range {
+                    render_pass.set_stencil_reference(stencil_index);
+                    render_pass.set_pipeline(&stencil_pipeline);
+                    render_pass.set_vertex_buffer(0, clip_vertex_buffer.slice(..));
+                    render_pass
+                        .set_index_buffer(clip_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    render_pass.draw_indexed(clip_inds_range.clone(), 0, 0..1);
+
+                    // Restore buffers
+                    render_pass.set_pipeline(&render_pipeline);
+                    render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+
+                    // increment stencil index for next draw
+                    stencil_index += 1;
+                } else {
+                    // Set stencil reference back to zero so that everything is drawn
+                    render_pass.set_stencil_reference(0);
+                }
+
+                // Update scissors
                 if let Clip::Rect {
                     x,
                     y,
@@ -1647,6 +1837,7 @@ impl MultiMarkRenderer {
                     height,
                 } = batch.clip
                 {
+                    // Set scissors rect
                     render_pass.set_scissor_rect(
                         (x * self.uniform.scale) as u32,
                         (y * self.uniform.scale) as u32,
@@ -1654,6 +1845,7 @@ impl MultiMarkRenderer {
                         (height * self.uniform.scale) as u32,
                     );
                 } else {
+                    // Clear scissors rect
                     render_pass.set_scissor_rect(
                         0,
                         0,
