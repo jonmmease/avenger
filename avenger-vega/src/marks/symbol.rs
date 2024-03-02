@@ -35,7 +35,7 @@ pub struct VegaSymbolItem {
 impl VegaMarkItem for VegaSymbolItem {}
 
 impl VegaMarkContainer<VegaSymbolItem> {
-    pub fn to_scene_graph(&self) -> Result<SceneMark, AvengerVegaError> {
+    pub fn to_scene_graph(&self, force_clip: bool) -> Result<SceneMark, AvengerVegaError> {
         // Get shape of first item and use that for all items for now
         let first = self.items.first();
         let first_shape = first
@@ -108,7 +108,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
         // Init mark with scalar defaults
         let mut mark = SymbolMark {
             stroke_width,
-            clip: self.clip,
+            clip: self.clip || force_clip,
             zindex: self.zindex,
             ..Default::default()
         };
