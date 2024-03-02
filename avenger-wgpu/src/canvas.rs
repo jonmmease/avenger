@@ -17,7 +17,7 @@ use crate::marks::multi::MultiMarkRenderer;
 use crate::marks::symbol::SymbolShader;
 use avenger::marks::arc::ArcMark;
 use avenger::marks::area::AreaMark;
-use avenger::marks::group::GroupBounds;
+use avenger::marks::group::Clip;
 use avenger::marks::image::ImageMark;
 use avenger::marks::line::LineMark;
 use avenger::marks::path::PathMark;
@@ -30,29 +30,6 @@ use avenger::{
 pub enum MarkRenderer {
     Instanced(InstancedMarkRenderer),
     Multi(Box<MultiMarkRenderer>),
-}
-
-#[derive(Clone, Copy)]
-pub struct ClipRect {
-    pub x: u32,
-    pub y: u32,
-    pub width: u32,
-    pub height: u32,
-}
-
-impl ClipRect {
-    pub fn maybe_from_group_bounds(scale: f32, bounds: GroupBounds, clip: bool) -> Option<Self> {
-        if let (true, Some(width), Some(height)) = (clip, bounds.width, bounds.height) {
-            Some(Self {
-                x: (bounds.x * scale) as u32,
-                y: (bounds.y * scale) as u32,
-                width: (width * scale) as u32,
-                height: (height * scale) as u32,
-            })
-        } else {
-            None
-        }
-    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -94,58 +71,68 @@ pub trait Canvas {
     fn add_arc_mark(
         &mut self,
         mark: &ArcMark,
-        group_bounds: GroupBounds,
+        origin: [f32; 2],
+        group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
-        self.get_multi_renderer().add_arc_mark(mark, group_bounds)?;
+        self.get_multi_renderer()
+            .add_arc_mark(mark, origin, group_clip)?;
         Ok(())
     }
 
     fn add_path_mark(
         &mut self,
         mark: &PathMark,
-        group_bounds: GroupBounds,
+        origin: [f32; 2],
+        group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
         self.get_multi_renderer()
-            .add_path_mark(mark, group_bounds)?;
+            .add_path_mark(mark, origin, group_clip)?;
         Ok(())
     }
 
     fn add_line_mark(
         &mut self,
         mark: &LineMark,
-        group_bounds: GroupBounds,
+        origin: [f32; 2],
+        group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
         self.get_multi_renderer()
-            .add_line_mark(mark, group_bounds)?;
+            .add_line_mark(mark, origin, group_clip)?;
         Ok(())
     }
 
     fn add_trail_mark(
         &mut self,
         mark: &TrailMark,
-        group_bounds: GroupBounds,
+        origin: [f32; 2],
+        group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
         self.get_multi_renderer()
-            .add_trail_mark(mark, group_bounds)?;
+            .add_trail_mark(mark, origin, group_clip)?;
         Ok(())
     }
 
     fn add_area_mark(
         &mut self,
         mark: &AreaMark,
-        group_bounds: GroupBounds,
+        origin: [f32; 2],
+        group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
         self.get_multi_renderer()
-            .add_area_mark(mark, group_bounds)?;
+            .add_area_mark(mark, origin, group_clip)?;
         Ok(())
     }
 
     fn add_symbol_mark(
         &mut self,
         mark: &SymbolMark,
-        group_bounds: GroupBounds,
+        origin: [f32; 2],
+        group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
-        if mark.len >= 10000 && mark.gradients.is_empty() {
+        if mark.len >= 10000
+            && mark.gradients.is_empty()
+            && matches!(group_clip, Clip::None | Clip::Rect { .. })
+        {
             self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
                 self.device(),
                 self.texture_format(),
@@ -153,13 +140,14 @@ pub trait Canvas {
                 Box::new(SymbolShader::from_symbol_mark(
                     mark,
                     self.dimensions(),
-                    group_bounds,
+                    origin,
                 )?),
-                ClipRect::maybe_from_group_bounds(self.dimensions().scale, group_bounds, mark.clip),
+                group_clip.maybe_clip(mark.clip),
+                self.dimensions().scale,
             )));
         } else {
             self.get_multi_renderer()
-                .add_symbol_mark(mark, group_bounds)?;
+                .add_symbol_mark(mark, origin, group_clip)?;
         }
 
         Ok(())
@@ -168,31 +156,34 @@ pub trait Canvas {
     fn add_rect_mark(
         &mut self,
         mark: &RectMark,
-        group_bounds: GroupBounds,
+        origin: [f32; 2],
+        group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
         self.get_multi_renderer()
-            .add_rect_mark(mark, group_bounds)?;
+            .add_rect_mark(mark, origin, group_clip)?;
         Ok(())
     }
 
     fn add_rule_mark(
         &mut self,
         mark: &RuleMark,
-        group_bounds: GroupBounds,
+        origin: [f32; 2],
+        group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
         self.get_multi_renderer()
-            .add_rule_mark(mark, group_bounds)?;
+            .add_rule_mark(mark, origin, group_clip)?;
         Ok(())
     }
 
     fn add_text_mark(
         &mut self,
         mark: &TextMark,
-        group_bounds: GroupBounds,
+        origin: [f32; 2],
+        group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
         cfg_if::cfg_if! {
             if #[cfg(feature = "cosmic-text")] {
-                self.get_multi_renderer().add_text_mark(mark, group_bounds)?;
+                self.get_multi_renderer().add_text_mark(mark, origin, group_clip)?;
                 Ok(())
             } else {
                 Err(AvengerWgpuError::TextNotEnabled("Use the cosmic-text feature flag to enable text".to_string()))
@@ -203,21 +194,22 @@ pub trait Canvas {
     fn add_image_mark(
         &mut self,
         mark: &ImageMark,
-        group_bounds: GroupBounds,
+        origin: [f32; 2],
+        group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
         self.get_multi_renderer()
-            .add_image_mark(mark, group_bounds)?;
+            .add_image_mark(mark, origin, group_clip)?;
         Ok(())
     }
 
     fn add_group_mark(
         &mut self,
         group: &SceneGroup,
-        group_bounds: GroupBounds,
+        parent_origin: [f32; 2],
     ) -> Result<(), AvengerWgpuError> {
         // Maybe add rect around group boundary
-        if let Some(rect) = group.make_rect() {
-            self.add_rect_mark(&rect, group_bounds)?;
+        if let Some(rect) = group.make_path_mark() {
+            self.add_path_mark(&rect, parent_origin, &group.clip)?;
         }
 
         // Add groups in order of zindex
@@ -225,47 +217,50 @@ pub trait Canvas {
         let mut indices: Vec<usize> = (0..zindex.len()).collect();
         indices.sort_by_key(|i| zindex[*i].unwrap_or(0));
 
-        // Compute new group bounds
-        let group_bounds = GroupBounds {
-            x: group_bounds.x + group.bounds.x,
-            y: group_bounds.y + group.bounds.y,
-            ..group.bounds
-        };
+        // Compute new origin
+        let origin = [
+            parent_origin[0] + group.origin[0],
+            parent_origin[1] + group.origin[1],
+        ];
+
+        // Compute new clip
+        let clip = group.clip.translate(origin[0], origin[1]);
+
         for mark_ind in indices {
             let mark = &group.marks[mark_ind];
             match mark {
                 SceneMark::Arc(mark) => {
-                    self.add_arc_mark(mark, group_bounds)?;
+                    self.add_arc_mark(mark, origin, &clip)?;
                 }
                 SceneMark::Symbol(mark) => {
-                    self.add_symbol_mark(mark, group_bounds)?;
+                    self.add_symbol_mark(mark, origin, &clip)?;
                 }
                 SceneMark::Rect(mark) => {
-                    self.add_rect_mark(mark, group_bounds)?;
+                    self.add_rect_mark(mark, origin, &clip)?;
                 }
                 SceneMark::Rule(mark) => {
-                    self.add_rule_mark(mark, group_bounds)?;
+                    self.add_rule_mark(mark, origin, &clip)?;
                 }
                 SceneMark::Path(mark) => {
-                    self.add_path_mark(mark, group_bounds)?;
+                    self.add_path_mark(mark, origin, &clip)?;
                 }
                 SceneMark::Line(mark) => {
-                    self.add_line_mark(mark, group_bounds)?;
+                    self.add_line_mark(mark, origin, &clip)?;
                 }
                 SceneMark::Trail(mark) => {
-                    self.add_trail_mark(mark, group_bounds)?;
+                    self.add_trail_mark(mark, origin, &clip)?;
                 }
                 SceneMark::Area(mark) => {
-                    self.add_area_mark(mark, group_bounds)?;
+                    self.add_area_mark(mark, origin, &clip)?;
                 }
                 SceneMark::Text(mark) => {
-                    self.add_text_mark(mark, group_bounds)?;
+                    self.add_text_mark(mark, origin, &clip)?;
                 }
                 SceneMark::Image(mark) => {
-                    self.add_image_mark(mark, group_bounds)?;
+                    self.add_image_mark(mark, origin, &clip)?;
                 }
                 SceneMark::Group(group) => {
-                    self.add_group_mark(group, group_bounds)?;
+                    self.add_group_mark(group, origin)?;
                 }
             }
         }
@@ -276,14 +271,6 @@ pub trait Canvas {
     fn set_scene(&mut self, scene_graph: &SceneGraph) -> Result<(), AvengerWgpuError> {
         // Clear existing marks
         self.clear_mark_renderer();
-
-        // Add marks
-        let group_bounds = GroupBounds {
-            x: scene_graph.origin[0],
-            y: scene_graph.origin[1],
-            width: None,
-            height: None,
-        };
 
         // Sort groups by zindex
         let zindex = scene_graph
@@ -296,7 +283,7 @@ pub trait Canvas {
 
         for group_ind in &indices {
             let group = &scene_graph.groups[*group_ind];
-            self.add_group_mark(group, group_bounds)?;
+            self.add_group_mark(group, scene_graph.origin)?;
         }
 
         Ok(())

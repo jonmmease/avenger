@@ -1,10 +1,9 @@
-use crate::canvas::{CanvasDimensions, ClipRect};
+use crate::canvas::CanvasDimensions;
 use crate::error::AvengerWgpuError;
 
 use crate::marks::gradient::{to_color_or_gradient_coord, GradientAtlasBuilder};
 use crate::marks::image::ImageAtlasBuilder;
 use avenger::marks::area::{AreaMark, AreaOrientation};
-use avenger::marks::group::GroupBounds;
 use avenger::marks::image::ImageMark;
 use avenger::marks::line::LineMark;
 use avenger::marks::path::{PathMark, PathTransform};
@@ -41,6 +40,7 @@ use crate::marks::text::{TextAtlasBuilder, TextInstance};
 
 use avenger::marks::arc::ArcMark;
 use avenger::marks::text::TextMark;
+use avenger::marks::group::Clip;
 
 #[cfg(feature = "rayon")]
 use {crate::par_izip, rayon::prelude::*};
@@ -88,7 +88,7 @@ impl MultiVertex {
 #[derive(Clone)]
 pub struct MultiMarkBatch {
     pub indices_range: Range<u32>,
-    pub clip: Option<ClipRect>,
+    pub clip: Clip,
     pub image_atlas_index: Option<usize>,
     pub gradient_atlas_index: Option<usize>,
     pub text_atlas_index: Option<usize>,
@@ -135,7 +135,8 @@ impl MultiMarkRenderer {
     pub fn add_rule_mark(
         &mut self,
         mark: &RuleMark,
-        bounds: GroupBounds,
+        origin: [f32; 2],
+        clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
         let (gradient_atlas_index, grad_coords) = self
             .gradient_atlas_builder
@@ -187,8 +188,8 @@ impl MultiMarkRenderer {
                         let dash_x1 = x0 + xhat * end_dash_dist;
                         let dash_y1 = y0 + yhat * end_dash_dist;
 
-                        path_builder.move_to(Point::new(dash_x0 + bounds.x, dash_y0 + bounds.y));
-                        path_builder.line_to(Point::new(dash_x1 + bounds.x, dash_y1 + bounds.y));
+                        path_builder.move_to(Point::new(dash_x0 + origin[0], dash_y0 + origin[1]));
+                        path_builder.line_to(Point::new(dash_x1 + origin[0], dash_y1 + origin[1]));
                     }
 
                     // update start dist for next dash/gap
@@ -241,8 +242,8 @@ impl MultiMarkRenderer {
                 mark.stroke_cap_iter(),
             ).map(|(x0, y0, x1, y1, stroke, stroke_width, cap)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
                 let mut path_builder = lyon::path::Path::builder().with_svg();
-                path_builder.move_to(Point::new(*x0 + bounds.x, *y0 + bounds.y));
-                path_builder.line_to(Point::new(*x1 + bounds.x, *y1 + bounds.y));
+                path_builder.move_to(Point::new(*x0 + origin[0], *y0 + origin[1]));
+                path_builder.line_to(Point::new(*x1 + origin[0], *y1 + origin[1]));
                 let path = path_builder.build();
                 let bbox = bounding_box(&path);
 
@@ -281,7 +282,7 @@ impl MultiMarkRenderer {
 
         let batch = MultiMarkBatch {
             indices_range,
-            clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
+            clip: clip.maybe_clip(mark.clip),
             image_atlas_index: None,
             gradient_atlas_index,
             text_atlas_index: None,
@@ -296,7 +297,8 @@ impl MultiMarkRenderer {
     pub fn add_rect_mark(
         &mut self,
         mark: &RectMark,
-        bounds: GroupBounds,
+        origin: [f32; 2],
+        clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
         let (gradient_atlas_index, grad_coords) = self
             .gradient_atlas_builder
@@ -320,8 +322,8 @@ impl MultiMarkRenderer {
                 mark.height_iter(),
                 mark.fill_iter()
             ) {
-                let x0 = *x + bounds.x;
-                let y0 = *y + bounds.y;
+                let x0 = *x + origin[0];
+                let y0 = *y + origin[1];
                 let x1 = x0 + width;
                 let y1 = y0 + height;
                 let top_left = [x0, y0];
@@ -377,8 +379,8 @@ impl MultiMarkRenderer {
                  -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
                     // Create rect path
                     let mut path_builder = lyon::path::Path::builder();
-                    let x0 = *x + bounds.x;
-                    let y0 = *y + bounds.y;
+                    let x0 = *x + origin[0];
+                    let y0 = *y + origin[1];
                     let x1 = x0 + width;
                     let y1 = y0 + height;
                     if *corner_radius > 0.0 {
@@ -470,7 +472,7 @@ impl MultiMarkRenderer {
 
         let batch = MultiMarkBatch {
             indices_range,
-            clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
+            clip: clip.maybe_clip(mark.clip),
             image_atlas_index: None,
             gradient_atlas_index,
             text_atlas_index: None,
@@ -485,7 +487,8 @@ impl MultiMarkRenderer {
     pub fn add_path_mark(
         &mut self,
         mark: &PathMark,
-        bounds: GroupBounds,
+        origin: [f32; 2],
+        clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
         let (gradient_atlas_index, grad_coords) = self
             .gradient_atlas_builder
@@ -499,7 +502,7 @@ impl MultiMarkRenderer {
             // Apply transform to path
             let path = path
                 .clone()
-                .transformed(&transform.then_translate(Vector2D::new(bounds.x, bounds.y)));
+                .transformed(&transform.then_translate(Vector2D::new(origin[0], origin[1])));
             let bbox = bounding_box(&path);
 
             // Create vertex/index buffer builder
@@ -570,7 +573,7 @@ impl MultiMarkRenderer {
 
         let batch = MultiMarkBatch {
             indices_range,
-            clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
+            clip: clip.maybe_clip(mark.clip),
             image_atlas_index: None,
             gradient_atlas_index,
             text_atlas_index: None,
@@ -585,7 +588,8 @@ impl MultiMarkRenderer {
     pub fn add_symbol_mark(
         &mut self,
         mark: &SymbolMark,
-        bounds: GroupBounds,
+        origin: [f32; 2],
+        clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
         let paths = mark.shapes.iter().map(|s| s.as_path()).collect::<Vec<_>>();
 
@@ -652,8 +656,8 @@ impl MultiMarkRenderer {
                 .map(|sv| {
                     sv.as_multi_vertex(
                         *size,
-                        *x + bounds.x,
-                        *y + bounds.y,
+                        *x + origin[0],
+                        *y + origin[1],
                         *angle,
                         fill,
                         stroke,
@@ -698,7 +702,7 @@ impl MultiMarkRenderer {
 
         let batch = MultiMarkBatch {
             indices_range,
-            clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
+            clip: clip.maybe_clip(mark.clip),
             image_atlas_index: None,
             gradient_atlas_index,
             text_atlas_index: None,
@@ -713,7 +717,8 @@ impl MultiMarkRenderer {
     pub fn add_line_mark(
         &mut self,
         mark: &LineMark,
-        bounds: GroupBounds,
+        origin: [f32; 2],
+        clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
         let (gradient_atlas_index, grad_coords) = self
             .gradient_atlas_builder
@@ -728,10 +733,10 @@ impl MultiMarkRenderer {
             if *defined {
                 if path_len > 0 {
                     // Continue path
-                    path_builder.line_to(lyon::geom::point(*x + bounds.x, *y + bounds.y));
+                    path_builder.line_to(lyon::geom::point(*x + origin[0], *y + origin[1]));
                 } else {
                     // New path
-                    path_builder.move_to(lyon::geom::point(*x + bounds.x, *y + bounds.y));
+                    path_builder.move_to(lyon::geom::point(*x + origin[0], *y + origin[1]));
                 }
                 path_len += 1;
             } else {
@@ -842,7 +847,7 @@ impl MultiMarkRenderer {
 
         let batch = MultiMarkBatch {
             indices_range,
-            clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
+            clip: clip.maybe_clip(mark.clip),
             image_atlas_index: None,
             gradient_atlas_index,
             text_atlas_index: None,
@@ -857,7 +862,8 @@ impl MultiMarkRenderer {
     pub fn add_area_mark(
         &mut self,
         mark: &AreaMark,
-        bounds: GroupBounds,
+        origin: [f32; 2],
+        clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
         let (gradient_atlas_index, grad_coords) = self
             .gradient_atlas_builder
@@ -888,12 +894,12 @@ impl MultiMarkRenderer {
                 if *defined {
                     if !tail.is_empty() {
                         // Continue path
-                        path_builder.line_to(lyon::geom::point(*x + bounds.x, *y + bounds.y));
+                        path_builder.line_to(lyon::geom::point(*x + origin[0], *y + origin[1]));
                     } else {
                         // New path
-                        path_builder.move_to(lyon::geom::point(*x + bounds.x, *y + bounds.y));
+                        path_builder.move_to(lyon::geom::point(*x + origin[0], *y + origin[1]));
                     }
-                    tail.push((*x + bounds.x, *y2 + bounds.y));
+                    tail.push((*x + origin[0], *y2 + origin[1]));
                 } else {
                     close_area(&mut path_builder, &mut tail);
                 }
@@ -908,12 +914,12 @@ impl MultiMarkRenderer {
                 if *defined {
                     if !tail.is_empty() {
                         // Continue path
-                        path_builder.line_to(lyon::geom::point(*x + bounds.x, *y + bounds.y));
+                        path_builder.line_to(lyon::geom::point(*x + origin[0], *y + origin[1]));
                     } else {
                         // New path
-                        path_builder.move_to(lyon::geom::point(*x + bounds.x, *y + bounds.y));
+                        path_builder.move_to(lyon::geom::point(*x + origin[0], *y + origin[1]));
                     }
-                    tail.push((*x2 + bounds.x, *y + bounds.y));
+                    tail.push((*x2 + origin[0], *y + origin[1]));
                 } else {
                     close_area(&mut path_builder, &mut tail);
                 }
@@ -965,7 +971,7 @@ impl MultiMarkRenderer {
 
         let batch = MultiMarkBatch {
             indices_range,
-            clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
+            clip: clip.maybe_clip(mark.clip),
             image_atlas_index: None,
             gradient_atlas_index,
             text_atlas_index: None,
@@ -980,7 +986,8 @@ impl MultiMarkRenderer {
     pub fn add_trail_mark(
         &mut self,
         mark: &TrailMark,
-        bounds: GroupBounds,
+        origin: [f32; 2],
+        clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
         let (gradient_atlas_index, grad_coords) = self
             .gradient_atlas_builder
@@ -998,10 +1005,11 @@ impl MultiMarkRenderer {
             if *defined {
                 if path_len > 0 {
                     // Continue path
-                    path_builder.line_to(lyon::geom::point(*x + bounds.x, *y + bounds.y), &[*size]);
+                    path_builder
+                        .line_to(lyon::geom::point(*x + origin[0], *y + origin[1]), &[*size]);
                 } else {
                     // New path
-                    path_builder.begin(lyon::geom::point(*x + bounds.x, *y + bounds.y), &[*size]);
+                    path_builder.begin(lyon::geom::point(*x + origin[0], *y + origin[1]), &[*size]);
                 }
                 path_len += 1;
             } else {
@@ -1048,7 +1056,7 @@ impl MultiMarkRenderer {
 
         let batch = MultiMarkBatch {
             indices_range,
-            clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
+            clip: clip.maybe_clip(mark.clip),
             image_atlas_index: None,
             gradient_atlas_index,
             text_atlas_index: None,
@@ -1063,7 +1071,8 @@ impl MultiMarkRenderer {
     pub fn add_arc_mark(
         &mut self,
         mark: &ArcMark,
-        bounds: GroupBounds,
+        origin: [f32; 2],
+        clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
         let (gradient_atlas_index, grad_coords) = self
             .gradient_atlas_builder
@@ -1145,7 +1154,7 @@ impl MultiMarkRenderer {
                 // Transform path to account for start angle and position
                 let path = path.transformed(
                     &PathTransform::rotation(lyon::geom::Angle::radians(*start_angle))
-                        .then_translate(Vector2D::new(*x + bounds.x, *y + bounds.y)),
+                        .then_translate(Vector2D::new(*x + origin[0], *y + origin[1])),
                 );
 
                 // Compute bounding box
@@ -1190,7 +1199,7 @@ impl MultiMarkRenderer {
 
         let batch = MultiMarkBatch {
             indices_range,
-            clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
+            clip: clip.maybe_clip(mark.clip),
             image_atlas_index: None,
             gradient_atlas_index,
             text_atlas_index: None,
@@ -1205,7 +1214,8 @@ impl MultiMarkRenderer {
     pub fn add_image_mark(
         &mut self,
         mark: &ImageMark,
-        bounds: GroupBounds,
+        origin: [f32; 2],
+        clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
         let verts_inds = izip!(
             mark.image_iter(),
@@ -1216,8 +1226,8 @@ impl MultiMarkRenderer {
             mark.baseline_iter(),
             mark.align_iter(),
         ).map(|(img, x, y, width, height, baseline, align)| -> Result<(usize, Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-            let x = *x + bounds.x;
-            let y = *y + bounds.y;
+            let x = *x + origin[0];
+            let y = *y + origin[1];
 
             let Some(rgba_image) = img.to_image() else {
                 return Err(AvengerWgpuError::ConversionError("Failed to convert raw image to rgba image".to_string()))
@@ -1302,7 +1312,7 @@ impl MultiMarkRenderer {
         let start_ind = self.num_indices() as u32;
         let mut next_batch = MultiMarkBatch {
             indices_range: start_ind..start_ind,
-            clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
+            clip: clip.maybe_clip(mark.clip),
             image_atlas_index: None,
             gradient_atlas_index: None,
             text_atlas_index: None,
@@ -1320,7 +1330,7 @@ impl MultiMarkRenderer {
                 // Initialize new next_batch and swap to avoid extra mem copy
                 let mut full_batch = MultiMarkBatch {
                     indices_range: start_ind..(start_ind + inds.len() as u32),
-                    clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
+                    clip: clip.maybe_clip(mark.clip),
                     image_atlas_index: Some(atlas_index),
                     gradient_atlas_index: None,
                     text_atlas_index: None,
@@ -1341,7 +1351,8 @@ impl MultiMarkRenderer {
     pub fn add_text_mark(
         &mut self,
         mark: &TextMark,
-        bounds: GroupBounds,
+        origin: [f32; 2],
+        clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
         let registrations = izip!(
             mark.text_iter(),
@@ -1374,7 +1385,7 @@ impl MultiMarkRenderer {
             )| {
                 let instance = TextInstance {
                     text,
-                    position: [*x + bounds.x, *y + bounds.y],
+                    position: [*x + origin[0], *y + origin[1]],
                     color,
                     align,
                     angle: *angle,
@@ -1398,7 +1409,7 @@ impl MultiMarkRenderer {
         let start_ind = self.num_indices() as u32;
         let mut next_batch = MultiMarkBatch {
             indices_range: start_ind..start_ind,
-            clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
+            clip: clip.maybe_clip(mark.clip),
             image_atlas_index: None,
             gradient_atlas_index: None,
             text_atlas_index: None,
@@ -1421,7 +1432,7 @@ impl MultiMarkRenderer {
                 // Initialize new next_batch and swap to avoid extra mem copy
                 let mut full_batch = MultiMarkBatch {
                     indices_range: start_ind..(start_ind + inds.len() as u32),
-                    clip: ClipRect::maybe_from_group_bounds(self.uniform.scale, bounds, mark.clip),
+                    clip: clip.maybe_clip(mark.clip),
                     image_atlas_index: None,
                     gradient_atlas_index: None,
                     text_atlas_index: Some(atlas_index),
@@ -1629,8 +1640,19 @@ impl MultiMarkRenderer {
             // Initialze textures with first entry
             for batch in &self.batches {
                 // Update clip
-                if let Some(clip) = batch.clip {
-                    render_pass.set_scissor_rect(clip.x, clip.y, clip.width, clip.height);
+                if let Clip::Rect {
+                    x,
+                    y,
+                    width,
+                    height,
+                } = batch.clip
+                {
+                    render_pass.set_scissor_rect(
+                        (x * self.uniform.scale) as u32,
+                        (y * self.uniform.scale) as u32,
+                        (width * self.uniform.scale) as u32,
+                        (height * self.uniform.scale) as u32,
+                    );
                 } else {
                     render_pass.set_scissor_rect(
                         0,
