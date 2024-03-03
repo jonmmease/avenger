@@ -298,7 +298,7 @@ pub trait Canvas {
 }
 
 // Private shared canvas logic
-fn make_background_command<C: Canvas>(
+pub(crate) fn make_background_command<C: Canvas>(
     canvas: &C,
     texture_view: &TextureView,
     resolve_target: Option<&TextureView>,
@@ -334,14 +334,14 @@ fn make_background_command<C: Canvas>(
     background_encoder.finish()
 }
 
-fn make_wgpu_instance() -> wgpu::Instance {
+pub(crate) fn make_wgpu_instance() -> wgpu::Instance {
     wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::all(),
         ..Default::default()
     })
 }
 
-async fn make_wgpu_adapter(
+pub(crate) async fn make_wgpu_adapter(
     instance: &wgpu::Instance,
     compatible_surface: Option<&Surface>,
 ) -> Result<Adapter, AvengerWgpuError> {
@@ -355,7 +355,9 @@ async fn make_wgpu_adapter(
         .ok_or(AvengerWgpuError::MakeWgpuAdapterError)
 }
 
-async fn request_wgpu_device(adapter: &Adapter) -> Result<(Device, Queue), AvengerWgpuError> {
+pub(crate) async fn request_wgpu_device(
+    adapter: &Adapter,
+) -> Result<(Device, Queue), AvengerWgpuError> {
     Ok(adapter
         .request_device(
             &DeviceDescriptor {
@@ -374,7 +376,7 @@ async fn request_wgpu_device(adapter: &Adapter) -> Result<(Device, Queue), Aveng
         .await?)
 }
 
-fn create_multisampled_framebuffer(
+pub(crate) fn create_multisampled_framebuffer(
     device: &Device,
     width: u32,
     height: u32,
@@ -402,7 +404,7 @@ fn create_multisampled_framebuffer(
         .create_view(&TextureViewDescriptor::default())
 }
 
-fn get_supported_sample_count(sample_flags: TextureFormatFeatureFlags) -> u32 {
+pub(crate) fn get_supported_sample_count(sample_flags: TextureFormatFeatureFlags) -> u32 {
     // Get max supported sample count up to 4
     if sample_flags.contains(wgpu::TextureFormatFeatureFlags::MULTISAMPLE_X4) {
         4
