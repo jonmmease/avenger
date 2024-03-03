@@ -178,6 +178,7 @@ dependencies = [
  "pollster",
  "thiserror",
  "tracing",
+ "web-sys",
  "wgpu",
  "winit",
 ]

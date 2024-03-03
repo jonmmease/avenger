@@ -376,6 +376,7 @@ dependencies = [
  "avenger-vega",
  "avenger-wgpu",
  "console_error_panic_hook",
+ "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -409,6 +410,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tracing",
+ "web-sys",
  "wgpu",
  "winit",
 ]
@@ -1242,7 +1244,7 @@ dependencies = [
  "deno_semver",
  "futures",
  "import_map",
- "indexmap 2.1.0",
+ "indexmap 2.2.5",
  "log",
  "monch",
  "once_cell",
@@ -1421,7 +1423,7 @@ dependencies = [
  "hkdf",
  "http",
  "idna 0.3.0",
- "indexmap 2.1.0",
+ "indexmap 2.2.5",
  "k256",
  "lazy-regex",
  "libc",
@@ -2656,7 +2658,7 @@ dependencies = [
  "futures-sink",
  "futures-util",
  "http",
- "indexmap 2.1.0",
+ "indexmap 2.2.5",
  "slab",
  "tokio",
  "tokio-util",
@@ -3011,9 +3013,9 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "2.1.0"
+version = "2.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d530e1a18b1cb4c484e6e34556a0d948706958449fca0cab753d649f2bce3d1f"
+checksum = "7b0b929d511467233429c45a44ac1dcaa21ba0f5ba11e4879e6ed28ddb4f9df4"
 dependencies = [
  "equivalent",
  "hashbrown 0.14.3",
@@ -3692,7 +3694,7 @@ dependencies = [
  "bitflags 2.4.1",
  "codespan-reporting",
  "hexf-parse",
- "indexmap 2.1.0",
+ "indexmap 2.2.5",
  "log",
  "num-traits",
  "rustc-hash",
@@ -4334,7 +4336,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e1d3afd2628e69da2be385eb6f2fd57c8ac7977ceeff6dc166ff1657b0e386a9"
 dependencies = [
  "fixedbitset",
- "indexmap 2.1.0",
+ "indexmap 2.2.5",
 ]
 
 [[package]]
@@ -5503,11 +5505,11 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.111"
+version = "1.0.114"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "176e46fa42316f18edd598015a5166857fc835ec732f5215eac6b7bdbf0a84f4"
+checksum = "c5f09b1bd632ef549eaa9f60a1f8de742bdbc698e6cee2095fc84dde5f549ae0"
 dependencies = [
- "indexmap 2.1.0",
+ "indexmap 2.2.5",
  "itoa",
  "ryu",
  "serde",
@@ -6665,7 +6667,7 @@ version = "0.19.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b5bb770da30e5cbfde35a2d7b9b8a2c4b8ef89548a7a6aeab5c9a576e3e7421"
 dependencies = [
- "indexmap 2.1.0",
+ "indexmap 2.2.5",
  "toml_datetime",
  "winnow",
 ]
