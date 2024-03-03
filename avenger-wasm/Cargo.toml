@@ -1,0 +1,22 @@
+[package]
+name = "avenger-wasm"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+console_error_panic_hook = { version = "0.1.1", optional = true }
+avenger-vega = { path = "../avenger-vega" }
+avenger = { path = "../avenger" }
+avenger-wgpu = { path = "../avenger-wgpu" }
+wgpu = { version = "*", features = ["webgl"]}
+
+wasm-bindgen = "0.2.87"
+wasm-bindgen-futures = "0.4.30"
+web-sys = { version = "0.3.53", features = [
+    "Document",
+    "Window",
+    "Element",
+]}
