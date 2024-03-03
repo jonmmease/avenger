@@ -1,4 +1,4 @@
-use avenger::marks::group::{GroupBounds, SceneGroup};
+use avenger::marks::group::SceneGroup;
 use avenger::marks::mark::SceneMark;
 use avenger::marks::symbol::{SymbolMark, SymbolShape};
 use avenger::marks::value::{ColorOrGradient, EncodingValue};
@@ -205,12 +205,8 @@ fn make_sg(
     SceneGraph {
         groups: vec![SceneGroup {
             name: "".to_string(),
-            bounds: GroupBounds {
-                x: 0.0,
-                y: 0.0,
-                width: None,
-                height: None,
-            },
+            origin: [0.0, 0.0],
+            clip: Default::default(),
             marks: vec![SceneMark::Symbol(SymbolMark {
                 name: "scatter".to_string(),
                 clip: false,
@@ -235,7 +231,6 @@ fn make_sg(
             stroke: None,
             stroke_width: None,
             stroke_offset: None,
-            corner_radius: None,
             zindex: None,
         }],
         width,
