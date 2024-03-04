@@ -4,6 +4,9 @@ use avenger_wgpu::canvas::{Canvas, CanvasDimensions};
 use avenger_wgpu::html_canvas::HtmlCanvasCanvas;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
+use avenger::marks::group::SceneGroup;
+use avenger_vega::marks::group::VegaGroupItem;
+use avenger_vega::marks::mark::VegaMarkContainer;
 
 pub fn set_panic_hook() {
     // When the `console_error_panic_hook` feature is enabled, we can call the
@@ -24,54 +27,40 @@ extern "C" {
 }
 
 #[wasm_bindgen]
-pub async fn try_avenger_wasm() {
-    set_panic_hook();
-    log(&format!("Hello from wasm"));
+pub struct AvengerCanvas {
+    canvas: HtmlCanvasCanvas,
+    width: f32,
+    height: f32,
+    origin: [f32; 2],
+}
 
-    // Load scene graph
-    let scene_spec: VegaSceneGraph = serde_json::from_str(include_str!(
-        "../../avenger-vega-test-data/vega-scenegraphs/gradients/symbol_radial_gradient.sg.json"
-    ))
-    .unwrap();
+#[wasm_bindgen]
+impl AvengerCanvas {
+    #[wasm_bindgen(constructor)]
+    pub async fn new(canvas: HtmlCanvasElement, width: f32, height: f32, origin_x: f32, origin_y: f32) -> Result<AvengerCanvas, JsError> {
+        let dimensions = CanvasDimensions {
+            size: [width, height],
+            scale: 1.0,
+        };
+        let Ok(canvas) = HtmlCanvasCanvas::new(canvas, dimensions).await else {
+            return Err(JsError::new("Failed to construct Avenger Canvas"))
+        };
+        Ok(AvengerCanvas { canvas, width, height, origin: [origin_x, origin_y] })
+    }
 
-    let scale = 2.0;
+    pub fn set_scene(&mut self, scene_groups: JsValue) -> Result<(), JsError> {
+        let scenegraph: VegaMarkContainer<VegaGroupItem> = serde_wasm_bindgen::from_value(scene_groups)?;
+        let vega_scene_graph = VegaSceneGraph {
+            width: self.width,
+            height: self.height,
+            origin: self.origin,
+            scenegraph
+        };
 
-    let scene_graph: SceneGraph = scene_spec
-        .to_scene_graph()
-        .expect("Failed to parse scene graph");
-
-    // Save to png
-    let dimensions = CanvasDimensions {
-        size: [scene_graph.width, scene_graph.height],
-        scale,
-    };
-
-    log(&format!("dimensions: {dimensions:?}"));
-
-    let canvas = web_sys::window()
-        .and_then(|win| win.document())
-        .map(|doc| {
-            let dst = doc
-                .get_element_by_id("plot-container")
-                .expect("should be able to get plot-container div");
-
-            let canvas = doc
-                .create_element("canvas")
-                .expect("should be able to create canvas element")
-                .dyn_into::<HtmlCanvasElement>()
-                .expect("should be able to cast as a canvas element");
-
-            dst.append_child(&canvas)
-                .expect("should be able to append canvas as child");
-            canvas
-        })
-        .expect("should be able to return canvas");
-
-    let mut avenger_canvas = HtmlCanvasCanvas::new(canvas, dimensions)
-        .await
-        .expect("Failed to make avenger canvas");
-    avenger_canvas
-        .set_scene(&scene_graph)
-        .expect("Failed to set scene");
-    avenger_canvas.render().expect("Failed to render");
+        // TODO: don't panic
+        let scene_graph = vega_scene_graph.to_scene_graph().expect("Failed to import vega scene graph");
+        self.canvas.set_scene(&scene_graph).expect("Failed to set scene");
+        self.canvas.render().expect("failed to render scene");
+        Ok(())
+    }
 }
