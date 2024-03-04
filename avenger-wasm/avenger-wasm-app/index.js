@@ -1,5 +1,5 @@
 import * as wasm from "avenger-wasm";
-import { Bounds, Renderer, CanvasHandler, renderModule, domClear } from 'vega-scenegraph';
+import { Bounds, Renderer, Handler, renderModule, domClear } from 'vega-scenegraph';
 import { inherits } from 'vega-util';
 import vegaEmbed from 'vega-embed';
 
@@ -112,13 +112,26 @@ inherits(AvengerRenderer, Renderer, {
     }
 })
 
-// Patch CanvasHandler (jonmmease, needed?)
-CanvasHandler.prototype.context = function () {
-    return this._canvas.getContext('webgl2');
-};
+export function AvengerHandler(loader) {
+    Handler.call(this, loader);
+}
+
+inherits(AvengerHandler, Handler, {
+    initialize(el, origin, obj) {
+        console.log("AvengerHandler.initialize", el, origin, obj);
+        this._renderer = obj._renderer;
+        return Handler.prototype.initialize.call(this, el, origin, obj);
+    },
+    on(type, handler) {
+        console.log("on", type, this._renderer);
+    },
+    off(type, handler) {
+        console.log("off", type);
+    }
+});
 
 renderModule('avenger', {
-    handler: CanvasHandler,
+    handler: AvengerHandler,
     renderer: AvengerRenderer
 });
 
