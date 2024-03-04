@@ -24,7 +24,9 @@
   },
   "homepage": "https://github.com/rustwasm/create-wasm-app#readme",
   "dependencies": {
-    "avenger-wasm": "../pkg"
+    "avenger-wasm": "../pkg",
+    "vega": "^5.27.0",
+    "vega-embed": "^6.24.0"
   },
   "devDependencies": {
     "webpack": "5.88.2",
