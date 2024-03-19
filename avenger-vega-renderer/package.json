@@ -1,0 +1,23 @@
+{
+  "name": "avenger-vega-renderer",
+  "version": "0.1.0",
+  "description": "",
+  "main": "js/index.js",
+  "files": [
+    "js/**/*.js",
+    "pkg/"
+  ],
+
+  "scripts": {
+    "build": "wasm-pack build && rm -rf dist/ && mkdir -p dist/ && cp -r js/ dist/js && cp -r pkg dist/ && cp package.json dist/ && rm dist/pkg/package.json dist/pkg/.gitignore",
+    "pack": "npm run build && cd dist && npm pack",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "peerDependencies": {
+    "vega-scenegraph": "^4.11.2",
+    "vega-util": "^1.17.2"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

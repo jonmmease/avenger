@@ -1,4 +1,4 @@
-import * as wasm from "avenger-wasm";
+import * as wasm from "../pkg/avenger_wasm";
 
 import { Renderer, CanvasHandler, domClear, domChild } from 'vega-scenegraph';
 import { inherits } from 'vega-util';

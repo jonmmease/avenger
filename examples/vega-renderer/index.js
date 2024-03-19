@@ -1,5 +1,5 @@
 import vegaEmbed from 'vega-embed';
-import { registerVegaRenderer } from 'avenger-vega';
+import { registerVegaRenderer } from 'avenger-wasm2';
 import { renderModule } from 'vega-scenegraph';
 
 const carsData = require('./data/cars_40k.json');
