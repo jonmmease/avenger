@@ -1,5 +1,5 @@
 {
-  "name": "avenger-wasm-vega",
+  "name": "vega-renderer",
   "version": "0.1.0",
   "description": "create an app to consume rust-generated wasm packages",
   "main": "index.js",
@@ -24,8 +24,7 @@
   },
   "homepage": "https://github.com/rustwasm/create-wasm-app#readme",
   "dependencies": {
-    "avenger-vega": "../../javascript/avenger-vega",
-    "avenger-wasm": "../../avenger-wasm/pkg",
+    "avenger-wasm2": "../../avenger-vega-renderer/dist",
     "vega-embed": "^6.24.0"
   },
   "devDependencies": {
