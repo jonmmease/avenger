@@ -48,6 +48,7 @@ inherits(AvengerRenderer, Renderer, {
         this._width = width;
         this._height = height;
         this._origin = origin;
+        this._last_scene = null;
 
         this._root_el = domChild(el, 0, 'div');
         this._root_el.style.position = 'relative';
@@ -73,6 +74,7 @@ inherits(AvengerRenderer, Renderer, {
         this._handlerCanvas.setAttribute('class', 'marks');
 
         // Create Avenger canvas
+        console.log("create: ", width, height, origin);
         this._avengerCanvasPromise = new wasm.AvengerCanvas(this._avengerHtmlCanvas, width, height, origin[0], origin[1]);
         this._avengerCanvasPromise.then((avegnerCanvas) => {
             this._avengerCanvas = avegnerCanvas;
@@ -93,6 +95,15 @@ inherits(AvengerRenderer, Renderer, {
         this._height = height;
         this._origin = origin;
 
+        this._avengerCanvasPromise = new wasm.AvengerCanvas(this._avengerHtmlCanvas, width, height, origin[0], origin[1]);
+        this._avengerCanvas = null;
+        this._avengerCanvasPromise.then((avegnerCanvas) => {
+            this._avengerCanvas = avegnerCanvas;
+            if (this._last_scene != null) {
+                this._render(this._last_scene);
+            }
+        });
+
         base.resize.call(this, width, height, origin);
         resize(this._handlerCanvas, width, height, origin);
 
@@ -107,6 +118,10 @@ inherits(AvengerRenderer, Renderer, {
             const sceneGraph = importScenegraph(scene, this._width, this._height, this._origin);
             this._avengerCanvas.set_scene(sceneGraph);
             console.log("_render time: " + (performance.now() - start));
+            this._last_scene = null;
+        } else {
+            // Canvas is being constructed after resize, save for render after construction complete
+            this._last_scene = scene;
         }
         this._lastRenderFinishTime = performance.now();
         return this;
@@ -133,15 +148,23 @@ function importScenegraph(vegaSceneGroups, width, height, origin) {
 }
 
 function importGroup(vegaGroup) {
-    const groupMark = new wasm.GroupMark(vegaGroup.x, vegaGroup.y, vegaGroup.name);
+    const groupMark = new wasm.GroupMark(
+        vegaGroup.x, vegaGroup.y, vegaGroup.name, vegaGroup.width, vegaGroup.height
+    );
 
     for (const vegaMark of vegaGroup.items) {
         switch (vegaMark.marktype) {
             case "symbol":
                 groupMark.add_symbol_mark(importSymbol(vegaMark));
                 break;
-            // case "rule":
-            //     1
+            case "rule":
+                groupMark.add_rule_mark(importRule(vegaMark));
+                break;
+            case "group":
+                for (const groupItem of vegaMark.items) {
+                    groupMark.add_group_mark(importGroup(groupItem));
+                }
+                break;
             default:
                 console.log("Unsupported mark type: " + vegaMark.marktype)
         }
@@ -163,7 +186,7 @@ function importSymbol(vegaSymbolMark) {
         x[i] = item.x;
         y[i] = item.y;
         size[i] = item.size;
-        if (item.angle) {
+        if (item.angle != null) {
             angle[i] = item.angle;
         }
     })
@@ -172,6 +195,44 @@ function importSymbol(vegaSymbolMark) {
     symbolMark.set_size(size);
     symbolMark.set_angle(angle);
 
+    return symbolMark;
+}
+
+function importRule(vegaRuleMark) {
+    const len = vegaRuleMark.items.length;
+    const symbolMark = new wasm.RuleMark(len, vegaRuleMark.clip, vegaRuleMark.name);
+
+    const x0 = new Float32Array(len).fill(0);
+    const y0 = new Float32Array(len).fill(0);
+    const x1 = new Float32Array(len).fill(0);
+    const y1 = new Float32Array(len).fill(0);
+    const width = new Float32Array(len).fill(1);
+
+    const items = vegaRuleMark.items;
+    items.forEach((item, i) => {
+        if (item.x != null) {
+            x0[i] = item.x;
+        }
+        if (item.y != null) {
+            y0[i] = item.y;
+        }
+        if (item.x2 != null) {
+            x1[i] = item.x2;
+        } else {
+            x1[i] = x0[i];
+        }
+        if (item.y2 != null) {
+            y1[i] = item.y2;
+        } else {
+            y1[i] = y0[i];
+        }
+        if (item.width != null) {
+            width[i] = item.width;
+        }
+    })
+
+    symbolMark.set_xy(x0, y0, x1, y1);
+    symbolMark.set_stroke_width(width);
     return symbolMark;
 }
 
