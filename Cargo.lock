@@ -376,6 +376,7 @@ dependencies = [
  "avenger-vega",
  "avenger-wgpu",
  "console_error_panic_hook",
+ "csscolorparser",
  "serde-wasm-bindgen",
  "serde_json",
  "wasm-bindgen",

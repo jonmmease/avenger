@@ -82,6 +82,20 @@ impl RuleMark {
     pub fn set_stroke_width(&mut self, width: Vec<f32>) {
         self.inner.stroke_width = EncodingValue::Array {values: width}
     }
+
+    pub fn set_stroke(&mut self, stroke: &str, opacity: Vec<f32>) {
+        let stroke = stroke.split(":").into_iter().zip(opacity).map(|(c, opacity)| {
+            let Ok(c) = csscolorparser::parse(c) else { return ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]) };
+            ColorOrGradient::Color([
+                c.r as f32,
+                c.g as f32,
+                c.b as f32,
+                c.a as f32 * opacity,
+            ])
+        }).collect::<Vec<_>>();
+
+        self.inner.stroke = EncodingValue::Array {values: stroke};
+    }
 }
 
 #[wasm_bindgen]
