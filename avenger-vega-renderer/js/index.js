@@ -200,13 +200,15 @@ function importSymbol(vegaSymbolMark) {
 
 function importRule(vegaRuleMark) {
     const len = vegaRuleMark.items.length;
-    const symbolMark = new wasm.RuleMark(len, vegaRuleMark.clip, vegaRuleMark.name);
+    const ruleMark = new wasm.RuleMark(len, vegaRuleMark.clip, vegaRuleMark.name);
 
     const x0 = new Float32Array(len).fill(0);
     const y0 = new Float32Array(len).fill(0);
     const x1 = new Float32Array(len).fill(0);
     const y1 = new Float32Array(len).fill(0);
     const width = new Float32Array(len).fill(1);
+    const opacity = new Float32Array(len).fill(1);
+    const stroke = new Array(len).fill("");
 
     const items = vegaRuleMark.items;
     items.forEach((item, i) => {
@@ -229,11 +231,21 @@ function importRule(vegaRuleMark) {
         if (item.width != null) {
             width[i] = item.width;
         }
+        if (item.opacity != null) {
+            opacity[i] = item.opacity;
+        }
+        if (item.stroke != null) {
+            stroke[i] = item.stroke;
+        }
     })
 
-    symbolMark.set_xy(x0, y0, x1, y1);
-    symbolMark.set_stroke_width(width);
-    return symbolMark;
+    ruleMark.set_xy(x0, y0, x1, y1);
+    ruleMark.set_stroke_width(width);
+
+    // stroke
+    ruleMark.set_stroke(stroke.join(":"), opacity);
+
+    return ruleMark;
 }
 
 export function registerVegaRenderer(renderModule) {
