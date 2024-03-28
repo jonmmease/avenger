@@ -47,9 +47,15 @@ impl SymbolMark {
         self.inner.zindex = zindex;
     }
 
+    pub fn set_stroke(&mut self, joined_unique_string: &str, indices: Vec<u32>, opacity: Vec<f32>) {
+        self.inner.stroke = EncodingValue::Array {values: decode_colors(joined_unique_string, indices, opacity)};
+    }
+
+    pub fn set_fill(&mut self, joined_unique_string: &str, indices: Vec<u32>, opacity: Vec<f32>) {
+        self.inner.fill = EncodingValue::Array {values: decode_colors(joined_unique_string, indices, opacity)};
+    }
+
     // TODO
-    // pub fill: EncodingValue<ColorOrGradient>,
-    // pub stroke: EncodingValue<ColorOrGradient>,
     // pub indices: Option<Vec<usize>>,
 }
 
@@ -83,19 +89,34 @@ impl RuleMark {
         self.inner.stroke_width = EncodingValue::Array {values: width}
     }
 
-    pub fn set_stroke(&mut self, stroke: &str, opacity: Vec<f32>) {
-        let stroke = stroke.split(":").into_iter().zip(opacity).map(|(c, opacity)| {
-            let Ok(c) = csscolorparser::parse(c) else { return ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]) };
-            ColorOrGradient::Color([
-                c.r as f32,
-                c.g as f32,
-                c.b as f32,
-                c.a as f32 * opacity,
-            ])
-        }).collect::<Vec<_>>();
-
-        self.inner.stroke = EncodingValue::Array {values: stroke};
+    pub fn set_stroke(&mut self, joined_unique_string: &str, indices: Vec<u32>, opacity: Vec<f32>) {
+        self.inner.stroke = EncodingValue::Array {values: decode_colors(joined_unique_string, indices, opacity)};
     }
+}
+
+fn decode_colors(joined_unique_string: &str, indices: Vec<u32>, opacity: Vec<f32>) -> Vec<ColorOrGradient> {
+    // Parse unique colors
+    let unique_strokes = joined_unique_string.split(":").into_iter().map(|c| {
+        let Ok(c) = csscolorparser::parse(c) else { return [0.0, 0.0, 0.0, 1.0] };
+        [
+            c.r as f32,
+            c.g as f32,
+            c.b as f32,
+            c.a as f32,
+        ]
+    }).collect::<Vec<_>>();
+
+    // Combine with opacity to build
+    let colors = indices.iter().zip(opacity).map(|(ind, opacity)| {
+        let [r, g, b, a] = unique_strokes[*ind as usize];
+        ColorOrGradient::Color([
+            r as f32,
+            g as f32,
+            b as f32,
+            a as f32 * opacity,
+        ])
+    }).collect::<Vec<_>>();
+    colors
 }
 
 #[wasm_bindgen]

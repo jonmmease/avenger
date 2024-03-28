@@ -181,6 +181,9 @@ function importSymbol(vegaSymbolMark) {
     const y = new Float32Array(len).fill(0);
     const size = new Float32Array(len).fill(20);
     const angle = new Float32Array(len).fill(0);
+    const opacity = new Float32Array(len).fill(1);
+    const fill = new Array(len).fill("");
+
     const items = vegaSymbolMark.items;
     items.forEach((item, i) => {
         x[i] = item.x;
@@ -189,11 +192,23 @@ function importSymbol(vegaSymbolMark) {
         if (item.angle != null) {
             angle[i] = item.angle;
         }
+
+        if (item.opacity != null) {
+            opacity[i] = item.opacity;
+        }
+
+        if (item.fill != null) {
+            fill[i] = item.fill;
+        }
     })
 
     symbolMark.set_xy(x, y);
     symbolMark.set_size(size);
     symbolMark.set_angle(angle);
+
+    // encode and set fill
+    const encodedStroke = encodeStringArray(fill);
+    symbolMark.set_fill(encodedStroke.joinedUniqueString, encodedStroke.indices, opacity);
 
     return symbolMark;
 }
@@ -242,11 +257,47 @@ function importRule(vegaRuleMark) {
     ruleMark.set_xy(x0, y0, x1, y1);
     ruleMark.set_stroke_width(width);
 
-    // stroke
-    ruleMark.set_stroke(stroke.join(":"), opacity);
+    // encode and set stroke
+    const encodedStroke = encodeStringArray(stroke);
+    ruleMark.set_stroke(encodedStroke.joinedUniqueString, encodedStroke.indices, opacity);
 
     return ruleMark;
 }
+
+function encodeStringArray(originalArray) {
+    const uniqueStringsMap = new Map();
+    let index = 0;
+
+    // Populate the map with unique strings and their indices
+    for (const str of originalArray) {
+        if (!uniqueStringsMap.has(str)) {
+            uniqueStringsMap.set(str, index++);
+        }
+    }
+
+    // Generate the array of unique strings.
+    // Note, Maps preserve the insertion order of their elements
+    const uniqueStringsArray = Array.from(uniqueStringsMap.keys());
+
+    // Build index array
+    let indices = new Uint32Array(originalArray.length);
+    originalArray.forEach((str, i) => {
+        indices[i] = uniqueStringsMap.get(str);
+    });
+
+    return {
+        joinedUniqueString: uniqueStringsArray.join(":"),
+        indices,
+    };
+}
+
+// Example usage
+const originalArray = ["apple", "banana", "apple", "orange", "banana", "apple"];
+const result = encodeStringArray(originalArray);
+
+console.log(result.uniqueStringsArray); // ["apple", "banana", "orange"]
+console.log(result.indices); // TypedArray of indices
+
 
 export function registerVegaRenderer(renderModule) {
     // Call with renderModule function from 'vega-scenegraph'
@@ -255,3 +306,4 @@ export function registerVegaRenderer(renderModule) {
         renderer: AvengerRenderer
     });
 }
+
