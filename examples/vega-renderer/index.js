@@ -1,5 +1,5 @@
 import vegaEmbed from 'vega-embed';
-import { registerVegaRenderer } from 'avenger-wasm2';
+import { registerVegaRenderer, viewToPng } from 'avenger-wasm';
 import { renderModule } from 'vega-scenegraph';
 
 const carsData = require('./data/cars_40k.json');
@@ -324,6 +324,9 @@ registerVegaRenderer(renderModule);
 vegaEmbed('#plot-container', spec, {
     // renderer: "canvas",
     renderer: "avenger",
-}).then(function(result) {
+}).then((result) => {
     // Access the Vega view instance (https://vega.github.io/vega/docs/api/view/) as result.view
+    return viewToPng(result.view);
+}).then((png) => {
+    console.log("The PNG:", png);
 }).catch(console.error);
