@@ -10,6 +10,7 @@
 
   "scripts": {
     "build": "wasm-pack build && rm -rf dist/ && mkdir -p dist/ && cp -r js/ dist/js && cp -r pkg dist/ && cp package.json dist/ && rm dist/pkg/package.json dist/pkg/.gitignore",
+    "build-dev": "wasm-pack build --dev && rm -rf dist/ && mkdir -p dist/ && cp -r js/ dist/js && cp -r pkg dist/ && cp package.json dist/ && rm dist/pkg/package.json dist/pkg/.gitignore",
     "pack": "npm run build && cd dist && npm pack",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
