@@ -78,17 +78,23 @@ const GRADIENT_TEXTURE_HEIGHT = 256.0;
 
 // Compute final color, potentially computing gradient
 fn lookup_color(color: vec4<f32>, clip_position: vec4<f32>, top_left: vec2<f32>, bottom_right: vec2<f32>) -> vec4<f32> {
+    // Use textureSampleGrad instead of textureSample to avoid Uniform Control Flow error in WebGPU
+    // https://github.com/gpuweb/gpuweb/discussions/2899
+    let texXy = vec2<f32>(clip_position[0], clip_position[1]);
+    let dx = dpdx(texXy);
+    let dy = dpdx(texXy);
+
     if (color[0] == GRADIENT_TEXTURE_CODE) {
         // If the first color coordinate is a negative value, this indicates that we are computing a color from a texture
         // For gradient texture, the second color component stores the gradient texture y-coordinate
         let tex_coord_y = color[1];
 
         // Extract gradient type from fist pixel
-        let control0 = textureSample(gradient_texture, gradient_sampler, vec2<f32>(0.0, tex_coord_y));
+        let control0 = textureSampleGrad(gradient_texture, gradient_sampler, vec2<f32>(0.0, tex_coord_y), dx, dy);
         let gradient_type = control0[0];
 
         // Extract x/y control points from second pixel
-        let control1 = textureSample(gradient_texture, gradient_sampler, vec2<f32>(1.0 / GRADIENT_TEXTURE_WIDTH, tex_coord_y));
+        let control1 = textureSampleGrad(gradient_texture, gradient_sampler, vec2<f32>(1.0 / GRADIENT_TEXTURE_WIDTH, tex_coord_y), dx, dy);
         let x0 = control1[0];
         let y0 = control1[1];
         let x1 = control1[2];
@@ -107,11 +113,11 @@ fn lookup_color(color: vec4<f32>, clip_position: vec4<f32>, top_left: vec2<f32>,
             let projected_dist = dot(norm_xy - p0, p1 - p0) / control_dist;
 
             let tex_coord_x = compute_tex_x_coord(projected_dist / control_dist);
-
-            return textureSample(gradient_texture, gradient_sampler, vec2<f32>(tex_coord_x, tex_coord_y));
+            let tex_coords = vec2<f32>(tex_coord_x, tex_coord_y);
+            return textureSampleGrad(gradient_texture, gradient_sampler, tex_coords, dx, dy);
         } else {
            // Extract additional radius gradient control points from third pixel
-            let control2 = textureSample(gradient_texture, gradient_sampler, vec2<f32>(2.0 / GRADIENT_TEXTURE_WIDTH, tex_coord_y));
+            let control2 = textureSampleGrad(gradient_texture, gradient_sampler, vec2<f32>(2.0 / GRADIENT_TEXTURE_WIDTH, tex_coord_y), dx, dy);
             let r0 = control2[0];
             let r1 = control2[1];
 
@@ -185,16 +191,17 @@ fn lookup_color(color: vec4<f32>, clip_position: vec4<f32>, top_left: vec2<f32>,
 
             let grad_dist = (frag_radius - r0) / r_delta;
             let tex_coord_x = compute_tex_x_coord(grad_dist);
-            return textureSample(gradient_texture, gradient_sampler, vec2<f32>(tex_coord_x, tex_coord_y));
+            let tex_coords = vec2<f32>(tex_coord_x, tex_coord_y);
+            return textureSampleGrad(gradient_texture, gradient_sampler, tex_coords, dx, dy);
         }
     } else if (color[0] == IMAGE_TEXTURE_CODE) {
         // Image texture coordinates are stored in the second and third color components
         let tex_coords = vec2<f32>(color[1], color[2]);
-        return textureSample(image_texture, image_sampler, tex_coords);
+        return textureSampleGrad(image_texture, image_sampler, tex_coords, dx, dy);
     } else if (color[0] == TEXT_TEXTURE_CODE) {
         // Text texture coordinates are stored in the second and third color components
         let tex_coords = vec2<f32>(color[1], color[2]);
-        return textureSample(text_texture, text_sampler, tex_coords);
+        return textureSampleGrad(text_texture, text_sampler, tex_coords, dx, dy);
     } else {
         return color;
     }

@@ -1,4 +1,5 @@
 use image::imageops::crop_imm;
+use std::sync::Arc;
 use wgpu::{
     Adapter, Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandBuffer,
     CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, ImageCopyBuffer,
@@ -343,7 +344,7 @@ fn make_wgpu_instance() -> wgpu::Instance {
 
 async fn make_wgpu_adapter(
     instance: &wgpu::Instance,
-    compatible_surface: Option<&Surface>,
+    compatible_surface: Option<&Surface<'_>>,
 ) -> Result<Adapter, AvengerWgpuError> {
     instance
         .request_adapter(&RequestAdapterOptions {
@@ -360,10 +361,10 @@ async fn request_wgpu_device(adapter: &Adapter) -> Result<(Device, Queue), Aveng
         .request_device(
             &DeviceDescriptor {
                 label: None,
-                features: wgpu::Features::empty(),
+                required_features: wgpu::Features::empty(),
                 // WebGL doesn't support all of wgpu's features, so if
                 // we're building for the web we'll have to disable some.
-                limits: if cfg!(target_arch = "wasm32") {
+                required_limits: if cfg!(target_arch = "wasm32") {
                     wgpu::Limits::downlevel_webgl2_defaults()
                 } else {
                     wgpu::Limits::default()
@@ -413,9 +414,9 @@ fn get_supported_sample_count(sample_flags: TextureFormatFeatureFlags) -> u32 {
     }
 }
 
-pub struct WindowCanvas {
-    window: Window,
-    surface: Surface,
+pub struct WindowCanvas<'window> {
+    window: Arc<Window>,
+    surface: Surface<'window>,
     device: Device,
     queue: Queue,
     multisampled_framebuffer: TextureView,
@@ -426,14 +427,15 @@ pub struct WindowCanvas {
     multi_renderer: Option<MultiMarkRenderer>,
 }
 
-impl WindowCanvas {
+impl<'window> WindowCanvas<'window> {
     pub async fn new(
         window: Window,
         dimensions: CanvasDimensions,
     ) -> Result<Self, AvengerWgpuError> {
-        window.set_inner_size(Size::Physical(dimensions.to_physical_size()));
+        let _ = window.request_inner_size(Size::Physical(dimensions.to_physical_size()));
         let instance = make_wgpu_instance();
-        let surface = unsafe { instance.create_surface(&window) }?;
+        let window = Arc::new(window);
+        let surface = instance.create_surface(window.clone())?;
         let adapter = make_wgpu_adapter(&instance, Some(&surface)).await?;
         let (device, queue) = request_wgpu_device(&adapter).await?;
 
@@ -455,6 +457,7 @@ impl WindowCanvas {
             present_mode: surface_caps.present_modes[0],
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
+            desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &config);
 
@@ -567,7 +570,7 @@ impl WindowCanvas {
     }
 }
 
-impl Canvas for WindowCanvas {
+impl<'window> Canvas for WindowCanvas<'window> {
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
         if self.multi_renderer.is_none() {
             self.multi_renderer = Some(MultiMarkRenderer::new(self.dimensions));
