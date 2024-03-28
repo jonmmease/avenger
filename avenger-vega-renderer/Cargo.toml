@@ -11,16 +11,21 @@ console_error_panic_hook = { version = "0.1.1" }
 avenger-vega = { path = "../avenger-vega" }
 avenger = { path = "../avenger" }
 avenger-wgpu = { path = "../avenger-wgpu", default-features = false }
-wgpu = { version = "0.19.3", features = ["webgl"]}
+wgpu = { version = "0.19.3"}
 serde_json = "1.0.114"
 serde-wasm-bindgen = "0.6.5"
 csscolorparser = "0.6.2"
-
 wasm-bindgen = "=0.2.90"
 wasm-bindgen-futures = "0.4.30"
+js-sys = "0.3.67"
 web-sys = { version = "0.3.67", features = [
     "Document",
     "Window",
     "Element",
     "Performance"
 ]}
+
+[dependencies.image]
+workspace = true
+default-features = false
+features = ["png"]

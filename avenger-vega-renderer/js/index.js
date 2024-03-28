@@ -285,3 +285,37 @@ export function registerVegaRenderer(renderModule) {
     });
 }
 
+export async function viewToPng(view) {
+    let {
+        vegaSceneGroups,
+        width,
+        height,
+        origin
+    } = await view.runAsync().then(() => {
+        try {
+            // Workaround for https://github.com/vega/vega/issues/3481
+            view.signal("geo_interval_init_tick", {});
+        } catch (e) {
+            // No geo_interval_init_tick signal
+        }
+    }).then(() => {
+        return view.runAsync().then(
+            () => {
+                let padding = view.padding();
+                return {
+                    width: Math.max(0, view._viewWidth + padding.left + padding.right),
+                    height: Math.max(0, view._viewHeight + padding.top + padding.bottom),
+                    origin: [
+                        padding.left + view._origin[0],
+                        padding.top + view._origin[1]
+                    ],
+                    vegaSceneGroups: view.scenegraph().root
+                }
+            }
+        );
+    });
+
+    const sceneGraph = importScenegraph(vegaSceneGroups, width, height, origin);
+    const png = await wasm.scene_graph_to_png(sceneGraph);
+    return png;
+}

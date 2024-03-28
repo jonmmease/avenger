@@ -191,4 +191,16 @@ impl SceneGraph {
     pub fn build(self) -> RsSceneGraph {
         self.inner
     }
+
+    pub fn width(&self) -> f32 {
+        self.inner.width
+    }
+
+    pub fn height(&self) -> f32 {
+        self.inner.height
+    }
+
+    pub fn origin(&self) -> [f32; 2] {
+        self.inner.origin
+    }
 }

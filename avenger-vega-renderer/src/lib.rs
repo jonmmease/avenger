@@ -1,7 +1,9 @@
 mod builder;
 
+use std::io::Cursor;
+use image::ImageOutputFormat;
 use avenger_vega::scene_graph::VegaSceneGraph;
-use avenger_wgpu::canvas::{Canvas, CanvasDimensions};
+use avenger_wgpu::canvas::{Canvas, CanvasDimensions, PngCanvas};
 use avenger_wgpu::html_canvas::HtmlCanvasCanvas;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
@@ -81,4 +83,27 @@ impl AvengerCanvas {
     pub fn origin_y(&self) -> f32 {
         self.origin[1]
     }
+}
+
+#[wasm_bindgen]
+pub async fn scene_graph_to_png(scene_graph: SceneGraph) -> Result<js_sys::Uint8Array, JsError>{
+    let mut png_canvas = PngCanvas::new(CanvasDimensions {
+        size: [scene_graph.width(), scene_graph.height()],
+        scale: 1.0,
+    }).await.map_err(|err| {
+        JsError::new(&err.to_string())
+    })?;
+
+    png_canvas.set_scene(&scene_graph.build())?;
+
+    let img = png_canvas.render().await.map_err(|err| {
+        JsError::new(&err.to_string())
+    })?;
+
+    let mut png_data = Vec::new();
+    img.write_to(&mut Cursor::new(&mut png_data), ImageOutputFormat::Png)
+        .map_err(|err| {
+            JsError::new(&format!("Failed to convert image to PNG: {err:?}"))
+        })?;
+    Ok(js_sys::Uint8Array::from(&png_data[..]))
 }
