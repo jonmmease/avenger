@@ -29,7 +29,7 @@ extern "C" {
 
 #[wasm_bindgen]
 pub struct AvengerCanvas {
-    canvas: HtmlCanvasCanvas,
+    canvas: HtmlCanvasCanvas<'static>,
     width: f32,
     height: f32,
     origin: [f32; 2],
@@ -64,5 +64,21 @@ impl AvengerCanvas {
         self.canvas.render().expect("failed to render scene");
         // log(&format!("self.canvas.render time: {}", performance.now() - start));
         Ok(())
+    }
+
+    pub fn width(&self) -> f32 {
+        self.width
+    }
+
+    pub fn height(&self) -> f32 {
+        self.height
+    }
+
+    pub fn origin_x(&self) -> f32 {
+        self.origin[0]
+    }
+
+    pub fn origin_y(&self) -> f32 {
+        self.origin[1]
     }
 }

@@ -6,13 +6,10 @@ use crate::canvas::{
 use crate::error::AvengerWgpuError;
 use crate::marks::multi::MultiMarkRenderer;
 use web_sys::HtmlCanvasElement;
-use wgpu::{
-    Device, Queue, Surface, SurfaceConfiguration, TextureFormat, TextureUsages, TextureView,
-    TextureViewDescriptor,
-};
+use wgpu::{Device, Queue, Surface, SurfaceConfiguration, SurfaceTarget, TextureFormat, TextureUsages, TextureView, TextureViewDescriptor};
 
-pub struct HtmlCanvasCanvas {
-    surface: Surface,
+pub struct HtmlCanvasCanvas<'window>  {
+    surface: Surface<'window>,
     device: Device,
     queue: Queue,
     multisampled_framebuffer: TextureView,
@@ -23,7 +20,7 @@ pub struct HtmlCanvasCanvas {
     multi_renderer: Option<MultiMarkRenderer>,
 }
 
-impl HtmlCanvasCanvas {
+impl <'window> HtmlCanvasCanvas<'window> {
     pub async fn new(
         canvas: HtmlCanvasElement,
         dimensions: CanvasDimensions,
@@ -31,7 +28,7 @@ impl HtmlCanvasCanvas {
         canvas.set_width(dimensions.to_physical_width());
         canvas.set_height(dimensions.to_physical_height());
         let instance = make_wgpu_instance();
-        let surface = instance.create_surface_from_canvas(canvas)?;
+        let surface = instance.create_surface(SurfaceTarget::Canvas(canvas))?;
         let adapter = make_wgpu_adapter(&instance, Some(&surface)).await?;
         let (device, queue) = request_wgpu_device(&adapter).await?;
 
@@ -53,6 +50,7 @@ impl HtmlCanvasCanvas {
             present_mode: surface_caps.present_modes[0],
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
+            desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &config);
 
@@ -153,7 +151,7 @@ impl HtmlCanvasCanvas {
     }
 }
 
-impl Canvas for HtmlCanvasCanvas {
+impl <'window> Canvas for HtmlCanvasCanvas<'window> {
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
         if self.multi_renderer.is_none() {
             self.multi_renderer = Some(MultiMarkRenderer::new(self.dimensions));

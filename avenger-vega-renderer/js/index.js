@@ -76,9 +76,6 @@ inherits(AvengerRenderer, Renderer, {
         // Create Avenger canvas
         console.log("create: ", width, height, origin);
         this._avengerCanvasPromise = new wasm.AvengerCanvas(this._avengerHtmlCanvas, width, height, origin[0], origin[1]);
-        this._avengerCanvasPromise.then((avegnerCanvas) => {
-            this._avengerCanvas = avegnerCanvas;
-        });
 
         this._lastRenderFinishTime = performance.now();
 
@@ -91,38 +88,27 @@ inherits(AvengerRenderer, Renderer, {
     },
 
     resize(width, height, origin) {
-        this._width = width;
-        this._height = height;
-        this._origin = origin;
-
         this._avengerCanvasPromise = new wasm.AvengerCanvas(this._avengerHtmlCanvas, width, height, origin[0], origin[1]);
-        this._avengerCanvas = null;
-        this._avengerCanvasPromise.then((avegnerCanvas) => {
-            this._avengerCanvas = avegnerCanvas;
-            if (this._last_scene != null) {
-                this._render(this._last_scene);
-            }
-        });
 
         base.resize.call(this, width, height, origin);
         resize(this._handlerCanvas, width, height, origin);
 
-        // stuff
         return this;
     },
 
     _render(scene) {
         console.log("scene graph construction time: " + (performance.now() - this._lastRenderFinishTime));
-        if (this._avengerCanvas) {
+        this._avengerCanvasPromise.then((avengerCanvas) => {
             var start = performance.now();
-            const sceneGraph = importScenegraph(scene, this._width, this._height, this._origin);
-            this._avengerCanvas.set_scene(sceneGraph);
+            const sceneGraph = importScenegraph(
+                scene,
+                avengerCanvas.width(),
+                avengerCanvas.height(),
+                [avengerCanvas.origin_x(), avengerCanvas.origin_y()]
+            );
+            avengerCanvas.set_scene(sceneGraph);
             console.log("_render time: " + (performance.now() - start));
-            this._last_scene = null;
-        } else {
-            // Canvas is being constructed after resize, save for render after construction complete
-            this._last_scene = scene;
-        }
+        });
         this._lastRenderFinishTime = performance.now();
         return this;
     }
@@ -290,14 +276,6 @@ function encodeStringArray(originalArray) {
         indices,
     };
 }
-
-// Example usage
-const originalArray = ["apple", "banana", "apple", "orange", "banana", "apple"];
-const result = encodeStringArray(originalArray);
-
-console.log(result.uniqueStringsArray); // ["apple", "banana", "orange"]
-console.log(result.indices); // TypedArray of indices
-
 
 export function registerVegaRenderer(renderModule) {
     // Call with renderModule function from 'vega-scenegraph'
