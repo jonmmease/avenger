@@ -9,8 +9,8 @@
   ],
 
   "scripts": {
-    "build": "wasm-pack build && rm -rf dist/ && mkdir -p dist/ && cp -r js/ dist/js && cp -r pkg dist/ && cp package.json dist/ && rm dist/pkg/package.json dist/pkg/.gitignore",
-    "build-dev": "wasm-pack build --dev && rm -rf dist/ && mkdir -p dist/ && cp -r js/ dist/js && cp -r pkg dist/ && cp package.json dist/ && rm dist/pkg/package.json dist/pkg/.gitignore",
+    "build": "rm -rf pkg && wasm-pack build && rm -rf dist/ && mkdir -p dist/ && cp -r js/ dist/js && cp -r pkg dist/ && cp package.json dist/ && rm dist/pkg/package.json dist/pkg/.gitignore",
+    "build-deno": "rm -rf pkg_deno && wasm-pack build --target=deno --out-dir=pkg_deno && rm -rf dist_deno/ && mkdir -p dist_deno/ && cp -r js/ dist_deno/js && cp -r pkg_deno dist_deno/pkg && cp package.json dist_deno/ && rm dist_deno/pkg/.gitignore",
     "pack": "npm run build && cd dist && npm pack",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

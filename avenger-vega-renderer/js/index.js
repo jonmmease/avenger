@@ -1,5 +1,4 @@
-import * as wasm from "../pkg/avenger_wasm";
-
+import { AvengerCanvas, SceneGraph, GroupMark, SymbolMark, RuleMark, scene_graph_to_png } from "../pkg/avenger_wasm.js";
 import { Renderer, CanvasHandler, domClear, domChild } from 'vega-scenegraph';
 import { inherits } from 'vega-util';
 
@@ -75,7 +74,7 @@ inherits(AvengerRenderer, Renderer, {
 
         // Create Avenger canvas
         console.log("create: ", width, height, origin);
-        this._avengerCanvasPromise = new wasm.AvengerCanvas(this._avengerHtmlCanvas, width, height, origin[0], origin[1]);
+        this._avengerCanvasPromise = new AvengerCanvas(this._avengerHtmlCanvas, width, height, origin[0], origin[1]);
 
         this._lastRenderFinishTime = performance.now();
 
@@ -88,7 +87,7 @@ inherits(AvengerRenderer, Renderer, {
     },
 
     resize(width, height, origin) {
-        this._avengerCanvasPromise = new wasm.AvengerCanvas(this._avengerHtmlCanvas, width, height, origin[0], origin[1]);
+        this._avengerCanvasPromise = new AvengerCanvas(this._avengerHtmlCanvas, width, height, origin[0], origin[1]);
 
         base.resize.call(this, width, height, origin);
         resize(this._handlerCanvas, width, height, origin);
@@ -126,7 +125,7 @@ inherits(AvengerHandler, CanvasHandler, {
 });
 
 function importScenegraph(vegaSceneGroups, width, height, origin) {
-    const sceneGraph = new wasm.SceneGraph(width, height, origin[0], origin[1]);
+    const sceneGraph = new SceneGraph(width, height, origin[0], origin[1]);
     for (const vegaGroup of vegaSceneGroups.items) {
         sceneGraph.add_group(importGroup(vegaGroup));
     }
@@ -134,7 +133,7 @@ function importScenegraph(vegaSceneGroups, width, height, origin) {
 }
 
 function importGroup(vegaGroup) {
-    const groupMark = new wasm.GroupMark(
+    const groupMark = new GroupMark(
         vegaGroup.x, vegaGroup.y, vegaGroup.name, vegaGroup.width, vegaGroup.height
     );
 
@@ -161,7 +160,7 @@ function importGroup(vegaGroup) {
 
 function importSymbol(vegaSymbolMark) {
     const len = vegaSymbolMark.items.length;
-    const symbolMark = new wasm.SymbolMark(len, vegaSymbolMark.clip, vegaSymbolMark.name);
+    const symbolMark = new SymbolMark(len, vegaSymbolMark.clip, vegaSymbolMark.name);
 
     const x = new Float32Array(len).fill(0);
     const y = new Float32Array(len).fill(0);
@@ -201,7 +200,7 @@ function importSymbol(vegaSymbolMark) {
 
 function importRule(vegaRuleMark) {
     const len = vegaRuleMark.items.length;
-    const ruleMark = new wasm.RuleMark(len, vegaRuleMark.clip, vegaRuleMark.name);
+    const ruleMark = new RuleMark(len, vegaRuleMark.clip, vegaRuleMark.name);
 
     const x0 = new Float32Array(len).fill(0);
     const y0 = new Float32Array(len).fill(0);
@@ -316,6 +315,6 @@ export async function viewToPng(view) {
     });
 
     const sceneGraph = importScenegraph(vegaSceneGroups, width, height, origin);
-    const png = await wasm.scene_graph_to_png(sceneGraph);
+    const png = await scene_graph_to_png(sceneGraph);
     return png;
 }
