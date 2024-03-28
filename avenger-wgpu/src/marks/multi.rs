@@ -1785,6 +1785,12 @@ impl MultiMarkRenderer {
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &depth_view,
+                    // // depth_ops shouldn't be needed, but setting to None results in validation
+                    // // error in Deno
+                    // depth_ops: Some(wgpu::Operations {
+                    //     load: wgpu::LoadOp::Clear(0.0),
+                    //     store: wgpu::StoreOp::Discard,
+                    // }),
                     depth_ops: None,
                     stencil_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(0),
