@@ -1,4 +1,4 @@
-use avenger::marks::group::{GroupBounds, SceneGroup};
+use avenger::marks::group::SceneGroup;
 use avenger::marks::mark::SceneMark;
 use avenger::marks::symbol::{SymbolMark, SymbolShape};
 use avenger::marks::value::{ColorOrGradient, EncodingValue};
@@ -12,9 +12,11 @@ use tracing_subscriber::{EnvFilter, fmt};
 use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
+use winit::event::{ElementState, Event, KeyEvent, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
+use winit::keyboard;
+use winit::keyboard::NamedKey;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -34,7 +36,7 @@ pub async fn run() {
         }
     }
 
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoop::new().expect("Failed to build event loop");
     let window = WindowBuilder::new().build(&event_loop).unwrap();
 
     #[cfg(target_arch = "wasm32")]
@@ -42,14 +44,14 @@ pub async fn run() {
         // Winit prevents sizing with CSS, so we have to set
         // the size manually when on web.
         use winit::dpi::PhysicalSize;
-        window.set_inner_size(PhysicalSize::new(450, 400));
+        let _ = window.request_inner_size(PhysicalSize::new(450, 400));
 
         use winit::platform::web::WindowExtWebSys;
         web_sys::window()
             .and_then(|win| win.document())
             .and_then(|doc| {
                 let dst = doc.get_element_by_id("wasm-example")?;
-                let canvas = web_sys::Element::from(window.canvas());
+                let canvas = web_sys::Element::from(window.canvas().expect("Failed to get canvas"));
                 dst.append_child(&canvas).ok()?;
                 Some(())
             })
@@ -73,6 +75,7 @@ pub async fn run() {
     let mut fill: Vec<ColorOrGradient> = Vec::new();
     let mut size: Vec<f32> = Vec::new();
 
+    // let n = 1000000;
     let n = 100000;
     // let n = 50000;
     // let n = 50;
@@ -94,7 +97,7 @@ pub async fn run() {
 
     canvas.set_scene(&scene_graph).unwrap();
 
-    event_loop.run(move |event, _, control_flow| {
+    event_loop.run(move |event, target| {
         match event {
             Event::WindowEvent {
                 ref event,
@@ -105,25 +108,46 @@ pub async fn run() {
                     match event {
                         WindowEvent::CloseRequested
                         | WindowEvent::KeyboardInput {
-                            input:
-                                KeyboardInput {
-                                    state: ElementState::Pressed,
-                                    virtual_keycode: Some(VirtualKeyCode::Escape),
-                                    ..
-                                },
+                            event: KeyEvent {
+                                logical_key: keyboard::Key::Named(NamedKey::Escape),
+                                state: ElementState::Pressed,
+                                ..
+                            },
                             ..
-                        } => *control_flow = ControlFlow::Exit,
+                        } => {
+                            target.exit();
+                        },
                         WindowEvent::Resized(physical_size) => {
                             canvas.resize(*physical_size);
                         }
-                        WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                            // new_inner_size is &&mut so w have to dereference it twice
-                            canvas.resize(**new_inner_size);
+                        WindowEvent::RedrawRequested => {
+                            canvas.update();
+
+                            match canvas.render() {
+                                Ok(_) => {}
+                                // Reconfigure the surface if it's lost or outdated
+                                Err(AvengerWgpuError::SurfaceError(err)) => {
+                                    match err {
+                                        wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
+                                            canvas.resize(canvas.get_size());
+                                        }
+                                        wgpu::SurfaceError::OutOfMemory => {
+                                            // The system is out of memory, we should probably quit
+                                            target.exit();
+                                        }
+                                        wgpu::SurfaceError::Timeout => {
+                                            log::warn!("Surface timeout");
+                                        }
+                                    }
+                                }
+                                Err(err) => {
+                                    log::error!("{:?}", err);
+                                }
+                            }
                         }
                         WindowEvent::CursorMoved {
                             device_id,
                             position,
-                            modifiers,
                         } => {
                             // println!("position: {position:?}");
                             let scene_graph = make_sg(
@@ -144,7 +168,6 @@ pub async fn run() {
                             device_id,
                             state,
                             button,
-                            modifiers,
                         } => {
                             // println!("state: {state:?}, button: {button:?}");
                         }
@@ -152,38 +175,9 @@ pub async fn run() {
                     }
                 }
             }
-            Event::RedrawRequested(window_id) if window_id == canvas.window().id() => {
-                canvas.update();
-                match canvas.render() {
-                    Ok(_) => {}
-                    // Reconfigure the surface if it's lost or outdated
-                    Err(AvengerWgpuError::SurfaceError(err)) => {
-                        match err {
-                            wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
-                                canvas.resize(canvas.get_size());
-                            }
-                            wgpu::SurfaceError::OutOfMemory => {
-                                // The system is out of memory, we should probably quit
-                                *control_flow = ControlFlow::Exit;
-                            }
-                            wgpu::SurfaceError::Timeout => {
-                                log::warn!("Surface timeout");
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        log::error!("{:?}", err);
-                    }
-                }
-            }
-            Event::RedrawEventsCleared => {
-                // RedrawRequested will only trigger once, unless we manually
-                // request it.
-                canvas.window().request_redraw();
-            }
             _ => {}
         }
-    });
+    }).expect("Failed to start event loop");
 }
 
 fn make_sg(
@@ -205,12 +199,8 @@ fn make_sg(
     SceneGraph {
         groups: vec![SceneGroup {
             name: "".to_string(),
-            bounds: GroupBounds {
-                x: 0.0,
-                y: 0.0,
-                width: None,
-                height: None,
-            },
+            origin: [0.0, 0.0],
+            clip: Default::default(),
             marks: vec![SceneMark::Symbol(SymbolMark {
                 name: "scatter".to_string(),
                 clip: false,
@@ -235,7 +225,6 @@ fn make_sg(
             stroke: None,
             stroke_width: None,
             stroke_offset: None,
-            corner_radius: None,
             zindex: None,
         }],
         width,

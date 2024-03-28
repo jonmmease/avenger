@@ -15,20 +15,20 @@ avenger-wgpu = { path = "../../avenger-wgpu", default-features = false }
 avenger = { path = "../../avenger" }
 
 cfg-if = "1"
-winit = "0.28"
+winit = "0.29.9"
 env_logger = "0.10"
 log = "0.4"
-wgpu = "0.18"
+wgpu = "0.19.3"
 pollster = "0.3"
 serde_json = { version = "1.0.111" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.6"
 console_log = "1.0"
-wgpu = { version = "0.18", features = ["webgl"]}
-wasm-bindgen = "=0.2.87"
+wgpu = { version = "0.19.3", features = ["webgl", "webgpu"]}
+wasm-bindgen = "=0.2.90"
 wasm-bindgen-futures = "0.4.30"
-web-sys = { version = "0.3.53", features = [
+web-sys = { version = "0.3.67", features = [
     "Document",
     "Window",
     "Element",
