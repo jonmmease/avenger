@@ -13,10 +13,10 @@ default = [ "cosmic-text", "rayon",]
 
 [dependencies]
 cfg-if = "1"
-winit = "0.28"
+winit = "0.29.9"
 env_logger = "0.10"
 log = "0.4"
-wgpu = "0.18"
+wgpu = "0.19.3"
 pollster = "0.3"
 cgmath = "0.18.0"
 itertools = "0.12.0"
