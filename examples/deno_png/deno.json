@@ -1,0 +1,6 @@
+{
+  "imports": {
+    "vega-util": "https://cdn.skypack.dev/pin/vega-util@v1.17.2-LUfkDhormMyfWqy3Ts6U/mode=imports/optimized/vega-util.js",
+    "vega-scenegraph": "https://cdn.skypack.dev/pin/vega-scenegraph@v4.11.2-ECjtKQ59x40n6e1Sr54c/mode=imports/optimized/vega-scenegraph.js"
+  }
+}
