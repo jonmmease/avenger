@@ -6,6 +6,9 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+deno = ["avenger-wgpu/deno"]
+
 [dependencies]
 console_error_panic_hook = { version = "0.1.1" }
 avenger-vega = { path = "../avenger-vega" }
