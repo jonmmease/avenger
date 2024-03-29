@@ -10,6 +10,7 @@ crate-type = [ "cdylib", "rlib",]
 
 [features]
 default = [ "cosmic-text", "rayon",]
+deno = []
 
 [dependencies]
 cfg-if = "1"
