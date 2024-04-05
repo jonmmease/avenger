@@ -6,9 +6,12 @@ use crate::canvas::{
 use crate::error::AvengerWgpuError;
 use crate::marks::multi::MultiMarkRenderer;
 use web_sys::HtmlCanvasElement;
-use wgpu::{Device, Queue, Surface, SurfaceConfiguration, SurfaceTarget, TextureFormat, TextureUsages, TextureView, TextureViewDescriptor};
+use wgpu::{
+    Device, Queue, Surface, SurfaceConfiguration, SurfaceTarget, TextureFormat, TextureUsages,
+    TextureView, TextureViewDescriptor,
+};
 
-pub struct HtmlCanvasCanvas<'window>  {
+pub struct HtmlCanvasCanvas<'window> {
     surface: Surface<'window>,
     device: Device,
     queue: Queue,
@@ -20,7 +23,7 @@ pub struct HtmlCanvasCanvas<'window>  {
     multi_renderer: Option<MultiMarkRenderer>,
 }
 
-impl <'window> HtmlCanvasCanvas<'window> {
+impl<'window> HtmlCanvasCanvas<'window> {
     pub async fn new(
         canvas: HtmlCanvasElement,
         dimensions: CanvasDimensions,
@@ -151,7 +154,7 @@ impl <'window> HtmlCanvasCanvas<'window> {
     }
 }
 
-impl <'window> Canvas for HtmlCanvasCanvas<'window> {
+impl<'window> Canvas for HtmlCanvasCanvas<'window> {
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
         if self.multi_renderer.is_none() {
             self.multi_renderer = Some(MultiMarkRenderer::new(self.dimensions));

@@ -1,16 +1,16 @@
 mod builder;
 
-use std::io::Cursor;
-use image::ImageOutputFormat;
-use avenger_vega::scene_graph::VegaSceneGraph;
-use avenger_wgpu::canvas::{Canvas, CanvasDimensions, PngCanvas};
-use avenger_wgpu::html_canvas::HtmlCanvasCanvas;
-use wasm_bindgen::prelude::*;
-use web_sys::HtmlCanvasElement;
+use crate::builder::SceneGraph;
 use avenger::marks::group::SceneGroup;
 use avenger_vega::marks::group::VegaGroupItem;
 use avenger_vega::marks::mark::VegaMarkContainer;
-use crate::builder::SceneGraph;
+use avenger_vega::scene_graph::VegaSceneGraph;
+use avenger_wgpu::canvas::{Canvas, CanvasDimensions, PngCanvas};
+use avenger_wgpu::html_canvas::HtmlCanvasCanvas;
+use image::ImageOutputFormat;
+use std::io::Cursor;
+use wasm_bindgen::prelude::*;
+use web_sys::HtmlCanvasElement;
 
 pub fn set_panic_hook() {
     // When the `console_error_panic_hook` feature is enabled, we can call the
@@ -40,16 +40,27 @@ pub struct AvengerCanvas {
 #[wasm_bindgen]
 impl AvengerCanvas {
     #[wasm_bindgen(constructor)]
-    pub async fn new(canvas: HtmlCanvasElement, width: f32, height: f32, origin_x: f32, origin_y: f32) -> Result<AvengerCanvas, JsError> {
+    pub async fn new(
+        canvas: HtmlCanvasElement,
+        width: f32,
+        height: f32,
+        origin_x: f32,
+        origin_y: f32,
+    ) -> Result<AvengerCanvas, JsError> {
         set_panic_hook();
         let dimensions = CanvasDimensions {
             size: [width, height],
             scale: 1.0,
         };
         let Ok(canvas) = HtmlCanvasCanvas::new(canvas, dimensions).await else {
-            return Err(JsError::new("Failed to construct Avenger Canvas"))
+            return Err(JsError::new("Failed to construct Avenger Canvas"));
         };
-        Ok(AvengerCanvas { canvas, width, height, origin: [origin_x, origin_y] })
+        Ok(AvengerCanvas {
+            canvas,
+            width,
+            height,
+            origin: [origin_x, origin_y],
+        })
     }
 
     pub fn set_scene(&mut self, scene_graph: SceneGraph) -> Result<(), JsError> {
@@ -59,7 +70,9 @@ impl AvengerCanvas {
             .expect("performance should be available");
 
         let start = performance.now();
-        self.canvas.set_scene(&scene_graph.build()).expect("Failed to set scene");
+        self.canvas
+            .set_scene(&scene_graph.build())
+            .expect("Failed to set scene");
         // log(&format!("self.canvas.set_scene time: {}", performance.now() - start));
 
         let start = performance.now();
@@ -86,24 +99,23 @@ impl AvengerCanvas {
 }
 
 #[wasm_bindgen]
-pub async fn scene_graph_to_png(scene_graph: SceneGraph) -> Result<js_sys::Uint8Array, JsError>{
+pub async fn scene_graph_to_png(scene_graph: SceneGraph) -> Result<js_sys::Uint8Array, JsError> {
     let mut png_canvas = PngCanvas::new(CanvasDimensions {
         size: [scene_graph.width(), scene_graph.height()],
         scale: 1.0,
-    }).await.map_err(|err| {
-        JsError::new(&err.to_string())
-    })?;
+    })
+    .await
+    .map_err(|err| JsError::new(&err.to_string()))?;
 
     png_canvas.set_scene(&scene_graph.build())?;
 
-    let img = png_canvas.render().await.map_err(|err| {
-        JsError::new(&err.to_string())
-    })?;
+    let img = png_canvas
+        .render()
+        .await
+        .map_err(|err| JsError::new(&err.to_string()))?;
 
     let mut png_data = Vec::new();
     img.write_to(&mut Cursor::new(&mut png_data), ImageOutputFormat::Png)
-        .map_err(|err| {
-            JsError::new(&format!("Failed to convert image to PNG: {err:?}"))
-        })?;
+        .map_err(|err| JsError::new(&format!("Failed to convert image to PNG: {err:?}")))?;
     Ok(js_sys::Uint8Array::from(&png_data[..]))
 }
