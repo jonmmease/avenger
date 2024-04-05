@@ -29,6 +29,7 @@ use lyon::path::builder::{BorderRadii, WithSvg};
 use lyon::path::path::BuilderImpl;
 use lyon::path::{Path, Winding};
 use std::ops::{Mul, Neg, Range};
+use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use wgpu::{
     BindGroup, BindGroupLayout, CommandBuffer, Device, Extent3d, Queue, TextureFormat, TextureView,
@@ -36,12 +37,13 @@ use wgpu::{
 };
 
 // Import rayon prelude as required by par_izip.
-use crate::marks::text::{TextAtlasBuilder, TextInstance};
+use crate::marks::text::{TextAtlasBuilder, TextAtlasBuilderTrait, TextInstance};
 
 use avenger::marks::arc::ArcMark;
 use avenger::marks::group::Clip;
 use avenger::marks::text::TextMark;
 
+use crate::marks::cosmic::CosmicTextRasterizer;
 #[cfg(feature = "rayon")]
 use {crate::par_izip, rayon::prelude::*};
 
@@ -102,7 +104,7 @@ pub struct MultiMarkRenderer {
     uniform: MultiUniform,
     gradient_atlas_builder: GradientAtlasBuilder,
     image_atlas_builder: ImageAtlasBuilder,
-    text_atlas_builder: Box<dyn TextAtlasBuilder>,
+    text_atlas_builder: Box<dyn TextAtlasBuilderTrait>,
     dimensions: CanvasDimensions,
 }
 
@@ -110,8 +112,8 @@ impl MultiMarkRenderer {
     pub fn new(dimensions: CanvasDimensions) -> Self {
         cfg_if::cfg_if! {
             if #[cfg(feature = "cosmic-text")] {
-                use crate::marks::cosmic::CosmicTextAtlasBuilder;
-                let text_atlas_builder: Box<dyn TextAtlasBuilder> = Box::new(CosmicTextAtlasBuilder::new());
+                use crate::marks::cosmic::CosmicTextRasterizer;
+                let text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(CosmicTextRasterizer)));
             } else {
                 use crate::marks::text::NullTextAtlasBuilder;
                 let text_atlas_builder: Box<dyn TextAtlasBuilder> = Box::new(NullTextAtlasBuilder);
