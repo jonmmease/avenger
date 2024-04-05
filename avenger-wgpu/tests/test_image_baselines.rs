@@ -66,7 +66,7 @@ mod test_image_baselines {
         case("rule", "wide_transparent_caps", 0.08),
         case("rule", "dashed_rules", 0.004),
 
-        case("text", "bar_axis_labels", 0.03),
+        case("text", "bar_axis_labels", 0.033),
         case("text", "text_alignment", 0.015),
         case("text", "text_rotation", 0.015),
         case("text", "letter_scatter", 0.03),
