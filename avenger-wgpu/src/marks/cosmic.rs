@@ -1,25 +1,17 @@
 use crate::canvas::CanvasDimensions;
 use crate::error::AvengerWgpuError;
-use crate::marks::multi::{MultiVertex, TEXT_TEXTURE_CODE};
 use crate::marks::text::{
-    PhysicalGlyphPosition, TextAtlasRegistration, TextInstance, TextRasterizationBuffer,
-    TextRasterizationConfig, TextRasterizationGlyphDetails, TextRasterizer,
+    GlyphBBox, GlyphBBoxAndAtlasCoords, GlyphImage, PhysicalGlyphPosition, TextRasterizationBuffer,
+    TextRasterizationConfig, TextRasterizer,
 };
-use avenger::marks::path::PathTransform;
-use avenger::marks::text::{
-    FontStyleSpec, FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec,
-};
+use avenger::marks::text::{FontWeightNameSpec, FontWeightSpec};
 use cosmic_text::fontdb::Database;
 use cosmic_text::{
     Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCache, SwashContent, Weight,
 };
-use image::DynamicImage;
 use lazy_static;
-use lyon::geom::euclid::{Point2D, Vector2D};
-use lyon::geom::Angle;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
-use wgpu::Extent3d;
 
 lazy_static! {
     static ref FONT_SYSTEM: Mutex<FontSystem> = Mutex::new(build_font_system());
@@ -102,6 +94,7 @@ impl TextRasterizer for CosmicTextRasterizer {
         &self,
         dimensions: CanvasDimensions,
         config: &TextRasterizationConfig,
+        cached_glyphs: &HashMap<Self::CacheKey, GlyphBBoxAndAtlasCoords>,
     ) -> Result<TextRasterizationBuffer<Self::CacheKey>, AvengerWgpuError> {
         let mut font_system = FONT_SYSTEM
             .lock()
@@ -111,8 +104,7 @@ impl TextRasterizer for CosmicTextRasterizer {
             .expect("Failed to acquire lock on SWASH_CACHE");
 
         // Build image cache
-        let mut next_cache: HashMap<CosmicCacheKey, TextRasterizationGlyphDetails<CosmicCacheKey>> =
-            HashMap::new();
+        let mut next_cache: HashMap<CosmicCacheKey, GlyphImage<CosmicCacheKey>> = HashMap::new();
 
         // Build cosmic-text Buffer
         let mut buffer = Buffer::new(
@@ -152,12 +144,8 @@ impl TextRasterizer for CosmicTextRasterizer {
             (config.color[3] * 255.0).round() as u8,
         ];
 
-        // Initialize
-        let mut images: Vec<image::RgbaImage> = Vec::new();
-        let mut glyphs: Vec<(
-            TextRasterizationGlyphDetails<CosmicCacheKey>,
-            PhysicalGlyphPosition,
-        )> = Vec::new();
+        // Initialize glyphs
+        let mut glyphs: Vec<(GlyphImage<CosmicCacheKey>, PhysicalGlyphPosition)> = Vec::new();
 
         for run in buffer.layout_runs() {
             for glyph in run.glyphs.iter() {
@@ -171,12 +159,21 @@ impl TextRasterizer for CosmicTextRasterizer {
                 // Compute cache key which combines glyph and color
                 let cache_key = (physical_glyph.cache_key, text_color);
 
-                // Compute next image index
-                let next_image_index = images.len();
-
-                if let Some(details) = next_cache.get(&cache_key) {
-                    // Glyph has already been rasterize, add again with new physical position
-                    glyphs.push((details.clone(), phys_pos));
+                if let Some(glyph_image) = next_cache.get(&cache_key) {
+                    // Glyph has already been rasterized by this call to rasterize and the full image
+                    // is already in the glyphs Vec, so we can store the reference only.
+                    glyphs.push((glyph_image.without_image(), phys_pos));
+                } else if let Some(glyph_bbox_and_altas_coords) = cached_glyphs.get(&cache_key) {
+                    // Glyph already rasterized by a prior call to rasterize(), so we can just
+                    // store the cache key and position info.
+                    glyphs.push((
+                        GlyphImage {
+                            cache_key,
+                            image: None,
+                            bbox: glyph_bbox_and_altas_coords.bbox,
+                        },
+                        phys_pos,
+                    ));
                 } else {
                     // We need to rasterize glyph and write it to next_atlas
                     let Some(image) = cache
@@ -249,28 +246,27 @@ impl TextRasterizer for CosmicTextRasterizer {
                         }
                     };
 
-                    // Add new image
-                    images.push(img);
-
-                    // Create and add details and physical position
-                    let details = TextRasterizationGlyphDetails {
-                        image_index: next_image_index,
+                    // Create new glyph image
+                    let glyph_image = GlyphImage {
                         cache_key: (physical_glyph.cache_key, text_color),
-                        top: image.placement.top,
-                        left: image.placement.left,
-                        width: image.placement.width,
-                        height: image.placement.height,
+                        image: Some(img),
+                        bbox: GlyphBBox {
+                            top: image.placement.top,
+                            left: image.placement.left,
+                            width: image.placement.width,
+                            height: image.placement.height,
+                        },
                     };
-                    glyphs.push((details.clone(), phys_pos));
 
                     // Update cache
-                    next_cache.insert(cache_key, details);
+                    next_cache.insert(cache_key, glyph_image.without_image());
+
+                    glyphs.push((glyph_image, phys_pos));
                 };
             }
         }
 
         Ok(TextRasterizationBuffer {
-            images,
             glyphs,
             buffer_width: buffer_width,
             buffer_height: buffer_height,

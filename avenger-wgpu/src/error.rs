@@ -32,6 +32,9 @@ pub enum AvengerWgpuError {
 
     #[error("Text support is not enabled: {0}")]
     TextNotEnabled(String),
+
+    #[error("Text error: {0}")]
+    TextError(String),
 }
 
 // Conversion to PyO3 error

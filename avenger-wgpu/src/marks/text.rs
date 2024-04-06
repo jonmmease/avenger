@@ -20,12 +20,37 @@ pub trait TextAtlasBuilderTrait {
     fn build(&self) -> (Extent3d, Vec<DynamicImage>);
 }
 
+pub struct NullTextAtlasBuilder;
+
+impl TextAtlasBuilderTrait for NullTextAtlasBuilder {
+    fn register_text(
+        &mut self,
+        _text: TextInstance,
+        _dimensions: CanvasDimensions,
+    ) -> Result<Vec<TextAtlasRegistration>, AvengerWgpuError> {
+        Err(AvengerWgpuError::TextNotEnabled(
+            "Text support is not enabled".to_string(),
+        ))
+    }
+
+    fn build(&self) -> (Extent3d, Vec<DynamicImage>) {
+        (
+            Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            vec![DynamicImage::ImageRgba8(image::RgbaImage::new(1, 1))],
+        )
+    }
+}
+
 #[derive(Clone)]
 pub struct TextAtlasBuilder<CacheKey: Hash + Eq + Clone> {
     rasterizer: Arc<dyn TextRasterizer<CacheKey = CacheKey>>,
     extent: Extent3d,
     next_atlas: image::RgbaImage,
-    next_cache: HashMap<CacheKey, GlyphPosition>,
+    next_cache: HashMap<CacheKey, GlyphBBoxAndAtlasCoords>,
     atlases: Vec<DynamicImage>,
     initialized: bool,
     allocator: etagere::AtlasAllocator,
@@ -84,9 +109,11 @@ impl<CacheKey: Hash + Eq + Clone> TextAtlasBuilderTrait for TextAtlasBuilder<Cac
         let position = text.position;
         let angle = text.angle;
 
-        let buffer = self
-            .rasterizer
-            .rasterize(dimensions, &TextRasterizationConfig::from(text))?;
+        let buffer = self.rasterizer.rasterize(
+            dimensions,
+            &TextRasterizationConfig::from(text),
+            &self.next_cache,
+        )?;
 
         let buffer_left = match align {
             TextAlignSpec::Left => position[0],
@@ -116,17 +143,17 @@ impl<CacheKey: Hash + Eq + Clone> TextAtlasBuilderTrait for TextAtlasBuilder<Cac
         let mut verts: Vec<MultiVertex> = Vec::new();
         let mut indices: Vec<u32> = Vec::new();
 
-        for (raster_details, phys_position) in &buffer.glyphs {
-            let glyph_position =
-                if let Some(glyph_position) = self.next_cache.get(&raster_details.cache_key) {
+        for (glyph_image, phys_position) in &buffer.glyphs {
+            let glyph_bbox_and_atlas_coords =
+                if let Some(glyph_position) = self.next_cache.get(&glyph_image.cache_key) {
                     // Glyph has already been written to atlas
                     glyph_position
                 } else {
                     // Allocate space in active atlas image, leaving space for 1 pixel empty border
                     let allocation = if let Some(allocation) =
                         self.allocator.allocate(etagere::Size::new(
-                            (raster_details.width + 2) as i32,
-                            (raster_details.height + 2) as i32,
+                            (glyph_image.bbox.width + 2) as i32,
+                            (glyph_image.bbox.height + 2) as i32,
                         )) {
                         // Successfully allocated space in the active atlas
                         allocation
@@ -163,8 +190,8 @@ impl<CacheKey: Hash + Eq + Clone> TextAtlasBuilderTrait for TextAtlasBuilder<Cac
 
                         // Try allocation again
                         if let Some(allocation) = self.allocator.allocate(etagere::Size::new(
-                            (raster_details.width + 2) as i32,
-                            (raster_details.height + 2) as i32,
+                            (glyph_image.bbox.width + 2) as i32,
+                            (glyph_image.bbox.height + 2) as i32,
                         )) {
                             allocation
                         } else {
@@ -178,11 +205,16 @@ impl<CacheKey: Hash + Eq + Clone> TextAtlasBuilderTrait for TextAtlasBuilder<Cac
                     // Use one pixel offset to avoid aliasing artifacts in linear interpolation
                     let p0 = allocation.rectangle.min;
                     let atlas_x0 = p0.x + 1;
-                    let atlas_x1 = atlas_x0 + raster_details.width as i32;
+                    let atlas_x1 = atlas_x0 + glyph_image.bbox.width as i32;
                     let atlas_y0 = p0.y + 1;
-                    let atlas_y1 = atlas_y0 + raster_details.height as i32;
+                    let atlas_y1 = atlas_y0 + glyph_image.bbox.height as i32;
 
-                    let img = &buffer.images[raster_details.image_index];
+                    let Some(img) = glyph_image.image.as_ref() else {
+                        return Err(AvengerWgpuError::TextError(
+                            "Expected glyph image to be available on first use".to_string(),
+                        ));
+                    };
+
                     for (src_x, dest_x) in (atlas_x0..atlas_x1).enumerate() {
                         for (src_y, dest_y) in (atlas_y0..atlas_y1).enumerate() {
                             self.next_atlas.put_pixel(
@@ -194,12 +226,9 @@ impl<CacheKey: Hash + Eq + Clone> TextAtlasBuilderTrait for TextAtlasBuilder<Cac
                     }
 
                     self.next_cache.insert(
-                        raster_details.cache_key.clone(),
-                        GlyphPosition {
-                            top: raster_details.top as f32,
-                            left: raster_details.left as f32,
-                            width: raster_details.width as f32,
-                            height: raster_details.height as f32,
+                        glyph_image.cache_key.clone(),
+                        GlyphBBoxAndAtlasCoords {
+                            bbox: glyph_image.bbox,
                             tex_coords: TextAtlasCoords {
                                 x0: (atlas_x0 as f32) / self.extent.width as f32,
                                 y0: (atlas_y0 as f32) / self.extent.height as f32,
@@ -208,17 +237,17 @@ impl<CacheKey: Hash + Eq + Clone> TextAtlasBuilderTrait for TextAtlasBuilder<Cac
                             },
                         },
                     );
-                    self.next_cache.get(&raster_details.cache_key).unwrap()
+                    self.next_cache.get(&glyph_image.cache_key).unwrap()
                 };
 
             // Create verts for rectangle around glyph
-            let x0 =
-                (phys_position.x as f32 + glyph_position.left) / dimensions.scale + buffer_left;
+            let bbox = &glyph_bbox_and_atlas_coords.bbox;
+            let x0 = (phys_position.x + bbox.left as f32) / dimensions.scale + buffer_left;
             let y0 = (buffer.buffer_line_y).round()
-                + (phys_position.y as f32 - glyph_position.top) / dimensions.scale
+                + (phys_position.y - bbox.top as f32) / dimensions.scale
                 + buffer_top;
-            let x1 = x0 + glyph_position.width / dimensions.scale;
-            let y1 = y0 + glyph_position.height / dimensions.scale;
+            let x1 = x0 + bbox.width as f32 / dimensions.scale;
+            let y1 = y0 + bbox.height as f32 / dimensions.scale;
 
             let top_left = rotation_transform
                 .transform_point(Point2D::new(x0, y0))
@@ -233,10 +262,11 @@ impl<CacheKey: Hash + Eq + Clone> TextAtlasBuilderTrait for TextAtlasBuilder<Cac
                 .transform_point(Point2D::new(x1, y0))
                 .to_array();
 
-            let tex_x0 = glyph_position.tex_coords.x0;
-            let tex_y0 = glyph_position.tex_coords.y0;
-            let tex_x1 = glyph_position.tex_coords.x1;
-            let tex_y1 = glyph_position.tex_coords.y1;
+            let tex_coords = glyph_bbox_and_atlas_coords.tex_coords;
+            let tex_x0 = tex_coords.x0;
+            let tex_y0 = tex_coords.y0;
+            let tex_x1 = tex_coords.x1;
+            let tex_y1 = tex_coords.y1;
 
             let offset = verts.len() as u32;
 
@@ -314,22 +344,14 @@ pub struct TextInstance<'a> {
     pub limit: f32,
 }
 
-#[derive(Debug, Clone)]
-pub struct TextRasterizationGlyphDetails<CacheKey: Hash + Eq + Clone> {
-    pub cache_key: CacheKey,
-    pub image_index: usize,
-    pub top: i32,
-    pub left: i32,
-    pub width: u32,
-    pub height: u32,
-}
-
+// Position of glyph in text buffer
 #[derive(Debug, Clone)]
 pub struct PhysicalGlyphPosition {
     pub x: f32,
     pub y: f32,
 }
 
+// Position of glyph in text atlas
 #[derive(Copy, Clone)]
 pub struct TextAtlasCoords {
     pub x0: f32,
@@ -338,13 +360,37 @@ pub struct TextAtlasCoords {
     pub y1: f32,
 }
 
+// Glyph bounding box relative to glyph origin
+#[derive(Clone, Copy)]
+pub struct GlyphBBox {
+    pub top: i32,
+    pub left: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
 #[derive(Clone)]
-pub struct GlyphPosition {
-    top: f32,
-    left: f32,
-    width: f32,
-    height: f32,
-    tex_coords: TextAtlasCoords,
+pub struct GlyphImage<CacheKey: Hash + Eq + Clone> {
+    pub cache_key: CacheKey,
+    // None if image for same CacheKey was already included
+    pub image: Option<image::RgbaImage>,
+    pub bbox: GlyphBBox,
+}
+
+impl<CacheKey: Hash + Eq + Clone> GlyphImage<CacheKey> {
+    pub fn without_image(&self) -> Self {
+        Self {
+            cache_key: self.cache_key.clone(),
+            image: None,
+            bbox: self.bbox,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct GlyphBBoxAndAtlasCoords {
+    pub bbox: GlyphBBox,
+    pub tex_coords: TextAtlasCoords,
 }
 
 #[derive(Debug, Clone)]
@@ -372,13 +418,9 @@ impl<'a> From<TextInstance<'a>> for TextRasterizationConfig<'a> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TextRasterizationBuffer<CacheKey: Hash + Eq + Clone> {
-    pub images: Vec<image::RgbaImage>,
-    pub glyphs: Vec<(
-        TextRasterizationGlyphDetails<CacheKey>,
-        PhysicalGlyphPosition,
-    )>,
+    pub glyphs: Vec<(GlyphImage<CacheKey>, PhysicalGlyphPosition)>,
     pub buffer_width: f32,
     pub buffer_height: f32,
     pub buffer_line_y: f32,
@@ -390,5 +432,6 @@ pub trait TextRasterizer {
         &self,
         dimensions: CanvasDimensions,
         config: &TextRasterizationConfig,
+        cached_glyphs: &HashMap<Self::CacheKey, GlyphBBoxAndAtlasCoords>,
     ) -> Result<TextRasterizationBuffer<Self::CacheKey>, AvengerWgpuError>;
 }

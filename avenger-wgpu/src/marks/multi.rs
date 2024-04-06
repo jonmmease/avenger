@@ -43,7 +43,6 @@ use avenger::marks::arc::ArcMark;
 use avenger::marks::group::Clip;
 use avenger::marks::text::TextMark;
 
-use crate::marks::cosmic::CosmicTextRasterizer;
 #[cfg(feature = "rayon")]
 use {crate::par_izip, rayon::prelude::*};
 
@@ -116,7 +115,7 @@ impl MultiMarkRenderer {
                 let text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(CosmicTextRasterizer)));
             } else {
                 use crate::marks::text::NullTextAtlasBuilder;
-                let text_atlas_builder: Box<dyn TextAtlasBuilder> = Box::new(NullTextAtlasBuilder);
+                let text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(NullTextAtlasBuilder);
             }
         };
 
