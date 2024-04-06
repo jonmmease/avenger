@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::format;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::Mutex;
 use wasm_bindgen::{JsCast, JsError, JsValue};
 use web_sys::{OffscreenCanvas, OffscreenCanvasRenderingContext2d};
 use avenger_wgpu::canvas::CanvasDimensions;
@@ -9,6 +10,12 @@ use avenger_wgpu::marks::text::{GlyphBBox, GlyphBBoxAndAtlasCoords, GlyphImage, 
 use unicode_segmentation::UnicodeSegmentation;
 use avenger::marks::text::{FontStyleSpec, FontWeightNameSpec, FontWeightSpec};
 use crate::log;
+use lazy_static::lazy_static;
+
+lazy_static! {
+    // TODO: use LRU cache
+    static ref GLYPH_CACHE: Mutex<HashMap<u64, GlyphImage<u64>>> = Mutex::new(HashMap::new());
+}
 
 #[derive(Clone, Debug)]
 pub struct HtmlCanvasTextRasterizer;
@@ -17,6 +24,10 @@ impl TextRasterizer for HtmlCanvasTextRasterizer {
     type CacheKey = u64;
 
     fn rasterize(&self, dimensions: CanvasDimensions, config: &TextRasterizationConfig, cached_glyphs: &HashMap<Self::CacheKey, GlyphBBoxAndAtlasCoords>) -> Result<TextRasterizationBuffer<Self::CacheKey>, AvengerWgpuError> {
+        let mut glyph_cache = GLYPH_CACHE
+            .lock()
+            .expect("Failed to acquire lock on GLYPH_CACHE");
+
         // Create context for measuring text (we don't draw to this one)
         let offscreen_canvas = OffscreenCanvas::new(400, 400)?;
         let context = offscreen_canvas.get_context("2d")?.unwrap();
@@ -61,6 +72,8 @@ impl TextRasterizer for HtmlCanvasTextRasterizer {
                 continue
             }
 
+            // Build cache key concatenating font and cluster
+            let cache_key = calculate_cache_key(&font_str, &cluster);
             // Compute metrics of cumulative string up to this cluster
             let cumulative_metrics = text_context.measure_text(&str_so_far)?;
 
@@ -77,54 +90,68 @@ impl TextRasterizer for HtmlCanvasTextRasterizer {
             let left = right - cluster_width;
             let top = -cluster_metrics.actual_bounding_box_ascent();
 
-            // Create image for glyph
-            let glyph_canvas = OffscreenCanvas::new(
-                cluster_actual_width.ceil() as u32 + 2,
-                cluster_height.ceil() as u32 + 2,
-            )?;
-            let glyph_context = glyph_canvas.get_context("2d")?.unwrap();
-            let glyph_context = glyph_context.dyn_into::<OffscreenCanvasRenderingContext2d>()?;
-            glyph_context.set_font(&font_str);
-            glyph_context.set_fill_style(&color_str);
-
-            // // Debugging, add bbox outline
-            // glyph_context.set_stroke_style(&"red".into());
-            // glyph_context.set_line_width(1.0);
-            // glyph_context.stroke_rect(0.0, 0.0, glyph_canvas.width() as f64, glyph_canvas.height() as f64);
-
-            // Draw text to canvas
-            let draw_x = cluster_metrics.actual_bounding_box_left();
-            let draw_y = cluster_metrics.actual_bounding_box_ascent();
-            glyph_context.fill_text(cluster, draw_x + 1.0, draw_y + 1.0)?;
-
-            // Convert canvas to image
-            let image_data = glyph_context.get_image_data(
-                0.0, 0.0, glyph_canvas.width() as f64, glyph_canvas.height() as f64
-            )?;
-            let img = image::RgbaImage::from_raw(
-                image_data.width(), image_data.height(), image_data.data().0
-            ).expect("Failed to import glyph image");
-
             // Physical position, relative to start of origin of string
             let phys_pos = PhysicalGlyphPosition {
                 x: left as f32,
                 y: top as f32,
             };
 
-            // Build cache key concatenating font and cluster
-            let cache_key = calculate_cache_key(&font_str, &cluster);
+            if let Some(glyph_bbox_and_altas_coords) = cached_glyphs.get(&cache_key) {
+                // Glyph already rasterized by a prior call to rasterize() within the same atlas, so we can just
+                // store the cache key and position info.
+                glyphs.push((
+                    GlyphImage {
+                        cache_key,
+                        image: None,
+                        bbox: glyph_bbox_and_altas_coords.bbox,
+                    },
+                    phys_pos,
+                ));
+            } else if let Some(glyph_image) = glyph_cache.get(&cache_key) {
+                // Glyph has already been rasterized previously, but the image may be needed
+                glyphs.push((glyph_image.clone(), phys_pos));
+            } else {
+                // Create image for glyph
+                let glyph_canvas = OffscreenCanvas::new(
+                    cluster_actual_width.ceil() as u32 + 2,
+                    cluster_height.ceil() as u32 + 2,
+                )?;
+                let glyph_context = glyph_canvas.get_context("2d")?.unwrap();
+                let glyph_context = glyph_context.dyn_into::<OffscreenCanvasRenderingContext2d>()?;
+                glyph_context.set_font(&font_str);
+                glyph_context.set_fill_style(&color_str);
 
-            let glyph_image = GlyphImage {
-                cache_key,
-                image: Some(img),
-                bbox: GlyphBBox {
-                    left: -draw_x as i32,
-                    top: 0i32,
-                    width: image_data.width(),
-                    height: image_data.height(),
-                },
-            };
-            glyphs.push((glyph_image, phys_pos));
+                // // Debugging, add bbox outline
+                // glyph_context.set_stroke_style(&"red".into());
+                // glyph_context.set_line_width(1.0);
+                // glyph_context.stroke_rect(0.0, 0.0, glyph_canvas.width() as f64, glyph_canvas.height() as f64);
+
+                // Draw text to canvas
+                let draw_x = cluster_metrics.actual_bounding_box_left();
+                let draw_y = cluster_metrics.actual_bounding_box_ascent();
+                glyph_context.fill_text(cluster, draw_x + 1.0, draw_y + 1.0)?;
+
+                // Convert canvas to image
+                let image_data = glyph_context.get_image_data(
+                    0.0, 0.0, glyph_canvas.width() as f64, glyph_canvas.height() as f64
+                )?;
+                let img = image::RgbaImage::from_raw(
+                    image_data.width(), image_data.height(), image_data.data().0
+                ).expect("Failed to import glyph image");
+
+                let glyph_image = GlyphImage {
+                    cache_key,
+                    image: Some(img),
+                    bbox: GlyphBBox {
+                        left: -draw_x as i32,
+                        top: 0i32,
+                        width: image_data.width(),
+                        height: image_data.height(),
+                    },
+                };
+                glyph_cache.insert(cache_key, glyph_image.clone());
+                glyphs.push((glyph_image, phys_pos));
+            }
         }
 
         // Compute final buffer metrics
@@ -135,9 +162,9 @@ impl TextRasterizer for HtmlCanvasTextRasterizer {
 
         Ok(TextRasterizationBuffer {
             glyphs,
-            buffer_width: buffer_width as f32,
-            buffer_height: buffer_height as f32,
-            buffer_line_y: buffer_line_y as f32,
+            buffer_width: buffer_width as f32 / dimensions.scale,
+            buffer_height: buffer_height as f32 / dimensions.scale,
+            buffer_line_y: buffer_line_y as f32 / dimensions.scale,
         })
     }
 }
