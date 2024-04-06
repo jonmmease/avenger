@@ -145,9 +145,9 @@ function importGroup(vegaGroup) {
             case "rule":
                 groupMark.add_rule_mark(importRule(vegaMark));
                 break;
-            // case "text":
-            //     groupMark.add_text_mark(importText(vegaMark));
-            //     break;
+            case "text":
+                groupMark.add_text_mark(importText(vegaMark));
+                break;
             case "group":
                 for (const groupItem of vegaMark.items) {
                     groupMark.add_group_mark(importGroup(groupItem));

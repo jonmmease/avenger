@@ -29,6 +29,7 @@ use lyon::path::builder::{BorderRadii, WithSvg};
 use lyon::path::path::BuilderImpl;
 use lyon::path::{Path, Winding};
 use std::ops::{Mul, Neg, Range};
+use std::sync::Arc;
 
 use wgpu::util::DeviceExt;
 use wgpu::{
@@ -110,21 +111,21 @@ pub struct MultiMarkRenderer {
 impl MultiMarkRenderer {
     pub fn new(
         dimensions: CanvasDimensions,
-        text_atlas_builder: Option<Box<dyn TextAtlasBuilderTrait>>,
+        text_atlas_builder_ctor: Option<Arc<fn() -> Box<dyn TextAtlasBuilderTrait>>>
     ) -> Self {
-        let text_atlas_builder = if let Some(text_atlas_builder) = text_atlas_builder {
-            text_atlas_builder
+        let text_atlas_builder = if let Some(text_atlas_builder_ctor) = text_atlas_builder_ctor {
+            text_atlas_builder_ctor()
         } else {
             cfg_if::cfg_if! {
                 if #[cfg(feature = "cosmic-text")] {
                     use crate::marks::cosmic::CosmicTextRasterizer;
-                    let text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(CosmicTextRasterizer)));
+                    let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(CosmicTextRasterizer)));
                 } else {
                     use crate::marks::text::NullTextAtlasBuilder;
-                    let text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(NullTextAtlasBuilder);
+                    let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(NullTextAtlasBuilder);
                 }
             };
-            text_atlas_builder
+            inner_text_atlas_builder
         };
 
         Self {
