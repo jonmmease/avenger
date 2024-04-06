@@ -11,13 +11,13 @@ var spec = {
     "width": 400,
     "height": 400,
     "style": "cell",
-    // "title": {
-    //     "text": "Hello, 👋 World 🌍",
-    //     "fontSize": 48,
-    //     "font": "serif",
-    //     "fontWeight": "normal",
-    //     "color": "blue",
-    // },
+    "title": {
+        "text": "Hello, 👋 World 🌍",
+        "fontSize": 28,
+        "font": "serif",
+        "fontWeight": "normal",
+        "color": "blue",
+    },
     "data": [
         {"name": "grid_store"},
         {
@@ -226,7 +226,7 @@ var spec = {
             "scale": "x",
             "orient": "bottom",
             "grid": false,
-            "labels": false,
+            "title": "Horsepower",
             "labelFlush": true,
             "labelOverlap": true,
             "tickCount": {"signal": "ceil(width/40)"},
@@ -236,7 +236,7 @@ var spec = {
             "scale": "y",
             "orient": "left",
             "grid": false,
-            "labels": false,
+            "title": "Miles_per_Gallon",
             "labelOverlap": true,
             "tickCount": {"signal": "ceil(height/40)"},
             "zindex": 0

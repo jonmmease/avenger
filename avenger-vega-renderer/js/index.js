@@ -66,6 +66,8 @@ inherits(AvengerRenderer, Renderer, {
         this._avengerHtmlCanvas = document.createElement('canvas');
         domClear(bottomEl, 0).appendChild(this._avengerHtmlCanvas);
         this._avengerHtmlCanvas.setAttribute('class', 'marks');
+        this._avengerHtmlCanvas.style.width = width + "px";
+        this._avengerHtmlCanvas.style.height = height + "px";
 
         // Add event canvas to top element
         this._handlerCanvas = document.createElement('canvas');
@@ -87,6 +89,8 @@ inherits(AvengerRenderer, Renderer, {
     },
 
     resize(width, height, origin) {
+        this._avengerHtmlCanvas.style.width = width + "px";
+        this._avengerHtmlCanvas.style.height = height + "px";
         this._avengerCanvasPromise = new AvengerCanvas(this._avengerHtmlCanvas, width, height, origin[0], origin[1]);
 
         base.resize.call(this, width, height, origin);

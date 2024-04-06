@@ -54,7 +54,7 @@ impl AvengerCanvas {
         set_panic_hook();
         let dimensions = CanvasDimensions {
             size: [width, height],
-            scale: 1.0,
+            scale: 2.0,
         };
         let Ok(canvas) = HtmlCanvasCanvas::new(canvas, dimensions, make_config()).await else {
             return Err(JsError::new("Failed to construct Avenger Canvas"));

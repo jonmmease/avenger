@@ -395,6 +395,7 @@ dependencies = [
  "csscolorparser",
  "image",
  "js-sys",
+ "lazy_static",
  "serde-wasm-bindgen",
  "serde_json",
  "unicode-segmentation",
