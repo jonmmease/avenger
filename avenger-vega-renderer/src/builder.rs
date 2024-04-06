@@ -2,10 +2,12 @@ use crate::log;
 use avenger::marks::group::{Clip, SceneGroup as RsSceneGroup, SceneGroup};
 use avenger::marks::mark::SceneMark;
 use avenger::marks::value::{ColorOrGradient, EncodingValue};
-use avenger::marks::{rule::RuleMark as RsRuleMark, symbol::SymbolMark as RsSymbolMark};
+use avenger::marks::{rule::RuleMark as RsRuleMark, symbol::SymbolMark as RsSymbolMark, text::TextMark as RsTextMark};
 use avenger::scene_graph::SceneGraph as RsSceneGraph;
 use wasm_bindgen::prelude::*;
 use web_sys::console::group;
+use avenger_vega::marks::mark::VegaMarkContainer;
+use avenger_vega::marks::text::VegaTextItem;
 
 #[wasm_bindgen]
 pub struct SymbolMark {
@@ -101,6 +103,22 @@ impl RuleMark {
     }
 }
 
+#[wasm_bindgen]
+pub struct TextMark {
+    inner: SceneMark,
+}
+
+#[wasm_bindgen]
+impl TextMark {
+    #[wasm_bindgen(constructor)]
+    pub fn new(js_value: JsValue) -> Self {
+        let vega_text_mark: VegaMarkContainer<VegaTextItem> = serde_wasm_bindgen::from_value(js_value).expect("Failed to parse text mark");
+        Self {
+            inner: vega_text_mark.to_scene_graph(false).expect("Failed to parse text mark")
+        }
+    }
+}
+
 fn decode_colors(
     joined_unique_string: &str,
     indices: Vec<u32>,
@@ -172,6 +190,10 @@ impl GroupMark {
 
     pub fn add_rule_mark(&mut self, mark: RuleMark) {
         self.inner.marks.push(SceneMark::Rule(mark.inner));
+    }
+
+    pub fn add_text_mark(&mut self, mark: TextMark) {
+        self.inner.marks.push(mark.inner);
     }
 
     pub fn add_group_mark(&mut self, mark: GroupMark) {

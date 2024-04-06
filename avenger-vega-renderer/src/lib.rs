@@ -1,4 +1,5 @@
 mod builder;
+mod text;
 
 use crate::builder::SceneGraph;
 use avenger::marks::group::SceneGroup;
@@ -9,8 +10,11 @@ use avenger_wgpu::canvas::{Canvas, CanvasConfig, CanvasDimensions, PngCanvas};
 use avenger_wgpu::html_canvas::HtmlCanvasCanvas;
 use image::ImageOutputFormat;
 use std::io::Cursor;
+use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
+use avenger_wgpu::marks::text::TextAtlasBuilder;
+use crate::text::HtmlCanvasTextRasterizer;
 
 pub fn set_panic_hook() {
     // When the `console_error_panic_hook` feature is enabled, we can call the
@@ -124,5 +128,8 @@ pub async fn scene_graph_to_png(scene_graph: SceneGraph) -> Result<js_sys::Uint8
 }
 
 fn make_config() -> CanvasConfig {
-    Default::default()
+    CanvasConfig {
+        // text_builder: Some(Box::new(TextAtlasBuilder::new(Arc::new(HtmlCanvasTextRasterizer)))),
+        ..Default::default()
+    }
 }

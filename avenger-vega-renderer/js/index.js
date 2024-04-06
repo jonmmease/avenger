@@ -1,4 +1,4 @@
-import { AvengerCanvas, SceneGraph, GroupMark, SymbolMark, RuleMark, scene_graph_to_png } from "../pkg/avenger_wasm.js";
+import { AvengerCanvas, SceneGraph, GroupMark, SymbolMark, RuleMark, TextMark, scene_graph_to_png } from "../pkg/avenger_wasm.js";
 import { Renderer, CanvasHandler, domClear, domChild } from 'vega-scenegraph';
 import { inherits } from 'vega-util';
 
@@ -145,6 +145,9 @@ function importGroup(vegaGroup) {
             case "rule":
                 groupMark.add_rule_mark(importRule(vegaMark));
                 break;
+            // case "text":
+            //     groupMark.add_text_mark(importText(vegaMark));
+            //     break;
             case "group":
                 for (const groupItem of vegaMark.items) {
                     groupMark.add_group_mark(importGroup(groupItem));
@@ -247,6 +250,10 @@ function importRule(vegaRuleMark) {
     ruleMark.set_stroke(encodedStroke.joinedUniqueString, encodedStroke.indices, opacity);
 
     return ruleMark;
+}
+
+function importText(vegaRuleMark) {
+    return new TextMark(vegaRuleMark);
 }
 
 function encodeStringArray(originalArray) {
