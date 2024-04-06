@@ -129,7 +129,9 @@ pub async fn scene_graph_to_png(scene_graph: SceneGraph) -> Result<js_sys::Uint8
 
 fn make_config() -> CanvasConfig {
     CanvasConfig {
-        // text_builder: Some(Box::new(TextAtlasBuilder::new(Arc::new(HtmlCanvasTextRasterizer)))),
+        text_builder_ctor: Some(Arc::new(|| {
+            Box::new(TextAtlasBuilder::new(Arc::new(HtmlCanvasTextRasterizer)))
+        })),
         ..Default::default()
     }
 }

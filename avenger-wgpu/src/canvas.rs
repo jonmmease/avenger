@@ -58,12 +58,12 @@ impl CanvasDimensions {
 }
 
 pub struct CanvasConfig {
-    pub text_builder: Option<Box<dyn TextAtlasBuilderTrait>>,
+    pub text_builder_ctor: Option<Arc<fn() -> Box<dyn TextAtlasBuilderTrait>>>,
 }
 
 impl Default for CanvasConfig {
     fn default() -> Self {
-        Self { text_builder: None }
+        Self { text_builder_ctor: None }
     }
 }
 
@@ -586,7 +586,7 @@ impl<'window> Canvas for WindowCanvas<'window> {
         if self.multi_renderer.is_none() {
             self.multi_renderer = Some(MultiMarkRenderer::new(
                 self.dimensions,
-                self.config.text_builder.take(),
+                self.config.text_builder_ctor.clone(),
             ));
         }
         self.multi_renderer.as_mut().unwrap()
@@ -849,7 +849,7 @@ impl Canvas for PngCanvas {
         if self.multi_renderer.is_none() {
             self.multi_renderer = Some(MultiMarkRenderer::new(
                 self.dimensions,
-                self.config.text_builder.take(),
+                self.config.text_builder_ctor.clone(),
             ));
         }
         self.multi_renderer.as_mut().unwrap()
