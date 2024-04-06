@@ -20,6 +20,7 @@ pub trait TextAtlasBuilderTrait {
     fn build(&self) -> (Extent3d, Vec<DynamicImage>);
 }
 
+#[derive(Clone)]
 pub struct NullTextAtlasBuilder;
 
 impl TextAtlasBuilderTrait for NullTextAtlasBuilder {

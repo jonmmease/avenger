@@ -1,7 +1,7 @@
 use crate::canvas::{
     create_multisampled_framebuffer, get_supported_sample_count, make_background_command,
-    make_wgpu_adapter, make_wgpu_instance, request_wgpu_device, Canvas, CanvasDimensions,
-    MarkRenderer,
+    make_wgpu_adapter, make_wgpu_instance, request_wgpu_device, Canvas, CanvasConfig,
+    CanvasDimensions, MarkRenderer,
 };
 use crate::error::AvengerWgpuError;
 use crate::marks::multi::MultiMarkRenderer;
@@ -17,16 +17,18 @@ pub struct HtmlCanvasCanvas<'window> {
     queue: Queue,
     multisampled_framebuffer: TextureView,
     sample_count: u32,
-    config: SurfaceConfiguration,
+    surface_config: SurfaceConfiguration,
     dimensions: CanvasDimensions,
     marks: Vec<MarkRenderer>,
     multi_renderer: Option<MultiMarkRenderer>,
+    config: CanvasConfig,
 }
 
 impl<'window> HtmlCanvasCanvas<'window> {
     pub async fn new(
         canvas: HtmlCanvasElement,
         dimensions: CanvasDimensions,
+        config: CanvasConfig,
     ) -> Result<Self, AvengerWgpuError> {
         canvas.set_width(dimensions.to_physical_width());
         canvas.set_height(dimensions.to_physical_height());
@@ -45,7 +47,7 @@ impl<'window> HtmlCanvasCanvas<'window> {
             .find(|f| !f.is_srgb())
             .unwrap_or(surface_caps.formats[0]);
 
-        let config = SurfaceConfiguration {
+        let surface_config = SurfaceConfiguration {
             usage: TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
             width: dimensions.to_physical_width(),
@@ -55,14 +57,14 @@ impl<'window> HtmlCanvasCanvas<'window> {
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
-        surface.configure(&device, &config);
+        surface.configure(&device, &surface_config);
 
         let format_flags = adapter.get_texture_format_features(surface_format).flags;
         let sample_count = get_supported_sample_count(format_flags);
         let multisampled_framebuffer = create_multisampled_framebuffer(
             &device,
-            config.width,
-            config.height,
+            surface_config.width,
+            surface_config.height,
             surface_format,
             sample_count,
         );
@@ -73,10 +75,11 @@ impl<'window> HtmlCanvasCanvas<'window> {
             queue,
             multisampled_framebuffer,
             sample_count,
-            config,
+            surface_config,
             dimensions,
             marks: Vec::new(),
             multi_renderer: None,
+            config,
         })
     }
 
@@ -157,7 +160,10 @@ impl<'window> HtmlCanvasCanvas<'window> {
 impl<'window> Canvas for HtmlCanvasCanvas<'window> {
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
         if self.multi_renderer.is_none() {
-            self.multi_renderer = Some(MultiMarkRenderer::new(self.dimensions));
+            self.multi_renderer = Some(MultiMarkRenderer::new(
+                self.dimensions,
+                self.config.text_builder.take(),
+            ));
         }
         self.multi_renderer.as_mut().unwrap()
     }
@@ -187,7 +193,7 @@ impl<'window> Canvas for HtmlCanvasCanvas<'window> {
     }
 
     fn texture_format(&self) -> TextureFormat {
-        self.config.format
+        self.surface_config.format
     }
 
     fn sample_count(&self) -> u32 {

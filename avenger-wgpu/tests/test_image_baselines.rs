@@ -214,10 +214,13 @@ mod test_image_baselines {
 
         // println!("{}", serde_json::to_string_pretty(&scene_graph).unwrap());
 
-        let mut png_canvas = pollster::block_on(PngCanvas::new(CanvasDimensions {
-            size: [scene_graph.width, scene_graph.height],
-            scale: 2.0,
-        }))
+        let mut png_canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [scene_graph.width, scene_graph.height],
+                scale: 2.0,
+            },
+            &Default::default(),
+        ))
         .unwrap();
         png_canvas.set_scene(&scene_graph).unwrap();
         let img = pollster::block_on(png_canvas.render()).expect("Failed to render PNG image");

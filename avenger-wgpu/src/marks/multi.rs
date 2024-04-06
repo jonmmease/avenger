@@ -29,7 +29,7 @@ use lyon::path::builder::{BorderRadii, WithSvg};
 use lyon::path::path::BuilderImpl;
 use lyon::path::{Path, Winding};
 use std::ops::{Mul, Neg, Range};
-use std::sync::Arc;
+
 use wgpu::util::DeviceExt;
 use wgpu::{
     BindGroup, BindGroupLayout, CommandBuffer, Device, Extent3d, Queue, TextureFormat, TextureView,
@@ -37,7 +37,7 @@ use wgpu::{
 };
 
 // Import rayon prelude as required by par_izip.
-use crate::marks::text::{TextAtlasBuilder, TextAtlasBuilderTrait, TextInstance};
+use crate::marks::text::{TextAtlasBuilderTrait, TextInstance};
 
 use avenger::marks::arc::ArcMark;
 use avenger::marks::group::Clip;
@@ -108,15 +108,23 @@ pub struct MultiMarkRenderer {
 }
 
 impl MultiMarkRenderer {
-    pub fn new(dimensions: CanvasDimensions) -> Self {
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "cosmic-text")] {
-                use crate::marks::cosmic::CosmicTextRasterizer;
-                let text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(CosmicTextRasterizer)));
-            } else {
-                use crate::marks::text::NullTextAtlasBuilder;
-                let text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(NullTextAtlasBuilder);
-            }
+    pub fn new(
+        dimensions: CanvasDimensions,
+        text_atlas_builder: Option<Box<dyn TextAtlasBuilderTrait>>,
+    ) -> Self {
+        let text_atlas_builder = if let Some(text_atlas_builder) = text_atlas_builder {
+            text_atlas_builder
+        } else {
+            cfg_if::cfg_if! {
+                if #[cfg(feature = "cosmic-text")] {
+                    use crate::marks::cosmic::CosmicTextRasterizer;
+                    let text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(CosmicTextRasterizer)));
+                } else {
+                    use crate::marks::text::NullTextAtlasBuilder;
+                    let text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(NullTextAtlasBuilder);
+                }
+            };
+            text_atlas_builder
         };
 
         Self {
