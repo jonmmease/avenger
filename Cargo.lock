@@ -397,6 +397,7 @@ dependencies = [
  "js-sys",
  "serde-wasm-bindgen",
  "serde_json",
+ "unicode-segmentation",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
