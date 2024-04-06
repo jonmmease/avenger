@@ -16,6 +16,7 @@ use crate::error::AvengerWgpuError;
 use crate::marks::instanced_mark::InstancedMarkRenderer;
 use crate::marks::multi::MultiMarkRenderer;
 use crate::marks::symbol::SymbolShader;
+use crate::marks::text::TextAtlasBuilderTrait;
 use avenger::marks::arc::ArcMark;
 use avenger::marks::area::AreaMark;
 use avenger::marks::group::Clip;
@@ -53,6 +54,16 @@ impl CanvasDimensions {
             width: self.to_physical_width(),
             height: self.to_physical_height(),
         }
+    }
+}
+
+pub struct CanvasConfig {
+    pub text_builder: Option<Box<dyn TextAtlasBuilderTrait>>,
+}
+
+impl Default for CanvasConfig {
+    fn default() -> Self {
+        Self { text_builder: None }
     }
 }
 
@@ -182,14 +193,9 @@ pub trait Canvas {
         origin: [f32; 2],
         group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "cosmic-text")] {
-                self.get_multi_renderer().add_text_mark(mark, origin, group_clip)?;
-                Ok(())
-            } else {
-                Err(AvengerWgpuError::TextNotEnabled("Use the cosmic-text feature flag to enable text".to_string()))
-            }
-        }
+        self.get_multi_renderer()
+            .add_text_mark(mark, origin, group_clip)?;
+        Ok(())
     }
 
     fn add_image_mark(
@@ -423,16 +429,18 @@ pub struct WindowCanvas<'window> {
     queue: Queue,
     multisampled_framebuffer: TextureView,
     sample_count: u32,
-    config: SurfaceConfiguration,
+    surface_config: SurfaceConfiguration,
     dimensions: CanvasDimensions,
     marks: Vec<MarkRenderer>,
     multi_renderer: Option<MultiMarkRenderer>,
+    config: CanvasConfig,
 }
 
 impl<'window> WindowCanvas<'window> {
     pub async fn new(
         window: Window,
         dimensions: CanvasDimensions,
+        config: CanvasConfig,
     ) -> Result<Self, AvengerWgpuError> {
         let _ = window.request_inner_size(Size::Physical(dimensions.to_physical_size()));
         let instance = make_wgpu_instance();
@@ -451,7 +459,7 @@ impl<'window> WindowCanvas<'window> {
             .find(|f| !f.is_srgb())
             .unwrap_or(surface_caps.formats[0]);
 
-        let config = SurfaceConfiguration {
+        let surface_config = SurfaceConfiguration {
             usage: TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
             width: dimensions.to_physical_width(),
@@ -461,14 +469,14 @@ impl<'window> WindowCanvas<'window> {
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
-        surface.configure(&device, &config);
+        surface.configure(&device, &surface_config);
 
         let format_flags = adapter.get_texture_format_features(surface_format).flags;
         let sample_count = get_supported_sample_count(format_flags);
         let multisampled_framebuffer = create_multisampled_framebuffer(
             &device,
-            config.width,
-            config.height,
+            surface_config.width,
+            surface_config.height,
             surface_format,
             sample_count,
         );
@@ -479,11 +487,12 @@ impl<'window> WindowCanvas<'window> {
             queue,
             multisampled_framebuffer,
             sample_count,
-            config,
+            surface_config,
             dimensions,
             window,
             marks: Vec::new(),
             multi_renderer: None,
+            config,
         })
     }
 
@@ -575,7 +584,10 @@ impl<'window> WindowCanvas<'window> {
 impl<'window> Canvas for WindowCanvas<'window> {
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
         if self.multi_renderer.is_none() {
-            self.multi_renderer = Some(MultiMarkRenderer::new(self.dimensions));
+            self.multi_renderer = Some(MultiMarkRenderer::new(
+                self.dimensions,
+                self.config.text_builder.take(),
+            ));
         }
         self.multi_renderer.as_mut().unwrap()
     }
@@ -605,7 +617,7 @@ impl<'window> Canvas for WindowCanvas<'window> {
     }
 
     fn texture_format(&self) -> TextureFormat {
-        self.config.format
+        self.surface_config.format
     }
 
     fn sample_count(&self) -> u32 {
@@ -626,12 +638,16 @@ pub struct PngCanvas {
     pub texture_size: Extent3d,
     pub padded_width: u32,
     pub padded_height: u32,
-    multi_renderer: Option<MultiMarkRenderer>,
+    pub multi_renderer: Option<MultiMarkRenderer>,
+    pub config: CanvasConfig,
 }
 
 impl PngCanvas {
     #[tracing::instrument(skip_all)]
-    pub async fn new(dimensions: CanvasDimensions) -> Result<Self, AvengerWgpuError> {
+    pub async fn new(
+        dimensions: CanvasDimensions,
+        config: CanvasConfig,
+    ) -> Result<Self, AvengerWgpuError> {
         let instance = make_wgpu_instance();
         let adapter = make_wgpu_adapter(&instance, None).await?;
         let (device, queue) = request_wgpu_device(&adapter).await?;
@@ -698,6 +714,7 @@ impl PngCanvas {
             padded_height,
             marks: Vec::new(),
             multi_renderer: None,
+            config,
         })
     }
 
@@ -830,7 +847,10 @@ impl PngCanvas {
 impl Canvas for PngCanvas {
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
         if self.multi_renderer.is_none() {
-            self.multi_renderer = Some(MultiMarkRenderer::new(self.dimensions));
+            self.multi_renderer = Some(MultiMarkRenderer::new(
+                self.dimensions,
+                self.config.text_builder.take(),
+            ));
         }
         self.multi_renderer.as_mut().unwrap()
     }

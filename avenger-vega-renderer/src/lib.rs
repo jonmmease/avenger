@@ -5,7 +5,7 @@ use avenger::marks::group::SceneGroup;
 use avenger_vega::marks::group::VegaGroupItem;
 use avenger_vega::marks::mark::VegaMarkContainer;
 use avenger_vega::scene_graph::VegaSceneGraph;
-use avenger_wgpu::canvas::{Canvas, CanvasDimensions, PngCanvas};
+use avenger_wgpu::canvas::{Canvas, CanvasConfig, CanvasDimensions, PngCanvas};
 use avenger_wgpu::html_canvas::HtmlCanvasCanvas;
 use image::ImageOutputFormat;
 use std::io::Cursor;
@@ -52,7 +52,7 @@ impl AvengerCanvas {
             size: [width, height],
             scale: 1.0,
         };
-        let Ok(canvas) = HtmlCanvasCanvas::new(canvas, dimensions).await else {
+        let Ok(canvas) = HtmlCanvasCanvas::new(canvas, dimensions, make_config()).await else {
             return Err(JsError::new("Failed to construct Avenger Canvas"));
         };
         Ok(AvengerCanvas {
@@ -100,10 +100,13 @@ impl AvengerCanvas {
 
 #[wasm_bindgen]
 pub async fn scene_graph_to_png(scene_graph: SceneGraph) -> Result<js_sys::Uint8Array, JsError> {
-    let mut png_canvas = PngCanvas::new(CanvasDimensions {
-        size: [scene_graph.width(), scene_graph.height()],
-        scale: 1.0,
-    })
+    let mut png_canvas = PngCanvas::new(
+        CanvasDimensions {
+            size: [scene_graph.width(), scene_graph.height()],
+            scale: 1.0,
+        },
+        make_config(),
+    )
     .await
     .map_err(|err| JsError::new(&err.to_string()))?;
 
@@ -118,4 +121,8 @@ pub async fn scene_graph_to_png(scene_graph: SceneGraph) -> Result<js_sys::Uint8
     img.write_to(&mut Cursor::new(&mut png_data), ImageOutputFormat::Png)
         .map_err(|err| JsError::new(&format!("Failed to convert image to PNG: {err:?}")))?;
     Ok(js_sys::Uint8Array::from(&png_data[..]))
+}
+
+fn make_config() -> CanvasConfig {
+    Default::default()
 }

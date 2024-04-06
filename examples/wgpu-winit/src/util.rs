@@ -3,7 +3,7 @@ use avenger_vega::scene_graph::VegaSceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasDimensions, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
 use winit::event::{ElementState, Event, KeyEvent, WindowEvent};
-use winit::event_loop::{ControlFlow, EventLoop, EventLoopWindowTarget};
+use winit::event_loop::EventLoop;
 use winit::window::WindowBuilder;
 
 #[cfg(target_arch = "wasm32")]
@@ -61,7 +61,7 @@ pub async fn run() {
         size: [scene_graph.width, scene_graph.height],
         scale,
     };
-    let mut canvas = WindowCanvas::new(window, dimensions)
+    let mut canvas = WindowCanvas::new(window, dimensions, Default::default())
         .await
         .unwrap();
 

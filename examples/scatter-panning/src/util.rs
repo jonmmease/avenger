@@ -93,7 +93,7 @@ pub async fn run() {
         size: [width, height],
         scale,
     };
-    let mut canvas = WindowCanvas::new(window, dimensions).await.unwrap();
+    let mut canvas = WindowCanvas::new(window, dimensions, Default::default()).await.unwrap();
 
     canvas.set_scene(&scene_graph).unwrap();
 
