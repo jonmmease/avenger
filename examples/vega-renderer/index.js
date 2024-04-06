@@ -11,7 +11,13 @@ var spec = {
     "width": 400,
     "height": 400,
     "style": "cell",
-    "title": "Hello, chart!",
+    // "title": {
+    //     "text": "Hello, 👋 World 🌍",
+    //     "fontSize": 48,
+    //     "font": "serif",
+    //     "fontWeight": "normal",
+    //     "color": "blue",
+    // },
     "data": [
         {"name": "grid_store"},
         {
