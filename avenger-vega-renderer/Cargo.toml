@@ -17,12 +17,12 @@ avenger-wgpu = { path = "../avenger-wgpu", default-features = false }
 wgpu = { version = "0.19.3"}
 lazy_static = "1.4.0"
 serde_json = "1.0.114"
-serde-wasm-bindgen = "0.6.5"
 csscolorparser = "0.6.2"
-wasm-bindgen = "=0.2.90"
+wasm-bindgen = { version = "=0.2.92" }
 wasm-bindgen-futures = "0.4.30"
-js-sys = "0.3.67"
-web-sys = { version = "0.3.67", features = [
+gloo-utils = { version = "0.2.0", features = ["serde"] }
+js-sys = "0.3.69"
+web-sys = { version = "0.3.69", features = [
     "Document", "Window", "Element", "Performance", "OffscreenCanvas", "OffscreenCanvasRenderingContext2d", "TextMetrics", "ImageData"
 ] }
 unicode-segmentation = "*"

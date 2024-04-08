@@ -5,7 +5,9 @@ use avenger::marks::value::{ColorOrGradient, EncodingValue};
 use avenger::marks::{rule::RuleMark as RsRuleMark, symbol::SymbolMark as RsSymbolMark, text::TextMark as RsTextMark};
 use avenger::scene_graph::SceneGraph as RsSceneGraph;
 use wasm_bindgen::prelude::*;
+use gloo_utils::format::JsValueSerdeExt;
 use web_sys::console::group;
+use avenger::marks::text::{FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
 use avenger_vega::marks::mark::VegaMarkContainer;
 use avenger_vega::marks::text::VegaTextItem;
 
@@ -48,16 +50,18 @@ impl SymbolMark {
         self.inner.zindex = zindex;
     }
 
-    pub fn set_stroke(&mut self, joined_unique_string: &str, indices: Vec<u32>, opacity: Vec<f32>) {
+    pub fn set_stroke(&mut self, color_values: JsValue, indices: Vec<usize>, opacity: Vec<f32>) -> Result<(), JsError> {
         self.inner.stroke = EncodingValue::Array {
-            values: decode_colors(joined_unique_string, indices, opacity),
+            values: decode_colors(color_values, indices, opacity)?,
         };
+        Ok(())
     }
 
-    pub fn set_fill(&mut self, joined_unique_string: &str, indices: Vec<u32>, opacity: Vec<f32>) {
+    pub fn set_fill(&mut self, color_values: JsValue, indices: Vec<usize>, opacity: Vec<f32>)  -> Result<(), JsError> {
         self.inner.fill = EncodingValue::Array {
-            values: decode_colors(joined_unique_string, indices, opacity),
+            values: decode_colors(color_values, indices, opacity)?,
         };
+        Ok(())
     }
 
     // TODO
@@ -96,38 +100,137 @@ impl RuleMark {
         self.inner.stroke_width = EncodingValue::Array { values: width }
     }
 
-    pub fn set_stroke(&mut self, joined_unique_string: &str, indices: Vec<u32>, opacity: Vec<f32>) {
+    pub fn set_stroke(&mut self, color_values: JsValue, indices: Vec<usize>, opacity: Vec<f32>) -> Result<(), JsError> {
         self.inner.stroke = EncodingValue::Array {
-            values: decode_colors(joined_unique_string, indices, opacity),
+            values: decode_colors(color_values, indices, opacity)?,
         };
+        Ok(())
     }
 }
 
 #[wasm_bindgen]
 pub struct TextMark {
-    inner: SceneMark,
+    inner: RsTextMark,
 }
 
 #[wasm_bindgen]
 impl TextMark {
     #[wasm_bindgen(constructor)]
-    pub fn new(js_value: JsValue) -> Self {
-        let vega_text_mark: VegaMarkContainer<VegaTextItem> = serde_wasm_bindgen::from_value(js_value).expect("Failed to parse text mark");
+    pub fn new(len: u32, clip: bool, name: Option<String>) -> Self {
         Self {
-            inner: vega_text_mark.to_scene_graph(false).expect("Failed to parse text mark")
+            inner: RsTextMark {
+                len,
+                clip,
+                name: name.unwrap_or_default(),
+                ..Default::default()
+            }
         }
     }
+
+    pub fn set_xy(&mut self, x: Vec<f32>, y: Vec<f32>) {
+        self.inner.x = EncodingValue::Array { values: x };
+        self.inner.y = EncodingValue::Array { values: y };
+    }
+
+    pub fn set_angle(&mut self, angle: Vec<f32>) {
+        self.inner.angle = EncodingValue::Array { values: angle };
+    }
+
+    pub fn set_font_size(&mut self, font_size: Vec<f32>) {
+        self.inner.font_size = EncodingValue::Array { values: font_size };
+    }
+
+    pub fn set_font_limit(&mut self, limit: Vec<f32>) {
+        self.inner.limit = EncodingValue::Array { values: limit };
+    }
+
+    pub fn set_indices(&mut self, indices: Vec<usize>) {
+        self.inner.indices = Some(indices);
+    }
+
+    pub fn set_zindex(&mut self, zindex: i32) {
+        self.inner.zindex = Some(zindex);
+    }
+
+    pub fn set_text(&mut self, text: JsValue) -> Result<(), JsError> {
+        let text: Vec<String> = text.into_serde()?;
+        self.inner.text = EncodingValue::Array { values: text };
+        Ok(())
+    }
+
+    pub fn set_font(&mut self, font_values: JsValue, indices: Vec<usize>) -> Result<(), JsError> {
+        let font_values: Vec<String> = font_values.into_serde()?;
+        let values = indices.iter().map(|ind| font_values[*ind].clone()).collect::<Vec<_>>();
+        self.inner.font = EncodingValue::Array { values };
+        Ok(())
+    }
+
+    pub fn set_align(&mut self, align_values: JsValue, indices: Vec<usize>) -> Result<(), JsError> {
+        let align_values: Vec<TextAlignSpec> = align_values.into_serde()?;
+        let values = indices.iter().map(|ind| align_values[*ind].clone()).collect::<Vec<_>>();
+        self.inner.align = EncodingValue::Array { values };
+        Ok(())
+    }
+
+    pub fn set_baseline(&mut self, baseline_values: JsValue, indices: Vec<usize>) -> Result<(), JsError> {
+        let baseline_values: Vec<TextBaselineSpec> = baseline_values.into_serde()?;
+        let values = indices.iter().map(|ind| baseline_values[*ind].clone()).collect::<Vec<_>>();
+        self.inner.baseline = EncodingValue::Array { values };
+        Ok(())
+    }
+
+    pub fn set_font_weight(&mut self, weight_values: JsValue, indices: Vec<usize>) -> Result<(), JsError> {
+        let weight_values: Vec<FontWeightSpec> = weight_values.into_serde()?;
+        let values = indices.iter().map(|ind| weight_values[*ind].clone()).collect::<Vec<_>>();
+        self.inner.font_weight = EncodingValue::Array { values };
+        Ok(())
+    }
+
+    pub fn set_font_style(&mut self, style_values: JsValue, indices: Vec<usize>) -> Result<(), JsError> {
+        let style_values: Vec<FontStyleSpec> = style_values.into_serde()?;
+        let values = indices.iter().map(|ind| style_values[*ind].clone()).collect::<Vec<_>>();
+        self.inner.font_style = EncodingValue::Array { values };
+        Ok(())
+    }
+
+    pub fn set_color(&mut self, color_values: JsValue, indices: Vec<usize>, opacity: Vec<f32>,) -> Result<(), JsError> {
+        // Parse unique colors
+        let color_values: Vec<String> = color_values.into_serde()?;
+        let unique_strokes = color_values
+            .iter()
+            .map(|c| {
+                let Ok(c) = csscolorparser::parse(c) else {
+                    return [0.0, 0.0, 0.0, 1.0];
+                };
+                [c.r as f32, c.g as f32, c.b as f32, c.a as f32]
+            })
+            .collect::<Vec<_>>();
+
+        // Combine with opacity to build
+        let colors = indices
+            .iter()
+            .zip(opacity)
+            .map(|(ind, opacity)| {
+                let [r, g, b, a] = unique_strokes[*ind as usize];
+                [r as f32, g as f32, b as f32, a as f32 * opacity]
+            })
+            .collect::<Vec<_>>();
+
+        self.inner.color = EncodingValue::Array { values: colors };
+        Ok(())
+    }
+
 }
 
 fn decode_colors(
-    joined_unique_string: &str,
-    indices: Vec<u32>,
+    color_values: JsValue,
+    indices: Vec<usize>,
     opacity: Vec<f32>,
-) -> Vec<ColorOrGradient> {
+) -> Result<Vec<ColorOrGradient>, JsError> {
     // Parse unique colors
-    let unique_strokes = joined_unique_string
-        .split(":")
-        .into_iter()
+    let color_values: Vec<String> = color_values.into_serde()?;
+    let unique_strokes = color_values
+        .iter()
         .map(|c| {
             let Ok(c) = csscolorparser::parse(c) else {
                 return [0.0, 0.0, 0.0, 1.0];
@@ -145,7 +248,7 @@ fn decode_colors(
             ColorOrGradient::Color([r as f32, g as f32, b as f32, a as f32 * opacity])
         })
         .collect::<Vec<_>>();
-    colors
+    Ok(colors)
 }
 
 #[wasm_bindgen]
@@ -193,7 +296,7 @@ impl GroupMark {
     }
 
     pub fn add_text_mark(&mut self, mark: TextMark) {
-        self.inner.marks.push(mark.inner);
+        self.inner.marks.push(SceneMark::Text(Box::new(mark.inner)));
     }
 
     pub fn add_group_mark(&mut self, mark: GroupMark) {
