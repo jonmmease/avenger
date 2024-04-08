@@ -169,12 +169,21 @@ function importSymbol(vegaSymbolMark) {
     const len = vegaSymbolMark.items.length;
     const symbolMark = new SymbolMark(len, vegaSymbolMark.clip, vegaSymbolMark.name);
 
+    // Semi-required values get initialized
     const x = new Float32Array(len).fill(0);
     const y = new Float32Array(len).fill(0);
+
     const size = new Float32Array(len).fill(20);
+    let anySize = false;
+
     const angle = new Float32Array(len).fill(0);
+    let anyAngle = false;
+
     const opacity = new Float32Array(len).fill(1);
+    let anyOpacity = false;
+
     const fill = new Array(len).fill("");
+    let anyFill = false;
 
     const items = vegaSymbolMark.items;
     items.forEach((item, i) => {
@@ -183,24 +192,34 @@ function importSymbol(vegaSymbolMark) {
         size[i] = item.size;
         if (item.angle != null) {
             angle[i] = item.angle;
+            anyAngle ||= true;
         }
 
         if (item.opacity != null) {
             opacity[i] = item.opacity;
+            anyOpacity ||= true;
         }
 
         if (item.fill != null) {
             fill[i] = item.fill;
+            anyFill ||= true;
         }
     })
 
     symbolMark.set_xy(x, y);
-    symbolMark.set_size(size);
-    symbolMark.set_angle(angle);
 
-    // encode and set fill
-    const encodedStroke = encodeStringArray(fill);
-    symbolMark.set_fill(encodedStroke.joinedUniqueString, encodedStroke.indices, opacity);
+    if (anySize) {
+        symbolMark.set_size(size);
+    }
+
+    if (anyAngle) {
+        symbolMark.set_angle(angle);
+    }
+
+    if (anyFill || anyOpacity) {
+        const encoded = encodeStringArray(fill);
+        symbolMark.set_fill(encoded.values, encoded.indices, opacity);
+    }
 
     return symbolMark;
 }
@@ -213,9 +232,15 @@ function importRule(vegaRuleMark) {
     const y0 = new Float32Array(len).fill(0);
     const x1 = new Float32Array(len).fill(0);
     const y1 = new Float32Array(len).fill(0);
+
     const width = new Float32Array(len).fill(1);
+    let anyWidth = false;
+
     const opacity = new Float32Array(len).fill(1);
+    let anyOpacity = false;
+
     const stroke = new Array(len).fill("");
+    let anyStroke = false;
 
     const items = vegaRuleMark.items;
     items.forEach((item, i) => {
@@ -237,27 +262,168 @@ function importRule(vegaRuleMark) {
         }
         if (item.width != null) {
             width[i] = item.width;
+            anyWidth ||= true;
         }
         if (item.opacity != null) {
             opacity[i] = item.opacity;
+            anyOpacity ||= true;
         }
         if (item.stroke != null) {
             stroke[i] = item.stroke;
+            anyStroke ||= true;
         }
     })
 
     ruleMark.set_xy(x0, y0, x1, y1);
-    ruleMark.set_stroke_width(width);
 
-    // encode and set stroke
-    const encodedStroke = encodeStringArray(stroke);
-    ruleMark.set_stroke(encodedStroke.joinedUniqueString, encodedStroke.indices, opacity);
+    if (anyWidth) {
+        ruleMark.set_stroke_width(width);
+    }
+
+    if (anyStroke || anyOpacity) {
+        const encoded = encodeStringArray(stroke);
+        ruleMark.set_stroke(encoded.values, encoded.indices, opacity);
+    }
 
     return ruleMark;
 }
 
-function importText(vegaRuleMark) {
-    return new TextMark(vegaRuleMark);
+function importText(vegaTextMark) {
+    const len = vegaTextMark.items.length;
+    const textMark = new TextMark(len, vegaTextMark.clip, vegaTextMark.name);
+
+    // semi-required columns where we will pass the full array no matter what
+    const x = new Float32Array(len).fill(0);
+    const y = new Float32Array(len).fill(0);
+    const text = new Array(len).fill("");
+
+    // Optional properties where we will only pass the full array if any value is specified
+    const fontSize = new Float32Array(len);
+    let anyFontSize = false;
+
+    const angle = new Float32Array(len);
+    let anyAngle = false;
+
+    const limit = new Float32Array(len);
+    let anyLimit = false;
+
+    // String properties that typically have lots of duplicates, so
+    // unique values and indices.
+    const font = new Array(len);
+    let anyFont = false;
+
+    const color = new Array(len).fill("");
+    const opacity = new Float32Array(len).fill(1.0);
+    let anyColorOrOpacity = false;
+
+    const baseline = new Array(len);
+    let anyBaseline = false;
+
+    const align = new Array(len);
+    let anyAlign = false;
+
+    const fontWeight = new Array(len);
+    let anyFontWeight = false;
+
+    const items = vegaTextMark.items;
+    items.forEach((item, i) => {
+        // Semi-required properties have been initialized
+        if (item.x != null) {
+            x[i] = item.x;
+        }
+
+        if (item.x != null) {
+            y[i] = item.y;
+        }
+
+        if (item.text != null) {
+            text[i] = item.text;
+        }
+
+        // Optional properties have not been initialized, we need to track if any are specified
+        if (item.fontSize != null) {
+            fontSize[i] = item.fontSize;
+            anyFontSize ||= true;
+        }
+
+        if (item.angle != null) {
+            angle[i] = item.angle;
+            anyAngle ||= true;
+        }
+
+        if (item.limit != null) {
+            limit[i] = item.limit;
+            anyLimit ||= true;
+        }
+
+        if (item.color != null) {
+            color[i] = item.color;
+            anyColorOrOpacity ||= true;
+        }
+        if (item.opacity != null) {
+            opacity[i] = item.opacity;
+            anyColorOrOpacity ||= true;
+        }
+
+        if (item.font != null) {
+            font[i] = item.font;
+            anyFont ||= true;
+        }
+
+        if (item.baseline != null) {
+            baseline[i] = item.baseline;
+            anyBaseline ||= true;
+        }
+
+        if (item.align != null) {
+            align[i] = item.align;
+            anyAlign ||= true;
+        }
+
+        if (item.fontWeight != null) {
+            fontWeight[i] = item.fontWeight;
+            anyFontWeight ||= true;
+        }
+    })
+
+    // Set semi-required properties as full arrays
+    textMark.set_xy(x, y);
+    textMark.set_text(text);
+
+    // Set optional properties if any were defined
+    if (anyFontSize) {
+        textMark.set_font_size(fontSize)
+    }
+    if (anyAngle) {
+        textMark.set_angle(angle);
+    }
+    if (anyLimit) {
+        textMark.set_font_limit(limit);
+    }
+
+    // String columns to pass as encoded unique values + indices
+    if (anyColorOrOpacity) {
+        const encoded = encodeStringArray(color);
+        textMark.set_color(encoded.values, encoded.indices, opacity);
+    }
+    if (anyFont) {
+        const encoded = encodeStringArray(font);
+        textMark.set_font(encoded.values, encoded.indices);
+    }
+    if (anyBaseline) {
+        const encoded = encodeStringArray(baseline);
+        textMark.set_baseline(encoded.values, encoded.indices);
+    }
+    if (anyAlign) {
+        const encoded = encodeStringArray(align);
+        textMark.set_align(encoded.values, encoded.indices);
+    }
+    if (anyFontWeight) {
+        const encoded = encodeStringArray(fontWeight);
+        textMark.set_font_weight(encoded.values, encoded.indices);
+    }
+
+    return textMark;
 }
 
 function encodeStringArray(originalArray) {
@@ -282,7 +448,7 @@ function encodeStringArray(originalArray) {
     });
 
     return {
-        joinedUniqueString: uniqueStringsArray.join(":"),
+        values: uniqueStringsArray,
         indices,
     };
 }

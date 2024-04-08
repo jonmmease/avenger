@@ -333,6 +333,7 @@ vegaEmbed('#plot-container', spec, {
     renderer: "avenger",
 }).then((result) => {
     // Access the Vega view instance (https://vega.github.io/vega/docs/api/view/) as result.view
+    window.VEGA_VIEW = result;
     return viewToPng(result.view);
 }).then((png) => {
     console.log("The PNG:", png);
