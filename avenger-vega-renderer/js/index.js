@@ -189,7 +189,11 @@ function importSymbol(vegaSymbolMark) {
     items.forEach((item, i) => {
         x[i] = item.x;
         y[i] = item.y;
-        size[i] = item.size;
+        if (item.size != null) {
+            size[i] = item.size;
+            anySize = true;
+        }
+
         if (item.angle != null) {
             angle[i] = item.angle;
             anyAngle ||= true;
