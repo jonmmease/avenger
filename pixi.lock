@@ -153,6 +153,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/pickleshare-0.7.5-py_1003.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pillow-10.2.0-py312hac22aec_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pip-23.3.2-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/pixi-pycharm-0.0.3-h707e725_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pkgutil-resolve-name-1.3.10-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/platformdirs-4.1.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/prometheus_client-0.19.0-pyhd8ed1ab_0.conda
@@ -224,6 +225,16 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-3.17.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zlib-1.2.13-h53f4e23_5.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zstd-1.5.5-h4f39d0f_0.conda
+      - pypi: https://files.pythonhosted.org/packages/a2/2f/461615adc53ba81e99471303b15ac6b2a6daa8d2a0f7f77fd15605e16d5b/greenlet-3.0.3-cp312-cp312-macosx_11_0_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/4d/fc/e7c1a8696911e5faaa5c480f649deccf633aa2a235c91664748471490576/playwright-1.43.0-py3-none-macosx_11_0_arm64.whl
+      - pypi: https://files.pythonhosted.org/packages/a5/5b/0cc789b59e8cc1bf288b38111d002d8c5917123194d45b29dcdac64723cc/pluggy-1.4.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/16/cc/5cea8a0a0d3deb90b5a0d39ad1a6a1ccaa40a9ea86d793eb8a49d32a6ed0/pyee-11.1.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/4d/7e/c79cecfdb6aa85c6c2e3cf63afc56d0f165f24f5c66c03c695c4d9b84756/pytest-8.1.1-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/98/1c/b00940ab9eb8ede7897443b771987f2f4a76f06be02f1b3f01eb7567e24a/pytest_base_url-2.1.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/a1/85/323568cd7f139551bd9b9a776e67ffbd5164a254870d27c3645ecc47a7d8/pytest_playwright-0.4.4-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/a4/62/02da182e544a51a5c3ccf4b03ab79df279f9c60c5e82d5e8bec7ca26ac11/python_slugify-8.0.4-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/a6/a5/c0b6468d3824fe3fde30dbb5e1f687b291608f9473681bbf7dabbf5a87d7/text_unidecode-1.3-py2.py3-none-any.whl
 packages:
 - kind: conda
   name: altair
@@ -754,6 +765,8 @@ packages:
   - xyzservices >=2021.09.1
   license: BSD-3-Clause
   license_family: BSD
+  purls:
+  - pkg:pypi/bokeh
   size: 4997504
   timestamp: 1710486159794
 - kind: conda
@@ -970,6 +983,8 @@ packages:
   - python_abi 3.12.* *_cp312
   license: BSD-3-Clause
   license_family: BSD
+  purls:
+  - pkg:pypi/contourpy
   size: 237646
   timestamp: 1699041880921
 - kind: conda
@@ -1156,6 +1171,17 @@ packages:
   license_family: BSD
   size: 97658
   timestamp: 1649144191039
+- kind: pypi
+  name: greenlet
+  version: 3.0.3
+  url: https://files.pythonhosted.org/packages/a2/2f/461615adc53ba81e99471303b15ac6b2a6daa8d2a0f7f77fd15605e16d5b/greenlet-3.0.3-cp312-cp312-macosx_11_0_universal2.whl
+  sha256: 70fb482fdf2c707765ab5f0b6655e9cfcf3780d8d87355a063547b41177599be
+  requires_dist:
+  - sphinx ; extra == 'docs'
+  - furo ; extra == 'docs'
+  - objgraph ; extra == 'test'
+  - psutil ; extra == 'test'
+  requires_python: '>=3.7'
 - kind: conda
   name: icu
   version: '73.2'
@@ -1246,6 +1272,12 @@ packages:
   - pkg:pypi/importlib-resources
   size: 29951
   timestamp: 1699364734111
+- kind: pypi
+  name: iniconfig
+  version: 2.0.0
+  url: https://files.pythonhosted.org/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl
+  sha256: b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374
+  requires_python: '>=3.7'
 - kind: conda
   name: ipykernel
   version: 6.29.0
@@ -3161,6 +3193,22 @@ packages:
   size: 1395000
   timestamp: 1702822023465
 - kind: conda
+  name: pixi-pycharm
+  version: 0.0.3
+  build: h707e725_0
+  subdir: noarch
+  noarch: generic
+  url: https://conda.anaconda.org/conda-forge/noarch/pixi-pycharm-0.0.3-h707e725_0.conda
+  sha256: 070c23a668f9ce0385fd979ee1e8d6ac5b69ce6bfe0de263883d99adda285141
+  md5: b3fc157aa26644ec55a931cef9adf016
+  depends:
+  - __unix
+  - python >=3.8
+  license: BSD-3-Clause
+  license_family: BSD
+  size: 8024
+  timestamp: 1710330705483
+- kind: conda
   name: pkgutil-resolve-name
   version: 1.3.10
   build: pyhd8ed1ab_1
@@ -3198,6 +3246,26 @@ packages:
   - pkg:pypi/platformdirs
   size: 20058
   timestamp: 1701708396900
+- kind: pypi
+  name: playwright
+  version: 1.43.0
+  url: https://files.pythonhosted.org/packages/4d/fc/e7c1a8696911e5faaa5c480f649deccf633aa2a235c91664748471490576/playwright-1.43.0-py3-none-macosx_11_0_arm64.whl
+  sha256: e9ec21b141727392f630761c7f4dec46d80c98243614257cc501b64ff636d337
+  requires_dist:
+  - greenlet ==3.0.3
+  - pyee ==11.1.0
+  requires_python: '>=3.8'
+- kind: pypi
+  name: pluggy
+  version: 1.4.0
+  url: https://files.pythonhosted.org/packages/a5/5b/0cc789b59e8cc1bf288b38111d002d8c5917123194d45b29dcdac64723cc/pluggy-1.4.0-py3-none-any.whl
+  sha256: 7db9f7b503d67d1c5b95f59773ebb58a8c1c288129a88665838012cfb07b8981
+  requires_dist:
+  - pre-commit ; extra == 'dev'
+  - tox ; extra == 'dev'
+  - pytest ; extra == 'testing'
+  - pytest-benchmark ; extra == 'testing'
+  requires_python: '>=3.8'
 - kind: conda
   name: prometheus_client
   version: 0.19.0
@@ -3381,6 +3449,35 @@ packages:
   - pkg:pypi/pycparser
   size: 102747
   timestamp: 1636257201998
+- kind: pypi
+  name: pyee
+  version: 11.1.0
+  url: https://files.pythonhosted.org/packages/16/cc/5cea8a0a0d3deb90b5a0d39ad1a6a1ccaa40a9ea86d793eb8a49d32a6ed0/pyee-11.1.0-py3-none-any.whl
+  sha256: 5d346a7d0f861a4b2e6c47960295bd895f816725b27d656181947346be98d7c1
+  requires_dist:
+  - typing-extensions
+  - build ; extra == 'dev'
+  - flake8 ; extra == 'dev'
+  - flake8-black ; extra == 'dev'
+  - pytest ; extra == 'dev'
+  - black ; extra == 'dev'
+  - isort ; extra == 'dev'
+  - jupyter-console ; extra == 'dev'
+  - mkdocs ; extra == 'dev'
+  - mkdocs-include-markdown-plugin ; extra == 'dev'
+  - mkdocstrings[python] ; extra == 'dev'
+  - sphinx ; extra == 'dev'
+  - toml ; extra == 'dev'
+  - tox ; extra == 'dev'
+  - trio ; extra == 'dev'
+  - twine ; extra == 'dev'
+  - twisted ; extra == 'dev'
+  - validate-pyproject[all] ; extra == 'dev'
+  - trio ; python_version > '3.6' and extra == 'dev'
+  - trio-typing ; python_version > '3.6' and extra == 'dev'
+  - pytest-asyncio ; python_version >= '3.4' and extra == 'dev'
+  - pytest-trio ; python_version >= '3.7' and extra == 'dev'
+  requires_python: '>=3.8'
 - kind: conda
   name: pygments
   version: 2.17.2
@@ -3461,6 +3558,52 @@ packages:
   - pkg:pypi/pysocks
   size: 18981
   timestamp: 1661604969727
+- kind: pypi
+  name: pytest
+  version: 8.1.1
+  url: https://files.pythonhosted.org/packages/4d/7e/c79cecfdb6aa85c6c2e3cf63afc56d0f165f24f5c66c03c695c4d9b84756/pytest-8.1.1-py3-none-any.whl
+  sha256: 2a8386cfc11fa9d2c50ee7b2a57e7d898ef90470a7a34c4b949ff59662bb78b7
+  requires_dist:
+  - iniconfig
+  - packaging
+  - pluggy <2.0, >=1.4
+  - exceptiongroup >=1.0.0rc8 ; python_version < '3.11'
+  - tomli >=1 ; python_version < '3.11'
+  - colorama ; sys_platform == 'win32'
+  - argcomplete ; extra == 'testing'
+  - attrs >=19.2 ; extra == 'testing'
+  - hypothesis >=3.56 ; extra == 'testing'
+  - mock ; extra == 'testing'
+  - pygments >=2.7.2 ; extra == 'testing'
+  - requests ; extra == 'testing'
+  - setuptools ; extra == 'testing'
+  - xmlschema ; extra == 'testing'
+  requires_python: '>=3.8'
+- kind: pypi
+  name: pytest-base-url
+  version: 2.1.0
+  url: https://files.pythonhosted.org/packages/98/1c/b00940ab9eb8ede7897443b771987f2f4a76f06be02f1b3f01eb7567e24a/pytest_base_url-2.1.0-py3-none-any.whl
+  sha256: 3ad15611778764d451927b2a53240c1a7a591b521ea44cebfe45849d2d2812e6
+  requires_dist:
+  - pytest >=7.0.0
+  - requests >=2.9
+  - black >=22.1.0 ; extra == 'test'
+  - flake8 >=4.0.1 ; extra == 'test'
+  - pre-commit >=2.17.0 ; extra == 'test'
+  - pytest-localserver >=0.7.1 ; extra == 'test'
+  - tox >=3.24.5 ; extra == 'test'
+  requires_python: '>=3.8'
+- kind: pypi
+  name: pytest-playwright
+  version: 0.4.4
+  url: https://files.pythonhosted.org/packages/a1/85/323568cd7f139551bd9b9a776e67ffbd5164a254870d27c3645ecc47a7d8/pytest_playwright-0.4.4-py3-none-any.whl
+  sha256: df306f3a60a8631a3cfde1b95a2ed5a89203a3408dfa1154de049ca7de87c90b
+  requires_dist:
+  - playwright >=1.18
+  - pytest <9.0.0, >=6.2.4
+  - pytest-base-url <3.0.0, >=1.0.0
+  - python-slugify <9.0.0, >=6.0.0
+  requires_python: '>=3.8'
 - kind: conda
   name: python
   version: 3.12.1
@@ -3547,6 +3690,15 @@ packages:
   - pkg:pypi/python-json-logger
   size: 13383
   timestamp: 1677079727691
+- kind: pypi
+  name: python-slugify
+  version: 8.0.4
+  url: https://files.pythonhosted.org/packages/a4/62/02da182e544a51a5c3ccf4b03ab79df279f9c60c5e82d5e8bec7ca26ac11/python_slugify-8.0.4-py2.py3-none-any.whl
+  sha256: 276540b79961052b66b7d116620b36518847f52d5fd9e3a70164fc8c50faa6b8
+  requires_dist:
+  - text-unidecode >=1.3
+  - unidecode >=1.1.1 ; extra == 'unidecode'
+  requires_python: '>=3.7'
 - kind: conda
   name: python-tzdata
   version: '2023.4'
@@ -3941,6 +4093,11 @@ packages:
   - pkg:pypi/terminado
   size: 22631
   timestamp: 1699810378589
+- kind: pypi
+  name: text-unidecode
+  version: '1.3'
+  url: https://files.pythonhosted.org/packages/a6/a5/c0b6468d3824fe3fde30dbb5e1f687b291608f9473681bbf7dabbf5a87d7/text_unidecode-1.3-py2.py3-none-any.whl
+  sha256: 1311f10e8b895935241623731c2ba64f4c455287888b18189350b67134a822e8
 - kind: conda
   name: tinycss2
   version: 1.2.1
@@ -4412,6 +4569,8 @@ packages:
   - python >=3.8
   license: BSD-3-Clause
   license_family: BSD
+  purls:
+  - pkg:pypi/xyzservices
   size: 36184
   timestamp: 1698325478381
 - kind: conda
