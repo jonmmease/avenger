@@ -14,7 +14,7 @@ console_error_panic_hook = { version = "0.1.1" }
 avenger-vega = { path = "../avenger-vega" }
 avenger = { path = "../avenger" }
 avenger-wgpu = { path = "../avenger-wgpu", default-features = false }
-wgpu = { version = "0.19.3"}
+wgpu = { version = "0.19.3", default-features = false, features = ["wgsl", "webgl", "webgpu"]}
 lazy_static = "1.4.0"
 serde_json = "1.0.114"
 csscolorparser = "0.6.2"
