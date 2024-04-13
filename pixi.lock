@@ -151,7 +151,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/parso-0.8.3-pyhd8ed1ab_0.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/noarch/pexpect-4.9.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pickleshare-0.7.5-py_1003.tar.bz2
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pillow-10.2.0-py312hac22aec_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pillow-10.3.0-py312h8a801b1_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pip-23.3.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pixi-pycharm-0.0.3-h707e725_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pkgutil-resolve-name-1.3.10-pyhd8ed1ab_1.conda
@@ -227,6 +227,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zstd-1.5.5-h4f39d0f_0.conda
       - pypi: https://files.pythonhosted.org/packages/a2/2f/461615adc53ba81e99471303b15ac6b2a6daa8d2a0f7f77fd15605e16d5b/greenlet-3.0.3-cp312-cp312-macosx_11_0_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/09/766e3cb038be997cef78a29cfd4ec5e9be739b8ea44a09c839a6da8cb55b/pixelmatch-0.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/4d/fc/e7c1a8696911e5faaa5c480f649deccf633aa2a235c91664748471490576/playwright-1.43.0-py3-none-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/a5/5b/0cc789b59e8cc1bf288b38111d002d8c5917123194d45b29dcdac64723cc/pluggy-1.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/16/cc/5cea8a0a0d3deb90b5a0d39ad1a6a1ccaa40a9ea86d793eb8a49d32a6ed0/pyee-11.1.0-py3-none-any.whl
@@ -370,6 +371,8 @@ packages:
   platform: osx
   license: Apache-2.0
   license_family: Apache
+  purls:
+  - pkg:pypi/arrow
   size: 100096
   timestamp: 1696129131844
 - kind: conda
@@ -718,6 +721,8 @@ packages:
   platform: osx
   license: MIT
   license_family: MIT
+  purls:
+  - pkg:pypi/beautifulsoup4
   size: 118200
   timestamp: 1705564819537
 - kind: conda
@@ -789,6 +794,8 @@ packages:
   platform: osx
   license: MIT
   license_family: MIT
+  purls:
+  - pkg:pypi/brotli
   size: 343435
   timestamp: 1695990731924
 - kind: conda
@@ -885,6 +892,8 @@ packages:
   arch: aarch64
   platform: osx
   license: ISC
+  purls:
+  - pkg:pypi/certifi
   size: 158939
   timestamp: 1700303562512
 - kind: conda
@@ -905,6 +914,8 @@ packages:
   platform: osx
   license: MIT
   license_family: MIT
+  purls:
+  - pkg:pypi/cffi
   size: 284245
   timestamp: 1696002181644
 - kind: conda
@@ -1120,6 +1131,8 @@ packages:
   platform: osx
   license: MPL-2.0
   license_family: MOZILLA
+  purls:
+  - pkg:pypi/fqdn
   size: 14395
   timestamp: 1638810388635
 - kind: conda
@@ -1231,6 +1244,8 @@ packages:
   platform: osx
   license: Apache-2.0
   license_family: APACHE
+  purls:
+  - pkg:pypi/importlib-metadata
   size: 26450
   timestamp: 1703269427097
 - kind: conda
@@ -1358,6 +1373,8 @@ packages:
   platform: osx
   license: MIT
   license_family: MIT
+  purls:
+  - pkg:pypi/isoduration
   size: 17189
   timestamp: 1638811664194
 - kind: conda
@@ -1461,6 +1478,8 @@ packages:
   platform: osx
   license: MIT
   license_family: MIT
+  purls:
+  - pkg:pypi/jsonschema
   size: 72817
   timestamp: 1705707712082
 - kind: conda
@@ -1527,6 +1546,8 @@ packages:
   platform: osx
   license: BSD-3-Clause
   license_family: BSD
+  purls:
+  - pkg:pypi/jupyter-lsp
   size: 55130
   timestamp: 1705532233523
 - kind: conda
@@ -1572,6 +1593,8 @@ packages:
   platform: osx
   license: BSD-3-Clause
   license_family: BSD
+  purls:
+  - pkg:pypi/jupyter-core
   size: 92987
   timestamp: 1704727587406
 - kind: conda
@@ -1596,6 +1619,8 @@ packages:
   platform: osx
   license: BSD-3-Clause
   license_family: BSD
+  purls:
+  - pkg:pypi/jupyter-events
   size: 21354
   timestamp: 1699286038042
 - kind: conda
@@ -1733,6 +1758,8 @@ packages:
   platform: osx
   license: BSD-3-Clause
   license_family: BSD
+  purls:
+  - pkg:pypi/jupyterlab-server
   size: 48860
   timestamp: 1700310989409
 - kind: conda
@@ -2748,6 +2775,8 @@ packages:
   platform: osx
   license: MIT
   license_family: MIT
+  purls:
+  - pkg:pypi/maturin
   size: 4752542
   timestamp: 1701548180659
 - kind: conda
@@ -2826,6 +2855,8 @@ packages:
   platform: osx
   license: BSD-3-Clause
   license_family: BSD
+  purls:
+  - pkg:pypi/nbconvert
   size: 187942
   timestamp: 1705418659841
 - kind: conda
@@ -3026,6 +3057,8 @@ packages:
   platform: osx
   license: Apache-2.0
   license_family: APACHE
+  purls:
+  - pkg:pypi/overrides
   size: 30232
   timestamp: 1706394723472
 - kind: conda
@@ -3068,6 +3101,8 @@ packages:
   platform: osx
   license: BSD-3-Clause
   license_family: BSD
+  purls:
+  - pkg:pypi/pandas
   size: 14480741
   timestamp: 1705729364215
 - kind: conda
@@ -3149,12 +3184,12 @@ packages:
   timestamp: 1602536313357
 - kind: conda
   name: pillow
-  version: 10.2.0
-  build: py312hac22aec_0
+  version: 10.3.0
+  build: py312h8a801b1_0
   subdir: osx-arm64
-  url: https://conda.anaconda.org/conda-forge/osx-arm64/pillow-10.2.0-py312hac22aec_0.conda
-  sha256: 83ebcca5ca6c63bd15a80806a0110d45431fed7c432234d3299202e00f28c0e4
-  md5: 486a50718de90e091df0bef6e6af2c48
+  url: https://conda.anaconda.org/conda-forge/osx-arm64/pillow-10.3.0-py312h8a801b1_0.conda
+  sha256: 26bc04e81ae5fce70e4b72478dadea29d32b693eed17640be7721108a3c9af0d
+  md5: 1d42544faaed27dce36268912b8dfedf
   depends:
   - freetype >=2.12.1,<3.0a0
   - lcms2 >=2.16,<3.0a0
@@ -3163,14 +3198,16 @@ packages:
   - libwebp-base >=1.3.2,<2.0a0
   - libxcb >=1.15,<1.16.0a0
   - libzlib >=1.2.13,<1.3.0a0
-  - openjpeg >=2.5.0,<3.0a0
+  - openjpeg >=2.5.2,<3.0a0
   - python >=3.12,<3.13.0a0
   - python >=3.12,<3.13.0a0 *_cpython
   - python_abi 3.12.* *_cp312
   - tk >=8.6.13,<8.7.0a0
   license: HPND
-  size: 42299342
-  timestamp: 1704252620409
+  purls:
+  - pkg:pypi/pillow
+  size: 42729895
+  timestamp: 1712155044162
 - kind: conda
   name: pip
   version: 23.3.2
@@ -3192,6 +3229,12 @@ packages:
   - pkg:pypi/pip
   size: 1395000
   timestamp: 1702822023465
+- kind: pypi
+  name: pixelmatch
+  version: 0.3.0
+  url: https://files.pythonhosted.org/packages/e1/09/766e3cb038be997cef78a29cfd4ec5e9be739b8ea44a09c839a6da8cb55b/pixelmatch-0.3.0-py3-none-any.whl
+  sha256: 1fe86c50e7d00eb4b4de7b991f8b7ebc12da841ce1e9f7304480ab0f58a2bd81
+  requires_python: '>=3.7,<4.0'
 - kind: conda
   name: pixi-pycharm
   version: 0.0.3
@@ -3303,6 +3346,8 @@ packages:
   platform: osx
   license: BSD-3-Clause
   license_family: BSD
+  purls:
+  - pkg:pypi/prompt-toolkit
   size: 270398
   timestamp: 1702399557137
 - kind: conda
@@ -3327,6 +3372,8 @@ packages:
   platform: osx
   license: BSD-3-Clause
   license_family: BSD
+  purls:
+  - pkg:pypi/protobuf
   size: 365633
   timestamp: 1696713120397
 - kind: conda
@@ -3428,6 +3475,8 @@ packages:
   platform: osx
   license: Apache-2.0
   license_family: APACHE
+  purls:
+  - pkg:pypi/pyarrow
   size: 4055875
   timestamp: 1704360388886
 - kind: conda
@@ -3515,6 +3564,8 @@ packages:
   platform: osx
   license: MIT
   license_family: MIT
+  purls:
+  - pkg:pypi/pyobjc-core
   size: 456233
   timestamp: 1702120202721
 - kind: conda
@@ -3535,6 +3586,8 @@ packages:
   platform: osx
   license: MIT
   license_family: MIT
+  purls:
+  - pkg:pypi/pyobjc-framework-cocoa
   size: 371148
   timestamp: 1702125850698
 - kind: conda
@@ -3772,6 +3825,8 @@ packages:
   platform: osx
   license: MIT
   license_family: MIT
+  purls:
+  - pkg:pypi/pyyaml
   size: 182705
   timestamp: 1695373895409
 - kind: conda
@@ -4188,6 +4243,8 @@ packages:
   platform: osx
   license: BSD-3-Clause
   license_family: BSD
+  purls:
+  - pkg:pypi/toolz
   size: 52358
   timestamp: 1706112720607
 - kind: conda
@@ -4244,6 +4301,8 @@ packages:
   arch: aarch64
   platform: osx
   license: Apache-2.0 AND MIT
+  purls:
+  - pkg:pypi/types-python-dateutil
   size: 21896
   timestamp: 1704512704737
 - kind: conda
@@ -4330,6 +4389,8 @@ packages:
   platform: osx
   license: MIT
   license_family: MIT
+  purls:
+  - pkg:pypi/uri-template
   size: 23999
   timestamp: 1688655976471
 - kind: conda
@@ -4492,6 +4553,8 @@ packages:
   platform: osx
   license: BSD-3-Clause
   license_family: BSD
+  purls:
+  - pkg:pypi/webencodings
   size: 15600
   timestamp: 1694681458271
 - kind: conda
