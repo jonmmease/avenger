@@ -20,7 +20,7 @@ def find_open_port():
     # Create a new socket using the default settings
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         # Bind to localhost on a port chosen by the OS
-        s.bind(('localhost', 0))
+        s.bind(("localhost", 0))
         # Get the port number that was automatically chosen
         return s.getsockname()[1]
 
@@ -33,7 +33,9 @@ def page_url():
     subprocess.call(["pixi", "run", "npm", "install"], cwd=cwd)
 
     # Launch dev web server
-    p = subprocess.Popen(["./node_modules/.bin/webpack-dev-server",  "--port",  str(port)], cwd=cwd)
+    p = subprocess.Popen(
+        ["./node_modules/.bin/webpack-dev-server", "--port", str(port)], cwd=cwd
+    )
 
     time.sleep(2)
     yield f"http://localhost:{port}/"
@@ -48,13 +50,18 @@ def failures_path():
     return path
 
 
-@pytest.mark.parametrize("category,spec_name,tolerance", [
-    ("symbol", "binned_scatter_circle", 0.0001),
-    ("symbol", "binned_scatter_diamonds", 0.0001),
-    ("symbol", "binned_scatter_square", 0.0001),
-    ("symbol", "binned_scatter_triangle-down", 0.0001),
-])
-def test_image_baselines(playwright: Playwright, page_url, failures_path, category, spec_name, tolerance):
+@pytest.mark.parametrize(
+    "category,spec_name,tolerance",
+    [
+        ("symbol", "binned_scatter_circle", 0.0001),
+        ("symbol", "binned_scatter_diamonds", 0.0001),
+        ("symbol", "binned_scatter_square", 0.0001),
+        ("symbol", "binned_scatter_triangle-down", 0.0001),
+    ],
+)
+def test_image_baselines(
+    playwright: Playwright, page_url, failures_path, category, spec_name, tolerance
+):
     chromium = playwright.chromium
     browser = chromium.launch(
         headless=True,
@@ -79,10 +86,10 @@ def test_image_baselines(playwright: Playwright, page_url, failures_path, catego
                 {
                     "required_score": tolerance,
                     "score": comparison_res.score,
-                    "mismatch": comparison_res.mismatch
+                    "mismatch": comparison_res.mismatch,
                 },
                 f,
-                indent=2
+                indent=2,
             )
         assert comparison_res.score <= tolerance
 
@@ -107,15 +114,16 @@ def compare(page: Page, spec: dict) -> ComparisonResult:
         avenger_img=avenger_img,
         diff_img=diff_img,
         mismatch=mismatch,
-        score=score
+        score=score,
     )
 
 
-def spec_to_image(page: Page, spec: dict, renderer: Literal["canvas", "avenger"]) -> Image:
-    embed_opts = {
-        "actions": False,
-        "renderer": renderer
-    }
-    script = f"vegaEmbed('#plot-container', {json.dumps(spec)}, {json.dumps(embed_opts)});"
+def spec_to_image(
+    page: Page, spec: dict, renderer: Literal["canvas", "avenger"]
+) -> Image:
+    embed_opts = {"actions": False, "renderer": renderer}
+    script = (
+        f"vegaEmbed('#plot-container', {json.dumps(spec)}, {json.dumps(embed_opts)});"
+    )
     page.evaluate_handle(script)
     return Image.open(io.BytesIO(page.locator("canvas").first.screenshot()))
