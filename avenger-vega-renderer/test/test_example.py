@@ -10,8 +10,10 @@ import io
 import subprocess
 import time
 import socket
+import shutil
 
 here = Path(__file__).parent
+specs_root = here.parent.parent / "avenger-vega-test-data" / "vega-specs"
 
 
 def find_open_port():
@@ -38,23 +40,51 @@ def page_url():
     p.terminate()
 
 
-def test_screenshot(playwright: Playwright, page_url):
+@pytest.fixture(scope="session")
+def failures_path():
+    path = here / "failures"
+    shutil.rmtree(path, ignore_errors=True)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+@pytest.mark.parametrize("category,spec_name,tolerance", [
+    ("symbol", "binned_scatter_circle", 0.0001),
+    ("symbol", "binned_scatter_diamonds", 0.0001),
+    ("symbol", "binned_scatter_square", 0.0001),
+    ("symbol", "binned_scatter_triangle-down", 0.0001),
+])
+def test_image_baselines(playwright: Playwright, page_url, failures_path, category, spec_name, tolerance):
     chromium = playwright.chromium
     browser = chromium.launch(
         headless=True,
     )
     page = browser.new_page()
-    print(page_url)
     page.goto(page_url)
     page.wait_for_timeout(1000)
 
-    spec = spec1()
-    comparison_res = compare(page, spec)
+    spec_path = specs_root / category / (spec_name + ".vg.json")
+    with open(spec_path, "rt") as f:
+        spec = json.load(f)
 
-    comparison_res.canvas_img.save("img_canvas.png")
-    comparison_res.avenger_img.save("img_avenger.png")
-    comparison_res.diff_img.save("img_diff.png")
-    print(comparison_res)
+    comparison_res = compare(page, spec)
+    if comparison_res.score > tolerance:
+        outdir = failures_path / category / spec_name
+        outdir.mkdir(parents=True, exist_ok=True)
+        comparison_res.canvas_img.save(outdir / "canvas.png")
+        comparison_res.avenger_img.save(outdir / "avenger.png")
+        comparison_res.diff_img.save(outdir / "diff.png")
+        with open(outdir / f"metrics.json", "wt") as f:
+            json.dump(
+                {
+                    "required_score": tolerance,
+                    "score": comparison_res.score,
+                    "mismatch": comparison_res.mismatch
+                },
+                f,
+                indent=2
+            )
+        assert comparison_res.score <= tolerance
 
 
 @dataclass
@@ -62,7 +92,7 @@ class ComparisonResult:
     canvas_img: Image
     avenger_img: Image
     diff_img: Image
-    mistmatch: int
+    mismatch: int
     score: float
 
 
@@ -76,7 +106,7 @@ def compare(page: Page, spec: dict) -> ComparisonResult:
         canvas_img=canvas_img,
         avenger_img=avenger_img,
         diff_img=diff_img,
-        mistmatch=mismatch,
+        mismatch=mismatch,
         score=score
     )
 
@@ -89,106 +119,3 @@ def spec_to_image(page: Page, spec: dict, renderer: Literal["canvas", "avenger"]
     script = f"vegaEmbed('#plot-container', {json.dumps(spec)}, {json.dumps(embed_opts)});"
     page.evaluate_handle(script)
     return Image.open(io.BytesIO(page.locator("canvas").first.screenshot()))
-
-
-def spec1():
-    return json.loads(r"""
-{
-  "$schema": "https://vega.github.io/schema/vega/v5.json",
-  "description": "A basic scatter plot example depicting automobile statistics.",
-  "width": 200,
-  "height": 200,
-  "padding": 5,
-
-  "data": [
-    {
-      "name": "source",
-      "url": "https://raw.githubusercontent.com/vega/vega-datasets/main/data/cars.json",
-      "transform": [
-        {
-          "type": "filter",
-          "expr": "datum['Horsepower'] != null && datum['Miles_per_Gallon'] != null && datum['Acceleration'] != null"
-        }
-      ]
-    }
-  ],
-
-  "scales": [
-    {
-      "name": "x",
-      "type": "linear",
-      "round": true,
-      "nice": true,
-      "zero": true,
-      "domain": {"data": "source", "field": "Horsepower"},
-      "range": "width"
-    },
-    {
-      "name": "y",
-      "type": "linear",
-      "round": true,
-      "nice": true,
-      "zero": true,
-      "domain": {"data": "source", "field": "Miles_per_Gallon"},
-      "range": "height"
-    },
-    {
-      "name": "size",
-      "type": "linear",
-      "round": true,
-      "nice": false,
-      "zero": true,
-      "domain": {"data": "source", "field": "Acceleration"},
-      "range": [4,361]
-    }
-  ],
-
-  "axes": [
-    {
-      "scale": "x",
-      "grid": true,
-      "domain": false,
-      "orient": "bottom",
-      "tickCount": 5,
-      "title": "Horsepower"
-    },
-    {
-      "scale": "y",
-      "grid": true,
-      "domain": false,
-      "orient": "left",
-      "titlePadding": 5,
-      "title": "Miles_per_Gallon"
-    }
-  ],
-
-  "legends": [
-    {
-      "size": "size",
-      "title": "Accelerate",
-      "symbolOpacity": 0.5,
-      "symbolStrokeWidth": 0,
-      "symbolFillColor": "grey",
-      "symbolType": "circle"
-    }
-  ],
-
-  "marks": [
-    {
-      "name": "marks",
-      "type": "symbol",
-      "from": {"data": "source"},
-      "encode": {
-        "update": {
-          "x": {"scale": "x", "field": "Horsepower"},
-          "y": {"scale": "y", "field": "Miles_per_Gallon"},
-          "size": {"scale": "size", "field": "Acceleration"},
-          "shape": {"value": "circle"},
-          "opacity": {"value": 0.5},
-          "fill": {"value": "gray"}
-        }
-      }
-    }
-  ]
-}    
-    """)
