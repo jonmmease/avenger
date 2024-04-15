@@ -15,3 +15,4 @@ scratch/
 __pycache__/
 /avenger-wasm/dist/
 /examples/deno_png/chart.png
+/avenger-vega-renderer/test/failures/
