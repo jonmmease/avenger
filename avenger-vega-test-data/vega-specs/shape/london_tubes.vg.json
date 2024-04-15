@@ -9,17 +9,17 @@
   "data": [
     {
       "name": "source_0",
-      "url": "data/londonBoroughs.json",
+      "url": "https://raw.githubusercontent.com/vega/vega-datasets/main/data/londonBoroughs.json",
       "format": {"type": "topojson", "feature": "boroughs"}
     },
     {
       "name": "source_2",
-      "url": "data/londonTubeLines.json",
+      "url": "https://raw.githubusercontent.com/vega/vega-datasets/main/data/londonTubeLines.json",
       "format": {"type": "topojson", "feature": "line"}
     },
     {
       "name": "source_1",
-      "url": "data/londonCentroids.json",
+      "url": "https://raw.githubusercontent.com/vega/vega-datasets/main/data/londonCentroids.json",
       "format": {"type": "json"},
       "transform": [
         {

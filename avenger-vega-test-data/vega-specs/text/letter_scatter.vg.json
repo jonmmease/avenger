@@ -8,7 +8,7 @@
   "data": [
     {
       "name": "source_0",
-      "url": "data/cars.json",
+      "url": "https://raw.githubusercontent.com/vega/vega-datasets/main/data/cars.json",
       "format": {"type": "json"},
       "transform": [
         {"type": "formula", "expr": "datum.Origin[0]", "as": "OriginInitial"},

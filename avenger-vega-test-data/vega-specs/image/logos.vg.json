@@ -10,9 +10,9 @@
     {
       "name": "source_0",
       "values": [
-        {"x": 0.5, "y": 0.5, "img": "data/ffox.png"},
-        {"x": 1.5, "y": 1.5, "img": "data/gimp.png"},
-        {"x": 2.5, "y": 2.5, "img": "data/7zip.png"}
+        {"x": 0.5, "y": 0.5, "img": "https://raw.githubusercontent.com/vega/vega-datasets/main/data/ffox.png"},
+        {"x": 1.5, "y": 1.5, "img": "https://raw.githubusercontent.com/vega/vega-datasets/main/data/gimp.png"},
+        {"x": 2.5, "y": 2.5, "img": "https://raw.githubusercontent.com/vega/vega-datasets/main/data/7zip.png"}
       ]
     },
     {

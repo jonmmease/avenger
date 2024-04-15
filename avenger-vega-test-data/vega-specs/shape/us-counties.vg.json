@@ -8,12 +8,12 @@
   "data": [
     {
       "name": "source_1",
-      "url": "data/unemployment.tsv",
+      "url": "https://raw.githubusercontent.com/vega/vega-datasets/main/data/unemployment.tsv",
       "format": {"type": "tsv", "delimiter": "\t"}
     },
     {
       "name": "source_0",
-      "url": "data/us-10m.json",
+      "url": "https://raw.githubusercontent.com/vega/vega-datasets/main/data/us-10m.json",
       "format": {"type": "topojson", "feature": "counties"},
       "transform": [
         {
