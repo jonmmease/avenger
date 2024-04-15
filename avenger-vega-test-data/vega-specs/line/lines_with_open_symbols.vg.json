@@ -10,7 +10,7 @@
   "data": [
     {
       "name": "source_0",
-      "url": "data/stocks.csv",
+      "url": "https://raw.githubusercontent.com/vega/vega-datasets/main/data/stocks.csv",
       "format": {"type": "csv", "parse": {"date": "date"}, "delimiter": ","},
       "transform": [
         {
