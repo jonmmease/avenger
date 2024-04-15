@@ -34,6 +34,7 @@ nodejs = "20.*"
 bokeh = ">=3.4.0,<3.5"
 pixi-pycharm = ">=0.0.3,<0.1"
 pillow = ">=10.3.0,<10.4"
+ruff = ">=0.3.7,<0.4"
 
 [pypi-dependencies]
 pytest-playwright = "*"
