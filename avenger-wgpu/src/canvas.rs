@@ -57,9 +57,11 @@ impl CanvasDimensions {
     }
 }
 
+pub type TextBuildCtor = Arc<fn() -> Box<dyn TextAtlasBuilderTrait>>;
+
 #[derive(Default)]
 pub struct CanvasConfig {
-    pub text_builder_ctor: Option<Arc<fn() -> Box<dyn TextAtlasBuilderTrait>>>,
+    pub text_builder_ctor: Option<TextBuildCtor>,
 }
 
 pub trait Canvas {
