@@ -1,11 +1,11 @@
+use crate::error::AvengerError;
 use crate::marks::value::{ColorOrGradient, EncodingValue, Gradient};
+use lyon_extra::parser::{ParserOptions, Source};
+use lyon_path::geom::euclid::Point2D;
+use lyon_path::geom::{Box2D, Point, Scale};
 use lyon_path::{Path, Winding};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
-use lyon_path::geom::{Box2D, Point, Scale};
-use lyon_path::geom::euclid::Point2D;
-use lyon_extra::parser::{Source, ParserOptions};
-use crate::error::AvengerError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]

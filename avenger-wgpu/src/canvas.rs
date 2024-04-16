@@ -63,7 +63,9 @@ pub struct CanvasConfig {
 
 impl Default for CanvasConfig {
     fn default() -> Self {
-        Self { text_builder_ctor: None }
+        Self {
+            text_builder_ctor: None,
+        }
     }
 }
 

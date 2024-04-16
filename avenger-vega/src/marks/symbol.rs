@@ -1,13 +1,13 @@
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::{CssColorOrGradient, StrokeDashSpec};
+use avenger::error::AvengerError;
 use avenger::marks::group::{Clip, SceneGroup};
 use avenger::marks::line::LineMark;
 use avenger::marks::mark::SceneMark;
 use avenger::marks::symbol::{SymbolMark, SymbolShape};
 use avenger::marks::value::{ColorOrGradient, EncodingValue, Gradient, StrokeCap, StrokeJoin};
 use serde::{Deserialize, Serialize};
-use avenger::error::AvengerError;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

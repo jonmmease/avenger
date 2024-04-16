@@ -111,7 +111,7 @@ pub struct MultiMarkRenderer {
 impl MultiMarkRenderer {
     pub fn new(
         dimensions: CanvasDimensions,
-        text_atlas_builder_ctor: Option<Arc<fn() -> Box<dyn TextAtlasBuilderTrait>>>
+        text_atlas_builder_ctor: Option<Arc<fn() -> Box<dyn TextAtlasBuilderTrait>>>,
     ) -> Self {
         let text_atlas_builder = if let Some(text_atlas_builder_ctor) = text_atlas_builder_ctor {
             text_atlas_builder_ctor()
