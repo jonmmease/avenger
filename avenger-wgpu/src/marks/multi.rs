@@ -29,7 +29,6 @@ use lyon::path::builder::{BorderRadii, WithSvg};
 use lyon::path::path::BuilderImpl;
 use lyon::path::{Path, Winding};
 use std::ops::{Mul, Neg, Range};
-use std::sync::Arc;
 
 use wgpu::util::DeviceExt;
 use wgpu::{
@@ -120,6 +119,7 @@ impl MultiMarkRenderer {
                 if #[cfg(feature = "cosmic-text")] {
                     use crate::marks::cosmic::CosmicTextRasterizer;
                     use crate::marks::text::TextAtlasBuilder;
+                    use std::sync::Arc;
                     let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(CosmicTextRasterizer)));
                 } else {
                     use crate::marks::text::NullTextAtlasBuilder;
