@@ -3,7 +3,6 @@ use avenger::marks::mark::SceneMark;
 use avenger::marks::symbol::{SymbolMark, SymbolShape};
 use avenger::marks::value::{ColorOrGradient, EncodingValue};
 use avenger::scene_graph::SceneGraph;
-use avenger_vega::marks::symbol::shape_to_path;
 use avenger_vega::scene_graph::VegaSceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasDimensions, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
@@ -68,8 +67,7 @@ pub async fn run() {
     let height = inner_height + 2.0 * margin;
     let scale = 2.0;
 
-    let shape = shape_to_path("circle").unwrap();
-    // let shape = shape_to_path("cross").unwrap();
+    let shape = SymbolShape::from_vega_str("circle").unwrap();
     let mut x: Vec<f32> = Vec::new();
     let mut y: Vec<f32> = Vec::new();
     let mut fill: Vec<ColorOrGradient> = Vec::new();
