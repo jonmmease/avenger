@@ -219,7 +219,7 @@ mod test_image_baselines {
                 size: [scene_graph.width, scene_graph.height],
                 scale: 2.0,
             },
-            &Default::default(),
+            Default::default(),
         ))
         .unwrap();
         png_canvas.set_scene(&scene_graph).unwrap();

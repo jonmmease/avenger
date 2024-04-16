@@ -75,6 +75,7 @@ def test_image_baselines(
         spec = json.load(f)
 
     comparison_res = compare(page, spec)
+    print(f"score: {comparison_res.score}")
     if comparison_res.score > tolerance:
         outdir = failures_path / category / spec_name
         outdir.mkdir(parents=True, exist_ok=True)

@@ -7,6 +7,8 @@ use avenger::scene_graph::SceneGraph as RsSceneGraph;
 use wasm_bindgen::prelude::*;
 use gloo_utils::format::JsValueSerdeExt;
 use web_sys::console::group;
+use avenger::error::AvengerError;
+use avenger::marks::symbol::SymbolShape;
 use avenger::marks::text::{FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
 use avenger_vega::marks::mark::VegaMarkContainer;
 use avenger_vega::marks::text::VegaTextItem;
@@ -61,6 +63,17 @@ impl SymbolMark {
         self.inner.fill = EncodingValue::Array {
             values: decode_colors(color_values, indices, opacity)?,
         };
+        Ok(())
+    }
+
+    pub fn set_shape(&mut self, shape_values: JsValue, indices: Vec<usize>) -> Result<(), JsError> {
+        let shapes: Vec<String> = shape_values.into_serde()?;
+        let shapes = shapes.iter().map(
+            |s| SymbolShape::from_vega_str(s)
+        ).collect::<Result<Vec<_>, AvengerError>>().map_err(|e| JsError::new("Failed to parse shapes"))?;
+
+        self.inner.shapes = shapes;
+        self.inner.shape_index = EncodingValue::Array { values: indices };
         Ok(())
     }
 

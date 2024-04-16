@@ -328,6 +328,7 @@ name = "avenger"
 version = "0.0.3"
 dependencies = [
  "image",
+ "lyon_extra",
  "lyon_path",
  "pyo3",
  "rayon",
