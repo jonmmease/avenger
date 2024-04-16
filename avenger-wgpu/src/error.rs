@@ -5,10 +5,7 @@ use thiserror::Error;
 use pyo3::{exceptions::PyValueError, PyErr};
 
 #[cfg(target_arch = "wasm32")]
-use web_sys::{
-    wasm_bindgen::JsValue,
-    js_sys::Object,
-};
+use web_sys::{js_sys::Object, wasm_bindgen::JsValue};
 
 #[derive(Error, Debug)]
 pub enum AvengerWgpuError {

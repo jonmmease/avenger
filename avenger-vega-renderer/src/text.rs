@@ -1,16 +1,19 @@
+use crate::log;
+use avenger::marks::text::{FontStyleSpec, FontWeightNameSpec, FontWeightSpec};
+use avenger_wgpu::canvas::CanvasDimensions;
+use avenger_wgpu::error::AvengerWgpuError;
+use avenger_wgpu::marks::text::{
+    GlyphBBox, GlyphBBoxAndAtlasCoords, GlyphImage, PhysicalGlyphPosition, TextRasterizationBuffer,
+    TextRasterizationConfig, TextRasterizer,
+};
+use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::fmt::format;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Mutex;
+use unicode_segmentation::UnicodeSegmentation;
 use wasm_bindgen::{JsCast, JsError, JsValue};
 use web_sys::{OffscreenCanvas, OffscreenCanvasRenderingContext2d};
-use avenger_wgpu::canvas::CanvasDimensions;
-use avenger_wgpu::error::AvengerWgpuError;
-use avenger_wgpu::marks::text::{GlyphBBox, GlyphBBoxAndAtlasCoords, GlyphImage, PhysicalGlyphPosition, TextRasterizationBuffer, TextRasterizationConfig, TextRasterizer};
-use unicode_segmentation::UnicodeSegmentation;
-use avenger::marks::text::{FontStyleSpec, FontWeightNameSpec, FontWeightSpec};
-use crate::log;
-use lazy_static::lazy_static;
 
 lazy_static! {
     // TODO: use LRU cache
@@ -23,7 +26,12 @@ pub struct HtmlCanvasTextRasterizer;
 impl TextRasterizer for HtmlCanvasTextRasterizer {
     type CacheKey = u64;
 
-    fn rasterize(&self, dimensions: CanvasDimensions, config: &TextRasterizationConfig, cached_glyphs: &HashMap<Self::CacheKey, GlyphBBoxAndAtlasCoords>) -> Result<TextRasterizationBuffer<Self::CacheKey>, AvengerWgpuError> {
+    fn rasterize(
+        &self,
+        dimensions: CanvasDimensions,
+        config: &TextRasterizationConfig,
+        cached_glyphs: &HashMap<Self::CacheKey, GlyphBBoxAndAtlasCoords>,
+    ) -> Result<TextRasterizationBuffer<Self::CacheKey>, AvengerWgpuError> {
         let mut glyph_cache = GLYPH_CACHE
             .lock()
             .expect("Failed to acquire lock on GLYPH_CACHE");
@@ -45,7 +53,11 @@ impl TextRasterizer for HtmlCanvasTextRasterizer {
             FontStyleSpec::Italic => "italic",
         };
 
-        let font_str = format!("{style} {weight} {}px {}", config.font_size * dimensions.scale, config.font);
+        let font_str = format!(
+            "{style} {weight} {}px {}",
+            config.font_size * dimensions.scale,
+            config.font
+        );
         text_context.set_font(&font_str);
 
         let color = config.color;
@@ -69,7 +81,7 @@ impl TextRasterizer for HtmlCanvasTextRasterizer {
 
             if cluster.chars().all(|c| c.is_whitespace()) {
                 // Skip whitespace characters
-                continue
+                continue;
             }
 
             // Build cache key concatenating font and cluster
@@ -85,8 +97,10 @@ impl TextRasterizer for HtmlCanvasTextRasterizer {
             let cluster_width = cluster_metrics.width();
 
             // Calculate the actual bounding box dimensions
-            let cluster_actual_width = cluster_metrics.actual_bounding_box_right() + cluster_metrics.actual_bounding_box_left();
-            let cluster_height = cluster_metrics.actual_bounding_box_ascent() + cluster_metrics.actual_bounding_box_descent();
+            let cluster_actual_width = cluster_metrics.actual_bounding_box_right()
+                + cluster_metrics.actual_bounding_box_left();
+            let cluster_height = cluster_metrics.actual_bounding_box_ascent()
+                + cluster_metrics.actual_bounding_box_descent();
             let left = right - cluster_width;
             let top = -cluster_metrics.actual_bounding_box_ascent();
 
@@ -117,7 +131,8 @@ impl TextRasterizer for HtmlCanvasTextRasterizer {
                     cluster_height.ceil() as u32 + 2,
                 )?;
                 let glyph_context = glyph_canvas.get_context("2d")?.unwrap();
-                let glyph_context = glyph_context.dyn_into::<OffscreenCanvasRenderingContext2d>()?;
+                let glyph_context =
+                    glyph_context.dyn_into::<OffscreenCanvasRenderingContext2d>()?;
                 glyph_context.set_font(&font_str);
                 glyph_context.set_fill_style(&color_str);
 
@@ -133,11 +148,17 @@ impl TextRasterizer for HtmlCanvasTextRasterizer {
 
                 // Convert canvas to image
                 let image_data = glyph_context.get_image_data(
-                    0.0, 0.0, glyph_canvas.width() as f64, glyph_canvas.height() as f64
+                    0.0,
+                    0.0,
+                    glyph_canvas.width() as f64,
+                    glyph_canvas.height() as f64,
                 )?;
                 let img = image::RgbaImage::from_raw(
-                    image_data.width(), image_data.height(), image_data.data().0
-                ).expect("Failed to import glyph image");
+                    image_data.width(),
+                    image_data.height(),
+                    image_data.data().0,
+                )
+                .expect("Failed to import glyph image");
 
                 let glyph_image = GlyphImage {
                     cache_key,
@@ -156,8 +177,10 @@ impl TextRasterizer for HtmlCanvasTextRasterizer {
 
         // Compute final buffer metrics
         let full_metrics = text_context.measure_text(config.text)?;
-        let buffer_width = full_metrics.actual_bounding_box_left() + full_metrics.actual_bounding_box_right();
-        let buffer_height = full_metrics.actual_bounding_box_ascent() + full_metrics.actual_bounding_box_descent();
+        let buffer_width =
+            full_metrics.actual_bounding_box_left() + full_metrics.actual_bounding_box_right();
+        let buffer_height =
+            full_metrics.actual_bounding_box_ascent() + full_metrics.actual_bounding_box_descent();
         let buffer_line_y = full_metrics.actual_bounding_box_ascent();
 
         Ok(TextRasterizationBuffer {
@@ -168,7 +191,6 @@ impl TextRasterizer for HtmlCanvasTextRasterizer {
         })
     }
 }
-
 
 fn calculate_cache_key(font_str: &str, cluster: &str) -> u64 {
     let mut s = DefaultHasher::new();

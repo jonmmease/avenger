@@ -2,19 +2,19 @@ mod builder;
 mod text;
 
 use crate::builder::SceneGraph;
+use crate::text::HtmlCanvasTextRasterizer;
 use avenger::marks::group::SceneGroup;
 use avenger_vega::marks::group::VegaGroupItem;
 use avenger_vega::marks::mark::VegaMarkContainer;
 use avenger_vega::scene_graph::VegaSceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, CanvasDimensions, PngCanvas};
 use avenger_wgpu::html_canvas::HtmlCanvasCanvas;
+use avenger_wgpu::marks::text::TextAtlasBuilder;
 use image::ImageOutputFormat;
 use std::io::Cursor;
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
-use avenger_wgpu::marks::text::TextAtlasBuilder;
-use crate::text::HtmlCanvasTextRasterizer;
 
 pub fn set_panic_hook() {
     // When the `console_error_panic_hook` feature is enabled, we can call the
