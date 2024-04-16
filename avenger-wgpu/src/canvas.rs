@@ -57,16 +57,9 @@ impl CanvasDimensions {
     }
 }
 
+#[derive(Default)]
 pub struct CanvasConfig {
     pub text_builder_ctor: Option<Arc<fn() -> Box<dyn TextAtlasBuilderTrait>>>,
-}
-
-impl Default for CanvasConfig {
-    fn default() -> Self {
-        Self {
-            text_builder_ctor: None,
-        }
-    }
 }
 
 pub trait Canvas {
