@@ -1,6 +1,5 @@
-use crate::log;
 use avenger::error::AvengerError;
-use avenger::marks::group::{Clip, SceneGroup as RsSceneGroup, SceneGroup};
+use avenger::marks::group::{Clip, SceneGroup as RsSceneGroup};
 use avenger::marks::mark::SceneMark;
 use avenger::marks::symbol::SymbolShape;
 use avenger::marks::text::{FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
@@ -9,11 +8,8 @@ use avenger::marks::{
     rule::RuleMark as RsRuleMark, symbol::SymbolMark as RsSymbolMark, text::TextMark as RsTextMark,
 };
 use avenger::scene_graph::SceneGraph as RsSceneGraph;
-use avenger_vega::marks::mark::VegaMarkContainer;
-use avenger_vega::marks::text::VegaTextItem;
 use gloo_utils::format::JsValueSerdeExt;
 use wasm_bindgen::prelude::*;
-use web_sys::console::group;
 
 #[wasm_bindgen]
 pub struct SymbolMark {
@@ -84,7 +80,7 @@ impl SymbolMark {
             .iter()
             .map(|s| SymbolShape::from_vega_str(s))
             .collect::<Result<Vec<_>, AvengerError>>()
-            .map_err(|e| JsError::new("Failed to parse shapes"))?;
+            .map_err(|_| JsError::new("Failed to parse shapes"))?;
 
         self.inner.shapes = shapes;
         self.inner.shape_index = EncodingValue::Array { values: indices };

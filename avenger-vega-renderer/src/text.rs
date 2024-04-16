@@ -1,4 +1,3 @@
-use crate::log;
 use avenger::marks::text::{FontStyleSpec, FontWeightNameSpec, FontWeightSpec};
 use avenger_wgpu::canvas::CanvasDimensions;
 use avenger_wgpu::error::AvengerWgpuError;
@@ -8,11 +7,11 @@ use avenger_wgpu::marks::text::{
 };
 use lazy_static::lazy_static;
 use std::collections::HashMap;
-use std::fmt::format;
+
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Mutex;
 use unicode_segmentation::UnicodeSegmentation;
-use wasm_bindgen::{JsCast, JsError, JsValue};
+use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{OffscreenCanvas, OffscreenCanvasRenderingContext2d};
 
 lazy_static! {

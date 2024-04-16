@@ -3,10 +3,7 @@ mod text;
 
 use crate::builder::SceneGraph;
 use crate::text::HtmlCanvasTextRasterizer;
-use avenger::marks::group::SceneGroup;
-use avenger_vega::marks::group::VegaGroupItem;
-use avenger_vega::marks::mark::VegaMarkContainer;
-use avenger_vega::scene_graph::VegaSceneGraph;
+
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, CanvasDimensions, PngCanvas};
 use avenger_wgpu::html_canvas::HtmlCanvasCanvas;
 use avenger_wgpu::marks::text::TextAtlasBuilder;
@@ -73,13 +70,13 @@ impl AvengerCanvas {
             .performance()
             .expect("performance should be available");
 
-        let start = performance.now();
+        // let start = performance.now();
         self.canvas
             .set_scene(&scene_graph.build())
             .expect("Failed to set scene");
         // log(&format!("self.canvas.set_scene time: {}", performance.now() - start));
 
-        let start = performance.now();
+        // let start = performance.now();
         self.canvas.render().expect("failed to render scene");
         // log(&format!("self.canvas.render time: {}", performance.now() - start));
         Ok(())
