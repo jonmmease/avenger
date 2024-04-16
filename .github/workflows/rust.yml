@@ -32,7 +32,11 @@ jobs:
           cd avenger-wgpu && cargo check --tests && cd ..
           cd avenger-vega-test-data && cargo check --tests && cd ..
       - name: Check for clippy warnings
-        run: cargo clippy
+        run: |
+          cd avenger && cargo clippy && cd ..
+          cd avenger-vega && cargo clippy && cd ..
+          cd avenger-wgpu && cargo clippy && cd ..
+          cd avenger-vega-test-data && cargo clippy && cd ..
       - name: Build
         run: cargo build --verbose
 #  # Tests currently fail with `MakeWgpuAdapterError`

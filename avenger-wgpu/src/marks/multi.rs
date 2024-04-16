@@ -1,4 +1,4 @@
-use crate::canvas::CanvasDimensions;
+use crate::canvas::{CanvasDimensions, TextBuildCtor};
 use crate::error::AvengerWgpuError;
 
 use crate::marks::gradient::{to_color_or_gradient_coord, GradientAtlasBuilder};
@@ -111,7 +111,7 @@ pub struct MultiMarkRenderer {
 impl MultiMarkRenderer {
     pub fn new(
         dimensions: CanvasDimensions,
-        text_atlas_builder_ctor: Option<Arc<fn() -> Box<dyn TextAtlasBuilderTrait>>>,
+        text_atlas_builder_ctor: Option<TextBuildCtor>,
     ) -> Self {
         let text_atlas_builder = if let Some(text_atlas_builder_ctor) = text_atlas_builder_ctor {
             text_atlas_builder_ctor()
