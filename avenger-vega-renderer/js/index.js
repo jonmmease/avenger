@@ -185,6 +185,9 @@ function importSymbol(vegaSymbolMark) {
     const fill = new Array(len).fill("");
     let anyFill = false;
 
+    const shapes = new Array(len);
+    let anyShape = false;
+
     const items = vegaSymbolMark.items;
     items.forEach((item, i) => {
         x[i] = item.x;
@@ -208,6 +211,11 @@ function importSymbol(vegaSymbolMark) {
             fill[i] = item.fill;
             anyFill ||= true;
         }
+
+        if (item.shape != null) {
+            shapes[i] = item.shape;
+            anyShape ||= true;
+        }
     })
 
     symbolMark.set_xy(x, y);
@@ -223,6 +231,12 @@ function importSymbol(vegaSymbolMark) {
     if (anyFill || anyOpacity) {
         const encoded = encodeStringArray(fill);
         symbolMark.set_fill(encoded.values, encoded.indices, opacity);
+    }
+
+    if (anyShape) {
+        const encoded = encodeStringArray(shapes);
+        console.log()
+        symbolMark.set_shape(encoded.values, encoded.indices);
     }
 
     return symbolMark;

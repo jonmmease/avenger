@@ -119,6 +119,7 @@ impl MultiMarkRenderer {
             cfg_if::cfg_if! {
                 if #[cfg(feature = "cosmic-text")] {
                     use crate::marks::cosmic::CosmicTextRasterizer;
+                    use crate::marks::text::TextAtlasBuilder;
                     let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(CosmicTextRasterizer)));
                 } else {
                     use crate::marks::text::NullTextAtlasBuilder;
