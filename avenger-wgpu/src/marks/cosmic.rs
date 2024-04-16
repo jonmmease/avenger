@@ -229,8 +229,7 @@ impl TextRasterizer for CosmicTextRasterizer {
                             // Write colored image
                             for x in 0..monochrome_img.width() {
                                 for y in 0..monochrome_img.height() {
-                                    let pixel_lum =
-                                        monochrome_img.get_pixel(x as u32, y as u32).0[0];
+                                    let pixel_lum = monochrome_img.get_pixel(x, y).0[0];
                                     // Compute pixel color, adjusting alpha by pixel luminance
                                     let mut pixel_color = text_color;
                                     pixel_color[3] =
@@ -268,8 +267,8 @@ impl TextRasterizer for CosmicTextRasterizer {
 
         Ok(TextRasterizationBuffer {
             glyphs,
-            buffer_width: buffer_width,
-            buffer_height: buffer_height,
+            buffer_width,
+            buffer_height,
             buffer_line_y: line_y,
         })
     }

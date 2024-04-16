@@ -105,8 +105,8 @@ impl<CacheKey: Hash + Eq + Clone> TextAtlasBuilderTrait for TextAtlasBuilder<Cac
         }
 
         // Extract values we need from text instance before passing to buffer constructor
-        let align = text.align.clone();
-        let baseline = text.baseline.clone();
+        let align = *text.align;
+        let baseline = *text.baseline;
         let position = text.position;
         let angle = text.angle;
 
