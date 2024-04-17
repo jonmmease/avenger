@@ -9,7 +9,9 @@ license = "BSD-3-Clause"
 crate-type = [ "cdylib", "rlib",]
 
 [features]
-default = [ "cosmic-text", "rayon",]
+default = ["cosmic-text", "rayon"]
+cosmic-text = ["dep:cosmic-text", "lazy_static"]
+deno = []
 
 [dependencies]
 cfg-if = "1"
@@ -49,6 +51,7 @@ features = [ "derive",]
 
 [dependencies.lazy_static]
 workspace = true
+optional = true
 
 [dependencies.pyo3]
 workspace = true
@@ -68,3 +71,12 @@ version = "0.0.3"
 
 [dev-dependencies.serde_json]
 version = "1.0.111"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wgpu = { version = "0.19.3"}
+web-sys = { version = "0.3.67", features = [
+    "Document",
+    "Window",
+    "Element",
+    "HtmlCanvasElement",
+]}

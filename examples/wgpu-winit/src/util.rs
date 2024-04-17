@@ -3,7 +3,7 @@ use avenger_vega::scene_graph::VegaSceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasDimensions, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
 use winit::event::{ElementState, Event, KeyEvent, WindowEvent};
-use winit::event_loop::{ControlFlow, EventLoop, EventLoopWindowTarget};
+use winit::event_loop::EventLoop;
 use winit::window::WindowBuilder;
 
 #[cfg(target_arch = "wasm32")]
@@ -61,65 +61,69 @@ pub async fn run() {
         size: [scene_graph.width, scene_graph.height],
         scale,
     };
-    let mut canvas = WindowCanvas::new(window, dimensions)
+    let mut canvas = WindowCanvas::new(window, dimensions, Default::default())
         .await
         .unwrap();
 
     canvas.set_scene(&scene_graph).unwrap();
 
-    event_loop.run(move |event, target| {
-        match event {
-            Event::WindowEvent {
-                ref event,
-                window_id,
-            } if window_id == canvas.window().id() => {
-                if !canvas.input(event) {
-                    // UPDATED!
-                    match event {
-                        WindowEvent::CloseRequested
-                        | WindowEvent::KeyboardInput {
-                            event: KeyEvent {
-                                logical_key: keyboard::Key::Named(NamedKey::Escape),
-                                state: ElementState::Pressed,
+    event_loop
+        .run(move |event, target| {
+            match event {
+                Event::WindowEvent {
+                    ref event,
+                    window_id,
+                } if window_id == canvas.window().id() => {
+                    if !canvas.input(event) {
+                        // UPDATED!
+                        match event {
+                            WindowEvent::CloseRequested
+                            | WindowEvent::KeyboardInput {
+                                event:
+                                    KeyEvent {
+                                        logical_key: keyboard::Key::Named(NamedKey::Escape),
+                                        state: ElementState::Pressed,
+                                        ..
+                                    },
                                 ..
-                            },
-                            ..
-                        } => {
-                            target.exit();
-                        },
-                        WindowEvent::Resized(physical_size) => {
-                            canvas.resize(*physical_size);
-                        }
-                        WindowEvent::RedrawRequested => {
-                            canvas.update();
+                            } => {
+                                target.exit();
+                            }
+                            WindowEvent::Resized(physical_size) => {
+                                canvas.resize(*physical_size);
+                            }
+                            WindowEvent::RedrawRequested => {
+                                canvas.update();
 
-                            match canvas.render() {
-                                Ok(_) => {}
-                                // Reconfigure the surface if it's lost or outdated
-                                Err(AvengerWgpuError::SurfaceError(err)) => {
-                                    match err {
-                                        wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
-                                            canvas.resize(canvas.get_size());
-                                        }
-                                        wgpu::SurfaceError::OutOfMemory => {
-                                            // The system is out of memory, we should probably quit
-                                            target.exit();
-                                        }
-                                        wgpu::SurfaceError::Timeout => {
-                                            log::warn!("Surface timeout");
+                                match canvas.render() {
+                                    Ok(_) => {}
+                                    // Reconfigure the surface if it's lost or outdated
+                                    Err(AvengerWgpuError::SurfaceError(err)) => {
+                                        match err {
+                                            wgpu::SurfaceError::Lost
+                                            | wgpu::SurfaceError::Outdated => {
+                                                canvas.resize(canvas.get_size());
+                                            }
+                                            wgpu::SurfaceError::OutOfMemory => {
+                                                // The system is out of memory, we should probably quit
+                                                target.exit();
+                                            }
+                                            wgpu::SurfaceError::Timeout => {
+                                                log::warn!("Surface timeout");
+                                            }
                                         }
                                     }
-                                }
-                                Err(err) => {
-                                    log::error!("{:?}", err);
+                                    Err(err) => {
+                                        log::error!("{:?}", err);
+                                    }
                                 }
                             }
+                            _ => {}
                         }
-                        _ => {}
                     }
                 }
+                _ => {}
             }
-            _ => {}
-        }
-    }).expect("Failed to start event loop");
+        })
+        .expect("Failed to start event loop");
 }

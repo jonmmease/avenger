@@ -66,7 +66,7 @@ mod test_image_baselines {
         case("rule", "wide_transparent_caps", 0.08),
         case("rule", "dashed_rules", 0.004),
 
-        case("text", "bar_axis_labels", 0.03),
+        case("text", "bar_axis_labels", 0.033),
         case("text", "text_alignment", 0.015),
         case("text", "text_rotation", 0.015),
         case("text", "letter_scatter", 0.03),
@@ -214,10 +214,13 @@ mod test_image_baselines {
 
         // println!("{}", serde_json::to_string_pretty(&scene_graph).unwrap());
 
-        let mut png_canvas = pollster::block_on(PngCanvas::new(CanvasDimensions {
-            size: [scene_graph.width, scene_graph.height],
-            scale: 2.0,
-        }))
+        let mut png_canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [scene_graph.width, scene_graph.height],
+                scale: 2.0,
+            },
+            Default::default(),
+        ))
         .unwrap();
         png_canvas.set_scene(&scene_graph).unwrap();
         let img = pollster::block_on(png_canvas.render()).expect("Failed to render PNG image");

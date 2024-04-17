@@ -1,0 +1,33 @@
+[package]
+name = "avenger-wasm"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+deno = ["avenger-wgpu/deno"]
+
+[dependencies]
+console_error_panic_hook = { version = "0.1.1" }
+avenger-vega = { path = "../avenger-vega" }
+avenger = { path = "../avenger" }
+avenger-wgpu = { path = "../avenger-wgpu", default-features = false }
+wgpu = { version = "0.19.3", default-features = false, features = ["wgsl", "webgl", "webgpu"]}
+lazy_static = "1.4.0"
+serde_json = "1.0.114"
+csscolorparser = "0.6.2"
+wasm-bindgen = { version = "=0.2.92" }
+wasm-bindgen-futures = "0.4.30"
+gloo-utils = { version = "0.2.0", features = ["serde"] }
+js-sys = "0.3.69"
+web-sys = { version = "0.3.69", features = [
+    "Document", "Window", "Element", "Performance", "OffscreenCanvas", "OffscreenCanvasRenderingContext2d", "TextMetrics", "ImageData"
+] }
+unicode-segmentation = "*"
+
+[dependencies.image]
+workspace = true
+default-features = false
+features = ["png"]

@@ -11,6 +11,9 @@ workspace = true
 [dependencies.serde]
 workspace = true
 
+[dependencies.lyon_extra]
+workspace = true
+
 [dependencies.lyon_path]
 workspace = true
 features = [ "serialization",]

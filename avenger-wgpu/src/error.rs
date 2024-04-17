@@ -4,6 +4,9 @@ use thiserror::Error;
 #[cfg(feature = "pyo3")]
 use pyo3::{exceptions::PyValueError, PyErr};
 
+#[cfg(target_arch = "wasm32")]
+use web_sys::{js_sys::Object, wasm_bindgen::JsValue};
+
 #[derive(Error, Debug)]
 pub enum AvengerWgpuError {
     #[error("Avenger error")]
@@ -32,6 +35,17 @@ pub enum AvengerWgpuError {
 
     #[error("Text support is not enabled: {0}")]
     TextNotEnabled(String),
+
+    #[error("Text error: {0}")]
+    TextError(String),
+
+    #[cfg(target_arch = "wasm32")]
+    #[error("JavaScript error")]
+    JsError(JsValue),
+
+    #[cfg(target_arch = "wasm32")]
+    #[error("JavaScript error")]
+    JsObjectError(Object),
 }
 
 // Conversion to PyO3 error
@@ -39,5 +53,19 @@ pub enum AvengerWgpuError {
 impl From<AvengerWgpuError> for PyErr {
     fn from(err: AvengerWgpuError) -> PyErr {
         PyValueError::new_err(err.to_string())
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl From<JsValue> for AvengerWgpuError {
+    fn from(value: JsValue) -> Self {
+        AvengerWgpuError::JsError(value)
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl From<Object> for AvengerWgpuError {
+    fn from(value: Object) -> Self {
+        AvengerWgpuError::JsObjectError(value)
     }
 }

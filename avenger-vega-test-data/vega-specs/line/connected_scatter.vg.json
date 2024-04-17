@@ -9,7 +9,7 @@
   "data": [
     {
       "name": "source_0",
-      "url": "data/driving.json",
+      "url": "https://raw.githubusercontent.com/vega/vega-datasets/main/data/driving.json",
       "format": {"type": "json"}
     },
     {

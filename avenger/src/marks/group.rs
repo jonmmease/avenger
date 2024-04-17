@@ -141,3 +141,20 @@ impl SceneGroup {
         })
     }
 }
+
+impl Default for SceneGroup {
+    fn default() -> Self {
+        Self {
+            name: "".to_string(),
+            origin: [0.0, 0.0],
+            clip: Default::default(),
+            marks: vec![],
+            gradients: vec![],
+            fill: None,
+            stroke: None,
+            stroke_width: None,
+            stroke_offset: None,
+            zindex: None,
+        }
+    }
+}

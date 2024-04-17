@@ -1,5 +1,9 @@
+use crate::error::AvengerError;
 use crate::marks::value::{ColorOrGradient, EncodingValue, Gradient};
-use lyon_path::Winding;
+use lyon_extra::parser::{ParserOptions, Source};
+use lyon_path::geom::euclid::Point2D;
+use lyon_path::geom::{Box2D, Point, Scale};
+use lyon_path::{Path, Winding};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
@@ -130,6 +134,145 @@ pub enum SymbolShape {
 }
 
 impl SymbolShape {
+    pub fn from_vega_str(shape: &str) -> Result<SymbolShape, AvengerError> {
+        let tan30: f32 = (30.0 * std::f32::consts::PI / 180.0).tan();
+        let sqrt3: f32 = 3.0f32.sqrt();
+
+        // See https://github.com/vega/vega/blob/main/packages/vega-scenegraph/src/path/symbols.js
+        Ok(match shape.to_ascii_lowercase().as_str() {
+            "circle" => SymbolShape::Circle,
+            "square" => {
+                let mut builder = lyon_path::Path::builder();
+                builder.add_rectangle(
+                    &Box2D::new(Point2D::new(-0.5, -0.5), Point2D::new(0.5, 0.5)),
+                    Winding::Negative,
+                );
+                let path = builder.build();
+                SymbolShape::Path(path)
+            }
+            "cross" => {
+                let r = 0.5;
+                let s = r / 2.5;
+
+                let mut builder = lyon_path::Path::builder().with_svg();
+                builder.move_to(Point::new(-r, -s));
+                builder.line_to(Point::new(-r, s));
+                builder.line_to(Point::new(-s, s));
+                builder.line_to(Point::new(-s, r));
+                builder.line_to(Point::new(s, r));
+                builder.line_to(Point::new(s, s));
+                builder.line_to(Point::new(r, s));
+                builder.line_to(Point::new(r, -s));
+                builder.line_to(Point::new(s, -s));
+                builder.line_to(Point::new(s, -r));
+                builder.line_to(Point::new(-s, -r));
+                builder.line_to(Point::new(-s, -s));
+                builder.close();
+                SymbolShape::Path(builder.build())
+            }
+            "diamond" => {
+                let r = 0.5;
+                let mut builder = lyon_path::Path::builder().with_svg();
+                builder.move_to(Point::new(-r, 0.0));
+                builder.line_to(Point::new(0.0, -r));
+                builder.line_to(Point::new(r, 0.0));
+                builder.line_to(Point::new(0.0, r));
+                builder.close();
+                SymbolShape::Path(builder.build())
+            }
+            "triangle-up" => {
+                let r = 0.5;
+                let h = r * sqrt3 / 2.0;
+                let mut builder = lyon_path::Path::builder().with_svg();
+                builder.move_to(Point::new(0.0, -h));
+                builder.line_to(Point::new(-r, h));
+                builder.line_to(Point::new(r, h));
+                builder.close();
+                SymbolShape::Path(builder.build())
+            }
+            "triangle-down" => {
+                let r = 0.5;
+                let h = r * sqrt3 / 2.0;
+                let mut builder = lyon_path::Path::builder().with_svg();
+                builder.move_to(Point::new(0.0, h));
+                builder.line_to(Point::new(-r, -h));
+                builder.line_to(Point::new(r, -h));
+                builder.close();
+                SymbolShape::Path(builder.build())
+            }
+            "triangle-right" => {
+                let r = 0.5;
+                let h = r * sqrt3 / 2.0;
+                let mut builder = lyon_path::Path::builder().with_svg();
+                builder.move_to(Point::new(h, 0.0));
+                builder.line_to(Point::new(-h, -r));
+                builder.line_to(Point::new(-h, r));
+                builder.close();
+                SymbolShape::Path(builder.build())
+            }
+            "triangle-left" => {
+                let r = 0.5;
+                let h = r * sqrt3 / 2.0;
+                let mut builder = lyon_path::Path::builder().with_svg();
+                builder.move_to(Point::new(-h, 0.0));
+                builder.line_to(Point::new(h, -r));
+                builder.line_to(Point::new(h, r));
+                builder.close();
+                SymbolShape::Path(builder.build())
+            }
+            "arrow" => {
+                let r = 0.5;
+                let s = r / 7.0;
+                let t = r / 2.5;
+                let v = r / 8.0;
+
+                let mut builder = lyon_path::Path::builder().with_svg();
+                builder.move_to(Point::new(-s, r));
+                builder.line_to(Point::new(s, r));
+                builder.line_to(Point::new(s, -v));
+                builder.line_to(Point::new(t, -v));
+                builder.line_to(Point::new(0.0, -r));
+                builder.line_to(Point::new(-t, -v));
+                builder.line_to(Point::new(-s, -v));
+                builder.close();
+                SymbolShape::Path(builder.build())
+            }
+            "wedge" => {
+                let r = 0.5;
+                let h = r * sqrt3 / 2.0;
+                let o = h - r * tan30;
+                let b = r / 4.0;
+
+                let mut builder = lyon_path::Path::builder().with_svg();
+                builder.move_to(Point::new(0.0, -h - o));
+                builder.line_to(Point::new(-b, h - o));
+                builder.line_to(Point::new(b, h - o));
+                builder.close();
+                SymbolShape::Path(builder.build())
+            }
+            "triangle" => {
+                let r = 0.5;
+                let h = r * sqrt3 / 2.0;
+                let o = h - r * tan30;
+                let mut builder = lyon_path::Path::builder().with_svg();
+                builder.move_to(Point::new(0.0, -h - o));
+                builder.line_to(Point::new(-r, h - o));
+                builder.line_to(Point::new(r, h - o));
+                builder.close();
+                SymbolShape::Path(builder.build())
+            }
+            _ => {
+                // General SVG string
+                let path = parse_svg_path(shape)?;
+
+                // - Coordinates are divided by 2 to match Vega
+                let path = path.transformed(&Scale::new(0.5));
+
+                SymbolShape::Path(path)
+            }
+        })
+    }
+
     pub fn as_path(&self) -> Cow<lyon_path::Path> {
         match self {
             SymbolShape::Circle => {
@@ -140,4 +283,13 @@ impl SymbolShape {
             SymbolShape::Path(path) => Cow::Borrowed(path),
         }
     }
+}
+
+pub fn parse_svg_path(path: &str) -> Result<Path, AvengerError> {
+    let mut source = Source::new(path.chars());
+    let mut parser = lyon_extra::parser::PathParser::new();
+    let opts = ParserOptions::DEFAULT;
+    let mut builder = lyon_path::Path::builder();
+    parser.parse(&opts, &mut source, &mut builder)?;
+    Ok(builder.build())
 }
