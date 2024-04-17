@@ -11,13 +11,13 @@ var spec = {
     "width": 400,
     "height": 400,
     "style": "cell",
-    "title": {
-        "text": "Hello, 👋 World 🌍",
-        "fontSize": 28,
-        "font": "serif",
-        "fontWeight": "normal",
-        "color": "blue",
-    },
+    // "title": {
+    //     "text": "Hello, 👋 World 🌍",
+    //     "fontSize": 28,
+    //     "font": "serif",
+    //     "fontWeight": "normal",
+    //     "color": "blue",
+    // },
     "data": [
         {"name": "grid_store"},
         {
