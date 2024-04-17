@@ -44,7 +44,7 @@ jobs:
           cd avenger-wgpu && cargo build && cd ..
           cd avenger-vega-test-data && cargo build && cd ..
           pushd examples/scatter-panning && cargo build && popd
-          pushd examples/wgpu-init && cargo build && popd
+          pushd examples/wgpu-winit && cargo build && popd
 #  # Tests currently fail with `MakeWgpuAdapterError`
 #      - name: Run tests
 #        run: cargo test --verbose
