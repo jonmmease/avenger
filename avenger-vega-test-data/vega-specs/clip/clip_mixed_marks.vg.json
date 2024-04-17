@@ -147,7 +147,7 @@
               "y": {"value": 320},
               "width": {"value": 50},
               "height": {"value": 50},
-              "url": {"value": "data/ffox.png"}
+              "url": {"value": "https://raw.githubusercontent.com/vega/vega-datasets/main/data/ffox.png"}
             }
           }
         },
@@ -160,7 +160,7 @@
               "y": {"value": 320},
               "width": {"value": 50},
               "height": {"value": 50},
-              "url": {"value": "data/ffox.png"}
+              "url": {"value": "https://raw.githubusercontent.com/vega/vega-datasets/main/data/ffox.png"}
             }
           }
         },

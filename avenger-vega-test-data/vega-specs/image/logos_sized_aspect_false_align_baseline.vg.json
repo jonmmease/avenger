@@ -10,9 +10,9 @@
     {
       "name": "source_0",
       "values": [
-        {"x": 0.5, "y": 0.5, "img": "data/ffox.png", "width": 40, "height": 70, "align": "left", "baseline": "bottom"},
-        {"x": 1.5, "y": 1.5, "img": "data/gimp.png", "width": 80, "height": 60, "align": "right", "baseline": "middle"},
-        {"x": 2.5, "y": 2.5, "img": "data/7zip.png", "width": 30, "height": 30, "align": "center", "baseline": "top"}
+        {"x": 0.5, "y": 0.5, "img": "https://raw.githubusercontent.com/vega/vega-datasets/main/data/ffox.png", "width": 40, "height": 70, "align": "left", "baseline": "bottom"},
+        {"x": 1.5, "y": 1.5, "img": "https://raw.githubusercontent.com/vega/vega-datasets/main/data/gimp.png", "width": 80, "height": 60, "align": "right", "baseline": "middle"},
+        {"x": 2.5, "y": 2.5, "img": "https://raw.githubusercontent.com/vega/vega-datasets/main/data/7zip.png", "width": 30, "height": 30, "align": "center", "baseline": "top"}
       ]
     },
     {

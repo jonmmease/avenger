@@ -1,9 +1,10 @@
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
-use crate::marks::symbol::parse_svg_path;
 use crate::marks::values::CssColorOrGradient;
+use avenger::error::AvengerError;
 use avenger::marks::mark::SceneMark;
 use avenger::marks::path::{PathMark, PathTransform};
+use avenger::marks::symbol::parse_svg_path;
 use avenger::marks::value::{ColorOrGradient, EncodingValue, Gradient, StrokeCap, StrokeJoin};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -124,7 +125,7 @@ impl VegaMarkContainer<VegaShapeItem> {
             let paths = path_str
                 .iter()
                 .map(|p| parse_svg_path(p))
-                .collect::<Result<Vec<_>, AvengerVegaError>>()?;
+                .collect::<Result<Vec<_>, AvengerError>>()?;
 
             mark.path = EncodingValue::Array { values: paths };
         }

@@ -13,3 +13,6 @@ scratch/
 
 /avenger-python/avenger/_avenger.abi3.so
 __pycache__/
+/avenger-wasm/dist/
+/examples/deno_png/chart.png
+/avenger-vega-renderer/test/failures/

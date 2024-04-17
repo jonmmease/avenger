@@ -29,10 +29,13 @@ impl SceneGraph {
     #[allow(clippy::wrong_self_convention)]
     fn to_png(&mut self, py: Python, scale: Option<f32>) -> PyResult<PyObject> {
         let img = pollster::block_on(async {
-            let mut png_canvas = PngCanvas::new(CanvasDimensions {
-                size: [self.inner.width, self.inner.height],
-                scale: scale.unwrap_or(1.0),
-            })
+            let mut png_canvas = PngCanvas::new(
+                CanvasDimensions {
+                    size: [self.inner.width, self.inner.height],
+                    scale: scale.unwrap_or(1.0),
+                },
+                Default::default(),
+            )
             .await?;
             png_canvas.set_scene(&self.inner)?;
 

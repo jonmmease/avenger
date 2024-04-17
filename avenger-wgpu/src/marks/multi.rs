@@ -1,4 +1,4 @@
-use crate::canvas::CanvasDimensions;
+use crate::canvas::{CanvasDimensions, TextBuildCtor};
 use crate::error::AvengerWgpuError;
 
 use crate::marks::gradient::{to_color_or_gradient_coord, GradientAtlasBuilder};
@@ -29,6 +29,7 @@ use lyon::path::builder::{BorderRadii, WithSvg};
 use lyon::path::path::BuilderImpl;
 use lyon::path::{Path, Winding};
 use std::ops::{Mul, Neg, Range};
+
 use wgpu::util::DeviceExt;
 use wgpu::{
     BindGroup, BindGroupLayout, CommandBuffer, Device, Extent3d, Queue, TextureFormat, TextureView,
@@ -36,7 +37,7 @@ use wgpu::{
 };
 
 // Import rayon prelude as required by par_izip.
-use crate::marks::text::{TextAtlasBuilder, TextInstance};
+use crate::marks::text::{TextAtlasBuilderTrait, TextInstance};
 
 use avenger::marks::arc::ArcMark;
 use avenger::marks::group::Clip;
@@ -102,20 +103,30 @@ pub struct MultiMarkRenderer {
     uniform: MultiUniform,
     gradient_atlas_builder: GradientAtlasBuilder,
     image_atlas_builder: ImageAtlasBuilder,
-    text_atlas_builder: Box<dyn TextAtlasBuilder>,
+    text_atlas_builder: Box<dyn TextAtlasBuilderTrait>,
     dimensions: CanvasDimensions,
 }
 
 impl MultiMarkRenderer {
-    pub fn new(dimensions: CanvasDimensions) -> Self {
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "cosmic-text")] {
-                use crate::marks::cosmic::CosmicTextAtlasBuilder;
-                let text_atlas_builder: Box<dyn TextAtlasBuilder> = Box::new(CosmicTextAtlasBuilder::new());
-            } else {
-                use crate::marks::text::NullTextAtlasBuilder;
-                let text_atlas_builder: Box<dyn TextAtlasBuilder> = Box::new(NullTextAtlasBuilder);
-            }
+    pub fn new(
+        dimensions: CanvasDimensions,
+        text_atlas_builder_ctor: Option<TextBuildCtor>,
+    ) -> Self {
+        let text_atlas_builder = if let Some(text_atlas_builder_ctor) = text_atlas_builder_ctor {
+            text_atlas_builder_ctor()
+        } else {
+            cfg_if::cfg_if! {
+                if #[cfg(feature = "cosmic-text")] {
+                    use crate::marks::cosmic::CosmicTextRasterizer;
+                    use crate::marks::text::TextAtlasBuilder;
+                    use std::sync::Arc;
+                    let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(CosmicTextRasterizer)));
+                } else {
+                    use crate::marks::text::NullTextAtlasBuilder;
+                    let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(NullTextAtlasBuilder);
+                }
+            };
+            inner_text_atlas_builder
         };
 
         Self {
@@ -1785,7 +1796,17 @@ impl MultiMarkRenderer {
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &depth_view,
-                    depth_ops: None,
+                    depth_ops: if cfg!(feature = "deno") {
+                        // depth_ops shouldn't be needed, but setting to None results in validation
+                        // error in Deno. However, setting it to the below causes a validation error
+                        // in Chrome.
+                        Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(0.0),
+                            store: wgpu::StoreOp::Discard,
+                        })
+                    } else {
+                        None
+                    },
                     stencil_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(0),
                         store: wgpu::StoreOp::Store,
