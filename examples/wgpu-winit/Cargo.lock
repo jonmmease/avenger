@@ -180,7 +180,6 @@ dependencies = [
  "futures-intrusive",
  "image",
  "itertools",
- "lazy_static",
  "log",
  "lyon",
  "pollster",

@@ -9,7 +9,8 @@ license = "BSD-3-Clause"
 crate-type = [ "cdylib", "rlib",]
 
 [features]
-default = [ "cosmic-text", "rayon",]
+default = ["cosmic-text", "rayon"]
+cosmic-text = ["dep:cosmic-text", "lazy_static"]
 deno = []
 
 [dependencies]
@@ -50,6 +51,7 @@ features = [ "derive",]
 
 [dependencies.lazy_static]
 workspace = true
+optional = true
 
 [dependencies.pyo3]
 workspace = true
