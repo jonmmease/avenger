@@ -1,3 +1,4 @@
+#[cfg(feature = "cosmic-text")]
 #[macro_use]
 extern crate lazy_static;
 
