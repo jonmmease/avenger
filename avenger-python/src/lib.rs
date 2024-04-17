@@ -34,7 +34,7 @@ impl SceneGraph {
                     size: [self.inner.width, self.inner.height],
                     scale: scale.unwrap_or(1.0),
                 },
-                Default::default()
+                Default::default(),
             )
             .await?;
             png_canvas.set_scene(&self.inner)?;
