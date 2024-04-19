@@ -420,17 +420,20 @@ pub(crate) fn get_supported_sample_count(sample_flags: TextureFormatFeatureFlags
 }
 
 pub struct WindowCanvas<'window> {
-    window: Arc<Window>,
-    surface: Surface<'window>,
-    device: Device,
-    queue: Queue,
-    multisampled_framebuffer: TextureView,
     sample_count: u32,
     surface_config: SurfaceConfiguration,
     dimensions: CanvasDimensions,
     marks: Vec<MarkRenderer>,
     multi_renderer: Option<MultiMarkRenderer>,
     config: CanvasConfig,
+
+    // Order of properties determines drop order.
+    // Device must be dropped after the buffers and textures associated with marks
+    multisampled_framebuffer: TextureView,
+    queue: Queue,
+    device: Device,
+    surface: Surface<'window>,
+    window: Arc<Window>,
 }
 
 impl<'window> WindowCanvas<'window> {
@@ -623,20 +626,24 @@ impl<'window> Canvas for WindowCanvas<'window> {
 }
 
 pub struct PngCanvas {
-    device: Device,
-    queue: Queue,
-    multisampled_framebuffer: TextureView,
     sample_count: u32,
     marks: Vec<MarkRenderer>,
-    pub dimensions: CanvasDimensions,
-    pub texture_view: TextureView,
-    pub output_buffer: Buffer,
-    pub texture: Texture,
-    pub texture_size: Extent3d,
-    pub padded_width: u32,
-    pub padded_height: u32,
-    pub multi_renderer: Option<MultiMarkRenderer>,
-    pub config: CanvasConfig,
+    dimensions: CanvasDimensions,
+    texture_view: TextureView,
+    output_buffer: Buffer,
+    texture: Texture,
+    texture_size: Extent3d,
+    padded_width: u32,
+    padded_height: u32,
+    multi_renderer: Option<MultiMarkRenderer>,
+    config: CanvasConfig,
+
+    // The order of properties in a struct is the order in which items are dropped.
+    // wgpu seems to require that the device be dropped last, otherwise there is a resouce
+    // leak.
+    multisampled_framebuffer: TextureView,
+    queue: Queue,
+    device: Device,
 }
 
 impl PngCanvas {

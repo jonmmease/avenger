@@ -12,16 +12,19 @@ use wgpu::{
 };
 
 pub struct HtmlCanvasCanvas<'window> {
-    surface: Surface<'window>,
-    device: Device,
-    queue: Queue,
-    multisampled_framebuffer: TextureView,
     sample_count: u32,
     surface_config: SurfaceConfiguration,
     dimensions: CanvasDimensions,
     marks: Vec<MarkRenderer>,
     multi_renderer: Option<MultiMarkRenderer>,
     config: CanvasConfig,
+
+    // The order of properties determines that drop order and device must be dropped after
+    // the buffers and textures associated with marks.
+    multisampled_framebuffer: TextureView,
+    queue: Queue,
+    device: Device,
+    surface: Surface<'window>,
 }
 
 impl<'window> HtmlCanvasCanvas<'window> {
