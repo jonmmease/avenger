@@ -49,31 +49,30 @@ jobs:
 #      - name: Run tests
 #        run: cargo test --verbose
 
-# # Cleanup fails with: [__NSCFString bytes]: unrecognized selector sent to instance 0x600002fc62c0
-#  test-rs-macos:
-#    runs-on: macos-latest
-#    env:
-#      RUSTFLAGS: "-D warnings"
-#    steps:
-#      - name: Install Protoc
-#        uses: arduino/setup-protoc@v2
-#        with:
-#          repo-token: ${{ secrets.GITHUB_TOKEN }}
-#      - uses: actions/checkout@v3
-#      - name: Install latest stable toolchain
-#        uses: actions-rs/toolchain@v1
-#        with:
-#          toolchain: stable
-#          override: true
-#      - uses: Swatinem/rust-cache@v2
-#        with:
-#          prefix-key: "test-macos"
-#      - name: version
-#        run: rustc --version
-#      - name: test
-#        run:  cd avenger-wgpu/ && cargo test -- --nocapture
-#      - name: Update images
-#        uses: actions/upload-artifact@v4
-#        with:
-#          name: images-macos
-#          path: avenger-wgpu/tests/output
+  test-rs-macos:
+    runs-on: macos-latest
+    env:
+      RUSTFLAGS: "-D warnings"
+    steps:
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v3
+      - name: Install latest stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "test-macos"
+      - name: version
+        run: rustc --version
+      - name: test
+        run:  cd avenger-wgpu/ && cargo test -- --nocapture
+      - name: Update images
+        uses: actions/upload-artifact@v4
+        with:
+          name: images-macos
+          path: avenger-wgpu/tests/output
