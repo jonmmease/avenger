@@ -19,18 +19,22 @@ pub struct SymbolMark {
 #[wasm_bindgen]
 impl SymbolMark {
     #[wasm_bindgen(constructor)]
-    pub fn new(len: u32, clip: bool, name: Option<String>) -> Self {
+    pub fn new(len: u32, clip: bool, name: Option<String>, zindex: Option<i32>) -> Self {
         Self {
             inner: RsSymbolMark {
                 len,
                 clip,
+                zindex,
                 name: name.unwrap_or_default(),
-                fill: EncodingValue::Scalar {
-                    value: ColorOrGradient::Color([0.0, 0.0, 1.0, 0.5]),
-                },
                 ..Default::default()
             },
         }
+    }
+
+    pub fn set_zindex(&mut self, zindex: Vec<i32>) {
+        let mut indices: Vec<usize> = (0..self.inner.len as usize).collect();
+        indices.sort_by_key(|i| zindex[*i]);
+        self.inner.indices = Some(indices);
     }
 
     pub fn set_xy(&mut self, x: Vec<f32>, y: Vec<f32>) {
@@ -46,8 +50,8 @@ impl SymbolMark {
         self.inner.angle = EncodingValue::Array { values: angle };
     }
 
-    pub fn set_zindex(&mut self, zindex: Option<i32>) {
-        self.inner.zindex = zindex;
+    pub fn set_stroke_width(&mut self, width: Option<f32>) {
+        self.inner.stroke_width = width;
     }
 
     pub fn set_stroke(
@@ -112,6 +116,11 @@ impl RuleMark {
             },
         }
     }
+
+    pub fn set_zindex(&mut self, zindex: Option<i32>) {
+        self.inner.zindex = zindex;
+    }
+
     pub fn set_xy(&mut self, x0: Vec<f32>, y0: Vec<f32>, x1: Vec<f32>, y1: Vec<f32>) {
         self.inner.x0 = EncodingValue::Array { values: x0 };
         self.inner.y0 = EncodingValue::Array { values: y0 };
@@ -155,6 +164,10 @@ impl TextMark {
         }
     }
 
+    pub fn set_zindex(&mut self, zindex: Option<i32>) {
+        self.inner.zindex = zindex;
+    }
+
     pub fn set_xy(&mut self, x: Vec<f32>, y: Vec<f32>) {
         self.inner.x = EncodingValue::Array { values: x };
         self.inner.y = EncodingValue::Array { values: y };
@@ -174,10 +187,6 @@ impl TextMark {
 
     pub fn set_indices(&mut self, indices: Vec<usize>) {
         self.inner.indices = Some(indices);
-    }
-
-    pub fn set_zindex(&mut self, zindex: i32) {
-        self.inner.zindex = Some(zindex);
     }
 
     pub fn set_text(&mut self, text: JsValue) -> Result<(), JsError> {
