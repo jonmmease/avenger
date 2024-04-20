@@ -3,11 +3,13 @@ use avenger::marks::group::{Clip, SceneGroup as RsSceneGroup};
 use avenger::marks::mark::SceneMark;
 use avenger::marks::symbol::SymbolShape;
 use avenger::marks::text::{FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
-use avenger::marks::value::{ColorOrGradient, EncodingValue};
+use avenger::marks::value::{ColorOrGradient, EncodingValue, Gradient};
 use avenger::marks::{
     rule::RuleMark as RsRuleMark, symbol::SymbolMark as RsSymbolMark, text::TextMark as RsTextMark,
 };
 use avenger::scene_graph::SceneGraph as RsSceneGraph;
+use avenger_vega::error::AvengerVegaError;
+use avenger_vega::marks::values::CssColorOrGradient;
 use gloo_utils::format::JsValueSerdeExt;
 use wasm_bindgen::prelude::*;
 
@@ -19,18 +21,22 @@ pub struct SymbolMark {
 #[wasm_bindgen]
 impl SymbolMark {
     #[wasm_bindgen(constructor)]
-    pub fn new(len: u32, clip: bool, name: Option<String>) -> Self {
+    pub fn new(len: u32, clip: bool, name: Option<String>, zindex: Option<i32>) -> Self {
         Self {
             inner: RsSymbolMark {
                 len,
                 clip,
+                zindex,
                 name: name.unwrap_or_default(),
-                fill: EncodingValue::Scalar {
-                    value: ColorOrGradient::Color([0.0, 0.0, 1.0, 0.5]),
-                },
                 ..Default::default()
             },
         }
+    }
+
+    pub fn set_zindex(&mut self, zindex: Vec<i32>) {
+        let mut indices: Vec<usize> = (0..self.inner.len as usize).collect();
+        indices.sort_by_key(|i| zindex[*i]);
+        self.inner.indices = Some(indices);
     }
 
     pub fn set_xy(&mut self, x: Vec<f32>, y: Vec<f32>) {
@@ -46,8 +52,8 @@ impl SymbolMark {
         self.inner.angle = EncodingValue::Array { values: angle };
     }
 
-    pub fn set_zindex(&mut self, zindex: Option<i32>) {
-        self.inner.zindex = zindex;
+    pub fn set_stroke_width(&mut self, width: Option<f32>) {
+        self.inner.stroke_width = width;
     }
 
     pub fn set_stroke(
@@ -62,6 +68,17 @@ impl SymbolMark {
         Ok(())
     }
 
+    pub fn set_stroke_gradient(
+        &mut self,
+        values: JsValue,
+        opacity: Vec<f32>,
+    ) -> Result<(), JsError> {
+        self.inner.stroke = EncodingValue::Array {
+            values: decode_gradients(values, opacity, &mut self.inner.gradients)?,
+        };
+        Ok(())
+    }
+
     pub fn set_fill(
         &mut self,
         color_values: JsValue,
@@ -70,6 +87,13 @@ impl SymbolMark {
     ) -> Result<(), JsError> {
         self.inner.fill = EncodingValue::Array {
             values: decode_colors(color_values, indices, opacity)?,
+        };
+        Ok(())
+    }
+
+    pub fn set_fill_gradient(&mut self, values: JsValue, opacity: Vec<f32>) -> Result<(), JsError> {
+        self.inner.fill = EncodingValue::Array {
+            values: decode_gradients(values, opacity, &mut self.inner.gradients)?,
         };
         Ok(())
     }
@@ -112,6 +136,11 @@ impl RuleMark {
             },
         }
     }
+
+    pub fn set_zindex(&mut self, zindex: Option<i32>) {
+        self.inner.zindex = zindex;
+    }
+
     pub fn set_xy(&mut self, x0: Vec<f32>, y0: Vec<f32>, x1: Vec<f32>, y1: Vec<f32>) {
         self.inner.x0 = EncodingValue::Array { values: x0 };
         self.inner.y0 = EncodingValue::Array { values: y0 };
@@ -155,6 +184,10 @@ impl TextMark {
         }
     }
 
+    pub fn set_zindex(&mut self, zindex: Option<i32>) {
+        self.inner.zindex = zindex;
+    }
+
     pub fn set_xy(&mut self, x: Vec<f32>, y: Vec<f32>) {
         self.inner.x = EncodingValue::Array { values: x };
         self.inner.y = EncodingValue::Array { values: y };
@@ -174,10 +207,6 @@ impl TextMark {
 
     pub fn set_indices(&mut self, indices: Vec<usize>) {
         self.inner.indices = Some(indices);
-    }
-
-    pub fn set_zindex(&mut self, zindex: i32) {
-        self.inner.zindex = Some(zindex);
     }
 
     pub fn set_text(&mut self, text: JsValue) -> Result<(), JsError> {
@@ -279,6 +308,20 @@ impl TextMark {
         self.inner.color = EncodingValue::Array { values: colors };
         Ok(())
     }
+}
+
+fn decode_gradients(
+    values: JsValue,
+    opacity: Vec<f32>,
+    gradients: &mut Vec<Gradient>,
+) -> Result<Vec<ColorOrGradient>, JsError> {
+    let values: Vec<CssColorOrGradient> = values.into_serde()?;
+    values
+        .iter()
+        .zip(opacity)
+        .map(|(grad, opacity)| grad.to_color_or_grad(opacity, gradients))
+        .collect::<Result<Vec<_>, AvengerVegaError>>()
+        .map_err(|_| JsError::new("Failed to parse gradients"))
 }
 
 fn decode_colors(

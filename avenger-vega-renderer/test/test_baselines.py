@@ -53,10 +53,37 @@ def failures_path():
 @pytest.mark.parametrize(
     "category,spec_name,tolerance",
     [
-        ("symbol", "binned_scatter_circle", 0.0001),
         ("symbol", "binned_scatter_diamonds", 0.0001),
         ("symbol", "binned_scatter_square", 0.0001),
         ("symbol", "binned_scatter_triangle-down", 0.0001),
+        ("symbol", "binned_scatter_triangle-up", 0.0001),
+        ("symbol", "binned_scatter_triangle-left", 0.0001),
+        ("symbol", "binned_scatter_triangle-right", 0.0001),
+        ("symbol", "binned_scatter_triangle", 0.0001),
+        ("symbol", "binned_scatter_wedge", 0.0001),
+        ("symbol", "binned_scatter_arrow", 0.0001),
+        ("symbol", "binned_scatter_cross", 0.0001),
+        ("symbol", "binned_scatter_circle", 0.0001),
+        ("symbol", "binned_scatter_path", 0.0001),
+        ("symbol", "binned_scatter_path_star", 0.0001),
+        ("symbol", "binned_scatter_path_star", 0.0001),
+        ("symbol", "binned_scatter_cross_stroke", 0.0001),
+        ("symbol", "binned_scatter_circle_stroke", 0.0001),
+        ("symbol", "binned_scatter_circle_stroke_no_fill", 0.0001),
+        ("symbol", "binned_scatter_path_star_stroke_no_fill", 0.0001),
+        ("symbol", "scatter_transparent_stroke", 0.0001),
+        ("symbol", "scatter_transparent_stroke_star", 0.0001),
+        ("symbol", "scatter_transparent_stroke_star", 0.0001),
+        ("symbol", "wind_vector", 0.0001),
+        ("symbol", "wedge_angle", 0.0001),
+        ("symbol", "wedge_stroke_angle", 0.0001),
+        ("symbol", "zindex_circles", 0.0001),
+        ("symbol", "mixed_symbols", 0.0001),
+
+        # The canvas renderer messes up these gradients, avenger renders them correctly
+        ("gradients", "symbol_cross_gradient", 0.03),
+        ("gradients", "symbol_circles_gradient_stroke", 0.03),
+        ("gradients", "symbol_radial_gradient", 0.0002),
     ],
 )
 def test_image_baselines(
@@ -105,8 +132,13 @@ class ComparisonResult:
 
 
 def compare(page: Page, spec: dict) -> ComparisonResult:
-    canvas_img = spec_to_image(page, spec, "canvas")
+    avenger_errs = []
+    page.on("pageerror", lambda e: avenger_errs.append(e))
     avenger_img = spec_to_image(page, spec, "avenger")
+    if avenger_errs:
+        pytest.fail('\n'.join(avenger_errs))
+
+    canvas_img = spec_to_image(page, spec, "canvas")
     diff_img = Image.new("RGBA", canvas_img.size)
     mismatch = pixelmatch(canvas_img, avenger_img, diff_img, threshold=0.2)
     score = mismatch / (canvas_img.width * canvas_img.height)
@@ -127,4 +159,14 @@ def spec_to_image(
         f"vegaEmbed('#plot-container', {json.dumps(spec)}, {json.dumps(embed_opts)});"
     )
     page.evaluate_handle(script)
-    return Image.open(io.BytesIO(page.locator("canvas").first.screenshot()))
+    img = Image.open(io.BytesIO(page.locator("canvas").first.screenshot()))
+
+    # Check that the image is not entirely white (which happens on rendering errors sometimes)
+    pixels = img.load()
+    for x in range(img.width):
+        for y in range(img.height):
+            if pixels[x, y] != (255, 255, 255, 255):
+                # Found non-white pixel, return
+                return img
+
+    pytest.fail("Retrieved blank image")
