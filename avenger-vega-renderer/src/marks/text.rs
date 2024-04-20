@@ -58,12 +58,21 @@ impl TextMark {
         self.inner.indices = Some(indices);
     }
 
+    /// Set text
+    ///
+    /// @param {string[]} text
+    #[wasm_bindgen(skip_jsdoc)]
     pub fn set_text(&mut self, text: JsValue) -> Result<(), JsError> {
         let text: Vec<String> = text.into_serde()?;
         self.inner.text = EncodingValue::Array { values: text };
         Ok(())
     }
 
+    /// Set font
+    ///
+    /// @param {string[]} font_values
+    /// @param {Uint32Array} indices
+    #[wasm_bindgen(skip_jsdoc)]
     pub fn set_font(&mut self, font_values: JsValue, indices: Vec<usize>) -> Result<(), JsError> {
         let font_values: Vec<String> = font_values.into_serde()?;
         let values = indices
@@ -74,6 +83,11 @@ impl TextMark {
         Ok(())
     }
 
+    /// Set alignment
+    ///
+    /// @param {("left"|"center"|"right")[]} align_values
+    /// @param {Uint32Array} indices
+    #[wasm_bindgen(skip_jsdoc)]
     pub fn set_align(&mut self, align_values: JsValue, indices: Vec<usize>) -> Result<(), JsError> {
         let align_values: Vec<TextAlignSpec> = align_values.into_serde()?;
         let values = indices
@@ -84,6 +98,11 @@ impl TextMark {
         Ok(())
     }
 
+    /// Set alignment
+    ///
+    /// @param {("alphabetic"|"top"|"middle"|"bottom"|"line-top"|"line-bottom")[]} baseline_values
+    /// @param {Uint32Array} indices
+    #[wasm_bindgen(skip_jsdoc)]
     pub fn set_baseline(
         &mut self,
         baseline_values: JsValue,
@@ -98,6 +117,11 @@ impl TextMark {
         Ok(())
     }
 
+    /// Set font weight
+    ///
+    /// @param {(number|"normal"|"bold")[]} weight_values
+    /// @param {Uint32Array} indices
+    #[wasm_bindgen(skip_jsdoc)]
     pub fn set_font_weight(
         &mut self,
         weight_values: JsValue,
@@ -112,6 +136,11 @@ impl TextMark {
         Ok(())
     }
 
+    /// Set font style
+    ///
+    /// @param {("normal"|"italic")[]} style_values
+    /// @param {Uint32Array} indices
+    #[wasm_bindgen(skip_jsdoc)]
     pub fn set_font_style(
         &mut self,
         style_values: JsValue,
@@ -126,6 +155,12 @@ impl TextMark {
         Ok(())
     }
 
+    /// Set text color
+    ///
+    /// @param {string[]} color_values
+    /// @param {Uint32Array} indices
+    /// @param {Float32Array} opacity
+    #[wasm_bindgen(skip_jsdoc)]
     pub fn set_color(
         &mut self,
         color_values: JsValue,

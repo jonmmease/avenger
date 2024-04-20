@@ -53,6 +53,12 @@ impl SymbolMark {
         self.inner.stroke_width = width;
     }
 
+    /// Set stroke color
+    ///
+    /// @param {string[]} color_values
+    /// @param {Uint32Array} indices
+    /// @param {Float32Array} opacity
+    #[wasm_bindgen(skip_jsdoc)]
     pub fn set_stroke(
         &mut self,
         color_values: JsValue,
@@ -65,6 +71,11 @@ impl SymbolMark {
         Ok(())
     }
 
+    /// Set stroke gradient
+    ///
+    /// @param {(string|object)[]} values
+    /// @param {Float32Array} opacity
+    #[wasm_bindgen(skip_jsdoc)]
     pub fn set_stroke_gradient(
         &mut self,
         values: JsValue,
@@ -76,6 +87,12 @@ impl SymbolMark {
         Ok(())
     }
 
+    /// Set fill color
+    ///
+    /// @param {string[]} color_values
+    /// @param {Uint32Array} indices
+    /// @param {Float32Array} opacity
+    #[wasm_bindgen(skip_jsdoc)]
     pub fn set_fill(
         &mut self,
         color_values: JsValue,
@@ -88,6 +105,11 @@ impl SymbolMark {
         Ok(())
     }
 
+    /// Set fill gradient
+    ///
+    /// @param {(string|object)[]} values
+    /// @param {Float32Array} opacity
+    #[wasm_bindgen(skip_jsdoc)]
     pub fn set_fill_gradient(&mut self, values: JsValue, opacity: Vec<f32>) -> Result<(), JsError> {
         self.inner.fill = EncodingValue::Array {
             values: decode_gradients(values, opacity, &mut self.inner.gradients)?,
@@ -95,6 +117,11 @@ impl SymbolMark {
         Ok(())
     }
 
+    /// Set symbol shape
+    ///
+    /// @param {string[]} shape_values
+    /// @param {Uint32Array} indices
+    #[wasm_bindgen(skip_jsdoc)]
     pub fn set_shape(&mut self, shape_values: JsValue, indices: Vec<usize>) -> Result<(), JsError> {
         let shapes: Vec<String> = shape_values.into_serde()?;
         let shapes = shapes
@@ -107,7 +134,4 @@ impl SymbolMark {
         self.inner.shape_index = EncodingValue::Array { values: indices };
         Ok(())
     }
-
-    // TODO
-    // pub indices: Option<Vec<usize>>,
 }

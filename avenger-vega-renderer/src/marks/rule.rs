@@ -48,6 +48,12 @@ impl RuleMark {
         self.inner.stroke_width = EncodingValue::Array { values: width }
     }
 
+    /// Set stroke color.
+    ///
+    /// @param {string[]} color_values
+    /// @param {Uint32Array} indices
+    /// @param {Float32Array} opacity
+    #[wasm_bindgen(skip_jsdoc)]
     pub fn set_stroke(
         &mut self,
         color_values: JsValue,
@@ -60,6 +66,11 @@ impl RuleMark {
         Ok(())
     }
 
+    /// Set stroke gradient
+    ///
+    /// @param {(string|object)[]} values
+    /// @param {Float32Array} opacity
+    #[wasm_bindgen(skip_jsdoc)]
     pub fn set_stroke_gradient(
         &mut self,
         values: JsValue,
@@ -71,12 +82,20 @@ impl RuleMark {
         Ok(())
     }
 
+    /// Set stroke cap
+    ///
+    /// @param {("butt"|"round"|"square")[]} values
+    #[wasm_bindgen(skip_jsdoc)]
     pub fn set_stroke_cap(&mut self, values: JsValue) -> Result<(), JsError> {
         let values: Vec<StrokeCap> = values.into_serde()?;
         self.inner.stroke_cap = EncodingValue::Array { values };
         Ok(())
     }
 
+    /// Set stroke dash
+    ///
+    /// @param {string|number[]} values
+    #[wasm_bindgen(skip_jsdoc)]
     pub fn set_stroke_dash(&mut self, values: JsValue) -> Result<(), JsError> {
         let values: Vec<StrokeDashSpec> = values.into_serde()?;
         let values = values

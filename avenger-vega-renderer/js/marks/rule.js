@@ -1,6 +1,38 @@
 import {RuleMark} from "../../pkg/avenger_wasm.js";
-import {encodeStringArray} from "./util.js";
+import {encodeSimpleArray} from "./util.js";
 
+
+/**
+ * Represents the style and configuration of a graphic element.
+ * @typedef {Object} RuleItem
+ * @property {number} strokeWidth
+ * @property {string} stroke
+ * @property {string|number[]} strokeDash
+ * @property {number} x
+ * @property {number} x2
+ * @property {number} y
+ * @property {number} y2
+ * @property {number} opacity
+ * @property {number} strokeOpacity
+ * @property {string} strokeCap
+ * @property {number} zindex
+ */
+
+/**
+ * Represents a graphical object configuration.
+ * @typedef {Object} RuleMarkSpec
+ * @property {"rule"} marktype
+ * @property {boolean} clip
+ * @property {RuleItem[]} items
+ * @property {string} name
+ * @property {number} zindex
+ */
+
+/**
+ * @param {RuleMarkSpec} vegaRuleMark
+ * @param {boolean} forceClip
+ * @returns {RuleMark}
+ */
 export function importRule(vegaRuleMark, forceClip) {
     const items = vegaRuleMark.items;
     const len = items.length;
@@ -34,7 +66,7 @@ export function importRule(vegaRuleMark, forceClip) {
     const strokeDash = new Array(len);
     let anyStrokeDash = false;
 
-    const zindex = new Float32Array(len).fill(0);
+    const zindex = new Int32Array(len).fill(0);
     let anyZindex = false;
 
     items.forEach((item, i) => {
@@ -91,7 +123,7 @@ export function importRule(vegaRuleMark, forceClip) {
         if (strokeIsGradient) {
             ruleMark.set_stroke_gradient(stroke, strokeOpacity);
         } else {
-            const encoded = encodeStringArray(stroke);
+            const encoded = encodeSimpleArray(stroke);
             ruleMark.set_stroke(encoded.values, encoded.indices, strokeOpacity);
         }
     }
