@@ -197,19 +197,20 @@ pub struct TextMark {
 #[wasm_bindgen]
 impl TextMark {
     #[wasm_bindgen(constructor)]
-    pub fn new(len: u32, clip: bool, name: Option<String>) -> Self {
+    pub fn new(len: u32, clip: bool, name: Option<String>, zindex: Option<i32>) -> Self {
         Self {
             inner: RsTextMark {
                 len,
                 clip,
                 name: name.unwrap_or_default(),
+                zindex,
                 ..Default::default()
             },
         }
     }
 
-    pub fn set_zindex(&mut self, zindex: Option<i32>) {
-        self.inner.zindex = zindex;
+    pub fn set_zindex(&mut self, zindex: Vec<i32>) {
+        self.inner.indices = Some(zindex_to_indices(zindex));
     }
 
     pub fn set_xy(&mut self, x: Vec<f32>, y: Vec<f32>) {
@@ -309,7 +310,7 @@ impl TextMark {
     ) -> Result<(), JsError> {
         // Parse unique colors
         let color_values: Vec<String> = color_values.into_serde()?;
-        let unique_strokes = color_values
+        let unique_colors = color_values
             .iter()
             .map(|c| {
                 let Ok(c) = csscolorparser::parse(c) else {
@@ -324,7 +325,7 @@ impl TextMark {
             .iter()
             .zip(opacity)
             .map(|(ind, opacity)| {
-                let [r, g, b, a] = unique_strokes[*ind as usize];
+                let [r, g, b, a] = unique_colors[*ind];
                 [r as f32, g as f32, b as f32, a as f32 * opacity]
             })
             .collect::<Vec<_>>();
