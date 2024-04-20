@@ -1,6 +1,39 @@
 import {SymbolMark} from "../../pkg/avenger_wasm.js";
-import {encodeStringArray} from "./util.js";
+import {encodeSimpleArray} from "./util.js";
 
+
+/**
+ * @typedef {Object} SymbolItem
+ * @property {number} strokeWidth
+ * @property {string|object} fill
+ * @property {string|object} stroke
+ * @property {number} x
+ * @property {number} y
+ * @property {number} size
+ * @property {number} opacity
+ * @property {number} strokeOpacity
+ * @property {number} fillOpacity
+ * @property {string} shape
+ * @property {number} angle
+ * @property {number} zindex
+ */
+
+/**
+ * @typedef {Object} SymbolMarkSpec
+ * @property {"symbol"} marktype
+ * @property {boolean} clip
+ * @property {boolean} interactive
+ * @property {SymbolItem[]} items
+ * @property {string} name
+ * @property {string} role
+ * @property {number} zindex
+ */
+
+/**
+ * @param {SymbolMarkSpec} vegaSymbolMark
+ * @param {boolean} force_clip
+ * @returns {SymbolMark}
+ */
 export function importSymbol(vegaSymbolMark, force_clip) {
     const items = vegaSymbolMark.items;
     const len = items.length;
@@ -48,7 +81,7 @@ export function importSymbol(vegaSymbolMark, force_clip) {
     const angle = new Float32Array(len).fill(0);
     let anyAngle = false;
 
-    const zindex = new Float32Array(len).fill(0);
+    const zindex = new Int32Array(len).fill(0);
     let anyZindex = false;
 
     const fillOpacity = new Float32Array(len).fill(1);
@@ -102,7 +135,7 @@ export function importSymbol(vegaSymbolMark, force_clip) {
         if (fillIsGradient) {
             symbolMark.set_fill_gradient(fill, fillOpacity);
         } else {
-            const encoded = encodeStringArray(fill);
+            const encoded = encodeSimpleArray(fill);
             symbolMark.set_fill(encoded.values, encoded.indices, fillOpacity);
         }
     }
@@ -115,7 +148,7 @@ export function importSymbol(vegaSymbolMark, force_clip) {
         if (strokeIsGradient) {
             symbolMark.set_stroke_gradient(stroke, strokeOpacity);
         } else {
-            const encoded = encodeStringArray(stroke);
+            const encoded = encodeSimpleArray(stroke);
             symbolMark.set_stroke(encoded.values, encoded.indices, strokeOpacity);
         }
     }
@@ -129,7 +162,7 @@ export function importSymbol(vegaSymbolMark, force_clip) {
     }
 
     if (anyShape) {
-        const encoded = encodeStringArray(shapes);
+        const encoded = encodeSimpleArray(shapes);
         console.log()
         symbolMark.set_shape(encoded.values, encoded.indices);
     }

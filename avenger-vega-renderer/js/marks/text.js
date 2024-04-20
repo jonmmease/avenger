@@ -1,9 +1,45 @@
 import {TextMark} from "../../pkg/avenger_wasm.js";
-import {encodeStringArray} from "./util.js";
+import {encodeSimpleArray} from "./util.js";
 
-export function importText(vegaTextMark) {
+/**
+ * @typedef {Object} TextItem
+ * @property {string} text
+ * @property {string} font
+ * @property {number} fontSize
+ * @property {string} fill
+ * @property {number} x
+ * @property {number} y
+ * @property {number} angle
+ * @property {number} limit
+ * @property {number} opacity
+ * @property {number} fillOpacity
+ * @property {"alphabetic"|"top"|"middle"|"bottom"|"line-top"|"line-bottom"} baseline
+ * @property {"left"|"center"|"right"} align
+ * @property {number|"normal"|"bold"} fontWeight
+ * @property {number} zindex
+ */
+
+/**
+ * @typedef {Object} TextMarkSpec
+ * @property {"text"} marktype
+ * @property {boolean} clip
+ * @property {boolean} interactive
+ * @property {TextItem[]} items
+ * @property {string} name
+ * @property {string} role
+ * @property {number} zindex
+ */
+
+/**
+ * @param {TextMarkSpec} vegaTextMark
+ * @param {boolean} force_clip
+ * @returns {TextMark}
+ */
+export function importText(vegaTextMark, force_clip) {
     const len = vegaTextMark.items.length;
-    const textMark = new TextMark(len, vegaTextMark.clip, vegaTextMark.name);
+    const textMark = new TextMark(
+        len, vegaTextMark.clip || force_clip, vegaTextMark.name, vegaTextMark.zindex
+    );
 
     // semi-required columns where we will pass the full array no matter what
     const x = new Float32Array(len).fill(0);
@@ -37,6 +73,9 @@ export function importText(vegaTextMark) {
 
     const fontWeight = new Array(len);
     let anyFontWeight = false;
+
+    const zindex = new Int32Array(len).fill(0);
+    let anyZindex = false;
 
     const items = vegaTextMark.items;
     items.forEach((item, i) => {
@@ -94,6 +133,11 @@ export function importText(vegaTextMark) {
             fontWeight[i] = item.fontWeight;
             anyFontWeight ||= true;
         }
+
+        if (item.zindex != null) {
+            zindex[i] = item.zindex;
+            anyZindex ||= true;
+        }
     })
 
     // Set semi-required properties as full arrays
@@ -113,25 +157,27 @@ export function importText(vegaTextMark) {
 
     // String columns to pass as encoded unique values + indices
     if (anyFill) {
-        const encoded = encodeStringArray(fill);
+        const encoded = encodeSimpleArray(fill);
         textMark.set_color(encoded.values, encoded.indices, fillOpacity);
     }
     if (anyFont) {
-        const encoded = encodeStringArray(font);
+        const encoded = encodeSimpleArray(font);
         textMark.set_font(encoded.values, encoded.indices);
     }
     if (anyBaseline) {
-        const encoded = encodeStringArray(baseline);
+        const encoded = encodeSimpleArray(baseline);
         textMark.set_baseline(encoded.values, encoded.indices);
     }
     if (anyAlign) {
-        const encoded = encodeStringArray(align);
+        const encoded = encodeSimpleArray(align);
         textMark.set_align(encoded.values, encoded.indices);
     }
     if (anyFontWeight) {
-        const encoded = encodeStringArray(fontWeight);
+        const encoded = encodeSimpleArray(fontWeight);
         textMark.set_font_weight(encoded.values, encoded.indices);
     }
-
+    if (anyZindex) {
+        textMark.set_zindex(zindex);
+    }
     return textMark;
 }
