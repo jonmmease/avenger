@@ -435,9 +435,9 @@ function importText(vegaTextMark) {
     const font = new Array(len);
     let anyFont = false;
 
-    const color = new Array(len).fill("");
-    const opacity = new Float32Array(len).fill(1.0);
-    let anyColorOrOpacity = false;
+    const fill = new Array(len);
+    const fillOpacity = new Float32Array(len).fill(1);
+    let anyFill = false;
 
     const baseline = new Array(len);
     let anyBaseline = false;
@@ -479,14 +479,11 @@ function importText(vegaTextMark) {
             anyLimit ||= true;
         }
 
-        if (item.color != null) {
-            color[i] = item.color;
-            anyColorOrOpacity ||= true;
+        if (item.fill != null) {
+            fill[i] = item.fill;
+            anyFill ||= true;
         }
-        if (item.opacity != null) {
-            opacity[i] = item.opacity;
-            anyColorOrOpacity ||= true;
-        }
+        fillOpacity[i] = (item.fillOpacity ?? 1) * (item.opacity ?? 1);
 
         if (item.font != null) {
             font[i] = item.font;
@@ -525,9 +522,9 @@ function importText(vegaTextMark) {
     }
 
     // String columns to pass as encoded unique values + indices
-    if (anyColorOrOpacity) {
-        const encoded = encodeStringArray(color);
-        textMark.set_color(encoded.values, encoded.indices, opacity);
+    if (anyFill) {
+        const encoded = encodeStringArray(fill);
+        textMark.set_color(encoded.values, encoded.indices, fillOpacity);
     }
     if (anyFont) {
         const encoded = encodeStringArray(font);

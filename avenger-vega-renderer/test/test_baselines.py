@@ -85,6 +85,13 @@ def failures_path():
         ("rule", "dashed_rules", 0.0004),
         ("rule", "wide_rule_axes", 0.0001),
 
+        ("text", "text_alignment", 0.016),
+        ("text", "text_rotation", 0.016),
+        ("text", "letter_scatter", 0.027),
+        # ("text", "lasagna_plot", 0.02),
+        # ("text", "arc_radial", 0.0001),
+        # ("text", "emoji", 0.0001),
+
         # The canvas renderer messes up these gradients, avenger renders them correctly
         ("gradients", "symbol_cross_gradient", 0.0001),
         ("gradients", "symbol_circles_gradient_stroke", 0.0001),

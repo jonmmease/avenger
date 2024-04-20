@@ -60,13 +60,14 @@ impl TextRasterizer for HtmlCanvasTextRasterizer {
         text_context.set_font(&font_str);
 
         let color = config.color;
-        let color_str = JsValue::from_str(&format!(
+        let color_str = format!(
             "rgba({}, {}, {}, {})",
             (color[0] * 255.0) as u8,
             (color[1] * 255.0) as u8,
             (color[2] * 255.0) as u8,
             color[3],
-        ));
+        );
+        let color_js_str = JsValue::from_str(&color_str);
 
         // Initialize string container that will hold the full string up through each cluster
         let mut str_so_far = String::new();
@@ -84,7 +85,7 @@ impl TextRasterizer for HtmlCanvasTextRasterizer {
             }
 
             // Build cache key concatenating font and cluster
-            let cache_key = calculate_cache_key(&font_str, &cluster);
+            let cache_key = calculate_cache_key(&font_str, &cluster, &color_str);
             // Compute metrics of cumulative string up to this cluster
             let cumulative_metrics = text_context.measure_text(&str_so_far)?;
 
@@ -133,7 +134,7 @@ impl TextRasterizer for HtmlCanvasTextRasterizer {
                 let glyph_context =
                     glyph_context.dyn_into::<OffscreenCanvasRenderingContext2d>()?;
                 glyph_context.set_font(&font_str);
-                glyph_context.set_fill_style(&color_str);
+                glyph_context.set_fill_style(&color_js_str);
 
                 // // Debugging, add bbox outline
                 // glyph_context.set_stroke_style(&"red".into());
@@ -179,8 +180,8 @@ impl TextRasterizer for HtmlCanvasTextRasterizer {
         let buffer_width =
             full_metrics.actual_bounding_box_left() + full_metrics.actual_bounding_box_right();
         let buffer_height =
-            full_metrics.actual_bounding_box_ascent() + full_metrics.actual_bounding_box_descent();
-        let buffer_line_y = full_metrics.actual_bounding_box_ascent();
+            full_metrics.font_bounding_box_ascent() + full_metrics.font_bounding_box_descent();
+        let buffer_line_y = full_metrics.font_bounding_box_ascent();
 
         Ok(TextRasterizationBuffer {
             glyphs,
@@ -191,9 +192,10 @@ impl TextRasterizer for HtmlCanvasTextRasterizer {
     }
 }
 
-fn calculate_cache_key(font_str: &str, cluster: &str) -> u64 {
+fn calculate_cache_key(font_str: &str, cluster: &str, color_str: &str) -> u64 {
     let mut s = DefaultHasher::new();
     font_str.hash(&mut s);
     cluster.hash(&mut s);
+    color_str.hash(&mut s);
     s.finish()
 }
