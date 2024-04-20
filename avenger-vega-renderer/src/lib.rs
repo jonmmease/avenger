@@ -1,7 +1,8 @@
-mod builder;
+mod marks;
+mod scene;
 mod text;
 
-use crate::builder::SceneGraph;
+use crate::scene::SceneGraph;
 use crate::text::HtmlCanvasTextRasterizer;
 
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, CanvasDimensions, PngCanvas};
