@@ -301,25 +301,42 @@ function importSymbol(vegaSymbolMark, force_clip) {
     return symbolMark;
 }
 
-function importRule(vegaRuleMark) {
-    const len = vegaRuleMark.items.length;
-    const ruleMark = new RuleMark(len, vegaRuleMark.clip, vegaRuleMark.name);
+function importRule(vegaRuleMark, forceClip) {
+    const items = vegaRuleMark.items;
+    const len = items.length;
+
+    const ruleMark = new RuleMark(
+        len, vegaRuleMark.clip || forceClip, vegaRuleMark.name, vegaRuleMark.zindex
+    );
+    if (len === 0) {
+        return ruleMark;
+    }
+
+    const firstItem = items[0];
 
     const x0 = new Float32Array(len).fill(0);
     const y0 = new Float32Array(len).fill(0);
     const x1 = new Float32Array(len).fill(0);
     const y1 = new Float32Array(len).fill(0);
 
-    const width = new Float32Array(len).fill(1);
-    let anyWidth = false;
+    const strokeWidth = new Float32Array(len);
+    let anyStrokeWidth = false;
 
-    const opacity = new Float32Array(len).fill(1);
-    let anyOpacity = false;
+    const strokeOpacity = new Float32Array(len).fill(1);
 
-    const stroke = new Array(len).fill("");
+    const stroke = new Array(len);
     let anyStroke = false;
+    let strokeIsGradient = firstItem.stroke != null && typeof firstItem.stroke === "object";
 
-    const items = vegaRuleMark.items;
+    const strokeCap = new Array(len);
+    let anyStrokeCap = false;
+
+    const strokeDash = new Array(len);
+    let anyStrokeDash = false;
+
+    const zindex = new Float32Array(len).fill(0);
+    let anyZindex = false;
+
     items.forEach((item, i) => {
         if (item.x != null) {
             x0[i] = item.x;
@@ -337,29 +354,58 @@ function importRule(vegaRuleMark) {
         } else {
             y1[i] = y0[i];
         }
-        if (item.width != null) {
-            width[i] = item.width;
-            anyWidth ||= true;
+        if (item.strokeWidth != null) {
+            strokeWidth[i] = item.strokeWidth;
+            anyStrokeWidth ||= true;
         }
-        if (item.opacity != null) {
-            opacity[i] = item.opacity;
-            anyOpacity ||= true;
-        }
+        strokeOpacity[i] = (item.strokeOpacity ?? 1) * (item.opacity ?? 1);
+
         if (item.stroke != null) {
             stroke[i] = item.stroke;
             anyStroke ||= true;
+        }
+
+        if (item.strokeCap != null) {
+            strokeCap[i] = item.strokeCap;
+            anyStrokeCap ||= true;
+        }
+
+        if (item.strokeDash != null) {
+            strokeDash[i] = item.strokeDash;
+            anyStrokeDash ||= true;
+        }
+
+        if (item.zindex != null) {
+            zindex[i] = item.zindex;
+            anyZindex ||= true;
         }
     })
 
     ruleMark.set_xy(x0, y0, x1, y1);
 
-    if (anyWidth) {
-        ruleMark.set_stroke_width(width);
+    if (anyStrokeWidth) {
+        ruleMark.set_stroke_width(strokeWidth);
     }
 
-    if (anyStroke || anyOpacity) {
-        const encoded = encodeStringArray(stroke);
-        ruleMark.set_stroke(encoded.values, encoded.indices, opacity);
+    if (anyStroke) {
+        if (strokeIsGradient) {
+            ruleMark.set_stroke_gradient(stroke, strokeOpacity);
+        } else {
+            const encoded = encodeStringArray(stroke);
+            ruleMark.set_stroke(encoded.values, encoded.indices, strokeOpacity);
+        }
+    }
+
+    if (anyStrokeCap) {
+        ruleMark.set_stroke_cap(strokeCap);
+    }
+
+    if (anyStrokeDash) {
+        ruleMark.set_stroke_dash(strokeDash);
+    }
+
+    if (anyZindex) {
+        ruleMark.set_zindex(zindex);
     }
 
     return ruleMark;

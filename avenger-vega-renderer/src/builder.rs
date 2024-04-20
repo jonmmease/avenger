@@ -3,13 +3,13 @@ use avenger::marks::group::{Clip, SceneGroup as RsSceneGroup};
 use avenger::marks::mark::SceneMark;
 use avenger::marks::symbol::SymbolShape;
 use avenger::marks::text::{FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
-use avenger::marks::value::{ColorOrGradient, EncodingValue, Gradient};
+use avenger::marks::value::{ColorOrGradient, EncodingValue, Gradient, StrokeCap};
 use avenger::marks::{
     rule::RuleMark as RsRuleMark, symbol::SymbolMark as RsSymbolMark, text::TextMark as RsTextMark,
 };
 use avenger::scene_graph::SceneGraph as RsSceneGraph;
 use avenger_vega::error::AvengerVegaError;
-use avenger_vega::marks::values::CssColorOrGradient;
+use avenger_vega::marks::values::{CssColorOrGradient, StrokeDashSpec};
 use gloo_utils::format::JsValueSerdeExt;
 use wasm_bindgen::prelude::*;
 
@@ -34,9 +34,7 @@ impl SymbolMark {
     }
 
     pub fn set_zindex(&mut self, zindex: Vec<i32>) {
-        let mut indices: Vec<usize> = (0..self.inner.len as usize).collect();
-        indices.sort_by_key(|i| zindex[*i]);
-        self.inner.indices = Some(indices);
+        self.inner.indices = Some(zindex_to_indices(zindex));
     }
 
     pub fn set_xy(&mut self, x: Vec<f32>, y: Vec<f32>) {
@@ -123,22 +121,20 @@ pub struct RuleMark {
 #[wasm_bindgen]
 impl RuleMark {
     #[wasm_bindgen(constructor)]
-    pub fn new(len: u32, clip: bool, name: Option<String>) -> Self {
+    pub fn new(len: u32, clip: bool, name: Option<String>, zindex: Option<i32>) -> Self {
         Self {
             inner: RsRuleMark {
                 len,
                 clip,
                 name: name.unwrap_or_default(),
-                stroke: EncodingValue::Scalar {
-                    value: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]),
-                },
+                zindex,
                 ..Default::default()
             },
         }
     }
 
-    pub fn set_zindex(&mut self, zindex: Option<i32>) {
-        self.inner.zindex = zindex;
+    pub fn set_zindex(&mut self, zindex: Vec<i32>) {
+        self.inner.indices = Some(zindex_to_indices(zindex));
     }
 
     pub fn set_xy(&mut self, x0: Vec<f32>, y0: Vec<f32>, x1: Vec<f32>, y1: Vec<f32>) {
@@ -163,6 +159,34 @@ impl RuleMark {
         };
         Ok(())
     }
+
+    pub fn set_stroke_gradient(
+        &mut self,
+        values: JsValue,
+        opacity: Vec<f32>,
+    ) -> Result<(), JsError> {
+        self.inner.stroke = EncodingValue::Array {
+            values: decode_gradients(values, opacity, &mut self.inner.gradients)?,
+        };
+        Ok(())
+    }
+
+    pub fn set_stroke_cap(&mut self, values: JsValue) -> Result<(), JsError> {
+        let values: Vec<StrokeCap> = values.into_serde()?;
+        self.inner.stroke_cap = EncodingValue::Array { values };
+        Ok(())
+    }
+
+    pub fn set_stroke_dash(&mut self, values: JsValue) -> Result<(), JsError> {
+        let values: Vec<StrokeDashSpec> = values.into_serde()?;
+        let values = values.into_iter().map(
+            |s| Ok(s.to_array()?.to_vec())
+        ).collect::<Result<Vec<_>, AvengerVegaError>>()
+            .map_err(|_| JsError::new("Failed to parse dash spec"))?;
+        self.inner.stroke_dash = Some(EncodingValue::Array { values });
+        Ok(())
+    }
+
 }
 
 #[wasm_bindgen]
@@ -446,4 +470,10 @@ impl SceneGraph {
     pub fn origin(&self) -> [f32; 2] {
         self.inner.origin
     }
+}
+
+pub fn zindex_to_indices(zindex: Vec<i32>) -> Vec<usize> {
+    let mut indices: Vec<usize> = (0..zindex.len()).collect();
+    indices.sort_by_key(|i| zindex[*i]);
+    indices
 }

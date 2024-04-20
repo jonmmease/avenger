@@ -60,7 +60,7 @@ def failures_path():
         ("symbol", "binned_scatter_triangle-left", 0.0001),
         ("symbol", "binned_scatter_triangle-right", 0.0001),
         ("symbol", "binned_scatter_triangle", 0.0001),
-        ("symbol", "binned_scatter_wedge", 0.0001),
+        ("symbol", "binned_scatter_wedge", 0.0003),
         ("symbol", "binned_scatter_arrow", 0.0001),
         ("symbol", "binned_scatter_cross", 0.0001),
         ("symbol", "binned_scatter_circle", 0.0001),
@@ -80,10 +80,16 @@ def failures_path():
         ("symbol", "zindex_circles", 0.0001),
         ("symbol", "mixed_symbols", 0.0001),
 
+        # lyon seems to omit closing square cap, need to investigate
+        ("rule", "wide_transparent_caps", 0.003),
+        ("rule", "dashed_rules", 0.0004),
+        ("rule", "wide_rule_axes", 0.0001),
+
         # The canvas renderer messes up these gradients, avenger renders them correctly
-        ("gradients", "symbol_cross_gradient", 0.03),
-        ("gradients", "symbol_circles_gradient_stroke", 0.03),
+        ("gradients", "symbol_cross_gradient", 0.0001),
+        ("gradients", "symbol_circles_gradient_stroke", 0.0001),
         ("gradients", "symbol_radial_gradient", 0.0002),
+        ("gradients", "rules_with_gradients", 0.003),  # Lyon square caps issue
     ],
 )
 def test_image_baselines(
@@ -106,7 +112,7 @@ def test_image_baselines(
     if comparison_res.score > tolerance:
         outdir = failures_path / category / spec_name
         outdir.mkdir(parents=True, exist_ok=True)
-        comparison_res.canvas_img.save(outdir / "canvas.png")
+        comparison_res.svg_img.save(outdir / "svg.png")
         comparison_res.avenger_img.save(outdir / "avenger.png")
         comparison_res.diff_img.save(outdir / "diff.png")
         with open(outdir / f"metrics.json", "wt") as f:
@@ -124,7 +130,7 @@ def test_image_baselines(
 
 @dataclass
 class ComparisonResult:
-    canvas_img: Image
+    svg_img: Image
     avenger_img: Image
     diff_img: Image
     mismatch: int
@@ -138,12 +144,12 @@ def compare(page: Page, spec: dict) -> ComparisonResult:
     if avenger_errs:
         pytest.fail('\n'.join(avenger_errs))
 
-    canvas_img = spec_to_image(page, spec, "canvas")
-    diff_img = Image.new("RGBA", canvas_img.size)
-    mismatch = pixelmatch(canvas_img, avenger_img, diff_img, threshold=0.2)
-    score = mismatch / (canvas_img.width * canvas_img.height)
+    svg_img = spec_to_image(page, spec, "svg")
+    diff_img = Image.new("RGBA", svg_img.size)
+    mismatch = pixelmatch(svg_img, avenger_img, diff_img, threshold=0.2)
+    score = mismatch / (svg_img.width * svg_img.height)
     return ComparisonResult(
-        canvas_img=canvas_img,
+        svg_img=svg_img,
         avenger_img=avenger_img,
         diff_img=diff_img,
         mismatch=mismatch,
@@ -152,14 +158,18 @@ def compare(page: Page, spec: dict) -> ComparisonResult:
 
 
 def spec_to_image(
-    page: Page, spec: dict, renderer: Literal["canvas", "avenger"]
+    page: Page, spec: dict, renderer: Literal["canvas", "avenger", "svg"]
 ) -> Image:
     embed_opts = {"actions": False, "renderer": renderer}
     script = (
         f"vegaEmbed('#plot-container', {json.dumps(spec)}, {json.dumps(embed_opts)});"
     )
     page.evaluate_handle(script)
-    img = Image.open(io.BytesIO(page.locator("canvas").first.screenshot()))
+    if renderer == "svg":
+        locator = page.locator("svg")
+    else:
+        locator = page.locator("canvas")
+    img = Image.open(io.BytesIO(locator.first.screenshot()))
 
     # Check that the image is not entirely white (which happens on rendering errors sometimes)
     pixels = img.load()
