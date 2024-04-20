@@ -3,11 +3,13 @@ use avenger::marks::group::{Clip, SceneGroup as RsSceneGroup};
 use avenger::marks::mark::SceneMark;
 use avenger::marks::symbol::SymbolShape;
 use avenger::marks::text::{FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
-use avenger::marks::value::{ColorOrGradient, EncodingValue};
+use avenger::marks::value::{ColorOrGradient, EncodingValue, Gradient};
 use avenger::marks::{
     rule::RuleMark as RsRuleMark, symbol::SymbolMark as RsSymbolMark, text::TextMark as RsTextMark,
 };
 use avenger::scene_graph::SceneGraph as RsSceneGraph;
+use avenger_vega::error::AvengerVegaError;
+use avenger_vega::marks::values::CssColorOrGradient;
 use gloo_utils::format::JsValueSerdeExt;
 use wasm_bindgen::prelude::*;
 
@@ -66,6 +68,17 @@ impl SymbolMark {
         Ok(())
     }
 
+    pub fn set_stroke_gradient(
+        &mut self,
+        values: JsValue,
+        opacity: Vec<f32>,
+    ) -> Result<(), JsError> {
+        self.inner.stroke = EncodingValue::Array {
+            values: decode_gradients(values, opacity, &mut self.inner.gradients)?,
+        };
+        Ok(())
+    }
+
     pub fn set_fill(
         &mut self,
         color_values: JsValue,
@@ -74,6 +87,13 @@ impl SymbolMark {
     ) -> Result<(), JsError> {
         self.inner.fill = EncodingValue::Array {
             values: decode_colors(color_values, indices, opacity)?,
+        };
+        Ok(())
+    }
+
+    pub fn set_fill_gradient(&mut self, values: JsValue, opacity: Vec<f32>) -> Result<(), JsError> {
+        self.inner.fill = EncodingValue::Array {
+            values: decode_gradients(values, opacity, &mut self.inner.gradients)?,
         };
         Ok(())
     }
@@ -288,6 +308,20 @@ impl TextMark {
         self.inner.color = EncodingValue::Array { values: colors };
         Ok(())
     }
+}
+
+fn decode_gradients(
+    values: JsValue,
+    opacity: Vec<f32>,
+    gradients: &mut Vec<Gradient>,
+) -> Result<Vec<ColorOrGradient>, JsError> {
+    let values: Vec<CssColorOrGradient> = values.into_serde()?;
+    values
+        .iter()
+        .zip(opacity)
+        .map(|(grad, opacity)| grad.to_color_or_grad(opacity, gradients))
+        .collect::<Result<Vec<_>, AvengerVegaError>>()
+        .map_err(|_| JsError::new("Failed to parse gradients"))
 }
 
 fn decode_colors(

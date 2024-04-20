@@ -166,15 +166,20 @@ function importGroup(vegaGroup) {
 }
 
 function importSymbol(vegaSymbolMark, force_clip) {
-    const len = vegaSymbolMark.items.length;
-
     const items = vegaSymbolMark.items;
-    const firstItem = items[0];
-    const firstShape = firstItem.shape ?? "circle";
+    const len = items.length;
 
     const symbolMark = new SymbolMark(
         len, vegaSymbolMark.clip || force_clip, vegaSymbolMark.name, vegaSymbolMark.zindex
     );
+
+    // Handle empty mark
+    if (len === 0) {
+        return symbolMark;
+    }
+
+    const firstItem = items[0];
+    const firstShape = firstItem.shape ?? "circle";
 
     if (firstShape === "stroke") {
         // TODO: Handle line legends
@@ -195,12 +200,14 @@ function importSymbol(vegaSymbolMark, force_clip) {
 
     const fill = new Array(len);
     let anyFill = false;
+    let fillIsGradient = firstItem.fill != null && typeof firstItem.fill === "object";
 
     const size = new Float32Array(len).fill(20);
     let anySize = false;
 
     const stroke = new Array(len);
     let anyStroke = false;
+    let strokeIsGradient = firstItem.stroke != null && typeof firstItem.stroke === "object";
 
     const angle = new Float32Array(len).fill(0);
     let anyAngle = false;
@@ -256,8 +263,12 @@ function importSymbol(vegaSymbolMark, force_clip) {
     symbolMark.set_xy(x, y);
 
     if (anyFill) {
-        const encoded = encodeStringArray(fill);
-        symbolMark.set_fill(encoded.values, encoded.indices, fillOpacity);
+        if (fillIsGradient) {
+            symbolMark.set_fill_gradient(fill, fillOpacity);
+        } else {
+            const encoded = encodeStringArray(fill);
+            symbolMark.set_fill(encoded.values, encoded.indices, fillOpacity);
+        }
     }
 
     if (anySize) {
@@ -265,8 +276,12 @@ function importSymbol(vegaSymbolMark, force_clip) {
     }
 
     if (anyStroke) {
-        const encoded = encodeStringArray(stroke);
-        symbolMark.set_stroke(encoded.values, encoded.indices, strokeOpacity);
+        if (strokeIsGradient) {
+            symbolMark.set_stroke_gradient(stroke, strokeOpacity);
+        } else {
+            const encoded = encodeStringArray(stroke);
+            symbolMark.set_stroke(encoded.values, encoded.indices, strokeOpacity);
+        }
     }
 
     if (anyAngle) {

@@ -26,4 +26,9 @@ module.exports = {
       ],
     }),
   ],
+  devServer: {
+    client: {
+      overlay: false,  // Disabling the error overlay
+    },
+  },
 };
