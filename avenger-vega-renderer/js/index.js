@@ -1,8 +1,7 @@
-import { AvengerCanvas, SceneGraph, scene_graph_to_png } from "../pkg/avenger_wasm.js";
+import { AvengerCanvas, scene_graph_to_png } from "../pkg/avenger_wasm.js";
 import { Renderer, CanvasHandler, domClear, domChild } from 'vega-scenegraph';
 import { inherits } from 'vega-util';
-import { importGroup } from "./marks/group.js"
-
+import { importScenegraph } from "./marks/scenegraph.js"
 
 function devicePixelRatio() {
     return typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
@@ -128,21 +127,6 @@ inherits(AvengerHandler, CanvasHandler, {
         return CanvasHandler.prototype.initialize.call(this, canvas, origin, obj);
     }
 });
-
-/**
- * @param {GroupMarkSpec} groupMark
- * @param {number} width
- * @param {number} height
- * @param {[number, number]} origin
- * @returns {SceneGraph}
- */
-function importScenegraph(groupMark, width, height, origin) {
-    const sceneGraph = new SceneGraph(width, height, origin[0], origin[1]);
-    for (const vegaGroup of groupMark.items) {
-        sceneGraph.add_group(importGroup(vegaGroup, groupMark.name));
-    }
-    return sceneGraph;
-}
 
 export function registerVegaRenderer(renderModule) {
     // Call with renderModule function from 'vega-scenegraph'
