@@ -108,6 +108,14 @@ def failures_path():
         ("gradients", "default_gradient_bars_rounded_stroke", 0.0001),
         ("gradients", "residuals_colorscale", 0.001),
         ("gradients", "stroke_rect_gradient", 0.0001),
+
+        ("clip", "text_clip", 0.006),
+        ("clip", "text_clip_rounded", 0.006),
+
+        # # TODO:
+        # ("clip", "clip_mixed_marks", 0.0),
+        # ("clip", "clip_rounded", 0.0),
+        # ("clip", "bar_rounded", 0.0),
     ],
 )
 def test_image_baselines(

@@ -9,6 +9,7 @@ use crate::marks::text::TextMark;
 use avenger::marks::group::{Clip, SceneGroup as RsSceneGroup};
 use avenger::marks::mark::SceneMark;
 use wasm_bindgen::prelude::wasm_bindgen;
+use avenger::marks::value::EncodingValue;
 use crate::marks::rect::RectMark;
 use crate::marks::util::{decode_color, decode_gradient};
 
@@ -156,6 +157,10 @@ impl GroupMark {
         let grad = decode_gradient(value, opacity, &mut self.inner.gradients)?;
         self.inner.stroke = Some(grad);
         Ok(())
+    }
+
+    pub fn set_stroke_width(&mut self, width: Option<f32>) {
+        self.inner.stroke_width = width;
     }
 
     pub fn add_symbol_mark(&mut self, mark: SymbolMark) {
