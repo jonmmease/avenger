@@ -91,6 +91,8 @@ export function importGroup(vegaGroup, name) {
         groupMark.set_stroke_gradient(vegaGroup.stroke, strokeOpacity);
     }
 
+    groupMark.set_stroke_width(vegaGroup.strokeWidth);
+
     // set clip
     groupMark.set_clip(
         vegaGroup.width,
