@@ -67,16 +67,16 @@ export function importSymbol(vegaSymbolMark, force_clip) {
     const x = new Float32Array(len).fill(0);
     const y = new Float32Array(len).fill(0);
 
-    const fill = new Array(len);
+    const fill = new Array(len).fill("");;
     let anyFill = false;
-    let fillIsGradient = firstItem.fill != null && typeof firstItem.fill === "object";
+    let anyFillIsGradient = false;
 
     const size = new Float32Array(len).fill(20);
     let anySize = false;
 
-    const stroke = new Array(len);
+    const stroke = new Array(len).fill("");;
     let anyStroke = false;
-    let strokeIsGradient = firstItem.stroke != null && typeof firstItem.stroke === "object";
+    let anyStrokeIsGradient = false;
 
     const angle = new Float32Array(len).fill(0);
     let anyAngle = false;
@@ -101,6 +101,7 @@ export function importSymbol(vegaSymbolMark, force_clip) {
         if (item.fill != null) {
             fill[i] = item.fill;
             anyFill ||= true;
+            anyFillIsGradient ||= typeof item.fill === "object";
         }
 
         if (item.size != null) {
@@ -111,6 +112,7 @@ export function importSymbol(vegaSymbolMark, force_clip) {
         if (item.stroke != null) {
             stroke[i] = item.stroke;
             anyStroke ||= true;
+            anyStrokeIsGradient ||= typeof item.stroke === "object";
         }
 
         if (item.angle != null) {
@@ -132,7 +134,7 @@ export function importSymbol(vegaSymbolMark, force_clip) {
     symbolMark.set_xy(x, y);
 
     if (anyFill) {
-        if (fillIsGradient) {
+        if (anyFillIsGradient) {
             symbolMark.set_fill_gradient(fill, fillOpacity);
         } else {
             const encoded = encodeSimpleArray(fill);
@@ -145,7 +147,7 @@ export function importSymbol(vegaSymbolMark, force_clip) {
     }
 
     if (anyStroke) {
-        if (strokeIsGradient) {
+        if (anyStrokeIsGradient) {
             symbolMark.set_stroke_gradient(stroke, strokeOpacity);
         } else {
             const encoded = encodeSimpleArray(stroke);

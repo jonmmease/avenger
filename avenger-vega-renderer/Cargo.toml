@@ -18,6 +18,7 @@ wgpu = { version = "0.19.3", default-features = false, features = ["wgsl", "webg
 lazy_static = "1.4.0"
 serde_json = "1.0.114"
 csscolorparser = "0.6.2"
+lyon_path = "*"
 wasm-bindgen = { version = "=0.2.92" }
 wasm-bindgen-futures = "0.4.30"
 gloo-utils = { version = "0.2.0", features = ["serde"] }

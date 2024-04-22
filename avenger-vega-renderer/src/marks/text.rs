@@ -173,7 +173,7 @@ impl TextMark {
             .iter()
             .map(|c| {
                 let Ok(c) = csscolorparser::parse(c) else {
-                    return [0.0, 0.0, 0.0, 1.0];
+                    return [0.0, 0.0, 0.0, 0.0];
                 };
                 [c.r as f32, c.g as f32, c.b as f32, c.a as f32]
             })

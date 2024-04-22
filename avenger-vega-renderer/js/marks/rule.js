@@ -44,8 +44,6 @@ export function importRule(vegaRuleMark, forceClip) {
         return ruleMark;
     }
 
-    const firstItem = items[0];
-
     const x0 = new Float32Array(len).fill(0);
     const y0 = new Float32Array(len).fill(0);
     const x1 = new Float32Array(len).fill(0);
@@ -56,9 +54,9 @@ export function importRule(vegaRuleMark, forceClip) {
 
     const strokeOpacity = new Float32Array(len).fill(1);
 
-    const stroke = new Array(len);
+    const stroke = new Array(len).fill("");
     let anyStroke = false;
-    let strokeIsGradient = firstItem.stroke != null && typeof firstItem.stroke === "object";
+    let anyStrokeIsGradient = false;
 
     const strokeCap = new Array(len);
     let anyStrokeCap = false;
@@ -95,6 +93,7 @@ export function importRule(vegaRuleMark, forceClip) {
         if (item.stroke != null) {
             stroke[i] = item.stroke;
             anyStroke ||= true;
+            anyStrokeIsGradient ||= typeof item.stroke === "object";
         }
 
         if (item.strokeCap != null) {
@@ -120,7 +119,7 @@ export function importRule(vegaRuleMark, forceClip) {
     }
 
     if (anyStroke) {
-        if (strokeIsGradient) {
+        if (anyStrokeIsGradient) {
             ruleMark.set_stroke_gradient(stroke, strokeOpacity);
         } else {
             const encoded = encodeSimpleArray(stroke);
