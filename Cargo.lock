@@ -398,6 +398,7 @@ dependencies = [
  "image",
  "js-sys",
  "lazy_static",
+ "lyon_path",
  "serde_json",
  "unicode-segmentation",
  "wasm-bindgen",

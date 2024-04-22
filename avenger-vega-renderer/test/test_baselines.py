@@ -53,6 +53,13 @@ def failures_path():
 @pytest.mark.parametrize(
     "category,spec_name,tolerance",
     [
+        ("rect", "stacked_bar", 0.0001),
+        ("rect", "stacked_bar_stroke", 0.0001),
+        ("rect", "stacked_bar_rounded", 0.0001),
+        ("rect", "stacked_bar_rounded_stroke", 0.0001),
+        ("rect", "stacked_bar_rounded_stroke_opacity", 0.0001),
+        ("rect", "heatmap", 0.0001),
+
         ("symbol", "binned_scatter_diamonds", 0.0001),
         ("symbol", "binned_scatter_square", 0.0001),
         ("symbol", "binned_scatter_triangle-down", 0.0001),
@@ -88,15 +95,19 @@ def failures_path():
         ("text", "text_alignment", 0.016),
         ("text", "text_rotation", 0.016),
         ("text", "letter_scatter", 0.027),
-        # ("text", "lasagna_plot", 0.02),
+        ("text", "lasagna_plot", 0.04),
         # ("text", "arc_radial", 0.0001),
-        # ("text", "emoji", 0.0001),
+        ("text", "emoji", 0.05),
 
-        # The canvas renderer messes up these gradients, avenger renders them correctly
         ("gradients", "symbol_cross_gradient", 0.0001),
         ("gradients", "symbol_circles_gradient_stroke", 0.0001),
         ("gradients", "symbol_radial_gradient", 0.0002),
         ("gradients", "rules_with_gradients", 0.003),  # Lyon square caps issue
+        ("gradients", "heatmap_with_colorbar", 0.0008),
+        ("gradients", "diagonal_gradient_bars_rounded", 0.0001),
+        ("gradients", "default_gradient_bars_rounded_stroke", 0.0001),
+        ("gradients", "residuals_colorscale", 0.001),
+        ("gradients", "stroke_rect_gradient", 0.0001),
     ],
 )
 def test_image_baselines(

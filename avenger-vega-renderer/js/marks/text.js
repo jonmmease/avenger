@@ -61,7 +61,7 @@ export function importText(vegaTextMark, force_clip) {
     const font = new Array(len);
     let anyFont = false;
 
-    const fill = new Array(len);
+    const fill = new Array(len).fill("");;
     const fillOpacity = new Float32Array(len).fill(1);
     let anyFill = false;
 
