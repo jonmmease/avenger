@@ -13,6 +13,8 @@ import {encodeSimpleArray} from "./util.js";
  * @property {number} y
  * @property {number} width
  * @property {number} height
+ * @property {number} x2
+ * @property {number} y2
  * @property {number} cornerRadius
  * @property {number} opacity
  * @property {number} fillOpacity
@@ -46,8 +48,6 @@ export function importRect(vegaRectMark, forceClip) {
     if (len === 0) {
         return rectMark;
     }
-
-    const firstItem = items[0];
 
     const x = new Float32Array(len).fill(0);
     const y = new Float32Array(len).fill(0);
@@ -83,9 +83,13 @@ export function importRect(vegaRectMark, forceClip) {
         }
         if (item.width != null) {
             width[i] = item.width;
+        } else if (item.x2 != null) {
+            width[i] = item.x2 - x[i];
         }
         if (item.height != null) {
             height[i] = item.height;
+        } else if (item.y2 != null) {
+            height[i] = item.y2 - y[i];
         }
         if (item.fill != null) {
             fill[i] = item.fill;

@@ -11,7 +11,7 @@ import { importGroup } from "./group.js";
 export function importScenegraph(groupMark, width, height, origin) {
     const sceneGraph = new SceneGraph(width, height, origin[0], origin[1]);
     for (const vegaGroup of groupMark.items) {
-        sceneGraph.add_group(importGroup(vegaGroup, groupMark.name));
+        sceneGraph.add_group(importGroup(vegaGroup, groupMark.name, false));
     }
     return sceneGraph;
 }
