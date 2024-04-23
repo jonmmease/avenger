@@ -1,10 +1,11 @@
 import {GroupMark} from "../../pkg/avenger_wasm.js";
 import { importSymbol } from "./symbol.js"
 import { importRule } from "./rule.js";
-import {importText} from "./text.js";
-import {importRect} from "./rect.js";
-import {importArc} from "./arc.js";
-import {importPath} from "./path.js";
+import { importText } from "./text.js";
+import { importRect } from "./rect.js";
+import { importArc } from "./arc.js";
+import { importPath } from "./path.js";
+import { importShape } from "./shape.js";
 
 /**
  * @typedef {import('./symbol.js').SymbolMarkSpec} SymbolMarkSpec
@@ -13,11 +14,11 @@ import {importPath} from "./path.js";
  * @typedef {import('./rect.js').RectMarkSpec} RectMarkSpec
  * @typedef {import('./arc.js').ArcMarkSpec} ArcMarkSpec
  * @typedef {import('./path.js').PathMarkSpec} PathMarkSpec
- *
+ * @typedef {import('./shape.js').ShapeMarkSpec} ShapeMarkSpec
  *
  * @typedef {Object} GroupItemSpec
  * @property {"group"} marktype
- * @property {(GroupMarkSpec|SymbolMarkSpec|TextMarkSpec|RuleMarkSpec|RectMarkSpec|ArcMarkSpec|PathMarkSpec)[]} items
+ * @property {(GroupMarkSpec|SymbolMarkSpec|TextMarkSpec|RuleMarkSpec|RectMarkSpec|ArcMarkSpec|PathMarkSpec|ShapeMarkSpec)[]} items
  * @property {number} x
  * @property {number} y
  * @property {number} width
@@ -80,6 +81,9 @@ export function importGroup(vegaGroup, name, forceClip) {
                 break;
             case "path":
                 groupMark.add_path_mark(importPath(vegaMark, clip));
+                break;
+            case "shape":
+                groupMark.add_path_mark(importShape(vegaMark, clip));
                 break;
             case "text":
                 groupMark.add_text_mark(importText(vegaMark, clip));

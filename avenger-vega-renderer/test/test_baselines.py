@@ -113,6 +113,10 @@ def failures_path():
         ("path", "single_path_with_stroke_no_fill", 0.0),
         ("path", "multi_path_with_stroke", 0.0),
         ("path", "multi_path_with_stroke_no_fill", 0.0),
+        ("shape", "us-counties", 0.0001),
+        ("shape", "us-map", 0.0001),
+        ("shape", "world-natural-earth-projection", 0.0001),
+        ("shape", "london_tubes", 0.0001),
 
         ("gradients", "symbol_cross_gradient", 0.0001),
         ("gradients", "symbol_circles_gradient_stroke", 0.0001),
