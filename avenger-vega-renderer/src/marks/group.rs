@@ -5,7 +5,6 @@ use crate::marks::text::TextMark;
 use crate::marks::util::{decode_color, decode_gradient};
 use avenger::marks::group::{Clip, SceneGroup as RsSceneGroup};
 use avenger::marks::mark::SceneMark;
-use avenger::marks::value::EncodingValue;
 use lyon_path::builder::BorderRadii;
 use lyon_path::geom::euclid::Point2D;
 use lyon_path::geom::Box2D;
