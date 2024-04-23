@@ -10,6 +10,10 @@ import {encodeSimpleArray} from "./util.js";
  * @property {number} x
  * @property {number} y
  * @property {number} angle
+ * @property {number} radius
+ * @property {number} theta
+ * @property {number} dx
+ * @property {number} dy
  * @property {number} limit
  * @property {number} opacity
  * @property {number} fillOpacity
@@ -86,6 +90,19 @@ export function importText(vegaTextMark, force_clip) {
 
         if (item.x != null) {
             y[i] = item.y;
+        }
+
+        if (item.radius != null && item.theta != null) {
+            x[i] += item.radius * Math.cos(item.theta - Math.PI / 2.0);
+            y[i] += item.radius * Math.sin(item.theta - Math.PI / 2.0);
+        }
+
+        if (item.dx != null) {
+            x[i] += item.dx;
+        }
+
+        if (item.dy != null) {
+            y[i] += item.dy;
         }
 
         if (item.text != null) {
