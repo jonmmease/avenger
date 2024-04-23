@@ -5,3 +5,4 @@ pub mod text;
 pub mod util;
 pub mod rect;
 pub mod arc;
+pub mod path;
