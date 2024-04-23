@@ -1,58 +1,65 @@
-import {RectMark} from "../../pkg/avenger_wasm.js";
+import {ArcMark} from "../../pkg/avenger_wasm.js";
 import {encodeSimpleArray} from "./util.js";
 
 
 /**
  * Represents the style and configuration of a graphic element.
- * @typedef {Object} RectItem
- * @property {number} strokeWidth
- * @property {string|object} stroke
- * @property {string|number[]} strokeDash
- * @property {string|object} fill
+ * @typedef {Object} ArcItem
  * @property {number} x
  * @property {number} y
- * @property {number} width
- * @property {number} height
- * @property {number} x2
- * @property {number} y2
- * @property {number} cornerRadius
+ * @property {number} startAngle
+ * @property {number} endAngle
+ * @property {number} outerRadius
+ * @property {number} innerRadius
+ * @property {string|object} fill
+ * @property {string|object} stroke
+ * @property {number} strokeWidth
  * @property {number} opacity
  * @property {number} fillOpacity
  * @property {number} strokeOpacity
- * @property {string} strokeCap
  * @property {number} zindex
  */
 
 /**
  * Represents a graphical object configuration.
- * @typedef {Object} RectMarkSpec
- * @property {"rect"} marktype
+ * @typedef {Object} ArcMarkSpec
+ * @property {"arc"} marktype
  * @property {boolean} clip
- * @property {RectItem[]} items
+ * @property {ArcItem[]} items
  * @property {string} name
  * @property {number} zindex
  */
 
 /**
- * @param {RectMarkSpec} vegaRectMark
+ * @param {ArcMarkSpec} vegaArcMark
  * @param {boolean} forceClip
- * @returns {RectMark}
+ * @returns {ArcMark}
  */
-export function importRect(vegaRectMark, forceClip) {
-    const items = vegaRectMark.items;
+export function importArc(vegaArcMark, forceClip) {
+    const items = vegaArcMark.items;
     const len = items.length;
 
-    const rectMark = new RectMark(
-        len, vegaRectMark.clip || forceClip, vegaRectMark.name, vegaRectMark.zindex
+    const arcMark = new ArcMark(
+        len, vegaArcMark.clip || forceClip, vegaArcMark.name, vegaArcMark.zindex
     );
     if (len === 0) {
-        return rectMark;
+        return arcMark;
     }
 
     const x = new Float32Array(len).fill(0);
     const y = new Float32Array(len).fill(0);
-    const width = new Float32Array(len).fill(0);
-    const height = new Float32Array(len).fill(0);
+
+    const startAngle = new Float32Array(len).fill(0);
+    let anyStartAngle = false;
+
+    const endAngle = new Float32Array(len).fill(0);
+    let anyEndAngle = false;
+
+    const outerRadius = new Float32Array(len).fill(0);
+    let anyOuterRadius = false;
+
+    const innerRadius = new Float32Array(len).fill(0);
+    let anyInnerRadius = false;
 
     const fill = new Array(len).fill("");
     let anyFill = false;
@@ -68,9 +75,6 @@ export function importRect(vegaRectMark, forceClip) {
     const strokeOpacity = new Float32Array(len).fill(1);
     const fillOpacity = new Float32Array(len).fill(1);
 
-    const cornerRadius = new Float32Array(len);
-    let anyCornerRadius = false;
-
     const zindex = new Int32Array(len).fill(0);
     let anyZindex = false;
 
@@ -81,15 +85,21 @@ export function importRect(vegaRectMark, forceClip) {
         if (item.y != null) {
             y[i] = item.y;
         }
-        if (item.width != null) {
-            width[i] = item.width;
-        } else if (item.x2 != null) {
-            width[i] = item.x2 - x[i];
+        if (item.startAngle != null) {
+            startAngle[i] = item.startAngle;
+            anyStartAngle ||= true;
         }
-        if (item.height != null) {
-            height[i] = item.height;
-        } else if (item.y2 != null) {
-            height[i] = item.y2 - y[i];
+        if (item.endAngle != null) {
+            endAngle[i] = item.endAngle;
+            anyEndAngle ||= true;
+        }
+        if (item.outerRadius != null) {
+            outerRadius[i] = item.outerRadius;
+            anyOuterRadius ||= true;
+        }
+        if (item.innerRadius != null) {
+            innerRadius[i] = item.innerRadius;
+            anyInnerRadius ||= true;
         }
         if (item.fill != null) {
             fill[i] = item.fill;
@@ -109,51 +119,51 @@ export function importRect(vegaRectMark, forceClip) {
         }
         strokeOpacity[i] = (item.strokeOpacity ?? 1) * (item.opacity ?? 1);
 
-        if (item.cornerRadius != null) {
-            cornerRadius[i] = item.cornerRadius;
-            anyCornerRadius ||= true;
-        }
-
         if (item.zindex != null) {
             zindex[i] = item.zindex;
             anyZindex ||= true;
         }
     })
 
-    rectMark.set_xy(x, y);
-    rectMark.set_width(width);
-    rectMark.set_height(height);
+    arcMark.set_xy(x, y);
+    if (anyStartAngle) {
+        arcMark.set_start_angle(startAngle);
+    }
+    if (anyEndAngle) {
+        arcMark.set_end_angle(endAngle);
+    }
+    if (anyOuterRadius) {
+        arcMark.set_outer_radius(outerRadius);
+    }
+    if (anyInnerRadius) {
+        arcMark.set_inner_radius(innerRadius)
+    }
 
     if (anyFill) {
         if (anyFillIsGradient) {
-            rectMark.set_fill_gradient(fill, fillOpacity);
+            arcMark.set_fill_gradient(fill, fillOpacity);
         } else {
             const encoded = encodeSimpleArray(fill);
-            rectMark.set_fill(encoded.values, encoded.indices, fillOpacity);
+            arcMark.set_fill(encoded.values, encoded.indices, fillOpacity);
         }
     }
 
     if (anyStroke) {
         if (anyStrokeIsGradient) {
-            rectMark.set_stroke_gradient(stroke, strokeOpacity);
+            arcMark.set_stroke_gradient(stroke, strokeOpacity);
         } else {
             const encoded = encodeSimpleArray(stroke);
-            rectMark.set_stroke(encoded.values, encoded.indices, strokeOpacity);
+            arcMark.set_stroke(encoded.values, encoded.indices, strokeOpacity);
         }
     }
 
     if (anyStrokeWidth) {
-        rectMark.set_stroke_width(strokeWidth);
-    }
-
-
-    if (anyCornerRadius) {
-        rectMark.set_corner_radius(cornerRadius);
+        arcMark.set_stroke_width(strokeWidth);
     }
 
     if (anyZindex) {
-        rectMark.set_zindex(zindex);
+        arcMark.set_zindex(zindex);
     }
 
-    return rectMark;
+    return arcMark;
 }
