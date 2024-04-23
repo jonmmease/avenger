@@ -2,6 +2,7 @@ use crate::marks::rect::RectMark;
 use crate::marks::rule::RuleMark;
 use crate::marks::symbol::SymbolMark;
 use crate::marks::text::TextMark;
+use crate::marks::arc::ArcMark;
 use crate::marks::util::{decode_color, decode_gradient};
 use avenger::marks::group::{Clip, SceneGroup as RsSceneGroup};
 use avenger::marks::mark::SceneMark;
@@ -166,6 +167,10 @@ impl GroupMark {
         self.inner
             .marks
             .push(SceneMark::Text(Box::new(mark.build())));
+    }
+
+    pub fn add_arc_mark(&mut self, mark: ArcMark) {
+        self.inner.marks.push(SceneMark::Arc(mark.build()));
     }
 
     pub fn add_group_mark(&mut self, mark: GroupMark) {

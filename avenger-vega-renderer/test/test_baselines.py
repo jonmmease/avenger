@@ -96,8 +96,16 @@ def failures_path():
         ("text", "text_rotation", 0.016),
         ("text", "letter_scatter", 0.027),
         ("text", "lasagna_plot", 0.04),
-        # ("text", "arc_radial", 0.0001),
+        ("text", "arc_radial", 0.005),
         ("text", "emoji", 0.05),
+
+        ("arc", "single_arc_no_inner", 0.0001),
+        ("arc", "single_arc_with_inner_radius", 0.0001),
+        ("arc", "single_arc_with_inner_radius_wrap", 0.0001),
+        ("arc", "single_arc_with_inner_radius_wrap_stroke", 0.0001),
+        ("arc", "arcs_with_variable_outer_radius", 0.0001),
+        ("arc", "arcs_with_variable_outer_radius_stroke", 0.0001),
+        ("arc", "arc_with_stroke", 0.0001),
 
         ("gradients", "symbol_cross_gradient", 0.0001),
         ("gradients", "symbol_circles_gradient_stroke", 0.0001),
@@ -108,6 +116,7 @@ def failures_path():
         ("gradients", "default_gradient_bars_rounded_stroke", 0.0001),
         ("gradients", "residuals_colorscale", 0.001),
         ("gradients", "stroke_rect_gradient", 0.0001),
+        ("gradients", "arc_gradient", 0.0001),
 
         ("clip", "text_clip", 0.006),
         ("clip", "text_clip_rounded", 0.006),
@@ -192,6 +201,7 @@ def spec_to_image(
         f"vegaEmbed('#plot-container', {json.dumps(spec)}, {json.dumps(embed_opts)});"
     )
     page.evaluate_handle(script)
+    page.wait_for_timeout(100)
     if renderer == "svg":
         locator = page.locator("svg")
     else:

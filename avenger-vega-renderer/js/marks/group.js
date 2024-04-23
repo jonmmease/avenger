@@ -3,17 +3,19 @@ import { importSymbol } from "./symbol.js"
 import { importRule } from "./rule.js";
 import {importText} from "./text.js";
 import {importRect} from "./rect.js";
+import {importArc} from "./arc.js";;
 
 /**
  * @typedef {import('./symbol.js').SymbolMarkSpec} SymbolMarkSpec
  * @typedef {import('./text.js').TextMarkSpec} TextMarkSpec
  * @typedef {import('./rule.js').RuleMarkSpec} RuleMarkSpec
  * @typedef {import('./rect.js').RectMarkSpec} RectMarkSpec
+ * @typedef {import('./arc.js').ArcMarkSpec} ArcMarkSpec
  *
  *
  * @typedef {Object} GroupItemSpec
  * @property {"group"} marktype
- * @property {(GroupMarkSpec|SymbolMarkSpec|TextMarkSpec|RuleMarkSpec|RectMarkSpec)[]} items
+ * @property {(GroupMarkSpec|SymbolMarkSpec|TextMarkSpec|RuleMarkSpec|RectMarkSpec|ArcMarkSpec)[]} items
  * @property {number} x
  * @property {number} y
  * @property {number} width
@@ -70,6 +72,9 @@ export function importGroup(vegaGroup, name, forceClip) {
                 break;
             case "rect":
                 groupMark.add_rect_mark(importRect(vegaMark, clip));
+                break;
+            case "arc":
+                groupMark.add_arc_mark(importArc(vegaMark, clip));
                 break;
             case "text":
                 groupMark.add_text_mark(importText(vegaMark, clip));
