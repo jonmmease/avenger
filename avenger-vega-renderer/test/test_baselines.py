@@ -111,11 +111,11 @@ def failures_path():
 
         ("clip", "text_clip", 0.006),
         ("clip", "text_clip_rounded", 0.006),
+        ("clip", "bar_rounded2", 0.0),
 
         # # TODO:
         # ("clip", "clip_mixed_marks", 0.0),
         # ("clip", "clip_rounded", 0.0),
-        # ("clip", "bar_rounded", 0.0),
     ],
 )
 def test_image_baselines(
@@ -134,6 +134,7 @@ def test_image_baselines(
         spec = json.load(f)
 
     comparison_res = compare(page, spec)
+    page.close()
     print(f"score: {comparison_res.score}")
     if comparison_res.score > tolerance:
         outdir = failures_path / category / spec_name

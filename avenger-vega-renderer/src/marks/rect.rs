@@ -47,7 +47,9 @@ impl RectMark {
     }
 
     pub fn set_corner_radius(&mut self, corner_radius: Vec<f32>) {
-        self.inner.corner_radius = EncodingValue::Array { values: corner_radius };
+        self.inner.corner_radius = EncodingValue::Array {
+            values: corner_radius,
+        };
     }
 
     pub fn set_stroke_width(&mut self, width: Vec<f32>) {

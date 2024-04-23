@@ -75,7 +75,6 @@ inherits(AvengerRenderer, Renderer, {
         this._handlerCanvas.setAttribute('class', 'marks');
 
         // Create Avenger canvas
-        console.log("create: ", width, height, origin);
         this._avengerCanvasPromise = new AvengerCanvas(this._avengerHtmlCanvas, width, height, origin[0], origin[1]);
 
         this._lastRenderFinishTime = performance.now();

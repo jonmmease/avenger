@@ -165,7 +165,6 @@ export function importSymbol(vegaSymbolMark, force_clip) {
 
     if (anyShape) {
         const encoded = encodeSimpleArray(shapes);
-        console.log()
         symbolMark.set_shape(encoded.values, encoded.indices);
     }
 

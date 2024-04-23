@@ -1,17 +1,17 @@
-use lyon_path::builder::BorderRadii;
-use lyon_path::geom::Box2D;
-use lyon_path::geom::euclid::Point2D;
-use lyon_path::Winding;
-use wasm_bindgen::{JsError, JsValue};
+use crate::marks::rect::RectMark;
 use crate::marks::rule::RuleMark;
 use crate::marks::symbol::SymbolMark;
 use crate::marks::text::TextMark;
+use crate::marks::util::{decode_color, decode_gradient};
 use avenger::marks::group::{Clip, SceneGroup as RsSceneGroup};
 use avenger::marks::mark::SceneMark;
-use wasm_bindgen::prelude::wasm_bindgen;
 use avenger::marks::value::EncodingValue;
-use crate::marks::rect::RectMark;
-use crate::marks::util::{decode_color, decode_gradient};
+use lyon_path::builder::BorderRadii;
+use lyon_path::geom::euclid::Point2D;
+use lyon_path::geom::Box2D;
+use lyon_path::Winding;
+use wasm_bindgen::prelude::wasm_bindgen;
+use wasm_bindgen::{JsError, JsValue};
 
 #[wasm_bindgen]
 pub struct GroupMark {
@@ -67,21 +67,17 @@ impl GroupMark {
     ) {
         let clip = if let (Some(width), Some(height)) = (width, height) {
             let corner_radius = corner_radius.unwrap_or(0.0);
-            let corner_radius_top_left =
-                corner_radius_top_left.unwrap_or(corner_radius);
-            let corner_radius_top_right =
-                corner_radius_top_right.unwrap_or(corner_radius);
-            let corner_radius_bottom_left = corner_radius_bottom_left
-                .unwrap_or(corner_radius);
-            let corner_radius_bottom_right = corner_radius_bottom_right
-                .unwrap_or(corner_radius);
+            let corner_radius_top_left = corner_radius_top_left.unwrap_or(corner_radius);
+            let corner_radius_top_right = corner_radius_top_right.unwrap_or(corner_radius);
+            let corner_radius_bottom_left = corner_radius_bottom_left.unwrap_or(corner_radius);
+            let corner_radius_bottom_right = corner_radius_bottom_right.unwrap_or(corner_radius);
 
             if corner_radius_top_left > 0.0
                 || corner_radius_top_right > 0.0
                 || corner_radius_bottom_left > 0.0
                 || corner_radius_bottom_right > 0.0
             {
-                // Rounded rectange path
+                // Rounded rectangle path
                 let mut builder = lyon_path::Path::builder();
                 builder.add_rounded_rectangle(
                     &Box2D::new(Point2D::new(0.0, 0.0), Point2D::new(width, height)),
@@ -114,11 +110,7 @@ impl GroupMark {
     /// @param {string} color_value
     /// @param {number} opacity
     #[wasm_bindgen(skip_jsdoc)]
-    pub fn set_fill(
-        &mut self,
-        color_value: &str,
-        opacity: f32,
-    ) -> Result<(), JsError> {
+    pub fn set_fill(&mut self, color_value: &str, opacity: f32) -> Result<(), JsError> {
         self.inner.fill = Some(decode_color(color_value, opacity)?);
         Ok(())
     }
@@ -139,11 +131,7 @@ impl GroupMark {
     /// @param {string} color_value
     /// @param {number} opacity
     #[wasm_bindgen(skip_jsdoc)]
-    pub fn set_stroke(
-        &mut self,
-        color_value: &str,
-        opacity: f32,
-    ) -> Result<(), JsError> {
+    pub fn set_stroke(&mut self, color_value: &str, opacity: f32) -> Result<(), JsError> {
         self.inner.stroke = Some(decode_color(color_value, opacity)?);
         Ok(())
     }

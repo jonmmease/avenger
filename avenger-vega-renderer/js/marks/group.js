@@ -18,6 +18,8 @@ import {importRect} from "./rect.js";
  * @property {number} y
  * @property {number} width
  * @property {number} height
+ * @property {number} x2
+ * @property {number} y2
  * @property {boolean} clip
  * @property {string|object} fill
  * @property {string|object} stroke
@@ -35,7 +37,6 @@ import {importRect} from "./rect.js";
 /**
  * @typedef {Object} GroupMarkSpec
  * @property {"group"} marktype
- * @property {boolean} clip
  * @property {boolean} interactive
  * @property {GroupItemSpec[]} items
  * @property {string} name
@@ -46,31 +47,36 @@ import {importRect} from "./rect.js";
 /**
  * @param {GroupItemSpec} vegaGroup
  * @param {string} name
+ * @param {boolean} forceClip
  * @returns {GroupMark}
  */
-export function importGroup(vegaGroup, name) {
+export function importGroup(vegaGroup, name, forceClip) {
+
+    const width = vegaGroup.width ?? (vegaGroup.x2 != null? vegaGroup.x2 - vegaGroup.x: null);
+    const height = vegaGroup.height ?? (vegaGroup.y2 != null? vegaGroup.y2 - vegaGroup.y: null);
+
     const groupMark = new GroupMark(
-        vegaGroup.x, vegaGroup.y, name, vegaGroup.width, vegaGroup.height
+        vegaGroup.x ?? 0, vegaGroup.y ?? 0, name, width, height
     );
 
-    const forceClip = false;
     for (const vegaMark of vegaGroup.items) {
+        const clip = vegaGroup.clip || forceClip;
         switch (vegaMark.marktype) {
             case "symbol":
-                groupMark.add_symbol_mark(importSymbol(vegaMark, forceClip));
+                groupMark.add_symbol_mark(importSymbol(vegaMark, clip));
                 break;
             case "rule":
-                groupMark.add_rule_mark(importRule(vegaMark, forceClip));
+                groupMark.add_rule_mark(importRule(vegaMark, clip));
                 break;
             case "rect":
-                groupMark.add_rect_mark(importRect(vegaMark, forceClip));
+                groupMark.add_rect_mark(importRect(vegaMark, clip));
                 break;
             case "text":
-                groupMark.add_text_mark(importText(vegaMark, forceClip));
+                groupMark.add_text_mark(importText(vegaMark, clip));
                 break;
             case "group":
                 for (const groupItem of vegaMark.items) {
-                    groupMark.add_group_mark(importGroup(groupItem, vegaMark.name));
+                    groupMark.add_group_mark(importGroup(groupItem, vegaMark.name, clip));
                 }
                 break;
         }
@@ -95,8 +101,8 @@ export function importGroup(vegaGroup, name) {
 
     // set clip
     groupMark.set_clip(
-        vegaGroup.width,
-        vegaGroup.height,
+        width,
+        height,
         vegaGroup.cornerRadius,
         vegaGroup.cornerRadiusTopLeft,
         vegaGroup.cornerRadiusTopRight,

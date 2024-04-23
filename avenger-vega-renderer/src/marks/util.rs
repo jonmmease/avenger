@@ -57,17 +57,10 @@ pub fn decode_colors(
     Ok(colors)
 }
 
-pub fn decode_color(
-    color_value: &str,
-    opacity: f32,
-) -> Result<ColorOrGradient, JsError> {
+pub fn decode_color(color_value: &str, opacity: f32) -> Result<ColorOrGradient, JsError> {
     Ok(match csscolorparser::parse(color_value) {
-        Ok(c) => {
-            ColorOrGradient::Color([c.r as f32, c.g as f32, c.b as f32, c.a as f32 * opacity])
-        }
-        Err(_) => {
-            ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])
-        }
+        Ok(c) => ColorOrGradient::Color([c.r as f32, c.g as f32, c.b as f32, c.a as f32 * opacity]),
+        Err(_) => ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
     })
 }
 
