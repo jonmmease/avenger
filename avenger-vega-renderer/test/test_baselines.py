@@ -107,6 +107,13 @@ def failures_path():
         ("arc", "arcs_with_variable_outer_radius_stroke", 0.0001),
         ("arc", "arc_with_stroke", 0.0001),
 
+        ("path", "single_path_no_stroke", 0.0),
+        ("path", "multi_path_no_stroke", 0.0),
+        ("path", "single_path_with_stroke", 0.0),
+        ("path", "single_path_with_stroke_no_fill", 0.0),
+        ("path", "multi_path_with_stroke", 0.0),
+        ("path", "multi_path_with_stroke_no_fill", 0.0),
+
         ("gradients", "symbol_cross_gradient", 0.0001),
         ("gradients", "symbol_circles_gradient_stroke", 0.0001),
         ("gradients", "symbol_radial_gradient", 0.0002),
@@ -117,6 +124,7 @@ def failures_path():
         ("gradients", "residuals_colorscale", 0.001),
         ("gradients", "stroke_rect_gradient", 0.0001),
         ("gradients", "arc_gradient", 0.0001),
+        ("gradients", "path_with_stroke_gradients", 0.0),
 
         ("clip", "text_clip", 0.006),
         ("clip", "text_clip_rounded", 0.006),

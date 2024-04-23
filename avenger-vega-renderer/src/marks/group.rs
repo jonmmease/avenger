@@ -12,6 +12,7 @@ use lyon_path::geom::Box2D;
 use lyon_path::Winding;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};
+use crate::marks::path::PathMark;
 
 #[wasm_bindgen]
 pub struct GroupMark {
@@ -171,6 +172,10 @@ impl GroupMark {
 
     pub fn add_arc_mark(&mut self, mark: ArcMark) {
         self.inner.marks.push(SceneMark::Arc(mark.build()));
+    }
+
+    pub fn add_path_mark(&mut self, mark: PathMark) {
+        self.inner.marks.push(SceneMark::Path(mark.build()));
     }
 
     pub fn add_group_mark(&mut self, mark: GroupMark) {
