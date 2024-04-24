@@ -1,4 +1,5 @@
 use crate::marks::arc::ArcMark;
+use crate::marks::area::AreaMark;
 use crate::marks::line::LineMark;
 use crate::marks::path::PathMark;
 use crate::marks::rect::RectMark;
@@ -181,6 +182,10 @@ impl GroupMark {
 
     pub fn add_line_mark(&mut self, mark: LineMark) {
         self.inner.marks.push(SceneMark::Line(mark.build()));
+    }
+
+    pub fn add_area_mark(&mut self, mark: AreaMark) {
+        self.inner.marks.push(SceneMark::Area(mark.build()));
     }
 
     pub fn add_group_mark(&mut self, mark: GroupMark) {

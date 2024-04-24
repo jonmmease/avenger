@@ -1,4 +1,4 @@
-use avenger::marks::line::LineMark as RsLineMark;
+use avenger::marks::area::{AreaMark as RsAreaMark, AreaOrientation};
 use avenger::marks::value::{EncodingValue, StrokeCap, StrokeJoin};
 use avenger_vega::marks::values::{CssColorOrGradient, StrokeDashSpec};
 use gloo_utils::format::JsValueSerdeExt;
@@ -6,22 +6,22 @@ use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};
 
 #[wasm_bindgen]
-pub struct LineMark {
-    inner: RsLineMark,
+pub struct AreaMark {
+    inner: RsAreaMark,
 }
 
-impl LineMark {
-    pub fn build(self) -> RsLineMark {
+impl AreaMark {
+    pub fn build(self) -> RsAreaMark {
         self.inner
     }
 }
 
 #[wasm_bindgen]
-impl LineMark {
+impl AreaMark {
     #[wasm_bindgen(constructor)]
     pub fn new(len: u32, clip: bool, name: Option<String>, zindex: Option<i32>) -> Self {
         Self {
-            inner: RsLineMark {
+            inner: RsAreaMark {
                 len,
                 clip,
                 zindex,
@@ -57,18 +57,45 @@ impl LineMark {
         Ok(())
     }
 
-    /// Set line color
+    /// Set stroke cap
+    ///
+    /// @param {"vertical"|"horizontal"} orient
+    pub fn set_orient(&mut self, orient: JsValue) -> Result<(), JsError> {
+        let orient: Option<AreaOrientation> = orient.into_serde()?;
+        if let Some(orient) = orient {
+            self.inner.orientation = orient;
+        }
+        Ok(())
+    }
+
+    /// Set stroke color
     ///
     /// @param {string|object} color
     /// @param {number} opacity
     #[wasm_bindgen(skip_jsdoc)]
     pub fn set_stroke(&mut self, color: JsValue, opacity: f32) -> Result<(), JsError> {
+        let stroke: Option<CssColorOrGradient> = color.into_serde()?;
+        if let Some(stroke) = stroke {
+            let stroke = stroke
+                .to_color_or_grad(opacity, &mut self.inner.gradients)
+                .map_err(|_| JsError::new("Failed to parse stroke color"))?;
+            self.inner.stroke = stroke;
+        }
+        Ok(())
+    }
+
+    /// Set fill color
+    ///
+    /// @param {string|object} color
+    /// @param {number} opacity
+    #[wasm_bindgen(skip_jsdoc)]
+    pub fn set_fill(&mut self, color: JsValue, opacity: f32) -> Result<(), JsError> {
         let fill: Option<CssColorOrGradient> = color.into_serde()?;
         if let Some(fill) = fill {
             let fill = fill
                 .to_color_or_grad(opacity, &mut self.inner.gradients)
                 .map_err(|_| JsError::new("Failed to parse stroke color"))?;
-            self.inner.stroke = fill;
+            self.inner.fill = fill;
         }
         Ok(())
     }
@@ -91,6 +118,14 @@ impl LineMark {
     pub fn set_xy(&mut self, x: Vec<f32>, y: Vec<f32>) {
         self.inner.x = EncodingValue::Array { values: x };
         self.inner.y = EncodingValue::Array { values: y };
+    }
+
+    pub fn set_x2(&mut self, x2: Vec<f32>) {
+        self.inner.x2 = EncodingValue::Array { values: x2 };
+    }
+
+    pub fn set_y2(&mut self, y2: Vec<f32>) {
+        self.inner.y2 = EncodingValue::Array { values: y2 };
     }
 
     pub fn set_defined(&mut self, defined: Vec<u8>) -> Result<(), JsError> {
