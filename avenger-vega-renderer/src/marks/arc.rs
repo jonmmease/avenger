@@ -3,7 +3,6 @@ use avenger::marks::arc::ArcMark as RsArcMark;
 use avenger::marks::value::EncodingValue;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};
-use crate::log;
 
 #[wasm_bindgen]
 pub struct ArcMark {
@@ -40,7 +39,9 @@ impl ArcMark {
     }
 
     pub fn set_start_angle(&mut self, start_angle: Vec<f32>) {
-        self.inner.start_angle = EncodingValue::Array { values: start_angle };
+        self.inner.start_angle = EncodingValue::Array {
+            values: start_angle,
+        };
     }
 
     pub fn set_end_angle(&mut self, end_angle: Vec<f32>) {
@@ -48,11 +49,15 @@ impl ArcMark {
     }
 
     pub fn set_outer_radius(&mut self, outer_radius: Vec<f32>) {
-        self.inner.outer_radius = EncodingValue::Array { values: outer_radius };
+        self.inner.outer_radius = EncodingValue::Array {
+            values: outer_radius,
+        };
     }
 
     pub fn set_inner_radius(&mut self, inner_radius: Vec<f32>) {
-        self.inner.inner_radius = EncodingValue::Array { values: inner_radius };
+        self.inner.inner_radius = EncodingValue::Array {
+            values: inner_radius,
+        };
     }
 
     pub fn set_corner_radius(&mut self, corner_radius: Vec<f32>) {
@@ -60,7 +65,6 @@ impl ArcMark {
             values: corner_radius,
         };
     }
-
 
     /// Set stroke color.
     ///

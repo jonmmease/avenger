@@ -94,7 +94,7 @@ impl RuleMark {
 
     /// Set stroke dash
     ///
-    /// @param {string|number[]} values
+    /// @param {(string|number[])[]} values
     #[wasm_bindgen(skip_jsdoc)]
     pub fn set_stroke_dash(&mut self, values: JsValue) -> Result<(), JsError> {
         let values: Vec<StrokeDashSpec> = values.into_serde()?;

@@ -1,8 +1,10 @@
+use crate::marks::arc::ArcMark;
+use crate::marks::line::LineMark;
+use crate::marks::path::PathMark;
 use crate::marks::rect::RectMark;
 use crate::marks::rule::RuleMark;
 use crate::marks::symbol::SymbolMark;
 use crate::marks::text::TextMark;
-use crate::marks::arc::ArcMark;
 use crate::marks::util::{decode_color, decode_gradient};
 use avenger::marks::group::{Clip, SceneGroup as RsSceneGroup};
 use avenger::marks::mark::SceneMark;
@@ -12,7 +14,6 @@ use lyon_path::geom::Box2D;
 use lyon_path::Winding;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};
-use crate::marks::path::PathMark;
 
 #[wasm_bindgen]
 pub struct GroupMark {
@@ -176,6 +177,10 @@ impl GroupMark {
 
     pub fn add_path_mark(&mut self, mark: PathMark) {
         self.inner.marks.push(SceneMark::Path(mark.build()));
+    }
+
+    pub fn add_line_mark(&mut self, mark: LineMark) {
+        self.inner.marks.push(SceneMark::Line(mark.build()));
     }
 
     pub fn add_group_mark(&mut self, mark: GroupMark) {
