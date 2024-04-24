@@ -137,6 +137,9 @@ def failures_path():
         ("area", "with_undefined", 0.0),
         ("area", "with_undefined_horizontal", 0.0),
 
+        ("trail", "trail_stocks", 0.0),
+        ("trail", "trail_stocks_opacity", 0.0),
+
         ("gradients", "symbol_cross_gradient", 0.0001),
         ("gradients", "symbol_circles_gradient_stroke", 0.0001),
         ("gradients", "symbol_radial_gradient", 0.0002),

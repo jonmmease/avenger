@@ -63,9 +63,9 @@ impl LineMark {
     /// @param {number} opacity
     #[wasm_bindgen(skip_jsdoc)]
     pub fn set_stroke(&mut self, color: JsValue, opacity: f32) -> Result<(), JsError> {
-        let fill: Option<CssColorOrGradient> = color.into_serde()?;
-        if let Some(fill) = fill {
-            let fill = fill
+        let stroke: Option<CssColorOrGradient> = color.into_serde()?;
+        if let Some(stroke) = stroke {
+            let fill = stroke
                 .to_color_or_grad(opacity, &mut self.inner.gradients)
                 .map_err(|_| JsError::new("Failed to parse stroke color"))?;
             self.inner.stroke = fill;
