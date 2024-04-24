@@ -6,6 +6,7 @@ import { importRect } from "./rect.js";
 import { importArc } from "./arc.js";
 import { importPath } from "./path.js";
 import { importShape } from "./shape.js";
+import {importLine} from "./line.js";
 
 /**
  * @typedef {import('./symbol.js').SymbolMarkSpec} SymbolMarkSpec
@@ -15,10 +16,11 @@ import { importShape } from "./shape.js";
  * @typedef {import('./arc.js').ArcMarkSpec} ArcMarkSpec
  * @typedef {import('./path.js').PathMarkSpec} PathMarkSpec
  * @typedef {import('./shape.js').ShapeMarkSpec} ShapeMarkSpec
+ * @typedef {import('./line.js').LineMarkSpec} LineMarkSpec
  *
  * @typedef {Object} GroupItemSpec
  * @property {"group"} marktype
- * @property {(GroupMarkSpec|SymbolMarkSpec|TextMarkSpec|RuleMarkSpec|RectMarkSpec|ArcMarkSpec|PathMarkSpec|ShapeMarkSpec)[]} items
+ * @property {(GroupMarkSpec|SymbolMarkSpec|TextMarkSpec|RuleMarkSpec|RectMarkSpec|ArcMarkSpec|PathMarkSpec|ShapeMarkSpec|LineMarkSpec)[]} items
  * @property {number} x
  * @property {number} y
  * @property {number} width
@@ -84,6 +86,9 @@ export function importGroup(vegaGroup, name, forceClip) {
                 break;
             case "shape":
                 groupMark.add_path_mark(importShape(vegaMark, clip));
+                break;
+            case "line":
+                groupMark.add_line_mark(importLine(vegaMark, clip));
                 break;
             case "text":
                 groupMark.add_text_mark(importText(vegaMark, clip));

@@ -118,6 +118,17 @@ def failures_path():
         ("shape", "world-natural-earth-projection", 0.0001),
         ("shape", "london_tubes", 0.0001),
 
+        ("line", "simple_line_round_cap", 0.0),
+        ("line", "simple_line_butt_cap_miter_join", 0.0),
+        ("line", "simple_line_square_cap_bevel_join", 0.0002),  # square-cap
+        ("line", "connected_scatter", 0.0001),
+        ("line", "lines_with_open_symbols", 0.0),
+        ("line", "stocks", 0.0001),
+        ("line", "simple_dashed", 0.0),
+        ("line", "line_dashed_round_undefined", 0.0),
+        ("line", "line_dashed_square_undefined", 0.02),  # square-cap
+        ("line", "line_dashed_butt_undefined", 0.0),
+
         ("gradients", "symbol_cross_gradient", 0.0001),
         ("gradients", "symbol_circles_gradient_stroke", 0.0001),
         ("gradients", "symbol_radial_gradient", 0.0002),
@@ -134,9 +145,13 @@ def failures_path():
         ("clip", "text_clip_rounded", 0.006),
         ("clip", "bar_rounded2", 0.0),
 
-        # # TODO:
+        # # TODO: Need more marks
         # ("clip", "clip_mixed_marks", 0.0),
         # ("clip", "clip_rounded", 0.0),
+
+        # # TODO: line legends
+        # ("line", "stocks-legend", 0.0),
+        # ("line", "stocks_dashed", 0.0),
     ],
 )
 def test_image_baselines(

@@ -1,15 +1,15 @@
+use crate::log;
+use crate::marks::util::{decode_colors, decode_gradients, zindex_to_indices};
+use avenger::error::AvengerError;
+use avenger::marks::path::{PathMark as RsPathMark, PathTransform};
+use avenger::marks::symbol::parse_svg_path;
+use avenger::marks::value::EncodingValue;
 use gloo_utils::format::JsValueSerdeExt;
 use itertools::izip;
-use lyon_path::geom::Angle;
 use lyon_path::geom::euclid::Vector2D;
-use crate::marks::util::{decode_colors, decode_gradients, zindex_to_indices};
-use avenger::marks::path::{PathMark as RsPathMark, PathTransform};
-use avenger::marks::value::EncodingValue;
+use lyon_path::geom::Angle;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};
-use avenger::error::AvengerError;
-use avenger::marks::symbol::{parse_svg_path, SymbolShape};
-use crate::log;
 
 #[wasm_bindgen]
 pub struct PathMark {
@@ -49,11 +49,13 @@ impl PathMark {
         scale_ys: Vec<f32>,
         angles: Vec<f32>,
     ) {
-        let transforms = izip!(xs, ys, scale_xs, scale_ys, angles).map(|(x, y, scale_x, scale_y, angle)| {
-            PathTransform::scale(scale_x, scale_y)
-                .then_rotate(Angle::degrees(angle))
-                .then_translate(Vector2D::new(x, y))
-        }).collect::<Vec<_>>();
+        let transforms = izip!(xs, ys, scale_xs, scale_ys, angles)
+            .map(|(x, y, scale_x, scale_y, angle)| {
+                PathTransform::scale(scale_x, scale_y)
+                    .then_rotate(Angle::degrees(angle))
+                    .then_translate(Vector2D::new(x, y))
+            })
+            .collect::<Vec<_>>();
         self.inner.transform = EncodingValue::Array { values: transforms };
     }
 
@@ -70,7 +72,10 @@ impl PathMark {
             .collect::<Result<Vec<_>, AvengerError>>()
             .map_err(|_| JsError::new("Failed to parse shapes"))?;
 
-        let paths = indices.into_iter().map(|i| unique_paths[i].clone()).collect::<Vec<_>>();
+        let paths = indices
+            .into_iter()
+            .map(|i| unique_paths[i].clone())
+            .collect::<Vec<_>>();
         self.inner.path = EncodingValue::Array { values: paths };
         Ok(())
     }
