@@ -129,6 +129,14 @@ def failures_path():
         ("line", "line_dashed_square_undefined", 0.02),  # square-cap
         ("line", "line_dashed_butt_undefined", 0.0),
 
+        ("area", "100_percent_stacked_area", 0.0),
+        ("area", "simple_unemployment", 0.0),
+        ("area", "simple_unemployment_stroke", 0.0),
+        ("area", "stacked_area", 0.0001),
+        ("area", "streamgraph_area", 0.0002),
+        ("area", "with_undefined", 0.0),
+        ("area", "with_undefined_horizontal", 0.0),
+
         ("gradients", "symbol_cross_gradient", 0.0001),
         ("gradients", "symbol_circles_gradient_stroke", 0.0001),
         ("gradients", "symbol_radial_gradient", 0.0002),
