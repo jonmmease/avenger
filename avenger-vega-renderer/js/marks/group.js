@@ -1,5 +1,5 @@
 import {GroupMark} from "../../pkg/avenger_wasm.js";
-import { importSymbol } from "./symbol.js"
+import { importSymbol, importStrokeLegend } from "./symbol.js"
 import { importRule } from "./rule.js";
 import { importText } from "./text.js";
 import { importRect } from "./rect.js";
@@ -12,6 +12,7 @@ import {importTrail} from "./trail.js";
 import {importImage} from "./image.js";
 
 /**
+ * @typedef {import('./scenegraph.js').IResourceLoader} IResourceLoader
  * @typedef {import('./symbol.js').SymbolMarkSpec} SymbolMarkSpec
  * @typedef {import('./text.js').TextMarkSpec} TextMarkSpec
  * @typedef {import('./rule.js').RuleMarkSpec} RuleMarkSpec
@@ -61,9 +62,10 @@ import {importImage} from "./image.js";
  * @param {GroupItemSpec} vegaGroup
  * @param {string} name
  * @param {boolean} forceClip
+ * @param {IResourceLoader} loader
  * @returns {Promise<GroupMark>}
  */
-export async function importGroup(vegaGroup, name, forceClip) {
+export async function importGroup(vegaGroup, name, forceClip, loader) {
 
     const width = vegaGroup.width ?? (vegaGroup.x2 != null? vegaGroup.x2 - vegaGroup.x: null);
     const height = vegaGroup.height ?? (vegaGroup.y2 != null? vegaGroup.y2 - vegaGroup.y: null);
@@ -76,7 +78,11 @@ export async function importGroup(vegaGroup, name, forceClip) {
         const clip = vegaGroup.clip || forceClip;
         switch (vegaMark.marktype) {
             case "symbol":
-                groupMark.add_symbol_mark(importSymbol(vegaMark, clip));
+                if (vegaMark.items.length && vegaMark.items[0].shape === "stroke") {
+                    groupMark.add_group_mark(importStrokeLegend(vegaMark, clip));
+                } else {
+                    groupMark.add_symbol_mark(importSymbol(vegaMark, clip));
+                }
                 break;
             case "rule":
                 groupMark.add_rule_mark(importRule(vegaMark, clip));
@@ -103,14 +109,14 @@ export async function importGroup(vegaGroup, name, forceClip) {
                 groupMark.add_trail_mark(importTrail(vegaMark, clip));
                 break;
             case "image":
-                groupMark.add_image_mark(await importImage(vegaMark, clip));
+                groupMark.add_image_mark(await importImage(vegaMark, clip, loader));
                 break;
             case "text":
                 groupMark.add_text_mark(importText(vegaMark, clip));
                 break;
             case "group":
                 for (const groupItem of vegaMark.items) {
-                    groupMark.add_group_mark(await importGroup(groupItem, vegaMark.name, clip));
+                    groupMark.add_group_mark(await importGroup(groupItem, vegaMark.name, clip, loader));
                 }
                 break;
         }
