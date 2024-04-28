@@ -30,11 +30,14 @@ import {encodeSimpleArray} from "./util.js";
  */
 
 /**
+ * @typedef {import('./scenegraph.js').IResourceLoader} IResourceLoader
+ *
  * @param {ImageMarkSpec} vegaImageMark
  * @param {boolean} forceClip
+ * @param {IResourceLoader} loader
  * @returns {Promise<ImageMark>}
  */
-export async function importImage(vegaImageMark, forceClip) {
+export async function importImage(vegaImageMark, forceClip, loader) {
     const items = vegaImageMark.items;
     const len = items.length;
 
@@ -79,7 +82,7 @@ export async function importImage(vegaImageMark, forceClip) {
             } else {
                 url = item.url;
             }
-            image[i] = await fetchImage(url);
+            image[i] = await fetchImage(url, loader);
         }
 
         if (item.x != null) {
@@ -156,55 +159,53 @@ const imageCache = new Map();
  * Fetches an image from the specified URL and returns its RGBA data.
  * If the image has been fetched before, the cached result will be used.
  * @param {string} url - The URL of the image to fetch.
+ * @param {IResourceLoader} loader
  * @returns {Promise<RgbaImage>} A promise that resolves with the RGBA data of the image.
  */
-async function fetchImage(url) {
+async function fetchImage(url, loader) {
     // Check if the image data is already cached in the Map
     if (imageCache.has(url)) {
         return imageCache.get(url);
     }
 
     // Fetch and process the image, then cache the promise in the Map
-    const imagePromise = performFetchImage(url);
+    const imagePromise = performFetchImage(url, loader);
     imageCache.set(url, imagePromise);
     return imagePromise;
 }
 
 /**
- * Fetches and processes the image to extract RGBA data.
+ * Fetches and processes the image to extract RGBA data using a given resource loader.
  * @param {string} url - The URL of the image to fetch.
+ * @param {IResourceLoader} resourceLoader - The resource loader instance to use for loading the image.
  * @returns {Promise<RgbaImage>} A promise that resolves with the RGBA data of the image.
  */
-async function performFetchImage(url) {
+async function performFetchImage(url, resourceLoader) {
     try {
-        const response = await fetch(url);
-        const blob = await response.blob();
+        const img = await resourceLoader.loadImage(url);
+        await resourceLoader.ready();
 
         return new Promise((resolve, reject) => {
-            const img = new Image();
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                canvas.width = img.width;
-                canvas.height = img.height;
-                ctx.drawImage(img, 0, 0);
-                const imageData = ctx.getImageData(0, 0, img.width, img.height);
-                const data = new Uint8Array(imageData.data.buffer);
-
-                resolve({
-                    width: img.width,
-                    height: img.height,
-                    data: data
-                });
-            };
-
-            img.onerror = () => {
+            if (!img.complete || img.naturalWidth === 0) {
                 reject(new Error("Failed to load image."));
-            };
+            }
 
-            img.src = URL.createObjectURL(blob);
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+            const imageData = ctx.getImageData(0, 0, img.width, img.height);
+            const data = new Uint8Array(imageData.data.buffer);
+
+            resolve({
+                width: img.width,
+                height: img.height,
+                data: data
+            });
         });
     } catch (error) {
-        console.error("Error fetching image:", error);
+        console.error("Error fetching image using resource loader:", error);
+        throw new Error("Error in resource loader image fetch");
     }
 }

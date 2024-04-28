@@ -106,7 +106,8 @@ inherits(AvengerRenderer, Renderer, {
                 scene,
                 avengerCanvas.width(),
                 avengerCanvas.height(),
-                [avengerCanvas.origin_x(), avengerCanvas.origin_y()]
+                [avengerCanvas.origin_x(), avengerCanvas.origin_y()],
+                this._loader,
             ).then((sceneGraph) => {
                 avengerCanvas.set_scene(sceneGraph);
                 console.log("_render time: " + (performance.now() - start));

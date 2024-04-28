@@ -147,7 +147,7 @@ def failures_path():
         # ("image", "smooth_false", 0.0),   # Smooth false not supported yet
         ("image", "smooth_true", 0.0002),
         ("image", "many_images", 0.04),     # svg renderer shows missing images for some
-        # ("image", "large_images", 0.0),   # CORS issue loading from cdn
+        ("image", "large_images", 0.0002),   # CORS issue loading from cdn
 
         ("gradients", "symbol_cross_gradient", 0.0001),
         ("gradients", "symbol_circles_gradient_stroke", 0.0001),
