@@ -6,12 +6,12 @@ import { importGroup } from "./group.js";
  * @param {number} width
  * @param {number} height
  * @param {[number, number]} origin
- * @returns {SceneGraph}
+ * @returns {Promise<SceneGraph>}
  */
-export function importScenegraph(groupMark, width, height, origin) {
+export async function importScenegraph(groupMark, width, height, origin) {
     const sceneGraph = new SceneGraph(width, height, origin[0], origin[1]);
     for (const vegaGroup of groupMark.items) {
-        sceneGraph.add_group(importGroup(vegaGroup, groupMark.name, false));
+        sceneGraph.add_group(await importGroup(vegaGroup, groupMark.name, false));
     }
     return sceneGraph;
 }

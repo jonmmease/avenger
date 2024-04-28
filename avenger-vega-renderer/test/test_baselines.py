@@ -140,6 +140,15 @@ def failures_path():
         ("trail", "trail_stocks", 0.0),
         ("trail", "trail_stocks_opacity", 0.0),
 
+        ("image", "logos", 0.0002),
+        ("image", "logos_sized_aspect_false", 0.0002),
+        ("image", "logos_sized_aspect_false_align_baseline", 0.0002),
+        ("image", "logos_sized_aspect_true_align_baseline", 0.0002),
+        # ("image", "smooth_false", 0.0),   # Smooth false not supported yet
+        ("image", "smooth_true", 0.0002),
+        ("image", "many_images", 0.04),     # svg renderer shows missing images for some
+        # ("image", "large_images", 0.0),   # CORS issue loading from cdn
+
         ("gradients", "symbol_cross_gradient", 0.0001),
         ("gradients", "symbol_circles_gradient_stroke", 0.0001),
         ("gradients", "symbol_radial_gradient", 0.0002),
@@ -155,10 +164,8 @@ def failures_path():
         ("clip", "text_clip", 0.006),
         ("clip", "text_clip_rounded", 0.006),
         ("clip", "bar_rounded2", 0.0),
-
-        # # TODO: Need more marks
-        # ("clip", "clip_mixed_marks", 0.0),
-        # ("clip", "clip_rounded", 0.0),
+        ("clip", "clip_mixed_marks", 0.0),
+        ("clip", "clip_rounded", 0.0),
 
         # # TODO: line legends
         # ("line", "stocks-legend", 0.0),
@@ -239,7 +246,7 @@ def spec_to_image(
         f"vegaEmbed('#plot-container', {json.dumps(spec)}, {json.dumps(embed_opts)});"
     )
     page.evaluate_handle(script)
-    page.wait_for_timeout(100)
+    page.wait_for_timeout(1000)
     if renderer == "svg":
         locator = page.locator("svg")
     else:

@@ -7,6 +7,7 @@ use crate::marks::rule::RuleMark;
 use crate::marks::symbol::SymbolMark;
 use crate::marks::text::TextMark;
 use crate::marks::trail::TrailMark;
+use crate::marks::image::ImageMark;
 use crate::marks::util::{decode_color, decode_gradient};
 use avenger::marks::group::{Clip, SceneGroup as RsSceneGroup};
 use avenger::marks::mark::SceneMark;
@@ -191,6 +192,10 @@ impl GroupMark {
 
     pub fn add_trail_mark(&mut self, mark: TrailMark) {
         self.inner.marks.push(SceneMark::Trail(mark.build()));
+    }
+
+    pub fn add_image_mark(&mut self, mark: ImageMark) {
+        self.inner.marks.push(SceneMark::Image(Box::new(mark.build())));
     }
 
     pub fn add_group_mark(&mut self, mark: GroupMark) {
