@@ -9,3 +9,4 @@ pub mod symbol;
 pub mod text;
 pub mod trail;
 pub mod util;
+pub mod image;

@@ -9,6 +9,7 @@ import { importShape } from "./shape.js";
 import {importLine} from "./line.js";
 import {importArea} from "./area.js";
 import {importTrail} from "./trail.js";
+import {importImage} from "./image.js";
 
 /**
  * @typedef {import('./symbol.js').SymbolMarkSpec} SymbolMarkSpec
@@ -21,10 +22,11 @@ import {importTrail} from "./trail.js";
  * @typedef {import('./line.js').LineMarkSpec} LineMarkSpec
  * @typedef {import('./trail.js').TrailMarkSpec} TrailMarkSpec
  * @typedef {import('./area.js').AreaMarkSpec} AreaMarkSpec
+ * @typedef {import('./image.js').ImageMarkSpec} ImageMarkSpec
  *
  * @typedef {Object} GroupItemSpec
  * @property {"group"} marktype
- * @property {(GroupMarkSpec|SymbolMarkSpec|TextMarkSpec|RuleMarkSpec|RectMarkSpec|ArcMarkSpec|PathMarkSpec|ShapeMarkSpec|LineMarkSpec|AreaMarkSpec|TrailMarkSpec)[]} items
+ * @property {(GroupMarkSpec|SymbolMarkSpec|TextMarkSpec|RuleMarkSpec|RectMarkSpec|ArcMarkSpec|PathMarkSpec|ShapeMarkSpec|LineMarkSpec|AreaMarkSpec|TrailMarkSpec|ImageMarkSpec)[]} items
  * @property {number} x
  * @property {number} y
  * @property {number} width
@@ -59,9 +61,9 @@ import {importTrail} from "./trail.js";
  * @param {GroupItemSpec} vegaGroup
  * @param {string} name
  * @param {boolean} forceClip
- * @returns {GroupMark}
+ * @returns {Promise<GroupMark>}
  */
-export function importGroup(vegaGroup, name, forceClip) {
+export async function importGroup(vegaGroup, name, forceClip) {
 
     const width = vegaGroup.width ?? (vegaGroup.x2 != null? vegaGroup.x2 - vegaGroup.x: null);
     const height = vegaGroup.height ?? (vegaGroup.y2 != null? vegaGroup.y2 - vegaGroup.y: null);
@@ -100,12 +102,15 @@ export function importGroup(vegaGroup, name, forceClip) {
             case "trail":
                 groupMark.add_trail_mark(importTrail(vegaMark, clip));
                 break;
+            case "image":
+                groupMark.add_image_mark(await importImage(vegaMark, clip));
+                break;
             case "text":
                 groupMark.add_text_mark(importText(vegaMark, clip));
                 break;
             case "group":
                 for (const groupItem of vegaMark.items) {
-                    groupMark.add_group_mark(importGroup(groupItem, vegaMark.name, clip));
+                    groupMark.add_group_mark(await importGroup(groupItem, vegaMark.name, clip));
                 }
                 break;
         }

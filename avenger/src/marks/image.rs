@@ -46,7 +46,28 @@ impl ImageMark {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl Default for ImageMark {
+    fn default() -> Self {
+        Self {
+            name: "image_mark".to_string(),
+            clip: true,
+            len: 1,
+            aspect: true,
+            indices: None,
+            smooth: true,
+            x: EncodingValue::Scalar { value: 0.0 },
+            y: EncodingValue::Scalar { value: 0.0 },
+            width: EncodingValue::Scalar { value: 0.0 },
+            height: EncodingValue::Scalar { value: 0.0 },
+            align: EncodingValue::Scalar { value: Default::default() },
+            baseline: EncodingValue::Scalar { value: Default::default() },
+            image: EncodingValue::Scalar { value: Default::default() },
+            zindex: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RgbaImage {
     pub width: u32,
     pub height: u32,

@@ -102,14 +102,15 @@ inherits(AvengerRenderer, Renderer, {
         console.log("scene graph construction time: " + (performance.now() - this._lastRenderFinishTime));
         this._avengerCanvasPromise.then((avengerCanvas) => {
             var start = performance.now();
-            const sceneGraph = importScenegraph(
+            importScenegraph(
                 scene,
                 avengerCanvas.width(),
                 avengerCanvas.height(),
                 [avengerCanvas.origin_x(), avengerCanvas.origin_y()]
-            );
-            avengerCanvas.set_scene(sceneGraph);
-            console.log("_render time: " + (performance.now() - start));
+            ).then((sceneGraph) => {
+                avengerCanvas.set_scene(sceneGraph);
+                console.log("_render time: " + (performance.now() - start));
+            });
         });
         this._lastRenderFinishTime = performance.now();
         return this;
