@@ -1,6 +1,7 @@
 pub mod arc;
 pub mod area;
 pub mod group;
+pub mod image;
 pub mod line;
 pub mod path;
 pub mod rect;
@@ -9,4 +10,3 @@ pub mod symbol;
 pub mod text;
 pub mod trail;
 pub mod util;
-pub mod image;
