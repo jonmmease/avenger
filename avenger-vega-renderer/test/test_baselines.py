@@ -128,6 +128,8 @@ def failures_path():
         ("line", "line_dashed_round_undefined", 0.0),
         ("line", "line_dashed_square_undefined", 0.02),  # square-cap
         ("line", "line_dashed_butt_undefined", 0.0),
+        ("line", "stocks-legend", 0.006),
+        ("line", "stocks_dashed", 0.006),
 
         ("area", "100_percent_stacked_area", 0.0),
         ("area", "simple_unemployment", 0.0),
@@ -166,10 +168,6 @@ def failures_path():
         ("clip", "bar_rounded2", 0.0),
         ("clip", "clip_mixed_marks", 0.0),
         ("clip", "clip_rounded", 0.0),
-
-        # # TODO: line legends
-        # ("line", "stocks-legend", 0.0),
-        # ("line", "stocks_dashed", 0.0),
     ],
 )
 def test_image_baselines(
@@ -223,7 +221,7 @@ def compare(page: Page, spec: dict) -> ComparisonResult:
     page.on("pageerror", lambda e: avenger_errs.append(e))
     avenger_img = spec_to_image(page, spec, "avenger")
     if avenger_errs:
-        pytest.fail('\n'.join(avenger_errs))
+        pytest.fail(avenger_errs)
 
     svg_img = spec_to_image(page, spec, "svg")
     diff_img = Image.new("RGBA", svg_img.size)
