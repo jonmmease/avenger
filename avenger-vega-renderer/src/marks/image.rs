@@ -1,9 +1,9 @@
-use gloo_utils::format::JsValueSerdeExt;
-use wasm_bindgen::{JsError, JsValue};
-use wasm_bindgen::prelude::wasm_bindgen;
-use avenger::marks::value::{EncodingValue, ImageAlign, ImageBaseline};
-use avenger::marks::image::{ImageMark as RsImageMark, RgbaImage};
 use crate::marks::util::zindex_to_indices;
+use avenger::marks::image::{ImageMark as RsImageMark, RgbaImage};
+use avenger::marks::value::{EncodingValue, ImageAlign, ImageBaseline};
+use gloo_utils::format::JsValueSerdeExt;
+use wasm_bindgen::prelude::wasm_bindgen;
+use wasm_bindgen::{JsError, JsValue};
 
 #[wasm_bindgen]
 pub struct ImageMark {
@@ -99,10 +99,7 @@ impl ImageMark {
     ///
     /// @param {RgbaImage[]} images
     #[wasm_bindgen(skip_jsdoc)]
-    pub fn set_image(
-        &mut self,
-        images: JsValue,
-    ) -> Result<(), JsError> {
+    pub fn set_image(&mut self, images: JsValue) -> Result<(), JsError> {
         // Use serde_wasm_bindgen instead of gloo_utils to supported
         // nested struct
         let images: Vec<RgbaImage> = serde_wasm_bindgen::from_value(images)?;

@@ -59,9 +59,15 @@ impl Default for ImageMark {
             y: EncodingValue::Scalar { value: 0.0 },
             width: EncodingValue::Scalar { value: 0.0 },
             height: EncodingValue::Scalar { value: 0.0 },
-            align: EncodingValue::Scalar { value: Default::default() },
-            baseline: EncodingValue::Scalar { value: Default::default() },
-            image: EncodingValue::Scalar { value: Default::default() },
+            align: EncodingValue::Scalar {
+                value: Default::default(),
+            },
+            baseline: EncodingValue::Scalar {
+                value: Default::default(),
+            },
+            image: EncodingValue::Scalar {
+                value: Default::default(),
+            },
             zindex: None,
         }
     }
