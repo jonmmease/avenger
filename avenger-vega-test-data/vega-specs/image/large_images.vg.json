@@ -13,52 +13,52 @@
         {
           "x": 0.5,
           "y": 0.5,
-          "img": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/js_logo.png"
+          "img": "https://raw.githubusercontent.com/jonmmease/avenger/main/avenger-vega-test-data/images/js_logo.png"
         },
         {
           "x": 1.5,
           "y": 1.5,
-          "img": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/matplotlib.png"
+          "img": "https://raw.githubusercontent.com/jonmmease/avenger/main/avenger-vega-test-data/images/matplotlib.png"
         },
         {
           "x": 2.5,
           "y": 2.5,
-          "img": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/python_logo.png"
+          "img": "https://raw.githubusercontent.com/jonmmease/avenger/main/avenger-vega-test-data/images/python_logo.png"
         },
         {
           "x": 3.5,
           "y": 3.5,
-          "img": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/rust_logo.png"
+          "img": "https://raw.githubusercontent.com/jonmmease/avenger/main/avenger-vega-test-data/images/rust_logo.png"
         },
         {
           "x": 4.5,
           "y": 4.5,
-          "img": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/scipy_logo.png"
+          "img": "https://raw.githubusercontent.com/jonmmease/avenger/main/avenger-vega-test-data/images/scipy_logo.png"
         },
         {
           "x": 5.5,
           "y": 5.5,
-          "img": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/VegaFusion-512x512.png"
+          "img": "https://raw.githubusercontent.com/jonmmease/avenger/main/avenger-vega-test-data/images/VegaFusion-512x512.png"
         },
         {
           "x": 6.5,
           "y": 6.5,
-          "img": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/VG_Black%40512.png"
+          "img": "https://raw.githubusercontent.com/jonmmease/avenger/main/avenger-vega-test-data/images/VG_Black@512.png"
         },
         {
           "x": 7.5,
           "y": 7.5,
-          "img": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/VG_Color%40512.png"
+          "img": "https://raw.githubusercontent.com/jonmmease/avenger/main/avenger-vega-test-data/images/VG_Color%40512.png"
         },
         {
           "x": 8.5,
           "y": 8.5,
-          "img": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/VL_Black%40512.png"
+          "img": "https://raw.githubusercontent.com/jonmmease/avenger/main/avenger-vega-test-data/images/VL_Black%40512.png"
         },
         {
           "x": 9.5,
           "y": 9.5,
-          "img": "https://filedn.com/lo5VE4SmtWKXIvNsinHVy7F/datasets/logos/VL_Color%40512.png"
+          "img": "https://raw.githubusercontent.com/jonmmease/avenger/main/avenger-vega-test-data/images/VL_Color%40512.png"
         }
       ]
     },
