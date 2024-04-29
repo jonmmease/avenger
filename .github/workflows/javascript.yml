@@ -30,7 +30,7 @@ jobs:
         run: |
           pixi run pack-vega-renderer
       - name: Upload artifacts
-        uses: actions/upload-artifact@3
+        uses: actions/upload-artifact@v3
         with:
           name: vegafusion-wasm-packages
           path: avenger-vega-renderer/packed/avenger-vega-renderer-*.tgz
