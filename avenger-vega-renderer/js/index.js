@@ -170,7 +170,7 @@ export async function viewToPng(view) {
         );
     });
 
-    const sceneGraph = importScenegraph(vegaSceneGroups, width, height, origin);
+    const sceneGraph = await importScenegraph(vegaSceneGroups, width, height, origin);
     const png = await scene_graph_to_png(sceneGraph);
     return png;
 }
