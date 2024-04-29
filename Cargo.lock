@@ -377,16 +377,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "avenger-vega-test-data"
-version = "0.0.3"
-dependencies = [
- "pollster",
- "serde_json",
- "vl-convert-rs",
-]
-
-[[package]]
-name = "avenger-wasm"
+name = "avenger-vega-renderer"
 version = "0.1.0"
 dependencies = [
  "avenger",
@@ -404,6 +395,15 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "wgpu",
+]
+
+[[package]]
+name = "avenger-vega-test-data"
+version = "0.0.3"
+dependencies = [
+ "pollster",
+ "serde_json",
+ "vl-convert-rs",
 ]
 
 [[package]]
@@ -7364,9 +7364,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-futures"
-version = "0.4.40"
+version = "0.4.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bde2032aeb86bdfaecc8b261eef3cba735cc426c1f3a3416d1e0791be95fc461"
+checksum = "76bc14366121efc8dbb487ab05bcc9d346b3b5ec0eaa76e46594cabbe51762c0"
 dependencies = [
  "cfg-if",
  "js-sys",

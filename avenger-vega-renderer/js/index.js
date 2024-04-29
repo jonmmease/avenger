@@ -1,7 +1,9 @@
-import { AvengerCanvas, SceneGraph, GroupMark, SymbolMark, RuleMark, TextMark, scene_graph_to_png } from "../pkg/avenger_wasm.js";
+import { instantiate, AvengerCanvas, SceneGraph, GroupMark, SymbolMark, RuleMark, TextMark, scene_graph_to_png } from "../lib/avenger_vega_renderer.generated.js";
 import { Renderer, CanvasHandler, domClear, domChild } from 'vega-scenegraph';
 import { inherits } from 'vega-util';
 
+// Load wasm
+instantiate();
 
 function devicePixelRatio() {
     return typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;

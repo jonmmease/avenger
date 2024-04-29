@@ -11,6 +11,20 @@ dev-py = { cmd = ["maturin", "develop", "-m", "avenger-python/Cargo.toml", "--re
 build-py = { cmd = ["maturin", "build", "-m", "avenger-python/Cargo.toml", "--sdist", "--release"]}
 bump-version = { cmd = ["python", "automation/bump_version.py"] }
 
+[tasks.build-vega-renderer]
+cwd = "avenger-vega-renderer"
+cmd = """
+rm -rf lib/ &&
+
+deno run -A jsr:@deno/wasmbuild@0.17.1 -p avenger-vega-renderer -p avenger-vega-renderer --sync &&
+
+rm -rf dist/ &&
+mkdir -p dist/ &&
+cp -r js dist/js &&
+cp -r lib dist/ &&
+cp package.json dist/
+"""
+
 [tasks.publish-rs]
 cmd = """
 cargo publish -p avenger &&
@@ -35,6 +49,7 @@ bokeh = ">=3.4.0,<3.5"
 pixi-pycharm = ">=0.0.3,<0.1"
 pillow = ">=10.3.0,<10.4"
 ruff = ">=0.3.7,<0.4"
+deno = ">=1.42.4,<1.43"
 
 [pypi-dependencies]
 pytest-playwright = "*"
