@@ -24,7 +24,7 @@
   },
   "homepage": "https://github.com/rustwasm/create-wasm-app#readme",
   "dependencies": {
-    "avenger-wasm": "../../avenger-vega-renderer/dist",
+    "avenger-vega-renderer": "../../avenger-vega-renderer/dist",
     "vega-embed": "^6.24.0"
   },
   "devDependencies": {

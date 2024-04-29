@@ -1,7 +1,10 @@
-import { AvengerCanvas, scene_graph_to_png } from "../pkg/avenger_wasm.js";
+import { instantiate, AvengerCanvas, scene_graph_to_png } from "../pkg/avenger_wasm.js";
 import { Renderer, CanvasHandler, domClear, domChild } from 'vega-scenegraph';
 import { inherits } from 'vega-util';
 import { importScenegraph } from "./marks/scenegraph.js"
+
+// Load wasm
+instantiate();
 
 function devicePixelRatio() {
     return typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
