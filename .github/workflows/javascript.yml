@@ -1,0 +1,36 @@
+name: JavaScript
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-vega-renderer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: prefix-dev/setup-pixi@v0.6.0
+        with:
+          pixi-version: v0.20.1
+          cache: true
+      - name: Cache
+        uses: actions/cache@v3
+        with:
+          key: ${{ runner.os }}-${{ hashFiles('pixi.lock', 'Cargo.lock') }}-build-vega-renderer
+          path: |
+            ~/.cargo
+            target
+            .pixi
+      - name: Build package
+        run: |
+          pixi run pack-vega-renderer
+      - name: Upload artifacts
+        uses: actions/upload-artifact@3
+        with:
+          name: vegafusion-wasm-packages
+          path: avenger-vega-renderer/packed/avenger-vega-renderer-*.tgz
