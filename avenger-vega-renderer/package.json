@@ -5,15 +5,8 @@
   "main": "js/index.js",
   "files": [
     "js/**/*.js",
-    "pkg/"
+    "lib/"
   ],
-
-  "scripts": {
-    "build": "rm -rf pkg && wasm-pack build && rm -rf dist/ && mkdir -p dist/ && cp -r js/ dist/js && cp -r pkg dist/ && cp package.json dist/ && rm dist/pkg/package.json dist/pkg/.gitignore",
-    "build-deno": "rm -rf pkg_deno && wasm-pack build --target=deno --features=deno --out-dir=pkg_deno && rm -rf dist_deno/ && mkdir -p dist_deno/ && cp -r js/ dist_deno/js && cp -r pkg_deno dist_deno/pkg && cp package.json dist_deno/ && rm dist_deno/pkg/.gitignore",
-    "pack": "npm run build && cd dist && npm pack",
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
   "peerDependencies": {
     "vega-scenegraph": "^4.11.2",
     "vega-util": "^1.17.2"
