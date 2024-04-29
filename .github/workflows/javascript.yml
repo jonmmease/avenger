@@ -32,5 +32,5 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: vegafusion-wasm-packages
+          name: avenger-vega-renderer
           path: avenger-vega-renderer/packed/avenger-vega-renderer-*.tgz
