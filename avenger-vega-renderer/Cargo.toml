@@ -1,5 +1,5 @@
 [package]
-name = "avenger-wasm"
+name = "avenger-vega-renderer"
 version = "0.1.0"
 edition = "2021"
 
@@ -21,7 +21,7 @@ csscolorparser = "0.6.2"
 lyon_path = "*"
 itertools = "0.12.0"
 wasm-bindgen = { version = "=0.2.92" }
-wasm-bindgen-futures = "0.4.30"
+wasm-bindgen-futures = "0.4.42"
 gloo-utils = { version = "0.2.0", features = ["serde"] }
 serde-wasm-bindgen = "0.6.5"
 js-sys = "0.3.69"
