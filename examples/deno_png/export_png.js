@@ -1,5 +1,5 @@
 import * as vega from "https://cdn.skypack.dev/pin/vega@v5.28.0-apQC2txkSWyYRCV9ipfx/mode=imports/optimized/vega.js"
-import * as avenger from "../../avenger-vega-renderer/dist_deno/js/index.js"
+import { viewToPng } from "../../avenger-vega-renderer/dist-deno/js/index.js"
 
 var spec = {
     "$schema": "https://vega.github.io/schema/vega/v5.json",
@@ -111,5 +111,5 @@ var spec = {
 
 const runtime = vega.parse(spec);
 const view = new vega.View(runtime, {renderer: 'none'});
-const png = await avenger.viewToPng(view);
+const png = await viewToPng(view);
 Deno.writeFile("chart.png", png);
