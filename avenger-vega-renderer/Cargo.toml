@@ -7,8 +7,8 @@ edition = "2021"
 crate-type = [ "cdylib", "rlib",]
 
 [features]
-deno = [ "avenger-wgpu/deno",]
-
+deno = [ "avenger-wgpu/deno", "wgpu/webgpu"]
+default = [ "wgpu/webgl" ]
 [dependencies]
 lazy_static = "1.4.0"
 serde_json = "1.0.114"
@@ -39,7 +39,7 @@ version = "0.0.4"
 [dependencies.wgpu]
 version = "0.19.3"
 default-features = false
-features = [ "wgsl", "webgl", "webgpu",]
+features = [ "wgsl" ]
 
 [dependencies.wasm-bindgen]
 version = "=0.2.92"
