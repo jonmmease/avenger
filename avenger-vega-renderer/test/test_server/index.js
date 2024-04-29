@@ -1,5 +1,5 @@
 import vegaEmbed from 'vega-embed';
-import { registerVegaRenderer } from 'avenger-wasm';
+import { registerVegaRenderer } from 'avenger-vega-renderer';
 import { renderModule } from 'vega-scenegraph';
 
 // Simple initial chart spec that will be replaced using playwright
