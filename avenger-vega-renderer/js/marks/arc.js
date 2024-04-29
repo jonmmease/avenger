@@ -1,4 +1,4 @@
-import {ArcMark} from "../../pkg/avenger_wasm.js";
+import {ArcMark} from "../../lib/avenger_vega_renderer.generated.js";
 import {encodeSimpleArray} from "./util.js";
 
 

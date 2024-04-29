@@ -1,4 +1,4 @@
-import {TextMark} from "../../pkg/avenger_wasm.js";
+import {TextMark} from "../../lib/avenger_vega_renderer.generated.js";
 import {encodeSimpleArray} from "./util.js";
 
 /**

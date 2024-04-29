@@ -1,4 +1,4 @@
-import {LineMark} from "../../pkg/avenger_wasm.js";
+import {LineMark} from "../../lib/avenger_vega_renderer.generated.js";
 
 
 /**

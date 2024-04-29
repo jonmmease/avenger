@@ -1,4 +1,4 @@
-import { instantiate, AvengerCanvas, scene_graph_to_png } from "../pkg/avenger_wasm.js";
+import { instantiate, AvengerCanvas, scene_graph_to_png } from "../lib/avenger_vega_renderer.generated.js";
 import { Renderer, CanvasHandler, domClear, domChild } from 'vega-scenegraph';
 import { inherits } from 'vega-util';
 import { importScenegraph } from "./marks/scenegraph.js"
