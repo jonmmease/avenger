@@ -1,6 +1,6 @@
 [package]
 name = "avenger-wgpu"
-version = "0.0.3"
+version = "0.0.4"
 edition = "2021"
 description = "WGPU rendering engine for the Avenger visualization framework"
 license = "BSD-3-Clause"
@@ -9,8 +9,8 @@ license = "BSD-3-Clause"
 crate-type = [ "cdylib", "rlib",]
 
 [features]
-default = ["cosmic-text", "rayon"]
-cosmic-text = ["dep:cosmic-text", "lazy_static"]
+default = [ "cosmic-text", "rayon",]
+cosmic-text = [ "dep:cosmic-text", "lazy_static",]
 deno = []
 
 [dependencies]
@@ -33,7 +33,7 @@ rstest = "0.18.2"
 
 [dependencies.avenger]
 path = "../avenger"
-version = "0.0.3"
+version = "0.0.4"
 
 [dependencies.rayon]
 workspace = true
@@ -67,16 +67,14 @@ workspace = true
 [dev-dependencies.avenger-vega]
 path = "../avenger-vega"
 features = [ "image-request", "svg",]
-version = "0.0.3"
+version = "0.0.4"
 
 [dev-dependencies.serde_json]
 version = "1.0.111"
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wgpu = { version = "0.19.3"}
-web-sys = { version = "0.3.67", features = [
-    "Document",
-    "Window",
-    "Element",
-    "HtmlCanvasElement",
-]}
+[target."cfg(target_arch = \"wasm32\")".dependencies.wgpu]
+version = "0.19.3"
+
+[target."cfg(target_arch = \"wasm32\")".dependencies.web-sys]
+version = "0.3.67"
+features = [ "Document", "Window", "Element", "HtmlCanvasElement",]
