@@ -1,6 +1,6 @@
 [package]
 name = "avenger-python"
-version = "0.0.3"
+version = "0.0.4"
 edition = "2021"
 license = "BSD-3-Clause"
 description = "Python API to Avenger visualization framework"
@@ -17,17 +17,17 @@ pollster = "0.3"
 [dependencies.avenger]
 path = "../avenger"
 features = [ "pyo3",]
-version = "0.0.3"
+version = "0.0.4"
 
 [dependencies.avenger-vega]
 path = "../avenger-vega"
 features = [ "pyo3",]
-version = "0.0.3"
+version = "0.0.4"
 
 [dependencies.avenger-wgpu]
 path = "../avenger-wgpu"
 features = [ "pyo3",]
-version = "0.0.3"
+version = "0.0.4"
 
 [dependencies.pyo3]
 workspace = true

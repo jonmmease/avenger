@@ -1,6 +1,7 @@
 import click
 from pathlib import Path
 import toml
+import json
 
 root = Path(__file__).parent.parent.absolute()
 
@@ -14,9 +15,20 @@ def bump_version(version):
     cargo_packages = [
         "avenger",
         "avenger-vega",
+        "avenger-vega-renderer",
         "avenger-wgpu",
         "avenger-vega-test-data",
         "avenger-python",
+    ]
+
+    # Handle package.json files
+    package_jsons = [
+        "avenger-vega-renderer"
+    ]
+
+    # Handle pyproject.toml files
+    pyproject_tomls = [
+        "avenger-python"
     ]
 
     for package in cargo_packages:
@@ -42,11 +54,21 @@ def bump_version(version):
         cargo_toml_path.write_text(toml.dumps(cargo_toml))
         print(f"Updated version in {cargo_toml_path}")
 
+    for package_json_dir in package_jsons:
+        for fname in ["package.json", "package-lock.json"]:
+            package_json_path = root / package_json_dir / fname
+            package_json = json.loads(package_json_path.read_text())
+            package_json["version"] = version
+            package_json_path.write_text(json.dumps(package_json, indent=2))
+            print(f"Updated version in {package_json_path}")
+
     # pyproject.toml
-    pyproject_toml_path = (root / "avenger-python" / "pyproject.toml")
-    pyproject_toml = toml.loads(pyproject_toml_path.read_text())
-    pyproject_toml["project"]["version"] = version
-    pyproject_toml_path.write_text(toml.dumps(pyproject_toml))
+    for toml_dir in pyproject_tomls:
+        pyproject_toml_path = (root / toml_dir / "pyproject.toml")
+        pyproject_toml = toml.loads(pyproject_toml_path.read_text())
+        pyproject_toml["project"]["version"] = version
+        pyproject_toml_path.write_text(toml.dumps(pyproject_toml))
+        print(f"Updated version in {pyproject_toml_path}")
 
 
 if __name__ == '__main__':
