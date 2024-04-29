@@ -387,8 +387,11 @@ dependencies = [
  "csscolorparser",
  "gloo-utils",
  "image",
+ "itertools 0.12.0",
  "js-sys",
  "lazy_static",
+ "lyon_path",
+ "serde-wasm-bindgen",
  "serde_json",
  "unicode-segmentation",
  "wasm-bindgen",
@@ -5569,6 +5572,17 @@ checksum = "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c"
 dependencies = [
  "ordered-float",
  "serde",
+]
+
+[[package]]
+name = "serde-wasm-bindgen"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
+dependencies = [
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
 ]
 
 [[package]]

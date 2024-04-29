@@ -7,9 +7,15 @@
     "js/**/*.js",
     "lib/"
   ],
+  "scripts": {
+    "type-check": "tsc"
+  },
   "peerDependencies": {
     "vega-scenegraph": "^4.11.2",
     "vega-util": "^1.17.2"
+  },
+  "devDependencies": {
+    "typescript": "^5"
   },
   "keywords": [],
   "author": "",
