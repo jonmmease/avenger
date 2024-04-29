@@ -53,6 +53,13 @@ def failures_path():
 @pytest.mark.parametrize(
     "category,spec_name,tolerance",
     [
+        ("rect", "stacked_bar", 0.0001),
+        ("rect", "stacked_bar_stroke", 0.0001),
+        ("rect", "stacked_bar_rounded", 0.0001),
+        ("rect", "stacked_bar_rounded_stroke", 0.0001),
+        ("rect", "stacked_bar_rounded_stroke_opacity", 0.0001),
+        ("rect", "heatmap", 0.0001),
+
         ("symbol", "binned_scatter_diamonds", 0.0001),
         ("symbol", "binned_scatter_square", 0.0001),
         ("symbol", "binned_scatter_triangle-down", 0.0001),
@@ -60,7 +67,7 @@ def failures_path():
         ("symbol", "binned_scatter_triangle-left", 0.0001),
         ("symbol", "binned_scatter_triangle-right", 0.0001),
         ("symbol", "binned_scatter_triangle", 0.0001),
-        ("symbol", "binned_scatter_wedge", 0.0001),
+        ("symbol", "binned_scatter_wedge", 0.0003),
         ("symbol", "binned_scatter_arrow", 0.0001),
         ("symbol", "binned_scatter_cross", 0.0001),
         ("symbol", "binned_scatter_circle", 0.0001),
@@ -80,10 +87,87 @@ def failures_path():
         ("symbol", "zindex_circles", 0.0001),
         ("symbol", "mixed_symbols", 0.0001),
 
-        # The canvas renderer messes up these gradients, avenger renders them correctly
-        ("gradients", "symbol_cross_gradient", 0.03),
-        ("gradients", "symbol_circles_gradient_stroke", 0.03),
+        # lyon seems to omit closing square cap, need to investigate
+        ("rule", "wide_transparent_caps", 0.003),
+        ("rule", "dashed_rules", 0.0004),
+        ("rule", "wide_rule_axes", 0.0001),
+
+        ("text", "text_alignment", 0.016),
+        ("text", "text_rotation", 0.016),
+        ("text", "letter_scatter", 0.027),
+        ("text", "lasagna_plot", 0.04),
+        ("text", "arc_radial", 0.005),
+        ("text", "emoji", 0.05),
+
+        ("arc", "single_arc_no_inner", 0.0001),
+        ("arc", "single_arc_with_inner_radius", 0.0001),
+        ("arc", "single_arc_with_inner_radius_wrap", 0.0001),
+        ("arc", "single_arc_with_inner_radius_wrap_stroke", 0.0001),
+        ("arc", "arcs_with_variable_outer_radius", 0.0001),
+        ("arc", "arcs_with_variable_outer_radius_stroke", 0.0001),
+        ("arc", "arc_with_stroke", 0.0001),
+
+        ("path", "single_path_no_stroke", 0.0),
+        ("path", "multi_path_no_stroke", 0.0),
+        ("path", "single_path_with_stroke", 0.0),
+        ("path", "single_path_with_stroke_no_fill", 0.0),
+        ("path", "multi_path_with_stroke", 0.0),
+        ("path", "multi_path_with_stroke_no_fill", 0.0),
+        ("shape", "us-counties", 0.0001),
+        ("shape", "us-map", 0.0001),
+        ("shape", "world-natural-earth-projection", 0.0001),
+        ("shape", "london_tubes", 0.0001),
+
+        ("line", "simple_line_round_cap", 0.0),
+        ("line", "simple_line_butt_cap_miter_join", 0.0),
+        ("line", "simple_line_square_cap_bevel_join", 0.0002),  # square-cap
+        ("line", "connected_scatter", 0.0001),
+        ("line", "lines_with_open_symbols", 0.0),
+        ("line", "stocks", 0.0001),
+        ("line", "simple_dashed", 0.0),
+        ("line", "line_dashed_round_undefined", 0.0),
+        ("line", "line_dashed_square_undefined", 0.02),  # square-cap
+        ("line", "line_dashed_butt_undefined", 0.0),
+        ("line", "stocks-legend", 0.006),
+        ("line", "stocks_dashed", 0.006),
+
+        ("area", "100_percent_stacked_area", 0.0),
+        ("area", "simple_unemployment", 0.0),
+        ("area", "simple_unemployment_stroke", 0.0),
+        ("area", "stacked_area", 0.0001),
+        ("area", "streamgraph_area", 0.0002),
+        ("area", "with_undefined", 0.0),
+        ("area", "with_undefined_horizontal", 0.0),
+
+        ("trail", "trail_stocks", 0.0),
+        ("trail", "trail_stocks_opacity", 0.0),
+
+        ("image", "logos", 0.0002),
+        ("image", "logos_sized_aspect_false", 0.0002),
+        ("image", "logos_sized_aspect_false_align_baseline", 0.0002),
+        ("image", "logos_sized_aspect_true_align_baseline", 0.0002),
+        # ("image", "smooth_false", 0.0),   # Smooth false not supported yet
+        ("image", "smooth_true", 0.0002),
+        ("image", "many_images", 0.04),     # svg renderer shows missing images for some
+        ("image", "large_images", 0.0002),   # CORS issue loading from cdn
+
+        ("gradients", "symbol_cross_gradient", 0.0001),
+        ("gradients", "symbol_circles_gradient_stroke", 0.0001),
         ("gradients", "symbol_radial_gradient", 0.0002),
+        ("gradients", "rules_with_gradients", 0.003),  # Lyon square caps issue
+        ("gradients", "heatmap_with_colorbar", 0.0008),
+        ("gradients", "diagonal_gradient_bars_rounded", 0.0001),
+        ("gradients", "default_gradient_bars_rounded_stroke", 0.0001),
+        ("gradients", "residuals_colorscale", 0.001),
+        ("gradients", "stroke_rect_gradient", 0.0001),
+        ("gradients", "arc_gradient", 0.0001),
+        ("gradients", "path_with_stroke_gradients", 0.0),
+
+        ("clip", "text_clip", 0.006),
+        ("clip", "text_clip_rounded", 0.006),
+        ("clip", "bar_rounded2", 0.0),
+        ("clip", "clip_mixed_marks", 0.0),
+        ("clip", "clip_rounded", 0.0),
     ],
 )
 def test_image_baselines(
@@ -102,11 +186,12 @@ def test_image_baselines(
         spec = json.load(f)
 
     comparison_res = compare(page, spec)
+    page.close()
     print(f"score: {comparison_res.score}")
     if comparison_res.score > tolerance:
         outdir = failures_path / category / spec_name
         outdir.mkdir(parents=True, exist_ok=True)
-        comparison_res.canvas_img.save(outdir / "canvas.png")
+        comparison_res.svg_img.save(outdir / "svg.png")
         comparison_res.avenger_img.save(outdir / "avenger.png")
         comparison_res.diff_img.save(outdir / "diff.png")
         with open(outdir / f"metrics.json", "wt") as f:
@@ -124,7 +209,7 @@ def test_image_baselines(
 
 @dataclass
 class ComparisonResult:
-    canvas_img: Image
+    svg_img: Image
     avenger_img: Image
     diff_img: Image
     mismatch: int
@@ -136,14 +221,14 @@ def compare(page: Page, spec: dict) -> ComparisonResult:
     page.on("pageerror", lambda e: avenger_errs.append(e))
     avenger_img = spec_to_image(page, spec, "avenger")
     if avenger_errs:
-        pytest.fail('\n'.join(avenger_errs))
+        pytest.fail(avenger_errs)
 
-    canvas_img = spec_to_image(page, spec, "canvas")
-    diff_img = Image.new("RGBA", canvas_img.size)
-    mismatch = pixelmatch(canvas_img, avenger_img, diff_img, threshold=0.2)
-    score = mismatch / (canvas_img.width * canvas_img.height)
+    svg_img = spec_to_image(page, spec, "svg")
+    diff_img = Image.new("RGBA", svg_img.size)
+    mismatch = pixelmatch(svg_img, avenger_img, diff_img, threshold=0.2)
+    score = mismatch / (svg_img.width * svg_img.height)
     return ComparisonResult(
-        canvas_img=canvas_img,
+        svg_img=svg_img,
         avenger_img=avenger_img,
         diff_img=diff_img,
         mismatch=mismatch,
@@ -152,14 +237,19 @@ def compare(page: Page, spec: dict) -> ComparisonResult:
 
 
 def spec_to_image(
-    page: Page, spec: dict, renderer: Literal["canvas", "avenger"]
+    page: Page, spec: dict, renderer: Literal["canvas", "avenger", "svg"]
 ) -> Image:
     embed_opts = {"actions": False, "renderer": renderer}
     script = (
         f"vegaEmbed('#plot-container', {json.dumps(spec)}, {json.dumps(embed_opts)});"
     )
     page.evaluate_handle(script)
-    img = Image.open(io.BytesIO(page.locator("canvas").first.screenshot()))
+    page.wait_for_timeout(1000)
+    if renderer == "svg":
+        locator = page.locator("svg")
+    else:
+        locator = page.locator("canvas")
+    img = Image.open(io.BytesIO(locator.first.screenshot()))
 
     # Check that the image is not entirely white (which happens on rendering errors sometimes)
     pixels = img.load()

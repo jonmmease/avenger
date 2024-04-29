@@ -1,7 +1,8 @@
-mod builder;
+mod marks;
+mod scene;
 mod text;
 
-use crate::builder::SceneGraph;
+use crate::scene::SceneGraph;
 use crate::text::HtmlCanvasTextRasterizer;
 
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, CanvasDimensions, PngCanvas};
@@ -66,7 +67,7 @@ impl AvengerCanvas {
 
     pub fn set_scene(&mut self, scene_graph: SceneGraph) -> Result<(), JsError> {
         let window = web_sys::window().expect("should have a window in this context");
-        let performance = window
+        let _performance = window
             .performance()
             .expect("performance should be available");
 
