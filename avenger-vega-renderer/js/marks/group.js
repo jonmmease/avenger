@@ -1,4 +1,4 @@
-import {GroupMark} from "../../pkg/avenger_wasm.js";
+import {GroupMark} from "../../lib/avenger_vega_renderer.generated.js";
 import { importSymbol, importStrokeLegend } from "./symbol.js"
 import { importRule } from "./rule.js";
 import { importText } from "./text.js";

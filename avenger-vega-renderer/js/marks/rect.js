@@ -1,4 +1,4 @@
-import {RectMark} from "../../pkg/avenger_wasm.js";
+import {RectMark} from "../../lib/avenger_vega_renderer.generated.js";
 import {encodeSimpleArray} from "./util.js";
 
 

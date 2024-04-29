@@ -1,4 +1,4 @@
-import {SymbolMark, GroupMark, LineMark} from "../../pkg/avenger_wasm.js";
+import {SymbolMark, GroupMark, LineMark} from "../../lib/avenger_vega_renderer.generated.js";
 import {encodeSimpleArray} from "./util.js";
 
 

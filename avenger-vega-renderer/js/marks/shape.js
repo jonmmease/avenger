@@ -1,4 +1,4 @@
-import {PathMark} from "../../pkg/avenger_wasm.js";
+import {PathMark} from "../../lib/avenger_vega_renderer.generated.js";
 import {encodeSimpleArray} from "./util.js";
 
 
