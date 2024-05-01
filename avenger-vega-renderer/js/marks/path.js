@@ -37,7 +37,6 @@ import {encodeSimpleArray} from "./util.js";
  * @returns {PathMark}
  */
 export function importPath(vegaPathMark, force_clip) {
-    console.log(vegaPathMark);
     const items = vegaPathMark.items;
     const len = items.length;
 
