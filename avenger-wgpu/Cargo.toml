@@ -1,6 +1,6 @@
 [package]
 name = "avenger-wgpu"
-version = "0.0.5"
+version = "0.0.6"
 edition = "2021"
 description = "WGPU rendering engine for the Avenger visualization framework"
 license = "BSD-3-Clause"
@@ -33,7 +33,7 @@ rstest = "0.18.2"
 
 [dependencies.avenger]
 path = "../avenger"
-version = "0.0.5"
+version = "0.0.6"
 
 [dependencies.rayon]
 workspace = true
@@ -67,7 +67,7 @@ workspace = true
 [dev-dependencies.avenger-vega]
 path = "../avenger-vega"
 features = [ "image-request", "svg",]
-version = "0.0.5"
+version = "0.0.6"
 
 [dev-dependencies.serde_json]
 version = "1.0.111"
