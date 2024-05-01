@@ -6,6 +6,8 @@ import { importScenegraph } from "./marks/scenegraph.js"
 // Load wasm
 instantiate();
 
+const AVENGER_OPTIONS = {}
+
 function devicePixelRatio() {
     return typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
 }
@@ -102,7 +104,7 @@ inherits(AvengerRenderer, Renderer, {
     },
 
     _render(scene) {
-        console.log("scene graph construction time: " + (performance.now() - this._lastRenderFinishTime));
+        this.log("scene graph construction time: " + (performance.now() - this._lastRenderFinishTime))
         this._avengerCanvasPromise.then((avengerCanvas) => {
             var start = performance.now();
             importScenegraph(
@@ -113,11 +115,17 @@ inherits(AvengerRenderer, Renderer, {
                 this._loader,
             ).then((sceneGraph) => {
                 avengerCanvas.set_scene(sceneGraph);
-                console.log("_render time: " + (performance.now() - start));
+                this.log("_render time: " + (performance.now() - start));
             });
         });
         this._lastRenderFinishTime = performance.now();
         return this;
+    },
+
+    log(msg) {
+        if (AVENGER_OPTIONS["verbose"]) {
+            console.log(msg);
+        }
     }
 })
 
@@ -132,7 +140,8 @@ inherits(AvengerHandler, CanvasHandler, {
     }
 });
 
-export function registerVegaRenderer(renderModule) {
+export function registerVegaRenderer(renderModule, verbose) {
+    AVENGER_OPTIONS['verbose'] = verbose ?? false;
     // Call with renderModule function from 'vega-scenegraph'
     renderModule('avenger', {
         handler: AvengerHandler,
