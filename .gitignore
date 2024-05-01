@@ -18,3 +18,4 @@ __pycache__/
 /avenger-vega-renderer/test/failures/
 /avenger-vega-renderer/lib/
 /avenger-vega-renderer/packed/*
+/avenger-vega-renderer/dist-deno/
