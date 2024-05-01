@@ -326,7 +326,7 @@ var spec = {
 //     ]
 // };
 
-registerVegaRenderer(renderModule);
+registerVegaRenderer(renderModule, true);
 
 vegaEmbed('#plot-container', spec, {
     // renderer: "canvas",

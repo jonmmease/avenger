@@ -1,4 +1,5 @@
 from ._avenger import SceneGraph
+from . import __version__
 import copy
 
 def avenger_png_renderer(spec: dict, **kwargs) -> dict:
@@ -29,7 +30,7 @@ def avenger_png_renderer(spec: dict, **kwargs) -> dict:
     return {"image/png": sg.to_png(scale=kwargs.get("scale", None))}
 
 
-def avenger_html_renderer(spec: dict, **kwargs) -> dict:
+def avenger_html_renderer(spec: dict, verbose=False, **kwargs) -> dict:
     """
     Altair renderer plugin that uses Avenger to render interactive charts
 
@@ -46,8 +47,7 @@ def avenger_html_renderer(spec: dict, **kwargs) -> dict:
     from altair import VEGA_VERSION, VEGALITE_VERSION, VEGAEMBED_VERSION
     import jinja2
 
-    template = jinja2.Template(
-        """\
+    template_str = """\
 <!DOCTYPE html>
 <html>
 <head>
@@ -67,8 +67,8 @@ def avenger_html_renderer(spec: dict, **kwargs) -> dict:
 <div class="vega-visualization" id="{{ output_div }}"></div>
 <script type="module">
     import vegaEmbed, { vega } from "https://esm.sh/vega-embed@6?deps=vega@5&deps=vega-lite@5.17.0";
-    import { registerVegaRenderer } from "https://esm.sh/avenger-vega-renderer@0.0.4";
-    registerVegaRenderer(vega.renderModule);
+    import { registerVegaRenderer } from "https://esm.sh/avenger-vega-renderer@""" + __version__ + """";
+    registerVegaRenderer(vega.renderModule, """ + str(verbose).lower() + """);
     
     const spec = {{ spec }};
     const embedOpt = {{ embed_options }};
@@ -77,7 +77,7 @@ def avenger_html_renderer(spec: dict, **kwargs) -> dict:
 </body>
 </html>
 """
-    )
+    template = jinja2.Template(template_str)
 
     embed_options = copy.deepcopy(kwargs.get("embed_options", {}))
     embed_options["renderer"] = "avenger"
