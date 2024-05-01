@@ -14,7 +14,7 @@ const spec = {
 };
 
 // Make the "avenger" renderer available
-registerVegaRenderer(renderModule);
+registerVegaRenderer(renderModule, true);
 
 // Make vega embed available globally so that we can call it using playwright
 window.vegaEmbed = vegaEmbed;

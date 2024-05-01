@@ -18,7 +18,6 @@ pub struct PathMark {
 
 impl PathMark {
     pub fn build(self) -> RsPathMark {
-        log(&format!("{:#?}", self.inner));
         self.inner
     }
 }
