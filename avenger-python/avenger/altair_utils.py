@@ -29,7 +29,7 @@ def avenger_png_renderer(spec: dict, **kwargs) -> dict:
     return {"image/png": sg.to_png(scale=kwargs.get("scale", None))}
 
 
-def avenger_html_renderer(spec: dict, **kwargs) -> dict:
+def avenger_html_renderer(spec: dict, verbose=False, **kwargs) -> dict:
     """
     Altair renderer plugin that uses Avenger to render interactive charts
 
@@ -68,7 +68,7 @@ def avenger_html_renderer(spec: dict, **kwargs) -> dict:
 <script type="module">
     import vegaEmbed, { vega } from "https://esm.sh/vega-embed@6?deps=vega@5&deps=vega-lite@5.17.0";
     import { registerVegaRenderer } from "https://esm.sh/avenger-vega-renderer@0.0.4";
-    registerVegaRenderer(vega.renderModule);
+    registerVegaRenderer(vega.renderModule, """ + str(verbose).lower() + """);
     
     const spec = {{ spec }};
     const embedOpt = {{ embed_options }};
