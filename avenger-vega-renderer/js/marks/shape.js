@@ -44,7 +44,6 @@ import {encodeSimpleArray} from "./util.js";
  * @returns {PathMark}
  */
 export function importShape(vegaShapeMark, force_clip) {
-    console.log(vegaShapeMark);
     const items = vegaShapeMark.items;
     const len = items.length;
 
