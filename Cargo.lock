@@ -325,7 +325,7 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
 name = "avenger"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "image",
  "lyon_extra",
@@ -339,7 +339,7 @@ dependencies = [
 
 [[package]]
 name = "avenger-python"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "avenger",
  "avenger-vega",
@@ -356,7 +356,7 @@ dependencies = [
 
 [[package]]
 name = "avenger-vega"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "avenger",
  "cfg-if",
@@ -378,7 +378,7 @@ dependencies = [
 
 [[package]]
 name = "avenger-vega-renderer"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "avenger",
  "avenger-vega",
@@ -402,7 +402,7 @@ dependencies = [
 
 [[package]]
 name = "avenger-vega-test-data"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "pollster",
  "serde_json",
@@ -411,7 +411,7 @@ dependencies = [
 
 [[package]]
 name = "avenger-wgpu"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "avenger",
  "avenger-vega",
