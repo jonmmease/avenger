@@ -1,14 +1,30 @@
-# Avegner wasm
-This crate provides WASM bindings to the pure Rust avenger crates and a Vega renderer plugin
+# Avenger Vega Renderer
+This crate provides WASM bindings to the pure Rust Avenger crates and a Vega renderer plugin
 
-## Setup
+## Build
 
-First, [install wasm-pack](https://rustwasm.github.io/wasm-pack/installer/)
-
-Then use wasm-pack to compile the crate from within this directory
+Build the package with:
 
 ```
-npm run build
+pixi run build-vega-renderer
+```
+
+This will compile to WASM and copy the WASM and JavaScript files to the `dist/` directory.
+
+## Test
+Run the playwright tests with:
+
+```
+pixi run test-vega-renderer
+```
+
+These tests compare the result of rendering a variety of charts with Vega's default svg renderer and with Avenger. The test app is located in the `test_server/` directory.
+
+## Typecheck
+The JavaScript files in the `js/marks` directory use TypeScript compatible JSDoc types, and are type checked with:
+
+```
+npm run type-check
 ```
 
 ## Try it out
