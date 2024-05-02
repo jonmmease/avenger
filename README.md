@@ -2,21 +2,21 @@
 Avenger is an early stage prototype of a new foundational rendering library for information visualization (InfoVis) systems. Avenger defines a 2D scenegraph representation tailored to the needs of InfoVis systems. To start with, the initial application of Avenger is to serve as an alternative, GPU accelerated, rendering backend for the Vega ecosystem.
 
 # Try it out in Python with Vega-Altair
-The `avenger` Python package provides two [custom Altair renderer](https://altair-viz.github.io/user_guide/custom_renderers.html) named `avenger-png` and `avenger-html`. The `avenger-png` relies on vl-convert to extract the Vega scenegraph corresponding to a chart and then uses Avenger in the Python kernel to render the chart to a static PNG image. The `avenger-html` renderer relies on the `avenger-vega-renderer` JavaScript + WebAssembly package to run Avenger in the browser, which enables rendering interactive charts.
+The `avenger` Python package provides two [custom Altair renderers](https://altair-viz.github.io/user_guide/custom_renderers.html) named `avenger-png` and `avenger-html`. The `avenger-png` renderer relies on vl-convert to extract the Vega scenegraph corresponding to a chart and then uses Avenger in the Python kernel to render the chart to a static PNG image. The `avenger-html` renderer relies on the `avenger-vega-renderer` JavaScript + WebAssembly package to run Avenger in the browser, which enables rendering interactive charts.
 
-First, install altair, vega-datasets, avenger, and vl-convert-python
+First, install Vega-Altair, vega-datasets, avenger, and vl-convert-python
 ```
 pip install -U altair vega_datasets avenger "vl-convert-python>=1.2.3"
 ```
 
-Then import Altair and activate the `avenger-html` renderer
+Then import Vega-Altair and activate the `avenger-html` renderer
 
 ```python
 import altair as alt
 alt.renderers.enable('avenger-png', scale=1)
 ```
 
-Then create and display an Altair chart as usual:
+Then create and display an Vega-Altair chart as usual:
 
 ```python
 import altair as alt
@@ -39,7 +39,7 @@ Or, activate the `avenger-png` renderer
 alt.renderers.enable('avenger-png', scale=1)
 ```
 
-Then create and display an Altair chart as usual:
+Then create and display an Vega-Altair chart as usual:
 
 ```python
 import altair as alt
@@ -73,8 +73,8 @@ One advantage is that Avenger's text rendering support is based on [COSMIC Text]
 
 We expect it will be possible to substantially improve PNG rendering performance in the future by performing the conversion from Vega scenegraph to Avenger scene graph in the Deno JavaScript runtime using the `avenger-vega-renderer` package.
 
-## Comparison to standard Altair html renderer
-The standard Altair `html` renderer relies on Vega's built-in `canvas` renderer, which performs rendering using an [HTML Canvas](https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API).  Initial informal benchmarking indicates that Avenger is significantly faster than the canvas renderer for marks with many instances (e.g. large scatter plots), however the time Vega takes to generate the scenegraph is often much larger than the rendering time, so the perceived benefit of enabling the `avenger-html` renderer isn't always noticeable.
+## Comparison to standard Vega-Altair html renderer
+The standard Vega-Altair `html` renderer relies on Vega's built-in `canvas` renderer, which performs rendering using an [HTML Canvas](https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API).  Initial informal benchmarking indicates that Avenger is significantly faster than the canvas renderer for marks with many instances (e.g. large scatter plots), however the time Vega takes to generate the scenegraph is often much larger than the rendering time, so the perceived benefit of enabling the `avenger-html` renderer isn't always noticeable.
 
 One motivation for integrating VegaFusion with Avenger in the future is to make it possible to render large marks without passing the full dataset through Vega's scene graph generation logic,
 
