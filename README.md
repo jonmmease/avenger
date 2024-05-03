@@ -13,7 +13,7 @@ Then import Vega-Altair and activate the `avenger-html` renderer
 
 ```python
 import altair as alt
-alt.renderers.enable('avenger-png', scale=1)
+alt.renderers.enable('avenger-html')
 ```
 
 Then create and display an Vega-Altair chart as usual:
