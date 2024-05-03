@@ -1,6 +1,6 @@
 [package]
 name = "avenger-vega"
-version = "0.0.6"
+version = "0.0.7"
 edition = "2021"
 description = "Utilities for importing Vega scenegraphs into Avenger"
 license = "BSD-3-Clause"
@@ -33,7 +33,7 @@ workspace = true
 
 [dependencies.avenger]
 path = "../avenger"
-version = "0.0.6"
+version = "0.0.7"
 
 [dependencies.thiserror]
 workspace = true
