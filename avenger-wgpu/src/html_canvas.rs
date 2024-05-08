@@ -35,7 +35,10 @@ impl<'window> HtmlCanvasCanvas<'window> {
     ) -> Result<Self, AvengerWgpuError> {
         canvas.set_width(dimensions.to_physical_width());
         canvas.set_height(dimensions.to_physical_height());
-        let instance = make_wgpu_instance();
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::GL,
+            ..Default::default()
+        });
         let surface = instance.create_surface(SurfaceTarget::Canvas(canvas))?;
         let adapter = make_wgpu_adapter(&instance, Some(&surface)).await?;
         let (device, queue) = request_wgpu_device(&adapter).await?;
