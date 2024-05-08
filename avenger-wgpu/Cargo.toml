@@ -19,7 +19,7 @@ cfg-if = "1"
 winit = "0.29.9"
 env_logger = "0.10"
 log = "0.4"
-wgpu = "0.19.3"
+wgpu = "0.20.0"
 pollster = "0.3"
 cgmath = "0.18.0"
 itertools = "0.12.0"
@@ -74,7 +74,7 @@ version = "0.0.7"
 version = "1.0.111"
 
 [target."cfg(target_arch = \"wasm32\")".dependencies.wgpu]
-version = "0.19.3"
+version = "0.20.0"
 default-features = false
 
 [target."cfg(target_arch = \"wasm32\")".dependencies.web-sys]

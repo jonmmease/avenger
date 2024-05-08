@@ -181,11 +181,13 @@ impl InstancedMarkRenderer {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: mark_shader.vertex_entry_point(),
+                compilation_options: Default::default(),
                 buffers: &[mark_shader.vertex_desc(), mark_shader.instance_desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: mark_shader.fragment_entry_point(),
+                compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: texture_format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
