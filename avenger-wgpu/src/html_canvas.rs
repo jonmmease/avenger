@@ -1,7 +1,6 @@
 use crate::canvas::{
     create_multisampled_framebuffer, get_supported_sample_count, make_background_command,
-    make_wgpu_adapter, request_wgpu_device, Canvas, CanvasConfig,
-    CanvasDimensions, MarkRenderer,
+    make_wgpu_adapter, request_wgpu_device, Canvas, CanvasConfig, CanvasDimensions, MarkRenderer,
 };
 use crate::error::AvengerWgpuError;
 use crate::marks::multi::MultiMarkRenderer;
