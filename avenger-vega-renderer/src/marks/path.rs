@@ -1,4 +1,3 @@
-use crate::log;
 use crate::marks::util::{decode_colors, decode_gradients, zindex_to_indices};
 use avenger::error::AvengerError;
 use avenger::marks::path::{PathMark as RsPathMark, PathTransform};

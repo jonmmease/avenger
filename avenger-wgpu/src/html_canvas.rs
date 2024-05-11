@@ -1,7 +1,6 @@
 use crate::canvas::{
     create_multisampled_framebuffer, get_supported_sample_count, make_background_command,
-    make_wgpu_adapter, make_wgpu_instance, request_wgpu_device, Canvas, CanvasConfig,
-    CanvasDimensions, MarkRenderer,
+    make_wgpu_adapter, request_wgpu_device, Canvas, CanvasConfig, CanvasDimensions, MarkRenderer,
 };
 use crate::error::AvengerWgpuError;
 use crate::marks::multi::MultiMarkRenderer;
@@ -35,7 +34,10 @@ impl<'window> HtmlCanvasCanvas<'window> {
     ) -> Result<Self, AvengerWgpuError> {
         canvas.set_width(dimensions.to_physical_width());
         canvas.set_height(dimensions.to_physical_height());
-        let instance = make_wgpu_instance();
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::GL,
+            ..Default::default()
+        });
         let surface = instance.create_surface(SurfaceTarget::Canvas(canvas))?;
         let adapter = make_wgpu_adapter(&instance, Some(&surface)).await?;
         let (device, queue) = request_wgpu_device(&adapter).await?;
