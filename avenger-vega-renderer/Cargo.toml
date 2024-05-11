@@ -1,6 +1,6 @@
 [package]
 name = "avenger-vega-renderer"
-version = "0.0.7"
+version = "0.0.8"
 edition = "2021"
 
 [lib]
@@ -26,16 +26,16 @@ version = "0.1.1"
 
 [dependencies.avenger-vega]
 path = "../avenger-vega"
-version = "0.0.7"
+version = "0.0.8"
 
 [dependencies.avenger]
 path = "../avenger"
-version = "0.0.7"
+version = "0.0.8"
 
 [dependencies.avenger-wgpu]
 path = "../avenger-wgpu"
 default-features = false
-version = "0.0.7"
+version = "0.0.8"
 
 [dependencies.wgpu]
 version = "0.20.0"
