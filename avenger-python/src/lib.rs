@@ -2,7 +2,7 @@ use avenger::scene_graph::SceneGraph as RsSceneGraph;
 use avenger_vega::scene_graph::VegaSceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasDimensions, PngCanvas};
 use avenger_wgpu::register_font_directory as register_font_directory_rs;
-use image::{EncodableLayout, ImageOutputFormat};
+use image::{EncodableLayout, ImageFormat};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -43,7 +43,7 @@ impl SceneGraph {
         })?;
 
         let mut png_data = Vec::new();
-        img.write_to(&mut Cursor::new(&mut png_data), ImageOutputFormat::Png)
+        img.write_to(&mut Cursor::new(&mut png_data), ImageFormat::Png)
             .map_err(|err| {
                 PyValueError::new_err(format!("Failed to convert image to PNG: {err:?}"))
             })?;
