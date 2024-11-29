@@ -83,6 +83,7 @@ impl<'a> ApplicationHandler for App<'a> {
                         },
                     ..
                 } => {
+                    self.canvas.take();
                     _event_loop.exit();
                 }
                 WindowEvent::Resized(physical_size) => {

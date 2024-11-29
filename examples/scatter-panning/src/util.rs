@@ -115,6 +115,8 @@ impl<'a> ApplicationHandler for App<'a> {
                         },
                     ..
                 } => {
+                    // Drop the canvas before exiting
+                    self.canvas.take();  // Using take() instead of setting to None
                     event_loop.exit();
                 }
                 WindowEvent::Resized(physical_size) => {

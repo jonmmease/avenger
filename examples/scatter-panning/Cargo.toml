@@ -18,7 +18,7 @@ cfg-if = "1"
 winit = "0.30.5"
 env_logger = "0.10"
 log = "0.4"
-wgpu = "0.20.0"
+wgpu = "23.0.1"
 pollster = "0.3"
 serde_json = { version = "1.0.111" }
 rand = "0.8.5"
