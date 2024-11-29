@@ -1,4 +1,4 @@
-import { AreaMark } from "../../lib/avenger_vega_renderer.generated.js";
+import { AreaMark } from "../../lib/avenger_vega_renderer.js";
 
 /**
  * @typedef {Object} AreaItem

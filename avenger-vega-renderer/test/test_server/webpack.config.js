@@ -10,15 +10,8 @@ module.exports = {
   mode: "development",
   devtool: 'source-map', // Enables source maps
   experiments: {
-    asyncWebAssembly: true,  // enabling async WebAssembly
-  },
-  module: {
-    rules: [
-      {
-        test: /\.wasm$/,
-        type: "webassembly/async",
-      },
-    ],
+    topLevelAwait: true,
+    asyncWebAssembly: true,
   },
   plugins: [
     new CopyWebpackPlugin({
