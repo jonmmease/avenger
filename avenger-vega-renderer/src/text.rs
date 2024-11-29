@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Mutex;
 use unicode_segmentation::UnicodeSegmentation;
-use wasm_bindgen::{JsCast, JsValue};
+use wasm_bindgen::JsCast;
 use web_sys::{OffscreenCanvas, OffscreenCanvasRenderingContext2d};
 
 lazy_static! {
@@ -67,7 +67,6 @@ impl TextRasterizer for HtmlCanvasTextRasterizer {
             (color[2] * 255.0) as u8,
             color[3],
         );
-        let color_js_str = JsValue::from_str(&color_str);
 
         // Initialize string container that will hold the full string up through each cluster
         let mut str_so_far = String::new();
@@ -134,7 +133,7 @@ impl TextRasterizer for HtmlCanvasTextRasterizer {
                 let glyph_context =
                     glyph_context.dyn_into::<OffscreenCanvasRenderingContext2d>()?;
                 glyph_context.set_font(&font_str);
-                glyph_context.set_fill_style(&color_js_str);
+                glyph_context.set_fill_style_str(&color_str);
 
                 // // Debugging, add bbox outline
                 // glyph_context.set_stroke_style(&"red".into());
