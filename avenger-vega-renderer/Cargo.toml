@@ -43,7 +43,7 @@ default-features = false
 features = [ "wgsl",]
 
 [dependencies.wasm-bindgen]
-version = "=0.2.92"
+version = "0.2.95"
 
 [dependencies.gloo-utils]
 version = "0.2.0"
