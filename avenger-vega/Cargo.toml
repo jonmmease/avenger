@@ -11,14 +11,14 @@ svg = [ "resvg", "usvg", "tiny-skia",]
 
 [dependencies]
 cfg-if = "1"
-csscolorparser = "0.6.2"
+csscolorparser = "0.7.0"
 
 [dependencies.resvg]
-version = "0.38.0"
+version = "0.44.0"
 optional = true
 
 [dependencies.usvg]
-version = "0.38.0"
+version = "0.44.0"
 optional = true
 
 [dependencies.tiny-skia]
