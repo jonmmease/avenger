@@ -9,7 +9,7 @@ use pyo3::types::PyBytes;
 use pythonize::depythonize;
 use std::io::Cursor;
 use tracing::info_span;
-use tracing_subscriber::{fmt, fmt::format::FmtSpan, prelude::*, EnvFilter};
+use tracing_subscriber::EnvFilter;
 
 #[pyclass]
 pub struct SceneGraph {
@@ -19,14 +19,14 @@ pub struct SceneGraph {
 #[pymethods]
 impl SceneGraph {
     #[staticmethod]
-    fn from_vega_scenegraph(vega_sg: &PyAny) -> PyResult<Self> {
+    fn from_vega_scenegraph(vega_sg: Bound<'_, PyAny>) -> PyResult<Self> {
         let vega_sg: VegaSceneGraph =
-            info_span!("depythonize").in_scope(|| depythonize(vega_sg))?;
+            info_span!("depythonize").in_scope(|| depythonize(&vega_sg))?;
         let inner = vega_sg.to_scene_graph()?;
         Ok(Self { inner })
     }
 
-    #[allow(clippy::wrong_self_convention)]
+    #[pyo3(signature = (scale=None))]
     fn to_png(&mut self, py: Python, scale: Option<f32>) -> PyResult<PyObject> {
         let img = pollster::block_on(async {
             let mut png_canvas = PngCanvas::new(
@@ -62,16 +62,18 @@ fn register_font_directory(font_dir: &str) {
     register_font_directory_rs(font_dir);
 }
 
+/// Python module initialization
 #[pymodule]
-fn _avenger(_py: Python, m: &PyModule) -> PyResult<()> {
-    // Initialize logging controlled by RUST_LOG environment variable
-    tracing_subscriber::registry()
-        .with(fmt::layer().with_span_events(FmtSpan::CLOSE))
-        .with(EnvFilter::from_default_env())
+fn _avenger(_py: Python<'_>, m: Bound<'_, PyModule>) -> PyResult<()> {
+    // Initialize logging
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
         .init();
 
+    // Add class and function
     m.add_class::<SceneGraph>()?;
-    m.add_function(wrap_pyfunction!(register_font_directory, m)?)?;
+    m.add_function(wrap_pyfunction!(register_font_directory, m.clone())?)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
+
     Ok(())
 }
