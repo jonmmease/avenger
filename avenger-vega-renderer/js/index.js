@@ -1,12 +1,11 @@
-import { instantiate, AvengerCanvas, scene_graph_to_png } from "../lib/avenger_vega_renderer.generated.js";
+import init, { AvengerCanvas, scene_graph_to_png } from "../lib/avenger_vega_renderer.js";
 import { Renderer, CanvasHandler, domClear, domChild } from 'vega-scenegraph';
 import { inherits } from 'vega-util';
 import { importScenegraph } from "./marks/scenegraph.js"
 
-// Load wasm
-instantiate();
-
 const AVENGER_OPTIONS = {}
+
+await init();
 
 function devicePixelRatio() {
     return typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;

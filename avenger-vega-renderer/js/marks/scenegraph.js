@@ -1,4 +1,4 @@
-import { SceneGraph } from "../../lib/avenger_vega_renderer.generated.js";
+import { SceneGraph } from "../../lib/avenger_vega_renderer.js";
 import { importGroup } from "./group.js";
 
 /**

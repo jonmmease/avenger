@@ -1,4 +1,4 @@
-import {RectMark} from "../../lib/avenger_vega_renderer.generated.js";
+import {RectMark} from "../../lib/avenger_vega_renderer.js";
 import {encodeSimpleArray} from "./util.js";
 
 
