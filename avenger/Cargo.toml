@@ -18,6 +18,9 @@ workspace = true
 workspace = true
 features = [ "serialization",]
 
+[dependencies.itertools]
+workspace = true
+
 [dependencies.image]
 workspace = true
 features = [ "png",]

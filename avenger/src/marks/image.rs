@@ -1,4 +1,5 @@
 use crate::marks::value::{EncodingValue, ImageAlign, ImageBaseline};
+use itertools::izip;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -9,6 +10,10 @@ pub struct ImageMark {
     pub len: u32,
     pub aspect: bool,
     pub smooth: bool,
+    pub indices: Option<Vec<usize>>,
+    pub zindex: Option<i32>,
+
+    // Encodings
     pub image: EncodingValue<RgbaImage>,
     pub x: EncodingValue<f32>,
     pub y: EncodingValue<f32>,
@@ -16,38 +21,40 @@ pub struct ImageMark {
     pub height: EncodingValue<f32>,
     pub align: EncodingValue<ImageAlign>,
     pub baseline: EncodingValue<ImageBaseline>,
-    pub indices: Option<Vec<usize>>,
-    pub zindex: Option<i32>,
 }
 
 impl ImageMark {
-    pub fn image_iter(&self) -> Box<dyn Iterator<Item = &RgbaImage> + '_> {
-        self.image.as_iter(self.len as usize, self.indices.as_ref())
-    }
-    pub fn x_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.x.as_iter(self.len as usize, self.indices.as_ref())
-    }
-    pub fn y_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.y.as_iter(self.len as usize, self.indices.as_ref())
-    }
-    pub fn width_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.width.as_iter(self.len as usize, self.indices.as_ref())
-    }
-    pub fn height_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.height
-            .as_iter(self.len as usize, self.indices.as_ref())
-    }
-    pub fn align_iter(&self) -> Box<dyn Iterator<Item = &ImageAlign> + '_> {
-        self.align.as_iter(self.len as usize, self.indices.as_ref())
-    }
-    pub fn baseline_iter(&self) -> Box<dyn Iterator<Item = &ImageBaseline> + '_> {
-        self.baseline
-            .as_iter(self.len as usize, self.indices.as_ref())
+    pub fn instances(&self) -> Box<dyn Iterator<Item = ImageMarkInstance> + '_> {
+        let n = self.len as usize;
+        let inds = self.indices.as_ref();
+        Box::new(
+            izip!(
+                self.image.as_iter(n, inds),
+                self.x.as_iter(n, inds),
+                self.y.as_iter(n, inds),
+                self.width.as_iter(n, inds),
+                self.height.as_iter(n, inds),
+                self.align.as_iter(n, inds),
+                self.baseline.as_iter(n, inds)
+            )
+            .map(
+                |(image, x, y, width, height, align, baseline)| ImageMarkInstance {
+                    image: image.clone(),
+                    x: *x,
+                    y: *y,
+                    width: *width,
+                    height: *height,
+                    align: *align,
+                    baseline: *baseline,
+                },
+            ),
+        )
     }
 }
 
 impl Default for ImageMark {
     fn default() -> Self {
+        let default_instance = ImageMarkInstance::default();
         Self {
             name: "image_mark".to_string(),
             clip: true,
@@ -55,20 +62,53 @@ impl Default for ImageMark {
             aspect: true,
             indices: None,
             smooth: true,
-            x: EncodingValue::Scalar { value: 0.0 },
-            y: EncodingValue::Scalar { value: 0.0 },
-            width: EncodingValue::Scalar { value: 0.0 },
-            height: EncodingValue::Scalar { value: 0.0 },
+            x: EncodingValue::Scalar {
+                value: default_instance.x,
+            },
+            y: EncodingValue::Scalar {
+                value: default_instance.y,
+            },
+            width: EncodingValue::Scalar {
+                value: default_instance.width,
+            },
+            height: EncodingValue::Scalar {
+                value: default_instance.height,
+            },
             align: EncodingValue::Scalar {
-                value: Default::default(),
+                value: default_instance.align,
             },
             baseline: EncodingValue::Scalar {
-                value: Default::default(),
+                value: default_instance.baseline,
             },
             image: EncodingValue::Scalar {
-                value: Default::default(),
+                value: default_instance.image,
             },
             zindex: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageMarkInstance {
+    pub image: RgbaImage,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub align: ImageAlign,
+    pub baseline: ImageBaseline,
+}
+
+impl Default for ImageMarkInstance {
+    fn default() -> Self {
+        Self {
+            image: Default::default(),
+            x: 0.0,
+            y: 0.0,
+            width: 0.0,
+            height: 0.0,
+            align: Default::default(),
+            baseline: Default::default(),
         }
     }
 }
