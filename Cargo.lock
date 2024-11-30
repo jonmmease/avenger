@@ -382,7 +382,7 @@ dependencies = [
  "avenger-wgpu",
  "image 0.25.5",
  "lazy_static",
- "pollster",
+ "pollster 0.3.0",
  "pyo3",
  "pythonize",
  "serde",
@@ -396,7 +396,7 @@ version = "0.0.8"
 dependencies = [
  "avenger",
  "cfg-if",
- "csscolorparser 0.7.0",
+ "csscolorparser",
  "image 0.25.5",
  "lazy_static",
  "lyon_extra",
@@ -420,7 +420,7 @@ dependencies = [
  "avenger-vega",
  "avenger-wgpu",
  "console_error_panic_hook",
- "csscolorparser 0.7.0",
+ "csscolorparser",
  "gloo-utils",
  "image 0.25.5",
  "itertools 0.13.0",
@@ -440,7 +440,7 @@ dependencies = [
 name = "avenger-vega-test-data"
 version = "0.0.8"
 dependencies = [
- "pollster",
+ "pollster 0.3.0",
  "serde_json",
  "vl-convert-rs",
 ]
@@ -465,7 +465,7 @@ dependencies = [
  "lazy_static",
  "log",
  "lyon",
- "pollster",
+ "pollster 0.4.0",
  "pyo3",
  "rayon",
  "rstest",
@@ -913,11 +913,11 @@ checksum = "3d7b894f5411737b7867f4827955924d7c254fc9f4d91a6aad6b097804b1018b"
 
 [[package]]
 name = "colorgrad"
-version = "0.6.2"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a5f405d474b9d05e0a093d3120e77e9bf26461b57a84b40aa2a221ac5617fb6"
+checksum = "7b8d55c12145df1b7c4b9a5e8741101c405461f9025add91fd9a54223711cba2"
 dependencies = [
- "csscolorparser 0.6.2",
+ "csscolorparser",
 ]
 
 [[package]]
@@ -1121,15 +1121,6 @@ dependencies = [
  "generic-array",
  "rand_core",
  "typenum",
-]
-
-[[package]]
-name = "csscolorparser"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb2a7d3066da2de787b7f032c736763eb7ae5d355f81a68bab2675a96008b0bf"
-dependencies = [
- "phf",
 ]
 
 [[package]]
@@ -5413,6 +5404,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22686f4785f02a4fcc856d3b3bb19bf6c8160d103f7a99cc258bddd0251dc7f2"
 
 [[package]]
+name = "pollster"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f3a9f18d041e6d0e102a0a46750538147e5e8992d3b4873aaafee2520b00ce3"
+
+[[package]]
 name = "polyval"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6241,9 +6238,9 @@ dependencies = [
 
 [[package]]
 name = "rstest"
-version = "0.18.2"
+version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97eeab2f3c0a199bc4be135c36c924b6590b88c377d416494288c14f2db30199"
+checksum = "0a2c585be59b6b5dd66a9d2084aa1d8bd52fbdb806eafdeffb52791147862035"
 dependencies = [
  "futures",
  "futures-timer",
@@ -6253,12 +6250,13 @@ dependencies = [
 
 [[package]]
 name = "rstest_macros"
-version = "0.18.2"
+version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d428f8247852f894ee1be110b375111b586d4fa431f6c46e64ba5a0dcccbe605"
+checksum = "825ea780781b15345a146be27eaefb05085e337e869bff01b4306a4fd4a9ad5a"
 dependencies = [
  "cfg-if",
  "glob",
+ "proc-macro-crate",
  "proc-macro2",
  "quote",
  "regex",
