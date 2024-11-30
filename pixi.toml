@@ -17,7 +17,7 @@ cmd = """
 npm install &&
 rm -rf lib/ &&
 
-deno run -A jsr:@deno/wasmbuild@0.17.1 -p avenger-vega-renderer -p avenger-vega-renderer --sync &&
+wasm-pack build --target web --out-dir lib &&
 
 rm -rf dist/ &&
 mkdir -p dist/ &&
@@ -34,21 +34,6 @@ rm -rf packed/ &&
 mkdir -p packed/ &&
 npm pack &&
 mv avenger-vega-renderer-*.tgz packed
-"""
-
-[tasks.build-vega-renderer-deno]
-cwd = "avenger-vega-renderer"
-cmd = """
-npm install
-rm -rf lib/ &&
-
-deno run -A jsr:@deno/wasmbuild@0.17.1 -p avenger-vega-renderer -p avenger-vega-renderer --no-default-features --features "deno" --sync &&
-
-rm -rf dist-deno/ &&
-mkdir -p dist-deno/ &&
-cp -r js dist-deno/js &&
-cp -r lib dist-deno/ &&
-cp package.json dist-deno/
 """
 
 [tasks.test-vega-renderer]

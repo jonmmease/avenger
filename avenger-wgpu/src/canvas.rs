@@ -374,6 +374,7 @@ pub(crate) async fn request_wgpu_device(
                 } else {
                     wgpu::Limits::default()
                 },
+                memory_hints: wgpu::MemoryHints::Performance,
             },
             None,
         )

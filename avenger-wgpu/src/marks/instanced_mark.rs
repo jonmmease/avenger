@@ -180,13 +180,13 @@ impl InstancedMarkRenderer {
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: mark_shader.vertex_entry_point(),
+                entry_point: Some(mark_shader.vertex_entry_point()),
                 compilation_options: Default::default(),
                 buffers: &[mark_shader.vertex_desc(), mark_shader.instance_desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: mark_shader.fragment_entry_point(),
+                entry_point: Some(mark_shader.fragment_entry_point()),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: texture_format,
@@ -210,6 +210,7 @@ impl InstancedMarkRenderer {
                 alpha_to_coverage_enabled: false,
             },
             multiview: None,
+            cache: None,
         });
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
