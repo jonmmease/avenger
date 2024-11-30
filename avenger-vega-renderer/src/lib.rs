@@ -8,7 +8,7 @@ use crate::text::HtmlCanvasTextRasterizer;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, CanvasDimensions, PngCanvas};
 use avenger_wgpu::html_canvas::HtmlCanvasCanvas;
 use avenger_wgpu::marks::text::TextAtlasBuilder;
-use image::ImageOutputFormat;
+use image::ImageFormat;
 use std::io::Cursor;
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
@@ -120,7 +120,7 @@ pub async fn scene_graph_to_png(scene_graph: SceneGraph) -> Result<js_sys::Uint8
         .map_err(|err| JsError::new(&err.to_string()))?;
 
     let mut png_data = Vec::new();
-    img.write_to(&mut Cursor::new(&mut png_data), ImageOutputFormat::Png)
+    img.write_to(&mut Cursor::new(&mut png_data), ImageFormat::Png)
         .map_err(|err| JsError::new(&format!("Failed to convert image to PNG: {err:?}")))?;
     Ok(js_sys::Uint8Array::from(&png_data[..]))
 }

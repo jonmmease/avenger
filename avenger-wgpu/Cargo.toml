@@ -19,10 +19,10 @@ cfg-if = "1"
 winit = { workspace = true }
 env_logger = "0.10"
 log = "0.4"
-wgpu = "23.0.1"
+wgpu = { workspace = true }
 pollster = "0.3"
 cgmath = "0.18.0"
-itertools = "0.12.0"
+itertools = "0.13.0"
 image = { workspace = true }
 futures-intrusive = "^0.5"
 etagere = "0.2.10"
@@ -59,7 +59,7 @@ workspace = true
 optional = true
 
 [dependencies.cosmic-text]
-version = "0.11.2"
+version = "0.12.1"
 optional = true
 
 [dependencies.lyon]
