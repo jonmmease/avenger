@@ -17,11 +17,8 @@ deno = []
 [dependencies]
 cfg-if = "1"
 winit = { workspace = true }
-env_logger = "0.10"
-log = "0.4"
 wgpu = { workspace = true }
 pollster = "0.4.0"
-cgmath = "0.18.0"
 itertools = "0.13.0"
 image = { workspace = true }
 futures-intrusive = "^0.5"
