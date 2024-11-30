@@ -117,7 +117,7 @@ jobs:
         with:
           python-version: 3.9
       - name: Build wheels
-        uses: PyO3/maturin-action@v1.45
+        uses: PyO3/maturin-action@v1.45.0
         with:
           target: ${{ matrix.target }}
           manylinux: auto
