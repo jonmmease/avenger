@@ -1,4 +1,4 @@
-import {TrailMark} from "../../lib/avenger_vega_renderer.generated.js";
+import {TrailMark} from "../../lib/avenger_vega_renderer.js";
 
 
 /**

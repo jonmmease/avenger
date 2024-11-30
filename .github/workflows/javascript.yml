@@ -26,6 +26,9 @@ jobs:
             ~/.cargo
             target
             .pixi
+      - name: Install wasm-pack
+        run: |
+          curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: Build package
         run: |
           pixi run pack-vega-renderer

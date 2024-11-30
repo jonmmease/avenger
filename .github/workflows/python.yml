@@ -117,12 +117,12 @@ jobs:
         with:
           python-version: 3.9
       - name: Build wheels
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@v1.45.0
         with:
           target: ${{ matrix.target }}
           manylinux: auto
           args: --release --out dist -m avenger-python/Cargo.toml
-      - uses: uraimo/run-on-arch-action@v2.6.0
+      - uses: uraimo/run-on-arch-action@v2.8.1
         if: matrix.target != 'ppc64'
         name: Install built wheel
         with:
