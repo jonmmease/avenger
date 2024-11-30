@@ -101,7 +101,7 @@ impl SymbolShaderInstance {
                 position: [instance.x, instance.y],
                 fill_color: instance.fill.color_or_transparent(),
                 stroke_color: instance.stroke.color_or_transparent(),
-                stroke_width: stroke_width,
+                stroke_width,
                 relative_scale: (instance.size).sqrt() / max_scale,
                 angle: instance.angle,
                 shape_index: (instance.shape_index) as u32,

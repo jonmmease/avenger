@@ -364,12 +364,12 @@ impl MultiMarkRenderer {
                 });
                 let offset = i * 4;
                 indicies.extend([
-                    offset as u32,
-                    offset as u32 + 1,
-                    offset as u32 + 2,
-                    offset as u32,
-                    offset as u32 + 2,
-                    offset as u32 + 3,
+                    offset,
+                    offset + 1,
+                    offset + 2,
+                    offset,
+                    offset + 2,
+                    offset + 3,
                 ])
             }
 
