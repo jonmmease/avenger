@@ -1,6 +1,6 @@
 use crate::marks::multi::GRADIENT_TEXTURE_CODE;
 use avenger::marks::value::{ColorOrGradient, Gradient};
-use colorgrad::Color;
+use colorgrad::{Color, Gradient as ColorGradGradient, GradientBuilder};
 use image::{DynamicImage, Rgba};
 use wgpu::Extent3d;
 
@@ -72,27 +72,20 @@ impl GradientAtlasBuilder {
 
             // Build gradient colorway using colorgrad
             let s = grad.stops();
-            let mut binding = colorgrad::CustomGradient::new();
-            let offsets = s.iter().map(|stop| stop.offset as f64).collect::<Vec<_>>();
+            let mut binding = GradientBuilder::new();
+            let offsets = s.iter().map(|stop| stop.offset).collect::<Vec<_>>();
             let colors = s
                 .iter()
-                .map(|stop| {
-                    Color::new(
-                        stop.color[0] as f64,
-                        stop.color[1] as f64,
-                        stop.color[2] as f64,
-                        stop.color[3] as f64,
-                    )
-                })
+                .map(|stop| Color::new(stop.color[0], stop.color[1], stop.color[2], stop.color[3]))
                 .collect::<Vec<_>>();
 
             let builder = binding.domain(offsets.as_slice()).colors(colors.as_slice());
-            let b = builder.build().unwrap();
+            let b = builder.build::<colorgrad::LinearGradient>().unwrap();
 
             // Store 250-bin colorway in pixels 6 through 255
             let col_offset = GRADIENT_WIDTH - COLORWAY_LENGTH;
             for i in 0..COLORWAY_LENGTH {
-                let p = (i as f64) / COLORWAY_LENGTH as f64;
+                let p = (i as f32) / COLORWAY_LENGTH as f32;
                 let c = b.at(p).to_rgba8();
                 self.next_image
                     .put_pixel(i + col_offset, row, Rgba::from(c));
