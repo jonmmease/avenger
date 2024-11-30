@@ -132,7 +132,11 @@ impl TextRasterizer for CosmicTextRasterizer {
             Shaping::Advanced,
         );
 
-        buffer.set_size(&mut font_system, dimensions.size[0], dimensions.size[1]);
+        buffer.set_size(
+            &mut font_system,
+            Some(dimensions.size[0]),
+            Some(dimensions.size[1]),
+        );
         buffer.shape_until_scroll(&mut font_system, false);
 
         let (buffer_width, line_y, buffer_height) = measure(&buffer);
