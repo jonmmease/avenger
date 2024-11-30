@@ -6,15 +6,14 @@ use crate::marks::image::ImageAtlasBuilder;
 use avenger::marks::area::{AreaMark, AreaOrientation};
 use avenger::marks::image::ImageMark;
 use avenger::marks::line::LineMark;
-use avenger::marks::path::{PathMark, PathTransform};
-use avenger::marks::rect::RectMark;
+use avenger::marks::path::{PathMark, PathMarkInstance, PathTransform};
+use avenger::marks::rect::{RectMark, RectMarkInstance};
 use avenger::marks::rule::RuleMark;
 use avenger::marks::symbol::SymbolMark;
 use avenger::marks::trail::TrailMark;
 use avenger::marks::value::{ColorOrGradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin};
 use etagere::euclid::UnknownUnit;
 use image::DynamicImage;
-use itertools::izip;
 use lyon::algorithms::aabb::bounding_box;
 use lyon::algorithms::measure::{PathMeasurements, PathSampler, SampleType};
 use lyon::geom::euclid::{Point2D, Vector2D};
@@ -39,12 +38,12 @@ use wgpu::{
 // Import rayon prelude as required by par_izip.
 use crate::marks::text::{TextAtlasBuilderTrait, TextInstance};
 
-use avenger::marks::arc::ArcMark;
+use avenger::marks::arc::{ArcMark, ArcMarkInstance};
 use avenger::marks::group::Clip;
 use avenger::marks::text::TextMark;
 
 #[cfg(feature = "rayon")]
-use {crate::par_izip, rayon::prelude::*};
+use rayon::prelude::*;
 
 pub const GRADIENT_TEXTURE_CODE: f32 = -1.0;
 pub const IMAGE_TEXTURE_CODE: f32 = -2.0;
@@ -196,139 +195,101 @@ impl MultiMarkRenderer {
             .gradient_atlas_builder
             .register_gradients(&mark.gradients);
 
-        let verts_inds = if let Some(stroke_dash_iter) = mark.stroke_dash_iter() {
-            izip!(
-                stroke_dash_iter,
-                mark.x0_iter(),
-                mark.y0_iter(),
-                mark.x1_iter(),
-                mark.y1_iter(),
-                mark.stroke_iter(),
-                mark.stroke_width_iter(),
-                mark.stroke_cap_iter(),
-            ).map(|(stroke_dash, x0, y0, x1, y1, stroke, stroke_width, cap)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                // Next index into stroke_dash array
-                let mut dash_idx = 0;
+        let verts_inds = mark
+            .instances()
+            .map(
+                |instance| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+                    let mut path_builder = lyon::path::Path::builder().with_svg();
 
-                // Distance along line from (x0,y0) to (x1,y1) where the next dash will start
-                let mut start_dash_dist: f32 = 0.0;
+                    if let Some(stroke_dash) = &instance.stroke_dash {
+                        // Next index into stroke_dash array
+                        let mut dash_idx = 0;
 
-                // Length of the line from (x0,y0) to (x1,y1)
-                let rule_len = ((x1 - x0).powi(2) + (y1 - y0).powi(2)).sqrt();
+                        // Distance along line from (x0,y0) to (x1,y1) where the next dash will start
+                        let mut start_dash_dist: f32 = 0.0;
 
-                // Coponents of unit vector along (x0,y0) to (x1,y1)
-                let xhat = (x1 - x0) / rule_len;
-                let yhat = (y1 - y0) / rule_len;
+                        // Length of the line from (x0,y0) to (x1,y1)
+                        let rule_len = ((instance.x1 - instance.x0).powi(2)
+                            + (instance.y1 - instance.y0).powi(2))
+                        .sqrt();
 
-                // Whether the next dash length represents a drawn dash (draw == true)
-                // or a gap (draw == false)
-                let mut draw = true;
+                        // Components of unit vector along (x0,y0) to (x1,y1)
+                        let xhat = (instance.x1 - instance.x0) / rule_len;
+                        let yhat = (instance.y1 - instance.y0) / rule_len;
 
-                // Init path builder
-                let mut path_builder = lyon::path::Path::builder().with_svg();
+                        // Whether the next dash length represents a drawn dash (draw == true)
+                        // or a gap (draw == false)
+                        let mut draw = true;
 
-                while start_dash_dist < rule_len {
-                    let end_dash_dist = if start_dash_dist + stroke_dash[dash_idx] >= rule_len {
-                        // The final dash/gap should be truncated to the end of the rule
-                        rule_len
+                        while start_dash_dist < rule_len {
+                            let end_dash_dist =
+                                if start_dash_dist + stroke_dash[dash_idx] >= rule_len {
+                                    // The final dash/gap should be truncated to the end of the rule
+                                    rule_len
+                                } else {
+                                    // The dash/gap fits entirely in the rule
+                                    start_dash_dist + stroke_dash[dash_idx]
+                                };
+
+                            if draw {
+                                let dash_x0 = instance.x0 + xhat * start_dash_dist;
+                                let dash_y0 = instance.y0 + yhat * start_dash_dist;
+                                let dash_x1 = instance.x0 + xhat * end_dash_dist;
+                                let dash_y1 = instance.y0 + yhat * end_dash_dist;
+
+                                path_builder
+                                    .move_to(Point::new(dash_x0 + origin[0], dash_y0 + origin[1]));
+                                path_builder
+                                    .line_to(Point::new(dash_x1 + origin[0], dash_y1 + origin[1]));
+                            }
+
+                            // update start dist for next dash/gap
+                            start_dash_dist = end_dash_dist;
+
+                            // increment index and cycle back to start of start of dash array
+                            dash_idx = (dash_idx + 1) % stroke_dash.len();
+
+                            // Alternate between drawn dash and gap
+                            draw = !draw;
+                        }
                     } else {
-                        // The dash/gap fits entirely in the rule
-                        start_dash_dist + stroke_dash[dash_idx]
-                    };
-
-                    if draw {
-                        let dash_x0 = x0 + xhat * start_dash_dist;
-                        let dash_y0 = y0 + yhat * start_dash_dist;
-                        let dash_x1 = x0 + xhat * end_dash_dist;
-                        let dash_y1 = y0 + yhat * end_dash_dist;
-
-                        path_builder.move_to(Point::new(dash_x0 + origin[0], dash_y0 + origin[1]));
-                        path_builder.line_to(Point::new(dash_x1 + origin[0], dash_y1 + origin[1]));
+                        path_builder
+                            .move_to(Point::new(instance.x0 + origin[0], instance.y0 + origin[1]));
+                        path_builder
+                            .line_to(Point::new(instance.x1 + origin[0], instance.y1 + origin[1]));
                     }
 
-                    // update start dist for next dash/gap
-                    start_dash_dist = end_dash_dist;
+                    let path = path_builder.build();
+                    let bbox = bounding_box(&path);
 
-                    // increment index and cycle back to start of start of dash array
-                    dash_idx = (dash_idx + 1) % stroke_dash.len();
+                    // Create vertex/index buffer builder
+                    let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
+                    let mut builder = BuffersBuilder::new(
+                        &mut buffers,
+                        VertexPositions {
+                            fill: [0.0, 0.0, 0.0, 0.0],
+                            stroke: to_color_or_gradient_coord(&instance.stroke, &grad_coords),
+                            top_left: bbox.min.to_array(),
+                            bottom_right: bbox.max.to_array(),
+                        },
+                    );
 
-                    // Alternate between drawn dash and gap
-                    draw = !draw;
-                }
-
-                let path = path_builder.build();
-                let bbox = bounding_box(&path);
-
-                // Create vertex/index buffer builder
-                let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
-                let mut builder = BuffersBuilder::new(
-                    &mut buffers,
-                    VertexPositions {
-                        fill: [0.0, 0.0, 0.0, 0.0],
-                        stroke: to_color_or_gradient_coord(stroke, &grad_coords),
-                        top_left: bbox.min.to_array(),
-                        bottom_right: bbox.max.to_array(),
-                    },
-                );
-
-                // Tesselate stroke
-                let mut stroke_tessellator = StrokeTessellator::new();
-                let stroke_options = StrokeOptions::default()
-                    .with_tolerance(0.05)
-                    .with_line_join(LineJoin::Miter)
-                    .with_line_cap(match cap {
-                        StrokeCap::Butt => LineCap::Butt,
-                        StrokeCap::Round => LineCap::Round,
-                        StrokeCap::Square => LineCap::Square,
-                    })
-                    .with_line_width(*stroke_width);
-                stroke_tessellator.tessellate_path(&path, &stroke_options, &mut builder)?;
-                Ok((buffers.vertices, buffers.indices))
-            }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
-        } else {
-            izip!(
-                mark.x0_iter(),
-                mark.y0_iter(),
-                mark.x1_iter(),
-                mark.y1_iter(),
-                mark.stroke_iter(),
-                mark.stroke_width_iter(),
-                mark.stroke_cap_iter(),
-            ).map(|(x0, y0, x1, y1, stroke, stroke_width, cap)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                let mut path_builder = lyon::path::Path::builder().with_svg();
-                path_builder.move_to(Point::new(*x0 + origin[0], *y0 + origin[1]));
-                path_builder.line_to(Point::new(*x1 + origin[0], *y1 + origin[1]));
-                let path = path_builder.build();
-                let bbox = bounding_box(&path);
-
-                // Create vertex/index buffer builder
-                let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
-                let mut builder = BuffersBuilder::new(
-                    &mut buffers,
-                    VertexPositions {
-                        fill: [0.0, 0.0, 0.0, 0.0],
-                        stroke: to_color_or_gradient_coord(stroke, &grad_coords),
-                        top_left: bbox.min.to_array(),
-                        bottom_right: bbox.max.to_array(),
-                    },
-                );
-
-                // Tesselate stroke
-                let mut stroke_tessellator = StrokeTessellator::new();
-                let stroke_options = StrokeOptions::default()
-                    .with_tolerance(0.05)
-                    .with_line_join(LineJoin::Miter)
-                    .with_line_cap(match cap {
-                        StrokeCap::Butt => LineCap::Butt,
-                        StrokeCap::Round => LineCap::Round,
-                        StrokeCap::Square => LineCap::Square,
-                    })
-                    .with_line_width(*stroke_width);
-                stroke_tessellator.tessellate_path(&path, &stroke_options, &mut builder)?;
-                Ok((buffers.vertices, buffers.indices))
-
-            }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
-        };
+                    // Tesselate stroke
+                    let mut stroke_tessellator = StrokeTessellator::new();
+                    let stroke_options = StrokeOptions::default()
+                        .with_tolerance(0.05)
+                        .with_line_join(LineJoin::Miter)
+                        .with_line_cap(match instance.stroke_cap {
+                            StrokeCap::Butt => LineCap::Butt,
+                            StrokeCap::Round => LineCap::Round,
+                            StrokeCap::Square => LineCap::Square,
+                        })
+                        .with_line_width(instance.stroke_width);
+                    stroke_tessellator.tessellate_path(&path, &stroke_options, &mut builder)?;
+                    Ok((buffers.vertices, buffers.indices))
+                },
+            )
+            .collect::<Result<Vec<_>, AvengerWgpuError>>()?;
 
         let start_ind = self.num_indices();
         let inds_len: usize = verts_inds.iter().map(|(_, i)| i.len()).sum();
@@ -369,21 +330,14 @@ impl MultiMarkRenderer {
             let mut verts: Vec<MultiVertex> = Vec::with_capacity((mark.len * 4) as usize);
             let mut indicies: Vec<u32> = Vec::with_capacity((mark.len * 6) as usize);
 
-            for (i, x, y, width, height, fill) in izip!(
-                0..mark.len,
-                mark.x_iter(),
-                mark.y_iter(),
-                mark.width_iter(),
-                mark.height_iter(),
-                mark.fill_iter()
-            ) {
-                let x0 = *x + origin[0];
-                let y0 = *y + origin[1];
-                let x1 = x0 + width;
-                let y1 = y0 + height;
+            for (i, instance) in (0..mark.len).zip(mark.instances()) {
+                let x0 = instance.x + origin[0];
+                let y0 = instance.y + origin[1];
+                let x1 = x0 + instance.width;
+                let y1 = y0 + instance.height;
                 let top_left = [x0, y0];
                 let bottom_right = [x1, y1];
-                let color = fill.color_or_transparent();
+                let color = instance.fill.color_or_transparent();
                 verts.push(MultiVertex {
                     position: [x0, y0],
                     color,
@@ -410,113 +364,86 @@ impl MultiMarkRenderer {
                 });
                 let offset = i * 4;
                 indicies.extend([
-                    offset,
-                    offset + 1,
-                    offset + 2,
-                    offset,
-                    offset + 2,
-                    offset + 3,
+                    offset as u32,
+                    offset as u32 + 1,
+                    offset as u32 + 2,
+                    offset as u32,
+                    offset as u32 + 2,
+                    offset as u32 + 3,
                 ])
             }
 
             vec![(verts, indicies)]
         } else {
             // General rects
-            let build_verts_inds =
-                |x: &f32,
-                 y: &f32,
-                 width: &f32,
-                 height: &f32,
-                 fill: &ColorOrGradient,
-                 stroke: &ColorOrGradient,
-                 stroke_width: &f32,
-                 corner_radius: &f32|
-                 -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                    // Create rect path
-                    let mut path_builder = lyon::path::Path::builder();
-                    let x0 = *x + origin[0];
-                    let y0 = *y + origin[1];
-                    let x1 = x0 + width;
-                    let y1 = y0 + height;
-                    if *corner_radius > 0.0 {
-                        path_builder.add_rounded_rectangle(
-                            &Box2D::new(Point2D::new(x0, y0), Point2D::new(x1, y1)),
-                            &BorderRadii {
-                                top_left: *corner_radius,
-                                top_right: *corner_radius,
-                                bottom_left: *corner_radius,
-                                bottom_right: *corner_radius,
-                            },
-                            Winding::Positive,
-                        );
-                    } else {
-                        path_builder.add_rectangle(
-                            &Box2D::new(Point2D::new(x0, y0), Point2D::new(x1, y1)),
-                            Winding::Positive,
-                        );
-                    }
-
-                    // Apply transform to path
-                    let path = path_builder.build();
-                    let bbox = bounding_box(&path);
-
-                    // Create vertex/index buffer builder
-                    let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
-                    let mut builder = BuffersBuilder::new(
-                        &mut buffers,
-                        VertexPositions {
-                            fill: to_color_or_gradient_coord(fill, &grad_coords),
-                            stroke: to_color_or_gradient_coord(stroke, &grad_coords),
-                            top_left: bbox.min.to_array(),
-                            bottom_right: bbox.max.to_array(),
+            let build_verts_inds = |instance: &RectMarkInstance| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+                // Create rect path
+                let mut path_builder = lyon::path::Path::builder();
+                let x0 = instance.x + origin[0];
+                let y0 = instance.y + origin[1];
+                let x1 = x0 + instance.width;
+                let y1 = y0 + instance.height;
+                if instance.corner_radius > 0.0 {
+                    path_builder.add_rounded_rectangle(
+                        &Box2D::new(Point2D::new(x0, y0), Point2D::new(x1, y1)),
+                        &BorderRadii {
+                            top_left: instance.corner_radius,
+                            top_right: instance.corner_radius,
+                            bottom_left: instance.corner_radius,
+                            bottom_right: instance.corner_radius,
                         },
+                        Winding::Positive,
                     );
+                } else {
+                    path_builder.add_rectangle(
+                        &Box2D::new(Point2D::new(x0, y0), Point2D::new(x1, y1)),
+                        Winding::Positive,
+                    );
+                }
 
-                    // Tesselate fill
-                    let mut fill_tessellator = FillTessellator::new();
-                    let fill_options = FillOptions::default().with_tolerance(0.05);
+                // Apply transform to path
+                let path = path_builder.build();
+                let bbox = bounding_box(&path);
 
-                    fill_tessellator.tessellate_path(&path, &fill_options, &mut builder)?;
+                // Create vertex/index buffer builder
+                let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
+                let mut builder = BuffersBuilder::new(
+                    &mut buffers,
+                    VertexPositions {
+                        fill: to_color_or_gradient_coord(&instance.fill, &grad_coords),
+                        stroke: to_color_or_gradient_coord(&instance.stroke, &grad_coords),
+                        top_left: bbox.min.to_array(),
+                        bottom_right: bbox.max.to_array(),
+                    },
+                );
 
-                    // Tesselate stroke
-                    if *stroke_width > 0.0 {
-                        let mut stroke_tessellator = StrokeTessellator::new();
-                        let stroke_options = StrokeOptions::default()
-                            .with_tolerance(0.05)
-                            .with_line_width(*stroke_width);
-                        stroke_tessellator.tessellate_path(&path, &stroke_options, &mut builder)?;
-                    }
+                // Tesselate fill
+                let mut fill_tessellator = FillTessellator::new();
+                let fill_options = FillOptions::default().with_tolerance(0.05);
 
-                    Ok((buffers.vertices, buffers.indices))
-                };
+                fill_tessellator.tessellate_path(&path, &fill_options, &mut builder)?;
+
+                // Tesselate stroke
+                if instance.stroke_width > 0.0 {
+                    let mut stroke_tessellator = StrokeTessellator::new();
+                    let stroke_options = StrokeOptions::default()
+                        .with_tolerance(0.05)
+                        .with_line_width(instance.stroke_width);
+                    stroke_tessellator.tessellate_path(&path, &stroke_options, &mut builder)?;
+                }
+
+                Ok((buffers.vertices, buffers.indices))
+            };
 
             cfg_if::cfg_if! {
                 if #[cfg(feature = "rayon")] {
-                    par_izip!(
-                        mark.x_vec(),
-                        mark.y_vec(),
-                        mark.width_vec(),
-                        mark.height_vec(),
-                        mark.fill_vec(),
-                        mark.stroke_vec(),
-                        mark.stroke_width_vec(),
-                        mark.corner_radius_vec(),
-                    ).map(|(x, y, width, height, fill, stroke, stroke_width, corner_radius)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                        build_verts_inds(x, &y, &width, &height, &fill, &stroke, &stroke_width, &corner_radius)
-                    }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
+                    mark.instances().collect::<Vec<_>>().into_par_iter()
+                        .map(|instance| build_verts_inds(&instance))
+                        .collect::<Result<Vec<_>, AvengerWgpuError>>()?
                 } else {
-                    izip!(
-                        mark.x_iter(),
-                        mark.y_iter(),
-                        mark.width_iter(),
-                        mark.height_iter(),
-                        mark.fill_iter(),
-                        mark.stroke_iter(),
-                        mark.stroke_width_iter(),
-                        mark.corner_radius_iter(),
-                    ).map(|(x, y, width, height, fill, stroke, stroke_width, corner_radius)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                            build_verts_inds(x, y, width, height, fill, stroke, stroke_width, corner_radius)
-                        }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
+                    mark.instances()
+                        .map(|instance| build_verts_inds(&instance))
+                        .collect::<Result<Vec<_>, AvengerWgpuError>>()?
                 }
             }
         };
@@ -550,15 +477,12 @@ impl MultiMarkRenderer {
             .gradient_atlas_builder
             .register_gradients(&mark.gradients);
 
-        let build_verts_inds = |path: &lyon::path::Path,
-                                fill: &ColorOrGradient,
-                                stroke: &ColorOrGradient,
-                                transform: &PathTransform|
+        let build_verts_inds = |instance: &PathMarkInstance|
          -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
             // Apply transform to path
-            let path = path
+            let path = instance.path
                 .clone()
-                .transformed(&transform.then_translate(Vector2D::new(origin[0], origin[1])));
+                .transformed(&instance.transform.then_translate(Vector2D::new(origin[0], origin[1])));
             let bbox = bounding_box(&path);
 
             // Create vertex/index buffer builder
@@ -566,8 +490,8 @@ impl MultiMarkRenderer {
             let mut builder = BuffersBuilder::new(
                 &mut buffers,
                 crate::marks::multi::VertexPositions {
-                    fill: to_color_or_gradient_coord(fill, &grad_coords),
-                    stroke: to_color_or_gradient_coord(stroke, &grad_coords),
+                    fill: to_color_or_gradient_coord(&instance.fill, &grad_coords),
+                    stroke: to_color_or_gradient_coord(&instance.stroke, &grad_coords),
                     top_left: bbox.min.to_array(),
                     bottom_right: bbox.max.to_array(),
                 },
@@ -603,23 +527,13 @@ impl MultiMarkRenderer {
 
         cfg_if::cfg_if! {
             if #[cfg(feature = "rayon")] {
-                let verts_inds = par_izip!(
-                    mark.path_vec(),
-                    mark.fill_vec(),
-                    mark.stroke_vec(),
-                    mark.transform_vec(),
-                ).map(|(path, fill, stroke, transform)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                    build_verts_inds(path, &fill, &stroke, &transform)
-                }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
+                let verts_inds = mark.instances().collect::<Vec<_>>().into_par_iter()
+                    .map(|instance| build_verts_inds(&instance))
+                    .collect::<Result<Vec<_>, AvengerWgpuError>>()?;
             } else {
-                let verts_inds = izip!(
-                    mark.path_iter(),
-                    mark.fill_iter(),
-                    mark.stroke_iter(),
-                    mark.transform_iter(),
-                ).map(|(path, fill, stroke, transform)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                    build_verts_inds(path, fill, stroke, transform)
-                }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
+                let verts_inds = mark.instances()
+                    .map(|instance| build_verts_inds(&instance))
+                    .collect::<Result<Vec<_>, AvengerWgpuError>>()?;
             }
         }
 
@@ -727,28 +641,13 @@ impl MultiMarkRenderer {
 
         cfg_if::cfg_if! {
             if #[cfg(feature = "rayon")] {
-                let verts_inds = par_izip!(
-                    mark.x_vec(),
-                    mark.y_vec(),
-                    mark.fill_vec(),
-                    mark.size_vec(),
-                    mark.stroke_vec(),
-                    mark.angle_vec(),
-                    mark.shape_index_vec(),
-                ).map(|(x, y, fill, size, stroke, angle, shape_index)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                    build_verts_inds(x, &y, &fill, &size, &stroke, &angle, &shape_index)
+                let verts_inds = mark.instances().collect::<Vec<_>>().into_par_iter()
+                    .map(|instance| {
+                    build_verts_inds(&instance.x, &instance.y, &instance.fill, &instance.size, &instance.stroke, &instance.angle, &instance.shape_index)
                 }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
             } else {
-                let verts_inds = izip!(
-                    mark.x_iter(),
-                    mark.y_iter(),
-                    mark.fill_iter(),
-                    mark.size_iter(),
-                    mark.stroke_iter(),
-                    mark.angle_iter(),
-                    mark.shape_index_iter(),
-                ).map(|(x, y, fill, size, stroke, angle, shape_index)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                    build_verts_inds(x, y, fill, size, stroke, angle, shape_index)
+                let verts_inds = mark.instances().map(|instance| {
+                    build_verts_inds(&instance.x, &instance.y, &instance.fill, &instance.size, &instance.stroke, &instance.angle, &instance.shape_index)
                 }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
             }
         };
@@ -787,14 +686,20 @@ impl MultiMarkRenderer {
         // Build path for each defined line segment
         let mut path_builder = lyon::path::Path::builder().with_svg();
         let mut path_len = 0;
-        for (x, y, defined) in izip!(mark.x_iter(), mark.y_iter(), mark.defined_iter()) {
-            if *defined {
+        for instance in mark.instances() {
+            if instance.defined {
                 if path_len > 0 {
                     // Continue path
-                    path_builder.line_to(lyon::geom::point(*x + origin[0], *y + origin[1]));
+                    path_builder.line_to(lyon::geom::point(
+                        instance.x + origin[0],
+                        instance.y + origin[1],
+                    ));
                 } else {
                     // New path
-                    path_builder.move_to(lyon::geom::point(*x + origin[0], *y + origin[1]));
+                    path_builder.move_to(lyon::geom::point(
+                        instance.x + origin[0],
+                        instance.y + origin[1],
+                    ));
                 }
                 path_len += 1;
             } else {
@@ -943,45 +848,41 @@ impl MultiMarkRenderer {
             b.close();
         }
 
-        if mark.orientation == AreaOrientation::Vertical {
-            for (x, y, y2, defined) in izip!(
-                mark.x_iter(),
-                mark.y_iter(),
-                mark.y2_iter(),
-                mark.defined_iter(),
-            ) {
-                if *defined {
+        for instance in mark.instances() {
+            if instance.defined {
+                if mark.orientation == AreaOrientation::Vertical {
                     if !tail.is_empty() {
                         // Continue path
-                        path_builder.line_to(lyon::geom::point(*x + origin[0], *y + origin[1]));
+                        path_builder.line_to(lyon::geom::point(
+                            instance.x + origin[0],
+                            instance.y + origin[1],
+                        ));
                     } else {
                         // New path
-                        path_builder.move_to(lyon::geom::point(*x + origin[0], *y + origin[1]));
+                        path_builder.move_to(lyon::geom::point(
+                            instance.x + origin[0],
+                            instance.y + origin[1],
+                        ));
                     }
-                    tail.push((*x + origin[0], *y2 + origin[1]));
+                    tail.push((instance.x + origin[0], instance.y2 + origin[1]));
                 } else {
-                    close_area(&mut path_builder, &mut tail);
-                }
-            }
-        } else {
-            for (y, x, x2, defined) in izip!(
-                mark.y_iter(),
-                mark.x_iter(),
-                mark.x2_iter(),
-                mark.defined_iter(),
-            ) {
-                if *defined {
                     if !tail.is_empty() {
                         // Continue path
-                        path_builder.line_to(lyon::geom::point(*x + origin[0], *y + origin[1]));
+                        path_builder.line_to(lyon::geom::point(
+                            instance.x + origin[0],
+                            instance.y + origin[1],
+                        ));
                     } else {
                         // New path
-                        path_builder.move_to(lyon::geom::point(*x + origin[0], *y + origin[1]));
+                        path_builder.move_to(lyon::geom::point(
+                            instance.x + origin[0],
+                            instance.y + origin[1],
+                        ));
                     }
-                    tail.push((*x2 + origin[0], *y + origin[1]));
-                } else {
-                    close_area(&mut path_builder, &mut tail);
+                    tail.push((instance.x2 + origin[0], instance.y + origin[1]));
                 }
+            } else {
+                close_area(&mut path_builder, &mut tail);
             }
         }
 
@@ -1056,20 +957,20 @@ impl MultiMarkRenderer {
         let size_idx: AttributeIndex = 0;
         let mut path_builder = lyon::path::Path::builder_with_attributes(1);
         let mut path_len = 0;
-        for (x, y, size, defined) in izip!(
-            mark.x_iter(),
-            mark.y_iter(),
-            mark.size_iter(),
-            mark.defined_iter()
-        ) {
-            if *defined {
+        for instance in mark.instances() {
+            if instance.defined {
                 if path_len > 0 {
                     // Continue path
-                    path_builder
-                        .line_to(lyon::geom::point(*x + origin[0], *y + origin[1]), &[*size]);
+                    path_builder.line_to(
+                        lyon::geom::point(instance.x + origin[0], instance.y + origin[1]),
+                        &[instance.size],
+                    );
                 } else {
                     // New path
-                    path_builder.begin(lyon::geom::point(*x + origin[0], *y + origin[1]), &[*size]);
+                    path_builder.begin(
+                        lyon::geom::point(instance.x + origin[0], instance.y + origin[1]),
+                        &[instance.size],
+                    );
                 }
                 path_len += 1;
             } else {
@@ -1084,8 +985,6 @@ impl MultiMarkRenderer {
             }
         }
         path_builder.end(false);
-
-        // let bbox = bounding_box(&path);
 
         let path = path_builder.build();
         let bbox = bounding_box(&path);
@@ -1139,120 +1038,112 @@ impl MultiMarkRenderer {
             .gradient_atlas_builder
             .register_gradients(&mark.gradients);
 
-        let verts_inds = izip!(
-            mark.x_iter(),
-            mark.y_iter(),
-            mark.start_angle_iter(),
-            mark.end_angle_iter(),
-            mark.outer_radius_iter(),
-            mark.inner_radius_iter(),
-            mark.fill_iter(),
-            mark.stroke_iter(),
-            mark.stroke_width_iter(),
-        )
-        .map(
-            |(
-                x,
-                y,
-                start_angle,
-                end_angle,
-                outer_radius,
-                inner_radius,
-                fill,
-                stroke,
-                stroke_width,
-            )|
-             -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                // Compute angle
-                let total_angle = end_angle - start_angle;
+        let verts_inds = mark
+            .instances()
+            .map(
+                |ArcMarkInstance {
+                     x,
+                     y,
+                     start_angle,
+                     end_angle,
+                     outer_radius,
+                     inner_radius,
+                     fill_color,
+                     stroke_color,
+                     stroke_width,
+                     ..
+                 }|
+                 -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+                    // Compute angle
+                    let total_angle = end_angle - start_angle;
 
-                // Normalize inner/outer radius
-                let (inner_radius, outer_radius) = if *inner_radius > *outer_radius {
-                    (*outer_radius, *inner_radius)
-                } else {
-                    (*inner_radius, *outer_radius)
-                };
+                    // Normalize inner/outer radius
+                    let (inner_radius, outer_radius) = if inner_radius > outer_radius {
+                        (outer_radius, inner_radius)
+                    } else {
+                        (inner_radius, outer_radius)
+                    };
 
-                let mut path_builder = lyon::path::Path::builder().with_svg();
+                    let mut path_builder = lyon::path::Path::builder().with_svg();
 
-                // Orient arc starting along vertical y-axis
-                path_builder.move_to(lyon::geom::Point::new(0.0, -inner_radius));
-                path_builder.line_to(lyon::geom::Point::new(0.0, -outer_radius));
+                    // Orient arc starting along vertical y-axis
+                    path_builder.move_to(lyon::geom::Point::new(0.0, -inner_radius));
+                    path_builder.line_to(lyon::geom::Point::new(0.0, -outer_radius));
 
-                // Draw outer arc
-                path_builder.arc(
-                    lyon::geom::Point::new(0.0, 0.0),
-                    lyon::math::Vector::new(outer_radius, outer_radius),
-                    lyon::geom::Angle::radians(total_angle),
-                    lyon::geom::Angle::radians(0.0),
-                );
-
-                if inner_radius != 0.0 {
-                    // Compute vector from outer arc corner to arc corner
-                    let inner_radius_vec = path_builder
-                        .current_position()
-                        .to_vector()
-                        .neg()
-                        .normalize()
-                        .mul(outer_radius - inner_radius);
-                    path_builder.relative_line_to(inner_radius_vec);
-
-                    // Draw inner
+                    // Draw outer arc
                     path_builder.arc(
                         lyon::geom::Point::new(0.0, 0.0),
-                        lyon::math::Vector::new(inner_radius, inner_radius),
-                        lyon::geom::Angle::radians(-total_angle),
+                        lyon::math::Vector::new(outer_radius, outer_radius),
+                        lyon::geom::Angle::radians(total_angle),
                         lyon::geom::Angle::radians(0.0),
                     );
-                } else {
-                    // Draw line back to origin
-                    path_builder.line_to(lyon::geom::Point::new(0.0, 0.0));
-                }
 
-                path_builder.close();
-                let path = path_builder.build();
+                    if inner_radius != 0.0 {
+                        // Compute vector from outer arc corner to arc corner
+                        let inner_radius_vec = path_builder
+                            .current_position()
+                            .to_vector()
+                            .neg()
+                            .normalize()
+                            .mul(outer_radius - inner_radius);
+                        path_builder.relative_line_to(inner_radius_vec);
 
-                // Transform path to account for start angle and position
-                let path = path.transformed(
-                    &PathTransform::rotation(lyon::geom::Angle::radians(*start_angle))
-                        .then_translate(Vector2D::new(*x + origin[0], *y + origin[1])),
-                );
+                        // Draw inner
+                        path_builder.arc(
+                            lyon::geom::Point::new(0.0, 0.0),
+                            lyon::math::Vector::new(inner_radius, inner_radius),
+                            lyon::geom::Angle::radians(-total_angle),
+                            lyon::geom::Angle::radians(0.0),
+                        );
+                    } else {
+                        // Draw line back to origin
+                        path_builder.line_to(lyon::geom::Point::new(0.0, 0.0));
+                    }
 
-                // Compute bounding box
-                let bbox = bounding_box(&path);
+                    path_builder.close();
+                    let path = path_builder.build();
 
-                // Create vertex/index buffer builder
-                let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
-                let mut builder = BuffersBuilder::new(
-                    &mut buffers,
-                    VertexPositions {
-                        fill: to_color_or_gradient_coord(fill, &grad_coords),
-                        stroke: to_color_or_gradient_coord(stroke, &grad_coords),
-                        top_left: bbox.min.to_array(),
-                        bottom_right: bbox.max.to_array(),
-                    },
-                );
+                    // Transform path to account for start angle and position
+                    let path = path.transformed(
+                        &PathTransform::rotation(lyon::geom::Angle::radians(start_angle))
+                            .then_translate(Vector2D::new(x + origin[0], y + origin[1])),
+                    );
 
-                // Tesselate fill
-                let mut fill_tessellator = FillTessellator::new();
-                let fill_options = FillOptions::default().with_tolerance(0.05);
-                fill_tessellator.tessellate_path(&path, &fill_options, &mut builder)?;
+                    // Compute bounding box
+                    let bbox = bounding_box(&path);
 
-                // Tesselate stroke
-                if *stroke_width > 0.0 {
-                    let mut stroke_tessellator = StrokeTessellator::new();
-                    let stroke_options = StrokeOptions::default()
-                        .with_tolerance(0.05)
-                        .with_line_join(LineJoin::Miter)
-                        .with_line_cap(LineCap::Butt)
-                        .with_line_width(*stroke_width);
-                    stroke_tessellator.tessellate_path(&path, &stroke_options, &mut builder)?;
-                }
+                    // Create vertex/index buffer builder
+                    let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
+                    let mut builder = BuffersBuilder::new(
+                        &mut buffers,
+                        VertexPositions {
+                            fill: to_color_or_gradient_coord(&fill_color, &grad_coords),
+                            stroke: to_color_or_gradient_coord(&stroke_color, &grad_coords),
+                            top_left: bbox.min.to_array(),
+                            bottom_right: bbox.max.to_array(),
+                        },
+                    );
 
-                Ok((buffers.vertices, buffers.indices))
-            },
-        )
-        .collect::<Result<Vec<_>, AvengerWgpuError>>()?;
+                    // Tessellate fill
+                    let mut fill_tessellator = FillTessellator::new();
+                    let fill_options = FillOptions::default().with_tolerance(0.05);
+                    fill_tessellator.tessellate_path(&path, &fill_options, &mut builder)?;
+
+                    // Tessellate stroke
+                    if stroke_width > 0.0 {
+                        let mut stroke_tessellator = StrokeTessellator::new();
+                        let stroke_options = StrokeOptions::default()
+                            .with_tolerance(0.05)
+                            .with_line_join(LineJoin::Miter)
+                            .with_line_cap(LineCap::Butt)
+                            .with_line_width(stroke_width);
+                        stroke_tessellator.tessellate_path(&path, &stroke_options, &mut builder)?;
+                    }
+
+                    Ok((buffers.vertices, buffers.indices))
+                },
+            )
+            .collect::<Result<Vec<_>, AvengerWgpuError>>()?;
 
         let start_ind = self.num_indices();
         let inds_len: usize = verts_inds.iter().map(|(_, i)| i.len()).sum();
@@ -1279,96 +1170,96 @@ impl MultiMarkRenderer {
         origin: [f32; 2],
         clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
-        let verts_inds = izip!(
-            mark.image_iter(),
-            mark.x_iter(),
-            mark.y_iter(),
-            mark.width_iter(),
-            mark.height_iter(),
-            mark.baseline_iter(),
-            mark.align_iter(),
-        ).map(|(img, x, y, width, height, baseline, align)| -> Result<(usize, Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-            let x = *x + origin[0];
-            let y = *y + origin[1];
+        let verts_inds = mark
+            .instances()
+            .map(
+                |instance| -> Result<(usize, Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+                    let x = instance.x + origin[0];
+                    let y = instance.y + origin[1];
 
-            let Some(rgba_image) = img.to_image() else {
-                return Err(AvengerWgpuError::ConversionError("Failed to convert raw image to rgba image".to_string()))
-            };
+                    let Some(rgba_image) = instance.image.to_image() else {
+                        return Err(AvengerWgpuError::ConversionError(
+                            "Failed to convert raw image to rgba image".to_string(),
+                        ));
+                    };
 
-            let (atlas_index, tex_coords) = self.image_atlas_builder.register_image(&rgba_image)?;
+                    let (atlas_index, tex_coords) =
+                        self.image_atlas_builder.register_image(&rgba_image)?;
 
-            // Compute image left
-            let left = match *align {
-                ImageAlign::Left => x,
-                ImageAlign::Center => x - *width / 2.0,
-                ImageAlign::Right => x - *width,
-            };
+                    // Compute image left
+                    let left = match instance.align {
+                        ImageAlign::Left => x,
+                        ImageAlign::Center => x - instance.width / 2.0,
+                        ImageAlign::Right => x - instance.width,
+                    };
 
-            // Compute image top
-            let top = match *baseline {
-                ImageBaseline::Top => y,
-                ImageBaseline::Middle => y - *height / 2.0,
-                ImageBaseline::Bottom => y - *height,
-            };
+                    // Compute image top
+                    let top = match instance.baseline {
+                        ImageBaseline::Top => y,
+                        ImageBaseline::Middle => y - instance.height / 2.0,
+                        ImageBaseline::Bottom => y - instance.height,
+                    };
 
-            // Adjust position and dimensions if aspect ratio should be preserved
-            let (left, top, width, height) = if mark.aspect {
-                let img_aspect = img.width as f32 / img.height as f32;
-                let outline_aspect = *width / *height;
-                if img_aspect > outline_aspect {
-                    // image is wider than the box, so we scale
-                    // image to box width and center vertically
-                    let aspect_height = *width / img_aspect;
-                    let aspect_top = top + (*height - aspect_height) / 2.0;
-                    (left, aspect_top, *width, aspect_height)
-                } else if img_aspect < outline_aspect {
-                    // image is taller than the box, so we scale
-                    // image to box height an center horizontally
-                    let aspect_width = *height * img_aspect;
-                    let aspect_left = left + (*width - aspect_width) / 2.0;
-                    (aspect_left, top, aspect_width, *height)
-                } else {
-                    (left, top, *width, *height)
-                }
-            } else {
-                (left, top, *width, *height)
-            };
+                    // Adjust position and dimensions if aspect ratio should be preserved
+                    let (left, top, width, height) = if mark.aspect {
+                        let img_aspect = instance.image.width as f32 / instance.image.height as f32;
+                        let outline_aspect = instance.width / instance.height;
+                        if img_aspect > outline_aspect {
+                            // image is wider than the box, so we scale
+                            // image to box width and center vertically
+                            let aspect_height = instance.width / img_aspect;
+                            let aspect_top = top + (instance.height - aspect_height) / 2.0;
+                            (left, aspect_top, instance.width, aspect_height)
+                        } else if img_aspect < outline_aspect {
+                            // image is taller than the box, so we scale
+                            // image to box height an center horizontally
+                            let aspect_width = instance.height * img_aspect;
+                            let aspect_left = left + (instance.width - aspect_width) / 2.0;
+                            (aspect_left, top, aspect_width, instance.height)
+                        } else {
+                            (left, top, instance.width, instance.height)
+                        }
+                    } else {
+                        (left, top, instance.width, instance.height)
+                    };
 
-            let top_left = [top, left];
-            let bottom_right = [top + height, left + width];
-            let verts = vec![
-                // Upper left
-                MultiVertex {
-                    color: [IMAGE_TEXTURE_CODE, tex_coords.x0, tex_coords.y0, 0.0],
-                    position: [left, top],
-                    top_left,
-                    bottom_right,
+                    let top_left = [top, left];
+                    let bottom_right = [top + height, left + width];
+                    let verts = vec![
+                        // Upper left
+                        MultiVertex {
+                            color: [IMAGE_TEXTURE_CODE, tex_coords.x0, tex_coords.y0, 0.0],
+                            position: [left, top],
+                            top_left,
+                            bottom_right,
+                        },
+                        // Lower left
+                        MultiVertex {
+                            color: [IMAGE_TEXTURE_CODE, tex_coords.x0, tex_coords.y1, 0.0],
+                            position: [left, top + height],
+                            top_left,
+                            bottom_right,
+                        },
+                        // Lower right
+                        MultiVertex {
+                            color: [IMAGE_TEXTURE_CODE, tex_coords.x1, tex_coords.y1, 0.0],
+                            position: [left + width, top + height],
+                            top_left,
+                            bottom_right,
+                        },
+                        // Upper right
+                        MultiVertex {
+                            color: [IMAGE_TEXTURE_CODE, tex_coords.x1, tex_coords.y0, 0.0],
+                            position: [left + width, top],
+                            top_left,
+                            bottom_right,
+                        },
+                    ];
+                    let indices: Vec<u32> = vec![0, 1, 2, 0, 2, 3];
+                    Ok((atlas_index, verts, indices))
                 },
-                // Lower left
-                MultiVertex {
-                    color: [IMAGE_TEXTURE_CODE, tex_coords.x0, tex_coords.y1, 0.0],
-                    position: [left, top + height],
-                    top_left,
-                    bottom_right,
-                },
-                // Lower right
-                MultiVertex {
-                    color: [IMAGE_TEXTURE_CODE, tex_coords.x1, tex_coords.y1, 0.0],
-                    position: [left + width, top + height],
-                    top_left,
-                    bottom_right,
-                },
-                // Upper right
-                MultiVertex {
-                    color: [IMAGE_TEXTURE_CODE, tex_coords.x1, tex_coords.y0, 0.0],
-                    position: [left + width, top],
-                    top_left,
-                    bottom_right,
-                },
-            ];
-            let indices: Vec<u32> = vec![0, 1, 2, 0, 2, 3];
-            Ok((atlas_index, verts, indices))
-        }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
+            )
+            .collect::<Result<Vec<_>, AvengerWgpuError>>()?;
 
         // Construct batches, one batch per image atlas index
         let start_ind = self.num_indices() as u32;
@@ -1418,63 +1309,37 @@ impl MultiMarkRenderer {
         origin: [f32; 2],
         clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
-        let registrations = izip!(
-            mark.text_iter(),
-            mark.x_iter(),
-            mark.y_iter(),
-            mark.color_iter(),
-            mark.align_iter(),
-            mark.angle_iter(),
-            mark.baseline_iter(),
-            mark.font_iter(),
-            mark.font_size_iter(),
-            mark.font_weight_iter(),
-            mark.font_style_iter(),
-            mark.limit_iter(),
-        )
-        .map(
-            |(
-                text,
-                x,
-                y,
-                color,
-                align,
-                angle,
-                baseline,
-                font,
-                font_size,
-                font_weight,
-                font_style,
-                limit,
-            )| {
-                let instance = TextInstance {
-                    text,
-                    position: [*x + origin[0], *y + origin[1]],
-                    color,
-                    align,
-                    angle: *angle,
-                    baseline,
-                    font,
-                    font_size: *font_size,
-                    font_weight,
-                    font_style,
-                    limit: *limit,
-                };
-                self.text_atlas_builder
-                    .register_text(instance, self.dimensions)
-            },
-        )
-        .collect::<Result<Vec<_>, AvengerWgpuError>>()?
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
+        let clip_indices_range = self.add_clip_path(clip, mark.clip)?;
+        let clipped = if mark.clip { clip.clone() } else { Clip::None };
+
+        let mut registrations = Vec::new();
+        for instance in mark.instances() {
+            let text_instance = TextInstance {
+                text: &instance.text,
+                position: [instance.x + origin[0], instance.y + origin[1]],
+                color: &instance.color,
+                align: &instance.align,
+                angle: instance.angle,
+                baseline: &instance.baseline,
+                font: &instance.font,
+                font_size: instance.font_size,
+                font_weight: &instance.font_weight,
+                font_style: &instance.font_style,
+                limit: instance.limit,
+            };
+
+            let registration = self
+                .text_atlas_builder
+                .register_text(text_instance, self.dimensions)?;
+            registrations.extend(registration);
+        }
 
         // Construct batches, one batch per text atlas index
         let start_ind = self.num_indices() as u32;
         let mut next_batch = MultiMarkBatch {
             indices_range: start_ind..start_ind,
-            clip: clip.maybe_clip(mark.clip),
-            clip_indices_range: self.add_clip_path(clip, mark.clip)?,
+            clip: clipped.clone(),
+            clip_indices_range: clip_indices_range.clone(),
             image_atlas_index: None,
             gradient_atlas_index: None,
             text_atlas_index: None,
@@ -1485,7 +1350,6 @@ impl MultiMarkRenderer {
             let verts = registration.verts;
             let inds = registration.indices;
 
-            // (atlas_index, verts, inds)
             if next_batch.text_atlas_index.unwrap_or(atlas_index) == atlas_index {
                 // update next batch with atlas index and inds range
                 next_batch.text_atlas_index = Some(atlas_index);
@@ -1497,8 +1361,8 @@ impl MultiMarkRenderer {
                 // Initialize new next_batch and swap to avoid extra mem copy
                 let mut full_batch = MultiMarkBatch {
                     indices_range: start_ind..(start_ind + inds.len() as u32),
-                    clip: clip.maybe_clip(mark.clip),
-                    clip_indices_range: self.add_clip_path(clip, mark.clip)?,
+                    clip: clipped.clone(),
+                    clip_indices_range: clip_indices_range.clone(),
                     image_atlas_index: None,
                     gradient_atlas_index: None,
                     text_atlas_index: Some(atlas_index),
@@ -1511,7 +1375,10 @@ impl MultiMarkRenderer {
             self.verts_inds.push((verts, inds))
         }
 
-        self.batches.push(next_batch);
+        // Only push the last batch if it contains any indices
+        if next_batch.indices_range.start < next_batch.indices_range.end {
+            self.batches.push(next_batch);
+        }
         Ok(())
     }
 
