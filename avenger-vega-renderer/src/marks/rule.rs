@@ -1,5 +1,5 @@
 use crate::marks::util::{decode_colors, decode_gradients, zindex_to_indices};
-use avenger_scenegraph::marks::rule::RuleMark as RsRuleMark;
+use avenger_scenegraph::marks::rule::SceneRuleMark as RsRuleMark;
 use avenger_scenegraph::marks::value::{EncodingValue, StrokeCap};
 use avenger_vega::error::AvengerVegaError;
 use avenger_vega::marks::values::StrokeDashSpec;

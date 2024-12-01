@@ -17,16 +17,17 @@ use crate::marks::instanced_mark::InstancedMarkRenderer;
 use crate::marks::multi::MultiMarkRenderer;
 use crate::marks::symbol::SymbolShader;
 use crate::marks::text::TextAtlasBuilderTrait;
-use avenger_scenegraph::marks::arc::ArcMark;
-use avenger_scenegraph::marks::area::AreaMark;
+use avenger_scenegraph::marks::arc::SceneArcMark;
+use avenger_scenegraph::marks::area::SceneAreaMark;
 use avenger_scenegraph::marks::group::Clip;
-use avenger_scenegraph::marks::image::ImageMark;
-use avenger_scenegraph::marks::line::LineMark;
-use avenger_scenegraph::marks::path::PathMark;
-use avenger_scenegraph::marks::trail::TrailMark;
+use avenger_scenegraph::marks::image::SceneImageMark;
+use avenger_scenegraph::marks::line::SceneLineMark;
+use avenger_scenegraph::marks::path::ScenePathMark;
+use avenger_scenegraph::marks::trail::SceneTrailMark;
 use avenger_scenegraph::{
-    marks::group::SceneGroup, marks::mark::SceneMark, marks::rect::RectMark, marks::rule::RuleMark,
-    marks::symbol::SymbolMark, marks::text::TextMark, scene_graph::SceneGraph,
+    marks::group::SceneGroup, marks::mark::SceneMark, marks::rect::SceneRectMark,
+    marks::rule::SceneRuleMark, marks::symbol::SceneSymbolMark, marks::text::SceneTextMark,
+    scene_graph::SceneGraph,
 };
 
 pub enum MarkRenderer {
@@ -79,7 +80,7 @@ pub trait Canvas {
 
     fn add_arc_mark(
         &mut self,
-        mark: &ArcMark,
+        mark: &SceneArcMark,
         origin: [f32; 2],
         group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
@@ -90,7 +91,7 @@ pub trait Canvas {
 
     fn add_path_mark(
         &mut self,
-        mark: &PathMark,
+        mark: &ScenePathMark,
         origin: [f32; 2],
         group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
@@ -101,7 +102,7 @@ pub trait Canvas {
 
     fn add_line_mark(
         &mut self,
-        mark: &LineMark,
+        mark: &SceneLineMark,
         origin: [f32; 2],
         group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
@@ -112,7 +113,7 @@ pub trait Canvas {
 
     fn add_trail_mark(
         &mut self,
-        mark: &TrailMark,
+        mark: &SceneTrailMark,
         origin: [f32; 2],
         group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
@@ -123,7 +124,7 @@ pub trait Canvas {
 
     fn add_area_mark(
         &mut self,
-        mark: &AreaMark,
+        mark: &SceneAreaMark,
         origin: [f32; 2],
         group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
@@ -134,7 +135,7 @@ pub trait Canvas {
 
     fn add_symbol_mark(
         &mut self,
-        mark: &SymbolMark,
+        mark: &SceneSymbolMark,
         origin: [f32; 2],
         group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
@@ -164,7 +165,7 @@ pub trait Canvas {
 
     fn add_rect_mark(
         &mut self,
-        mark: &RectMark,
+        mark: &SceneRectMark,
         origin: [f32; 2],
         group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
@@ -175,7 +176,7 @@ pub trait Canvas {
 
     fn add_rule_mark(
         &mut self,
-        mark: &RuleMark,
+        mark: &SceneRuleMark,
         origin: [f32; 2],
         group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
@@ -186,7 +187,7 @@ pub trait Canvas {
 
     fn add_text_mark(
         &mut self,
-        mark: &TextMark,
+        mark: &SceneTextMark,
         origin: [f32; 2],
         group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
@@ -197,7 +198,7 @@ pub trait Canvas {
 
     fn add_image_mark(
         &mut self,
-        mark: &ImageMark,
+        mark: &SceneImageMark,
         origin: [f32; 2],
         group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {

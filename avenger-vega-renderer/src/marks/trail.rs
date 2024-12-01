@@ -1,4 +1,4 @@
-use avenger_scenegraph::marks::trail::TrailMark as RsTrailMark;
+use avenger_scenegraph::marks::trail::SceneTrailMark as RsTrailMark;
 use avenger_scenegraph::marks::value::EncodingValue;
 use avenger_vega::marks::values::CssColorOrGradient;
 use gloo_utils::format::JsValueSerdeExt;

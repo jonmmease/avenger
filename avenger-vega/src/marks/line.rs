@@ -1,7 +1,7 @@
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::{CssColorOrGradient, StrokeDashSpec};
-use avenger_scenegraph::marks::line::LineMark;
+use avenger_scenegraph::marks::line::SceneLineMark;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::value::{
     ColorOrGradient, EncodingValue, Gradient, StrokeCap, StrokeJoin,
@@ -48,7 +48,7 @@ impl VegaMarkContainer<VegaLineItem> {
             }
         }
 
-        let mut mark = LineMark {
+        let mut mark = SceneLineMark {
             clip: self.clip || force_clip,
             zindex: self.zindex,
             stroke,

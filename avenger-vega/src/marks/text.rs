@@ -3,7 +3,7 @@ use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::MissingNullOrValue;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::text::{
-    FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec, TextMark,
+    FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec, SceneTextMark,
 };
 use avenger_scenegraph::marks::value::EncodingValue;
 use serde::{Deserialize, Serialize};
@@ -40,7 +40,7 @@ impl VegaMarkItem for VegaTextItem {}
 impl VegaMarkContainer<VegaTextItem> {
     pub fn to_scene_graph(&self, force_clip: bool) -> Result<SceneMark, AvengerVegaError> {
         // Init mark with scalar defaults
-        let mut mark = TextMark {
+        let mut mark = SceneTextMark {
             clip: self.clip || force_clip,
             zindex: self.zindex,
             ..Default::default()

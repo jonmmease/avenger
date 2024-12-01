@@ -1,6 +1,6 @@
 use crate::marks::util::zindex_to_indices;
 use avenger_scenegraph::marks::text::{
-    FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec, TextMark as RsTextMark,
+    FontStyleSpec, FontWeightSpec, SceneTextMark as RsTextMark, TextAlignSpec, TextBaselineSpec,
 };
 use avenger_scenegraph::marks::value::EncodingValue;
 use gloo_utils::format::JsValueSerdeExt;

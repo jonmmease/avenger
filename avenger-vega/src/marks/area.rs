@@ -1,7 +1,7 @@
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::{CssColorOrGradient, StrokeDashSpec};
-use avenger_scenegraph::marks::area::{AreaMark, AreaOrientation};
+use avenger_scenegraph::marks::area::{SceneAreaMark, AreaOrientation};
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::value::{
     ColorOrGradient, EncodingValue, Gradient, StrokeCap, StrokeJoin,
@@ -62,7 +62,7 @@ impl VegaMarkContainer<VegaAreaItem> {
             }
         }
 
-        let mut mark = AreaMark {
+        let mut mark = SceneAreaMark {
             clip: self.clip || force_clip,
             zindex: self.zindex,
             orientation,

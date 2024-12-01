@@ -2,7 +2,7 @@ use crate::canvas::CanvasDimensions;
 use crate::error::AvengerWgpuError;
 use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
 use avenger_scenegraph::marks::path::PathTransform;
-use avenger_scenegraph::marks::symbol::SymbolMark;
+use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use itertools::izip;
 use lyon::lyon_tessellation::{
     BuffersBuilder, FillVertex, FillVertexConstructor, StrokeVertex, StrokeVertexConstructor,
@@ -86,7 +86,7 @@ const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array!
 
 impl SymbolInstance {
     pub fn from_spec(
-        mark: &SymbolMark,
+        mark: &SceneSymbolMark,
         max_size: f32,
     ) -> (Vec<SymbolInstance>, Option<image::DynamicImage>, Extent3d) {
         let max_scale = max_size.sqrt();
@@ -130,7 +130,7 @@ pub struct SymbolShader {
 
 impl SymbolShader {
     pub fn from_symbol_mark(
-        mark: &SymbolMark,
+        mark: &SceneSymbolMark,
         dimensions: CanvasDimensions,
         origin: [f32; 2],
     ) -> Result<Self, AvengerWgpuError> {

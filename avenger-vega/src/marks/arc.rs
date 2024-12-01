@@ -1,7 +1,7 @@
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::CssColorOrGradient;
-use avenger_scenegraph::marks::arc::ArcMark;
+use avenger_scenegraph::marks::arc::SceneArcMark;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::value::{ColorOrGradient, EncodingValue, Gradient};
 use serde::{Deserialize, Serialize};
@@ -31,7 +31,7 @@ impl VegaMarkItem for VegaArcItem {}
 impl VegaMarkContainer<VegaArcItem> {
     pub fn to_scene_graph(&self, force_clip: bool) -> Result<SceneMark, AvengerVegaError> {
         // Init mark with scalar defaults
-        let mut mark = ArcMark {
+        let mut mark = SceneArcMark {
             clip: self.clip || force_clip,
             zindex: self.zindex,
             ..Default::default()
