@@ -3,7 +3,7 @@ use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::CssColorOrGradient;
 use avenger_scenegraph::error::AvengerError;
 use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::path::{ScenePathMark, PathTransform};
+use avenger_scenegraph::marks::path::{PathTransform, ScenePathMark};
 use avenger_scenegraph::marks::symbol::parse_svg_path;
 use avenger_scenegraph::marks::value::{
     ColorOrGradient, EncodingValue, Gradient, StrokeCap, StrokeJoin,
