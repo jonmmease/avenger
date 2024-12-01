@@ -1,5 +1,4 @@
 use crate::marks::value::EncodingValue;
-use itertools::izip;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -8,10 +7,6 @@ pub struct TextMark {
     pub name: String,
     pub clip: bool,
     pub len: u32,
-    pub indices: Option<Vec<usize>>,
-    pub zindex: Option<i32>,
-
-    // Encodings
     pub text: EncodingValue<String>,
     pub x: EncodingValue<f32>,
     pub y: EncodingValue<f32>,
@@ -24,142 +19,87 @@ pub struct TextMark {
     pub font_weight: EncodingValue<FontWeightSpec>,
     pub font_style: EncodingValue<FontStyleSpec>,
     pub limit: EncodingValue<f32>,
+    pub indices: Option<Vec<usize>>,
+    pub zindex: Option<i32>,
 }
 
 impl TextMark {
-    pub fn instances(&self) -> Box<dyn Iterator<Item = TextMarkInstance> + '_> {
-        let n = self.len as usize;
-        let inds = self.indices.as_ref();
-        Box::new(
-            izip!(
-                self.text.as_iter(n, inds),
-                self.x.as_iter(n, inds),
-                self.y.as_iter(n, inds),
-                self.align.as_iter(n, inds),
-                self.baseline.as_iter(n, inds),
-                self.angle.as_iter(n, inds),
-                self.color.as_iter(n, inds),
-                self.font.as_iter(n, inds),
-                self.font_size.as_iter(n, inds),
-                self.font_weight.as_iter(n, inds),
-                self.font_style.as_iter(n, inds),
-                self.limit.as_iter(n, inds)
-            )
-            .map(
-                |(
-                    text,
-                    x,
-                    y,
-                    align,
-                    baseline,
-                    angle,
-                    color,
-                    font,
-                    font_size,
-                    font_weight,
-                    font_style,
-                    limit,
-                )| {
-                    TextMarkInstance {
-                        text: text.clone(),
-                        x: *x,
-                        y: *y,
-                        align: *align,
-                        baseline: *baseline,
-                        angle: *angle,
-                        color: *color,
-                        font: font.clone(),
-                        font_size: *font_size,
-                        font_weight: *font_weight,
-                        font_style: *font_style,
-                        limit: *limit,
-                    }
-                },
-            ),
-        )
+    pub fn text_iter(&self) -> Box<dyn Iterator<Item = &String> + '_> {
+        self.text.as_iter(self.len as usize, self.indices.as_ref())
+    }
+    pub fn x_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
+        self.x.as_iter(self.len as usize, self.indices.as_ref())
+    }
+    pub fn y_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
+        self.y.as_iter(self.len as usize, self.indices.as_ref())
+    }
+    pub fn align_iter(&self) -> Box<dyn Iterator<Item = &TextAlignSpec> + '_> {
+        self.align.as_iter(self.len as usize, self.indices.as_ref())
+    }
+    pub fn baseline_iter(&self) -> Box<dyn Iterator<Item = &TextBaselineSpec> + '_> {
+        self.baseline
+            .as_iter(self.len as usize, self.indices.as_ref())
+    }
+    pub fn angle_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
+        self.angle.as_iter(self.len as usize, self.indices.as_ref())
+    }
+    pub fn color_iter(&self) -> Box<dyn Iterator<Item = &[f32; 4]> + '_> {
+        self.color.as_iter(self.len as usize, self.indices.as_ref())
+    }
+    pub fn font_iter(&self) -> Box<dyn Iterator<Item = &String> + '_> {
+        self.font.as_iter(self.len as usize, self.indices.as_ref())
+    }
+    pub fn font_size_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
+        self.font_size
+            .as_iter(self.len as usize, self.indices.as_ref())
+    }
+    pub fn font_weight_iter(&self) -> Box<dyn Iterator<Item = &FontWeightSpec> + '_> {
+        self.font_weight
+            .as_iter(self.len as usize, self.indices.as_ref())
+    }
+    pub fn font_style_iter(&self) -> Box<dyn Iterator<Item = &FontStyleSpec> + '_> {
+        self.font_style
+            .as_iter(self.len as usize, self.indices.as_ref())
+    }
+    pub fn limit_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
+        self.limit.as_iter(self.len as usize, self.indices.as_ref())
     }
 }
 
 impl Default for TextMark {
     fn default() -> Self {
-        let default_instance = TextMarkInstance::default();
         Self {
             name: "text_mark".to_string(),
             clip: true,
             len: 1,
             text: EncodingValue::Scalar {
-                value: default_instance.text,
+                value: String::new(),
             },
-            x: EncodingValue::Scalar {
-                value: default_instance.x,
-            },
-            y: EncodingValue::Scalar {
-                value: default_instance.y,
-            },
+            x: EncodingValue::Scalar { value: 0.0 },
+            y: EncodingValue::Scalar { value: 0.0 },
             align: EncodingValue::Scalar {
-                value: default_instance.align,
+                value: TextAlignSpec::Left,
             },
             baseline: EncodingValue::Scalar {
-                value: default_instance.baseline,
+                value: TextBaselineSpec::Alphabetic,
             },
-            angle: EncodingValue::Scalar {
-                value: default_instance.angle,
-            },
+            angle: EncodingValue::Scalar { value: 0.0 },
             color: EncodingValue::Scalar {
-                value: default_instance.color,
+                value: [0.0, 0.0, 0.0, 1.0],
             },
             font: EncodingValue::Scalar {
-                value: default_instance.font,
+                value: "sans serif".to_string(),
             },
-            font_size: EncodingValue::Scalar {
-                value: default_instance.font_size,
-            },
+            font_size: EncodingValue::Scalar { value: 10.0 },
             font_weight: EncodingValue::Scalar {
-                value: default_instance.font_weight,
+                value: FontWeightSpec::Name(FontWeightNameSpec::Normal),
             },
             font_style: EncodingValue::Scalar {
-                value: default_instance.font_style,
+                value: FontStyleSpec::Normal,
             },
-            limit: EncodingValue::Scalar {
-                value: default_instance.limit,
-            },
+            limit: EncodingValue::Scalar { value: 0.0 },
             indices: None,
             zindex: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TextMarkInstance {
-    pub text: String,
-    pub x: f32,
-    pub y: f32,
-    pub align: TextAlignSpec,
-    pub baseline: TextBaselineSpec,
-    pub angle: f32,
-    pub color: [f32; 4],
-    pub font: String,
-    pub font_size: f32,
-    pub font_weight: FontWeightSpec,
-    pub font_style: FontStyleSpec,
-    pub limit: f32,
-}
-
-impl Default for TextMarkInstance {
-    fn default() -> Self {
-        Self {
-            text: String::new(),
-            x: 0.0,
-            y: 0.0,
-            align: TextAlignSpec::Left,
-            baseline: TextBaselineSpec::Alphabetic,
-            angle: 0.0,
-            color: [0.0, 0.0, 0.0, 1.0],
-            font: "sans serif".to_string(),
-            font_size: 10.0,
-            font_weight: FontWeightSpec::Name(FontWeightNameSpec::Normal),
-            font_style: FontStyleSpec::Normal,
-            limit: 0.0,
         }
     }
 }
