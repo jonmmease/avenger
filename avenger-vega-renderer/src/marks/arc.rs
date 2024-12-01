@@ -1,5 +1,5 @@
 use crate::marks::util::{decode_colors, decode_gradients, zindex_to_indices};
-use avenger_scenegraph::marks::arc::ArcMark as RsArcMark;
+use avenger_scenegraph::marks::arc::SceneArcMark as RsArcMark;
 use avenger_scenegraph::marks::value::EncodingValue;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};

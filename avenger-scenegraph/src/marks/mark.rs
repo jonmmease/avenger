@@ -1,28 +1,28 @@
-use crate::marks::arc::ArcMark;
-use crate::marks::area::AreaMark;
+use crate::marks::arc::SceneArcMark;
+use crate::marks::area::SceneAreaMark;
 use crate::marks::group::SceneGroup;
-use crate::marks::image::ImageMark;
-use crate::marks::line::LineMark;
-use crate::marks::path::PathMark;
-use crate::marks::rect::RectMark;
-use crate::marks::rule::RuleMark;
-use crate::marks::symbol::SymbolMark;
-use crate::marks::text::TextMark;
-use crate::marks::trail::TrailMark;
+use crate::marks::image::SceneImageMark;
+use crate::marks::line::SceneLineMark;
+use crate::marks::path::ScenePathMark;
+use crate::marks::rect::SceneRectMark;
+use crate::marks::rule::SceneRuleMark;
+use crate::marks::symbol::SceneSymbolMark;
+use crate::marks::text::SceneTextMark;
+use crate::marks::trail::SceneTrailMark;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SceneMark {
-    Arc(ArcMark),
-    Area(AreaMark),
-    Path(PathMark),
-    Symbol(SymbolMark),
-    Line(LineMark),
-    Trail(TrailMark),
-    Rect(RectMark),
-    Rule(RuleMark),
-    Text(Box<TextMark>),
-    Image(Box<ImageMark>),
+    Arc(SceneArcMark),
+    Area(SceneAreaMark),
+    Path(ScenePathMark),
+    Symbol(SceneSymbolMark),
+    Line(SceneLineMark),
+    Trail(SceneTrailMark),
+    Rect(SceneRectMark),
+    Rule(SceneRuleMark),
+    Text(Box<SceneTextMark>),
+    Image(Box<SceneImageMark>),
     Group(SceneGroup),
 }
 

@@ -2,7 +2,7 @@ use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::{CssColorOrGradient, MissingNullOrValue, StrokeDashSpec};
 use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::rule::RuleMark;
+use avenger_scenegraph::marks::rule::SceneRuleMark;
 use avenger_scenegraph::marks::value::{ColorOrGradient, EncodingValue, Gradient, StrokeCap};
 use serde::{Deserialize, Serialize};
 
@@ -27,7 +27,7 @@ impl VegaMarkItem for VegaRuleItem {}
 impl VegaMarkContainer<VegaRuleItem> {
     pub fn to_scene_graph(&self, force_clip: bool) -> Result<SceneMark, AvengerVegaError> {
         // Init mark with scalar defaults
-        let mut mark = RuleMark {
+        let mut mark = SceneRuleMark {
             clip: self.clip || force_clip,
             zindex: self.zindex,
             ..Default::default()

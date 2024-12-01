@@ -2,7 +2,7 @@ use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::CssColorOrGradient;
 use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::trail::TrailMark;
+use avenger_scenegraph::marks::trail::SceneTrailMark;
 use avenger_scenegraph::marks::value::{ColorOrGradient, EncodingValue, Gradient};
 use serde::{Deserialize, Serialize};
 
@@ -36,7 +36,7 @@ impl VegaMarkContainer<VegaTrailItem> {
             }
         }
 
-        let mut mark = TrailMark {
+        let mut mark = SceneTrailMark {
             clip: self.clip || force_clip,
             zindex: self.zindex,
             gradients,

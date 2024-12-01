@@ -3,9 +3,9 @@ use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::{CssColorOrGradient, StrokeDashSpec};
 use avenger_scenegraph::error::AvengerError;
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
-use avenger_scenegraph::marks::line::LineMark;
+use avenger_scenegraph::marks::line::SceneLineMark;
 use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::symbol::{SymbolMark, SymbolShape};
+use avenger_scenegraph::marks::symbol::{SceneSymbolMark, SymbolShape};
 use avenger_scenegraph::marks::value::{
     ColorOrGradient, EncodingValue, Gradient, StrokeCap, StrokeJoin,
 };
@@ -58,7 +58,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
                 };
                 let x = item.x.unwrap_or(0.0);
                 let y = item.y.unwrap_or(0.0);
-                let mark = LineMark {
+                let mark = SceneLineMark {
                     name: "".to_string(),
                     clip: false,
                     zindex: self.zindex,
@@ -105,7 +105,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
         };
 
         // Init mark with scalar defaults
-        let mut mark = SymbolMark {
+        let mut mark = SceneSymbolMark {
             stroke_width,
             clip: self.clip || force_clip,
             zindex: self.zindex,

@@ -2,7 +2,7 @@ use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 
 use crate::image::make_image_fetcher;
-use avenger_scenegraph::marks::image::{ImageMark, RgbaImage};
+use avenger_scenegraph::marks::image::{RgbaImage, SceneImageMark};
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::value::{EncodingValue, ImageAlign, ImageBaseline};
 use serde::{Deserialize, Serialize};
@@ -94,7 +94,7 @@ impl VegaMarkContainer<VegaImageItem> {
             None
         };
 
-        Ok(SceneMark::Image(Box::new(ImageMark {
+        Ok(SceneMark::Image(Box::new(SceneImageMark {
             name,
             clip: self.clip || force_clip,
             len: self.items.len() as u32,
