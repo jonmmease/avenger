@@ -19,7 +19,7 @@ cfg-if = "1"
 winit = { workspace = true }
 wgpu = { workspace = true }
 pollster = "0.4.0"
-itertools = { workspace = true }
+itertools = "0.13.0"
 image = { workspace = true }
 futures-intrusive = "^0.5"
 etagere = "0.2.10"
