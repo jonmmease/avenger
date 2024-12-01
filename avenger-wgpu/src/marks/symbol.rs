@@ -3,7 +3,6 @@ use crate::error::AvengerWgpuError;
 use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
 use avenger::marks::path::PathTransform;
 use avenger::marks::symbol::SymbolMark;
-use itertools::izip;
 use lyon::lyon_tessellation::{
     BuffersBuilder, FillVertex, FillVertexConstructor, StrokeVertex, StrokeVertexConstructor,
 };
@@ -62,7 +61,7 @@ impl SymbolVertex {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct SymbolInstance {
+pub struct SymbolShaderInstance {
     pub position: [f32; 2],
     pub fill_color: [f32; 4],
     pub stroke_color: [f32; 4],
@@ -84,31 +83,28 @@ const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array!
     10 => Uint32,       // shape_index
 ];
 
-impl SymbolInstance {
+impl SymbolShaderInstance {
     pub fn from_spec(
         mark: &SymbolMark,
         max_size: f32,
-    ) -> (Vec<SymbolInstance>, Option<image::DynamicImage>, Extent3d) {
+    ) -> (
+        Vec<SymbolShaderInstance>,
+        Option<image::DynamicImage>,
+        Extent3d,
+    ) {
         let max_scale = max_size.sqrt();
         let stroke_width = mark.stroke_width.unwrap_or(0.0);
-        let mut instances: Vec<SymbolInstance> = Vec::new();
-        for (x, y, fill, size, stroke, angle, shape_index) in izip!(
-            mark.x_iter(),
-            mark.y_iter(),
-            mark.fill_iter(),
-            mark.size_iter(),
-            mark.stroke_iter(),
-            mark.angle_iter(),
-            mark.shape_index_iter(),
-        ) {
-            instances.push(SymbolInstance {
-                position: [*x, *y],
-                fill_color: fill.color_or_transparent(),
-                stroke_color: stroke.color_or_transparent(),
+        let mut instances: Vec<SymbolShaderInstance> = Vec::new();
+
+        for instance in mark.instances() {
+            instances.push(SymbolShaderInstance {
+                position: [instance.x, instance.y],
+                fill_color: instance.fill.color_or_transparent(),
+                stroke_color: instance.stroke.color_or_transparent(),
                 stroke_width,
-                relative_scale: (*size).sqrt() / max_scale,
-                angle: *angle,
-                shape_index: (*shape_index) as u32,
+                relative_scale: (instance.size).sqrt() / max_scale,
+                angle: instance.angle,
+                shape_index: (instance.shape_index) as u32,
             });
         }
 
@@ -119,7 +115,7 @@ impl SymbolInstance {
 pub struct SymbolShader {
     verts: Vec<SymbolVertex>,
     indices: Vec<u16>,
-    instances: Vec<SymbolInstance>,
+    instances: Vec<SymbolShaderInstance>,
     uniform: SymbolUniform,
     batches: Vec<InstancedMarkBatch>,
     texture_size: Extent3d,
@@ -170,7 +166,7 @@ impl SymbolShader {
             verts.extend(buffers.vertices);
             indices.extend(buffers.indices.into_iter().map(|i| i + index_offset));
         }
-        let (instances, img, texture_size) = SymbolInstance::from_spec(mark, max_size);
+        let (instances, img, texture_size) = SymbolShaderInstance::from_spec(mark, max_size);
         let batches = vec![InstancedMarkBatch {
             instances_range: 0..instances.len() as u32,
             image: img,
@@ -190,7 +186,7 @@ impl SymbolShader {
 }
 
 impl InstancedMarkShader for SymbolShader {
-    type Instance = SymbolInstance;
+    type Instance = SymbolShaderInstance;
     type Vertex = SymbolVertex;
     type Uniform = SymbolUniform;
 
@@ -232,7 +228,7 @@ impl InstancedMarkShader for SymbolShader {
 
     fn instance_desc(&self) -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<SymbolInstance>() as wgpu::BufferAddress,
+            array_stride: std::mem::size_of::<SymbolShaderInstance>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &INSTANCE_ATTRIBUTES,
         }
