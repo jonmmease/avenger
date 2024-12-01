@@ -1,8 +1,8 @@
-use avenger::marks::group::SceneGroup;
-use avenger::marks::mark::SceneMark;
-use avenger::marks::symbol::{SymbolMark, SymbolShape};
-use avenger::marks::value::{ColorOrGradient, EncodingValue};
-use avenger::scene_graph::SceneGraph;
+use avenger_scenegraph::marks::group::SceneGroup;
+use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_scenegraph::marks::symbol::{SymbolMark, SymbolShape};
+use avenger_scenegraph::marks::value::{ColorOrGradient, EncodingValue};
+use avenger_scenegraph::scene_graph::SceneGraph;
 
 use avenger_wgpu::canvas::{Canvas, CanvasDimensions, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
@@ -53,7 +53,8 @@ impl<'a> ApplicationHandler for App<'a> {
                 .and_then(|win| win.document())
                 .and_then(|doc| {
                     let dst = doc.get_element_by_id("wasm-example")?;
-                    let canvas = web_sys::Element::from(window.canvas().expect("Failed to get canvas"));
+                    let canvas =
+                        web_sys::Element::from(window.canvas().expect("Failed to get canvas"));
                     dst.append_child(&canvas).ok()?;
                     Some(())
                 })
@@ -65,12 +66,9 @@ impl<'a> ApplicationHandler for App<'a> {
             scale: self.scene_params.scale,
         };
 
-        let mut canvas = pollster::block_on(WindowCanvas::new(
-            window,
-            dimensions,
-            Default::default(),
-        ))
-        .expect("Failed to create canvas");
+        let mut canvas =
+            pollster::block_on(WindowCanvas::new(window, dimensions, Default::default()))
+                .expect("Failed to create canvas");
 
         let scene_graph = make_sg(
             self.scene_params.width,
@@ -85,10 +83,10 @@ impl<'a> ApplicationHandler for App<'a> {
         );
 
         canvas.set_scene(&scene_graph).unwrap();
-        
+
         // Request initial redraw
         canvas.window().request_redraw();
-        
+
         self.canvas = Some(canvas);
     }
 
@@ -116,7 +114,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     ..
                 } => {
                     // Drop the canvas before exiting
-                    self.canvas.take();  // Using take() instead of setting to None
+                    self.canvas.take(); // Using take() instead of setting to None
                     event_loop.exit();
                 }
                 WindowEvent::Resized(physical_size) => {
@@ -218,7 +216,9 @@ pub async fn run() {
         scene_params,
     };
 
-    event_loop.run_app(&mut app).expect("Failed to run event loop");
+    event_loop
+        .run_app(&mut app)
+        .expect("Failed to run event loop");
 }
 
 fn make_sg(

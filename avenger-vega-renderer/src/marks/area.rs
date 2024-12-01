@@ -1,5 +1,5 @@
-use avenger::marks::area::{AreaMark as RsAreaMark, AreaOrientation};
-use avenger::marks::value::{EncodingValue, StrokeCap, StrokeJoin};
+use avenger_scenegraph::marks::area::{AreaMark as RsAreaMark, AreaOrientation};
+use avenger_scenegraph::marks::value::{EncodingValue, StrokeCap, StrokeJoin};
 use avenger_vega::marks::values::{CssColorOrGradient, StrokeDashSpec};
 use gloo_utils::format::JsValueSerdeExt;
 use wasm_bindgen::prelude::wasm_bindgen;

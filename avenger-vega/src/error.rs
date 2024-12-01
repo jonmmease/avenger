@@ -6,7 +6,7 @@ use pyo3::{exceptions::PyValueError, PyErr};
 #[derive(Error, Debug)]
 pub enum AvengerVegaError {
     #[error("Avenger error")]
-    AvengerError(#[from] avenger::error::AvengerError),
+    AvengerError(#[from] avenger_scenegraph::error::AvengerError),
 
     #[error("css color parse error")]
     InvalidColor(#[from] csscolorparser::ParseColorError),

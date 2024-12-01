@@ -2,9 +2,9 @@ name: Rust
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 env:
   CARGO_TERM_COLOR: always
@@ -27,24 +27,25 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Check no rustc warnings
         run: |
-          cd avenger && cargo check --tests && cd ..
+          cd avenger-scenegraph && cargo check --tests && cd ..
           cd avenger-vega && cargo check --tests && cd ..
           cd avenger-wgpu && cargo check --tests && cd ..
           cd avenger-vega-test-data && cargo check --tests && cd ..
       - name: Check for clippy warnings
         run: |
-          cd avenger && cargo clippy && cd ..
+          cd avenger-scenegraph && cargo clippy && cd ..
           cd avenger-vega && cargo clippy && cd ..
           cd avenger-wgpu && cargo clippy && cd ..
           cd avenger-vega-test-data && cargo clippy && cd ..
       - name: Build
         run: |
-          cd avenger && cargo build && cd ..
+          cd avenger-scenegraph && cargo build && cd ..
           cd avenger-vega && cargo build && cd ..
           cd avenger-wgpu && cargo build && cd ..
           cd avenger-vega-test-data && cargo build && cd ..
           pushd examples/scatter-panning && cargo build && popd
           pushd examples/wgpu-winit && cargo build && popd
+
 #  # Tests currently fail with `MakeWgpuAdapterError`
 #      - name: Run tests
 #        run: cargo test --verbose

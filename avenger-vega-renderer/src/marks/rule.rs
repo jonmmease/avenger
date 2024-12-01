@@ -1,6 +1,6 @@
 use crate::marks::util::{decode_colors, decode_gradients, zindex_to_indices};
-use avenger::marks::rule::RuleMark as RsRuleMark;
-use avenger::marks::value::{EncodingValue, StrokeCap};
+use avenger_scenegraph::marks::rule::RuleMark as RsRuleMark;
+use avenger_scenegraph::marks::value::{EncodingValue, StrokeCap};
 use avenger_vega::error::AvengerVegaError;
 use avenger_vega::marks::values::StrokeDashSpec;
 use gloo_utils::format::JsValueSerdeExt;

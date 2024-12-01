@@ -10,7 +10,7 @@ use web_sys::{js_sys::Object, wasm_bindgen::JsValue};
 #[derive(Error, Debug)]
 pub enum AvengerWgpuError {
     #[error("Avenger error")]
-    AvengerError(#[from] avenger::error::AvengerError),
+    AvengerError(#[from] avenger_scenegraph::error::AvengerError),
 
     #[error("Device request failed")]
     RequestDeviceError(#[from] wgpu::RequestDeviceError),
