@@ -1,6 +1,5 @@
 use crate::error::AvengerError;
 use crate::marks::value::{ColorOrGradient, EncodingValue, Gradient};
-use itertools::izip;
 use lyon_extra::parser::{ParserOptions, Source};
 use lyon_path::geom::euclid::Point2D;
 use lyon_path::geom::{Box2D, Point, Scale};
@@ -17,50 +16,80 @@ pub struct SymbolMark {
     pub gradients: Vec<Gradient>,
     pub shapes: Vec<SymbolShape>,
     pub stroke_width: Option<f32>,
-    pub indices: Option<Vec<usize>>,
-    pub zindex: Option<i32>,
-
-    // Encoding values
+    pub shape_index: EncodingValue<usize>,
     pub x: EncodingValue<f32>,
     pub y: EncodingValue<f32>,
-    pub size: EncodingValue<f32>,
-    pub shape_index: EncodingValue<usize>,
     pub fill: EncodingValue<ColorOrGradient>,
+    pub size: EncodingValue<f32>,
     pub stroke: EncodingValue<ColorOrGradient>,
     pub angle: EncodingValue<f32>,
+    pub indices: Option<Vec<usize>>,
+    pub zindex: Option<i32>,
 }
 
 impl SymbolMark {
-    pub fn instances(&self) -> Box<dyn Iterator<Item = SymbolMarkInstance> + '_> {
-        let n = self.len as usize;
-        let inds = self.indices.as_ref();
-        Box::new(
-            izip!(
-                self.x.as_iter(n, inds),
-                self.y.as_iter(n, inds),
-                self.size.as_iter(n, inds),
-                self.shape_index.as_iter(n, inds),
-                self.fill.as_iter(n, inds),
-                self.stroke.as_iter(n, inds),
-                self.angle.as_iter(n, inds)
-            )
-            .map(
-                |(x, y, size, shape_index, fill, stroke, angle)| SymbolMarkInstance {
-                    x: *x,
-                    y: *y,
-                    size: *size,
-                    shape_index: *shape_index,
-                    fill: fill.clone(),
-                    stroke: stroke.clone(),
-                    angle: *angle,
-                },
-            ),
-        )
+    pub fn x_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
+        self.x.as_iter(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn x_vec(&self) -> Vec<f32> {
+        self.x.as_vec(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn y_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
+        self.y.as_iter(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn y_vec(&self) -> Vec<f32> {
+        self.y.as_vec(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn fill_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
+        self.fill.as_iter(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn fill_vec(&self) -> Vec<ColorOrGradient> {
+        self.fill.as_vec(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn size_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
+        self.size.as_iter(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn size_vec(&self) -> Vec<f32> {
+        self.size.as_vec(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn stroke_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
+        self.stroke
+            .as_iter(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn stroke_vec(&self) -> Vec<ColorOrGradient> {
+        self.stroke.as_vec(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn angle_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
+        self.angle.as_iter(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn angle_vec(&self) -> Vec<f32> {
+        self.angle.as_vec(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn shape_index_iter(&self) -> Box<dyn Iterator<Item = &usize> + '_> {
+        self.shape_index
+            .as_iter(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn shape_index_vec(&self) -> Vec<usize> {
+        self.shape_index
+            .as_vec(self.len as usize, self.indices.as_ref())
     }
 
     pub fn max_size(&self) -> f32 {
         match &self.size {
-            EncodingValue::Scalar { value } => *value,
+            EncodingValue::Scalar { value: size } => *size,
             EncodingValue::Array { values } => *values
                 .iter()
                 .max_by(|a, b| a.partial_cmp(b).unwrap())
@@ -71,62 +100,26 @@ impl SymbolMark {
 
 impl Default for SymbolMark {
     fn default() -> Self {
-        let default_instance = SymbolMarkInstance::default();
         Self {
-            name: "symbol_mark".to_string(),
+            name: "".to_string(),
             clip: true,
-            len: 1,
-            gradients: vec![],
             shapes: vec![Default::default()],
             stroke_width: None,
-            x: EncodingValue::Scalar {
-                value: default_instance.x,
-            },
-            y: EncodingValue::Scalar {
-                value: default_instance.y,
-            },
-            size: EncodingValue::Scalar {
-                value: default_instance.size,
-            },
-            shape_index: EncodingValue::Scalar {
-                value: default_instance.shape_index,
-            },
+            len: 1,
+            x: EncodingValue::Scalar { value: 0.0 },
+            y: EncodingValue::Scalar { value: 0.0 },
+            shape_index: EncodingValue::Scalar { value: 0 },
             fill: EncodingValue::Scalar {
-                value: default_instance.fill,
+                value: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
             },
+            size: EncodingValue::Scalar { value: 20.0 },
             stroke: EncodingValue::Scalar {
-                value: default_instance.stroke,
+                value: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
             },
-            angle: EncodingValue::Scalar {
-                value: default_instance.angle,
-            },
+            angle: EncodingValue::Scalar { value: 0.0 },
             indices: None,
+            gradients: vec![],
             zindex: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SymbolMarkInstance {
-    pub x: f32,
-    pub y: f32,
-    pub size: f32,
-    pub shape_index: usize,
-    pub fill: ColorOrGradient,
-    pub stroke: ColorOrGradient,
-    pub angle: f32,
-}
-
-impl Default for SymbolMarkInstance {
-    fn default() -> Self {
-        Self {
-            x: 0.0,
-            y: 0.0,
-            size: 20.0,
-            shape_index: 0,
-            fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
-            stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
-            angle: 0.0,
         }
     }
 }

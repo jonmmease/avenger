@@ -357,7 +357,6 @@ name = "avenger"
 version = "0.0.8"
 dependencies = [
  "image 0.25.5",
- "itertools 0.13.0",
  "lyon_extra",
  "lyon_path",
  "pyo3",
