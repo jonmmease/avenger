@@ -353,22 +353,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
-name = "avenger"
-version = "0.0.8"
-dependencies = [
- "image 0.25.5",
- "lyon_extra",
- "lyon_path",
- "pyo3",
- "serde",
- "thiserror 2.0.3",
-]
-
-[[package]]
 name = "avenger-python"
 version = "0.0.8"
 dependencies = [
- "avenger",
+ "avenger-scenegraph",
  "avenger-vega",
  "avenger-wgpu",
  "image 0.25.5",
@@ -382,10 +370,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-scenegraph"
+version = "0.0.8"
+dependencies = [
+ "image 0.25.5",
+ "lyon_extra",
+ "lyon_path",
+ "pyo3",
+ "serde",
+ "thiserror 2.0.3",
+]
+
+[[package]]
 name = "avenger-vega"
 version = "0.0.8"
 dependencies = [
- "avenger",
+ "avenger-scenegraph",
  "cfg-if",
  "csscolorparser",
  "image 0.25.5",
@@ -407,7 +407,7 @@ dependencies = [
 name = "avenger-vega-renderer"
 version = "0.0.8"
 dependencies = [
- "avenger",
+ "avenger-scenegraph",
  "avenger-vega",
  "avenger-wgpu",
  "console_error_panic_hook",
@@ -440,7 +440,7 @@ dependencies = [
 name = "avenger-wgpu"
 version = "0.0.8"
 dependencies = [
- "avenger",
+ "avenger-scenegraph",
  "avenger-vega",
  "bytemuck",
  "cfg-if",

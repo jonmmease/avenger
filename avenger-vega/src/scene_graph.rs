@@ -1,7 +1,7 @@
 use crate::error::AvengerVegaError;
 use crate::marks::group::VegaGroupItem;
 use crate::marks::mark::VegaMarkContainer;
-use avenger::scene_graph::SceneGraph;
+use avenger_scenegraph::scene_graph::SceneGraph;
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]

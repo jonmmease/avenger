@@ -1,4 +1,4 @@
-use avenger::scene_graph::SceneGraph;
+use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_vega::scene_graph::VegaSceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasDimensions, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;

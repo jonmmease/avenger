@@ -17,14 +17,14 @@ use crate::marks::instanced_mark::InstancedMarkRenderer;
 use crate::marks::multi::MultiMarkRenderer;
 use crate::marks::symbol::SymbolShader;
 use crate::marks::text::TextAtlasBuilderTrait;
-use avenger::marks::arc::ArcMark;
-use avenger::marks::area::AreaMark;
-use avenger::marks::group::Clip;
-use avenger::marks::image::ImageMark;
-use avenger::marks::line::LineMark;
-use avenger::marks::path::PathMark;
-use avenger::marks::trail::TrailMark;
-use avenger::{
+use avenger_scenegraph::marks::arc::ArcMark;
+use avenger_scenegraph::marks::area::AreaMark;
+use avenger_scenegraph::marks::group::Clip;
+use avenger_scenegraph::marks::image::ImageMark;
+use avenger_scenegraph::marks::line::LineMark;
+use avenger_scenegraph::marks::path::PathMark;
+use avenger_scenegraph::marks::trail::TrailMark;
+use avenger_scenegraph::{
     marks::group::SceneGroup, marks::mark::SceneMark, marks::rect::RectMark, marks::rule::RuleMark,
     marks::symbol::SymbolMark, marks::text::TextMark, scene_graph::SceneGraph,
 };

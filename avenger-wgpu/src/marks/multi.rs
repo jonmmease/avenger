@@ -3,15 +3,17 @@ use crate::error::AvengerWgpuError;
 
 use crate::marks::gradient::{to_color_or_gradient_coord, GradientAtlasBuilder};
 use crate::marks::image::ImageAtlasBuilder;
-use avenger::marks::area::{AreaMark, AreaOrientation};
-use avenger::marks::image::ImageMark;
-use avenger::marks::line::LineMark;
-use avenger::marks::path::{PathMark, PathTransform};
-use avenger::marks::rect::RectMark;
-use avenger::marks::rule::RuleMark;
-use avenger::marks::symbol::SymbolMark;
-use avenger::marks::trail::TrailMark;
-use avenger::marks::value::{ColorOrGradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin};
+use avenger_scenegraph::marks::area::{AreaMark, AreaOrientation};
+use avenger_scenegraph::marks::image::ImageMark;
+use avenger_scenegraph::marks::line::LineMark;
+use avenger_scenegraph::marks::path::{PathMark, PathTransform};
+use avenger_scenegraph::marks::rect::RectMark;
+use avenger_scenegraph::marks::rule::RuleMark;
+use avenger_scenegraph::marks::symbol::SymbolMark;
+use avenger_scenegraph::marks::trail::TrailMark;
+use avenger_scenegraph::marks::value::{
+    ColorOrGradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin,
+};
 use etagere::euclid::UnknownUnit;
 use image::DynamicImage;
 use itertools::izip;
@@ -39,9 +41,9 @@ use wgpu::{
 // Import rayon prelude as required by par_izip.
 use crate::marks::text::{TextAtlasBuilderTrait, TextInstance};
 
-use avenger::marks::arc::ArcMark;
-use avenger::marks::group::Clip;
-use avenger::marks::text::TextMark;
+use avenger_scenegraph::marks::arc::ArcMark;
+use avenger_scenegraph::marks::group::Clip;
+use avenger_scenegraph::marks::text::TextMark;
 
 #[cfg(feature = "rayon")]
 use {crate::par_izip, rayon::prelude::*};

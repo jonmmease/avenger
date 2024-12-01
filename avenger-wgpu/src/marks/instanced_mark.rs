@@ -1,4 +1,4 @@
-use avenger::marks::group::Clip;
+use avenger_scenegraph::marks::group::Clip;
 use std::ops::Range;
 use wgpu::util::DeviceExt;
 use wgpu::{CommandBuffer, Device, Extent3d, ImageDataLayout, TextureFormat, TextureView};

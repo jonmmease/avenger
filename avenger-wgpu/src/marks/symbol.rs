@@ -1,8 +1,8 @@
 use crate::canvas::CanvasDimensions;
 use crate::error::AvengerWgpuError;
 use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
-use avenger::marks::path::PathTransform;
-use avenger::marks::symbol::SymbolMark;
+use avenger_scenegraph::marks::path::PathTransform;
+use avenger_scenegraph::marks::symbol::SymbolMark;
 use itertools::izip;
 use lyon::lyon_tessellation::{
     BuffersBuilder, FillVertex, FillVertexConstructor, StrokeVertex, StrokeVertexConstructor,

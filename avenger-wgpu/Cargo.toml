@@ -29,8 +29,8 @@ colorgrad = "0.7.0"
 dssim = "3.2.4"
 rstest = "0.23.0"
 
-[dependencies.avenger]
-path = "../avenger"
+[dependencies.avenger-scenegraph]
+path = "../avenger-scenegraph"
 version = "0.0.8"
 
 [dependencies.rayon]

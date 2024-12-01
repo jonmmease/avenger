@@ -2,9 +2,9 @@ use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 
 use crate::image::make_image_fetcher;
-use avenger::marks::image::{ImageMark, RgbaImage};
-use avenger::marks::mark::SceneMark;
-use avenger::marks::value::{EncodingValue, ImageAlign, ImageBaseline};
+use avenger_scenegraph::marks::image::{ImageMark, RgbaImage};
+use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_scenegraph::marks::value::{EncodingValue, ImageAlign, ImageBaseline};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
