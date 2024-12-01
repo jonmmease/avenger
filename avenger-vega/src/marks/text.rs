@@ -3,7 +3,7 @@ use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::MissingNullOrValue;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::text::{
-    FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec, SceneTextMark,
+    FontStyleSpec, FontWeightSpec, SceneTextMark, TextAlignSpec, TextBaselineSpec,
 };
 use avenger_scenegraph::marks::value::EncodingValue;
 use serde::{Deserialize, Serialize};

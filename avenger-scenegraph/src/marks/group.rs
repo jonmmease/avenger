@@ -1,5 +1,5 @@
 use crate::marks::mark::SceneMark;
-use crate::marks::path::{ScenePathMark, PathTransform};
+use crate::marks::path::{PathTransform, ScenePathMark};
 use crate::marks::value::{ColorOrGradient, EncodingValue, Gradient};
 use lyon_path::geom::euclid::Point2D;
 use lyon_path::geom::Box2D;
