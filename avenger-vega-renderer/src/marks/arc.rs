@@ -1,6 +1,6 @@
 use crate::marks::util::{decode_colors, decode_gradients, zindex_to_indices};
 use avenger::marks::arc::ArcMark as RsArcMark;
-use avenger::marks::value::EncodingValue;
+use avenger::marks::value::ScalarOrArray;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};
 
@@ -34,34 +34,34 @@ impl ArcMark {
     }
 
     pub fn set_xy(&mut self, x: Vec<f32>, y: Vec<f32>) {
-        self.inner.x = EncodingValue::Array { values: x };
-        self.inner.y = EncodingValue::Array { values: y };
+        self.inner.x = ScalarOrArray::Array { values: x };
+        self.inner.y = ScalarOrArray::Array { values: y };
     }
 
     pub fn set_start_angle(&mut self, start_angle: Vec<f32>) {
-        self.inner.start_angle = EncodingValue::Array {
+        self.inner.start_angle = ScalarOrArray::Array {
             values: start_angle,
         };
     }
 
     pub fn set_end_angle(&mut self, end_angle: Vec<f32>) {
-        self.inner.end_angle = EncodingValue::Array { values: end_angle };
+        self.inner.end_angle = ScalarOrArray::Array { values: end_angle };
     }
 
     pub fn set_outer_radius(&mut self, outer_radius: Vec<f32>) {
-        self.inner.outer_radius = EncodingValue::Array {
+        self.inner.outer_radius = ScalarOrArray::Array {
             values: outer_radius,
         };
     }
 
     pub fn set_inner_radius(&mut self, inner_radius: Vec<f32>) {
-        self.inner.inner_radius = EncodingValue::Array {
+        self.inner.inner_radius = ScalarOrArray::Array {
             values: inner_radius,
         };
     }
 
     pub fn set_corner_radius(&mut self, corner_radius: Vec<f32>) {
-        self.inner.corner_radius = EncodingValue::Array {
+        self.inner.corner_radius = ScalarOrArray::Array {
             values: corner_radius,
         };
     }
@@ -78,7 +78,7 @@ impl ArcMark {
         indices: Vec<usize>,
         opacity: Vec<f32>,
     ) -> Result<(), JsError> {
-        self.inner.stroke = EncodingValue::Array {
+        self.inner.stroke = ScalarOrArray::Array {
             values: decode_colors(color_values, indices, opacity)?,
         };
         Ok(())
@@ -94,7 +94,7 @@ impl ArcMark {
         values: JsValue,
         opacity: Vec<f32>,
     ) -> Result<(), JsError> {
-        self.inner.stroke = EncodingValue::Array {
+        self.inner.stroke = ScalarOrArray::Array {
             values: decode_gradients(values, opacity, &mut self.inner.gradients)?,
         };
         Ok(())
@@ -112,7 +112,7 @@ impl ArcMark {
         indices: Vec<usize>,
         opacity: Vec<f32>,
     ) -> Result<(), JsError> {
-        self.inner.fill = EncodingValue::Array {
+        self.inner.fill = ScalarOrArray::Array {
             values: decode_colors(color_values, indices, opacity)?,
         };
         Ok(())
@@ -124,13 +124,13 @@ impl ArcMark {
     /// @param {Float32Array} opacity
     #[wasm_bindgen(skip_jsdoc)]
     pub fn set_fill_gradient(&mut self, values: JsValue, opacity: Vec<f32>) -> Result<(), JsError> {
-        self.inner.fill = EncodingValue::Array {
+        self.inner.fill = ScalarOrArray::Array {
             values: decode_gradients(values, opacity, &mut self.inner.gradients)?,
         };
         Ok(())
     }
 
     pub fn set_stroke_width(&mut self, width: Vec<f32>) {
-        self.inner.stroke_width = EncodingValue::Array { values: width }
+        self.inner.stroke_width = ScalarOrArray::Array { values: width }
     }
 }

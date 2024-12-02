@@ -3,7 +3,7 @@ use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::{CssColorOrGradient, MissingNullOrValue, StrokeDashSpec};
 use avenger::marks::mark::SceneMark;
 use avenger::marks::rule::RuleMark;
-use avenger::marks::value::{ColorOrGradient, EncodingValue, Gradient, StrokeCap};
+use avenger::marks::value::{ColorOrGradient, ScalarOrArray, Gradient, StrokeCap};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -90,30 +90,30 @@ impl VegaMarkContainer<VegaRuleItem> {
         mark.len = len as u32;
 
         if x0.len() == len {
-            mark.x0 = EncodingValue::Array { values: x0 };
+            mark.x0 = ScalarOrArray::Array { values: x0 };
         }
         if y0.len() == len {
-            mark.y0 = EncodingValue::Array { values: y0 };
+            mark.y0 = ScalarOrArray::Array { values: y0 };
         }
         if x1.len() == len {
-            mark.x1 = EncodingValue::Array { values: x1 };
+            mark.x1 = ScalarOrArray::Array { values: x1 };
         }
         if y1.len() == len {
-            mark.y1 = EncodingValue::Array { values: y1 };
+            mark.y1 = ScalarOrArray::Array { values: y1 };
         }
         if stroke.len() == len {
-            mark.stroke = EncodingValue::Array { values: stroke };
+            mark.stroke = ScalarOrArray::Array { values: stroke };
         }
         if stroke_width.len() == len {
-            mark.stroke_width = EncodingValue::Array {
+            mark.stroke_width = ScalarOrArray::Array {
                 values: stroke_width,
             };
         }
         if stroke_cap.len() == len {
-            mark.stroke_cap = EncodingValue::Array { values: stroke_cap };
+            mark.stroke_cap = ScalarOrArray::Array { values: stroke_cap };
         }
         if stroke_dash.len() == len {
-            mark.stroke_dash = Some(EncodingValue::Array {
+            mark.stroke_dash = Some(ScalarOrArray::Array {
                 values: stroke_dash,
             });
         }

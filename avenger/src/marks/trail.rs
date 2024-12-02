@@ -1,4 +1,4 @@
-use crate::marks::value::{ColorOrGradient, EncodingValue, Gradient};
+use crate::marks::value::{ColorOrGradient, ScalarOrArray, Gradient};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -9,10 +9,10 @@ pub struct TrailMark {
     pub len: u32,
     pub gradients: Vec<Gradient>,
     pub stroke: ColorOrGradient,
-    pub x: EncodingValue<f32>,
-    pub y: EncodingValue<f32>,
-    pub size: EncodingValue<f32>,
-    pub defined: EncodingValue<bool>,
+    pub x: ScalarOrArray<f32>,
+    pub y: ScalarOrArray<f32>,
+    pub size: ScalarOrArray<f32>,
+    pub defined: ScalarOrArray<bool>,
     pub zindex: Option<i32>,
 }
 
@@ -40,10 +40,10 @@ impl Default for TrailMark {
             name: "trail_mark".to_string(),
             clip: true,
             len: 1,
-            x: EncodingValue::Scalar { value: 0.0 },
-            y: EncodingValue::Scalar { value: 0.0 },
-            size: EncodingValue::Scalar { value: 1.0 },
-            defined: EncodingValue::Scalar { value: true },
+            x: ScalarOrArray::Scalar { value: 0.0 },
+            y: ScalarOrArray::Scalar { value: 0.0 },
+            size: ScalarOrArray::Scalar { value: 1.0 },
+            defined: ScalarOrArray::Scalar { value: true },
             stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]),
             gradients: vec![],
             zindex: None,

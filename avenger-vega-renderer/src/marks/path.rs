@@ -2,7 +2,7 @@ use crate::marks::util::{decode_colors, decode_gradients, zindex_to_indices};
 use avenger::error::AvengerError;
 use avenger::marks::path::{PathMark as RsPathMark, PathTransform};
 use avenger::marks::symbol::parse_svg_path;
-use avenger::marks::value::EncodingValue;
+use avenger::marks::value::ScalarOrArray;
 use gloo_utils::format::JsValueSerdeExt;
 use itertools::izip;
 use lyon_path::geom::euclid::Vector2D;
@@ -54,7 +54,7 @@ impl PathMark {
                     .then_translate(Vector2D::new(x, y))
             })
             .collect::<Vec<_>>();
-        self.inner.transform = EncodingValue::Array { values: transforms };
+        self.inner.transform = ScalarOrArray::Array { values: transforms };
     }
 
     /// Set path as SVG string
@@ -74,7 +74,7 @@ impl PathMark {
             .into_iter()
             .map(|i| unique_paths[i].clone())
             .collect::<Vec<_>>();
-        self.inner.path = EncodingValue::Array { values: paths };
+        self.inner.path = ScalarOrArray::Array { values: paths };
         Ok(())
     }
 
@@ -90,7 +90,7 @@ impl PathMark {
         indices: Vec<usize>,
         opacity: Vec<f32>,
     ) -> Result<(), JsError> {
-        self.inner.stroke = EncodingValue::Array {
+        self.inner.stroke = ScalarOrArray::Array {
             values: decode_colors(color_values, indices, opacity)?,
         };
         Ok(())
@@ -106,7 +106,7 @@ impl PathMark {
         values: JsValue,
         opacity: Vec<f32>,
     ) -> Result<(), JsError> {
-        self.inner.stroke = EncodingValue::Array {
+        self.inner.stroke = ScalarOrArray::Array {
             values: decode_gradients(values, opacity, &mut self.inner.gradients)?,
         };
         Ok(())
@@ -124,7 +124,7 @@ impl PathMark {
         indices: Vec<usize>,
         opacity: Vec<f32>,
     ) -> Result<(), JsError> {
-        self.inner.fill = EncodingValue::Array {
+        self.inner.fill = ScalarOrArray::Array {
             values: decode_colors(color_values, indices, opacity)?,
         };
         Ok(())
@@ -136,7 +136,7 @@ impl PathMark {
     /// @param {Float32Array} opacity
     #[wasm_bindgen(skip_jsdoc)]
     pub fn set_fill_gradient(&mut self, values: JsValue, opacity: Vec<f32>) -> Result<(), JsError> {
-        self.inner.fill = EncodingValue::Array {
+        self.inner.fill = ScalarOrArray::Array {
             values: decode_gradients(values, opacity, &mut self.inner.gradients)?,
         };
         Ok(())

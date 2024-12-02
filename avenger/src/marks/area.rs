@@ -1,4 +1,4 @@
-use crate::marks::value::{ColorOrGradient, EncodingValue, Gradient, StrokeCap, StrokeJoin};
+use crate::marks::value::{ColorOrGradient, Gradient, ScalarOrArray, StrokeCap, StrokeJoin};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -9,11 +9,11 @@ pub struct AreaMark {
     pub len: u32,
     pub orientation: AreaOrientation,
     pub gradients: Vec<Gradient>,
-    pub x: EncodingValue<f32>,
-    pub y: EncodingValue<f32>,
-    pub x2: EncodingValue<f32>,
-    pub y2: EncodingValue<f32>,
-    pub defined: EncodingValue<bool>,
+    pub x: ScalarOrArray<f32>,
+    pub y: ScalarOrArray<f32>,
+    pub x2: ScalarOrArray<f32>,
+    pub y2: ScalarOrArray<f32>,
+    pub defined: ScalarOrArray<bool>,
     pub fill: ColorOrGradient,
     pub stroke: ColorOrGradient,
     pub stroke_width: f32,
@@ -53,11 +53,11 @@ impl Default for AreaMark {
             len: 1,
             orientation: Default::default(),
             gradients: vec![],
-            x: EncodingValue::Scalar { value: 0.0 },
-            y: EncodingValue::Scalar { value: 0.0 },
-            x2: EncodingValue::Scalar { value: 0.0 },
-            y2: EncodingValue::Scalar { value: 0.0 },
-            defined: EncodingValue::Scalar { value: true },
+            x: ScalarOrArray::Scalar { value: 0.0 },
+            y: ScalarOrArray::Scalar { value: 0.0 },
+            x2: ScalarOrArray::Scalar { value: 0.0 },
+            y2: ScalarOrArray::Scalar { value: 0.0 },
+            defined: ScalarOrArray::Scalar { value: true },
             fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
             stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
             stroke_width: 1.0,

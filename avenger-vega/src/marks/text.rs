@@ -5,7 +5,7 @@ use avenger::marks::mark::SceneMark;
 use avenger::marks::text::{
     FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec, TextMark,
 };
-use avenger::marks::value::EncodingValue;
+use avenger::marks::value::ScalarOrArray;
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
@@ -149,42 +149,42 @@ impl VegaMarkContainer<VegaTextItem> {
 
         // Override values with vectors
         if x.len() == len {
-            mark.x = EncodingValue::Array { values: x };
+            mark.x = ScalarOrArray::Array { values: x };
         }
         if y.len() == len {
-            mark.y = EncodingValue::Array { values: y };
+            mark.y = ScalarOrArray::Array { values: y };
         }
         if text.len() == len {
-            mark.text = EncodingValue::Array { values: text };
+            mark.text = ScalarOrArray::Array { values: text };
         }
         if align.len() == len {
-            mark.align = EncodingValue::Array { values: align };
+            mark.align = ScalarOrArray::Array { values: align };
         }
         if baseline.len() == len {
-            mark.baseline = EncodingValue::Array { values: baseline };
+            mark.baseline = ScalarOrArray::Array { values: baseline };
         }
         if angle.len() == len {
-            mark.angle = EncodingValue::Array { values: angle };
+            mark.angle = ScalarOrArray::Array { values: angle };
         }
         if color.len() == len {
-            mark.color = EncodingValue::Array { values: color };
+            mark.color = ScalarOrArray::Array { values: color };
         }
         if font.len() == len {
-            mark.font = EncodingValue::Array { values: font };
+            mark.font = ScalarOrArray::Array { values: font };
         }
         if font_size.len() == len {
-            mark.font_size = EncodingValue::Array { values: font_size };
+            mark.font_size = ScalarOrArray::Array { values: font_size };
         }
         if font_weight.len() == len {
-            mark.font_weight = EncodingValue::Array {
+            mark.font_weight = ScalarOrArray::Array {
                 values: font_weight,
             };
         }
         if font_style.len() == len {
-            mark.font_style = EncodingValue::Array { values: font_style };
+            mark.font_style = ScalarOrArray::Array { values: font_style };
         }
         if limit.len() == len {
-            mark.limit = EncodingValue::Array { values: limit };
+            mark.limit = ScalarOrArray::Array { values: limit };
         }
         if zindex.len() == len {
             let mut indices: Vec<usize> = (0..len).collect();

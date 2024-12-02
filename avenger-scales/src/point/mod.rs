@@ -84,7 +84,7 @@ impl<D: Debug + Clone + Hash + Eq> PointScale<D> {
         &self,
         values: &Vec<D>,
         opts: &PointScaleOptions,
-    ) -> Result<Vec<Option<f32>>, AvengerScaleError> {
+    ) -> Result<Vec<f32>, AvengerScaleError> {
         self.band_scale.scale(values, &BandScaleOptions::from(opts))
     }
 
@@ -118,11 +118,11 @@ mod tests {
         let result = scale.scale(&values, &PointScaleOptions::default())?;
 
         // With 3 points in [0,1], expect points at 0.0, 0.5, 1.0
-        assert_approx_eq!(f32, result[0].unwrap(), 0.0); // "a"
-        assert_approx_eq!(f32, result[1].unwrap(), 0.5); // "b"
-        assert_approx_eq!(f32, result[2].unwrap(), 0.5); // "b"
-        assert_approx_eq!(f32, result[3].unwrap(), 1.0); // "c"
-        assert!(result[4].is_none()); // "f"
+        assert_approx_eq!(f32, result[0], 0.0); // "a"
+        assert_approx_eq!(f32, result[1], 0.5); // "b"
+        assert_approx_eq!(f32, result[2], 0.5); // "b"
+        assert_approx_eq!(f32, result[3], 1.0); // "c"
+        assert!(result[4].is_nan()); // "f"
         assert_approx_eq!(f32, scale.step(), 0.5);
 
         Ok(())
@@ -136,11 +136,11 @@ mod tests {
         let values = vec!["a", "b", "b", "c", "f"];
         let result = scale.scale(&values, &PointScaleOptions::default())?;
 
-        assert_approx_eq!(f32, result[0].unwrap(), 0.0); // "a"
-        assert_approx_eq!(f32, result[1].unwrap(), 50.0); // "b"
-        assert_approx_eq!(f32, result[2].unwrap(), 50.0); // "b"
-        assert_approx_eq!(f32, result[3].unwrap(), 100.0); // "c"
-        assert!(result[4].is_none()); // "f"
+        assert_approx_eq!(f32, result[0], 0.0); // "a"
+        assert_approx_eq!(f32, result[1], 50.0); // "b"
+        assert_approx_eq!(f32, result[2], 50.0); // "b"
+        assert_approx_eq!(f32, result[3], 100.0); // "c"
+        assert!(result[4].is_nan()); // "f"
         Ok(())
     }
 
@@ -155,11 +155,11 @@ mod tests {
         let result = scale.scale(&values, &PointScaleOptions::default())?;
 
         // With padding of 0.5, points should be at specific positions
-        assert_approx_eq!(f32, result[0].unwrap(), 16.666667); // "a"
-        assert_approx_eq!(f32, result[1].unwrap(), 50.0); // "b"
-        assert_approx_eq!(f32, result[2].unwrap(), 50.0); // "b"
-        assert_approx_eq!(f32, result[3].unwrap(), 83.333333); // "c"
-        assert!(result[4].is_none()); // "f"
+        assert_approx_eq!(f32, result[0], 16.666667); // "a"
+        assert_approx_eq!(f32, result[1], 50.0); // "b"
+        assert_approx_eq!(f32, result[2], 50.0); // "b"
+        assert_approx_eq!(f32, result[3], 83.333333); // "c"
+        assert!(result[4].is_nan()); // "f"
 
         Ok(())
     }
@@ -176,12 +176,12 @@ mod tests {
 
         // With 4 points in [0,100] and rounding, expect points at 0, 34, 67, 100
         // Confirmed with d3-scale
-        assert_approx_eq!(f32, result[0].unwrap(), 1.0); // "a"
-        assert_approx_eq!(f32, result[1].unwrap(), 34.0); // "b"
-        assert_approx_eq!(f32, result[2].unwrap(), 34.0); // "b"
-        assert_approx_eq!(f32, result[3].unwrap(), 67.0); // "c"
-        assert_approx_eq!(f32, result[4].unwrap(), 100.0); // "d"
-        assert!(result[5].is_none()); // "f"
+        assert_approx_eq!(f32, result[0], 1.0); // "a"
+        assert_approx_eq!(f32, result[1], 34.0); // "b"
+        assert_approx_eq!(f32, result[2], 34.0); // "b"
+        assert_approx_eq!(f32, result[3], 67.0); // "c"
+        assert_approx_eq!(f32, result[4], 100.0); // "d"
+        assert!(result[5].is_nan()); // "f"
         Ok(())
     }
 
@@ -202,12 +202,12 @@ mod tests {
 
         // With 4 points in [0,100] and rounding, expect points at 0, 34, 67, 100
         // Confirmed with d3-scale
-        assert_approx_eq!(f32, result[0].unwrap(), 2.0); // "a"
-        assert_approx_eq!(f32, result[1].unwrap(), 35.0); // "b"
-        assert_approx_eq!(f32, result[2].unwrap(), 35.0); // "b"
-        assert_approx_eq!(f32, result[3].unwrap(), 68.0); // "c"
-        assert_approx_eq!(f32, result[4].unwrap(), 101.0); // "d"
-        assert!(result[5].is_none()); // "f"
+        assert_approx_eq!(f32, result[0], 2.0); // "a"
+        assert_approx_eq!(f32, result[1], 35.0); // "b"
+        assert_approx_eq!(f32, result[2], 35.0); // "b"
+        assert_approx_eq!(f32, result[3], 68.0); // "c"
+        assert_approx_eq!(f32, result[4], 101.0); // "d"
+        assert!(result[5].is_nan()); // "f"
         Ok(())
     }
 

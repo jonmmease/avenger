@@ -3,7 +3,7 @@ use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::{CssColorOrGradient, StrokeDashSpec};
 use avenger::marks::area::{AreaMark, AreaOrientation};
 use avenger::marks::mark::SceneMark;
-use avenger::marks::value::{ColorOrGradient, EncodingValue, Gradient, StrokeCap, StrokeJoin};
+use avenger::marks::value::{ColorOrGradient, ScalarOrArray, Gradient, StrokeCap, StrokeJoin};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -99,19 +99,19 @@ impl VegaMarkContainer<VegaAreaItem> {
         mark.len = len as u32;
 
         if x.len() == len {
-            mark.x = EncodingValue::Array { values: x };
+            mark.x = ScalarOrArray::Array { values: x };
         }
         if y.len() == len {
-            mark.y = EncodingValue::Array { values: y };
+            mark.y = ScalarOrArray::Array { values: y };
         }
         if x2.len() == len {
-            mark.x2 = EncodingValue::Array { values: x2 };
+            mark.x2 = ScalarOrArray::Array { values: x2 };
         }
         if y2.len() == len {
-            mark.y2 = EncodingValue::Array { values: y2 };
+            mark.y2 = ScalarOrArray::Array { values: y2 };
         }
         if defined.len() == len {
-            mark.defined = EncodingValue::Array { values: defined };
+            mark.defined = ScalarOrArray::Array { values: defined };
         }
         mark.gradients = gradients;
 

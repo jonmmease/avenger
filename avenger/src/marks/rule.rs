@@ -1,4 +1,4 @@
-use crate::marks::value::{ColorOrGradient, EncodingValue, Gradient, StrokeCap};
+use crate::marks::value::{ColorOrGradient, ScalarOrArray, Gradient, StrokeCap};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -8,14 +8,14 @@ pub struct RuleMark {
     pub clip: bool,
     pub len: u32,
     pub gradients: Vec<Gradient>,
-    pub stroke_dash: Option<EncodingValue<Vec<f32>>>,
-    pub x0: EncodingValue<f32>,
-    pub y0: EncodingValue<f32>,
-    pub x1: EncodingValue<f32>,
-    pub y1: EncodingValue<f32>,
-    pub stroke: EncodingValue<ColorOrGradient>,
-    pub stroke_width: EncodingValue<f32>,
-    pub stroke_cap: EncodingValue<StrokeCap>,
+    pub stroke_dash: Option<ScalarOrArray<Vec<f32>>>,
+    pub x0: ScalarOrArray<f32>,
+    pub y0: ScalarOrArray<f32>,
+    pub x1: ScalarOrArray<f32>,
+    pub y1: ScalarOrArray<f32>,
+    pub stroke: ScalarOrArray<ColorOrGradient>,
+    pub stroke_width: ScalarOrArray<f32>,
+    pub stroke_cap: ScalarOrArray<StrokeCap>,
     pub indices: Option<Vec<usize>>,
     pub zindex: Option<i32>,
 }
@@ -62,15 +62,15 @@ impl Default for RuleMark {
             len: 1,
             gradients: vec![],
             stroke_dash: None,
-            x0: EncodingValue::Scalar { value: 0.0 },
-            y0: EncodingValue::Scalar { value: 0.0 },
-            x1: EncodingValue::Scalar { value: 0.0 },
-            y1: EncodingValue::Scalar { value: 0.0 },
-            stroke: EncodingValue::Scalar {
+            x0: ScalarOrArray::Scalar { value: 0.0 },
+            y0: ScalarOrArray::Scalar { value: 0.0 },
+            x1: ScalarOrArray::Scalar { value: 0.0 },
+            y1: ScalarOrArray::Scalar { value: 0.0 },
+            stroke: ScalarOrArray::Scalar {
                 value: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]),
             },
-            stroke_width: EncodingValue::Scalar { value: 1.0 },
-            stroke_cap: EncodingValue::Scalar {
+            stroke_width: ScalarOrArray::Scalar { value: 1.0 },
+            stroke_cap: ScalarOrArray::Scalar {
                 value: StrokeCap::Butt,
             },
             indices: None,

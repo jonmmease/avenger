@@ -3,7 +3,7 @@ use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::CssColorOrGradient;
 use avenger::marks::arc::ArcMark;
 use avenger::marks::mark::SceneMark;
-use avenger::marks::value::{ColorOrGradient, EncodingValue, Gradient};
+use avenger::marks::value::{ColorOrGradient, ScalarOrArray, Gradient};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -97,45 +97,45 @@ impl VegaMarkContainer<VegaArcItem> {
         mark.len = len as u32;
 
         if x.len() == len {
-            mark.x = EncodingValue::Array { values: x };
+            mark.x = ScalarOrArray::Array { values: x };
         }
         if y.len() == len {
-            mark.y = EncodingValue::Array { values: y };
+            mark.y = ScalarOrArray::Array { values: y };
         }
         if start_angle.len() == len {
-            mark.start_angle = EncodingValue::Array {
+            mark.start_angle = ScalarOrArray::Array {
                 values: start_angle,
             };
         }
         if end_angle.len() == len {
-            mark.end_angle = EncodingValue::Array { values: end_angle };
+            mark.end_angle = ScalarOrArray::Array { values: end_angle };
         }
         if outer_radius.len() == len {
-            mark.outer_radius = EncodingValue::Array {
+            mark.outer_radius = ScalarOrArray::Array {
                 values: outer_radius,
             };
         }
         if inner_radius.len() == len {
-            mark.inner_radius = EncodingValue::Array {
+            mark.inner_radius = ScalarOrArray::Array {
                 values: inner_radius,
             };
         }
         if pad_angle.len() == len {
-            mark.pad_angle = EncodingValue::Array { values: pad_angle };
+            mark.pad_angle = ScalarOrArray::Array { values: pad_angle };
         }
         if corner_radius.len() == len {
-            mark.corner_radius = EncodingValue::Array {
+            mark.corner_radius = ScalarOrArray::Array {
                 values: corner_radius,
             };
         }
         if fill.len() == len {
-            mark.fill = EncodingValue::Array { values: fill };
+            mark.fill = ScalarOrArray::Array { values: fill };
         }
         if stroke.len() == len {
-            mark.stroke = EncodingValue::Array { values: stroke };
+            mark.stroke = ScalarOrArray::Array { values: stroke };
         }
         if stroke_width.len() == len {
-            mark.stroke_width = EncodingValue::Array {
+            mark.stroke_width = ScalarOrArray::Array {
                 values: stroke_width,
             };
         }

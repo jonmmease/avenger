@@ -14,7 +14,7 @@ use std::hash::Hash;
 #[derive(Debug, Clone)]
 pub struct BandScale<D: Debug + Clone + Hash + Eq> {
     domain: Vec<D>,
-    ordinal_scale: OrdinalScale<D, Option<f32>>,
+    ordinal_scale: OrdinalScale<D, f32>,
     range: (f32, f32),
     padding_inner: f32,
     padding_outer: f32,
@@ -35,7 +35,7 @@ impl<D: Debug + Clone + Hash + Eq> BandScale<D> {
         let mut this = Self {
             domain: domain.clone(),
             // placeholder scale to be updated later
-            ordinal_scale: OrdinalScale::new(&domain, &vec![None; domain.len()], None)?,
+            ordinal_scale: OrdinalScale::new(&domain, &vec![f32::NAN; domain.len()], f32::NAN)?,
             range: (0.0, 1.0),
             padding_inner: 0.0,
             padding_outer: 0.0,
@@ -82,8 +82,7 @@ impl<D: Debug + Clone + Hash + Eq> BandScale<D> {
         };
 
         // Create ordinal scale and map values
-        let range_optionals: Vec<Option<f32>> = range_values.iter().map(|x| Some(*x)).collect();
-        self.ordinal_scale = OrdinalScale::new(&self.domain, &range_optionals, None)?;
+        self.ordinal_scale = OrdinalScale::new(&self.domain, &range_values, f32::NAN)?;
         Ok(())
     }
 
@@ -246,14 +245,17 @@ impl<D: Debug + Clone + Hash + Eq> BandScale<D> {
         &self,
         values: &[D],
         opts: &BandScaleOptions,
-    ) -> Result<Vec<Option<f32>>, AvengerScaleError> {
+    ) -> Result<Vec<f32>, AvengerScaleError> {
         if opts.band.is_some() || opts.range_offset.is_some() {
             let band = opts.band.unwrap_or(0.0);
             let range_offset = opts.range_offset.unwrap_or(0.0);
             let offset = self.bandwidth() * band + range_offset;
-            self.ordinal_scale
-                .scale(values)
-                .map(|values| values.iter().map(|v| v.map(|x| x + offset)).collect())
+            Ok(self
+                .ordinal_scale
+                .scale(values)?
+                .iter()
+                .map(|v| v + offset)
+                .collect())
         } else {
             self.ordinal_scale.scale(values)
         }
@@ -290,11 +292,7 @@ impl<D: Debug + Clone + Hash + Eq> BandScale<D> {
         }
 
         // Calculate band positions
-        let optional_values = self.scale(&self.domain, opts).ok()?;
-        let values = optional_values
-            .iter()
-            .cloned()
-            .collect::<Option<Vec<_>>>()?;
+        let values = self.scale(&self.domain, opts).ok()?;
 
         // Binary search for indices
         let mut a = values.partition_point(|&x| x <= lo).saturating_sub(1);
@@ -372,11 +370,11 @@ mod tests {
         let result = scale.scale(&values, &BandScaleOptions::default())?;
 
         // With 3 bands in [0,1] and no padding, expect bands at 0.0, 0.333, 0.667
-        assert_approx_eq!(f32, result[0].unwrap(), 0.0); // "a"
-        assert_approx_eq!(f32, result[1].unwrap(), 0.3333333); // "b"
-        assert_approx_eq!(f32, result[2].unwrap(), 0.3333333); // "b"
-        assert_approx_eq!(f32, result[3].unwrap(), 0.6666667); // "c"
-        assert_eq!(result[4], None); // "f"
+        assert_approx_eq!(f32, result[0], 0.0); // "a"
+        assert_approx_eq!(f32, result[1], 0.3333333); // "b"
+        assert_approx_eq!(f32, result[2], 0.3333333); // "b"
+        assert_approx_eq!(f32, result[3], 0.6666667); // "c"
+        assert!(result[4].is_nan()); // "f"
         assert_approx_eq!(f32, scale.bandwidth(), 0.3333333);
         assert_approx_eq!(f32, scale.step(), 0.3333333);
 
@@ -394,11 +392,11 @@ mod tests {
         let result = scale.scale(&values, &BandScaleOptions::default())?;
 
         // With padding of 0.2, points should be inset
-        assert_approx_eq!(f32, result[0].unwrap(), 7.5); // "a"
-        assert_approx_eq!(f32, result[1].unwrap(), 45.0); // "b"
-        assert_approx_eq!(f32, result[2].unwrap(), 45.0); // "b"
-        assert_approx_eq!(f32, result[3].unwrap(), 82.5); // "c"
-        assert_eq!(result[4], None); // "f"
+        assert_approx_eq!(f32, result[0], 7.5); // "a"
+        assert_approx_eq!(f32, result[1], 45.0); // "b"
+        assert_approx_eq!(f32, result[2], 45.0); // "b"
+        assert_approx_eq!(f32, result[3], 82.5); // "c"
+        assert!(result[4].is_nan()); // "f"
 
         assert_approx_eq!(f32, scale.bandwidth(), 30.0);
 
@@ -416,11 +414,11 @@ mod tests {
         let result = scale.scale(&values, &BandScaleOptions::default())?;
 
         // With rounding, values should be integers
-        assert_eq!(result[0].unwrap(), 1.0); // "a"
-        assert_eq!(result[1].unwrap(), 34.0); // "b"
-        assert_eq!(result[2].unwrap(), 34.0); // "b"
-        assert_eq!(result[3].unwrap(), 67.0); // "c"
-        assert_eq!(result[4], None); // "f"
+        assert_eq!(result[0], 1.0); // "a"
+        assert_eq!(result[1], 34.0); // "b"
+        assert_eq!(result[2], 34.0); // "b"
+        assert_eq!(result[3], 67.0); // "c"
+        assert!(result[4].is_nan()); // "f"
         assert_eq!(scale.bandwidth(), 33.0);
 
         Ok(())
@@ -532,9 +530,9 @@ mod tests {
             ..Default::default()
         };
 
-        assert_approx_eq!(f32, result[0].unwrap(), 0.0, margin);
-        assert_approx_eq!(f32, result[1].unwrap(), 0.333333, margin);
-        assert_approx_eq!(f32, result[2].unwrap(), 0.666667, margin);
+        assert_approx_eq!(f32, result[0], 0.0, margin);
+        assert_approx_eq!(f32, result[1], 0.333333, margin);
+        assert_approx_eq!(f32, result[2], 0.666667, margin);
         Ok(())
     }
 
@@ -555,9 +553,9 @@ mod tests {
             epsilon: 0.0001,
             ..Default::default()
         };
-        assert_approx_eq!(f32, result[0].unwrap(), 0.166667, margin);
-        assert_approx_eq!(f32, result[1].unwrap(), 0.5, margin);
-        assert_approx_eq!(f32, result[2].unwrap(), 0.833333, margin);
+        assert_approx_eq!(f32, result[0], 0.166667, margin);
+        assert_approx_eq!(f32, result[1], 0.5, margin);
+        assert_approx_eq!(f32, result[2], 0.833333, margin);
         Ok(())
     }
 
@@ -579,9 +577,9 @@ mod tests {
             epsilon: 0.0001,
             ..Default::default()
         };
-        assert_approx_eq!(f32, result[0].unwrap(), 1.166667, margin);
-        assert_approx_eq!(f32, result[1].unwrap(), 1.5, margin);
-        assert_approx_eq!(f32, result[2].unwrap(), 1.833333, margin);
+        assert_approx_eq!(f32, result[0], 1.166667, margin);
+        assert_approx_eq!(f32, result[1], 1.5, margin);
+        assert_approx_eq!(f32, result[2], 1.833333, margin);
         Ok(())
     }
 }

@@ -3,7 +3,7 @@ use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::CssColorOrGradient;
 use avenger::marks::mark::SceneMark;
 use avenger::marks::trail::TrailMark;
-use avenger::marks::value::{ColorOrGradient, EncodingValue, Gradient};
+use avenger::marks::value::{ColorOrGradient, ScalarOrArray, Gradient};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -66,16 +66,16 @@ impl VegaMarkContainer<VegaTrailItem> {
         mark.len = len as u32;
 
         if x.len() == len {
-            mark.x = EncodingValue::Array { values: x };
+            mark.x = ScalarOrArray::Array { values: x };
         }
         if y.len() == len {
-            mark.y = EncodingValue::Array { values: y };
+            mark.y = ScalarOrArray::Array { values: y };
         }
         if size.len() == len {
-            mark.size = EncodingValue::Array { values: size };
+            mark.size = ScalarOrArray::Array { values: size };
         }
         if defined.len() == len {
-            mark.defined = EncodingValue::Array { values: defined };
+            mark.defined = ScalarOrArray::Array { values: defined };
         }
 
         Ok(SceneMark::Trail(mark))
