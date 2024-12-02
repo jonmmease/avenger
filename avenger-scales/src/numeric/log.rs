@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use crate::error::AvengerScaleError;
 
+use super::opts::NumericScaleOptions;
+
 /// Handles logarithmic transformations with different bases
 #[derive(Clone, Debug)]
 enum LogFunction {
@@ -152,9 +154,13 @@ impl LogNumericScale {
     }
 
     /// Maps input values from domain to range using log transform
-    pub fn scale(&self, values: &[f32]) -> Result<Vec<f32>, AvengerScaleError> {
-        // Handle degenerate domain case (like d3)
-        if !(self.domain_start != 0.0 && self.domain_end != 0.0) {
+    pub fn scale(
+        &self,
+        values: &[f32],
+        opts: &NumericScaleOptions,
+    ) -> Result<Vec<f32>, AvengerScaleError> {
+        // Handle degenerate domain case
+        if self.domain_start == self.domain_end {
             return Ok(vec![self.range_start; values.len()]);
         }
 
@@ -184,7 +190,8 @@ impl LogNumericScale {
         }
 
         let scale = (self.range_end - self.range_start) / log_domain_span;
-        let offset = self.range_start - scale * log_domain_start;
+        let range_offset = opts.range_offset.unwrap_or(0.0);
+        let offset = self.range_start - scale * log_domain_start + range_offset;
 
         if self.clamp {
             let (range_min, range_max) = if self.range_start <= self.range_end {
@@ -244,9 +251,14 @@ impl LogNumericScale {
     }
 
     /// Maps output values from range back to domain using exponential transform
-    pub fn invert(&self, values: &[f32]) -> Result<Vec<f32>, AvengerScaleError> {
-        // Handle degenerate domain case (like d3)
-        if !(self.domain_start > 0.0 && self.domain_end > 0.0) {
+    pub fn invert(
+        &self,
+        values: &[f32],
+        opts: &NumericScaleOptions,
+    ) -> Result<Vec<f32>, AvengerScaleError> {
+        // Handle degenerate cases
+        if self.domain_start <= 0.0 || self.domain_end <= 0.0 || self.range_start == self.range_end
+        {
             return Ok(vec![self.range_start; values.len()]);
         }
 
@@ -261,7 +273,8 @@ impl LogNumericScale {
         }
 
         let scale = (self.range_end - self.range_start) / log_domain_span;
-        let offset = self.range_start - scale * log_domain_start;
+        let range_offset = opts.range_offset.unwrap_or(0.0);
+        let offset = self.range_start - scale * log_domain_start + range_offset;
 
         if self.clamp {
             let (range_min, range_max) = if self.range_start <= self.range_end {
@@ -456,11 +469,11 @@ mod tests {
         assert_eq!(scale.log_fun.base(), 10.0);
 
         let values = vec![5.0];
-        let result = scale.scale(&values).unwrap();
+        let result = scale.scale(&values, &Default::default()).unwrap();
         assert_approx_eq!(f32, result[0], 0.69897);
 
         let values = vec![0.69897];
-        let result = scale.invert(&values).unwrap();
+        let result = scale.invert(&values, &Default::default()).unwrap();
         assert_approx_eq!(f32, result[0], 5.0);
     }
 
@@ -468,7 +481,7 @@ mod tests {
     fn test_domain_coercion() {
         let scale = LogNumericScale::new(Some(10.0)).domain((1.0, 2.0));
         let values = vec![0.5, 1.0, 1.5, 2.0, 2.5];
-        let result = scale.scale(&values).unwrap();
+        let result = scale.scale(&values, &Default::default()).unwrap();
 
         assert_approx_eq!(f32, result[0], -1.0);
         assert_approx_eq!(f32, result[1], 0.0);
@@ -478,10 +491,30 @@ mod tests {
     }
 
     #[test]
+    fn test_range_offset() {
+        let scale = LogNumericScale::new(Some(10.0)).domain((1.0, 2.0));
+        let values = vec![0.5, 1.0, 1.5, 2.0, 2.5];
+        let result = scale
+            .scale(
+                &values,
+                &NumericScaleOptions {
+                    range_offset: Some(0.5),
+                },
+            )
+            .unwrap();
+
+        assert_approx_eq!(f32, result[0], -0.5);
+        assert_approx_eq!(f32, result[1], 0.5);
+        assert_approx_eq!(f32, result[2], 1.0849625);
+        assert_approx_eq!(f32, result[3], 1.5);
+        assert_approx_eq!(f32, result[4], 1.8219281);
+    }
+
+    #[test]
     fn test_negative_domain() {
         let scale = LogNumericScale::new(Some(10.0)).domain((-100.0, -1.0));
         let values = vec![-50.0];
-        let result = scale.scale(&values).unwrap();
+        let result = scale.scale(&values, &Default::default()).unwrap();
         assert_approx_eq!(f32, result[0], 0.150515);
     }
 
@@ -490,17 +523,37 @@ mod tests {
         // Test unclamped behavior
         let scale = LogNumericScale::new(Some(10.0));
         let values = vec![0.5, 15.0];
-        let result = scale.scale(&values).unwrap();
+        let result = scale.scale(&values, &Default::default()).unwrap();
         assert_approx_eq!(f32, result[0], -0.30103);
         assert_approx_eq!(f32, result[1], 1.176091);
 
         // Test clamped behavior
         let scale = LogNumericScale::new(Some(10.0)).clamp(true);
         let values = vec![-1.0, 5.0, 15.0];
-        let result = scale.scale(&values).unwrap();
+        let result = scale.scale(&values, &Default::default()).unwrap();
         assert_approx_eq!(f32, result[0], 0.0);
         assert_approx_eq!(f32, result[1], 0.69897);
         assert_approx_eq!(f32, result[2], 1.0);
+    }
+
+    #[test]
+    fn test_invert_range_offset() {
+        let scale = LogNumericScale::new(Some(10.0)).domain((1.0, 2.0));
+        let values = vec![-0.5, 0.5, 1.0849625, 1.5, 1.8219281];
+        let result = scale
+            .invert(
+                &values,
+                &NumericScaleOptions {
+                    range_offset: Some(0.5),
+                },
+            )
+            .unwrap();
+
+        assert_approx_eq!(f32, result[0], 0.5);
+        assert_approx_eq!(f32, result[1], 1.0);
+        assert_approx_eq!(f32, result[2], 1.5);
+        assert_approx_eq!(f32, result[3], 2.0);
+        assert_approx_eq!(f32, result[4], 2.5);
     }
 
     #[test]
@@ -598,14 +651,14 @@ mod tests {
         // Test zero domain
         let scale = scale.clone().domain((0.0, 0.0));
         let values = vec![1.0, 2.0];
-        let result = scale.scale(&values).unwrap();
+        let result = scale.scale(&values, &Default::default()).unwrap();
         assert_eq!(result[0], 0.0);
         assert_eq!(result[1], 0.0);
 
         // Test negative/zero input with clamping
         let scale = scale.clone().clamp(true);
         let values = vec![-1.0, 0.0];
-        let result = scale.scale(&values).unwrap();
+        let result = scale.scale(&values, &Default::default()).unwrap();
         assert_eq!(result[0], 0.0);
         assert_eq!(result[1], 0.0);
     }

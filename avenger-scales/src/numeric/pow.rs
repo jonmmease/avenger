@@ -1,7 +1,7 @@
 use crate::error::AvengerScaleError;
 use std::sync::Arc;
 
-use super::linear::LinearNumericScale;
+use super::{linear::LinearNumericScale, opts::NumericScaleOptions};
 
 /// Handles power transformations with different exponents
 #[derive(Clone, Debug)]
@@ -147,7 +147,11 @@ impl PowNumericScale {
     }
 
     /// Maps input values from domain to range using power transform
-    pub fn scale(&self, values: &[f32]) -> Result<Vec<f32>, AvengerScaleError> {
+    pub fn scale(
+        &self,
+        values: &[f32],
+        opts: &NumericScaleOptions,
+    ) -> Result<Vec<f32>, AvengerScaleError> {
         // If range start equals end, return constant range value
         if self.range_start == self.range_end {
             return Ok(vec![self.range_start; values.len()]);
@@ -163,7 +167,9 @@ impl PowNumericScale {
 
         // At this point, we know (d1 - d0) cannot be zero
         let scale = (self.range_end - self.range_start) / (d1 - d0);
-        let offset = self.range_start - scale * self.power_fun.pow(self.domain_start);
+        let range_offset = opts.range_offset.unwrap_or(0.0);
+        let offset =
+            self.range_start - scale * self.power_fun.pow(self.domain_start) + range_offset;
 
         if self.clamp {
             let (range_min, range_max) = if self.range_start <= self.range_end {
@@ -220,7 +226,11 @@ impl PowNumericScale {
     }
 
     /// Maps output values from range back to domain using inverse power transform
-    pub fn invert(&self, values: &[f32]) -> Result<Vec<f32>, AvengerScaleError> {
+    pub fn invert(
+        &self,
+        values: &[f32],
+        opts: &NumericScaleOptions,
+    ) -> Result<Vec<f32>, AvengerScaleError> {
         let d0 = self.power_fun.pow(self.domain_start);
         let d1 = self.power_fun.pow(self.domain_end);
 
@@ -230,6 +240,7 @@ impl PowNumericScale {
         }
 
         let scale = (self.range_end - self.range_start) / (d1 - d0);
+        let range_offset = opts.range_offset.unwrap_or(0.0);
         let offset = self.range_start - scale * d0;
 
         if self.clamp {
@@ -247,7 +258,7 @@ impl PowNumericScale {
                         let normalized = (v - offset) / scale;
                         let abs_norm = normalized.abs();
                         let sign = if normalized < 0.0 { -1.0 } else { 1.0 };
-                        sign * pow_inv_fun(abs_norm)
+                        sign * pow_inv_fun(abs_norm) - range_offset
                     })
                     .collect()),
                 PowerFunction::Custom { exponent } => {
@@ -259,7 +270,7 @@ impl PowNumericScale {
                             let normalized = (v - offset) / scale;
                             let abs_norm = normalized.abs();
                             let sign = if normalized < 0.0 { -1.0 } else { 1.0 };
-                            sign * abs_norm.powf(inv_exponent)
+                            sign * abs_norm.powf(inv_exponent) - range_offset
                         })
                         .collect())
                 }
@@ -272,7 +283,7 @@ impl PowNumericScale {
                         let normalized = (v - offset) / scale;
                         let abs_norm = normalized.abs();
                         let sign = if normalized < 0.0 { -1.0 } else { 1.0 };
-                        sign * pow_inv_fun(abs_norm)
+                        sign * pow_inv_fun(abs_norm) - range_offset
                     })
                     .collect()),
                 PowerFunction::Custom { exponent } => {
@@ -283,7 +294,7 @@ impl PowNumericScale {
                             let normalized = (v - offset) / scale;
                             let abs_norm = normalized.abs();
                             let sign = if normalized < 0.0 { -1.0 } else { 1.0 };
-                            sign * abs_norm.powf(inv_exponent)
+                            sign * abs_norm.powf(inv_exponent) - range_offset
                         })
                         .collect())
                 }
@@ -342,7 +353,7 @@ mod tests {
     fn test_square() {
         let scale = PowNumericScale::new().exponent(2.0);
         let values = vec![2.0, -2.0];
-        let result = scale.scale(&values).unwrap();
+        let result = scale.scale(&values, &Default::default()).unwrap();
         assert_approx_eq!(f32, result[0], 4.0);
         assert_approx_eq!(f32, result[1], -4.0);
     }
@@ -351,25 +362,57 @@ mod tests {
     fn test_sqrt() {
         let scale = PowNumericScale::new().exponent(0.5);
         let values = vec![4.0, -4.0];
-        let result = scale.scale(&values).unwrap();
+        let result = scale.scale(&values, &Default::default()).unwrap();
         assert_approx_eq!(f32, result[0], 2.0);
         assert_approx_eq!(f32, result[1], -2.0);
+    }
+
+    #[test]
+    fn test_sqrt_range_offset() {
+        let scale = PowNumericScale::new().exponent(0.5);
+        let values = vec![4.0, -4.0];
+        let result = scale
+            .scale(
+                &values,
+                &NumericScaleOptions {
+                    range_offset: Some(1.0),
+                },
+            )
+            .unwrap();
+        assert_approx_eq!(f32, result[0], 3.0);
+        assert_approx_eq!(f32, result[1], -1.0);
     }
 
     #[test]
     fn test_custom_exponent() {
         let scale = PowNumericScale::new().exponent(3.0);
         let values = vec![2.0, -2.0];
-        let result = scale.scale(&values).unwrap();
+        let result = scale.scale(&values, &Default::default()).unwrap();
         assert_approx_eq!(f32, result[0], 8.0);
         assert_approx_eq!(f32, result[1], -8.0);
+    }
+
+    #[test]
+    fn test_custom_exponent_range_offset() {
+        let scale = PowNumericScale::new().exponent(3.0);
+        let values = vec![2.0, -2.0];
+        let result = scale
+            .scale(
+                &values,
+                &NumericScaleOptions {
+                    range_offset: Some(1.0),
+                },
+            )
+            .unwrap();
+        assert_approx_eq!(f32, result[0], 9.0);
+        assert_approx_eq!(f32, result[1], -7.0);
     }
 
     #[test]
     fn test_domain_coercion() {
         let scale = PowNumericScale::new().domain((-1.0, 2.0)).exponent(2.0);
         let values = vec![-1.0, 0.0, 1.0, 2.0];
-        let result = scale.scale(&values).unwrap();
+        let result = scale.scale(&values, &Default::default()).unwrap();
         assert_approx_eq!(f32, result[0], 0.0);
         assert_approx_eq!(f32, result[1], 0.2);
         assert_approx_eq!(f32, result[2], 0.4);
@@ -383,7 +426,7 @@ mod tests {
             .clamp(true)
             .exponent(2.0);
         let values = vec![-0.5, 0.0, 0.5, 1.0, 1.5];
-        let result = scale.scale(&values).unwrap();
+        let result = scale.scale(&values, &Default::default()).unwrap();
         assert_approx_eq!(f32, result[0], 0.0);
         assert_approx_eq!(f32, result[1], 0.0);
         assert_approx_eq!(f32, result[2], 0.25);
@@ -395,7 +438,26 @@ mod tests {
     fn test_invert_exp_1() {
         let scale = PowNumericScale::new().domain((1.0, 2.0)).range((0.0, 1.0));
         let values = vec![-0.5, 0.0, 0.5, 1.0, 1.5];
-        let result = scale.invert(&values).unwrap();
+        let result = scale.invert(&values, &Default::default()).unwrap();
+        assert_approx_eq!(f32, result[0], 0.5);
+        assert_approx_eq!(f32, result[1], 1.0);
+        assert_approx_eq!(f32, result[2], 1.5);
+        assert_approx_eq!(f32, result[3], 2.0);
+        assert_approx_eq!(f32, result[4], 2.5);
+    }
+
+    #[test]
+    fn test_invert_exp_1_range_offset() {
+        let scale = PowNumericScale::new().domain((1.0, 2.0)).range((0.0, 1.0));
+        let values = vec![0.5, 1.0, 1.5, 2.0, 2.5];
+        let result = scale
+            .invert(
+                &values,
+                &NumericScaleOptions {
+                    range_offset: Some(1.0),
+                },
+            )
+            .unwrap();
         assert_approx_eq!(f32, result[0], 0.5);
         assert_approx_eq!(f32, result[1], 1.0);
         assert_approx_eq!(f32, result[2], 1.5);
@@ -407,7 +469,7 @@ mod tests {
     fn test_negative_numbers_exp_2() {
         let scale = PowNumericScale::new().exponent(2.0);
         let values = vec![-2.0, -1.0, 0.0, 1.0, 2.0];
-        let result = scale.scale(&values).unwrap();
+        let result = scale.scale(&values, &Default::default()).unwrap();
         assert_approx_eq!(f32, result[0], -4.0);
         assert_approx_eq!(f32, result[1], -1.0);
         assert_approx_eq!(f32, result[2], 0.0);
@@ -419,7 +481,7 @@ mod tests {
     fn test_negative_domain_exp_1() {
         let scale = PowNumericScale::new().domain((-2.0, 2.0)).range((0.0, 1.0));
         let values = vec![-2.0, -1.0, 0.0, 1.0, 2.0];
-        let result = scale.scale(&values).unwrap();
+        let result = scale.scale(&values, &Default::default()).unwrap();
         assert_approx_eq!(f32, result[0], 0.0);
         assert_approx_eq!(f32, result[1], 0.25);
         assert_approx_eq!(f32, result[2], 0.5);
@@ -434,7 +496,7 @@ mod tests {
             .range((-4.0, 4.0))
             .exponent(2.0);
         let values = vec![-4.0, -2.0, 0.0, 2.0, 4.0];
-        let result = scale.invert(&values).unwrap();
+        let result = scale.invert(&values, &Default::default()).unwrap();
         assert_approx_eq!(f32, result[0], -2.0);
         assert_approx_eq!(f32, result[1], -1.414214);
         assert_approx_eq!(f32, result[2], 0.0);
