@@ -5,3 +5,5 @@ pub mod error;
 pub mod numeric;
 pub mod ordinal;
 pub mod point;
+pub mod quantile;
+pub mod quantize;
