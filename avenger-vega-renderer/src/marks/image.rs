@@ -1,6 +1,6 @@
 use crate::marks::util::zindex_to_indices;
-use avenger::marks::image::{ImageMark as RsImageMark, RgbaImage};
-use avenger::marks::value::{EncodingValue, ImageAlign, ImageBaseline};
+use avenger_scenegraph::marks::image::{RgbaImage, SceneImageMark as RsImageMark};
+use avenger_scenegraph::marks::value::{EncodingValue, ImageAlign, ImageBaseline};
 use gloo_utils::format::JsValueSerdeExt;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};

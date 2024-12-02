@@ -12,7 +12,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 avenger-vega = { path = "../../avenger-vega" }
 avenger-wgpu = { path = "../../avenger-wgpu", default-features = false }
-avenger = { path = "../../avenger" }
+avenger-scenegraph = { path = "../../avenger-scenegraph" }
 
 cfg-if = "1"
 winit = "0.30.5"

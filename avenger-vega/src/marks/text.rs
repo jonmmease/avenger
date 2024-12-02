@@ -1,11 +1,11 @@
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::MissingNullOrValue;
-use avenger::marks::mark::SceneMark;
-use avenger::marks::text::{
-    FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec, TextMark,
+use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_scenegraph::marks::text::{
+    FontStyleSpec, FontWeightSpec, SceneTextMark, TextAlignSpec, TextBaselineSpec,
 };
-use avenger::marks::value::EncodingValue;
+use avenger_scenegraph::marks::value::EncodingValue;
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
@@ -40,7 +40,7 @@ impl VegaMarkItem for VegaTextItem {}
 impl VegaMarkContainer<VegaTextItem> {
     pub fn to_scene_graph(&self, force_clip: bool) -> Result<SceneMark, AvengerVegaError> {
         // Init mark with scalar defaults
-        let mut mark = TextMark {
+        let mut mark = SceneTextMark {
             clip: self.clip || force_clip,
             zindex: self.zindex,
             ..Default::default()

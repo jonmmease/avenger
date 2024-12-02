@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct AreaMark {
+pub struct SceneAreaMark {
     pub name: String,
     pub clip: bool,
     pub len: u32,
@@ -23,7 +23,7 @@ pub struct AreaMark {
     pub zindex: Option<i32>,
 }
 
-impl AreaMark {
+impl SceneAreaMark {
     pub fn x_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
         self.x.as_iter(self.len as usize, None)
     }
@@ -45,7 +45,7 @@ impl AreaMark {
     }
 }
 
-impl Default for AreaMark {
+impl Default for SceneAreaMark {
     fn default() -> Self {
         Self {
             name: "area_mark".to_string(),

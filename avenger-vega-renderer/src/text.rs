@@ -1,4 +1,4 @@
-use avenger::marks::text::{FontStyleSpec, FontWeightNameSpec, FontWeightSpec};
+use avenger_scenegraph::marks::text::{FontStyleSpec, FontWeightNameSpec, FontWeightSpec};
 use avenger_wgpu::canvas::CanvasDimensions;
 use avenger_wgpu::error::AvengerWgpuError;
 use avenger_wgpu::marks::text::{
