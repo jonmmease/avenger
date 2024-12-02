@@ -1,13 +1,11 @@
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::CssColorOrGradient;
+use avenger_common::value::{ColorOrGradient, Gradient, ScalarOrArray, StrokeCap, StrokeJoin};
 use avenger_scenegraph::error::AvengerError;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::path::{PathTransform, ScenePathMark};
 use avenger_scenegraph::marks::symbol::parse_svg_path;
-use avenger_scenegraph::marks::value::{
-    ColorOrGradient, ScalarOrArray, Gradient, StrokeCap, StrokeJoin,
-};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 

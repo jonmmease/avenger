@@ -1,4 +1,4 @@
-use crate::marks::value::{ScalarOrArray, ImageAlign, ImageBaseline};
+use avenger_common::value::{ImageAlign, ImageBaseline, ScalarOrArray};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

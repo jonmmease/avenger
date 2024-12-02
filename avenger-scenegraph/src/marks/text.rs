@@ -1,4 +1,4 @@
-use crate::marks::value::ScalarOrArray;
+use avenger_common::value::ScalarOrArray;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

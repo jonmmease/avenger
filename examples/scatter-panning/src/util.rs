@@ -1,7 +1,7 @@
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::symbol::{SceneSymbolMark, SymbolShape};
-use avenger_scenegraph::marks::value::{ColorOrGradient, EncodingValue};
+use avenger_common::value::{ColorOrGradient, ScalarOrArray};
 use avenger_scenegraph::scene_graph::SceneGraph;
 
 use avenger_wgpu::canvas::{Canvas, CanvasDimensions, WindowCanvas};
@@ -248,17 +248,17 @@ fn make_sg(
                 shapes: vec![shape.clone()],
                 stroke_width: None,
                 len: x.len() as u32,
-                x: EncodingValue::Array { values: x },
-                y: EncodingValue::Array { values: y },
-                fill: EncodingValue::Array { values: fill },
-                size: EncodingValue::Array { values: size },
-                stroke: EncodingValue::Scalar {
+                x: ScalarOrArray::Array { values: x },
+                y: ScalarOrArray::Array { values: y },
+                fill: ScalarOrArray::Array { values: fill },
+                size: ScalarOrArray::Array { values: size },
+                stroke: ScalarOrArray::Scalar {
                     value: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
                 },
-                angle: EncodingValue::Scalar { value: 0.0 },
+                angle: ScalarOrArray::Scalar { value: 0.0 },
                 indices: None,
                 gradients: vec![],
-                shape_index: EncodingValue::Scalar { value: 0 },
+                shape_index: ScalarOrArray::Scalar { value: 0 },
                 zindex: None,
             })],
             gradients: vec![],

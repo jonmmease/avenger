@@ -1,4 +1,4 @@
-use crate::marks::value::{ColorOrGradient, Gradient, ScalarOrArray};
+use avenger_common::value::{ColorOrGradient, Gradient, ScalarOrArray};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

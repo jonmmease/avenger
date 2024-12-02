@@ -3,6 +3,7 @@ use crate::error::AvengerWgpuError;
 
 use crate::marks::gradient::{to_color_or_gradient_coord, GradientAtlasBuilder};
 use crate::marks::image::ImageAtlasBuilder;
+use avenger_common::value::{ColorOrGradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin};
 use avenger_scenegraph::marks::area::{AreaOrientation, SceneAreaMark};
 use avenger_scenegraph::marks::image::SceneImageMark;
 use avenger_scenegraph::marks::line::SceneLineMark;
@@ -11,9 +12,6 @@ use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::marks::rule::SceneRuleMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use avenger_scenegraph::marks::trail::SceneTrailMark;
-use avenger_scenegraph::marks::value::{
-    ColorOrGradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin,
-};
 use etagere::euclid::UnknownUnit;
 use image::DynamicImage;
 use itertools::izip;

@@ -1,4 +1,4 @@
-use crate::marks::value::{ColorOrGradient, ScalarOrArray, Gradient, StrokeCap, StrokeJoin};
+use avenger_common::value::{ColorOrGradient, Gradient, ScalarOrArray, StrokeCap, StrokeJoin};
 use lyon_path::geom::euclid::{Transform2D, UnknownUnit};
 use serde::{Deserialize, Serialize};
 
