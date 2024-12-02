@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct TextMark {
+pub struct SceneTextMark {
     pub name: String,
     pub clip: bool,
     pub len: u32,
@@ -23,7 +23,7 @@ pub struct TextMark {
     pub zindex: Option<i32>,
 }
 
-impl TextMark {
+impl SceneTextMark {
     pub fn text_iter(&self) -> Box<dyn Iterator<Item = &String> + '_> {
         self.text.as_iter(self.len as usize, self.indices.as_ref())
     }
@@ -66,7 +66,7 @@ impl TextMark {
     }
 }
 
-impl Default for TextMark {
+impl Default for SceneTextMark {
     fn default() -> Self {
         Self {
             name: "text_mark".to_string(),

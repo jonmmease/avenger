@@ -1,8 +1,8 @@
 use crate::marks::util::{decode_colors, decode_gradients, zindex_to_indices};
-use avenger::error::AvengerError;
-use avenger::marks::path::{PathMark as RsPathMark, PathTransform};
-use avenger::marks::symbol::parse_svg_path;
-use avenger::marks::value::ScalarOrArray;
+use avenger_scenegraph::error::AvengerError;
+use avenger_scenegraph::marks::path::{PathTransform, ScenePathMark as RsPathMark};
+use avenger_scenegraph::marks::symbol::parse_svg_path;
+use avenger_scenegraph::marks::value::ScalarOrArray;
 use gloo_utils::format::JsValueSerdeExt;
 use itertools::izip;
 use lyon_path::geom::euclid::Vector2D;

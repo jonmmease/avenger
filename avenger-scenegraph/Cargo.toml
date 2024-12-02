@@ -1,5 +1,5 @@
 [package]
-name = "avenger"
+name = "avenger-scenegraph"
 version = "0.0.8"
 edition = "2021"
 description = "A visualization engine and renderer"

@@ -1,12 +1,14 @@
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::{CssColorOrGradient, StrokeDashSpec};
-use avenger::error::AvengerError;
-use avenger::marks::group::{Clip, SceneGroup};
-use avenger::marks::line::LineMark;
-use avenger::marks::mark::SceneMark;
-use avenger::marks::symbol::{SymbolMark, SymbolShape};
-use avenger::marks::value::{ColorOrGradient, ScalarOrArray, Gradient, StrokeCap, StrokeJoin};
+use avenger_scenegraph::error::AvengerError;
+use avenger_scenegraph::marks::group::{Clip, SceneGroup};
+use avenger_scenegraph::marks::line::SceneLineMark;
+use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_scenegraph::marks::symbol::{SceneSymbolMark, SymbolShape};
+use avenger_scenegraph::marks::value::{
+    ColorOrGradient, ScalarOrArray, Gradient, StrokeCap, StrokeJoin,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -56,7 +58,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
                 };
                 let x = item.x.unwrap_or(0.0);
                 let y = item.y.unwrap_or(0.0);
-                let mark = LineMark {
+                let mark = SceneLineMark {
                     name: "".to_string(),
                     clip: false,
                     zindex: self.zindex,
@@ -103,7 +105,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
         };
 
         // Init mark with scalar defaults
-        let mut mark = SymbolMark {
+        let mut mark = SceneSymbolMark {
             stroke_width,
             clip: self.clip || force_clip,
             zindex: self.zindex,

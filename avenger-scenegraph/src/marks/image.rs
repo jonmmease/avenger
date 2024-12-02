@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct ImageMark {
+pub struct SceneImageMark {
     pub name: String,
     pub clip: bool,
     pub len: u32,
@@ -20,7 +20,7 @@ pub struct ImageMark {
     pub zindex: Option<i32>,
 }
 
-impl ImageMark {
+impl SceneImageMark {
     pub fn image_iter(&self) -> Box<dyn Iterator<Item = &RgbaImage> + '_> {
         self.image.as_iter(self.len as usize, self.indices.as_ref())
     }
@@ -46,7 +46,7 @@ impl ImageMark {
     }
 }
 
-impl Default for ImageMark {
+impl Default for SceneImageMark {
     fn default() -> Self {
         Self {
             name: "image_mark".to_string(),

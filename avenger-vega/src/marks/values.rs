@@ -1,5 +1,5 @@
 use crate::error::AvengerVegaError;
-use avenger::marks::value::{
+use avenger_scenegraph::marks::value::{
     ColorOrGradient, Gradient, GradientStop, LinearGradient, RadialGradient,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};

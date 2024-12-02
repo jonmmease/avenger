@@ -1,11 +1,13 @@
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::CssColorOrGradient;
-use avenger::error::AvengerError;
-use avenger::marks::mark::SceneMark;
-use avenger::marks::path::{PathMark, PathTransform};
-use avenger::marks::symbol::parse_svg_path;
-use avenger::marks::value::{ColorOrGradient, ScalarOrArray, Gradient, StrokeCap, StrokeJoin};
+use avenger_scenegraph::error::AvengerError;
+use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_scenegraph::marks::path::{PathTransform, ScenePathMark};
+use avenger_scenegraph::marks::symbol::parse_svg_path;
+use avenger_scenegraph::marks::value::{
+    ColorOrGradient, ScalarOrArray, Gradient, StrokeCap, StrokeJoin,
+};
 use lyon_extra::euclid::Vector2D;
 use lyon_path::geom::Angle;
 use serde::{Deserialize, Serialize};
@@ -49,7 +51,7 @@ impl VegaMarkContainer<VegaPathItem> {
         let first_join = first.and_then(|item| item.stroke_join).unwrap_or_default();
 
         // Init mark with scalar defaults
-        let mut mark = PathMark {
+        let mut mark = ScenePathMark {
             clip: self.clip || force_clip,
             zindex: self.zindex,
             stroke_cap: first_cap,

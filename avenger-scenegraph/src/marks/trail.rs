@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct TrailMark {
+pub struct SceneTrailMark {
     pub name: String,
     pub clip: bool,
     pub len: u32,
@@ -16,7 +16,7 @@ pub struct TrailMark {
     pub zindex: Option<i32>,
 }
 
-impl TrailMark {
+impl SceneTrailMark {
     pub fn x_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
         self.x.as_iter(self.len as usize, None)
     }
@@ -34,7 +34,7 @@ impl TrailMark {
     }
 }
 
-impl Default for TrailMark {
+impl Default for SceneTrailMark {
     fn default() -> Self {
         Self {
             name: "trail_mark".to_string(),

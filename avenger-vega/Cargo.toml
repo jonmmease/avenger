@@ -31,8 +31,8 @@ workspace = true
 [dependencies.tracing]
 workspace = true
 
-[dependencies.avenger]
-path = "../avenger"
+[dependencies.avenger-scenegraph]
+path = "../avenger-scenegraph"
 version = "0.0.8"
 
 [dependencies.thiserror]

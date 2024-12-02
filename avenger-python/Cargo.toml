@@ -14,8 +14,8 @@ crate-type = [ "cdylib",]
 pythonize = { workspace = true }
 pollster = "0.3"
 
-[dependencies.avenger]
-path = "../avenger"
+[dependencies.avenger-scenegraph]
+path = "../avenger-scenegraph"
 features = [ "pyo3",]
 version = "0.0.8"
 

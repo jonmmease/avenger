@@ -1,5 +1,5 @@
 use crate::marks::mark::SceneMark;
-use crate::marks::path::{PathMark, PathTransform};
+use crate::marks::path::{PathTransform, ScenePathMark};
 use crate::marks::value::{ColorOrGradient, ScalarOrArray, Gradient};
 use lyon_path::geom::euclid::Point2D;
 use lyon_path::geom::Box2D;
@@ -70,7 +70,7 @@ pub struct SceneGroup {
 }
 
 impl SceneGroup {
-    pub fn make_path_mark(&self) -> Option<PathMark> {
+    pub fn make_path_mark(&self) -> Option<ScenePathMark> {
         if self.fill.is_none() && self.stroke.is_none() {
             return None;
         }
@@ -112,7 +112,7 @@ impl SceneGroup {
             )),
         };
 
-        Some(PathMark {
+        Some(ScenePathMark {
             name: format!("path_{}", self.name),
             clip: false,
             len: 1,

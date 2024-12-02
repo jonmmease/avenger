@@ -1,8 +1,8 @@
 use crate::marks::util::zindex_to_indices;
-use avenger::marks::text::{
-    FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec, TextMark as RsTextMark,
+use avenger_scenegraph::marks::text::{
+    FontStyleSpec, FontWeightSpec, SceneTextMark as RsTextMark, TextAlignSpec, TextBaselineSpec,
 };
-use avenger::marks::value::ScalarOrArray;
+use avenger_scenegraph::marks::value::ScalarOrArray;
 use gloo_utils::format::JsValueSerdeExt;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};

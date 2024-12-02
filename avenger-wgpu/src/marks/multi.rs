@@ -3,15 +3,17 @@ use crate::error::AvengerWgpuError;
 
 use crate::marks::gradient::{to_color_or_gradient_coord, GradientAtlasBuilder};
 use crate::marks::image::ImageAtlasBuilder;
-use avenger::marks::area::{AreaMark, AreaOrientation};
-use avenger::marks::image::ImageMark;
-use avenger::marks::line::LineMark;
-use avenger::marks::path::{PathMark, PathTransform};
-use avenger::marks::rect::RectMark;
-use avenger::marks::rule::RuleMark;
-use avenger::marks::symbol::SymbolMark;
-use avenger::marks::trail::TrailMark;
-use avenger::marks::value::{ColorOrGradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin};
+use avenger_scenegraph::marks::area::{AreaOrientation, SceneAreaMark};
+use avenger_scenegraph::marks::image::SceneImageMark;
+use avenger_scenegraph::marks::line::SceneLineMark;
+use avenger_scenegraph::marks::path::{PathTransform, ScenePathMark};
+use avenger_scenegraph::marks::rect::SceneRectMark;
+use avenger_scenegraph::marks::rule::SceneRuleMark;
+use avenger_scenegraph::marks::symbol::SceneSymbolMark;
+use avenger_scenegraph::marks::trail::SceneTrailMark;
+use avenger_scenegraph::marks::value::{
+    ColorOrGradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin,
+};
 use etagere::euclid::UnknownUnit;
 use image::DynamicImage;
 use itertools::izip;
@@ -39,9 +41,9 @@ use wgpu::{
 // Import rayon prelude as required by par_izip.
 use crate::marks::text::{TextAtlasBuilderTrait, TextInstance};
 
-use avenger::marks::arc::ArcMark;
-use avenger::marks::group::Clip;
-use avenger::marks::text::TextMark;
+use avenger_scenegraph::marks::arc::SceneArcMark;
+use avenger_scenegraph::marks::group::Clip;
+use avenger_scenegraph::marks::text::SceneTextMark;
 
 #[cfg(feature = "rayon")]
 use {crate::par_izip, rayon::prelude::*};
@@ -188,7 +190,7 @@ impl MultiMarkRenderer {
     #[tracing::instrument(skip_all)]
     pub fn add_rule_mark(
         &mut self,
-        mark: &RuleMark,
+        mark: &SceneRuleMark,
         origin: [f32; 2],
         clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
@@ -351,7 +353,7 @@ impl MultiMarkRenderer {
     #[tracing::instrument(skip_all)]
     pub fn add_rect_mark(
         &mut self,
-        mark: &RectMark,
+        mark: &SceneRectMark,
         origin: [f32; 2],
         clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
@@ -542,7 +544,7 @@ impl MultiMarkRenderer {
     #[tracing::instrument(skip_all)]
     pub fn add_path_mark(
         &mut self,
-        mark: &PathMark,
+        mark: &ScenePathMark,
         origin: [f32; 2],
         clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
@@ -644,7 +646,7 @@ impl MultiMarkRenderer {
     #[tracing::instrument(skip_all)]
     pub fn add_symbol_mark(
         &mut self,
-        mark: &SymbolMark,
+        mark: &SceneSymbolMark,
         origin: [f32; 2],
         clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
@@ -774,7 +776,7 @@ impl MultiMarkRenderer {
     #[tracing::instrument(skip_all)]
     pub fn add_line_mark(
         &mut self,
-        mark: &LineMark,
+        mark: &SceneLineMark,
         origin: [f32; 2],
         clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
@@ -920,7 +922,7 @@ impl MultiMarkRenderer {
     #[tracing::instrument(skip_all)]
     pub fn add_area_mark(
         &mut self,
-        mark: &AreaMark,
+        mark: &SceneAreaMark,
         origin: [f32; 2],
         clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
@@ -1045,7 +1047,7 @@ impl MultiMarkRenderer {
     #[tracing::instrument(skip_all)]
     pub fn add_trail_mark(
         &mut self,
-        mark: &TrailMark,
+        mark: &SceneTrailMark,
         origin: [f32; 2],
         clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
@@ -1131,7 +1133,7 @@ impl MultiMarkRenderer {
     #[tracing::instrument(skip_all)]
     pub fn add_arc_mark(
         &mut self,
-        mark: &ArcMark,
+        mark: &SceneArcMark,
         origin: [f32; 2],
         clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
@@ -1275,7 +1277,7 @@ impl MultiMarkRenderer {
     #[tracing::instrument(skip_all)]
     pub fn add_image_mark(
         &mut self,
-        mark: &ImageMark,
+        mark: &SceneImageMark,
         origin: [f32; 2],
         clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
@@ -1414,7 +1416,7 @@ impl MultiMarkRenderer {
     #[tracing::instrument(skip_all)]
     pub fn add_text_mark(
         &mut self,
-        mark: &TextMark,
+        mark: &SceneTextMark,
         origin: [f32; 2],
         clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
