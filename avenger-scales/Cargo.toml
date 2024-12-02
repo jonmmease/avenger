@@ -1,0 +1,10 @@
+[package]
+name = "avenger-scales"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+thiserror = { workspace = true }
+
+[dev-dependencies]
+float-cmp = "0.10.0"
