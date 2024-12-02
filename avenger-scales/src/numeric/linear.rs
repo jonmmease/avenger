@@ -140,15 +140,9 @@ impl LinearNumericScale {
 
         if self.clamp {
             let (range_min, range_max) = if self.range_start <= self.range_end {
-                (
-                    self.range_start + range_offset,
-                    self.range_end + range_offset,
-                )
+                (self.range_start, self.range_end)
             } else {
-                (
-                    self.range_end + range_offset,
-                    self.range_start + range_offset,
-                )
+                (self.range_end, self.range_start)
             };
 
             Ok(values
