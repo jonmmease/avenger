@@ -4,7 +4,7 @@ use crate::marks::text::{
     GlyphBBox, GlyphBBoxAndAtlasCoords, GlyphImage, PhysicalGlyphPosition, TextRasterizationBuffer,
     TextRasterizationConfig, TextRasterizer,
 };
-use avenger::marks::text::{FontWeightNameSpec, FontWeightSpec};
+use avenger_scenegraph::marks::text::{FontWeightNameSpec, FontWeightSpec};
 use cosmic_text::fontdb::Database;
 use cosmic_text::{
     Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCache, SwashContent, Weight,

@@ -1,4 +1,4 @@
-use avenger::scene_graph::SceneGraph as RsSceneGraph;
+use avenger_scenegraph::scene_graph::SceneGraph as RsSceneGraph;
 use avenger_vega::scene_graph::VegaSceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasDimensions, PngCanvas};
 use avenger_wgpu::register_font_directory as register_font_directory_rs;

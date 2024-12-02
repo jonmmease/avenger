@@ -137,7 +137,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1fdabc7756949593fe60f30ec81974b613357de856987752631dea1e3394c80"
 
 [[package]]
-name = "avenger"
+name = "avenger-scenegraph"
 version = "0.0.8"
 dependencies = [
  "image",
@@ -151,7 +151,7 @@ dependencies = [
 name = "avenger-vega"
 version = "0.0.8"
 dependencies = [
- "avenger",
+ "avenger-scenegraph",
  "cfg-if",
  "csscolorparser",
  "image",
@@ -168,7 +168,7 @@ dependencies = [
 name = "avenger-wgpu"
 version = "0.0.8"
 dependencies = [
- "avenger",
+ "avenger-scenegraph",
  "bytemuck",
  "cfg-if",
  "colorgrad",
@@ -2603,7 +2603,7 @@ dependencies = [
 name = "wgpu-winit"
 version = "0.1.0"
 dependencies = [
- "avenger",
+ "avenger-scenegraph",
  "avenger-vega",
  "avenger-wgpu",
  "cfg-if",

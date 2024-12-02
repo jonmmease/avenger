@@ -1,5 +1,5 @@
-use avenger::marks::trail::TrailMark as RsTrailMark;
-use avenger::marks::value::ScalarOrArray;
+use avenger_scenegraph::marks::trail::SceneTrailMark as RsTrailMark;
+use avenger_scenegraph::marks::value::ScalarOrArray;
 use avenger_vega::marks::values::CssColorOrGradient;
 use gloo_utils::format::JsValueSerdeExt;
 use wasm_bindgen::prelude::wasm_bindgen;

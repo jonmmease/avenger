@@ -1,5 +1,5 @@
 use crate::marks::multi::GRADIENT_TEXTURE_CODE;
-use avenger::marks::value::{ColorOrGradient, Gradient};
+use avenger_scenegraph::marks::value::{ColorOrGradient, Gradient};
 use colorgrad::{Color, Gradient as ColorGradGradient, GradientBuilder};
 use image::{DynamicImage, Rgba};
 use wgpu::Extent3d;
