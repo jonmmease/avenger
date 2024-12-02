@@ -1,13 +1,14 @@
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMark, VegaMarkContainer, VegaMarkItem};
-use crate::marks::values::CssColorOrGradient;
+use avenger_common::value::Gradient;
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::value::Gradient;
 use lyon_extra::euclid::{Box2D, Point2D};
 use lyon_path::builder::BorderRadii;
 use lyon_path::Winding;
 use serde::{Deserialize, Serialize};
+
+use super::values::CssColorOrGradient;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

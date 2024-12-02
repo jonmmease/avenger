@@ -1,9 +1,9 @@
-use avenger_common::value::{ColorOrGradient, Gradient, ScalarOrArray, StrokeCap, StrokeJoin};
+use avenger_common::valye::{ColorOrGradient, Gradient, ScalarOrArray, StrokeCap, StrokeJoin};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct SceneAreaMark {
+pub struct AreaMark {
     pub name: String,
     pub clip: bool,
     pub len: u32,
@@ -23,7 +23,7 @@ pub struct SceneAreaMark {
     pub zindex: Option<i32>,
 }
 
-impl SceneAreaMark {
+impl AreaMark {
     pub fn x_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
         self.x.as_iter(self.len as usize, None)
     }
@@ -45,7 +45,7 @@ impl SceneAreaMark {
     }
 }
 
-impl Default for SceneAreaMark {
+impl Default for AreaMark {
     fn default() -> Self {
         Self {
             name: "area_mark".to_string(),

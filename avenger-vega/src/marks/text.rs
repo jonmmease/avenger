@@ -1,11 +1,11 @@
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::MissingNullOrValue;
+use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::text::{
     FontStyleSpec, FontWeightSpec, SceneTextMark, TextAlignSpec, TextBaselineSpec,
 };
-use avenger_scenegraph::marks::value::ScalarOrArray;
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 

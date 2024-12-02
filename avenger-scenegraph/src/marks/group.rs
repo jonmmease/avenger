@@ -1,6 +1,6 @@
 use crate::marks::mark::SceneMark;
 use crate::marks::path::{PathTransform, ScenePathMark};
-use crate::marks::value::{ColorOrGradient, ScalarOrArray, Gradient};
+use avenger_common::value::{ColorOrGradient, Gradient, ScalarOrArray};
 use lyon_path::geom::euclid::Point2D;
 use lyon_path::geom::Box2D;
 use lyon_path::Winding;

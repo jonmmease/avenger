@@ -25,3 +25,6 @@ features = [ "png",]
 [dependencies.pyo3]
 workspace = true
 optional = true
+
+[dependencies.avenger-common]
+path = "../avenger-common"
