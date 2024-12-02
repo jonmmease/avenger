@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
+
 use crate::error::AvengerScaleError;
 
 use super::opts::NumericScaleOptions;
@@ -154,19 +156,14 @@ impl LogNumericScale {
     }
 
     /// Maps input values from domain to range using log transform
-    pub fn scale(
+    pub fn scale<'a>(
         &self,
-        values: &[f32],
+        values: impl Into<ScalarOrArrayRef<'a, f32>>,
         opts: &NumericScaleOptions,
-    ) -> Result<Vec<f32>, AvengerScaleError> {
-        // Handle degenerate domain case
-        if self.domain_start == self.domain_end {
-            return Ok(vec![self.range_start; values.len()]);
-        }
-
-        // Handle degenerate range case
-        if self.range_start == self.range_end {
-            return Ok(vec![self.range_start; values.len()]);
+    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+        // Handle degenerate domain and range cases
+        if self.domain_start == self.domain_end || self.range_start == self.range_end {
+            return Ok(values.into().map(|_| self.range_start));
         }
 
         // Transform to log space
@@ -186,7 +183,7 @@ impl LogNumericScale {
 
         // Handle degenerate domain in log space
         if log_domain_span == 0.0 || log_domain_span.is_nan() {
-            return Ok(vec![self.range_start; values.len()]);
+            return Ok(values.into().map(|_| self.range_start));
         }
 
         let scale = (self.range_end - self.range_start) / log_domain_span;
@@ -200,66 +197,57 @@ impl LogNumericScale {
                 (self.range_end, self.range_start)
             };
 
-            Ok(values
-                .iter()
-                .map(|&v| {
-                    if v.is_nan() {
-                        return f32::NAN;
-                    }
-                    if v <= 0.0 {
-                        return if self.range_start <= self.range_end {
-                            range_min
-                        } else {
-                            range_max
-                        };
-                    }
-                    let log_v = self.log(v);
-                    (scale * log_v + offset).clamp(range_min, range_max)
-                })
-                .collect())
+            Ok(values.into().map(|&v| {
+                if v.is_nan() {
+                    return f32::NAN;
+                }
+                if v <= 0.0 {
+                    return if self.range_start <= self.range_end {
+                        range_min
+                    } else {
+                        range_max
+                    };
+                }
+                let log_v = self.log(v);
+                (scale * log_v + offset).clamp(range_min, range_max)
+            }))
         } else {
             match self.log_fun.as_ref() {
-                LogFunction::Static { log_fun, .. } => Ok(values
-                    .iter()
-                    .map(|&v| {
+                LogFunction::Static { log_fun, .. } => Ok(values.into().map(|&v| {
+                    if v < 0.0 {
+                        scale * (-log_fun(-v)) + offset
+                    } else if v > 0.0 {
+                        scale * log_fun(v) + offset
+                    } else {
+                        f32::NAN
+                    }
+                })),
+                LogFunction::Custom { ln_base, .. } => {
+                    let ln_base = *ln_base;
+                    Ok(values.into().map(|&v| {
                         if v < 0.0 {
-                            scale * (-log_fun(-v)) + offset
+                            scale * (-v.ln() / ln_base) + offset
                         } else if v > 0.0 {
-                            scale * log_fun(v) + offset
+                            scale * (v.ln() / ln_base) + offset
                         } else {
                             f32::NAN
                         }
-                    })
-                    .collect()),
-                LogFunction::Custom { ln_base, .. } => {
-                    let ln_base = *ln_base;
-                    Ok(values
-                        .iter()
-                        .map(|&v| {
-                            if v < 0.0 {
-                                scale * (-v.ln() / ln_base) + offset
-                            } else if v > 0.0 {
-                                scale * (v.ln() / ln_base) + offset
-                            } else {
-                                f32::NAN
-                            }
-                        })
-                        .collect())
+                    }))
                 }
             }
         }
     }
 
     /// Maps output values from range back to domain using exponential transform
-    pub fn invert(
+    pub fn invert<'a>(
         &self,
-        values: &[f32],
+        values: impl Into<ScalarOrArrayRef<'a, f32>>,
         opts: &NumericScaleOptions,
-    ) -> Result<Vec<f32>, AvengerScaleError> {
+    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
         // Handle degenerate cases
         if self.domain_start <= 0.0 || self.domain_end <= 0.0 || self.range_start == self.range_end
         {
-            return Ok(vec![self.range_start; values.len()]);
+            return Ok(values.into().map(|_| self.range_start));
         }
 
         // Transform to log space
@@ -269,7 +257,7 @@ impl LogNumericScale {
 
         // Handle degenerate domain in log space
         if log_domain_span == 0.0 || log_domain_span.is_nan() {
-            return Ok(vec![self.range_start; values.len()]);
+            return Ok(values.into().map(|_| self.range_start));
         }
 
         let scale = (self.range_end - self.range_start) / log_domain_span;
@@ -284,31 +272,23 @@ impl LogNumericScale {
             };
 
             match self.log_fun.as_ref() {
-                LogFunction::Static { pow_fun, .. } => Ok(values
-                    .iter()
-                    .map(|&v| {
-                        let v = v.clamp(range_min, range_max);
-                        pow_fun((v - offset) / scale)
-                    })
-                    .collect()),
-                LogFunction::Custom { base, .. } => Ok(values
-                    .iter()
-                    .map(|&v| {
-                        let v = v.clamp(range_min, range_max);
-                        base.powf((v - offset) / scale)
-                    })
-                    .collect()),
+                LogFunction::Static { pow_fun, .. } => Ok(values.into().map(|&v| {
+                    let v = v.clamp(range_min, range_max);
+                    pow_fun((v - offset) / scale)
+                })),
+                LogFunction::Custom { base, .. } => Ok(values.into().map(|&v| {
+                    let v = v.clamp(range_min, range_max);
+                    base.powf((v - offset) / scale)
+                })),
             }
         } else {
             match self.log_fun.as_ref() {
-                LogFunction::Static { pow_fun, .. } => Ok(values
-                    .iter()
-                    .map(|&v| pow_fun((v - offset) / scale))
-                    .collect()),
-                LogFunction::Custom { base, .. } => Ok(values
-                    .iter()
-                    .map(|&v| base.powf((v - offset) / scale))
-                    .collect()),
+                LogFunction::Static { pow_fun, .. } => {
+                    Ok(values.into().map(|&v| pow_fun((v - offset) / scale)))
+                }
+                LogFunction::Custom { base, .. } => {
+                    Ok(values.into().map(|&v| base.powf((v - offset) / scale)))
+                }
             }
         }
     }
@@ -469,11 +449,17 @@ mod tests {
         assert_eq!(scale.log_fun.base(), 10.0);
 
         let values = vec![5.0];
-        let result = scale.scale(&values, &Default::default()).unwrap();
+        let result = scale
+            .scale(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 0.69897);
 
         let values = vec![0.69897];
-        let result = scale.invert(&values, &Default::default()).unwrap();
+        let result = scale
+            .invert(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 5.0);
     }
 
@@ -481,7 +467,10 @@ mod tests {
     fn test_domain_coercion() {
         let scale = LogNumericScale::new(Some(10.0)).domain((1.0, 2.0));
         let values = vec![0.5, 1.0, 1.5, 2.0, 2.5];
-        let result = scale.scale(&values, &Default::default()).unwrap();
+        let result = scale
+            .scale(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], -1.0);
         assert_approx_eq!(f32, result[1], 0.0);
@@ -501,7 +490,8 @@ mod tests {
                     range_offset: Some(0.5),
                 },
             )
-            .unwrap();
+            .unwrap()
+            .as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], -0.5);
         assert_approx_eq!(f32, result[1], 0.5);
@@ -514,7 +504,10 @@ mod tests {
     fn test_negative_domain() {
         let scale = LogNumericScale::new(Some(10.0)).domain((-100.0, -1.0));
         let values = vec![-50.0];
-        let result = scale.scale(&values, &Default::default()).unwrap();
+        let result = scale
+            .scale(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 0.150515);
     }
 
@@ -523,14 +516,20 @@ mod tests {
         // Test unclamped behavior
         let scale = LogNumericScale::new(Some(10.0));
         let values = vec![0.5, 15.0];
-        let result = scale.scale(&values, &Default::default()).unwrap();
+        let result = scale
+            .scale(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], -0.30103);
         assert_approx_eq!(f32, result[1], 1.176091);
 
         // Test clamped behavior
         let scale = LogNumericScale::new(Some(10.0)).clamp(true);
         let values = vec![-1.0, 5.0, 15.0];
-        let result = scale.scale(&values, &Default::default()).unwrap();
+        let result = scale
+            .scale(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 0.0);
         assert_approx_eq!(f32, result[1], 0.69897);
         assert_approx_eq!(f32, result[2], 1.0);
@@ -547,7 +546,8 @@ mod tests {
                     range_offset: Some(0.5),
                 },
             )
-            .unwrap();
+            .unwrap()
+            .as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], 0.5);
         assert_approx_eq!(f32, result[1], 1.0);
@@ -651,14 +651,20 @@ mod tests {
         // Test zero domain
         let scale = scale.clone().domain((0.0, 0.0));
         let values = vec![1.0, 2.0];
-        let result = scale.scale(&values, &Default::default()).unwrap();
+        let result = scale
+            .scale(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
         assert_eq!(result[0], 0.0);
         assert_eq!(result[1], 0.0);
 
         // Test negative/zero input with clamping
         let scale = scale.clone().clamp(true);
         let values = vec![-1.0, 0.0];
-        let result = scale.scale(&values, &Default::default()).unwrap();
+        let result = scale
+            .scale(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
         assert_eq!(result[0], 0.0);
         assert_eq!(result[1], 0.0);
     }

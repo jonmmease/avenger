@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
+
 use crate::error::AvengerScaleError;
 
 /// A discrete scale that maps input values to a fixed set of output values.
@@ -9,8 +11,8 @@ use crate::error::AvengerScaleError;
 #[derive(Debug, Clone)]
 pub struct OrdinalScale<D, R>
 where
-    D: Clone + Hash + Eq + Debug,
-    R: Clone + Debug,
+    D: Clone + Hash + Eq + Debug + Sync + 'static,
+    R: Clone + Debug + Sync + 'static,
 {
     mapping: HashMap<D, R>,
     default_value: R,
@@ -18,8 +20,8 @@ where
 
 impl<D, R> OrdinalScale<D, R>
 where
-    D: Clone + Hash + Eq + Debug,
-    R: Clone + Debug,
+    D: Clone + Hash + Eq + Debug + Sync + 'static,
+    R: Clone + Debug + Sync + 'static,
 {
     /// Creates a new ordinal scale from domain and range arrays with a required default value
     pub fn new(domain: &[D], range: &[R], default_value: R) -> Result<Self, AvengerScaleError> {
@@ -59,11 +61,10 @@ where
     }
 
     /// Maps input values to their corresponding range values using the ordinal mapping
-    pub fn scale(&self, values: &[D]) -> Result<Vec<R>, AvengerScaleError> {
-        Ok(values
-            .iter()
+    pub fn scale<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, D>>) -> ScalarOrArray<R> {
+        values
+            .into()
             .map(|v| self.mapping.get(v).unwrap_or(&self.default_value).clone())
-            .collect())
     }
 }
 
@@ -84,7 +85,7 @@ mod tests {
         let values = vec!["b", "a", "d", "b", "d"];
 
         // Apply scale
-        let result = scale.scale(&values)?;
+        let result = scale.scale(&values).as_vec(values.len(), None);
         assert_eq!(result, vec!["green", "red", "gray", "green", "gray"]);
 
         Ok(())
@@ -105,7 +106,7 @@ mod tests {
         let values = vec!["b", "a", "d", "b", "d"];
 
         // Apply scale
-        let result = scale.scale(&values)?;
+        let result = scale.scale(&values).as_vec(values.len(), None);
         assert_eq!(
             result,
             vec![Some("green"), Some("red"), None, Some("green"), None]
@@ -150,7 +151,7 @@ mod tests {
             CustomDomain("d".into()),
         ];
 
-        let result = scale.scale(&values)?;
+        let result = scale.scale(&values).as_vec(values.len(), None);
         assert_eq!(result, vec![CustomRange(2), CustomRange(1), CustomRange(0)]);
 
         Ok(())

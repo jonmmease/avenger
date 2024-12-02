@@ -1,4 +1,5 @@
 pub mod opts;
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 use opts::BandScaleOptions;
 
 use crate::error::AvengerScaleError;
@@ -12,7 +13,7 @@ use std::hash::Hash;
 /// The continuous range is automatically divided into uniform bands.
 /// Commonly used for bar charts with ordinal or categorical dimensions.
 #[derive(Debug, Clone)]
-pub struct BandScale<D: Debug + Clone + Hash + Eq> {
+pub struct BandScale<D: Debug + Clone + Hash + Eq + Sync + 'static> {
     domain: Vec<D>,
     ordinal_scale: OrdinalScale<D, f32>,
     range: (f32, f32),
@@ -22,7 +23,7 @@ pub struct BandScale<D: Debug + Clone + Hash + Eq> {
     round: bool,
 }
 
-impl<D: Debug + Clone + Hash + Eq> BandScale<D> {
+impl<D: Debug + Clone + Hash + Eq + Sync + 'static> BandScale<D> {
     /// Creates a new band scale with the given domain.
     ///
     /// # Defaults
@@ -241,21 +242,16 @@ impl<D: Debug + Clone + Hash + Eq> BandScale<D> {
     /// Maps input values to their corresponding band positions.
     ///
     /// Returns an error if the domain is empty.
-    pub fn scale(
+    pub fn scale<'a>(
         &self,
-        values: &[D],
+        values: impl Into<ScalarOrArrayRef<'a, D>>,
         opts: &BandScaleOptions,
-    ) -> Result<Vec<f32>, AvengerScaleError> {
+    ) -> ScalarOrArray<f32> {
         if opts.band.is_some() || opts.range_offset.is_some() {
             let band = opts.band.unwrap_or(0.0);
             let range_offset = opts.range_offset.unwrap_or(0.0);
             let offset = self.bandwidth() * band + range_offset;
-            Ok(self
-                .ordinal_scale
-                .scale(values)?
-                .iter()
-                .map(|v| v + offset)
-                .collect())
+            self.ordinal_scale.scale(values).map(|v| v + offset)
         } else {
             self.ordinal_scale.scale(values)
         }
@@ -292,7 +288,9 @@ impl<D: Debug + Clone + Hash + Eq> BandScale<D> {
         }
 
         // Calculate band positions
-        let values = self.scale(&self.domain, opts).ok()?;
+        let values = self
+            .scale(&self.domain, opts)
+            .as_vec(self.domain.len(), None);
 
         // Binary search for indices
         let mut a = values.partition_point(|&x| x <= lo).saturating_sub(1);
@@ -367,7 +365,9 @@ mod tests {
         let scale = BandScale::try_new(domain)?;
 
         let values = vec!["a", "b", "b", "c", "f"];
-        let result = scale.scale(&values, &BandScaleOptions::default())?;
+        let result = scale
+            .scale(&values, &BandScaleOptions::default())
+            .as_vec(values.len(), None);
 
         // With 3 bands in [0,1] and no padding, expect bands at 0.0, 0.333, 0.667
         assert_approx_eq!(f32, result[0], 0.0); // "a"
@@ -389,7 +389,9 @@ mod tests {
             .padding(0.2)?;
 
         let values = vec!["a", "b", "b", "c", "f"];
-        let result = scale.scale(&values, &BandScaleOptions::default())?;
+        let result = scale
+            .scale(&values, &BandScaleOptions::default())
+            .as_vec(values.len(), None);
 
         // With padding of 0.2, points should be inset
         assert_approx_eq!(f32, result[0], 7.5); // "a"
@@ -411,7 +413,9 @@ mod tests {
             .round(true)?;
 
         let values = vec!["a", "b", "b", "c", "f"];
-        let result = scale.scale(&values, &BandScaleOptions::default())?;
+        let result = scale
+            .scale(&values, &BandScaleOptions::default())
+            .as_vec(values.len(), None);
 
         // With rounding, values should be integers
         assert_eq!(result[0], 1.0); // "a"
@@ -523,7 +527,9 @@ mod tests {
         let scale: BandScale<String> =
             BandScale::try_new(vec!["A".into(), "B".into(), "C".into()])?;
         let values = vec!["A".into(), "B".into(), "C".into()];
-        let result = scale.scale(&values, &BandScaleOptions::default())?;
+        let result = scale
+            .scale(&values, &BandScaleOptions::default())
+            .as_vec(values.len(), None);
 
         let margin = F32Margin {
             epsilon: 0.0001,
@@ -541,13 +547,15 @@ mod tests {
         let scale: BandScale<String> =
             BandScale::try_new(vec!["A".into(), "B".into(), "C".into()])?;
         let values = vec!["A".into(), "B".into(), "C".into()];
-        let result = scale.scale(
-            &values,
-            &BandScaleOptions {
-                band: Some(0.5),
-                ..Default::default()
-            },
-        )?;
+        let result = scale
+            .scale(
+                &values,
+                &BandScaleOptions {
+                    band: Some(0.5),
+                    ..Default::default()
+                },
+            )
+            .as_vec(values.len(), None);
 
         let margin = F32Margin {
             epsilon: 0.0001,
@@ -564,14 +572,16 @@ mod tests {
         let scale: BandScale<String> =
             BandScale::try_new(vec!["A".into(), "B".into(), "C".into()])?;
         let values = vec!["A".into(), "B".into(), "C".into()];
-        let result = scale.scale(
-            &values,
-            &BandScaleOptions {
-                band: Some(0.5),
-                range_offset: Some(1.0),
-                ..Default::default()
-            },
-        )?;
+        let result = scale
+            .scale(
+                &values,
+                &BandScaleOptions {
+                    band: Some(0.5),
+                    range_offset: Some(1.0),
+                    ..Default::default()
+                },
+            )
+            .as_vec(values.len(), None);
 
         let margin = F32Margin {
             epsilon: 0.0001,

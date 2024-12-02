@@ -1,3 +1,5 @@
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
+
 use crate::error::AvengerScaleError;
 use std::fmt::Debug;
 
@@ -9,7 +11,7 @@ use std::fmt::Debug;
 #[derive(Debug, Clone)]
 pub struct BinOrdinalScale<R>
 where
-    R: Clone + Debug,
+    R: Clone + Debug + Sync,
 {
     bins: Vec<f32>,
     range: Vec<R>,
@@ -18,7 +20,7 @@ where
 
 impl<R> BinOrdinalScale<R>
 where
-    R: Clone + Debug,
+    R: Clone + Debug + Sync,
 {
     pub fn try_new(bins: Vec<f32>, range: Vec<R>, default: R) -> Result<Self, AvengerScaleError> {
         if bins.is_empty() {
@@ -48,15 +50,11 @@ where
         &self.range
     }
 
-    pub fn scale(&self, values: &[f32]) -> Result<Vec<R>, AvengerScaleError> {
+    pub fn scale<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, f32>>) -> ScalarOrArray<R> {
         let bins = &self.bins;
         let range_len = self.range.len() as usize;
 
-        // Build array of indices, with nulls for non-finite values
-        // let mut indices: Vec<Option<u32>> = Vec::with_capacity(values.len());
-        let mut result: Vec<R> = Vec::with_capacity(values.len());
-
-        for x in values.iter() {
+        values.into().map(|x| {
             if x.is_finite() {
                 // Find bin index and apply modulo to cycle through range values
                 let idx = match bins.binary_search_by(|t| t.partial_cmp(&x).unwrap()) {
@@ -64,18 +62,16 @@ where
                     Err(i) => {
                         if i == 0 || i >= bins.len() {
                             // Out of domain - return None
-                            result.push(self.default.clone());
-                            continue;
+                            return self.default.clone();
                         }
                         (i - 1) as usize
                     }
                 } % range_len;
-                result.push(self.range[idx].clone());
+                self.range[idx].clone()
             } else {
-                result.push(self.default.clone());
+                self.default.clone()
             }
-        }
-        Ok(result)
+        })
     }
 }
 
@@ -91,7 +87,7 @@ mod tests {
             BinOrdinalScale::try_new(vec![0.0, 10.0, 20.0, 30.0], vec!["red", "blue"], "black")?;
 
         let values = vec![5.0, 15.0, 25.0, f32::NAN];
-        let result = scale.scale(&values)?;
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         assert_eq!(result[0], "red"); // First bin maps to first color
         assert_eq!(result[1], "blue"); // Second bin maps to second color
@@ -106,7 +102,7 @@ mod tests {
         let scale = BinOrdinalScale::try_new(vec![0.0, 10.0, 20.0], vec!["red", "blue"], "black")?;
 
         let values = vec![-5.0, 5.0, 25.0];
-        let result = scale.scale(&values)?;
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         assert_eq!(result[0], "black"); // Below first bin
         assert_eq!(result[1], "red"); // In first bin
@@ -121,7 +117,7 @@ mod tests {
             BinOrdinalScale::try_new(vec![0.0, 1.0, 2.0, 3.0, 4.0], vec![10.0, 20.0], f32::NAN)?;
 
         let values = vec![0.5, 1.5, 2.5, 3.5];
-        let result = scale.scale(&values)?;
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], 10.0); // First bin -> first value
         assert_approx_eq!(f32, result[1], 20.0); // Second bin -> second value

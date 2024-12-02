@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 thiserror = { workspace = true }
 palette = { workspace = true }
+avenger-common = { path = "../avenger-common" }
 
 [dev-dependencies]
 float-cmp = "0.10.0"

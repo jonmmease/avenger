@@ -1,3 +1,5 @@
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
+
 use crate::error::AvengerScaleError;
 
 use super::linear::LinearNumericScale;
@@ -87,19 +89,20 @@ impl SymlogNumericScale {
     }
 
     /// Maps input values from domain to range using symlog transform
-    pub fn scale(
+    pub fn scale<'a>(
         &self,
-        values: &[f32],
+        values: impl Into<ScalarOrArrayRef<'a, f32>>,
         opts: &NumericScaleOptions,
-    ) -> Result<Vec<f32>, AvengerScaleError> {
+    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
         // Handle degenerate domain case
-        if self.domain_start == self.domain_end {
-            return Ok(vec![self.range_start; values.len()]);
-        }
-
-        // Handle degenerate range case
-        if self.range_start == self.range_end {
-            return Ok(vec![self.range_start; values.len()]);
+        if self.domain_start == self.domain_end
+            || self.range_start == self.range_end
+            || self.domain_start.is_nan()
+            || self.domain_end.is_nan()
+            || self.range_start.is_nan()
+            || self.range_end.is_nan()
+        {
+            return Ok(values.into().map(|_| self.range_start));
         }
 
         // Pre-compute transformed domain endpoints
@@ -120,66 +123,61 @@ impl SymlogNumericScale {
                 (self.range_end, self.range_start)
             };
 
-            Ok(values
-                .iter()
-                .map(|&v| {
-                    if v.is_nan() {
-                        return f32::NAN;
+            Ok(values.into().map(|&v| {
+                if v.is_nan() {
+                    return f32::NAN;
+                }
+                if v.is_infinite() {
+                    if v.is_sign_positive() {
+                        return range_max;
+                    } else {
+                        return range_min;
                     }
-                    if v.is_infinite() {
-                        if v.is_sign_positive() {
-                            return range_max;
-                        } else {
-                            return range_min;
-                        }
-                    }
-                    // Apply symlog transform
-                    let sign = if v < 0.0 { -1.0 } else { 1.0 };
-                    let transformed = sign * (1.0 + (v.abs() / constant)).ln();
+                }
+                // Apply symlog transform
+                let sign: f32 = if v < 0.0 { -1.0 } else { 1.0 };
+                let transformed = sign * (1.0 + (v.abs() / constant)).ln();
 
-                    // Apply scale and offset, then clamp
-                    (scale * transformed + offset).clamp(range_min, range_max)
-                })
-                .collect())
+                // Apply scale and offset, then clamp
+                (scale * transformed + offset).clamp(range_min, range_max)
+            }))
         } else {
-            Ok(values
-                .iter()
-                .map(|&v| {
-                    if v.is_nan() {
-                        return f32::NAN;
-                    }
-                    if v.is_infinite() {
-                        return if v.is_sign_positive() {
-                            self.range_end
-                        } else {
-                            self.range_start
-                        };
-                    }
-                    // Apply symlog transform
-                    let sign = if v < 0.0 { -1.0 } else { 1.0 };
-                    let transformed = sign * (1.0 + (v.abs() / constant)).ln();
+            Ok(values.into().map(|&v| {
+                if v.is_nan() {
+                    return f32::NAN;
+                }
+                if v.is_infinite() {
+                    return if v.is_sign_positive() {
+                        self.range_end
+                    } else {
+                        self.range_start
+                    };
+                }
+                // Apply symlog transform
+                let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                let transformed = sign * (1.0 + (v.abs() / constant)).ln();
 
-                    // Apply scale and offset
-                    scale * transformed + offset
-                })
-                .collect())
+                // Apply scale and offset
+                scale * transformed + offset
+            }))
         }
     }
 
     /// Maps output values from range back to domain using inverse symlog transform
-    pub fn invert(
+    pub fn invert<'a>(
         &self,
-        values: &[f32],
+        values: impl Into<ScalarOrArrayRef<'a, f32>>,
         opts: &NumericScaleOptions,
-    ) -> Result<Vec<f32>, AvengerScaleError> {
+    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
         // Handle degenerate domain case
-        if self.domain_start == self.domain_end {
-            return Ok(vec![self.domain_start; values.len()]);
-        }
-
-        // Handle degenerate range case
-        if self.range_start == self.range_end {
-            return Ok(vec![self.domain_start; values.len()]);
+        if self.domain_start == self.domain_end
+            || self.range_start == self.range_end
+            || self.domain_start.is_nan()
+            || self.domain_end.is_nan()
+            || self.range_start.is_nan()
+            || self.range_end.is_nan()
+        {
+            return Ok(values.into().map(|_| self.domain_start));
         }
 
         // Pre-compute transformed domain endpoints
@@ -202,57 +200,51 @@ impl SymlogNumericScale {
             // Pre-compute constant for efficiency
             let constant = self.constant;
 
-            Ok(values
-                .iter()
-                .map(|&v| {
-                    if v.is_nan() {
-                        return f32::NAN;
+            Ok(values.into().map(|&v| {
+                if v.is_nan() {
+                    return f32::NAN;
+                }
+                if v.is_infinite() {
+                    if v.is_sign_positive() {
+                        return self.domain_end;
+                    } else {
+                        return self.domain_start;
                     }
-                    if v.is_infinite() {
-                        if v.is_sign_positive() {
-                            return self.domain_end;
-                        } else {
-                            return self.domain_start;
-                        }
-                    }
+                }
 
-                    // Clamp input to range
-                    let v = v.clamp(range_min, range_max);
+                // Clamp input to range
+                let v = v.clamp(range_min, range_max);
 
-                    // Transform back to original space
-                    let normalized = scale * (v - range_offset) + offset;
-                    let sign = if normalized < 0.0 { -1.0 } else { 1.0 };
+                // Transform back to original space
+                let normalized = scale * (v - range_offset) + offset;
+                let sign = if normalized < 0.0 { -1.0 } else { 1.0 };
 
-                    // Apply inverse transform
-                    sign * (normalized.abs().exp() - 1.0) * constant
-                })
-                .collect())
+                // Apply inverse transform
+                sign * (normalized.abs().exp() - 1.0) * constant
+            }))
         } else {
             // Pre-compute constant for efficiency
             let constant = self.constant;
 
-            Ok(values
-                .iter()
-                .map(|&v| {
-                    if v.is_nan() {
-                        return f32::NAN;
-                    }
-                    if v.is_infinite() {
-                        return if v.is_sign_positive() {
-                            self.domain_end
-                        } else {
-                            self.domain_start
-                        };
-                    }
+            Ok(values.into().map(|&v| {
+                if v.is_nan() {
+                    return f32::NAN;
+                }
+                if v.is_infinite() {
+                    return if v.is_sign_positive() {
+                        self.domain_end
+                    } else {
+                        self.domain_start
+                    };
+                }
 
-                    // Transform back to original space
-                    let normalized = scale * (v - range_offset) + offset;
-                    let sign = if normalized < 0.0 { -1.0 } else { 1.0 };
+                // Transform back to original space
+                let normalized = scale * (v - range_offset) + offset;
+                let sign = if normalized < 0.0 { -1.0 } else { 1.0 };
 
-                    // Apply inverse transform
-                    sign * (normalized.abs().exp() - 1.0) * constant
-                })
-                .collect())
+                // Apply inverse transform
+                sign * (normalized.abs().exp() - 1.0) * constant
+            }))
         }
     }
 
@@ -309,7 +301,10 @@ mod tests {
             .range((0.0, 1.0));
 
         let values = vec![-100.0, 0.0, 100.0];
-        let result = scale.scale(&values, &Default::default()).unwrap();
+        let result = scale
+            .scale(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], 0.0);
         assert_approx_eq!(f32, result[1], 0.5);
@@ -330,7 +325,8 @@ mod tests {
                     range_offset: Some(0.5),
                 },
             )
-            .unwrap();
+            .unwrap()
+            .as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], 0.5);
         assert_approx_eq!(f32, result[1], 1.0);
@@ -353,13 +349,19 @@ mod tests {
 
         // Default no clamping
         let values = vec![3.0, -1.0];
-        let result = scale.scale(&values, &Default::default()).unwrap();
+        let result = scale
+            .scale(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 30.0);
         assert_approx_eq!(f32, result[1], 0.0);
 
         // With clamping
         let scale = scale.clamp(true);
-        let result = scale.scale(&values, &Default::default()).unwrap();
+        let result = scale
+            .scale(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 20.0);
         assert_approx_eq!(f32, result[1], 10.0);
     }
@@ -372,12 +374,18 @@ mod tests {
 
         // Test NaN
         let values = vec![f32::NAN];
-        let result = scale.scale(&values, &Default::default()).unwrap();
+        let result = scale
+            .scale(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
         assert!(result[0].is_nan());
 
         // Test infinity
         let values = vec![f32::INFINITY, f32::NEG_INFINITY];
-        let result = scale.scale(&values, &Default::default()).unwrap();
+        let result = scale
+            .scale(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
         assert!(result[0].is_finite()); // Should be clamped if clamp is true
         assert!(result[1].is_finite()); // Should be clamped if clamp is true
     }
@@ -390,8 +398,14 @@ mod tests {
 
         // Test that invert(scale(x)) ≈ x
         let values = vec![-100.0, -10.0, -1.0, 0.0, 1.0, 10.0, 100.0];
-        let scaled = scale.scale(&values, &Default::default()).unwrap();
-        let inverted = scale.invert(&scaled, &Default::default()).unwrap();
+        let scaled = scale
+            .scale(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
+        let inverted = scale
+            .invert(&scaled, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
 
         for i in 0..values.len() {
             assert_approx_eq!(f32, inverted[i], values[i]);
@@ -413,7 +427,8 @@ mod tests {
                     range_offset: Some(0.5),
                 },
             )
-            .unwrap();
+            .unwrap()
+            .as_vec(values.len(), None);
         let inverted = scale
             .invert(
                 &scaled,
@@ -421,7 +436,8 @@ mod tests {
                     range_offset: Some(0.5),
                 },
             )
-            .unwrap();
+            .unwrap()
+            .as_vec(values.len(), None);
 
         for i in 0..values.len() {
             assert_approx_eq!(
@@ -445,7 +461,10 @@ mod tests {
 
         // Test values outside the range
         let values = vec![-0.5, 1.5];
-        let result = scale.invert(&values, &Default::default()).unwrap();
+        let result = scale
+            .invert(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], -100.0);
         assert_approx_eq!(f32, result[1], 100.0);
     }
@@ -458,8 +477,14 @@ mod tests {
 
         // Test that invert(scale(x)) ≈ x with different constant
         let values = vec![-50.0, 0.0, 50.0];
-        let scaled = scale.scale(&values, &Default::default()).unwrap();
-        let inverted = scale.invert(&scaled, &Default::default()).unwrap();
+        let scaled = scale
+            .scale(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
+        let inverted = scale
+            .invert(&scaled, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
 
         for i in 0..values.len() {
             assert_approx_eq!(f32, inverted[i], values[i]);
@@ -474,12 +499,18 @@ mod tests {
 
         // Test NaN
         let values = vec![f32::NAN];
-        let result = scale.invert(&values, &Default::default()).unwrap();
+        let result = scale
+            .invert(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
         assert!(result[0].is_nan());
 
         // Test infinity
         let values = vec![f32::INFINITY, f32::NEG_INFINITY];
-        let result = scale.invert(&values, &Default::default()).unwrap();
+        let result = scale
+            .invert(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 100.0); // maps to domain end
         assert_approx_eq!(f32, result[1], -100.0); // maps to domain start
     }
@@ -491,7 +522,10 @@ mod tests {
             .domain((1.0, 1.0))
             .range((0.0, 1.0));
         let values = vec![0.0, 0.5, 1.0];
-        let result = scale.invert(&values, &Default::default()).unwrap();
+        let result = scale
+            .invert(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
         for i in 0..values.len() {
             assert_approx_eq!(f32, result[i], 1.0);
         }
@@ -500,7 +534,10 @@ mod tests {
         let scale = SymlogNumericScale::new(None)
             .domain((-100.0, 100.0))
             .range((1.0, 1.0));
-        let result = scale.invert(&values, &Default::default()).unwrap();
+        let result = scale
+            .invert(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
         for i in 0..values.len() {
             assert_approx_eq!(f32, result[i], -100.0);
         }

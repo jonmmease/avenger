@@ -1,4 +1,5 @@
 pub mod opts;
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 use opts::PointScaleOptions;
 
 use crate::band::opts::BandScaleOptions;
@@ -10,11 +11,11 @@ use std::hash::Hash;
 /// A point scale is a special case of a band scale with padding=1.
 /// It places points at uniformly spaced positions along a range.
 #[derive(Debug, Clone)]
-pub struct PointScale<D: Debug + Clone + Hash + Eq> {
+pub struct PointScale<D: Debug + Clone + Hash + Eq + Sync + 'static> {
     band_scale: BandScale<D>,
 }
 
-impl<D: Debug + Clone + Hash + Eq> PointScale<D> {
+impl<D: Debug + Clone + Hash + Eq + Sync + 'static> PointScale<D> {
     /// Creates a new point scale with the given domain.
     ///
     /// # Defaults
@@ -80,11 +81,11 @@ impl<D: Debug + Clone + Hash + Eq> PointScale<D> {
     }
 
     /// Maps input values to their corresponding point positions.
-    pub fn scale(
+    pub fn scale<'a>(
         &self,
-        values: &Vec<D>,
+        values: impl Into<ScalarOrArrayRef<'a, D>>,
         opts: &PointScaleOptions,
-    ) -> Result<Vec<f32>, AvengerScaleError> {
+    ) -> ScalarOrArray<f32> {
         self.band_scale.scale(values, &BandScaleOptions::from(opts))
     }
 
@@ -115,7 +116,9 @@ mod tests {
         let scale = PointScale::try_new(domain.clone())?;
 
         let values = vec!["a", "b", "b", "c", "f"];
-        let result = scale.scale(&values, &PointScaleOptions::default())?;
+        let result = scale
+            .scale(&values, &PointScaleOptions::default())
+            .as_vec(values.len(), None);
 
         // With 3 points in [0,1], expect points at 0.0, 0.5, 1.0
         assert_approx_eq!(f32, result[0], 0.0); // "a"
@@ -134,7 +137,9 @@ mod tests {
         let scale = PointScale::try_new(domain.clone())?.range((0.0, 100.0))?;
 
         let values = vec!["a", "b", "b", "c", "f"];
-        let result = scale.scale(&values, &PointScaleOptions::default())?;
+        let result = scale
+            .scale(&values, &PointScaleOptions::default())
+            .as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], 0.0); // "a"
         assert_approx_eq!(f32, result[1], 50.0); // "b"
@@ -152,7 +157,9 @@ mod tests {
             .padding(0.5)?;
 
         let values = vec!["a", "b", "b", "c", "f"];
-        let result = scale.scale(&values, &PointScaleOptions::default())?;
+        let result = scale
+            .scale(&values, &PointScaleOptions::default())
+            .as_vec(values.len(), None);
 
         // With padding of 0.5, points should be at specific positions
         assert_approx_eq!(f32, result[0], 16.666667); // "a"
@@ -172,7 +179,9 @@ mod tests {
             .round(true)?;
 
         let values = vec!["a", "b", "b", "c", "d", "f"];
-        let result = scale.scale(&values, &PointScaleOptions::default())?;
+        let result = scale
+            .scale(&values, &PointScaleOptions::default())
+            .as_vec(values.len(), None);
 
         // With 4 points in [0,100] and rounding, expect points at 0, 34, 67, 100
         // Confirmed with d3-scale
@@ -193,12 +202,14 @@ mod tests {
             .round(true)?;
 
         let values = vec!["a", "b", "b", "c", "d", "f"];
-        let result = scale.scale(
-            &values,
-            &PointScaleOptions {
-                range_offset: Some(1.0),
-            },
-        )?;
+        let result = scale
+            .scale(
+                &values,
+                &PointScaleOptions {
+                    range_offset: Some(1.0),
+                },
+            )
+            .as_vec(values.len(), None);
 
         // With 4 points in [0,100] and rounding, expect points at 0, 34, 67, 100
         // Confirmed with d3-scale
