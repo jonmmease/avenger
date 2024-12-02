@@ -7,3 +7,4 @@ pub mod ordinal;
 pub mod point;
 pub mod quantile;
 pub mod quantize;
+pub mod threshold;
