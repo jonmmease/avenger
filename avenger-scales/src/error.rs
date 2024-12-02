@@ -11,4 +11,7 @@ pub enum AvengerScaleError {
 
     #[error("Bins must be in ascending order: {0:?}")]
     BinsNotAscending(Vec<f32>),
+
+    #[error("Domain value not found: {0}")]
+    DomainValueNotFound(String),
 }
