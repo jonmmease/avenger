@@ -7,6 +7,7 @@ members = [
     "avenger-python",
     "avenger-vega-renderer", 
     "avenger-scales",
+    "avenger-common",
 ]
 
 resolver = "2"
