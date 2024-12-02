@@ -1,8 +1,10 @@
 use crate::canvas::CanvasDimensions;
 use crate::error::AvengerWgpuError;
 use crate::marks::multi::{MultiVertex, TEXT_TEXTURE_CODE};
-use avenger::marks::path::PathTransform;
-use avenger::marks::text::{FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
+use avenger_scenegraph::marks::path::PathTransform;
+use avenger_scenegraph::marks::text::{
+    FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec,
+};
 use etagere::euclid::{Angle, Point2D, Vector2D};
 use image::DynamicImage;
 use std::collections::HashMap;

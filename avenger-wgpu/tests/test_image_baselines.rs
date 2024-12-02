@@ -18,7 +18,7 @@ pub fn initialize() {
 #[cfg(test)]
 mod test_image_baselines {
     use crate::initialize;
-    use avenger::scene_graph::SceneGraph;
+    use avenger_scenegraph::scene_graph::SceneGraph;
     use avenger_vega::scene_graph::VegaSceneGraph;
     use avenger_wgpu::canvas::{Canvas, CanvasDimensions, PngCanvas};
     use dssim::Dssim;

@@ -1,5 +1,5 @@
-use avenger::marks::line::LineMark as RsLineMark;
-use avenger::marks::value::{EncodingValue, StrokeCap, StrokeJoin};
+use avenger_scenegraph::marks::line::SceneLineMark as RsLineMark;
+use avenger_scenegraph::marks::value::{EncodingValue, StrokeCap, StrokeJoin};
 use avenger_vega::marks::values::{CssColorOrGradient, StrokeDashSpec};
 use gloo_utils::format::JsValueSerdeExt;
 use wasm_bindgen::prelude::wasm_bindgen;

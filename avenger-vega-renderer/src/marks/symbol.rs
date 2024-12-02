@@ -1,7 +1,7 @@
 use crate::marks::util::{decode_colors, decode_gradients, zindex_to_indices};
-use avenger::error::AvengerError;
-use avenger::marks::symbol::{SymbolMark as RsSymbolMark, SymbolShape};
-use avenger::marks::value::EncodingValue;
+use avenger_scenegraph::error::AvengerError;
+use avenger_scenegraph::marks::symbol::{SceneSymbolMark as RsSymbolMark, SymbolShape};
+use avenger_scenegraph::marks::value::EncodingValue;
 use gloo_utils::format::JsValueSerdeExt;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};

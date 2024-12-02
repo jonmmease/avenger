@@ -6,7 +6,7 @@ pub type PathTransform = Transform2D<f32, UnknownUnit, UnknownUnit>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct PathMark {
+pub struct ScenePathMark {
     pub name: String,
     pub clip: bool,
     pub len: u32,
@@ -22,7 +22,7 @@ pub struct PathMark {
     pub zindex: Option<i32>,
 }
 
-impl PathMark {
+impl ScenePathMark {
     pub fn path_iter(&self) -> Box<dyn Iterator<Item = &lyon_path::Path> + '_> {
         self.path.as_iter(self.len as usize, self.indices.as_ref())
     }
@@ -59,7 +59,7 @@ impl PathMark {
     }
 }
 
-impl Default for PathMark {
+impl Default for ScenePathMark {
     fn default() -> Self {
         Self {
             name: "rule_mark".to_string(),

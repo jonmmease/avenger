@@ -9,7 +9,7 @@ use std::borrow::Cow;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct SymbolMark {
+pub struct SceneSymbolMark {
     pub name: String,
     pub clip: bool,
     pub len: u32,
@@ -27,7 +27,7 @@ pub struct SymbolMark {
     pub zindex: Option<i32>,
 }
 
-impl SymbolMark {
+impl SceneSymbolMark {
     pub fn x_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
         self.x.as_iter(self.len as usize, self.indices.as_ref())
     }
@@ -98,7 +98,7 @@ impl SymbolMark {
     }
 }
 
-impl Default for SymbolMark {
+impl Default for SceneSymbolMark {
     fn default() -> Self {
         Self {
             name: "".to_string(),
