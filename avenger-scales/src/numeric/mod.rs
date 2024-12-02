@@ -4,6 +4,7 @@ pub mod opts;
 pub mod pow;
 pub mod symlog;
 
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 use linear::LinearNumericScale;
 use log::LogNumericScale;
 use opts::NumericScaleOptions;
@@ -84,11 +85,11 @@ impl NumericScale {
         }
     }
 
-    pub fn scale(
+    pub fn scale<'a>(
         &self,
-        values: &[f32],
+        values: impl Into<ScalarOrArrayRef<'a, f32>>,
         opts: &NumericScaleOptions,
-    ) -> Result<Vec<f32>, AvengerScaleError> {
+    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
         match self {
             NumericScale::Linear(scale) => scale.scale(values, opts),
             NumericScale::Log(scale) => scale.scale(values, opts),
@@ -97,11 +98,11 @@ impl NumericScale {
         }
     }
 
-    pub fn invert(
+    pub fn invert<'a>(
         &self,
-        values: &[f32],
+        values: impl Into<ScalarOrArrayRef<'a, f32>>,
         opts: &NumericScaleOptions,
-    ) -> Result<Vec<f32>, AvengerScaleError> {
+    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
         match self {
             NumericScale::Linear(scale) => scale.invert(values, opts),
             NumericScale::Log(scale) => scale.invert(values, opts),

@@ -389,6 +389,7 @@ dependencies = [
 name = "avenger-scales"
 version = "0.1.0"
 dependencies = [
+ "avenger-common",
  "float-cmp 0.10.0",
  "palette",
  "thiserror 2.0.3",

@@ -1,3 +1,4 @@
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 use palette::{Hsla, IntoColor, Laba, Mix, Srgba};
 use std::fmt::Debug;
 
@@ -84,16 +85,16 @@ impl<C: ColorSpace> NumericColorScale<C> {
         &self.range
     }
 
-    pub fn scale(&self, values: &[f32]) -> Result<Vec<Srgba>, AvengerScaleError> {
+    pub fn scale<'a>(
+        &self,
+        values: impl Into<ScalarOrArrayRef<'a, f32>>,
+    ) -> Result<ScalarOrArray<Srgba>, AvengerScaleError> {
         // Normalize the input values to the range [0, number of colors - 1]
         let normalized_values = self
             .numeric_scale
             .scale(values, &NumericScaleOptions::default())?;
 
-        Ok(normalized_values
-            .iter()
-            .map(|v| Self::interp_color_to_srgba(&self.range, *v))
-            .collect())
+        Ok(normalized_values.map(|v| Self::interp_color_to_srgba(&self.range, *v)))
     }
 
     pub fn ticks(&self, count: Option<f32>) -> Vec<f32> {
@@ -166,7 +167,7 @@ mod tests {
             40.0,     // above domain
         ];
 
-        let result = scale.scale(&values)?;
+        let result = scale.scale(&values)?.as_vec(values.len(), None);
 
         // Below domain - should clamp to black
         assert_srgba_approx_eq(result[0], Srgba::new(0.0, 0.0, 0.0, 1.0));
@@ -211,7 +212,7 @@ mod tests {
             40.0,     // above domain
         ];
 
-        let result = scale.scale(&values)?;
+        let result = scale.scale(&values)?.as_vec(values.len(), None);
 
         // Below domain - should clamp to red
         assert_hsla_approx_eq(Hsla::from_color(result[0]), Hsla::new(0.0, 0.5, 0.5, 1.0));

@@ -1,3 +1,5 @@
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
+
 use crate::error::AvengerScaleError;
 use std::fmt::Debug;
 /// A quantile scale maps a continuous domain to discrete values based on sample quantiles.
@@ -8,7 +10,7 @@ use std::fmt::Debug;
 #[derive(Debug, Clone)]
 pub struct QuantileScale<R>
 where
-    R: Clone + Debug,
+    R: Clone + Debug + Sync + 'static,
 {
     domain: Vec<f32>,
     range: Vec<R>,
@@ -18,7 +20,7 @@ where
 
 impl<R> QuantileScale<R>
 where
-    R: Clone + Debug,
+    R: Clone + Debug + Sync + 'static,
 {
     pub fn try_new(range: Vec<R>, default: R) -> Result<Self, AvengerScaleError> {
         if range.is_empty() {
@@ -89,16 +91,15 @@ where
             .collect();
     }
 
-    pub fn scale(&self, values: &[f32]) -> Result<Vec<R>, AvengerScaleError> {
+    pub fn scale<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, f32>>) -> ScalarOrArray<R> {
         let n = self.range.len();
 
         if n == 1 {
-            return Ok(self.range.iter().map(|r| r.clone()).collect());
+            let r = self.range[0].clone();
+            return values.into().map(|_| r.clone());
         }
 
-        let mut result: Vec<R> = Vec::with_capacity(values.len());
-
-        for x in values.iter() {
+        values.into().map(|x| {
             if x.is_finite() {
                 // Find index using binary search on thresholds
                 let idx = match self
@@ -108,13 +109,11 @@ where
                     Ok(i) => (i + 1) as usize,
                     Err(i) => i as usize,
                 };
-                result.push(self.range[idx].clone());
+                self.range[idx].clone()
             } else {
-                result.push(self.default.clone());
+                self.default.clone()
             }
-        }
-
-        Ok(result)
+        })
     }
 }
 
@@ -138,7 +137,7 @@ mod tests {
 
         // Test mapping values
         let values = vec![1.5, 3.0, 4.5, f32::NAN];
-        let result = scale.scale(&values)?;
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         assert_eq!(result[0], "small"); // 1.5 < 3.0
         assert_eq!(result[1], "medium"); // 3.0 < 4.0

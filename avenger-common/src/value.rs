@@ -27,6 +27,15 @@ impl<T: Sync + Clone> ScalarOrArray<T> {
             .cloned()
             .collect::<Vec<_>>()
     }
+
+    pub fn map<U: Sync + Clone>(&self, f: impl Fn(&T) -> U) -> ScalarOrArray<U> {
+        match self {
+            ScalarOrArray::Scalar { value } => ScalarOrArray::Scalar { value: f(value) },
+            ScalarOrArray::Array { values } => ScalarOrArray::Array {
+                values: values.iter().map(f).collect(),
+            },
+        }
+    }
 }
 
 impl ScalarOrArray<f32> {
@@ -35,6 +44,78 @@ impl ScalarOrArray<f32> {
             ScalarOrArray::Scalar { value } => v == *value,
             _ => false,
         }
+    }
+}
+
+impl<T: Sync + Clone> From<Vec<T>> for ScalarOrArray<T> {
+    fn from(values: Vec<T>) -> Self {
+        ScalarOrArray::Array { values }
+    }
+}
+
+impl<T: Sync + Clone> From<T> for ScalarOrArray<T> {
+    fn from(value: T) -> Self {
+        ScalarOrArray::Scalar { value }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ScalarOrArrayRef<'a, T: Sync + Clone> {
+    Scalar { value: T },
+    Array { values: &'a [T] },
+}
+
+impl<'a, T: Sync + Clone> ScalarOrArrayRef<'a, T> {
+    pub fn from_slice(values: &'a [T]) -> Self {
+        ScalarOrArrayRef::Array { values }
+    }
+
+    pub fn to_owned(self) -> ScalarOrArray<T> {
+        match self {
+            ScalarOrArrayRef::Scalar { value } => ScalarOrArray::Scalar {
+                value: value.clone(),
+            },
+            ScalarOrArrayRef::Array { values } => ScalarOrArray::Array {
+                values: values.to_vec(),
+            },
+        }
+    }
+
+    pub fn map<U: Sync + Clone>(self, f: impl Fn(&T) -> U) -> ScalarOrArray<U> {
+        match self {
+            ScalarOrArrayRef::Scalar { value } => ScalarOrArray::Scalar { value: f(&value) },
+            ScalarOrArrayRef::Array { values } => ScalarOrArray::Array {
+                values: values.iter().map(f).collect(),
+            },
+        }
+    }
+}
+
+impl<'a, T: Sync + Clone> From<&'a [T]> for ScalarOrArrayRef<'a, T> {
+    fn from(values: &'a [T]) -> Self {
+        ScalarOrArrayRef::Array { values }
+    }
+}
+
+impl<'a, T: Sync + Clone> From<&'a Vec<T>> for ScalarOrArrayRef<'a, T> {
+    fn from(values: &'a Vec<T>) -> Self {
+        ScalarOrArrayRef::Array {
+            values: values.as_slice(),
+        }
+    }
+}
+
+impl<'a, T: Sync + Clone> From<&'a T> for ScalarOrArrayRef<'a, T> {
+    fn from(value: &'a T) -> Self {
+        ScalarOrArrayRef::Scalar {
+            value: value.clone(),
+        }
+    }
+}
+
+impl<'a, T: Sync + Clone> From<T> for ScalarOrArrayRef<'a, T> {
+    fn from(value: T) -> Self {
+        ScalarOrArrayRef::Scalar { value }
     }
 }
 

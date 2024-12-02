@@ -1,3 +1,5 @@
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
+
 use crate::{array, error::AvengerScaleError};
 
 use super::opts::NumericScaleOptions;
@@ -117,11 +119,11 @@ impl LinearNumericScale {
     }
 
     /// Maps input values from domain to range
-    pub fn scale(
+    pub fn scale<'a>(
         &self,
-        values: &[f32],
+        values: impl Into<ScalarOrArrayRef<'a, f32>>,
         opts: &NumericScaleOptions,
-    ) -> Result<Vec<f32>, AvengerScaleError> {
+    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
         // Handle degenerate domain/range cases
         if self.domain_start == self.domain_end
             || self.range_start == self.range_end
@@ -130,7 +132,7 @@ impl LinearNumericScale {
             || self.range_start.is_nan()
             || self.range_end.is_nan()
         {
-            return Ok(vec![self.range_start; values.len()]);
+            return Ok(values.into().map(|_| self.range_start));
         }
 
         let domain_span = self.domain_end - self.domain_start;
@@ -146,20 +148,19 @@ impl LinearNumericScale {
             };
 
             Ok(values
-                .iter()
-                .map(|v| (scale * v + offset).clamp(range_min, range_max))
-                .collect())
+                .into()
+                .map(|v| (scale * v + offset).clamp(range_min, range_max)))
         } else {
-            Ok(values.iter().map(|v| scale * v + offset).collect())
+            Ok(values.into().map(|v| scale * v + offset))
         }
     }
 
     /// Maps output values from range back to domain
-    pub fn invert(
+    pub fn invert<'a>(
         &self,
-        values: &[f32],
+        values: impl Into<ScalarOrArrayRef<'a, f32>>,
         opts: &NumericScaleOptions,
-    ) -> Result<Vec<f32>, AvengerScaleError> {
+    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
         // Handle degenerate domain case
         if self.domain_start == self.domain_end
             || self.range_start == self.range_end
@@ -168,7 +169,7 @@ impl LinearNumericScale {
             || self.range_start.is_nan()
             || self.range_end.is_nan()
         {
-            return Ok(vec![self.domain_start; values.len()]);
+            return Ok(values.into().map(|_| self.domain_start));
         }
 
         let scale = (self.domain_end - self.domain_start) / (self.range_end - self.range_start);
@@ -182,18 +183,12 @@ impl LinearNumericScale {
                 (self.range_end, self.range_start)
             };
 
-            Ok(values
-                .iter()
-                .map(|v| {
-                    let v = (v - range_offset).clamp(range_min, range_max);
-                    scale * v + offset
-                })
-                .collect())
+            Ok(values.into().map(|v| {
+                let v = (v - range_offset).clamp(range_min, range_max);
+                scale * v + offset
+            }))
         } else {
-            Ok(values
-                .iter()
-                .map(|v| scale * (v - range_offset) + offset)
-                .collect())
+            Ok(values.into().map(|v| scale * (v - range_offset) + offset))
         }
     }
 
@@ -234,7 +229,10 @@ mod tests {
             40.0, // > domain
         ];
 
-        let result = scale.scale(&values, &Default::default()).unwrap();
+        let result = scale
+            .scale(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], 0.0); // clamped
         assert_approx_eq!(f32, result[1], 0.0); // domain start
@@ -267,7 +265,8 @@ mod tests {
                     range_offset: Some(3.0),
                 },
             )
-            .unwrap();
+            .unwrap()
+            .as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], 0.0); // clamped
         assert_approx_eq!(f32, result[1], 3.0); // domain start
@@ -288,7 +287,10 @@ mod tests {
             .clamp(true);
 
         let values = vec![0.0, 10.0, 20.0];
-        let result = scale.scale(&values, &Default::default()).unwrap();
+        let result = scale
+            .scale(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
 
         // All values should map to range_start (d3 behavior)
         for i in 0..result.len() {
@@ -301,7 +303,10 @@ mod tests {
         // Test degenerate domain
         let scale = LinearNumericScale::new().domain((1.0, 1.0));
         let values = vec![0.0, 1.0, 2.0];
-        let result = scale.scale(&values, &Default::default()).unwrap();
+        let result = scale
+            .scale(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 0.0);
         assert_approx_eq!(f32, result[1], 0.0);
         assert_approx_eq!(f32, result[2], 0.0);
@@ -310,7 +315,10 @@ mod tests {
         let scale = LinearNumericScale::new()
             .domain((0.0, 10.0))
             .range((1.0, 1.0));
-        let result = scale.scale(&values, &Default::default()).unwrap();
+        let result = scale
+            .scale(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 1.0);
         assert_approx_eq!(f32, result[1], 1.0);
         assert_approx_eq!(f32, result[2], 1.0);
@@ -324,7 +332,10 @@ mod tests {
             .clamp(true);
 
         let values = vec![-25.0, 0.0, 50.0, 100.0, 125.0];
-        let result = scale.invert(&values, &Default::default()).unwrap();
+        let result = scale
+            .invert(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], 10.0); // clamped below
         assert_approx_eq!(f32, result[1], 10.0); // range start
@@ -342,7 +353,10 @@ mod tests {
             .clamp(false);
 
         let values = vec![-25.0, 0.0, 50.0, 100.0, 125.0];
-        let result = scale.invert(&values, &Default::default()).unwrap();
+        let result = scale
+            .invert(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], 5.0); // below range
         assert_approx_eq!(f32, result[1], 10.0); // range start
@@ -367,7 +381,8 @@ mod tests {
                     range_offset: Some(3.0),
                 },
             )
-            .unwrap();
+            .unwrap()
+            .as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], 5.0); // below range
         assert_approx_eq!(f32, result[1], 10.0); // range start
@@ -385,7 +400,10 @@ mod tests {
             .clamp(true);
 
         let values = vec![125.0, 100.0, 50.0, 0.0, -25.0];
-        let result = scale.invert(&values, &Default::default()).unwrap();
+        let result = scale
+            .invert(&values, &Default::default())
+            .unwrap()
+            .as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], 10.0); // clamped
         assert_approx_eq!(f32, result[1], 10.0); // range start

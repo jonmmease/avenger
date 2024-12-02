@@ -1,3 +1,5 @@
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
+
 use crate::error::AvengerScaleError;
 use std::fmt::Debug;
 /// A threshold scale maps continuous values to discrete values based on explicit threshold boundaries.
@@ -7,7 +9,7 @@ use std::fmt::Debug;
 #[derive(Debug, Clone)]
 pub struct ThresholdScale<R>
 where
-    R: Clone + Debug,
+    R: Clone + Debug + Sync + 'static,
 {
     thresholds: Vec<f32>,
     range: Vec<R>,
@@ -16,7 +18,7 @@ where
 
 impl<R> ThresholdScale<R>
 where
-    R: Clone + Debug,
+    R: Clone + Debug + Sync + 'static,
 {
     pub fn try_new(
         range: Vec<R>,
@@ -50,22 +52,20 @@ where
         &self.range
     }
 
-    pub fn scale(&self, values: &[f32]) -> Result<Vec<R>, AvengerScaleError> {
+    pub fn scale<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, f32>>) -> ScalarOrArray<R> {
         let thresholds = &self.thresholds;
 
-        let mut result: Vec<R> = Vec::with_capacity(values.len());
-        for x in values.iter() {
+        values.into().map(|x| {
             if x.is_finite() {
                 let idx = match thresholds.binary_search_by(|t| t.partial_cmp(&x).unwrap()) {
                     Ok(i) => (i + 1) as usize,
                     Err(i) => i as usize,
                 };
-                result.push(self.range[idx].clone());
+                self.range[idx].clone()
             } else {
-                result.push(self.default.clone());
+                self.default.clone()
             }
-        }
-        Ok(result)
+        })
     }
 }
 
@@ -82,7 +82,7 @@ mod tests {
             ThresholdScale::try_new(vec!["low", "medium", "high"], vec![30.0, 70.0], "default")?;
 
         let values = vec![20.0, 50.0, 80.0];
-        let result = scale.scale(&values)?;
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         assert_eq!(result[0], "low"); // 20.0 < 30.0
         assert_eq!(result[1], "medium"); // 30.0 <= 50.0 < 70.0
@@ -96,7 +96,7 @@ mod tests {
         let scale = ThresholdScale::try_new(vec![-1.0, 1.0], vec![0.0], f32::NAN)?;
 
         let values = vec![-0.5, 0.0, 0.5];
-        let result = scale.scale(&values)?;
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], -1.0); // -0.5 < 0.0
         assert_approx_eq!(f32, result[1], 1.0); // 0.0 >= 0.0

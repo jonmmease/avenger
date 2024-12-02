@@ -1,4 +1,5 @@
-use crate::error::AvengerScaleError;
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
+
 use crate::numeric::linear::LinearNumericScale;
 use std::fmt::Debug;
 /// A quantize scale divides a continuous domain into uniform segments and maps values to a discrete range.
@@ -9,7 +10,7 @@ use std::fmt::Debug;
 #[derive(Debug, Clone)]
 pub struct QuantizeScale<R>
 where
-    R: Clone + Debug,
+    R: Clone + Debug + Sync + 'static,
 {
     domain: (f32, f32),
     range: Vec<R>,
@@ -19,7 +20,7 @@ where
 
 impl<R> QuantizeScale<R>
 where
-    R: Clone + Debug,
+    R: Clone + Debug + Sync + 'static,
 {
     /// Creates a new quantize scale with default domain [0,1] and range [0,1]
     pub fn new(range: Vec<R>, default: R) -> Self {
@@ -88,39 +89,35 @@ where
             .collect();
     }
 
-    pub fn scale(&self, values: &[f32]) -> Result<Vec<R>, AvengerScaleError> {
+    pub fn scale<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, f32>>) -> ScalarOrArray<R> {
         let n = self.range.len();
 
         // If there is only one range value, return it for all values
         if n == 1 {
-            return Ok(values.iter().map(|_| self.range[0].clone()).collect());
+            let r = self.range[0].clone();
+            return values.into().map(|_| r.clone());
         }
 
         // Pre-compute scaling factors
         let domain_span = self.domain.1 - self.domain.0;
         let segments = n as f32;
 
-        let mut result: Vec<R> = Vec::with_capacity(values.len());
-
-        // Build array of indices, with nulls for non-finite values
-        for x in values.iter() {
+        values.into().map(|x| {
             if x.is_finite() {
-                // Direct calculation of index based on position in domain
                 let normalized = (x - self.domain.0) / domain_span;
                 let idx = ((normalized * segments).floor() as usize).clamp(0, n - 1);
-                result.push(self.range[idx].clone());
+                self.range[idx].clone()
             } else {
-                result.push(self.default.clone());
+                self.default.clone()
             }
-        }
-
-        Ok(result)
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::AvengerScaleError;
     use float_cmp::assert_approx_eq;
 
     #[test]
@@ -129,7 +126,7 @@ mod tests {
 
         // Test array scaling with all test cases
         let values = vec![0.3, 0.5, 0.8];
-        let result = scale.scale(&values)?;
+        let result = scale.scale(&values).as_vec(values.len(), None);
         assert_eq!(result[0], 0.0);
         assert_eq!(result[1], 0.5);
         assert_eq!(result[2], 1.0);
@@ -152,7 +149,7 @@ mod tests {
             QuantizeScale::new(vec!["small", "medium", "large"], "default").domain((0.0, 1.0));
 
         let values = vec![0.3, 0.5, 0.8];
-        let result = scale.scale(&values)?;
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         assert_eq!(result[0], "small");
         assert_eq!(result[1], "medium");
@@ -173,7 +170,7 @@ mod tests {
         assert_approx_eq!(f32, end, 12.0);
 
         let values = vec![1.0, 6.0, 11.0];
-        let result = scale.scale(&values)?;
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         assert_eq!(result[0], 0.0); // Near start of domain
         assert_eq!(result[1], 50.0); // Middle of domain
