@@ -5,7 +5,8 @@ members = [
     "avenger-wgpu",
     "avenger-vega-test-data",
     "avenger-python",
-    "avenger-vega-renderer",
+    "avenger-vega-renderer", 
+    "avenger-scales",
 ]
 
 resolver = "2"
