@@ -2,20 +2,20 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
-pub enum EncodingValue<T: Sync + Clone> {
+pub enum ScalarOrArray<T: Sync + Clone> {
     Scalar { value: T },
     Array { values: Vec<T> },
 }
 
-impl<T: Sync + Clone> EncodingValue<T> {
+impl<T: Sync + Clone> ScalarOrArray<T> {
     pub fn as_iter<'a>(
         &'a self,
         scalar_len: usize,
         indices: Option<&'a Vec<usize>>,
     ) -> Box<dyn Iterator<Item = &T> + '_> {
         match self {
-            EncodingValue::Scalar { value } => Box::new(std::iter::repeat(value).take(scalar_len)),
-            EncodingValue::Array { values } => match indices {
+            ScalarOrArray::Scalar { value } => Box::new(std::iter::repeat(value).take(scalar_len)),
+            ScalarOrArray::Array { values } => match indices {
                 None => Box::new(values.iter()),
                 Some(indices) => Box::new(indices.iter().map(|i| &values[*i])),
             },
@@ -29,10 +29,10 @@ impl<T: Sync + Clone> EncodingValue<T> {
     }
 }
 
-impl EncodingValue<f32> {
+impl ScalarOrArray<f32> {
     pub fn equals_scalar(&self, v: f32) -> bool {
         match self {
-            EncodingValue::Scalar { value } => v == *value,
+            ScalarOrArray::Scalar { value } => v == *value,
             _ => false,
         }
     }

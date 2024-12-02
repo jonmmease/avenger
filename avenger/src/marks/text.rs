@@ -1,4 +1,4 @@
-use crate::marks::value::EncodingValue;
+use crate::marks::value::ScalarOrArray;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -7,18 +7,18 @@ pub struct TextMark {
     pub name: String,
     pub clip: bool,
     pub len: u32,
-    pub text: EncodingValue<String>,
-    pub x: EncodingValue<f32>,
-    pub y: EncodingValue<f32>,
-    pub align: EncodingValue<TextAlignSpec>,
-    pub baseline: EncodingValue<TextBaselineSpec>,
-    pub angle: EncodingValue<f32>,
-    pub color: EncodingValue<[f32; 4]>,
-    pub font: EncodingValue<String>,
-    pub font_size: EncodingValue<f32>,
-    pub font_weight: EncodingValue<FontWeightSpec>,
-    pub font_style: EncodingValue<FontStyleSpec>,
-    pub limit: EncodingValue<f32>,
+    pub text: ScalarOrArray<String>,
+    pub x: ScalarOrArray<f32>,
+    pub y: ScalarOrArray<f32>,
+    pub align: ScalarOrArray<TextAlignSpec>,
+    pub baseline: ScalarOrArray<TextBaselineSpec>,
+    pub angle: ScalarOrArray<f32>,
+    pub color: ScalarOrArray<[f32; 4]>,
+    pub font: ScalarOrArray<String>,
+    pub font_size: ScalarOrArray<f32>,
+    pub font_weight: ScalarOrArray<FontWeightSpec>,
+    pub font_style: ScalarOrArray<FontStyleSpec>,
+    pub limit: ScalarOrArray<f32>,
     pub indices: Option<Vec<usize>>,
     pub zindex: Option<i32>,
 }
@@ -72,32 +72,32 @@ impl Default for TextMark {
             name: "text_mark".to_string(),
             clip: true,
             len: 1,
-            text: EncodingValue::Scalar {
+            text: ScalarOrArray::Scalar {
                 value: String::new(),
             },
-            x: EncodingValue::Scalar { value: 0.0 },
-            y: EncodingValue::Scalar { value: 0.0 },
-            align: EncodingValue::Scalar {
+            x: ScalarOrArray::Scalar { value: 0.0 },
+            y: ScalarOrArray::Scalar { value: 0.0 },
+            align: ScalarOrArray::Scalar {
                 value: TextAlignSpec::Left,
             },
-            baseline: EncodingValue::Scalar {
+            baseline: ScalarOrArray::Scalar {
                 value: TextBaselineSpec::Alphabetic,
             },
-            angle: EncodingValue::Scalar { value: 0.0 },
-            color: EncodingValue::Scalar {
+            angle: ScalarOrArray::Scalar { value: 0.0 },
+            color: ScalarOrArray::Scalar {
                 value: [0.0, 0.0, 0.0, 1.0],
             },
-            font: EncodingValue::Scalar {
+            font: ScalarOrArray::Scalar {
                 value: "sans serif".to_string(),
             },
-            font_size: EncodingValue::Scalar { value: 10.0 },
-            font_weight: EncodingValue::Scalar {
+            font_size: ScalarOrArray::Scalar { value: 10.0 },
+            font_weight: ScalarOrArray::Scalar {
                 value: FontWeightSpec::Name(FontWeightNameSpec::Normal),
             },
-            font_style: EncodingValue::Scalar {
+            font_style: ScalarOrArray::Scalar {
                 value: FontStyleSpec::Normal,
             },
-            limit: EncodingValue::Scalar { value: 0.0 },
+            limit: ScalarOrArray::Scalar { value: 0.0 },
             indices: None,
             zindex: None,
         }

@@ -1,4 +1,4 @@
-use crate::marks::value::{EncodingValue, ImageAlign, ImageBaseline};
+use crate::marks::value::{ScalarOrArray, ImageAlign, ImageBaseline};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -9,13 +9,13 @@ pub struct ImageMark {
     pub len: u32,
     pub aspect: bool,
     pub smooth: bool,
-    pub image: EncodingValue<RgbaImage>,
-    pub x: EncodingValue<f32>,
-    pub y: EncodingValue<f32>,
-    pub width: EncodingValue<f32>,
-    pub height: EncodingValue<f32>,
-    pub align: EncodingValue<ImageAlign>,
-    pub baseline: EncodingValue<ImageBaseline>,
+    pub image: ScalarOrArray<RgbaImage>,
+    pub x: ScalarOrArray<f32>,
+    pub y: ScalarOrArray<f32>,
+    pub width: ScalarOrArray<f32>,
+    pub height: ScalarOrArray<f32>,
+    pub align: ScalarOrArray<ImageAlign>,
+    pub baseline: ScalarOrArray<ImageBaseline>,
     pub indices: Option<Vec<usize>>,
     pub zindex: Option<i32>,
 }
@@ -55,17 +55,17 @@ impl Default for ImageMark {
             aspect: true,
             indices: None,
             smooth: true,
-            x: EncodingValue::Scalar { value: 0.0 },
-            y: EncodingValue::Scalar { value: 0.0 },
-            width: EncodingValue::Scalar { value: 0.0 },
-            height: EncodingValue::Scalar { value: 0.0 },
-            align: EncodingValue::Scalar {
+            x: ScalarOrArray::Scalar { value: 0.0 },
+            y: ScalarOrArray::Scalar { value: 0.0 },
+            width: ScalarOrArray::Scalar { value: 0.0 },
+            height: ScalarOrArray::Scalar { value: 0.0 },
+            align: ScalarOrArray::Scalar {
                 value: Default::default(),
             },
-            baseline: EncodingValue::Scalar {
+            baseline: ScalarOrArray::Scalar {
                 value: Default::default(),
             },
-            image: EncodingValue::Scalar {
+            image: ScalarOrArray::Scalar {
                 value: Default::default(),
             },
             zindex: None,

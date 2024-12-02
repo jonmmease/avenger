@@ -1,4 +1,4 @@
-use crate::marks::value::{ColorOrGradient, EncodingValue, Gradient, StrokeCap, StrokeJoin};
+use crate::marks::value::{ColorOrGradient, ScalarOrArray, Gradient, StrokeCap, StrokeJoin};
 use lyon_path::geom::euclid::{Transform2D, UnknownUnit};
 use serde::{Deserialize, Serialize};
 
@@ -14,10 +14,10 @@ pub struct PathMark {
     pub stroke_cap: StrokeCap,
     pub stroke_join: StrokeJoin,
     pub stroke_width: Option<f32>,
-    pub path: EncodingValue<lyon_path::Path>,
-    pub fill: EncodingValue<ColorOrGradient>,
-    pub stroke: EncodingValue<ColorOrGradient>,
-    pub transform: EncodingValue<PathTransform>,
+    pub path: ScalarOrArray<lyon_path::Path>,
+    pub fill: ScalarOrArray<ColorOrGradient>,
+    pub stroke: ScalarOrArray<ColorOrGradient>,
+    pub transform: ScalarOrArray<PathTransform>,
     pub indices: Option<Vec<usize>>,
     pub zindex: Option<i32>,
 }
@@ -69,16 +69,16 @@ impl Default for PathMark {
             stroke_cap: StrokeCap::Butt,
             stroke_join: StrokeJoin::Miter,
             stroke_width: Some(0.0),
-            path: EncodingValue::Scalar {
+            path: ScalarOrArray::Scalar {
                 value: lyon_path::Path::default(),
             },
-            fill: EncodingValue::Scalar {
+            fill: ScalarOrArray::Scalar {
                 value: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
             },
-            stroke: EncodingValue::Scalar {
+            stroke: ScalarOrArray::Scalar {
                 value: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
             },
-            transform: EncodingValue::Scalar {
+            transform: ScalarOrArray::Scalar {
                 value: PathTransform::identity(),
             },
             indices: None,

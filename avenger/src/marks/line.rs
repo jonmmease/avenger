@@ -1,4 +1,4 @@
-use crate::marks::value::{ColorOrGradient, EncodingValue, Gradient, StrokeCap, StrokeJoin};
+use crate::marks::value::{ColorOrGradient, ScalarOrArray, Gradient, StrokeCap, StrokeJoin};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -8,9 +8,9 @@ pub struct LineMark {
     pub clip: bool,
     pub len: u32,
     pub gradients: Vec<Gradient>,
-    pub x: EncodingValue<f32>,
-    pub y: EncodingValue<f32>,
-    pub defined: EncodingValue<bool>,
+    pub x: ScalarOrArray<f32>,
+    pub y: ScalarOrArray<f32>,
+    pub defined: ScalarOrArray<bool>,
     pub stroke: ColorOrGradient,
     pub stroke_width: f32,
     pub stroke_cap: StrokeCap,
@@ -40,9 +40,9 @@ impl Default for LineMark {
             clip: true,
             len: 1,
             gradients: vec![],
-            x: EncodingValue::Scalar { value: 0.0 },
-            y: EncodingValue::Scalar { value: 0.0 },
-            defined: EncodingValue::Scalar { value: true },
+            x: ScalarOrArray::Scalar { value: 0.0 },
+            y: ScalarOrArray::Scalar { value: 0.0 },
+            defined: ScalarOrArray::Scalar { value: true },
             stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]),
             stroke_width: 1.0,
             stroke_cap: Default::default(),

@@ -13,6 +13,7 @@ where
 {
     domain: (f32, f32),
     range: Vec<R>,
+    default: R,
     thresholds: Vec<f32>,
 }
 
@@ -21,10 +22,11 @@ where
     R: Clone + Debug,
 {
     /// Creates a new quantize scale with default domain [0,1] and range [0,1]
-    pub fn new(range: Vec<R>) -> Self {
+    pub fn new(range: Vec<R>, default: R) -> Self {
         let mut this = Self {
             domain: (0.0, 1.0),
             range,
+            default,
             thresholds: vec![],
         };
         this.update_thresholds();
@@ -86,19 +88,19 @@ where
             .collect();
     }
 
-    pub fn scale(&self, values: &[f32]) -> Result<Vec<Option<R>>, AvengerScaleError> {
+    pub fn scale(&self, values: &[f32]) -> Result<Vec<R>, AvengerScaleError> {
         let n = self.range.len();
 
         // If there is only one range value, return it for all values
         if n == 1 {
-            return Ok(values.iter().map(|_| Some(self.range[0].clone())).collect());
+            return Ok(values.iter().map(|_| self.range[0].clone()).collect());
         }
 
         // Pre-compute scaling factors
         let domain_span = self.domain.1 - self.domain.0;
         let segments = n as f32;
 
-        let mut result: Vec<Option<R>> = Vec::with_capacity(values.len());
+        let mut result: Vec<R> = Vec::with_capacity(values.len());
 
         // Build array of indices, with nulls for non-finite values
         for x in values.iter() {
@@ -106,9 +108,9 @@ where
                 // Direct calculation of index based on position in domain
                 let normalized = (x - self.domain.0) / domain_span;
                 let idx = ((normalized * segments).floor() as usize).clamp(0, n - 1);
-                result.push(Some(self.range[idx].clone()));
+                result.push(self.range[idx].clone());
             } else {
-                result.push(None);
+                result.push(self.default.clone());
             }
         }
 
@@ -123,21 +125,21 @@ mod tests {
 
     #[test]
     fn test_quantize_scale_basic() -> Result<(), AvengerScaleError> {
-        let scale = QuantizeScale::new(vec![0.0, 0.5, 1.0]).domain((0.0, 1.0));
+        let scale = QuantizeScale::new(vec![0.0, 0.5, 1.0], f32::NAN).domain((0.0, 1.0));
 
         // Test array scaling with all test cases
         let values = vec![0.3, 0.5, 0.8];
         let result = scale.scale(&values)?;
-        assert_eq!(result[0], Some(0.0));
-        assert_eq!(result[1], Some(0.5));
-        assert_eq!(result[2], Some(1.0));
+        assert_eq!(result[0], 0.0);
+        assert_eq!(result[1], 0.5);
+        assert_eq!(result[2], 1.0);
 
         Ok(())
     }
 
     #[test]
     fn test_quantize_thresholds() {
-        let scale = QuantizeScale::new(vec![0.0, 0.5, 1.0]).domain((0.0, 100.0));
+        let scale = QuantizeScale::new(vec![0.0, 0.5, 1.0], f32::NAN).domain((0.0, 100.0));
 
         let thresholds = scale.thresholds();
         assert_approx_eq!(f32, thresholds[0], 33.333332);
@@ -146,21 +148,22 @@ mod tests {
 
     #[test]
     fn test_quantize_string_range() -> Result<(), AvengerScaleError> {
-        let scale = QuantizeScale::new(vec!["small", "medium", "large"]).domain((0.0, 1.0));
+        let scale =
+            QuantizeScale::new(vec!["small", "medium", "large"], "default").domain((0.0, 1.0));
 
         let values = vec![0.3, 0.5, 0.8];
         let result = scale.scale(&values)?;
 
-        assert_eq!(result[0], Some("small"));
-        assert_eq!(result[1], Some("medium"));
-        assert_eq!(result[2], Some("large"));
+        assert_eq!(result[0], "small");
+        assert_eq!(result[1], "medium");
+        assert_eq!(result[2], "large");
 
         Ok(())
     }
 
     #[test]
     fn test_quantize_scale_nice() -> Result<(), AvengerScaleError> {
-        let scale = QuantizeScale::new(vec![0.0, 25.0, 50.0, 75.0, 100.0])
+        let scale = QuantizeScale::new(vec![0.0, 25.0, 50.0, 75.0, 100.0], f32::NAN)
             .domain((1.1, 10.9))
             .nice(Some(5));
 
@@ -172,9 +175,9 @@ mod tests {
         let values = vec![1.0, 6.0, 11.0];
         let result = scale.scale(&values)?;
 
-        assert_eq!(result[0], Some(0.0)); // Near start of domain
-        assert_eq!(result[1], Some(50.0)); // Middle of domain
-        assert_eq!(result[2], Some(100.0)); // Near end of domain
+        assert_eq!(result[0], 0.0); // Near start of domain
+        assert_eq!(result[1], 50.0); // Middle of domain
+        assert_eq!(result[2], 100.0); // Near end of domain
 
         Ok(())
     }

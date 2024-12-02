@@ -5,7 +5,7 @@ use avenger::error::AvengerError;
 use avenger::marks::mark::SceneMark;
 use avenger::marks::path::{PathMark, PathTransform};
 use avenger::marks::symbol::parse_svg_path;
-use avenger::marks::value::{ColorOrGradient, EncodingValue, Gradient, StrokeCap, StrokeJoin};
+use avenger::marks::value::{ColorOrGradient, ScalarOrArray, Gradient, StrokeCap, StrokeJoin};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -94,15 +94,15 @@ impl VegaMarkContainer<VegaShapeItem> {
         let len = self.items.len();
         mark.len = len as u32;
         if fill.len() == len {
-            mark.fill = EncodingValue::Array { values: fill };
+            mark.fill = ScalarOrArray::Array { values: fill };
         }
         if stroke.len() == len {
-            mark.stroke = EncodingValue::Array { values: stroke };
+            mark.stroke = ScalarOrArray::Array { values: stroke };
         }
         if transform.len() == len {
-            mark.transform = EncodingValue::Array { values: transform };
+            mark.transform = ScalarOrArray::Array { values: transform };
         } else {
-            mark.transform = EncodingValue::Scalar {
+            mark.transform = ScalarOrArray::Scalar {
                 value: PathTransform::identity(),
             }
         }
@@ -117,7 +117,7 @@ impl VegaMarkContainer<VegaShapeItem> {
         if num_unique == 1 {
             // Parse single path and store as a scalar
             let path_str = path_str.first().unwrap();
-            mark.path = EncodingValue::Scalar {
+            mark.path = ScalarOrArray::Scalar {
                 value: parse_svg_path(path_str)?,
             };
         } else {
@@ -127,7 +127,7 @@ impl VegaMarkContainer<VegaShapeItem> {
                 .map(|p| parse_svg_path(p))
                 .collect::<Result<Vec<_>, AvengerError>>()?;
 
-            mark.path = EncodingValue::Array { values: paths };
+            mark.path = ScalarOrArray::Array { values: paths };
         }
 
         // Add gradients

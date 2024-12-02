@@ -6,7 +6,7 @@ use avenger::marks::group::{Clip, SceneGroup};
 use avenger::marks::line::LineMark;
 use avenger::marks::mark::SceneMark;
 use avenger::marks::symbol::{SymbolMark, SymbolShape};
-use avenger::marks::value::{ColorOrGradient, EncodingValue, Gradient, StrokeCap, StrokeJoin};
+use avenger::marks::value::{ColorOrGradient, ScalarOrArray, Gradient, StrokeCap, StrokeJoin};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -61,10 +61,10 @@ impl VegaMarkContainer<VegaSymbolItem> {
                     clip: false,
                     zindex: self.zindex,
                     len: 2,
-                    x: EncodingValue::Array {
+                    x: ScalarOrArray::Array {
                         values: vec![x - width / 2.0, x + width / 2.0],
                     },
-                    y: EncodingValue::Scalar { value: y },
+                    y: ScalarOrArray::Scalar { value: y },
                     stroke,
                     stroke_width: item.stroke_width.unwrap_or(1.0),
                     stroke_cap: item.stroke_cap.unwrap_or_default(),
@@ -170,22 +170,22 @@ impl VegaMarkContainer<VegaSymbolItem> {
         }
 
         if x.len() == len {
-            mark.x = EncodingValue::Array { values: x };
+            mark.x = ScalarOrArray::Array { values: x };
         }
         if y.len() == len {
-            mark.y = EncodingValue::Array { values: y };
+            mark.y = ScalarOrArray::Array { values: y };
         }
         if fill.len() == len {
-            mark.fill = EncodingValue::Array { values: fill };
+            mark.fill = ScalarOrArray::Array { values: fill };
         }
         if size.len() == len {
-            mark.size = EncodingValue::Array { values: size };
+            mark.size = ScalarOrArray::Array { values: size };
         }
         if stroke.len() == len {
-            mark.stroke = EncodingValue::Array { values: stroke };
+            mark.stroke = ScalarOrArray::Array { values: stroke };
         }
         if angle.len() == len {
-            mark.angle = EncodingValue::Array { values: angle };
+            mark.angle = ScalarOrArray::Array { values: angle };
         }
         if zindex.len() == len {
             let mut indices: Vec<usize> = (0..len).collect();
@@ -193,7 +193,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
             mark.indices = Some(indices);
         }
         if shape_index.len() == len {
-            mark.shape_index = EncodingValue::Array {
+            mark.shape_index = ScalarOrArray::Array {
                 values: shape_index,
             };
             mark.shapes = shape_strings

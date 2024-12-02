@@ -1,6 +1,6 @@
 use crate::marks::util::{decode_colors, decode_gradients, zindex_to_indices};
 use avenger::marks::rule::RuleMark as RsRuleMark;
-use avenger::marks::value::{EncodingValue, StrokeCap};
+use avenger::marks::value::{ScalarOrArray, StrokeCap};
 use avenger_vega::error::AvengerVegaError;
 use avenger_vega::marks::values::StrokeDashSpec;
 use gloo_utils::format::JsValueSerdeExt;
@@ -38,14 +38,14 @@ impl RuleMark {
     }
 
     pub fn set_xy(&mut self, x0: Vec<f32>, y0: Vec<f32>, x1: Vec<f32>, y1: Vec<f32>) {
-        self.inner.x0 = EncodingValue::Array { values: x0 };
-        self.inner.y0 = EncodingValue::Array { values: y0 };
-        self.inner.x1 = EncodingValue::Array { values: x1 };
-        self.inner.y1 = EncodingValue::Array { values: y1 };
+        self.inner.x0 = ScalarOrArray::Array { values: x0 };
+        self.inner.y0 = ScalarOrArray::Array { values: y0 };
+        self.inner.x1 = ScalarOrArray::Array { values: x1 };
+        self.inner.y1 = ScalarOrArray::Array { values: y1 };
     }
 
     pub fn set_stroke_width(&mut self, width: Vec<f32>) {
-        self.inner.stroke_width = EncodingValue::Array { values: width }
+        self.inner.stroke_width = ScalarOrArray::Array { values: width }
     }
 
     /// Set stroke color.
@@ -60,7 +60,7 @@ impl RuleMark {
         indices: Vec<usize>,
         opacity: Vec<f32>,
     ) -> Result<(), JsError> {
-        self.inner.stroke = EncodingValue::Array {
+        self.inner.stroke = ScalarOrArray::Array {
             values: decode_colors(color_values, indices, opacity)?,
         };
         Ok(())
@@ -76,7 +76,7 @@ impl RuleMark {
         values: JsValue,
         opacity: Vec<f32>,
     ) -> Result<(), JsError> {
-        self.inner.stroke = EncodingValue::Array {
+        self.inner.stroke = ScalarOrArray::Array {
             values: decode_gradients(values, opacity, &mut self.inner.gradients)?,
         };
         Ok(())
@@ -88,7 +88,7 @@ impl RuleMark {
     #[wasm_bindgen(skip_jsdoc)]
     pub fn set_stroke_cap(&mut self, values: JsValue) -> Result<(), JsError> {
         let values: Vec<StrokeCap> = values.into_serde()?;
-        self.inner.stroke_cap = EncodingValue::Array { values };
+        self.inner.stroke_cap = ScalarOrArray::Array { values };
         Ok(())
     }
 
@@ -103,7 +103,7 @@ impl RuleMark {
             .map(|s| Ok(s.to_array()?.to_vec()))
             .collect::<Result<Vec<_>, AvengerVegaError>>()
             .map_err(|_| JsError::new("Failed to parse dash spec"))?;
-        self.inner.stroke_dash = Some(EncodingValue::Array { values });
+        self.inner.stroke_dash = Some(ScalarOrArray::Array { values });
         Ok(())
     }
 }

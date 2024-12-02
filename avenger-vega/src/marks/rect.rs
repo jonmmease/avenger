@@ -3,7 +3,7 @@ use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::CssColorOrGradient;
 use avenger::marks::mark::SceneMark;
 use avenger::marks::rect::RectMark;
-use avenger::marks::value::{ColorOrGradient, EncodingValue, Gradient};
+use avenger::marks::value::{ColorOrGradient, ScalarOrArray, Gradient};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -85,30 +85,30 @@ impl VegaMarkContainer<VegaRectItem> {
         mark.len = len as u32;
 
         if x.len() == len {
-            mark.x = EncodingValue::Array { values: x };
+            mark.x = ScalarOrArray::Array { values: x };
         }
         if y.len() == len {
-            mark.y = EncodingValue::Array { values: y };
+            mark.y = ScalarOrArray::Array { values: y };
         }
         if width.len() == len {
-            mark.width = EncodingValue::Array { values: width };
+            mark.width = ScalarOrArray::Array { values: width };
         }
         if height.len() == len {
-            mark.height = EncodingValue::Array { values: height };
+            mark.height = ScalarOrArray::Array { values: height };
         }
         if fill.len() == len {
-            mark.fill = EncodingValue::Array { values: fill };
+            mark.fill = ScalarOrArray::Array { values: fill };
         }
         if stroke.len() == len {
-            mark.stroke = EncodingValue::Array { values: stroke };
+            mark.stroke = ScalarOrArray::Array { values: stroke };
         }
         if stroke_width.len() == len {
-            mark.stroke_width = EncodingValue::Array {
+            mark.stroke_width = ScalarOrArray::Array {
                 values: stroke_width,
             };
         }
         if corner_radius.len() == len {
-            mark.corner_radius = EncodingValue::Array {
+            mark.corner_radius = ScalarOrArray::Array {
                 values: corner_radius,
             };
         }

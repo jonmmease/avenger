@@ -1,5 +1,5 @@
 use crate::error::AvengerError;
-use crate::marks::value::{ColorOrGradient, EncodingValue, Gradient};
+use crate::marks::value::{ColorOrGradient, ScalarOrArray, Gradient};
 use lyon_extra::parser::{ParserOptions, Source};
 use lyon_path::geom::euclid::Point2D;
 use lyon_path::geom::{Box2D, Point, Scale};
@@ -16,13 +16,13 @@ pub struct SymbolMark {
     pub gradients: Vec<Gradient>,
     pub shapes: Vec<SymbolShape>,
     pub stroke_width: Option<f32>,
-    pub shape_index: EncodingValue<usize>,
-    pub x: EncodingValue<f32>,
-    pub y: EncodingValue<f32>,
-    pub fill: EncodingValue<ColorOrGradient>,
-    pub size: EncodingValue<f32>,
-    pub stroke: EncodingValue<ColorOrGradient>,
-    pub angle: EncodingValue<f32>,
+    pub shape_index: ScalarOrArray<usize>,
+    pub x: ScalarOrArray<f32>,
+    pub y: ScalarOrArray<f32>,
+    pub fill: ScalarOrArray<ColorOrGradient>,
+    pub size: ScalarOrArray<f32>,
+    pub stroke: ScalarOrArray<ColorOrGradient>,
+    pub angle: ScalarOrArray<f32>,
     pub indices: Option<Vec<usize>>,
     pub zindex: Option<i32>,
 }
@@ -89,8 +89,8 @@ impl SymbolMark {
 
     pub fn max_size(&self) -> f32 {
         match &self.size {
-            EncodingValue::Scalar { value: size } => *size,
-            EncodingValue::Array { values } => *values
+            ScalarOrArray::Scalar { value: size } => *size,
+            ScalarOrArray::Array { values } => *values
                 .iter()
                 .max_by(|a, b| a.partial_cmp(b).unwrap())
                 .unwrap_or(&1.0),
@@ -106,17 +106,17 @@ impl Default for SymbolMark {
             shapes: vec![Default::default()],
             stroke_width: None,
             len: 1,
-            x: EncodingValue::Scalar { value: 0.0 },
-            y: EncodingValue::Scalar { value: 0.0 },
-            shape_index: EncodingValue::Scalar { value: 0 },
-            fill: EncodingValue::Scalar {
+            x: ScalarOrArray::Scalar { value: 0.0 },
+            y: ScalarOrArray::Scalar { value: 0.0 },
+            shape_index: ScalarOrArray::Scalar { value: 0 },
+            fill: ScalarOrArray::Scalar {
                 value: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
             },
-            size: EncodingValue::Scalar { value: 20.0 },
-            stroke: EncodingValue::Scalar {
+            size: ScalarOrArray::Scalar { value: 20.0 },
+            stroke: ScalarOrArray::Scalar {
                 value: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
             },
-            angle: EncodingValue::Scalar { value: 0.0 },
+            angle: ScalarOrArray::Scalar { value: 0.0 },
             indices: None,
             gradients: vec![],
             zindex: None,

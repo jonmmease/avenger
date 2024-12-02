@@ -1,6 +1,6 @@
 use crate::marks::util::zindex_to_indices;
 use avenger::marks::image::{ImageMark as RsImageMark, RgbaImage};
-use avenger::marks::value::{EncodingValue, ImageAlign, ImageBaseline};
+use avenger::marks::value::{ScalarOrArray, ImageAlign, ImageBaseline};
 use gloo_utils::format::JsValueSerdeExt;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};
@@ -44,16 +44,16 @@ impl ImageMark {
     }
 
     pub fn set_xy(&mut self, x: Vec<f32>, y: Vec<f32>) {
-        self.inner.x = EncodingValue::Array { values: x };
-        self.inner.y = EncodingValue::Array { values: y };
+        self.inner.x = ScalarOrArray::Array { values: x };
+        self.inner.y = ScalarOrArray::Array { values: y };
     }
 
     pub fn set_width(&mut self, width: Vec<f32>) {
-        self.inner.width = EncodingValue::Array { values: width };
+        self.inner.width = ScalarOrArray::Array { values: width };
     }
 
     pub fn set_height(&mut self, height: Vec<f32>) {
-        self.inner.height = EncodingValue::Array { values: height };
+        self.inner.height = ScalarOrArray::Array { values: height };
     }
 
     /// Set alignment
@@ -67,7 +67,7 @@ impl ImageMark {
             .iter()
             .map(|ind| align_values[*ind].clone())
             .collect::<Vec<_>>();
-        self.inner.align = EncodingValue::Array { values };
+        self.inner.align = ScalarOrArray::Array { values };
         Ok(())
     }
 
@@ -86,7 +86,7 @@ impl ImageMark {
             .iter()
             .map(|ind| baseline_values[*ind].clone())
             .collect::<Vec<_>>();
-        self.inner.baseline = EncodingValue::Array { values };
+        self.inner.baseline = ScalarOrArray::Array { values };
         Ok(())
     }
 
@@ -103,7 +103,7 @@ impl ImageMark {
         // Use serde_wasm_bindgen instead of gloo_utils to supported
         // nested struct
         let images: Vec<RgbaImage> = serde_wasm_bindgen::from_value(images)?;
-        self.inner.image = EncodingValue::Array { values: images };
+        self.inner.image = ScalarOrArray::Array { values: images };
         Ok(())
     }
 }

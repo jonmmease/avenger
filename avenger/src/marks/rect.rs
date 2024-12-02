@@ -1,4 +1,4 @@
-use crate::marks::value::{ColorOrGradient, EncodingValue, Gradient};
+use crate::marks::value::{ColorOrGradient, Gradient, ScalarOrArray};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -8,14 +8,14 @@ pub struct RectMark {
     pub clip: bool,
     pub len: u32,
     pub gradients: Vec<Gradient>,
-    pub x: EncodingValue<f32>,
-    pub y: EncodingValue<f32>,
-    pub width: EncodingValue<f32>,
-    pub height: EncodingValue<f32>,
-    pub fill: EncodingValue<ColorOrGradient>,
-    pub stroke: EncodingValue<ColorOrGradient>,
-    pub stroke_width: EncodingValue<f32>,
-    pub corner_radius: EncodingValue<f32>,
+    pub x: ScalarOrArray<f32>,
+    pub y: ScalarOrArray<f32>,
+    pub width: ScalarOrArray<f32>,
+    pub height: ScalarOrArray<f32>,
+    pub fill: ScalarOrArray<ColorOrGradient>,
+    pub stroke: ScalarOrArray<ColorOrGradient>,
+    pub stroke_width: ScalarOrArray<f32>,
+    pub corner_radius: ScalarOrArray<f32>,
     pub indices: Option<Vec<usize>>,
     pub zindex: Option<i32>,
 }
@@ -99,18 +99,18 @@ impl Default for RectMark {
             clip: true,
             len: 1,
             gradients: vec![],
-            x: EncodingValue::Scalar { value: 0.0 },
-            y: EncodingValue::Scalar { value: 0.0 },
-            width: EncodingValue::Scalar { value: 0.0 },
-            height: EncodingValue::Scalar { value: 0.0 },
-            fill: EncodingValue::Scalar {
+            x: ScalarOrArray::Scalar { value: 0.0 },
+            y: ScalarOrArray::Scalar { value: 0.0 },
+            width: ScalarOrArray::Scalar { value: 0.0 },
+            height: ScalarOrArray::Scalar { value: 0.0 },
+            fill: ScalarOrArray::Scalar {
                 value: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
             },
-            stroke: EncodingValue::Scalar {
+            stroke: ScalarOrArray::Scalar {
                 value: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
             },
-            stroke_width: EncodingValue::Scalar { value: 0.0 },
-            corner_radius: EncodingValue::Scalar { value: 0.0 },
+            stroke_width: ScalarOrArray::Scalar { value: 0.0 },
+            corner_radius: ScalarOrArray::Scalar { value: 0.0 },
             indices: None,
             zindex: None,
         }

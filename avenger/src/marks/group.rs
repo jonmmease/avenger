@@ -1,6 +1,6 @@
 use crate::marks::mark::SceneMark;
 use crate::marks::path::{PathMark, PathTransform};
-use crate::marks::value::{ColorOrGradient, EncodingValue, Gradient};
+use crate::marks::value::{ColorOrGradient, ScalarOrArray, Gradient};
 use lyon_path::geom::euclid::Point2D;
 use lyon_path::geom::Box2D;
 use lyon_path::Winding;
@@ -117,14 +117,14 @@ impl SceneGroup {
             clip: false,
             len: 1,
             gradients: self.gradients.clone(),
-            path: EncodingValue::Scalar { value: path },
-            fill: EncodingValue::Scalar {
+            path: ScalarOrArray::Scalar { value: path },
+            fill: ScalarOrArray::Scalar {
                 value: self
                     .fill
                     .clone()
                     .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             },
-            stroke: EncodingValue::Scalar {
+            stroke: ScalarOrArray::Scalar {
                 value: self
                     .stroke
                     .clone()
@@ -133,7 +133,7 @@ impl SceneGroup {
             stroke_width: Some(stroke_width),
             stroke_cap: Default::default(),
             stroke_join: Default::default(),
-            transform: EncodingValue::Scalar {
+            transform: ScalarOrArray::Scalar {
                 value: PathTransform::identity(),
             },
             indices: None,

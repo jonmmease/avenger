@@ -12,6 +12,7 @@ where
 {
     domain: Vec<f32>,
     range: Vec<R>,
+    default: R,
     thresholds: Vec<f32>,
 }
 
@@ -19,13 +20,14 @@ impl<R> QuantileScale<R>
 where
     R: Clone + Debug,
 {
-    pub fn try_new(range: Vec<R>) -> Result<Self, AvengerScaleError> {
+    pub fn try_new(range: Vec<R>, default: R) -> Result<Self, AvengerScaleError> {
         if range.is_empty() {
             return Err(AvengerScaleError::EmptyRange);
         }
         let mut this = Self {
             domain: vec![0.0, 1.0],
             range,
+            default,
             thresholds: vec![],
         };
         this.update_thresholds();
@@ -87,14 +89,14 @@ where
             .collect();
     }
 
-    pub fn scale(&self, values: &[f32]) -> Result<Vec<Option<R>>, AvengerScaleError> {
+    pub fn scale(&self, values: &[f32]) -> Result<Vec<R>, AvengerScaleError> {
         let n = self.range.len();
 
         if n == 1 {
-            return Ok(self.range.iter().map(|r| Some(r.clone())).collect());
+            return Ok(self.range.iter().map(|r| r.clone()).collect());
         }
 
-        let mut result: Vec<Option<R>> = Vec::with_capacity(values.len());
+        let mut result: Vec<R> = Vec::with_capacity(values.len());
 
         for x in values.iter() {
             if x.is_finite() {
@@ -106,9 +108,9 @@ where
                     Ok(i) => (i + 1) as usize,
                     Err(i) => i as usize,
                 };
-                result.push(Some(self.range[idx].clone()));
+                result.push(self.range[idx].clone());
             } else {
-                result.push(None);
+                result.push(self.default.clone());
             }
         }
 
@@ -125,7 +127,8 @@ mod tests {
     fn test_quantile_scale_basic() -> Result<(), AvengerScaleError> {
         // Create sample population with skewed distribution
         let domain = vec![1.0, 1.0, 2.0, 3.0, 3.0, 3.0, 4.0, 4.0, 5.0];
-        let scale = QuantileScale::try_new(vec!["small", "medium", "large"])?.domain(domain)?;
+        let scale =
+            QuantileScale::try_new(vec!["small", "medium", "large"], "default")?.domain(domain)?;
 
         // Check quantile thresholds
         let thresholds = scale.quantiles();
@@ -134,12 +137,13 @@ mod tests {
                                                     // Last third: [4,4,5]
 
         // Test mapping values
-        let values = vec![1.5, 3.0, 4.5];
+        let values = vec![1.5, 3.0, 4.5, f32::NAN];
         let result = scale.scale(&values)?;
 
-        assert_eq!(result[0], Some("small")); // 1.5 < 3.0
-        assert_eq!(result[1], Some("medium")); // 3.0 < 4.0
-        assert_eq!(result[2], Some("large")); // 4.5 >= 4.0
+        assert_eq!(result[0], "small"); // 1.5 < 3.0
+        assert_eq!(result[1], "medium"); // 3.0 < 4.0
+        assert_eq!(result[2], "large"); // 4.5 >= 4.0
+        assert_eq!(result[3], "default"); // non-finite
 
         Ok(())
     }

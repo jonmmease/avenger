@@ -4,7 +4,7 @@ use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::image::make_image_fetcher;
 use avenger::marks::image::{ImageMark, RgbaImage};
 use avenger::marks::mark::SceneMark;
-use avenger::marks::value::{EncodingValue, ImageAlign, ImageBaseline};
+use avenger::marks::value::{ScalarOrArray, ImageAlign, ImageBaseline};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -100,13 +100,13 @@ impl VegaMarkContainer<VegaImageItem> {
             len: self.items.len() as u32,
             aspect,
             smooth,
-            align: EncodingValue::Array { values: align },
-            baseline: EncodingValue::Array { values: baseline },
-            image: EncodingValue::Array { values: images },
-            x: EncodingValue::Array { values: x },
-            y: EncodingValue::Array { values: y },
-            width: EncodingValue::Array { values: width },
-            height: EncodingValue::Array { values: height },
+            align: ScalarOrArray::Array { values: align },
+            baseline: ScalarOrArray::Array { values: baseline },
+            image: ScalarOrArray::Array { values: images },
+            x: ScalarOrArray::Array { values: x },
+            y: ScalarOrArray::Array { values: y },
+            width: ScalarOrArray::Array { values: width },
+            height: ScalarOrArray::Array { values: height },
             indices,
             zindex: self.zindex,
         })))
