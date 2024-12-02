@@ -1,6 +1,6 @@
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::symbol::{SymbolMark, SymbolShape};
+use avenger_scenegraph::marks::symbol::{SceneSymbolMark, SymbolShape};
 use avenger_scenegraph::marks::value::{ColorOrGradient, EncodingValue};
 use avenger_scenegraph::scene_graph::SceneGraph;
 
@@ -242,7 +242,7 @@ fn make_sg(
             name: "".to_string(),
             origin: [0.0, 0.0],
             clip: Default::default(),
-            marks: vec![SceneMark::Symbol(SymbolMark {
+            marks: vec![SceneMark::Symbol(SceneSymbolMark {
                 name: "scatter".to_string(),
                 clip: false,
                 shapes: vec![shape.clone()],
