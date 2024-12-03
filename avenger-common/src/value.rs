@@ -28,7 +28,9 @@ impl<T: Sync + Clone> ScalarOrArray<T> {
         indices: Option<&'a Vec<usize>>,
     ) -> Box<dyn Iterator<Item = T> + '_> {
         match self {
-            ScalarOrArray::Scalar { value } => Box::new(std::iter::repeat(value.clone()).take(scalar_len)),
+            ScalarOrArray::Scalar { value } => {
+                Box::new(std::iter::repeat(value.clone()).take(scalar_len))
+            }
             ScalarOrArray::Array { values } => match indices {
                 None => Box::new(values.iter().cloned()),
                 Some(indices) => Box::new(indices.iter().map(|i| values[*i].clone())),

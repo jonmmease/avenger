@@ -2,7 +2,6 @@ use avenger_common::value::{ColorOrGradient, ScalarOrArray, ScalarOrArrayRef};
 use palette::{Hsla, IntoColor, Laba, Mix, Srgba};
 use std::fmt::Debug;
 
-use crate::error::AvengerScaleError;
 use crate::numeric::linear::LinearNumericScale;
 use crate::numeric::log::LogNumericScale;
 use crate::numeric::opts::NumericScaleOptions;
@@ -88,13 +87,13 @@ impl<C: ColorSpace> NumericColorScale<C> {
     pub fn scale<'a>(
         &self,
         values: impl Into<ScalarOrArrayRef<'a, f32>>,
-    ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
+    ) -> ScalarOrArray<ColorOrGradient> {
         // Normalize the input values to the range [0, number of colors - 1]
         let normalized_values = self
             .numeric_scale
-            .scale(values, &NumericScaleOptions::default())?;
+            .scale(values, &NumericScaleOptions::default());
 
-        Ok(normalized_values.map(|v| Self::interp_color_to_color_or_gradient(&self.range, *v)))
+        normalized_values.map(|v| Self::interp_color_to_color_or_gradient(&self.range, *v))
     }
 
     pub fn ticks(&self, count: Option<f32>) -> Vec<f32> {
@@ -123,6 +122,7 @@ pub type NumericLabaScale = NumericColorScale<Laba>;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::AvengerScaleError;
     use float_cmp::assert_approx_eq;
 
     fn assert_srgba_approx_eq(actual: &ColorOrGradient, expected: Srgba) {
@@ -179,7 +179,7 @@ mod tests {
             40.0,     // above domain
         ];
 
-        let result = scale.scale(&values)?.as_vec(values.len(), None);
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         // Below domain - should clamp to black
         assert_srgba_approx_eq(&result[0], Srgba::new(0.0, 0.0, 0.0, 1.0));
@@ -224,7 +224,7 @@ mod tests {
             40.0,     // above domain
         ];
 
-        let result = scale.scale(&values)?.as_vec(values.len(), None);
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         // Below domain - should clamp to red
         assert_hsla_approx_eq(&result[0], Hsla::new(0.0, 0.5, 0.5, 1.0));

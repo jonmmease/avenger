@@ -11,8 +11,6 @@ use opts::NumericScaleOptions;
 use pow::PowNumericScale;
 use symlog::SymlogNumericScale;
 
-use crate::error::AvengerScaleError;
-
 #[derive(Clone, Debug)]
 pub enum NumericScale {
     Linear(LinearNumericScale),
@@ -89,9 +87,9 @@ impl NumericScale {
         &self,
         values: impl Into<ScalarOrArrayRef<'a, f32>>,
         opts: &NumericScaleOptions,
-    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+    ) -> ScalarOrArray<f32> {
         match self {
-            NumericScale::Linear(scale) => Ok(scale.scale(values, opts)),
+            NumericScale::Linear(scale) => scale.scale(values, opts),
             NumericScale::Log(scale) => scale.scale(values, opts),
             NumericScale::Pow(scale) => scale.scale(values, opts),
             NumericScale::Symlog(scale) => scale.scale(values, opts),
@@ -102,9 +100,9 @@ impl NumericScale {
         &self,
         values: impl Into<ScalarOrArrayRef<'a, f32>>,
         opts: &NumericScaleOptions,
-    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+    ) -> ScalarOrArray<f32> {
         match self {
-            NumericScale::Linear(scale) => Ok(scale.invert(values, opts)),
+            NumericScale::Linear(scale) => scale.invert(values, opts),
             NumericScale::Log(scale) => scale.invert(values, opts),
             NumericScale::Pow(scale) => scale.invert(values, opts),
             NumericScale::Symlog(scale) => scale.invert(values, opts),

@@ -46,7 +46,9 @@ impl SceneRectMark {
         } else if let Some(x2) = self.x2.as_ref() {
             // Compute width from x2 and x
             Box::new(
-                self.x_iter().zip(x2.as_iter(self.len as usize, self.indices.as_ref())).map(|(x, x2)| x2 - x)
+                self.x_iter()
+                    .zip(x2.as_iter(self.len as usize, self.indices.as_ref()))
+                    .map(|(x, x2)| x2 - x),
             )
         } else {
             // Default to width 1
@@ -65,7 +67,9 @@ impl SceneRectMark {
         } else if let Some(y2) = self.y2.as_ref() {
             // Compute width from y2 and y
             Box::new(
-                self.y_iter().zip(y2.as_iter(self.len as usize, self.indices.as_ref())).map(|(y, y2)| y2 - y)
+                self.y_iter()
+                    .zip(y2.as_iter(self.len as usize, self.indices.as_ref()))
+                    .map(|(y, y2)| y2 - y),
             )
         } else {
             // Default to height 1
@@ -84,13 +88,13 @@ impl SceneRectMark {
         } else if let Some(width) = self.width.as_ref() {
             // Compute x2 from x and width
             Box::new(
-                self.x_iter().zip(width.as_iter(self.len as usize, self.indices.as_ref())).map(|(x, width)| x + width)
+                self.x_iter()
+                    .zip(width.as_iter(self.len as usize, self.indices.as_ref()))
+                    .map(|(x, width)| x + width),
             )
         } else {
             // Default to x + 1
-            Box::new(
-                self.x_iter().map(|x| x + 1.0)
-            )
+            Box::new(self.x_iter().map(|x| x + 1.0))
         }
     }
 
@@ -105,13 +109,13 @@ impl SceneRectMark {
         } else if let Some(height) = self.height.as_ref() {
             // Compute y2 from y and height
             Box::new(
-                self.y_iter().zip(height.as_iter(self.len as usize, self.indices.as_ref())).map(|(y, height)| y + height)
+                self.y_iter()
+                    .zip(height.as_iter(self.len as usize, self.indices.as_ref()))
+                    .map(|(y, height)| y + height),
             )
         } else {
             // Default to y + 1
-            Box::new(
-                self.y_iter().map(|y| y + 1.0)
-            )
+            Box::new(self.y_iter().map(|y| y + 1.0))
         }
     }
 

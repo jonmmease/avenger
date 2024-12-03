@@ -160,7 +160,7 @@ pub async fn run() {
         x2: Some(x_scale.scale(&x_values, &BandScaleOptions{ band: Some(1.0), ..Default::default() })),
         y: y_scale.scale(0.0, &Default::default()),
         y2: Some(y_scale.scale(&y_values, &Default::default())),
-        fill: color_scale.scale(&y_values).unwrap(),
+        fill: color_scale.scale(&y_values),
         ..Default::default()
     };
 

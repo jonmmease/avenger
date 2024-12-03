@@ -2,8 +2,6 @@ use std::sync::Arc;
 
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 
-use crate::error::AvengerScaleError;
-
 use super::opts::NumericScaleOptions;
 
 /// Handles logarithmic transformations with different bases
@@ -160,10 +158,10 @@ impl LogNumericScale {
         &self,
         values: impl Into<ScalarOrArrayRef<'a, f32>>,
         opts: &NumericScaleOptions,
-    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+    ) -> ScalarOrArray<f32> {
         // Handle degenerate domain and range cases
         if self.domain_start == self.domain_end || self.range_start == self.range_end {
-            return Ok(values.into().map(|_| self.range_start));
+            return values.into().map(|_| self.range_start);
         }
 
         // Transform to log space
@@ -183,7 +181,7 @@ impl LogNumericScale {
 
         // Handle degenerate domain in log space
         if log_domain_span == 0.0 || log_domain_span.is_nan() {
-            return Ok(values.into().map(|_| self.range_start));
+            return values.into().map(|_| self.range_start);
         }
 
         let scale = (self.range_end - self.range_start) / log_domain_span;
@@ -197,7 +195,7 @@ impl LogNumericScale {
                 (self.range_end, self.range_start)
             };
 
-            Ok(values.into().map(|&v| {
+            values.into().map(|&v| {
                 if v.is_nan() {
                     return f32::NAN;
                 }
@@ -210,10 +208,10 @@ impl LogNumericScale {
                 }
                 let log_v = self.log(v);
                 (scale * log_v + offset).clamp(range_min, range_max)
-            }))
+            })
         } else {
             match self.log_fun.as_ref() {
-                LogFunction::Static { log_fun, .. } => Ok(values.into().map(|&v| {
+                LogFunction::Static { log_fun, .. } => values.into().map(|&v| {
                     if v < 0.0 {
                         scale * (-log_fun(-v)) + offset
                     } else if v > 0.0 {
@@ -221,10 +219,10 @@ impl LogNumericScale {
                     } else {
                         f32::NAN
                     }
-                })),
+                }),
                 LogFunction::Custom { ln_base, .. } => {
                     let ln_base = *ln_base;
-                    Ok(values.into().map(|&v| {
+                    values.into().map(|&v| {
                         if v < 0.0 {
                             scale * (-v.ln() / ln_base) + offset
                         } else if v > 0.0 {
@@ -232,7 +230,7 @@ impl LogNumericScale {
                         } else {
                             f32::NAN
                         }
-                    }))
+                    })
                 }
             }
         }
@@ -243,11 +241,11 @@ impl LogNumericScale {
         &self,
         values: impl Into<ScalarOrArrayRef<'a, f32>>,
         opts: &NumericScaleOptions,
-    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+    ) -> ScalarOrArray<f32> {
         // Handle degenerate cases
         if self.domain_start <= 0.0 || self.domain_end <= 0.0 || self.range_start == self.range_end
         {
-            return Ok(values.into().map(|_| self.range_start));
+            return values.into().map(|_| self.range_start);
         }
 
         // Transform to log space
@@ -257,7 +255,7 @@ impl LogNumericScale {
 
         // Handle degenerate domain in log space
         if log_domain_span == 0.0 || log_domain_span.is_nan() {
-            return Ok(values.into().map(|_| self.range_start));
+            return values.into().map(|_| self.range_start);
         }
 
         let scale = (self.range_end - self.range_start) / log_domain_span;
@@ -272,22 +270,22 @@ impl LogNumericScale {
             };
 
             match self.log_fun.as_ref() {
-                LogFunction::Static { pow_fun, .. } => Ok(values.into().map(|&v| {
+                LogFunction::Static { pow_fun, .. } => values.into().map(|&v| {
                     let v = v.clamp(range_min, range_max);
                     pow_fun((v - offset) / scale)
-                })),
-                LogFunction::Custom { base, .. } => Ok(values.into().map(|&v| {
+                }),
+                LogFunction::Custom { base, .. } => values.into().map(|&v| {
                     let v = v.clamp(range_min, range_max);
                     base.powf((v - offset) / scale)
-                })),
+                }),
             }
         } else {
             match self.log_fun.as_ref() {
                 LogFunction::Static { pow_fun, .. } => {
-                    Ok(values.into().map(|&v| pow_fun((v - offset) / scale)))
+                    values.into().map(|&v| pow_fun((v - offset) / scale))
                 }
                 LogFunction::Custom { base, .. } => {
-                    Ok(values.into().map(|&v| base.powf((v - offset) / scale)))
+                    values.into().map(|&v| base.powf((v - offset) / scale))
                 }
             }
         }
@@ -451,14 +449,12 @@ mod tests {
         let values = vec![5.0];
         let result = scale
             .scale(&values, &Default::default())
-            .unwrap()
             .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 0.69897);
 
         let values = vec![0.69897];
         let result = scale
             .invert(&values, &Default::default())
-            .unwrap()
             .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 5.0);
     }
@@ -469,7 +465,6 @@ mod tests {
         let values = vec![0.5, 1.0, 1.5, 2.0, 2.5];
         let result = scale
             .scale(&values, &Default::default())
-            .unwrap()
             .as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], -1.0);
@@ -490,7 +485,6 @@ mod tests {
                     range_offset: Some(0.5),
                 },
             )
-            .unwrap()
             .as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], -0.5);
@@ -506,7 +500,6 @@ mod tests {
         let values = vec![-50.0];
         let result = scale
             .scale(&values, &Default::default())
-            .unwrap()
             .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 0.150515);
     }
@@ -518,7 +511,6 @@ mod tests {
         let values = vec![0.5, 15.0];
         let result = scale
             .scale(&values, &Default::default())
-            .unwrap()
             .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], -0.30103);
         assert_approx_eq!(f32, result[1], 1.176091);
@@ -528,7 +520,6 @@ mod tests {
         let values = vec![-1.0, 5.0, 15.0];
         let result = scale
             .scale(&values, &Default::default())
-            .unwrap()
             .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 0.0);
         assert_approx_eq!(f32, result[1], 0.69897);
@@ -546,7 +537,6 @@ mod tests {
                     range_offset: Some(0.5),
                 },
             )
-            .unwrap()
             .as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], 0.5);
@@ -653,7 +643,6 @@ mod tests {
         let values = vec![1.0, 2.0];
         let result = scale
             .scale(&values, &Default::default())
-            .unwrap()
             .as_vec(values.len(), None);
         assert_eq!(result[0], 0.0);
         assert_eq!(result[1], 0.0);
@@ -663,7 +652,6 @@ mod tests {
         let values = vec![-1.0, 0.0];
         let result = scale
             .scale(&values, &Default::default())
-            .unwrap()
             .as_vec(values.len(), None);
         assert_eq!(result[0], 0.0);
         assert_eq!(result[1], 0.0);
