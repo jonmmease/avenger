@@ -1,4 +1,4 @@
-use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
+use avenger_common::value::{ColorOrGradient, ScalarOrArray, ScalarOrArrayRef};
 use palette::{Hsla, IntoColor, Laba, Mix, Srgba};
 use std::fmt::Debug;
 
@@ -88,29 +88,30 @@ impl<C: ColorSpace> NumericColorScale<C> {
     pub fn scale<'a>(
         &self,
         values: impl Into<ScalarOrArrayRef<'a, f32>>,
-    ) -> Result<ScalarOrArray<Srgba>, AvengerScaleError> {
+    ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
         // Normalize the input values to the range [0, number of colors - 1]
         let normalized_values = self
             .numeric_scale
             .scale(values, &NumericScaleOptions::default())?;
 
-        Ok(normalized_values.map(|v| Self::interp_color_to_srgba(&self.range, *v)))
+        Ok(normalized_values.map(|v| Self::interp_color_to_color_or_gradient(&self.range, *v)))
     }
 
     pub fn ticks(&self, count: Option<f32>) -> Vec<f32> {
         self.numeric_scale.ticks(count)
     }
 
-    fn interp_color_to_srgba(colors: &[C], value: f32) -> Srgba {
+    fn interp_color_to_color_or_gradient(colors: &[C], value: f32) -> ColorOrGradient {
         if !value.is_finite() {
             // Return transparent black if the value is not finite
-            Srgba::new(0.0, 0.0, 0.0, 0.0)
+            ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])
         } else {
             let lower = value.floor() as usize;
             let upper = value.ceil() as usize;
             let interp_factor = value - lower as f32;
             let mixed = colors[lower].mix(colors[upper], interp_factor);
-            mixed.into_color()
+            let c: Srgba = mixed.into_color();
+            ColorOrGradient::Color([c.red, c.green, c.blue, c.alpha])
         }
     }
 }
@@ -123,18 +124,29 @@ pub type NumericLabaScale = NumericColorScale<Laba>;
 mod tests {
     use super::*;
     use float_cmp::assert_approx_eq;
-    use palette::FromColor;
 
-    fn assert_srgba_approx_eq(actual: Srgba, expected: Srgba) {
-        assert_approx_eq!(f32, actual.red, expected.red);
-        assert_approx_eq!(f32, actual.green, expected.green);
-        assert_approx_eq!(f32, actual.blue, expected.blue);
+    fn assert_srgba_approx_eq(actual: &ColorOrGradient, expected: Srgba) {
+        let c = actual.color_or_transparent();
+        let actual_srgba = Srgba::new(c[0], c[1], c[2], c[3]);
+
+        assert_approx_eq!(f32, actual_srgba.red, expected.red);
+        assert_approx_eq!(f32, actual_srgba.green, expected.green);
+        assert_approx_eq!(f32, actual_srgba.blue, expected.blue);
+        assert_approx_eq!(f32, actual_srgba.alpha, expected.alpha);
     }
 
-    fn assert_hsla_approx_eq(actual: Hsla, expected: Hsla) {
-        assert_approx_eq!(f32, actual.hue.into_degrees(), expected.hue.into_degrees());
-        assert_approx_eq!(f32, actual.saturation, expected.saturation);
-        assert_approx_eq!(f32, actual.lightness, expected.lightness);
+    fn assert_hsla_approx_eq(actual: &ColorOrGradient, expected: Hsla) {
+        let c = actual.color_or_transparent();
+        let actual_srgba = Srgba::new(c[0], c[1], c[2], c[3]);
+        let actual_hsla: Hsla = actual_srgba.into_color();
+
+        assert_approx_eq!(
+            f32,
+            actual_hsla.hue.into_degrees(),
+            expected.hue.into_degrees()
+        );
+        assert_approx_eq!(f32, actual_hsla.saturation, expected.saturation);
+        assert_approx_eq!(f32, actual_hsla.lightness, expected.lightness);
     }
 
     // Basic scale configuration and defaults
@@ -170,24 +182,24 @@ mod tests {
         let result = scale.scale(&values)?.as_vec(values.len(), None);
 
         // Below domain - should clamp to black
-        assert_srgba_approx_eq(result[0], Srgba::new(0.0, 0.0, 0.0, 1.0));
+        assert_srgba_approx_eq(&result[0], Srgba::new(0.0, 0.0, 0.0, 1.0));
 
         // Non-finite value - should be transparent black
-        assert_srgba_approx_eq(result[1], Srgba::new(0.0, 0.0, 0.0, 0.0));
+        assert_srgba_approx_eq(&result[1], Srgba::new(0.0, 0.0, 0.0, 0.0));
 
         // Domain start - should be black
-        assert_srgba_approx_eq(result[2], Srgba::new(0.0, 0.0, 0.0, 1.0));
+        assert_srgba_approx_eq(&result[2], Srgba::new(0.0, 0.0, 0.0, 1.0));
 
         // Interpolated values - should linearly increase in red
-        assert_srgba_approx_eq(result[3], Srgba::new(0.25, 0.0, 0.0, 1.0));
-        assert_srgba_approx_eq(result[4], Srgba::new(0.5, 0.0, 0.0, 1.0));
-        assert_srgba_approx_eq(result[5], Srgba::new(0.75, 0.0, 0.0, 1.0));
+        assert_srgba_approx_eq(&result[3], Srgba::new(0.25, 0.0, 0.0, 1.0));
+        assert_srgba_approx_eq(&result[4], Srgba::new(0.5, 0.0, 0.0, 1.0));
+        assert_srgba_approx_eq(&result[5], Srgba::new(0.75, 0.0, 0.0, 1.0));
 
         // Domain end - should be red
-        assert_srgba_approx_eq(result[6], Srgba::new(1.0, 0.0, 0.0, 1.0));
+        assert_srgba_approx_eq(&result[6], Srgba::new(1.0, 0.0, 0.0, 1.0));
 
         // Above domain - should clamp to red
-        assert_srgba_approx_eq(result[7], Srgba::new(1.0, 0.0, 0.0, 1.0));
+        assert_srgba_approx_eq(&result[7], Srgba::new(1.0, 0.0, 0.0, 1.0));
 
         Ok(())
     }
@@ -215,24 +227,24 @@ mod tests {
         let result = scale.scale(&values)?.as_vec(values.len(), None);
 
         // Below domain - should clamp to red
-        assert_hsla_approx_eq(Hsla::from_color(result[0]), Hsla::new(0.0, 0.5, 0.5, 1.0));
+        assert_hsla_approx_eq(&result[0], Hsla::new(0.0, 0.5, 0.5, 1.0));
 
         // Non-finite value - should be transparent black
-        assert_hsla_approx_eq(Hsla::from_color(result[1]), Hsla::new(0.0, 0.0, 0.0, 0.0));
+        assert_hsla_approx_eq(&result[1], Hsla::new(0.0, 0.0, 0.0, 0.0));
 
         // Domain start - should be red
-        assert_hsla_approx_eq(Hsla::from_color(result[2]), Hsla::new(0.0, 0.5, 0.5, 1.0));
+        assert_hsla_approx_eq(&result[2], Hsla::new(0.0, 0.5, 0.5, 1.0));
 
         // Interpolated values - should show gradual transition from red to yellow
-        assert_hsla_approx_eq(Hsla::from_color(result[3]), Hsla::new(15.0, 0.5, 0.5, 1.0)); // 25% between red and yellow
-        assert_hsla_approx_eq(Hsla::from_color(result[4]), Hsla::new(30.0, 0.5, 0.5, 1.0)); // 50% between red and yellow
-        assert_hsla_approx_eq(Hsla::from_color(result[5]), Hsla::new(45.0, 0.5, 0.5, 1.0)); // 75% between red and yellow
+        assert_hsla_approx_eq(&result[3], Hsla::new(15.0, 0.5, 0.5, 1.0)); // 25% between red and yellow
+        assert_hsla_approx_eq(&result[4], Hsla::new(30.0, 0.5, 0.5, 1.0)); // 50% between red and yellow
+        assert_hsla_approx_eq(&result[5], Hsla::new(45.0, 0.5, 0.5, 1.0)); // 75% between red and yellow
 
         // Domain end - should be yellow
-        assert_hsla_approx_eq(Hsla::from_color(result[6]), Hsla::new(60.0, 0.5, 0.5, 1.0));
+        assert_hsla_approx_eq(&result[6], Hsla::new(60.0, 0.5, 0.5, 1.0));
 
         // Above domain - should clamp to yellow
-        assert_hsla_approx_eq(Hsla::from_color(result[7]), Hsla::new(60.0, 0.5, 0.5, 1.0));
+        assert_hsla_approx_eq(&result[7], Hsla::new(60.0, 0.5, 0.5, 1.0));
 
         Ok(())
     }
