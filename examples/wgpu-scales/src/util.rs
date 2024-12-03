@@ -163,8 +163,8 @@ pub async fn run() {
         y: y_scale.scale(0.0, &Default::default()),
         y2: Some(y_scale.scale(&y_values, &Default::default())),
         fill: color_scale.scale(&y_values),
-        stroke: id_scale.scale(ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0])),
-        stroke_width: id_scale.scale(1.0f32),
+        stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0]).into(),
+        stroke_width: 1.0f32.into(),
         ..Default::default()
     };
 
