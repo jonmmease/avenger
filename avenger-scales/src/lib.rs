@@ -3,6 +3,7 @@ pub mod band;
 pub mod bin_ordinal;
 pub mod color;
 pub mod error;
+pub mod identity;
 pub mod numeric;
 pub mod ordinal;
 pub mod point;
