@@ -369,18 +369,18 @@ impl MultiMarkRenderer {
             let mut verts: Vec<MultiVertex> = Vec::with_capacity((mark.len * 4) as usize);
             let mut indicies: Vec<u32> = Vec::with_capacity((mark.len * 6) as usize);
 
-            for (i, x, y, width, height, fill) in izip!(
+            for (i, x, y, x2, y2, fill) in izip!(
                 0..mark.len,
                 mark.x_iter(),
                 mark.y_iter(),
-                mark.width_iter(),
-                mark.height_iter(),
+                mark.x2_iter(),
+                mark.y2_iter(),
                 mark.fill_iter()
             ) {
                 let x0 = *x + origin[0];
                 let y0 = *y + origin[1];
-                let x1 = x0 + width;
-                let y1 = y0 + height;
+                let x1 = x2 + origin[0];
+                let y1 = y2 + origin[1];
                 let top_left = [x0, y0];
                 let bottom_right = [x1, y1];
                 let color = fill.color_or_transparent();
@@ -425,8 +425,8 @@ impl MultiMarkRenderer {
             let build_verts_inds =
                 |x: &f32,
                  y: &f32,
-                 width: &f32,
-                 height: &f32,
+                 x2: &f32,
+                 y2: &f32,
                  fill: &ColorOrGradient,
                  stroke: &ColorOrGradient,
                  stroke_width: &f32,
@@ -436,8 +436,8 @@ impl MultiMarkRenderer {
                     let mut path_builder = lyon::path::Path::builder();
                     let x0 = *x + origin[0];
                     let y0 = *y + origin[1];
-                    let x1 = x0 + width;
-                    let y1 = y0 + height;
+                    let x1 = *x2 + origin[0];
+                    let y1 = *y2 + origin[1];
                     if *corner_radius > 0.0 {
                         path_builder.add_rounded_rectangle(
                             &Box2D::new(Point2D::new(x0, y0), Point2D::new(x1, y1)),
@@ -495,27 +495,27 @@ impl MultiMarkRenderer {
                     par_izip!(
                         mark.x_vec(),
                         mark.y_vec(),
-                        mark.width_vec(),
-                        mark.height_vec(),
+                        mark.x2_vec(),
+                        mark.y2_vec(),
                         mark.fill_vec(),
                         mark.stroke_vec(),
                         mark.stroke_width_vec(),
                         mark.corner_radius_vec(),
-                    ).map(|(x, y, width, height, fill, stroke, stroke_width, corner_radius)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                        build_verts_inds(x, &y, &width, &height, &fill, &stroke, &stroke_width, &corner_radius)
+                    ).map(|(x, y, x2, y2, fill, stroke, stroke_width, corner_radius)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+                        build_verts_inds(x, &y, &x2, &y2, &fill, &stroke, &stroke_width, &corner_radius)
                     }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
                 } else {
                     izip!(
                         mark.x_iter(),
                         mark.y_iter(),
-                        mark.width_iter(),
-                        mark.height_iter(),
+                        mark.x2_vec(),
+                        mark.y2_vec(),
                         mark.fill_iter(),
                         mark.stroke_iter(),
                         mark.stroke_width_iter(),
                         mark.corner_radius_iter(),
-                    ).map(|(x, y, width, height, fill, stroke, stroke_width, corner_radius)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                            build_verts_inds(x, y, width, height, fill, stroke, stroke_width, corner_radius)
+                    ).map(|(x, y, x2, y2, fill, stroke, stroke_width, corner_radius)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+                            build_verts_inds(x, y, x2, y2, fill, stroke, stroke_width, corner_radius)
                         }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
                 }
             }

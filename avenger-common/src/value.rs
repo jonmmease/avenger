@@ -22,6 +22,20 @@ impl<T: Sync + Clone> ScalarOrArray<T> {
         }
     }
 
+    pub fn as_iter_owned<'a>(
+        &'a self,
+        scalar_len: usize,
+        indices: Option<&'a Vec<usize>>,
+    ) -> Box<dyn Iterator<Item = T> + '_> {
+        match self {
+            ScalarOrArray::Scalar { value } => Box::new(std::iter::repeat(value.clone()).take(scalar_len)),
+            ScalarOrArray::Array { values } => match indices {
+                None => Box::new(values.iter().cloned()),
+                Some(indices) => Box::new(indices.iter().map(|i| values[*i].clone())),
+            },
+        }
+    }
+
     pub fn as_vec(&self, scalar_len: usize, indices: Option<&Vec<usize>>) -> Vec<T> {
         self.as_iter(scalar_len, indices)
             .cloned()

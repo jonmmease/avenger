@@ -91,10 +91,10 @@ impl VegaMarkContainer<VegaRectItem> {
             mark.y = ScalarOrArray::Array { values: y };
         }
         if width.len() == len {
-            mark.width = ScalarOrArray::Array { values: width };
+            mark.width = Some(ScalarOrArray::Array { values: width });
         }
         if height.len() == len {
-            mark.height = ScalarOrArray::Array { values: height };
+            mark.height = Some(ScalarOrArray::Array { values: height });
         }
         if fill.len() == len {
             mark.fill = ScalarOrArray::Array { values: fill };
@@ -120,7 +120,6 @@ impl VegaMarkContainer<VegaRectItem> {
 
         // Add gradients
         mark.gradients = gradients;
-
         Ok(SceneMark::Rect(mark))
     }
 }
