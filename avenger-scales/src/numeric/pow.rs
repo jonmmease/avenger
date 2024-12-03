@@ -1,6 +1,5 @@
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 
-use crate::error::AvengerScaleError;
 use std::sync::Arc;
 
 use super::{linear::LinearNumericScale, opts::NumericScaleOptions};
@@ -153,10 +152,10 @@ impl PowNumericScale {
         &self,
         values: impl Into<ScalarOrArrayRef<'a, f32>>,
         opts: &NumericScaleOptions,
-    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+    ) -> ScalarOrArray<f32> {
         // If range start equals end, return constant range value
         if self.range_start == self.range_end {
-            return Ok(values.into().map(|_| self.range_start));
+            return values.into().map(|_| self.range_start);
         }
 
         let d0 = self.power_fun.pow(self.domain_start);
@@ -164,7 +163,7 @@ impl PowNumericScale {
 
         // If domain start equals end, return constant domain value
         if d0 == d1 {
-            return Ok(values.into().map(|_| self.domain_start));
+            return values.into().map(|_| self.domain_start);
         }
 
         // At this point, we know (d1 - d0) cannot be zero
@@ -181,34 +180,34 @@ impl PowNumericScale {
             };
 
             match self.power_fun.as_ref() {
-                PowerFunction::Static { pow_fun, .. } => Ok(values.into().map(|&v| {
+                PowerFunction::Static { pow_fun, .. } => values.into().map(|&v| {
                     let abs_v = v.abs();
                     let sign = if v < 0.0 { -1.0 } else { 1.0 };
                     (scale * (sign * pow_fun(abs_v)) + offset).clamp(range_min, range_max)
-                })),
+                }),
                 PowerFunction::Custom { exponent } => {
                     let exponent = *exponent;
-                    Ok(values.into().map(|&v| {
+                    values.into().map(|&v| {
                         let abs_v = v.abs();
                         let sign = if v < 0.0 { -1.0 } else { 1.0 };
                         (scale * (sign * abs_v.powf(exponent)) + offset).clamp(range_min, range_max)
-                    }))
+                    })
                 }
             }
         } else {
             match self.power_fun.as_ref() {
-                PowerFunction::Static { pow_fun, .. } => Ok(values.into().map(|&v| {
+                PowerFunction::Static { pow_fun, .. } => values.into().map(|&v| {
                     let abs_v = v.abs();
                     let sign = if v < 0.0 { -1.0 } else { 1.0 };
                     scale * (sign * pow_fun(abs_v)) + offset
-                })),
+                }),
                 PowerFunction::Custom { exponent } => {
                     let exponent = *exponent;
-                    Ok(values.into().map(|&v| {
+                    values.into().map(|&v| {
                         let abs_v = v.abs();
                         let sign = if v < 0.0 { -1.0 } else { 1.0 };
                         scale * (sign * abs_v.powf(exponent)) + offset
-                    }))
+                    })
                 }
             }
         }
@@ -219,13 +218,13 @@ impl PowNumericScale {
         &self,
         values: impl Into<ScalarOrArrayRef<'a, f32>>,
         opts: &NumericScaleOptions,
-    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+    ) -> ScalarOrArray<f32> {
         let d0 = self.power_fun.pow(self.domain_start);
         let d1 = self.power_fun.pow(self.domain_end);
 
         // If domain start equals end, return constant
         if d0 == d1 {
-            return Ok(values.into().map(|_| self.domain_start));
+            return values.into().map(|_| self.domain_start);
         }
 
         let scale = (self.range_end - self.range_start) / (d1 - d0);
@@ -240,40 +239,40 @@ impl PowNumericScale {
             };
 
             match self.power_fun.as_ref() {
-                PowerFunction::Static { pow_inv_fun, .. } => Ok(values.into().map(|&v| {
+                PowerFunction::Static { pow_inv_fun, .. } => values.into().map(|&v| {
                     let v = v.clamp(range_min, range_max);
                     let normalized = (v - offset) / scale;
                     let abs_norm = normalized.abs();
                     let sign = if normalized < 0.0 { -1.0 } else { 1.0 };
                     sign * pow_inv_fun(abs_norm) - range_offset
-                })),
+                }),
                 PowerFunction::Custom { exponent } => {
                     let inv_exponent = 1.0 / exponent;
-                    Ok(values.into().map(|&v| {
+                    values.into().map(|&v| {
                         let v = v.clamp(range_min, range_max);
                         let normalized = (v - offset) / scale;
                         let abs_norm = normalized.abs();
                         let sign = if normalized < 0.0 { -1.0 } else { 1.0 };
                         sign * abs_norm.powf(inv_exponent) - range_offset
-                    }))
+                    })
                 }
             }
         } else {
             match self.power_fun.as_ref() {
-                PowerFunction::Static { pow_inv_fun, .. } => Ok(values.into().map(|&v| {
+                PowerFunction::Static { pow_inv_fun, .. } => values.into().map(|&v| {
                     let normalized = (v - offset) / scale;
                     let abs_norm = normalized.abs();
                     let sign = if normalized < 0.0 { -1.0 } else { 1.0 };
                     sign * pow_inv_fun(abs_norm) - range_offset
-                })),
+                }),
                 PowerFunction::Custom { exponent } => {
                     let inv_exponent = 1.0 / exponent;
-                    Ok(values.into().map(|&v| {
+                    values.into().map(|&v| {
                         let normalized = (v - offset) / scale;
                         let abs_norm = normalized.abs();
                         let sign = if normalized < 0.0 { -1.0 } else { 1.0 };
                         sign * abs_norm.powf(inv_exponent) - range_offset
-                    }))
+                    })
                 }
             }
         }
@@ -332,7 +331,6 @@ mod tests {
         let values = vec![2.0, -2.0];
         let result = scale
             .scale(&values, &Default::default())
-            .unwrap()
             .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 4.0);
         assert_approx_eq!(f32, result[1], -4.0);
@@ -344,7 +342,6 @@ mod tests {
         let values = vec![4.0, -4.0];
         let result = scale
             .scale(&values, &Default::default())
-            .unwrap()
             .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 2.0);
         assert_approx_eq!(f32, result[1], -2.0);
@@ -361,7 +358,6 @@ mod tests {
                     range_offset: Some(1.0),
                 },
             )
-            .unwrap()
             .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 3.0);
         assert_approx_eq!(f32, result[1], -1.0);
@@ -373,7 +369,6 @@ mod tests {
         let values = vec![2.0, -2.0];
         let result = scale
             .scale(&values, &Default::default())
-            .unwrap()
             .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 8.0);
         assert_approx_eq!(f32, result[1], -8.0);
@@ -390,7 +385,6 @@ mod tests {
                     range_offset: Some(1.0),
                 },
             )
-            .unwrap()
             .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 9.0);
         assert_approx_eq!(f32, result[1], -7.0);
@@ -402,7 +396,6 @@ mod tests {
         let values = vec![-1.0, 0.0, 1.0, 2.0];
         let result = scale
             .scale(&values, &Default::default())
-            .unwrap()
             .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 0.0);
         assert_approx_eq!(f32, result[1], 0.2);
@@ -419,7 +412,6 @@ mod tests {
         let values = vec![-0.5, 0.0, 0.5, 1.0, 1.5];
         let result = scale
             .scale(&values, &Default::default())
-            .unwrap()
             .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 0.0);
         assert_approx_eq!(f32, result[1], 0.0);
@@ -434,7 +426,6 @@ mod tests {
         let values = vec![-0.5, 0.0, 0.5, 1.0, 1.5];
         let result = scale
             .invert(&values, &Default::default())
-            .unwrap()
             .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 0.5);
         assert_approx_eq!(f32, result[1], 1.0);
@@ -454,7 +445,6 @@ mod tests {
                     range_offset: Some(1.0),
                 },
             )
-            .unwrap()
             .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 0.5);
         assert_approx_eq!(f32, result[1], 1.0);
@@ -469,7 +459,6 @@ mod tests {
         let values = vec![-2.0, -1.0, 0.0, 1.0, 2.0];
         let result = scale
             .scale(&values, &Default::default())
-            .unwrap()
             .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], -4.0);
         assert_approx_eq!(f32, result[1], -1.0);
@@ -484,7 +473,6 @@ mod tests {
         let values = vec![-2.0, -1.0, 0.0, 1.0, 2.0];
         let result = scale
             .scale(&values, &Default::default())
-            .unwrap()
             .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 0.0);
         assert_approx_eq!(f32, result[1], 0.25);
@@ -502,7 +490,6 @@ mod tests {
         let values = vec![-4.0, -2.0, 0.0, 2.0, 4.0];
         let result = scale
             .invert(&values, &Default::default())
-            .unwrap()
             .as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], -2.0);
         assert_approx_eq!(f32, result[1], -1.414214);

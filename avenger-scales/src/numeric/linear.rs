@@ -1,6 +1,6 @@
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 
-use crate::{array, error::AvengerScaleError};
+use crate::array;
 
 use super::opts::NumericScaleOptions;
 
