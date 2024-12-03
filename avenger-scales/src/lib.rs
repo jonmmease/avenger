@@ -10,3 +10,6 @@ pub mod point;
 pub mod quantile;
 pub mod quantize;
 pub mod threshold;
+
+#[cfg(feature = "temporal")]
+pub mod temporal;
