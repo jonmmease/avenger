@@ -13,6 +13,7 @@ use avenger_scales::band::BandScale;
 use avenger_scales::band::opts::BandScaleOptions;
 use avenger_scales::color::numeric_color::NumericColorScale;
 use avenger_scales::color::Srgba;
+use avenger_scales::identity::IdentityScale;
 use avenger_scales::numeric::linear::LinearNumericScale;
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -145,13 +146,14 @@ pub async fn run() {
     // Build scales
     let x_scale = BandScale::try_new(x_values.clone()).unwrap()
         .range((0.0, 200.0)).unwrap()
-        .padding(0.1).unwrap();
+        .padding(0.2).unwrap();
 
     let y_scale = LinearNumericScale::new().domain((0.0, 100.0)).range((200.0, 0.0));
     let color_scale = NumericColorScale::new(y_scale.clone(), vec![
         Srgba::new(0.9, 0.9, 0.9, 1.0),
         Srgba::new(0.1, 0.1, 0.9, 1.0),
     ]);
+    let id_scale = IdentityScale::new();
 
     // Make rect mark
     let rect = SceneRectMark {
@@ -161,6 +163,8 @@ pub async fn run() {
         y: y_scale.scale(0.0, &Default::default()),
         y2: Some(y_scale.scale(&y_values, &Default::default())),
         fill: color_scale.scale(&y_values),
+        stroke: id_scale.scale(ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0])),
+        stroke_width: id_scale.scale(1.0f32),
         ..Default::default()
     };
 
