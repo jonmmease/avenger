@@ -3,10 +3,16 @@ name = "avenger-scales"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["temporal"]
+temporal = ["dep:chrono", "dep:chrono-tz"]
+
 [dependencies]
 thiserror = { workspace = true }
 palette = { workspace = true }
 avenger-common = { path = "../avenger-common" }
+chrono = { workspace = true, optional = true }
+chrono-tz = { workspace = true, optional = true }
 
 [dev-dependencies]
 float-cmp = "0.10.0"
