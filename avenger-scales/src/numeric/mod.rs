@@ -91,7 +91,7 @@ impl NumericScale {
         opts: &NumericScaleOptions,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
         match self {
-            NumericScale::Linear(scale) => scale.scale(values, opts),
+            NumericScale::Linear(scale) => Ok(scale.scale(values, opts)),
             NumericScale::Log(scale) => scale.scale(values, opts),
             NumericScale::Pow(scale) => scale.scale(values, opts),
             NumericScale::Symlog(scale) => scale.scale(values, opts),
@@ -104,7 +104,7 @@ impl NumericScale {
         opts: &NumericScaleOptions,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
         match self {
-            NumericScale::Linear(scale) => scale.invert(values, opts),
+            NumericScale::Linear(scale) => Ok(scale.invert(values, opts)),
             NumericScale::Log(scale) => scale.invert(values, opts),
             NumericScale::Pow(scale) => scale.invert(values, opts),
             NumericScale::Symlog(scale) => scale.invert(values, opts),

@@ -2,10 +2,8 @@
 /.idea
 /avenger-wgpu/tests/output/
 .DS_Store
-examples/wgpu-winit/pkg/
-examples/wgpu-winit/target/
-examples/scatter-panning/pkg/
-examples/scatter-panning/target/
+examples/*/pkg/
+examples/*/target/
 scratch/
 
 # pixi environments

@@ -377,10 +377,10 @@ impl MultiMarkRenderer {
                 mark.y2_iter(),
                 mark.fill_iter()
             ) {
-                let x0 = *x + origin[0];
-                let y0 = *y + origin[1];
-                let x1 = x2 + origin[0];
-                let y1 = y2 + origin[1];
+                let x0 = f32::min(*x, x2) + origin[0];
+                let x1 = f32::max(*x, x2) + origin[0];
+                let y0 = f32::min(*y, y2) + origin[1];
+                let y1 = f32::max(*y, y2) + origin[1];
                 let top_left = [x0, y0];
                 let bottom_right = [x1, y1];
                 let color = fill.color_or_transparent();
@@ -434,10 +434,11 @@ impl MultiMarkRenderer {
                  -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
                     // Create rect path
                     let mut path_builder = lyon::path::Path::builder();
-                    let x0 = *x + origin[0];
-                    let y0 = *y + origin[1];
-                    let x1 = *x2 + origin[0];
-                    let y1 = *y2 + origin[1];
+                    let x0 = f32::min(*x, *x2) + origin[0];
+                    let x1 = f32::max(*x, *x2) + origin[0];
+                    let y0 = f32::min(*y, *y2) + origin[1];
+                    let y1 = f32::max(*y, *y2) + origin[1];
+
                     if *corner_radius > 0.0 {
                         path_builder.add_rounded_rectangle(
                             &Box2D::new(Point2D::new(x0, y0), Point2D::new(x1, y1)),
@@ -502,7 +503,7 @@ impl MultiMarkRenderer {
                         mark.stroke_width_vec(),
                         mark.corner_radius_vec(),
                     ).map(|(x, y, x2, y2, fill, stroke, stroke_width, corner_radius)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                        build_verts_inds(x, &y, &x2, &y2, &fill, &stroke, &stroke_width, &corner_radius)
+                        build_verts_inds(&x, &y, &x2, &y2, &fill, &stroke, &stroke_width, &corner_radius)
                     }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
                 } else {
                     izip!(
@@ -515,7 +516,7 @@ impl MultiMarkRenderer {
                         mark.stroke_width_iter(),
                         mark.corner_radius_iter(),
                     ).map(|(x, y, x2, y2, fill, stroke, stroke_width, corner_radius)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                            build_verts_inds(x, y, x2, y2, fill, stroke, stroke_width, corner_radius)
+                            build_verts_inds(x, y, &x2, &y2, fill, stroke, stroke_width, corner_radius)
                         }).collect::<Result<Vec<_>, AvengerWgpuError>>()?
                 }
             }
