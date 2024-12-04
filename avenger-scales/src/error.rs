@@ -25,4 +25,7 @@ pub enum AvengerScaleError {
 
     #[error("Incompatible numeric scale for color range: {0}")]
     IncompatibleNumericScaleForColorRange(String),
+
+    #[error("Invalid scale property value: {0}")]
+    InvalidScalePropertyValue(String),
 }
