@@ -5,6 +5,21 @@ use crate::numeric::{
     ContinuousNumericScale,
 };
 use std::fmt::Debug;
+
+pub struct QuantizeScaleConfig {
+    pub domain: (f32, f32),
+    pub nice: Option<usize>,
+}
+
+impl Default for QuantizeScaleConfig {
+    fn default() -> Self {
+        Self {
+            domain: (0.0, 1.0),
+            nice: None,
+        }
+    }
+}
+
 /// A quantize scale divides a continuous domain into uniform segments and maps values to a discrete range.
 ///
 /// The quantize scale is like a linear scale, except it divides the domain into uniform segments
@@ -18,7 +33,6 @@ where
     domain: (f32, f32),
     range: Vec<R>,
     default: R,
-    thresholds: Vec<f32>,
 }
 
 impl<R> QuantizeScale<R>
@@ -26,28 +40,33 @@ where
     R: Clone + Debug + Sync + 'static,
 {
     /// Creates a new quantize scale with default domain [0,1] and range [0,1]
-    pub fn new(range: Vec<R>, default: R) -> Self {
+    pub fn new(range: Vec<R>, default: R, config: &QuantizeScaleConfig) -> Self {
         let mut this = Self {
-            domain: (0.0, 1.0),
+            domain: config.domain,
             range,
             default,
-            thresholds: vec![],
         };
-        this.update_thresholds();
+
+        if let Some(nice) = config.nice {
+            this = this.nice(Some(nice));
+        }
         this
     }
 
     /// Sets the input domain as a tuple of (min, max)
-    pub fn domain(mut self, domain: (f32, f32)) -> Self {
+    pub fn with_domain(mut self, domain: (f32, f32)) -> Self {
         self.domain = domain;
-        self.update_thresholds();
         self
     }
 
     /// Sets the output range as an Arrow array
-    pub fn range(mut self, range: Vec<R>) -> Self {
+    pub fn with_range(mut self, range: Vec<R>) -> Self {
         self.range = range;
-        self.update_thresholds();
+        self
+    }
+
+    pub fn with_default(mut self, default: R) -> Self {
+        self.default = default;
         self
     }
 
@@ -64,34 +83,34 @@ where
     }
 
     /// Returns the input domain
-    pub fn get_domain(&self) -> (f32, f32) {
+    pub fn domain(&self) -> (f32, f32) {
         self.domain
     }
 
     /// Returns a reference to the output range
-    pub fn get_range(&self) -> &Vec<R> {
+    pub fn range(&self) -> &Vec<R> {
         &self.range
     }
 
-    /// Returns the threshold values that divide the domain
-    pub fn thresholds(&self) -> &[f32] {
-        &self.thresholds
+    /// Returns the default value
+    pub fn default(&self) -> &R {
+        &self.default
     }
 
-    fn update_thresholds(&mut self) {
+    /// Returns the threshold values that divide the domain
+    pub fn thresholds(&self) -> Vec<f32> {
         let n = self.range.len();
         if n <= 1 {
-            self.thresholds = vec![];
-            return;
+            return vec![];
         }
 
         // Calculate n-1 threshold values that divide the domain into n segments
-        self.thresholds = (1..n)
+        (1..n)
             .map(|i| {
                 let t = (i as f32) / (n as f32);
                 self.domain.0 * (1.0 - t) + self.domain.1 * t
             })
-            .collect();
+            .collect()
     }
 
     pub fn scale<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, f32>>) -> ScalarOrArray<R> {
@@ -127,7 +146,14 @@ mod tests {
 
     #[test]
     fn test_quantize_scale_basic() -> Result<(), AvengerScaleError> {
-        let scale = QuantizeScale::new(vec![0.0, 0.5, 1.0], f32::NAN).domain((0.0, 1.0));
+        let scale = QuantizeScale::new(
+            vec![0.0, 0.5, 1.0],
+            f32::NAN,
+            &QuantizeScaleConfig {
+                domain: (0.0, 1.0),
+                ..Default::default()
+            },
+        );
 
         // Test array scaling with all test cases
         let values = vec![0.3, 0.5, 0.8];
@@ -141,7 +167,14 @@ mod tests {
 
     #[test]
     fn test_quantize_thresholds() {
-        let scale = QuantizeScale::new(vec![0.0, 0.5, 1.0], f32::NAN).domain((0.0, 100.0));
+        let scale = QuantizeScale::new(
+            vec![0.0, 0.5, 1.0],
+            f32::NAN,
+            &QuantizeScaleConfig {
+                domain: (0.0, 100.0),
+                ..Default::default()
+            },
+        );
 
         let thresholds = scale.thresholds();
         assert_approx_eq!(f32, thresholds[0], 33.333332);
@@ -150,8 +183,14 @@ mod tests {
 
     #[test]
     fn test_quantize_string_range() -> Result<(), AvengerScaleError> {
-        let scale =
-            QuantizeScale::new(vec!["small", "medium", "large"], "default").domain((0.0, 1.0));
+        let scale = QuantizeScale::new(
+            vec!["small", "medium", "large"],
+            "default",
+            &QuantizeScaleConfig {
+                domain: (0.0, 1.0),
+                ..Default::default()
+            },
+        );
 
         let values = vec![0.3, 0.5, 0.8];
         let result = scale.scale(&values).as_vec(values.len(), None);
@@ -165,12 +204,18 @@ mod tests {
 
     #[test]
     fn test_quantize_scale_nice() -> Result<(), AvengerScaleError> {
-        let scale = QuantizeScale::new(vec![0.0, 25.0, 50.0, 75.0, 100.0], f32::NAN)
-            .domain((1.1, 10.9))
-            .nice(Some(5));
+        let scale = QuantizeScale::new(
+            vec![0.0, 25.0, 50.0, 75.0, 100.0],
+            f32::NAN,
+            &QuantizeScaleConfig {
+                domain: (1.1, 10.9),
+                ..Default::default()
+            },
+        )
+        .nice(Some(5));
 
         // Domain should be extended to nice numbers
-        let (start, end) = scale.get_domain();
+        let (start, end) = scale.domain();
         assert_approx_eq!(f32, start, 0.0);
         assert_approx_eq!(f32, end, 12.0);
 
