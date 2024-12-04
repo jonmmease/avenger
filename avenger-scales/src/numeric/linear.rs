@@ -2,7 +2,7 @@ use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 
 use crate::array;
 
-use super::opts::NumericScaleOptions;
+use super::{opts::NumericScaleOptions, NumericScale};
 
 /// A linear scale that maps numeric input values from a domain to a range.
 /// Supports clamping, domain niceing, and tick generation.
@@ -34,11 +34,6 @@ impl LinearNumericScale {
         self
     }
 
-    /// Returns the current domain as (start, end)
-    pub fn get_domain(&self) -> (f32, f32) {
-        (self.domain_start, self.domain_end)
-    }
-
     /// Sets the output range of the scale
     pub fn range(mut self, range: (f32, f32)) -> Self {
         self.range_start = range.0;
@@ -46,20 +41,10 @@ impl LinearNumericScale {
         self
     }
 
-    /// Returns the current range as (start, end)
-    pub fn get_range(&self) -> (f32, f32) {
-        (self.range_start, self.range_end)
-    }
-
     /// Enables or disables clamping of output values to the range
     pub fn clamp(mut self, clamp: bool) -> Self {
         self.clamp = clamp;
         self
-    }
-
-    /// Returns whether output clamping is enabled
-    pub fn get_clamp(&self) -> bool {
-        self.clamp
     }
 
     /// Extends the domain to nice round numbers for better tick selection
@@ -117,9 +102,25 @@ impl LinearNumericScale {
 
         self
     }
+}
+
+impl NumericScale<f32> for LinearNumericScale {
+    fn get_domain(&self) -> (f32, f32) {
+        (self.domain_start, self.domain_end)
+    }
+
+    /// Returns the current range as (start, end)
+    fn get_range(&self) -> (f32, f32) {
+        (self.range_start, self.range_end)
+    }
+
+    /// Returns whether output clamping is enabled
+    fn get_clamp(&self) -> bool {
+        self.clamp
+    }
 
     /// Maps input values from domain to range
-    pub fn scale<'a>(
+    fn scale<'a>(
         &self,
         values: impl Into<ScalarOrArrayRef<'a, f32>>,
         opts: &NumericScaleOptions,
@@ -156,7 +157,7 @@ impl LinearNumericScale {
     }
 
     /// Maps output values from range back to domain
-    pub fn invert<'a>(
+    fn invert<'a>(
         &self,
         values: impl Into<ScalarOrArrayRef<'a, f32>>,
         opts: &NumericScaleOptions,
@@ -193,7 +194,7 @@ impl LinearNumericScale {
     }
 
     /// Generates evenly spaced tick values within the domain
-    pub fn ticks(&self, count: Option<f32>) -> Vec<f32> {
+    fn ticks(&self, count: Option<f32>) -> Vec<f32> {
         let count = count.unwrap_or(10.0);
         array::ticks(self.domain_start as f32, self.domain_end as f32, count)
     }

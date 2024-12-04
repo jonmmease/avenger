@@ -1,13 +1,19 @@
 use avenger_common::value::{ColorOrGradient, ScalarOrArray, ScalarOrArrayRef};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use palette::{Hsla, IntoColor, Laba, Mix, Srgba};
 use std::fmt::Debug;
+use std::marker::PhantomData;
 
+use crate::error::AvengerScaleError;
 use crate::numeric::linear::LinearNumericScale;
 use crate::numeric::log::LogNumericScale;
 use crate::numeric::opts::NumericScaleOptions;
 use crate::numeric::pow::PowNumericScale;
 use crate::numeric::symlog::SymlogNumericScale;
 use crate::numeric::NumericScale;
+use crate::temporal::date::DateScale;
+use crate::temporal::timestamp::TimestampScale;
+use crate::temporal::timestamptz::TimestampTzScale;
 
 /// A trait for color spaces that can be used with the `NumericColorScale`
 pub trait ColorSpace:
@@ -21,63 +27,45 @@ impl<T: Mix<Scalar = f32> + Copy + IntoColor<Srgba> + Debug + Send + Sync + 'sta
 }
 
 #[derive(Clone, Debug)]
-pub struct NumericColorScale<C: ColorSpace> {
-    numeric_scale: NumericScale,
+pub struct NumericColorScale<C, S, D>
+where
+    C: ColorSpace,
+    S: NumericScale<D>,
+    D: 'static + Send + Sync + Clone,
+{
+    numeric_scale: S,
     range: Vec<C>,
+    _marker: PhantomData<D>,
 }
 
-impl<C: ColorSpace> NumericColorScale<C> {
-    pub fn new(numeric_scale: impl Into<NumericScale>, colors: Vec<C>) -> Self {
-        let numeric_scale = numeric_scale
-            .into()
-            .clamp(true)
-            .range((0.0, colors.len() as f32 - 1.0));
+impl<C, S, D> NumericColorScale<C, S, D>
+where
+    C: ColorSpace,
+    S: NumericScale<D>,
+    D: 'static + Send + Sync + Clone,
+{
+    pub fn from_scale(numeric_scale: S, colors: Vec<C>) -> Result<Self, AvengerScaleError> {
+        if !numeric_scale.get_clamp() {
+            return Err(AvengerScaleError::IncompatibleNumericScaleForColorRange(
+                "Clamping must be enabled".to_string(),
+            ));
+        }
+        let expected_range = (0.0, colors.len() as f32 - 1.0);
+        if numeric_scale.get_range() != expected_range {
+            return Err(AvengerScaleError::IncompatibleNumericScaleForColorRange(
+                format!("Range must be ({}, {})", expected_range.0, expected_range.1),
+            ));
+        }
 
-        Self {
+        Ok(Self {
             numeric_scale,
             range: colors,
-        }
+            _marker: PhantomData,
+        })
     }
 
-    pub fn new_linear(colors: Vec<C>) -> Self {
-        Self::new(LinearNumericScale::new(), colors)
-    }
-
-    pub fn new_log(colors: Vec<C>, base: Option<f32>) -> Self {
-        Self::new(LogNumericScale::new(base), colors)
-    }
-
-    pub fn new_pow(colors: Vec<C>, exponent: Option<f32>) -> Self {
-        let mut scale = PowNumericScale::new();
-        if let Some(exp) = exponent {
-            scale = scale.exponent(exp);
-        }
-        Self::new(scale, colors)
-    }
-
-    pub fn new_symlog(colors: Vec<C>, constant: Option<f32>) -> Self {
-        Self::new(SymlogNumericScale::new(constant), colors)
-    }
-
-    pub fn nice(mut self, count: usize) -> Self {
-        self.numeric_scale = self.numeric_scale.nice(Some(count));
-        self
-    }
-
-    pub fn domain(mut self, (start, end): (f32, f32)) -> Self {
-        self.numeric_scale = self.numeric_scale.domain((start, end));
-        self
-    }
-
-    pub fn get_domain(&self) -> (f32, f32) {
+    pub fn get_domain(&self) -> (D, D) {
         self.numeric_scale.get_domain()
-    }
-
-    pub fn range(mut self, colors: Vec<C>) -> Self {
-        // Update numeric scale range to produce values from 0 to the number of colors - 1
-        self.numeric_scale = self.numeric_scale.range((0.0, colors.len() as f32 - 1.0));
-        self.range = colors;
-        self
     }
 
     pub fn get_range(&self) -> &[C] {
@@ -86,7 +74,7 @@ impl<C: ColorSpace> NumericColorScale<C> {
 
     pub fn scale<'a>(
         &self,
-        values: impl Into<ScalarOrArrayRef<'a, f32>>,
+        values: impl Into<ScalarOrArrayRef<'a, D>>,
     ) -> ScalarOrArray<ColorOrGradient> {
         // Normalize the input values to the range [0, number of colors - 1]
         let normalized_values = self
@@ -96,7 +84,7 @@ impl<C: ColorSpace> NumericColorScale<C> {
         normalized_values.map(|v| Self::interp_color_to_color_or_gradient(&self.range, *v))
     }
 
-    pub fn ticks(&self, count: Option<f32>) -> Vec<f32> {
+    pub fn ticks(&self, count: Option<f32>) -> Vec<D> {
         self.numeric_scale.ticks(count)
     }
 
@@ -115,9 +103,159 @@ impl<C: ColorSpace> NumericColorScale<C> {
     }
 }
 
-pub type NumericSrgbaScale = NumericColorScale<Srgba>;
-pub type NumericHslaScale = NumericColorScale<Hsla>;
-pub type NumericLabaScale = NumericColorScale<Laba>;
+// Helper to create a linear color scale
+impl<C: ColorSpace> NumericColorScale<C, LinearNumericScale, f32> {
+    pub fn new_linear(
+        domain: (f32, f32),
+        colors: Vec<C>,
+        nice: Option<usize>,
+    ) -> NumericColorScale<C, LinearNumericScale, f32> {
+        let mut numeric_scale = LinearNumericScale::new()
+            .domain(domain)
+            .clamp(true)
+            .range((0.0, colors.len() as f32 - 1.0));
+
+        if let Some(count) = nice {
+            numeric_scale = numeric_scale.nice(Some(count));
+        }
+
+        Self {
+            numeric_scale,
+            range: colors,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<C: ColorSpace> NumericColorScale<C, LogNumericScale, f32> {
+    pub fn new_log(domain: (f32, f32), colors: Vec<C>, base: Option<f32>, nice: bool) -> Self {
+        let mut numeric_scale = LogNumericScale::new(base)
+            .domain(domain)
+            .clamp(true)
+            .range((0.0, colors.len() as f32 - 1.0));
+
+        if nice {
+            numeric_scale = numeric_scale.nice();
+        }
+
+        Self {
+            numeric_scale,
+            range: colors,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<C: ColorSpace> NumericColorScale<C, PowNumericScale, f32> {
+    pub fn new_pow(
+        domain: (f32, f32),
+        colors: Vec<C>,
+        exponent: Option<f32>,
+        nice: Option<usize>,
+    ) -> Self {
+        let mut numeric_scale = PowNumericScale::new()
+            .exponent(exponent.unwrap_or(1.0))
+            .domain(domain)
+            .clamp(true)
+            .range((0.0, colors.len() as f32 - 1.0));
+
+        if let Some(count) = nice {
+            numeric_scale = numeric_scale.nice(Some(count));
+        }
+
+        Self {
+            numeric_scale,
+            range: colors,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<C: ColorSpace> NumericColorScale<C, SymlogNumericScale, f32> {
+    pub fn new_symlog(
+        domain: (f32, f32),
+        colors: Vec<C>,
+        constant: Option<f32>,
+        nice: Option<usize>,
+    ) -> Self {
+        let mut numeric_scale = SymlogNumericScale::new(constant)
+            .domain(domain)
+            .clamp(true)
+            .range((0.0, colors.len() as f32 - 1.0));
+
+        if let Some(count) = nice {
+            numeric_scale = numeric_scale.nice(Some(count));
+        }
+
+        Self {
+            numeric_scale,
+            range: colors,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<C: ColorSpace> NumericColorScale<C, DateScale, NaiveDate> {
+    pub fn new_date(domain: (NaiveDate, NaiveDate), colors: Vec<C>) -> Self {
+        let numeric_scale = DateScale::new(domain)
+            .clamp(true)
+            .range((0.0, colors.len() as f32 - 1.0));
+
+        Self {
+            numeric_scale,
+            range: colors,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<C: ColorSpace> NumericColorScale<C, TimestampScale, NaiveDateTime> {
+    pub fn new_timestamp(domain: (NaiveDateTime, NaiveDateTime), colors: Vec<C>) -> Self {
+        let numeric_scale = TimestampScale::new(domain)
+            .clamp(true)
+            .range((0.0, colors.len() as f32 - 1.0));
+
+        Self {
+            numeric_scale,
+            range: colors,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<C: ColorSpace, Tz: TimeZone + Copy> NumericColorScale<C, TimestampTzScale<Tz>, DateTime<Utc>> {
+    pub fn new_timestamp_tz(
+        domain: (DateTime<Utc>, DateTime<Utc>),
+        colors: Vec<C>,
+        display_tz: Tz,
+    ) -> Self {
+        let numeric_scale = TimestampTzScale::new(domain, display_tz)
+            .clamp(true)
+            .range((0.0, colors.len() as f32 - 1.0));
+
+        Self {
+            numeric_scale,
+            range: colors,
+            _marker: PhantomData,
+        }
+    }
+}
+
+// Predefine aliases
+pub type LinearSrgbaScale = NumericColorScale<Srgba, LinearNumericScale, f32>;
+pub type LogSrgbaScale = NumericColorScale<Srgba, LogNumericScale, f32>;
+pub type PowSrgbaScale = NumericColorScale<Srgba, PowNumericScale, f32>;
+pub type SymlogSrgbaScale = NumericColorScale<Srgba, SymlogNumericScale, f32>;
+
+pub type LinearHslaScale = NumericColorScale<Hsla, LinearNumericScale, f32>;
+pub type LogHslaScale = NumericColorScale<Hsla, LogNumericScale, f32>;
+pub type PowHslaScale = NumericColorScale<Hsla, PowNumericScale, f32>;
+pub type SymlogHslaScale = NumericColorScale<Hsla, SymlogNumericScale, f32>;
+
+pub type LinearLabaScale = NumericColorScale<Laba, LinearNumericScale, f32>;
+pub type LogLabaScale = NumericColorScale<Laba, LogNumericScale, f32>;
+pub type PowLabaScale = NumericColorScale<Laba, PowNumericScale, f32>;
+pub type SymlogLabaScale = NumericColorScale<Laba, SymlogNumericScale, f32>;
 
 #[cfg(test)]
 mod tests {
@@ -153,7 +291,7 @@ mod tests {
     #[test]
     fn test_defaults() {
         let colors = vec![Srgba::new(0.0, 0.0, 0.0, 1.0)];
-        let scale = NumericSrgbaScale::new_linear(colors.clone());
+        let scale = NumericColorScale::new_linear((0.0, 1.0), colors.clone(), None);
         assert_eq!(scale.get_domain(), (0.0, 1.0));
         assert_eq!(scale.get_range(), colors);
     }
@@ -162,11 +300,14 @@ mod tests {
     #[test]
     fn test_scale_srgb() -> Result<(), AvengerScaleError> {
         // Tests basic scaling with nulls and clamping
-        let scale = NumericSrgbaScale::new_linear(vec![
-            Srgba::new(0.0, 0.0, 0.0, 1.0), // black
-            Srgba::new(1.0, 0.0, 0.0, 1.0), // red
-        ])
-        .domain((10.0, 30.0));
+        let scale = NumericColorScale::new_linear(
+            (10.0, 30.0),
+            vec![
+                Srgba::new(0.0, 0.0, 0.0, 1.0), // black
+                Srgba::new(1.0, 0.0, 0.0, 1.0), // red
+            ],
+            None,
+        );
 
         let values = vec![
             0.0,      // below domain
@@ -207,11 +348,14 @@ mod tests {
     #[test]
     fn test_scale_hsl() -> Result<(), AvengerScaleError> {
         // Test HSL color interpolation with nulls and clamping
-        let scale = NumericHslaScale::new_linear(vec![
-            Hsla::new(0.0, 0.5, 0.5, 1.0),  // red
-            Hsla::new(60.0, 0.5, 0.5, 1.0), // yellow
-        ])
-        .domain((10.0, 30.0));
+        let scale = NumericColorScale::new_linear(
+            (10.0, 30.0),
+            vec![
+                Hsla::new(0.0, 0.5, 0.5, 1.0),  // red
+                Hsla::new(60.0, 0.5, 0.5, 1.0), // yellow
+            ],
+            None,
+        );
 
         let values = vec![
             0.0,      // below domain
@@ -247,5 +391,39 @@ mod tests {
         assert_hsla_approx_eq(&result[7], Hsla::new(60.0, 0.5, 0.5, 1.0));
 
         Ok(())
+    }
+
+    #[test]
+    fn test_timestamp_scale() {
+        let start = DateTime::from_timestamp(0, 0).unwrap().naive_utc();
+        let end = start + chrono::Duration::days(10);
+        let mid = start + chrono::Duration::days(5);
+
+        let colors = vec![
+            Srgba::new(0.0, 0.0, 0.0, 1.0), // black
+            Srgba::new(1.0, 0.0, 0.0, 1.0), // red
+        ];
+
+        let scale = NumericColorScale::new_timestamp((start, end), colors);
+
+        let values = vec![
+            start - chrono::Duration::days(1), // < domain
+            start,                             // domain start
+            mid,                               // middle
+            end,                               // domain end
+            end + chrono::Duration::days(1),   // > domain
+        ];
+
+        let result = scale.scale(&values).as_vec(values.len(), None);
+        // Below domain - should clamp to black
+        assert_srgba_approx_eq(&result[0], Srgba::new(0.0, 0.0, 0.0, 1.0));
+        // Domain start - should be black
+        assert_srgba_approx_eq(&result[1], Srgba::new(0.0, 0.0, 0.0, 1.0));
+        // Middle - should be halfway between black and red
+        assert_srgba_approx_eq(&result[2], Srgba::new(0.5, 0.0, 0.0, 1.0));
+        // Domain end - should be red
+        assert_srgba_approx_eq(&result[3], Srgba::new(1.0, 0.0, 0.0, 1.0));
+        // Above domain - should clamp to red
+        assert_srgba_approx_eq(&result[4], Srgba::new(1.0, 0.0, 0.0, 1.0));
     }
 }

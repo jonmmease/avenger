@@ -1,6 +1,8 @@
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 
-use super::opts::TemporalScaleOptions;
+use crate::numeric::opts::NumericScaleOptions;
+use crate::numeric::NumericScale;
+
 use chrono::{DateTime, TimeZone, Utc};
 use chrono::{Datelike, Timelike, Weekday};
 
@@ -319,11 +321,6 @@ impl<Tz: TimeZone + Copy> TimestampTzScale<Tz> {
         self
     }
 
-    /// Returns the current domain as (start, end)
-    pub fn get_domain(&self) -> (DateTime<Utc>, DateTime<Utc>) {
-        (self.domain_start, self.domain_end)
-    }
-
     /// Sets the output range of the scale
     pub fn range(mut self, range: (f32, f32)) -> Self {
         self.range_start = range.0;
@@ -331,20 +328,10 @@ impl<Tz: TimeZone + Copy> TimestampTzScale<Tz> {
         self
     }
 
-    /// Returns the current range as (start, end)
-    pub fn get_range(&self) -> (f32, f32) {
-        (self.range_start, self.range_end)
-    }
-
     /// Enables or disables clamping of output values to the range
     pub fn clamp(mut self, clamp: bool) -> Self {
         self.clamp = clamp;
         self
-    }
-
-    /// Returns whether output clamping is enabled
-    pub fn get_clamp(&self) -> bool {
-        self.clamp
     }
 
     /// Internal conversion from DateTime to timestamp
@@ -356,86 +343,6 @@ impl<Tz: TimeZone + Copy> TimestampTzScale<Tz> {
         let s = (ts / 1000.0) as i64;
         let ms = ((ts - ((s as f64) * 1000.0)) * 1_000_000.0) as u32;
         DateTime::from_timestamp(s, ms)
-    }
-
-    /// Maps input values from domain to range
-    pub fn scale<'a>(
-        &self,
-        values: impl Into<ScalarOrArrayRef<'a, DateTime<Utc>>>,
-        opts: &TemporalScaleOptions,
-    ) -> ScalarOrArray<f32> {
-        if self.domain_start == self.domain_end || self.range_start == self.range_end {
-            return values.into().map(|_| self.range_start);
-        }
-
-        let range_start = self.range_start as f64;
-        let range_end = self.range_end as f64;
-
-        let domain_start_ts = Self::to_timestamp(&self.domain_start);
-        let domain_end_ts = Self::to_timestamp(&self.domain_end);
-        let domain_span = domain_end_ts - domain_start_ts;
-        let scale = (range_end - range_start) / domain_span;
-        let range_offset = opts.range_offset.unwrap_or(0.0) as f64;
-        let offset = (range_start - scale * domain_start_ts + range_offset) as f32;
-
-        if self.clamp {
-            let (range_min, range_max) = if self.range_start <= self.range_end {
-                (self.range_start, self.range_end)
-            } else {
-                (self.range_end, self.range_start)
-            };
-
-            values.into().map(|v| {
-                let v_ts = Self::to_timestamp(&v);
-                ((scale * v_ts) as f32 + offset).clamp(range_min, range_max)
-            })
-        } else {
-            values.into().map(|v| {
-                let v_ts = Self::to_timestamp(&v);
-                (scale * v_ts) as f32 + offset
-            })
-        }
-    }
-
-    /// Maps output values from range back to domain
-    pub fn invert<'a>(
-        &self,
-        values: impl Into<ScalarOrArrayRef<'a, f32>>,
-        opts: &TemporalScaleOptions,
-    ) -> ScalarOrArray<DateTime<Utc>> {
-        // Handle degenerate domain case
-        if self.domain_start == self.domain_end
-            || self.range_start == self.range_end
-            || self.range_start.is_nan()
-            || self.range_end.is_nan()
-        {
-            return values.into().map(|_| self.domain_start);
-        }
-        let domain_start_ts = Self::to_timestamp(&self.domain_start);
-        let domain_end_ts = Self::to_timestamp(&self.domain_end);
-
-        let scale =
-            (domain_end_ts - domain_start_ts) / (self.range_end as f64 - self.range_start as f64);
-
-        let range_offset = opts.range_offset.unwrap_or(0.0) as f64;
-        let offset = domain_start_ts - scale * (self.range_start as f64);
-
-        if self.clamp {
-            let range_lower = f32::min(self.range_start, self.range_end) as f64;
-            let range_upper = f32::max(self.range_start, self.range_end) as f64;
-
-            values.into().map(|v| {
-                let v = (*v as f64 - range_offset).clamp(range_lower, range_upper);
-                let millis = scale * v + offset;
-                Self::from_timestamp(millis).unwrap_or(self.domain_start)
-            })
-        } else {
-            values.into().map(|v| {
-                let v = *v as f64 - range_offset;
-                let millis = scale * v + offset;
-                Self::from_timestamp(millis).unwrap_or(self.domain_start)
-            })
-        }
     }
 
     /// Extends the domain to nice round values.
@@ -476,10 +383,104 @@ impl<Tz: TimeZone + Copy> TimestampTzScale<Tz> {
         self.domain_end = nice_end;
         self
     }
+}
 
-    /// Generate time ticks for the scale
-    pub fn ticks(&self, count: Option<usize>) -> Vec<DateTime<Utc>> {
-        let count = count.unwrap_or(10);
+impl<Tz> NumericScale<DateTime<Utc>> for TimestampTzScale<Tz>
+where
+    Tz: TimeZone + Copy,
+{
+    fn get_domain(&self) -> (DateTime<Utc>, DateTime<Utc>) {
+        (self.domain_start, self.domain_end)
+    }
+
+    fn get_range(&self) -> (f32, f32) {
+        (self.range_start, self.range_end)
+    }
+
+    fn get_clamp(&self) -> bool {
+        self.clamp
+    }
+
+    fn scale<'a>(
+        &self,
+        values: impl Into<ScalarOrArrayRef<'a, DateTime<Utc>>>,
+        opts: &NumericScaleOptions,
+    ) -> ScalarOrArray<f32> {
+        if self.domain_start == self.domain_end || self.range_start == self.range_end {
+            return values.into().map(|_| self.range_start);
+        }
+
+        let range_start = self.range_start as f64;
+        let range_end = self.range_end as f64;
+
+        let domain_start_ts = Self::to_timestamp(&self.domain_start);
+        let domain_end_ts = Self::to_timestamp(&self.domain_end);
+        let domain_span = domain_end_ts - domain_start_ts;
+        let scale = (range_end - range_start) / domain_span;
+        let range_offset = opts.range_offset.unwrap_or(0.0) as f64;
+        let offset = (range_start - scale * domain_start_ts + range_offset) as f32;
+
+        if self.clamp {
+            let (range_min, range_max) = if self.range_start <= self.range_end {
+                (self.range_start, self.range_end)
+            } else {
+                (self.range_end, self.range_start)
+            };
+
+            values.into().map(|v| {
+                let v_ts = Self::to_timestamp(&v);
+                ((scale * v_ts) as f32 + offset).clamp(range_min, range_max)
+            })
+        } else {
+            values.into().map(|v| {
+                let v_ts = Self::to_timestamp(&v);
+                (scale * v_ts) as f32 + offset
+            })
+        }
+    }
+
+    fn invert<'a>(
+        &self,
+        values: impl Into<ScalarOrArrayRef<'a, f32>>,
+        opts: &NumericScaleOptions,
+    ) -> ScalarOrArray<DateTime<Utc>> {
+        // Handle degenerate domain case
+        if self.domain_start == self.domain_end
+            || self.range_start == self.range_end
+            || self.range_start.is_nan()
+            || self.range_end.is_nan()
+        {
+            return values.into().map(|_| self.domain_start);
+        }
+        let domain_start_ts = Self::to_timestamp(&self.domain_start);
+        let domain_end_ts = Self::to_timestamp(&self.domain_end);
+
+        let scale =
+            (domain_end_ts - domain_start_ts) / (self.range_end as f64 - self.range_start as f64);
+
+        let range_offset = opts.range_offset.unwrap_or(0.0) as f64;
+        let offset = domain_start_ts - scale * (self.range_start as f64);
+
+        if self.clamp {
+            let range_lower = f32::min(self.range_start, self.range_end) as f64;
+            let range_upper = f32::max(self.range_start, self.range_end) as f64;
+
+            values.into().map(|v| {
+                let v = (*v as f64 - range_offset).clamp(range_lower, range_upper);
+                let millis = scale * v + offset;
+                Self::from_timestamp(millis).unwrap_or(self.domain_start)
+            })
+        } else {
+            values.into().map(|v| {
+                let v = *v as f64 - range_offset;
+                let millis = scale * v + offset;
+                Self::from_timestamp(millis).unwrap_or(self.domain_start)
+            })
+        }
+    }
+
+    fn ticks(&self, count: Option<f32>) -> Vec<DateTime<Utc>> {
+        let count = count.unwrap_or(10.0);
 
         // Define standard tick intervals
         let tick_intervals = [
@@ -615,7 +616,7 @@ mod tests {
         let result = scale
             .scale(
                 &values,
-                &TemporalScaleOptions {
+                &NumericScaleOptions {
                     range_offset: Some(10.0),
                 },
             )
@@ -685,7 +686,7 @@ mod tests {
         let result = scale
             .invert(
                 &values,
-                &TemporalScaleOptions {
+                &NumericScaleOptions {
                     range_offset: Some(10.0),
                 },
             )
@@ -776,7 +777,7 @@ mod tests {
         let scale = TimestampTzScale::new((start, end), New_York);
 
         // Should generate hourly ticks
-        let ticks = scale.ticks(Some(6));
+        let ticks = scale.ticks(Some(6.0));
         assert_eq!(ticks.len(), 7); // 0, 1, 2, 3, 4, 5, 6
         assert_eq!(ticks[0], Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap());
         assert_eq!(ticks[6], Utc.with_ymd_and_hms(2023, 1, 1, 6, 0, 0).unwrap());
@@ -807,7 +808,7 @@ mod tests {
         let scale = TimestampTzScale::new((start, end), New_York);
 
         // Should place ticks at day boundaries in the display timezone
-        let ticks = scale.ticks(Some(5));
+        let ticks = scale.ticks(Some(5.0));
         assert_eq!(ticks.len(), 5);
         assert_eq!(
             ticks[0],
@@ -820,7 +821,7 @@ mod tests {
 
         // Should place ticks at day boundaries in UTC
         let scale = TimestampTzScale::new((start, end), Utc);
-        let ticks = scale.ticks(Some(5));
+        let ticks = scale.ticks(Some(5.0));
         assert_eq!(ticks.len(), 5);
         assert_eq!(ticks[0], Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap());
         assert_eq!(ticks[1], Utc.with_ymd_and_hms(2023, 1, 2, 0, 0, 0).unwrap());

@@ -2,7 +2,7 @@ use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 
 use std::sync::Arc;
 
-use super::{linear::LinearNumericScale, opts::NumericScaleOptions};
+use super::{linear::LinearNumericScale, opts::NumericScaleOptions, NumericScale};
 
 /// Handles power transformations with different exponents
 #[derive(Clone, Debug)]
@@ -109,11 +109,6 @@ impl PowNumericScale {
         self
     }
 
-    /// Returns the current domain as (start, end)
-    pub fn get_domain(&self) -> (f32, f32) {
-        (self.domain_start, self.domain_end)
-    }
-
     /// Sets the output range of the scale
     pub fn range(mut self, (start, end): (f32, f32)) -> Self {
         self.range_start = start;
@@ -121,20 +116,10 @@ impl PowNumericScale {
         self
     }
 
-    /// Returns the current range as (start, end)
-    pub fn get_range(&self) -> (f32, f32) {
-        (self.range_start, self.range_end)
-    }
-
     /// Enables or disables clamping of output values to the range
     pub fn clamp(mut self, clamp: bool) -> Self {
         self.clamp = clamp;
         self
-    }
-
-    /// Returns whether output clamping is enabled
-    pub fn get_clamp(&self) -> bool {
-        self.clamp
     }
 
     /// Applies the power transform to a single value
@@ -147,8 +132,36 @@ impl PowNumericScale {
         self.power_fun.pow_inv(x)
     }
 
-    /// Maps input values from domain to range using power transform
-    pub fn scale<'a>(
+    /// Extends the domain to nice round numbers in transformed space
+    pub fn nice(mut self, count: Option<usize>) -> Self {
+        // Transform domain to linear space using power function
+        let d0 = self.power_fun.pow(self.domain_start);
+        let d1 = self.power_fun.pow(self.domain_end);
+
+        // Use linear scale to nice the transformed values
+        let linear = LinearNumericScale::new().domain((d0, d1)).nice(count);
+
+        let (nice_d0, nice_d1) = linear.get_domain();
+        self.domain_start = self.transform_inv(nice_d0);
+        self.domain_end = self.transform_inv(nice_d1);
+        self
+    }
+}
+
+impl NumericScale<f32> for PowNumericScale {
+    fn get_domain(&self) -> (f32, f32) {
+        (self.domain_start, self.domain_end)
+    }
+
+    fn get_range(&self) -> (f32, f32) {
+        (self.range_start, self.range_end)
+    }
+
+    fn get_clamp(&self) -> bool {
+        self.clamp
+    }
+
+    fn scale<'a>(
         &self,
         values: impl Into<ScalarOrArrayRef<'a, f32>>,
         opts: &NumericScaleOptions,
@@ -213,8 +226,7 @@ impl PowNumericScale {
         }
     }
 
-    /// Maps output values from range back to domain using inverse power transform
-    pub fn invert<'a>(
+    fn invert<'a>(
         &self,
         values: impl Into<ScalarOrArrayRef<'a, f32>>,
         opts: &NumericScaleOptions,
@@ -278,23 +290,7 @@ impl PowNumericScale {
         }
     }
 
-    /// Extends the domain to nice round numbers in transformed space
-    pub fn nice(mut self, count: Option<usize>) -> Self {
-        // Transform domain to linear space using power function
-        let d0 = self.power_fun.pow(self.domain_start);
-        let d1 = self.power_fun.pow(self.domain_end);
-
-        // Use linear scale to nice the transformed values
-        let linear = LinearNumericScale::new().domain((d0, d1)).nice(count);
-
-        let (nice_d0, nice_d1) = linear.get_domain();
-        self.domain_start = self.transform_inv(nice_d0);
-        self.domain_end = self.transform_inv(nice_d1);
-        self
-    }
-
-    /// Generates evenly spaced tick values within the domain
-    pub fn ticks(&self, count: Option<f32>) -> Vec<f32> {
+    fn ticks(&self, count: Option<f32>) -> Vec<f32> {
         // Transform domain to log space
         let d0 = self.transform(self.domain_start);
         let d1 = self.transform(self.domain_end);
