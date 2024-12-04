@@ -2,7 +2,7 @@ use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 
 use std::sync::Arc;
 
-use super::{linear::LinearNumericScale, opts::NumericScaleOptions, NumericScale};
+use super::{linear::LinearNumericScale, opts::NumericScaleOptions, ContinuousNumericScale};
 
 /// Handles power transformations with different exponents
 #[derive(Clone, Debug)]
@@ -148,7 +148,7 @@ impl PowNumericScale {
     }
 }
 
-impl NumericScale<f32> for PowNumericScale {
+impl ContinuousNumericScale<f32> for PowNumericScale {
     fn get_domain(&self) -> (f32, f32) {
         (self.domain_start, self.domain_end)
     }

@@ -1,7 +1,7 @@
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 use chrono::{Datelike, NaiveDate, Weekday};
 
-use crate::numeric::{opts::NumericScaleOptions, NumericScale};
+use crate::numeric::{opts::NumericScaleOptions, ContinuousNumericScale};
 
 /// Define DateInterval as a trait for dates
 pub trait DateInterval: Send + Sync + std::fmt::Debug {
@@ -237,7 +237,7 @@ impl DateScale {
     }
 }
 
-impl NumericScale<NaiveDate> for DateScale {
+impl ContinuousNumericScale<NaiveDate> for DateScale {
     /// Returns the current domain as (start, end)
     fn get_domain(&self) -> (NaiveDate, NaiveDate) {
         (self.domain_start, self.domain_end)

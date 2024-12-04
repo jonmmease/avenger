@@ -1,6 +1,6 @@
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 
-use super::{linear::LinearNumericScale, NumericScale};
+use super::{linear::LinearNumericScale, ContinuousNumericScale};
 use crate::numeric::opts::NumericScaleOptions;
 
 /// A symmetric log scale that maps numeric input values using a log transform that handles zero and negative values.
@@ -88,7 +88,7 @@ impl SymlogNumericScale {
     }
 }
 
-impl NumericScale<f32> for SymlogNumericScale {
+impl ContinuousNumericScale<f32> for SymlogNumericScale {
     fn get_domain(&self) -> (f32, f32) {
         (self.domain_start, self.domain_end)
     }

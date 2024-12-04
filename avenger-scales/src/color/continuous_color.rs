@@ -10,7 +10,7 @@ use crate::numeric::log::LogNumericScale;
 use crate::numeric::opts::NumericScaleOptions;
 use crate::numeric::pow::PowNumericScale;
 use crate::numeric::symlog::SymlogNumericScale;
-use crate::numeric::NumericScale;
+use crate::numeric::ContinuousNumericScale;
 use crate::temporal::date::DateScale;
 use crate::temporal::timestamp::TimestampScale;
 use crate::temporal::timestamptz::TimestampTzScale;
@@ -27,10 +27,10 @@ impl<T: Mix<Scalar = f32> + Copy + IntoColor<Srgba> + Debug + Send + Sync + 'sta
 }
 
 #[derive(Clone, Debug)]
-pub struct NumericColorScale<C, S, D>
+pub struct ContinuousColorScale<C, S, D>
 where
     C: ColorSpace,
-    S: NumericScale<D>,
+    S: ContinuousNumericScale<D>,
     D: 'static + Send + Sync + Clone,
 {
     numeric_scale: S,
@@ -38,10 +38,10 @@ where
     _marker: PhantomData<D>,
 }
 
-impl<C, S, D> NumericColorScale<C, S, D>
+impl<C, S, D> ContinuousColorScale<C, S, D>
 where
     C: ColorSpace,
-    S: NumericScale<D>,
+    S: ContinuousNumericScale<D>,
     D: 'static + Send + Sync + Clone,
 {
     pub fn from_scale(numeric_scale: S, colors: Vec<C>) -> Result<Self, AvengerScaleError> {
@@ -104,12 +104,12 @@ where
 }
 
 // Helper to create a linear color scale
-impl<C: ColorSpace> NumericColorScale<C, LinearNumericScale, f32> {
+impl<C: ColorSpace> ContinuousColorScale<C, LinearNumericScale, f32> {
     pub fn new_linear(
         domain: (f32, f32),
         colors: Vec<C>,
         nice: Option<usize>,
-    ) -> NumericColorScale<C, LinearNumericScale, f32> {
+    ) -> ContinuousColorScale<C, LinearNumericScale, f32> {
         let mut numeric_scale = LinearNumericScale::new()
             .domain(domain)
             .clamp(true)
@@ -127,7 +127,7 @@ impl<C: ColorSpace> NumericColorScale<C, LinearNumericScale, f32> {
     }
 }
 
-impl<C: ColorSpace> NumericColorScale<C, LogNumericScale, f32> {
+impl<C: ColorSpace> ContinuousColorScale<C, LogNumericScale, f32> {
     pub fn new_log(domain: (f32, f32), colors: Vec<C>, base: Option<f32>, nice: bool) -> Self {
         let mut numeric_scale = LogNumericScale::new(base)
             .domain(domain)
@@ -146,7 +146,7 @@ impl<C: ColorSpace> NumericColorScale<C, LogNumericScale, f32> {
     }
 }
 
-impl<C: ColorSpace> NumericColorScale<C, PowNumericScale, f32> {
+impl<C: ColorSpace> ContinuousColorScale<C, PowNumericScale, f32> {
     pub fn new_pow(
         domain: (f32, f32),
         colors: Vec<C>,
@@ -171,7 +171,7 @@ impl<C: ColorSpace> NumericColorScale<C, PowNumericScale, f32> {
     }
 }
 
-impl<C: ColorSpace> NumericColorScale<C, SymlogNumericScale, f32> {
+impl<C: ColorSpace> ContinuousColorScale<C, SymlogNumericScale, f32> {
     pub fn new_symlog(
         domain: (f32, f32),
         colors: Vec<C>,
@@ -195,7 +195,7 @@ impl<C: ColorSpace> NumericColorScale<C, SymlogNumericScale, f32> {
     }
 }
 
-impl<C: ColorSpace> NumericColorScale<C, DateScale, NaiveDate> {
+impl<C: ColorSpace> ContinuousColorScale<C, DateScale, NaiveDate> {
     pub fn new_date(domain: (NaiveDate, NaiveDate), colors: Vec<C>) -> Self {
         let numeric_scale = DateScale::new(domain)
             .clamp(true)
@@ -209,7 +209,7 @@ impl<C: ColorSpace> NumericColorScale<C, DateScale, NaiveDate> {
     }
 }
 
-impl<C: ColorSpace> NumericColorScale<C, TimestampScale, NaiveDateTime> {
+impl<C: ColorSpace> ContinuousColorScale<C, TimestampScale, NaiveDateTime> {
     pub fn new_timestamp(domain: (NaiveDateTime, NaiveDateTime), colors: Vec<C>) -> Self {
         let numeric_scale = TimestampScale::new(domain)
             .clamp(true)
@@ -223,7 +223,9 @@ impl<C: ColorSpace> NumericColorScale<C, TimestampScale, NaiveDateTime> {
     }
 }
 
-impl<C: ColorSpace, Tz: TimeZone + Copy> NumericColorScale<C, TimestampTzScale<Tz>, DateTime<Utc>> {
+impl<C: ColorSpace, Tz: TimeZone + Copy>
+    ContinuousColorScale<C, TimestampTzScale<Tz>, DateTime<Utc>>
+{
     pub fn new_timestamp_tz(
         domain: (DateTime<Utc>, DateTime<Utc>),
         colors: Vec<C>,
@@ -242,20 +244,20 @@ impl<C: ColorSpace, Tz: TimeZone + Copy> NumericColorScale<C, TimestampTzScale<T
 }
 
 // Predefine aliases
-pub type LinearSrgbaScale = NumericColorScale<Srgba, LinearNumericScale, f32>;
-pub type LogSrgbaScale = NumericColorScale<Srgba, LogNumericScale, f32>;
-pub type PowSrgbaScale = NumericColorScale<Srgba, PowNumericScale, f32>;
-pub type SymlogSrgbaScale = NumericColorScale<Srgba, SymlogNumericScale, f32>;
+pub type LinearSrgbaScale = ContinuousColorScale<Srgba, LinearNumericScale, f32>;
+pub type LogSrgbaScale = ContinuousColorScale<Srgba, LogNumericScale, f32>;
+pub type PowSrgbaScale = ContinuousColorScale<Srgba, PowNumericScale, f32>;
+pub type SymlogSrgbaScale = ContinuousColorScale<Srgba, SymlogNumericScale, f32>;
 
-pub type LinearHslaScale = NumericColorScale<Hsla, LinearNumericScale, f32>;
-pub type LogHslaScale = NumericColorScale<Hsla, LogNumericScale, f32>;
-pub type PowHslaScale = NumericColorScale<Hsla, PowNumericScale, f32>;
-pub type SymlogHslaScale = NumericColorScale<Hsla, SymlogNumericScale, f32>;
+pub type LinearHslaScale = ContinuousColorScale<Hsla, LinearNumericScale, f32>;
+pub type LogHslaScale = ContinuousColorScale<Hsla, LogNumericScale, f32>;
+pub type PowHslaScale = ContinuousColorScale<Hsla, PowNumericScale, f32>;
+pub type SymlogHslaScale = ContinuousColorScale<Hsla, SymlogNumericScale, f32>;
 
-pub type LinearLabaScale = NumericColorScale<Laba, LinearNumericScale, f32>;
-pub type LogLabaScale = NumericColorScale<Laba, LogNumericScale, f32>;
-pub type PowLabaScale = NumericColorScale<Laba, PowNumericScale, f32>;
-pub type SymlogLabaScale = NumericColorScale<Laba, SymlogNumericScale, f32>;
+pub type LinearLabaScale = ContinuousColorScale<Laba, LinearNumericScale, f32>;
+pub type LogLabaScale = ContinuousColorScale<Laba, LogNumericScale, f32>;
+pub type PowLabaScale = ContinuousColorScale<Laba, PowNumericScale, f32>;
+pub type SymlogLabaScale = ContinuousColorScale<Laba, SymlogNumericScale, f32>;
 
 #[cfg(test)]
 mod tests {
@@ -291,7 +293,7 @@ mod tests {
     #[test]
     fn test_defaults() {
         let colors = vec![Srgba::new(0.0, 0.0, 0.0, 1.0)];
-        let scale = NumericColorScale::new_linear((0.0, 1.0), colors.clone(), None);
+        let scale = ContinuousColorScale::new_linear((0.0, 1.0), colors.clone(), None);
         assert_eq!(scale.get_domain(), (0.0, 1.0));
         assert_eq!(scale.get_range(), colors);
     }
@@ -300,7 +302,7 @@ mod tests {
     #[test]
     fn test_scale_srgb() -> Result<(), AvengerScaleError> {
         // Tests basic scaling with nulls and clamping
-        let scale = NumericColorScale::new_linear(
+        let scale = ContinuousColorScale::new_linear(
             (10.0, 30.0),
             vec![
                 Srgba::new(0.0, 0.0, 0.0, 1.0), // black
@@ -348,7 +350,7 @@ mod tests {
     #[test]
     fn test_scale_hsl() -> Result<(), AvengerScaleError> {
         // Test HSL color interpolation with nulls and clamping
-        let scale = NumericColorScale::new_linear(
+        let scale = ContinuousColorScale::new_linear(
             (10.0, 30.0),
             vec![
                 Hsla::new(0.0, 0.5, 0.5, 1.0),  // red
@@ -404,7 +406,7 @@ mod tests {
             Srgba::new(1.0, 0.0, 0.0, 1.0), // red
         ];
 
-        let scale = NumericColorScale::new_timestamp((start, end), colors);
+        let scale = ContinuousColorScale::new_timestamp((start, end), colors);
 
         let values = vec![
             start - chrono::Duration::days(1), // < domain

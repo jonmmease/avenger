@@ -1,4 +1,4 @@
-use crate::numeric::{opts::NumericScaleOptions, NumericScale};
+use crate::numeric::{opts::NumericScaleOptions, ContinuousNumericScale};
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 use chrono::{DateTime, Datelike, NaiveDateTime, Timelike, Weekday};
 
@@ -344,7 +344,7 @@ impl TimestampScale {
     }
 }
 
-impl NumericScale<NaiveDateTime> for TimestampScale {
+impl ContinuousNumericScale<NaiveDateTime> for TimestampScale {
     fn get_domain(&self) -> (NaiveDateTime, NaiveDateTime) {
         (self.domain_start, self.domain_end)
     }

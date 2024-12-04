@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 
-use super::{opts::NumericScaleOptions, NumericScale};
+use super::{opts::NumericScaleOptions, ContinuousNumericScale};
 
 /// Handles logarithmic transformations with different bases
 #[derive(Clone, Debug)]
@@ -195,7 +195,7 @@ impl LogNumericScale {
     }
 }
 
-impl NumericScale<f32> for LogNumericScale {
+impl ContinuousNumericScale<f32> for LogNumericScale {
     fn get_range(&self) -> (f32, f32) {
         (self.range_start, self.range_end)
     }
