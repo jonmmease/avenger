@@ -2,6 +2,21 @@ use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 
 use crate::error::AvengerScaleError;
 use std::fmt::Debug;
+
+#[derive(Debug, Clone)]
+pub struct QuantileScaleConfig {
+    /// The domain as a sample population
+    pub domain: Vec<f32>,
+}
+
+impl Default for QuantileScaleConfig {
+    fn default() -> Self {
+        Self {
+            domain: vec![0.0, 1.0],
+        }
+    }
+}
+
 /// A quantile scale maps a continuous domain to discrete values based on sample quantiles.
 ///
 /// Unlike quantize scales which create uniform segments, quantile scales create segments
@@ -22,12 +37,16 @@ impl<R> QuantileScale<R>
 where
     R: Clone + Debug + Sync + 'static,
 {
-    pub fn try_new(range: Vec<R>, default: R) -> Result<Self, AvengerScaleError> {
+    pub fn try_new(
+        range: Vec<R>,
+        default: R,
+        config: &QuantileScaleConfig,
+    ) -> Result<Self, AvengerScaleError> {
         if range.is_empty() {
             return Err(AvengerScaleError::EmptyRange);
         }
         let mut this = Self {
-            domain: vec![0.0, 1.0],
+            domain: config.domain.clone(),
             range,
             default,
             thresholds: vec![],
@@ -37,7 +56,7 @@ where
     }
 
     /// Sets the domain from a sample population
-    pub fn domain(mut self, domain: Vec<f32>) -> Result<Self, AvengerScaleError> {
+    pub fn with_domain(mut self, domain: Vec<f32>) -> Result<Self, AvengerScaleError> {
         if domain.is_empty() {
             return Err(AvengerScaleError::EmptyDomain);
         }
@@ -47,7 +66,7 @@ where
     }
 
     /// Sets the output range as an Arrow array
-    pub fn range(mut self, range: Vec<R>) -> Result<Self, AvengerScaleError> {
+    pub fn with_range(mut self, range: Vec<R>) -> Result<Self, AvengerScaleError> {
         if range.is_empty() {
             return Err(AvengerScaleError::EmptyRange);
         }
@@ -126,8 +145,11 @@ mod tests {
     fn test_quantile_scale_basic() -> Result<(), AvengerScaleError> {
         // Create sample population with skewed distribution
         let domain = vec![1.0, 1.0, 2.0, 3.0, 3.0, 3.0, 4.0, 4.0, 5.0];
-        let scale =
-            QuantileScale::try_new(vec!["small", "medium", "large"], "default")?.domain(domain)?;
+        let scale = QuantileScale::try_new(
+            vec!["small", "medium", "large"],
+            "default",
+            &QuantileScaleConfig { domain },
+        )?;
 
         // Check quantile thresholds
         let thresholds = scale.quantiles();
