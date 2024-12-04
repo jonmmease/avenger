@@ -1,6 +1,6 @@
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 
-use super::linear::LinearNumericScale;
+use super::{linear::LinearNumericScale, NumericScale};
 use crate::numeric::opts::NumericScaleOptions;
 
 /// A symmetric log scale that maps numeric input values using a log transform that handles zero and negative values.
@@ -35,21 +35,11 @@ impl SymlogNumericScale {
         self
     }
 
-    /// Returns the current domain as (start, end)
-    pub fn get_domain(&self) -> (f32, f32) {
-        (self.domain_start, self.domain_end)
-    }
-
     /// Sets the output range of the scale
     pub fn range(mut self, (start, end): (f32, f32)) -> Self {
         self.range_start = start;
         self.range_end = end;
         self
-    }
-
-    /// Returns the current range as (start, end)
-    pub fn get_range(&self) -> (f32, f32) {
-        (self.range_start, self.range_end)
     }
 
     /// Sets the constant that determines the size of the linear region around zero
@@ -69,11 +59,6 @@ impl SymlogNumericScale {
         self
     }
 
-    /// Returns whether output clamping is enabled
-    pub fn get_clamp(&self) -> bool {
-        self.clamp
-    }
-
     /// Applies the symlog transform to a single value
     fn transform(&self, x: f32) -> f32 {
         let sign = if x < 0.0 { -1.0 } else { 1.0 };
@@ -86,8 +71,37 @@ impl SymlogNumericScale {
         sign * ((x.abs()).exp() - 1.0) * self.constant
     }
 
-    /// Maps input values from domain to range using symlog transform
-    pub fn scale<'a>(
+    /// Extends the domain to nice round numbers in transformed space
+    pub fn nice(self, count: Option<usize>) -> Self {
+        // Create a linear scale to nice the transformed values
+        let d0 = self.transform(self.domain_start);
+        let d1 = self.transform(self.domain_end);
+
+        let linear = LinearNumericScale::new().domain((d0, d1)).nice(count);
+
+        let (nice_d0, nice_d1) = linear.get_domain();
+
+        // Transform back to original space
+        let domain_start = self.transform_inv(nice_d0);
+        let domain_end = self.transform_inv(nice_d1);
+        self.domain((domain_start, domain_end))
+    }
+}
+
+impl NumericScale<f32> for SymlogNumericScale {
+    fn get_domain(&self) -> (f32, f32) {
+        (self.domain_start, self.domain_end)
+    }
+
+    fn get_range(&self) -> (f32, f32) {
+        (self.range_start, self.range_end)
+    }
+
+    fn get_clamp(&self) -> bool {
+        self.clamp
+    }
+
+    fn scale<'a>(
         &self,
         values: impl Into<ScalarOrArrayRef<'a, f32>>,
         opts: &NumericScaleOptions,
@@ -162,7 +176,7 @@ impl SymlogNumericScale {
     }
 
     /// Maps output values from range back to domain using inverse symlog transform
-    pub fn invert<'a>(
+    fn invert<'a>(
         &self,
         values: impl Into<ScalarOrArrayRef<'a, f32>>,
         opts: &NumericScaleOptions,
@@ -246,24 +260,8 @@ impl SymlogNumericScale {
         }
     }
 
-    /// Extends the domain to nice round numbers in transformed space
-    pub fn nice(self, count: Option<usize>) -> Self {
-        // Create a linear scale to nice the transformed values
-        let d0 = self.transform(self.domain_start);
-        let d1 = self.transform(self.domain_end);
-
-        let linear = LinearNumericScale::new().domain((d0, d1)).nice(count);
-
-        let (nice_d0, nice_d1) = linear.get_domain();
-
-        // Transform back to original space
-        let domain_start = self.transform_inv(nice_d0);
-        let domain_end = self.transform_inv(nice_d1);
-        self.domain((domain_start, domain_end))
-    }
-
     /// Generates evenly spaced tick values within the domain
-    pub fn ticks(&self, count: Option<f32>) -> Vec<f32> {
+    fn ticks(&self, count: Option<f32>) -> Vec<f32> {
         // Transform domain to log space
         let d0 = self.transform(self.domain_start);
         let d1 = self.transform(self.domain_end);

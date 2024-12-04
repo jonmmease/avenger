@@ -22,4 +22,7 @@ pub enum AvengerScaleError {
         "Threshold domain length ({domain_len}) must be one less than range length ({range_len})"
     )]
     ThresholdDomainMismatch { domain_len: usize, range_len: usize },
+
+    #[error("Incompatible numeric scale for color range: {0}")]
+    IncompatibleNumericScaleForColorRange(String),
 }

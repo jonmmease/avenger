@@ -1,6 +1,6 @@
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 
-use crate::numeric::linear::LinearNumericScale;
+use crate::numeric::{linear::LinearNumericScale, NumericScale};
 use std::fmt::Debug;
 /// A quantize scale divides a continuous domain into uniform segments and maps values to a discrete range.
 ///

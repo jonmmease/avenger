@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 
-use super::opts::NumericScaleOptions;
+use super::{opts::NumericScaleOptions, NumericScale};
 
 /// Handles logarithmic transformations with different bases
 #[derive(Clone, Debug)]
@@ -125,21 +125,11 @@ impl LogNumericScale {
         self
     }
 
-    /// Returns the current domain as (start, end)
-    pub fn get_domain(&self) -> (f32, f32) {
-        (self.domain_start, self.domain_end)
-    }
-
     /// Sets the output range of the scale
     pub fn range(mut self, (start, end): (f32, f32)) -> Self {
         self.range_start = start;
         self.range_end = end;
         self
-    }
-
-    /// Returns the current range as (start, end)
-    pub fn get_range(&self) -> (f32, f32) {
-        (self.range_start, self.range_end)
     }
 
     /// Enables or disables clamping of output values to the range
@@ -148,13 +138,77 @@ impl LogNumericScale {
         self
     }
 
-    /// Returns whether output clamping is enabled
-    pub fn get_clamp(&self) -> bool {
+    /// Extends the domain to nice round numbers in log space
+    pub fn nice(mut self) -> Self {
+        if self.domain_start.is_nan() || self.domain_end.is_nan() {
+            return self;
+        }
+
+        // Special case for exact zero domain
+        if self.domain_start == 0.0 && self.domain_end == 0.0 {
+            return self;
+        }
+
+        // Handle degenerate non-zero domain by expanding to nearest log boundaries
+        if self.domain_start == self.domain_end && self.domain_start != 0.0 {
+            let value = self.domain_start;
+            let log_val = self.log(value.abs() as f32);
+            self.domain_start = self.pow(log_val.floor()) as f32;
+            self.domain_end = self.pow(log_val.ceil()) as f32;
+            return self;
+        }
+
+        let (start, stop, reverse) = if self.domain_start < self.domain_end {
+            (self.domain_start, self.domain_end, false)
+        } else {
+            (self.domain_end, self.domain_start, true)
+        };
+
+        // Handle negative domains
+        if start < 0.0 && stop < 0.0 {
+            let nstart = -stop;
+            let nstop = -start;
+
+            let nstart = self.pow(self.log(nstart as f32).floor());
+            let nstop = self.pow(self.log(nstop as f32).ceil());
+
+            if reverse {
+                self.domain_start = -nstart;
+                self.domain_end = -nstop;
+            } else {
+                self.domain_start = -nstop;
+                self.domain_end = -nstart;
+            }
+        } else {
+            let nstart = self.pow(self.log(start as f32).floor());
+            let nstop = self.pow(self.log(stop as f32).ceil());
+
+            if reverse {
+                self.domain_start = nstop;
+                self.domain_end = nstart;
+            } else {
+                self.domain_start = nstart;
+                self.domain_end = nstop;
+            }
+        }
+        self
+    }
+}
+
+impl NumericScale<f32> for LogNumericScale {
+    fn get_range(&self) -> (f32, f32) {
+        (self.range_start, self.range_end)
+    }
+
+    fn get_domain(&self) -> (f32, f32) {
+        (self.domain_start, self.domain_end)
+    }
+
+    fn get_clamp(&self) -> bool {
         self.clamp
     }
 
-    /// Maps input values from domain to range using log transform
-    pub fn scale<'a>(
+    fn scale<'a>(
         &self,
         values: impl Into<ScalarOrArrayRef<'a, f32>>,
         opts: &NumericScaleOptions,
@@ -236,8 +290,7 @@ impl LogNumericScale {
         }
     }
 
-    /// Maps output values from range back to domain using exponential transform
-    pub fn invert<'a>(
+    fn invert<'a>(
         &self,
         values: impl Into<ScalarOrArrayRef<'a, f32>>,
         opts: &NumericScaleOptions,
@@ -291,8 +344,7 @@ impl LogNumericScale {
         }
     }
 
-    /// Generates logarithmically spaced tick values within the domain
-    pub fn ticks(&self, count: Option<f32>) -> Vec<f32> {
+    fn ticks(&self, count: Option<f32>) -> Vec<f32> {
         let count = count.unwrap_or(10.0);
         // D3: if (!(d[0] > 0 && d[1] > 0)) return [];
         if !(self.domain_start > 0.0 && self.domain_end > 0.0) {
@@ -372,62 +424,6 @@ impl LogNumericScale {
             z.reverse();
         }
         z
-    }
-
-    /// Extends the domain to nice round numbers in log space
-    pub fn nice(mut self) -> Self {
-        if self.domain_start.is_nan() || self.domain_end.is_nan() {
-            return self;
-        }
-
-        // Special case for exact zero domain
-        if self.domain_start == 0.0 && self.domain_end == 0.0 {
-            return self;
-        }
-
-        // Handle degenerate non-zero domain by expanding to nearest log boundaries
-        if self.domain_start == self.domain_end && self.domain_start != 0.0 {
-            let value = self.domain_start;
-            let log_val = self.log(value.abs() as f32);
-            self.domain_start = self.pow(log_val.floor()) as f32;
-            self.domain_end = self.pow(log_val.ceil()) as f32;
-            return self;
-        }
-
-        let (start, stop, reverse) = if self.domain_start < self.domain_end {
-            (self.domain_start, self.domain_end, false)
-        } else {
-            (self.domain_end, self.domain_start, true)
-        };
-
-        // Handle negative domains
-        if start < 0.0 && stop < 0.0 {
-            let nstart = -stop;
-            let nstop = -start;
-
-            let nstart = self.pow(self.log(nstart as f32).floor());
-            let nstop = self.pow(self.log(nstop as f32).ceil());
-
-            if reverse {
-                self.domain_start = -nstart;
-                self.domain_end = -nstop;
-            } else {
-                self.domain_start = -nstop;
-                self.domain_end = -nstart;
-            }
-        } else {
-            let nstart = self.pow(self.log(start as f32).floor());
-            let nstop = self.pow(self.log(stop as f32).ceil());
-
-            if reverse {
-                self.domain_start = nstop;
-                self.domain_end = nstart;
-            } else {
-                self.domain_start = nstart;
-                self.domain_end = nstop;
-            }
-        }
-        self
     }
 }
 
