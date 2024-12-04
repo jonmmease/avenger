@@ -39,7 +39,6 @@ version = "0.0.8"
 
 [dependencies.wgpu]
 workspace = true
-default-features = false
 features = [ "wgsl",]
 
 [dependencies.wasm-bindgen]
