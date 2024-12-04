@@ -2,7 +2,7 @@ use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 
 use crate::array;
 
-use super::{opts::NumericScaleOptions, NumericScale};
+use super::{opts::NumericScaleOptions, ContinuousNumericScale};
 
 /// A linear scale that maps numeric input values from a domain to a range.
 /// Supports clamping, domain niceing, and tick generation.
@@ -104,7 +104,7 @@ impl LinearNumericScale {
     }
 }
 
-impl NumericScale<f32> for LinearNumericScale {
+impl ContinuousNumericScale<f32> for LinearNumericScale {
     fn get_domain(&self) -> (f32, f32) {
         (self.domain_start, self.domain_end)
     }

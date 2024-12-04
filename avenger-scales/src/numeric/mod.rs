@@ -8,7 +8,7 @@ pub mod pow;
 pub mod symlog;
 
 /// A trait for scales that map to a continuous numeric range
-pub trait NumericScale<D>
+pub trait ContinuousNumericScale<D>
 where
     D: 'static + Send + Sync + Clone,
 {

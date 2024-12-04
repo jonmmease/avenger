@@ -1,7 +1,7 @@
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 
 use crate::numeric::opts::NumericScaleOptions;
-use crate::numeric::NumericScale;
+use crate::numeric::ContinuousNumericScale;
 
 use chrono::{DateTime, TimeZone, Utc};
 use chrono::{Datelike, Timelike, Weekday};
@@ -385,7 +385,7 @@ impl<Tz: TimeZone + Copy> TimestampTzScale<Tz> {
     }
 }
 
-impl<Tz> NumericScale<DateTime<Utc>> for TimestampTzScale<Tz>
+impl<Tz> ContinuousNumericScale<DateTime<Utc>> for TimestampTzScale<Tz>
 where
     Tz: TimeZone + Copy,
 {
