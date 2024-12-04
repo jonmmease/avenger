@@ -1,6 +1,7 @@
-use crate::numeric::{opts::NumericScaleOptions, ContinuousNumericScale};
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 use chrono::{DateTime, Datelike, NaiveDateTime, Timelike, Weekday};
+
+use crate::numeric::ContinuousNumericScale;
 
 /// Define TimestampInterval as a trait for naive timestamps
 pub trait TimestampInterval: Send + Sync + std::fmt::Debug {
@@ -254,6 +255,26 @@ pub mod interval {
     }
 }
 
+pub struct TimestampScaleConfig {
+    pub domain: (NaiveDateTime, NaiveDateTime),
+    pub range: (f32, f32),
+    pub clamp: bool,
+    pub range_offset: f32,
+    pub nice: bool,
+}
+
+impl Default for TimestampScaleConfig {
+    fn default() -> Self {
+        Self {
+            domain: (NaiveDateTime::MIN, NaiveDateTime::MAX),
+            range: (0.0, 1.0),
+            clamp: false,
+            range_offset: 0.0,
+            nice: false,
+        }
+    }
+}
+
 /// A scale that maps naive timestamps to a numeric range
 #[derive(Clone, Debug)]
 pub struct TimestampScale {
@@ -262,37 +283,49 @@ pub struct TimestampScale {
     range_start: f32,
     range_end: f32,
     clamp: bool,
+    range_offset: f32,
 }
 
 impl TimestampScale {
     /// Creates a new timestamp scale with the specified domain and default range [0, 1]
-    pub fn new(domain: (NaiveDateTime, NaiveDateTime)) -> Self {
-        Self {
-            domain_start: domain.0,
-            domain_end: domain.1,
-            range_start: 0.0,
-            range_end: 1.0,
-            clamp: false,
+    pub fn new(config: &TimestampScaleConfig) -> Self {
+        let mut this = Self {
+            domain_start: config.domain.0,
+            domain_end: config.domain.1,
+            range_start: config.range.0,
+            range_end: config.range.1,
+            clamp: config.clamp,
+            range_offset: config.range_offset,
+        };
+        if config.nice {
+            this = this.nice(None);
         }
+        this
     }
 
     /// Sets the input domain of the scale
-    pub fn domain(mut self, domain: (NaiveDateTime, NaiveDateTime)) -> Self {
+    pub fn with_domain(mut self, domain: (NaiveDateTime, NaiveDateTime)) -> Self {
         self.domain_start = domain.0;
         self.domain_end = domain.1;
         self
     }
 
     /// Sets the output range of the scale
-    pub fn range(mut self, range: (f32, f32)) -> Self {
+    pub fn with_range(mut self, range: (f32, f32)) -> Self {
         self.range_start = range.0;
         self.range_end = range.1;
         self
     }
 
     /// Enables or disables clamping of output values to the range
-    pub fn clamp(mut self, clamp: bool) -> Self {
+    pub fn with_clamp(mut self, clamp: bool) -> Self {
         self.clamp = clamp;
+        self
+    }
+
+    /// Sets the range offset
+    pub fn with_range_offset(mut self, range_offset: f32) -> Self {
+        self.range_offset = range_offset;
         self
     }
 
@@ -308,7 +341,7 @@ impl TimestampScale {
     }
 
     /// Extends the domain to nice round values
-    pub fn nice(&mut self, interval: Option<Box<dyn TimestampInterval>>) -> &mut Self {
+    pub fn nice(mut self, interval: Option<Box<dyn TimestampInterval>>) -> Self {
         if self.domain_start == self.domain_end {
             return self;
         }
@@ -345,22 +378,21 @@ impl TimestampScale {
 }
 
 impl ContinuousNumericScale<NaiveDateTime> for TimestampScale {
-    fn get_domain(&self) -> (NaiveDateTime, NaiveDateTime) {
+    fn domain(&self) -> (NaiveDateTime, NaiveDateTime) {
         (self.domain_start, self.domain_end)
     }
 
-    fn get_range(&self) -> (f32, f32) {
+    fn range(&self) -> (f32, f32) {
         (self.range_start, self.range_end)
     }
 
-    fn get_clamp(&self) -> bool {
+    fn clamp(&self) -> bool {
         self.clamp
     }
 
     fn scale<'a>(
         &self,
         values: impl Into<ScalarOrArrayRef<'a, NaiveDateTime>>,
-        opts: &NumericScaleOptions,
     ) -> ScalarOrArray<f32> {
         if self.domain_start == self.domain_end || self.range_start == self.range_end {
             return values.into().map(|_| self.range_start);
@@ -373,7 +405,7 @@ impl ContinuousNumericScale<NaiveDateTime> for TimestampScale {
         let domain_end_ts = Self::to_timestamp(&self.domain_end);
         let domain_span = domain_end_ts - domain_start_ts;
         let scale = (range_end - range_start) / domain_span;
-        let range_offset = opts.range_offset.unwrap_or(0.0) as f64;
+        let range_offset = self.range_offset as f64;
         let offset = (range_start - scale * domain_start_ts + range_offset) as f32;
 
         if self.clamp {
@@ -398,7 +430,6 @@ impl ContinuousNumericScale<NaiveDateTime> for TimestampScale {
     fn invert<'a>(
         &self,
         values: impl Into<ScalarOrArrayRef<'a, f32>>,
-        opts: &NumericScaleOptions,
     ) -> ScalarOrArray<NaiveDateTime> {
         if self.domain_start == self.domain_end
             || self.range_start == self.range_end
@@ -414,7 +445,7 @@ impl ContinuousNumericScale<NaiveDateTime> for TimestampScale {
         let scale =
             (domain_end_ts - domain_start_ts) / (self.range_end as f64 - self.range_start as f64);
 
-        let range_offset = opts.range_offset.unwrap_or(0.0) as f64;
+        let range_offset = self.range_offset as f64;
         let offset = domain_start_ts - scale * (self.range_start as f64);
 
         if self.clamp {
@@ -510,7 +541,10 @@ mod tests {
     #[test]
     fn test_defaults() {
         let now = chrono::Utc::now().naive_utc();
-        let scale = TimestampScale::new((now, now));
+        let scale = TimestampScale::new(&TimestampScaleConfig {
+            domain: (now, now),
+            ..Default::default()
+        });
         assert_eq!(scale.domain_start, now);
         assert_eq!(scale.domain_end, now);
         assert_eq!(scale.range_start, 0.0);
@@ -524,9 +558,12 @@ mod tests {
         let end = start + chrono::Duration::days(10);
         let mid = start + chrono::Duration::days(5);
 
-        let scale = TimestampScale::new((start, end))
-            .range((0.0, 100.0))
-            .clamp(true);
+        let scale = TimestampScale::new(&TimestampScaleConfig {
+            domain: (start, end),
+            ..Default::default()
+        })
+        .with_range((0.0, 100.0))
+        .with_clamp(true);
 
         let values = vec![
             start - chrono::Duration::days(1), // < domain
@@ -536,9 +573,7 @@ mod tests {
             end + chrono::Duration::days(1),   // > domain
         ];
 
-        let result = scale
-            .scale(&values, &Default::default())
-            .as_vec(values.len(), None);
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], 0.0); // clamped
         assert_approx_eq!(f32, result[1], 0.0); // domain start
@@ -553,9 +588,13 @@ mod tests {
         let end = start + chrono::Duration::days(10);
         let mid = start + chrono::Duration::days(5);
 
-        let scale = TimestampScale::new((start, end))
-            .range((0.0, 100.0))
-            .clamp(true);
+        let scale = TimestampScale::new(&TimestampScaleConfig {
+            domain: (start, end),
+            ..Default::default()
+        })
+        .with_range((0.0, 100.0))
+        .with_clamp(true)
+        .with_range_offset(10.0);
 
         let values = vec![
             start - chrono::Duration::days(1),
@@ -565,14 +604,7 @@ mod tests {
             end + chrono::Duration::days(1),
         ];
 
-        let result = scale
-            .scale(
-                &values,
-                &NumericScaleOptions {
-                    range_offset: Some(10.0),
-                },
-            )
-            .as_vec(values.len(), None);
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], 0.0); // clamped
         assert_approx_eq!(f32, result[1], 10.0); // domain start + offset
@@ -584,9 +616,12 @@ mod tests {
     #[test]
     fn test_scale_degenerate() {
         let now = chrono::Utc::now().naive_utc();
-        let scale = TimestampScale::new((now, now))
-            .range((0.0, 100.0))
-            .clamp(true);
+        let scale = TimestampScale::new(&TimestampScaleConfig {
+            domain: (now, now),
+            ..Default::default()
+        })
+        .with_range((0.0, 100.0))
+        .with_clamp(true);
 
         let values = vec![
             now - chrono::Duration::days(1),
@@ -594,9 +629,7 @@ mod tests {
             now + chrono::Duration::days(1),
         ];
 
-        let result = scale
-            .scale(&values, &Default::default())
-            .as_vec(values.len(), None);
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         // All values should map to range_start
         for r in result {
@@ -609,14 +642,15 @@ mod tests {
         let start = DateTime::from_timestamp(0, 0).unwrap().naive_utc();
         let end = start + chrono::Duration::days(10);
 
-        let scale = TimestampScale::new((start, end))
-            .range((0.0, 100.0))
-            .clamp(true);
+        let scale = TimestampScale::new(&TimestampScaleConfig {
+            domain: (start, end),
+            ..Default::default()
+        })
+        .with_range((0.0, 100.0))
+        .with_clamp(true);
 
         let values = vec![-10.0, 0.0, 50.0, 100.0, 110.0];
-        let result = scale
-            .invert(&values, &Default::default())
-            .as_vec(values.len(), None);
+        let result = scale.invert(&values).as_vec(values.len(), None);
 
         assert_datetime_approx_eq(result[0], start); // clamped below
         assert_datetime_approx_eq(result[1], start); // range start
@@ -630,19 +664,16 @@ mod tests {
         let start = DateTime::from_timestamp(0, 0).unwrap().naive_utc();
         let end = start + chrono::Duration::days(10);
 
-        let scale = TimestampScale::new((start, end))
-            .range((0.0, 100.0))
-            .clamp(true);
+        let scale = TimestampScale::new(&TimestampScaleConfig {
+            domain: (start, end),
+            ..Default::default()
+        })
+        .with_range((0.0, 100.0))
+        .with_clamp(true)
+        .with_range_offset(10.0);
 
         let values = vec![-10.0, 10.0, 60.0, 110.0, 120.0];
-        let result = scale
-            .invert(
-                &values,
-                &NumericScaleOptions {
-                    range_offset: Some(10.0),
-                },
-            )
-            .as_vec(values.len(), None);
+        let result = scale.invert(&values).as_vec(values.len(), None);
 
         assert_datetime_approx_eq(result[0], start); // clamped below
         assert_datetime_approx_eq(result[1], start); // range start
@@ -656,14 +687,15 @@ mod tests {
         let start = DateTime::from_timestamp(0, 0).unwrap().naive_utc();
         let end = start + chrono::Duration::days(10);
 
-        let scale = TimestampScale::new((end, start))
-            .range((100.0, 0.0)) // Reversed range
-            .clamp(true);
+        let scale = TimestampScale::new(&TimestampScaleConfig {
+            domain: (end, start),
+            ..Default::default()
+        })
+        .with_range((100.0, 0.0)) // Reversed range
+        .with_clamp(true);
 
         let values = vec![110.0, 100.0, 50.0, 0.0, -10.0];
-        let result = scale
-            .invert(&values, &Default::default())
-            .as_vec(values.len(), None);
+        let result = scale.invert(&values).as_vec(values.len(), None);
 
         assert_datetime_approx_eq(result[0], end); // clamped to end (> 100)
         assert_datetime_approx_eq(result[1], end); // range start (100.0)
@@ -683,8 +715,11 @@ mod tests {
             chrono::NaiveTime::from_hms_opt(15, 20, 45).unwrap(),
         );
 
-        let mut scale = TimestampScale::new((start, end));
-        scale.nice(Some(interval::day()));
+        let scale = TimestampScale::new(&TimestampScaleConfig {
+            domain: (start, end),
+            ..Default::default()
+        })
+        .nice(Some(interval::day()));
 
         assert_eq!(
             scale.domain_start,
@@ -713,8 +748,11 @@ mod tests {
             chrono::NaiveTime::from_hms_opt(9, 20, 45).unwrap(),
         );
 
-        let mut scale = TimestampScale::new((start, end));
-        scale.nice(None);
+        let scale = TimestampScale::new(&TimestampScaleConfig {
+            domain: (start, end),
+            ..Default::default()
+        })
+        .nice(None);
 
         assert_eq!(
             scale.domain_start,
@@ -739,7 +777,10 @@ mod tests {
             chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
         );
         let end = start + chrono::Duration::hours(6);
-        let scale = TimestampScale::new((start, end));
+        let scale = TimestampScale::new(&TimestampScaleConfig {
+            domain: (start, end),
+            ..Default::default()
+        });
 
         // Should generate hourly ticks
         let ticks = scale.ticks(Some(6.0));
@@ -755,7 +796,10 @@ mod tests {
             chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
         );
         let end = start + chrono::Duration::days(5);
-        let scale = TimestampScale::new((start, end));
+        let scale = TimestampScale::new(&TimestampScaleConfig {
+            domain: (start, end),
+            ..Default::default()
+        });
 
         let ticks = scale.ticks(Some(5.0));
         assert_eq!(ticks.len(), 6);

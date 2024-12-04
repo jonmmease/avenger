@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 
-use super::{opts::NumericScaleOptions, ContinuousNumericScale};
+use super::ContinuousNumericScale;
 
 /// Handles logarithmic transformations with different bases
 #[derive(Clone, Debug)]
@@ -72,6 +72,29 @@ impl LogFunction {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct LogNumericScaleConfig {
+    pub domain: (f32, f32),
+    pub range: (f32, f32),
+    pub base: f32,
+    pub clamp: bool,
+    pub range_offset: f32,
+    pub nice: bool,
+}
+
+impl Default for LogNumericScaleConfig {
+    fn default() -> Self {
+        Self {
+            domain: (1.0, 10.0),
+            range: (0.0, 1.0),
+            base: 10.0,
+            clamp: false,
+            range_offset: 0.0,
+            nice: false,
+        }
+    }
+}
+
 /// A logarithmic scale that maps numeric input values using a log transform.
 /// Supports different bases, clamping, domain niceing, and tick generation.
 #[derive(Clone, Debug)]
@@ -81,31 +104,31 @@ pub struct LogNumericScale {
     range_start: f32,
     range_end: f32,
     clamp: bool,
+    range_offset: f32,
     log_fun: Arc<LogFunction>,
 }
 
 impl LogNumericScale {
     /// Creates a new log scale with default domain [1, 10] and range [0, 1]
-    pub fn new(base: Option<f32>) -> Self {
-        Self {
-            domain_start: 1.0,
-            domain_end: 10.0,
-            range_start: 0.0,
-            range_end: 1.0,
-            clamp: false,
-            log_fun: Arc::new(LogFunction::new(base.unwrap_or(10.0))),
+    pub fn new(config: &LogNumericScaleConfig) -> Self {
+        let mut this = Self {
+            domain_start: config.domain.0,
+            domain_end: config.domain.1,
+            range_start: config.range.0,
+            range_end: config.range.1,
+            clamp: config.clamp,
+            range_offset: config.range_offset,
+            log_fun: Arc::new(LogFunction::new(config.base)),
+        };
+        if config.nice {
+            this = this.nice();
         }
+        this
     }
 
     /// Returns the current logarithm base
     pub fn get_base(&self) -> f32 {
         self.log_fun.base()
-    }
-
-    /// Sets the logarithm base
-    pub fn base(mut self, base: f32) -> Self {
-        self.log_fun = Arc::new(LogFunction::new(base));
-        self
     }
 
     /// Computes the logarithm of x in the current base
@@ -116,26 +139,6 @@ impl LogNumericScale {
     /// Computes the current base raised to power x
     pub fn pow(&self, x: f32) -> f32 {
         self.log_fun.pow(x)
-    }
-
-    /// Sets the input domain of the scale
-    pub fn domain(mut self, (start, end): (f32, f32)) -> Self {
-        self.domain_start = start;
-        self.domain_end = end;
-        self
-    }
-
-    /// Sets the output range of the scale
-    pub fn range(mut self, (start, end): (f32, f32)) -> Self {
-        self.range_start = start;
-        self.range_end = end;
-        self
-    }
-
-    /// Enables or disables clamping of output values to the range
-    pub fn clamp(mut self, clamp: bool) -> Self {
-        self.clamp = clamp;
-        self
     }
 
     /// Extends the domain to nice round numbers in log space
@@ -193,26 +196,49 @@ impl LogNumericScale {
         }
         self
     }
+
+    pub fn with_domain(mut self, domain: (f32, f32)) -> Self {
+        self.domain_start = domain.0;
+        self.domain_end = domain.1;
+        self
+    }
+
+    pub fn with_range(mut self, range: (f32, f32)) -> Self {
+        self.range_start = range.0;
+        self.range_end = range.1;
+        self
+    }
+
+    pub fn with_clamp(mut self, clamp: bool) -> Self {
+        self.clamp = clamp;
+        self
+    }
+
+    pub fn with_range_offset(mut self, range_offset: f32) -> Self {
+        self.range_offset = range_offset;
+        self
+    }
+
+    pub fn with_base(mut self, base: f32) -> Self {
+        self.log_fun = Arc::new(LogFunction::new(base));
+        self
+    }
 }
 
 impl ContinuousNumericScale<f32> for LogNumericScale {
-    fn get_range(&self) -> (f32, f32) {
+    fn range(&self) -> (f32, f32) {
         (self.range_start, self.range_end)
     }
 
-    fn get_domain(&self) -> (f32, f32) {
+    fn domain(&self) -> (f32, f32) {
         (self.domain_start, self.domain_end)
     }
 
-    fn get_clamp(&self) -> bool {
+    fn clamp(&self) -> bool {
         self.clamp
     }
 
-    fn scale<'a>(
-        &self,
-        values: impl Into<ScalarOrArrayRef<'a, f32>>,
-        opts: &NumericScaleOptions,
-    ) -> ScalarOrArray<f32> {
+    fn scale<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, f32>>) -> ScalarOrArray<f32> {
         // Handle degenerate domain and range cases
         if self.domain_start == self.domain_end || self.range_start == self.range_end {
             return values.into().map(|_| self.range_start);
@@ -239,8 +265,7 @@ impl ContinuousNumericScale<f32> for LogNumericScale {
         }
 
         let scale = (self.range_end - self.range_start) / log_domain_span;
-        let range_offset = opts.range_offset.unwrap_or(0.0);
-        let offset = self.range_start - scale * log_domain_start + range_offset;
+        let offset = self.range_start - scale * log_domain_start + self.range_offset;
 
         if self.clamp {
             let (range_min, range_max) = if self.range_start <= self.range_end {
@@ -290,11 +315,7 @@ impl ContinuousNumericScale<f32> for LogNumericScale {
         }
     }
 
-    fn invert<'a>(
-        &self,
-        values: impl Into<ScalarOrArrayRef<'a, f32>>,
-        opts: &NumericScaleOptions,
-    ) -> ScalarOrArray<f32> {
+    fn invert<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, f32>>) -> ScalarOrArray<f32> {
         // Handle degenerate cases
         if self.domain_start <= 0.0 || self.domain_end <= 0.0 || self.range_start == self.range_end
         {
@@ -312,8 +333,7 @@ impl ContinuousNumericScale<f32> for LogNumericScale {
         }
 
         let scale = (self.range_end - self.range_start) / log_domain_span;
-        let range_offset = opts.range_offset.unwrap_or(0.0);
-        let offset = self.range_start - scale * log_domain_start + range_offset;
+        let offset = self.range_start - scale * log_domain_start + self.range_offset;
 
         if self.clamp {
             let (range_min, range_max) = if self.range_start <= self.range_end {
@@ -434,7 +454,7 @@ mod tests {
 
     #[test]
     fn test_defaults() {
-        let scale = LogNumericScale::new(Some(10.0));
+        let scale = LogNumericScale::new(&Default::default());
         assert_eq!(scale.domain_start, 1.0);
         assert_eq!(scale.domain_end, 10.0);
         assert_eq!(scale.range_start, 0.0);
@@ -443,25 +463,26 @@ mod tests {
         assert_eq!(scale.log_fun.base(), 10.0);
 
         let values = vec![5.0];
-        let result = scale
-            .scale(&values, &Default::default())
-            .as_vec(values.len(), None);
+        let result = scale.scale(&values).as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 0.69897);
 
         let values = vec![0.69897];
-        let result = scale
-            .invert(&values, &Default::default())
-            .as_vec(values.len(), None);
+        let result = scale.invert(&values).as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 5.0);
     }
 
     #[test]
     fn test_domain_coercion() {
-        let scale = LogNumericScale::new(Some(10.0)).domain((1.0, 2.0));
+        let scale = LogNumericScale::new(&LogNumericScaleConfig {
+            base: 10.0,
+            domain: (1.0, 2.0),
+            range: (0.0, 1.0),
+            clamp: false,
+            range_offset: 0.0,
+            ..Default::default()
+        });
         let values = vec![0.5, 1.0, 1.5, 2.0, 2.5];
-        let result = scale
-            .scale(&values, &Default::default())
-            .as_vec(values.len(), None);
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], -1.0);
         assert_approx_eq!(f32, result[1], 0.0);
@@ -472,16 +493,15 @@ mod tests {
 
     #[test]
     fn test_range_offset() {
-        let scale = LogNumericScale::new(Some(10.0)).domain((1.0, 2.0));
+        let scale = LogNumericScale::new(&LogNumericScaleConfig {
+            base: 10.0,
+            domain: (1.0, 2.0),
+            range: (0.0, 1.0),
+            range_offset: 0.5,
+            ..Default::default()
+        });
         let values = vec![0.5, 1.0, 1.5, 2.0, 2.5];
-        let result = scale
-            .scale(
-                &values,
-                &NumericScaleOptions {
-                    range_offset: Some(0.5),
-                },
-            )
-            .as_vec(values.len(), None);
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], -0.5);
         assert_approx_eq!(f32, result[1], 0.5);
@@ -492,31 +512,37 @@ mod tests {
 
     #[test]
     fn test_negative_domain() {
-        let scale = LogNumericScale::new(Some(10.0)).domain((-100.0, -1.0));
+        let scale = LogNumericScale::new(&LogNumericScaleConfig {
+            base: 10.0,
+            domain: (-100.0, -1.0),
+            range: (0.0, 1.0),
+            ..Default::default()
+        });
         let values = vec![-50.0];
-        let result = scale
-            .scale(&values, &Default::default())
-            .as_vec(values.len(), None);
+        let result = scale.scale(&values).as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 0.150515);
     }
 
     #[test]
     fn test_clamping() {
         // Test unclamped behavior
-        let scale = LogNumericScale::new(Some(10.0));
+        let scale = LogNumericScale::new(&LogNumericScaleConfig {
+            base: 10.0,
+            ..Default::default()
+        });
         let values = vec![0.5, 15.0];
-        let result = scale
-            .scale(&values, &Default::default())
-            .as_vec(values.len(), None);
+        let result = scale.scale(&values).as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], -0.30103);
         assert_approx_eq!(f32, result[1], 1.176091);
 
         // Test clamped behavior
-        let scale = LogNumericScale::new(Some(10.0)).clamp(true);
+        let scale = LogNumericScale::new(&LogNumericScaleConfig {
+            base: 10.0,
+            clamp: true,
+            ..Default::default()
+        });
         let values = vec![-1.0, 5.0, 15.0];
-        let result = scale
-            .scale(&values, &Default::default())
-            .as_vec(values.len(), None);
+        let result = scale.scale(&values).as_vec(values.len(), None);
         assert_approx_eq!(f32, result[0], 0.0);
         assert_approx_eq!(f32, result[1], 0.69897);
         assert_approx_eq!(f32, result[2], 1.0);
@@ -524,16 +550,14 @@ mod tests {
 
     #[test]
     fn test_invert_range_offset() {
-        let scale = LogNumericScale::new(Some(10.0)).domain((1.0, 2.0));
+        let scale = LogNumericScale::new(&LogNumericScaleConfig {
+            base: 10.0,
+            domain: (1.0, 2.0),
+            range_offset: 0.5,
+            ..Default::default()
+        });
         let values = vec![-0.5, 0.5, 1.0849625, 1.5, 1.8219281];
-        let result = scale
-            .invert(
-                &values,
-                &NumericScaleOptions {
-                    range_offset: Some(0.5),
-                },
-            )
-            .as_vec(values.len(), None);
+        let result = scale.invert(&values).as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], 0.5);
         assert_approx_eq!(f32, result[1], 1.0);
@@ -545,29 +569,52 @@ mod tests {
     #[test]
     fn test_nice() {
         // Test nice with ascending domain
-        let scale = LogNumericScale::new(Some(10.0)).domain((1.1, 10.9)).nice();
+        let scale = LogNumericScale::new(&LogNumericScaleConfig {
+            base: 10.0,
+            domain: (1.1, 10.9),
+            ..Default::default()
+        })
+        .nice();
         assert_eq!(scale.domain_start, 1.0);
         assert_eq!(scale.domain_end, 100.0);
 
         // Test nice with descending domain
-        let scale = LogNumericScale::new(Some(10.0)).domain((10.9, 1.1)).nice();
+        let scale = LogNumericScale::new(&LogNumericScaleConfig {
+            base: 10.0,
+            domain: (10.9, 1.1),
+            ..Default::default()
+        })
+        .nice();
         assert_eq!(scale.domain_start, 100.0);
         assert_eq!(scale.domain_end, 1.0);
 
         // Test nice with domain crossing decades
-        let scale = LogNumericScale::new(Some(10.0))
-            .domain((0.7, 11.001))
-            .nice();
+        let scale = LogNumericScale::new(&LogNumericScaleConfig {
+            base: 10.0,
+            domain: (0.7, 11.001),
+            ..Default::default()
+        })
+        .nice();
         assert_eq!(scale.domain_start, 0.1);
         assert_eq!(scale.domain_end, 100.0);
 
         // Test nice with reversed domain crossing decades
-        let scale = LogNumericScale::new(Some(10.0)).domain((123.1, 6.7)).nice();
+        let scale = LogNumericScale::new(&LogNumericScaleConfig {
+            base: 10.0,
+            domain: (123.1, 6.7),
+            ..Default::default()
+        })
+        .nice();
         assert_eq!(scale.domain_start, 1000.0);
         assert_eq!(scale.domain_end, 1.0);
 
         // Test nice with small domain
-        let scale = LogNumericScale::new(Some(10.0)).domain((0.01, 0.49)).nice();
+        let scale = LogNumericScale::new(&LogNumericScaleConfig {
+            base: 10.0,
+            domain: (0.01, 0.49),
+            ..Default::default()
+        })
+        .nice();
         assert_eq!(scale.domain_start, 0.01);
         assert_eq!(scale.domain_end, 1.0);
     }
@@ -575,12 +622,22 @@ mod tests {
     #[test]
     fn test_nice_degenerate() {
         // Test nice with zero domain
-        let scale = LogNumericScale::new(Some(10.0)).domain((0.0, 0.0)).nice();
+        let scale = LogNumericScale::new(&LogNumericScaleConfig {
+            base: 10.0,
+            domain: (0.0, 0.0),
+            ..Default::default()
+        })
+        .nice();
         assert_eq!(scale.domain_start, 0.0);
         assert_eq!(scale.domain_end, 0.0);
 
         // Test nice with point domain
-        let scale = LogNumericScale::new(Some(10.0)).domain((0.5, 0.5)).nice();
+        let scale = LogNumericScale::new(&LogNumericScaleConfig {
+            base: 10.0,
+            domain: (0.5, 0.5),
+            ..Default::default()
+        })
+        .nice();
         assert_eq!(scale.domain_start, 0.1);
         assert_eq!(scale.domain_end, 1.0);
     }
@@ -588,7 +645,11 @@ mod tests {
     #[test]
     fn test_ticks() {
         // Test ascending ticks
-        let scale = LogNumericScale::new(Some(10.0)).domain((0.1, 10.0));
+        let scale = LogNumericScale::new(&LogNumericScaleConfig {
+            base: 10.0,
+            domain: (0.1, 10.0),
+            ..Default::default()
+        });
         assert_eq!(
             scale.ticks(Some(10.0)),
             vec![
@@ -598,7 +659,11 @@ mod tests {
         );
 
         // Test descending ticks
-        let scale = LogNumericScale::new(Some(10.0)).domain((10.0, 0.1));
+        let scale = LogNumericScale::new(&LogNumericScaleConfig {
+            base: 10.0,
+            domain: (10.0, 0.1),
+            ..Default::default()
+        });
         assert_eq!(
             scale.ticks(Some(10.0)),
             vec![
@@ -610,7 +675,11 @@ mod tests {
 
     #[test]
     fn test_base() {
-        let scale = LogNumericScale::new(None).domain((1.0, 32.0)).base(2.0);
+        let scale = LogNumericScale::new(&LogNumericScaleConfig {
+            base: 2.0,
+            domain: (1.0, 32.0),
+            ..Default::default()
+        });
         assert_eq!(
             scale.ticks(Some(10.0)),
             vec![1.0, 2.0, 4.0, 8.0, 16.0, 32.0]
@@ -619,36 +688,45 @@ mod tests {
 
     #[test]
     fn test_degenerate_domain() {
-        let scale = LogNumericScale::new(Some(10.0));
+        fn make_ticks(domain: (f32, f32)) -> Vec<f32> {
+            LogNumericScale::new(&LogNumericScaleConfig {
+                base: 10.0,
+                domain,
+                ..Default::default()
+            })
+            .ticks(None)
+        }
 
         // Test various degenerate domains
-        assert!(scale.clone().domain((0.0, 1.0)).ticks(None).is_empty());
-        assert!(scale.clone().domain((1.0, 0.0)).ticks(None).is_empty());
-        assert!(scale.clone().domain((0.0, -1.0)).ticks(None).is_empty());
-        assert!(scale.clone().domain((-1.0, 0.0)).ticks(None).is_empty());
-        assert!(scale.clone().domain((-1.0, 1.0)).ticks(None).is_empty());
-        assert!(scale.clone().domain((0.0, 0.0)).ticks(None).is_empty());
+        assert!(make_ticks((0.0, 1.0)).is_empty());
+        assert!(make_ticks((1.0, 0.0)).is_empty());
+        assert!(make_ticks((0.0, -1.0)).is_empty());
+        assert!(make_ticks((-1.0, 0.0)).is_empty());
+        assert!(make_ticks((-1.0, 1.0)).is_empty());
+        assert!(make_ticks((0.0, 0.0)).is_empty());
     }
 
     #[test]
     fn test_edge_cases() {
-        let scale = LogNumericScale::new(Some(10.0));
-
         // Test zero domain
-        let scale = scale.clone().domain((0.0, 0.0));
+        let scale = LogNumericScale::new(&LogNumericScaleConfig {
+            base: 10.0,
+            domain: (0.0, 0.0),
+            ..Default::default()
+        });
         let values = vec![1.0, 2.0];
-        let result = scale
-            .scale(&values, &Default::default())
-            .as_vec(values.len(), None);
+        let result = scale.scale(&values).as_vec(values.len(), None);
         assert_eq!(result[0], 0.0);
         assert_eq!(result[1], 0.0);
 
         // Test negative/zero input with clamping
-        let scale = scale.clone().clamp(true);
+        let scale = LogNumericScale::new(&LogNumericScaleConfig {
+            base: 10.0,
+            clamp: true,
+            ..Default::default()
+        });
         let values = vec![-1.0, 0.0];
-        let result = scale
-            .scale(&values, &Default::default())
-            .as_vec(values.len(), None);
+        let result = scale.scale(&values).as_vec(values.len(), None);
         assert_eq!(result[0], 0.0);
         assert_eq!(result[1], 0.0);
     }
