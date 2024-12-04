@@ -1,11 +1,33 @@
-pub mod opts;
-use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
-use opts::BandScaleOptions;
-
 use crate::error::AvengerScaleError;
 use crate::ordinal::OrdinalScale;
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 use std::fmt::Debug;
 use std::hash::Hash;
+
+#[derive(Debug, Clone)]
+pub struct BandScaleConfig {
+    pub range: (f32, f32),
+    pub padding_inner: f32,
+    pub padding_outer: f32,
+    pub align: f32,
+    pub round: bool,
+    pub band: f32,
+    pub range_offset: f32,
+}
+
+impl Default for BandScaleConfig {
+    fn default() -> Self {
+        Self {
+            range: (0.0, 1.0),
+            padding_inner: 0.0,
+            padding_outer: 0.0,
+            align: 0.5,
+            round: false,
+            band: 0.0,
+            range_offset: 0.0,
+        }
+    }
+}
 
 /// A band scale divides a continuous range into bands and computes positions based on a discrete domain.
 ///
@@ -21,6 +43,8 @@ pub struct BandScale<D: Debug + Clone + Hash + Eq + Sync + 'static> {
     padding_outer: f32,
     align: f32,
     round: bool,
+    range_offset: f32,
+    band: f32,
 }
 
 impl<D: Debug + Clone + Hash + Eq + Sync + 'static> BandScale<D> {
@@ -32,16 +56,18 @@ impl<D: Debug + Clone + Hash + Eq + Sync + 'static> BandScale<D> {
     /// - padding_outer: 0.0
     /// - align: 0.5
     /// - round: false
-    pub fn try_new(domain: Vec<D>) -> Result<Self, AvengerScaleError> {
+    pub fn try_new(domain: Vec<D>, config: &BandScaleConfig) -> Result<Self, AvengerScaleError> {
         let mut this = Self {
             domain: domain.clone(),
-            // placeholder scale to be updated later
+            // placeholder scale to be updated below
             ordinal_scale: OrdinalScale::new(&domain, &vec![f32::NAN; domain.len()], f32::NAN)?,
-            range: (0.0, 1.0),
-            padding_inner: 0.0,
-            padding_outer: 0.0,
-            align: 0.5,
-            round: false,
+            range: config.range,
+            padding_inner: config.padding_inner,
+            padding_outer: config.padding_outer,
+            align: config.align,
+            round: config.round,
+            band: config.band,
+            range_offset: config.range_offset,
         };
 
         this.update_ordinal_scale()?;
@@ -50,8 +76,44 @@ impl<D: Debug + Clone + Hash + Eq + Sync + 'static> BandScale<D> {
 
     fn update_ordinal_scale(&mut self) -> Result<(), AvengerScaleError> {
         let n = self.domain.len();
+
         if n == 0 {
             return Err(AvengerScaleError::EmptyDomain);
+        }
+
+        if self.align < 0.0 || self.align > 1.0 || !self.align.is_finite() {
+            return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
+                "align is {} but must be between 0 and 1",
+                self.align
+            )));
+        }
+
+        if self.band < 0.0 || self.band > 1.0 || !self.band.is_finite() {
+            return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
+                "band is {} but must be between 0 and 1",
+                self.band
+            )));
+        }
+
+        if self.padding_inner < 0.0 || self.padding_inner > 1.0 || !self.padding_inner.is_finite() {
+            return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
+                "padding_inner is {} but must be between 0 and 1",
+                self.padding_inner
+            )));
+        }
+
+        if self.padding_outer < 0.0 || !self.padding_outer.is_finite() {
+            return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
+                "padding_outer is {} but must be non-negative",
+                self.padding_outer
+            )));
+        }
+
+        if !self.range.0.is_finite() || !self.range.1.is_finite() {
+            return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
+                "range is ({}, {}) but both ends must be finite",
+                self.range.0, self.range.1
+            )));
         }
 
         let reverse = self.range.1 < self.range.0;
@@ -83,14 +145,23 @@ impl<D: Debug + Clone + Hash + Eq + Sync + 'static> BandScale<D> {
         };
 
         // Create ordinal scale and map values
-        self.ordinal_scale = OrdinalScale::new(&self.domain, &range_values, f32::NAN)?;
+        self.ordinal_scale = OrdinalScale::new(&self.domain, &range_values, f32::NAN)
+            .expect("Domain and range length should match");
+
         Ok(())
+    }
+
+    /// Sets the domain of the scale.
+    pub fn with_domain(mut self, domain: Vec<D>) -> Result<Self, AvengerScaleError> {
+        self.domain = domain;
+        self.update_ordinal_scale()?;
+        Ok(self)
     }
 
     /// Sets the output range as (min, max).
     ///
     /// The range may be reversed for inverted scales.
-    pub fn range(mut self, range: (f32, f32)) -> Result<Self, AvengerScaleError> {
+    pub fn with_range(mut self, range: (f32, f32)) -> Result<Self, AvengerScaleError> {
         self.range = range;
         self.update_ordinal_scale()?;
         Ok(self)
@@ -101,7 +172,7 @@ impl<D: Debug + Clone + Hash + Eq + Sync + 'static> BandScale<D> {
     /// The inner padding determines the ratio of the range that is reserved for blank space
     /// between bands. A value of 0 means no blank space between bands, while a value of 1
     /// means the bands themselves have zero width.
-    pub fn padding_inner(mut self, padding: f32) -> Result<Self, AvengerScaleError> {
+    pub fn with_padding_inner(mut self, padding: f32) -> Result<Self, AvengerScaleError> {
         self.padding_inner = padding.clamp(0.0, 1.0);
         self.update_ordinal_scale()?;
         Ok(self)
@@ -111,7 +182,7 @@ impl<D: Debug + Clone + Hash + Eq + Sync + 'static> BandScale<D> {
     ///
     /// The outer padding determines the ratio of the range that is reserved for blank space
     /// before the first band and after the last band.
-    pub fn padding_outer(mut self, padding: f32) -> Result<Self, AvengerScaleError> {
+    pub fn with_padding_outer(mut self, padding: f32) -> Result<Self, AvengerScaleError> {
         self.padding_outer = padding.max(0.0);
         self.update_ordinal_scale()?;
         Ok(self)
@@ -120,7 +191,7 @@ impl<D: Debug + Clone + Hash + Eq + Sync + 'static> BandScale<D> {
     /// Sets both inner and outer padding to the same value.
     ///
     /// This is a convenience method equivalent to setting both padding_inner and padding_outer.
-    pub fn padding(mut self, padding: f32) -> Result<Self, AvengerScaleError> {
+    pub fn with_padding(mut self, padding: f32) -> Result<Self, AvengerScaleError> {
         self.padding_inner = padding.clamp(0.0, 1.0);
         self.padding_outer = padding.max(0.0);
         self.update_ordinal_scale()?;
@@ -132,8 +203,15 @@ impl<D: Debug + Clone + Hash + Eq + Sync + 'static> BandScale<D> {
     /// The alignment determines how any leftover unused space is distributed.
     /// A value of 0.0 means the bands are aligned to the left/start,
     /// 0.5 means they are centered (default), and 1.0 means they are aligned to the right/end.
-    pub fn align(mut self, align: f32) -> Result<Self, AvengerScaleError> {
+    pub fn with_align(mut self, align: f32) -> Result<Self, AvengerScaleError> {
         self.align = align.clamp(0.0, 1.0);
+        self.update_ordinal_scale()?;
+        Ok(self)
+    }
+
+    /// Sets the band offset to a value between 0 and 1.
+    pub fn with_band(mut self, band: f32) -> Result<Self, AvengerScaleError> {
+        self.band = band.clamp(0.0, 1.0);
         self.update_ordinal_scale()?;
         Ok(self)
     }
@@ -142,39 +220,46 @@ impl<D: Debug + Clone + Hash + Eq + Sync + 'static> BandScale<D> {
     ///
     /// When rounding is enabled, the start and end positions of each band will be rounded to
     /// the nearest integer. This can be useful when pixel-perfect rendering is desired.
-    pub fn round(mut self, round: bool) -> Result<Self, AvengerScaleError> {
+    pub fn with_round(mut self, round: bool) -> Result<Self, AvengerScaleError> {
         self.round = round;
         self.update_ordinal_scale()?;
         Ok(self)
     }
 
+    /// Sets the range offset to a value between 0 and 1.
+    pub fn with_range_offset(mut self, range_offset: f32) -> Result<Self, AvengerScaleError> {
+        self.range_offset = range_offset;
+        self.update_ordinal_scale()?;
+        Ok(self)
+    }
+
     /// Returns a reference to the scale's domain.
-    pub fn get_domain(&self) -> &Vec<D> {
+    pub fn domain(&self) -> &Vec<D> {
         &self.domain
     }
 
     /// Returns the scale's range as a tuple of (start, end).
-    pub fn get_range(&self) -> (f32, f32) {
+    pub fn range(&self) -> (f32, f32) {
         self.range
     }
 
     /// Returns the inner padding value.
-    pub fn get_padding_inner(&self) -> f32 {
+    pub fn padding_inner(&self) -> f32 {
         self.padding_inner
     }
 
     /// Returns the outer padding value.
-    pub fn get_padding_outer(&self) -> f32 {
+    pub fn padding_outer(&self) -> f32 {
         self.padding_outer
     }
 
     /// Returns the alignment value.
-    pub fn get_align(&self) -> f32 {
+    pub fn align(&self) -> f32 {
         self.align
     }
 
     /// Returns whether rounding is enabled.
-    pub fn get_round(&self) -> bool {
+    pub fn round(&self) -> bool {
         self.round
     }
 
@@ -242,15 +327,9 @@ impl<D: Debug + Clone + Hash + Eq + Sync + 'static> BandScale<D> {
     /// Maps input values to their corresponding band positions.
     ///
     /// Returns an error if the domain is empty.
-    pub fn scale<'a>(
-        &self,
-        values: impl Into<ScalarOrArrayRef<'a, D>>,
-        opts: &BandScaleOptions,
-    ) -> ScalarOrArray<f32> {
-        if opts.band.is_some() || opts.range_offset.is_some() {
-            let band = opts.band.unwrap_or(0.0);
-            let range_offset = opts.range_offset.unwrap_or(0.0);
-            let offset = self.bandwidth() * band + range_offset;
+    pub fn scale<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, D>>) -> ScalarOrArray<f32> {
+        if self.band != 0.0 || self.range_offset != 0.0 {
+            let offset = self.bandwidth() * self.band + self.range_offset;
             self.ordinal_scale.scale(values).map(|v| v + offset)
         } else {
             self.ordinal_scale.scale(values)
@@ -258,11 +337,7 @@ impl<D: Debug + Clone + Hash + Eq + Sync + 'static> BandScale<D> {
     }
 
     /// Maps a range value back to the corresponding domain values
-    pub fn invert_range(
-        &self,
-        range_values: (f32, f32),
-        opts: &BandScaleOptions,
-    ) -> Option<Vec<D>> {
+    pub fn invert_range(&self, range_values: (f32, f32)) -> Option<Vec<D>> {
         let (mut lo, mut hi) = range_values;
 
         // Bail if range values are invalid
@@ -288,9 +363,7 @@ impl<D: Debug + Clone + Hash + Eq + Sync + 'static> BandScale<D> {
         }
 
         // Calculate band positions
-        let values = self
-            .scale(&self.domain, opts)
-            .as_vec(self.domain.len(), None);
+        let values = self.scale(&self.domain).as_vec(self.domain.len(), None);
 
         // Binary search for indices
         let mut a = values.partition_point(|&x| x <= lo).saturating_sub(1);
@@ -321,8 +394,8 @@ impl<D: Debug + Clone + Hash + Eq + Sync + 'static> BandScale<D> {
     }
 
     /// Maps a single range value back to the corresponding domain value
-    pub fn invert(&self, value: f32, opts: &BandScaleOptions) -> Option<D> {
-        self.invert_range((value, value), opts)
+    pub fn invert(&self, value: f32) -> Option<D> {
+        self.invert_range((value, value))
             .map(|array| array[0].clone())
     }
 }
@@ -349,25 +422,23 @@ mod tests {
     #[test]
     fn test_band_scale_defaults() -> Result<(), AvengerScaleError> {
         let domain = vec!["a", "b", "c"];
-        let scale = BandScale::try_new(domain)?;
+        let scale = BandScale::try_new(domain, &BandScaleConfig::default())?;
 
-        assert_eq!(scale.get_range(), (0.0, 1.0));
-        assert_eq!(scale.get_padding_inner(), 0.0);
-        assert_eq!(scale.get_padding_outer(), 0.0);
-        assert_eq!(scale.get_align(), 0.5);
-        assert_eq!(scale.get_round(), false);
+        assert_eq!(scale.range(), (0.0, 1.0));
+        assert_eq!(scale.padding_inner(), 0.0);
+        assert_eq!(scale.padding_outer(), 0.0);
+        assert_eq!(scale.align(), 0.5);
+        assert_eq!(scale.round(), false);
         Ok(())
     }
 
     #[test]
     fn test_band_scale_basic() -> Result<(), AvengerScaleError> {
         let domain = vec!["a", "b", "c"];
-        let scale = BandScale::try_new(domain)?;
+        let scale = BandScale::try_new(domain, &BandScaleConfig::default())?;
 
         let values = vec!["a", "b", "b", "c", "f"];
-        let result = scale
-            .scale(&values, &BandScaleOptions::default())
-            .as_vec(values.len(), None);
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         // With 3 bands in [0,1] and no padding, expect bands at 0.0, 0.333, 0.667
         assert_approx_eq!(f32, result[0], 0.0); // "a"
@@ -384,14 +455,12 @@ mod tests {
     #[test]
     fn test_band_scale_padding() -> Result<(), AvengerScaleError> {
         let domain = vec!["a", "b", "c"];
-        let scale = BandScale::try_new(domain)?
-            .range((0.0, 120.0))?
-            .padding(0.2)?;
+        let scale = BandScale::try_new(domain, &BandScaleConfig::default())?
+            .with_range((0.0, 120.0))?
+            .with_padding(0.2)?;
 
         let values = vec!["a", "b", "b", "c", "f"];
-        let result = scale
-            .scale(&values, &BandScaleOptions::default())
-            .as_vec(values.len(), None);
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         // With padding of 0.2, points should be inset
         assert_approx_eq!(f32, result[0], 7.5); // "a"
@@ -408,14 +477,12 @@ mod tests {
     #[test]
     fn test_band_scale_round() -> Result<(), AvengerScaleError> {
         let domain = vec!["a", "b", "c"];
-        let scale = BandScale::try_new(domain)?
-            .range((0.0, 100.0))?
-            .round(true)?;
+        let scale = BandScale::try_new(domain, &BandScaleConfig::default())?
+            .with_range((0.0, 100.0))?
+            .with_round(true)?;
 
         let values = vec!["a", "b", "b", "c", "f"];
-        let result = scale
-            .scale(&values, &BandScaleOptions::default())
-            .as_vec(values.len(), None);
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         // With rounding, values should be integers
         assert_eq!(result[0], 1.0); // "a"
@@ -449,27 +516,27 @@ mod tests {
     #[test]
     fn test_band_scale_invert() -> Result<(), AvengerScaleError> {
         let domain = vec!["a", "b", "c"];
-        let scale = BandScale::try_new(domain)?
-            .range((0.0, 120.0))?
-            .padding(0.2)?;
+        let scale = BandScale::try_new(domain, &BandScaleConfig::default())?
+            .with_range((0.0, 120.0))?
+            .with_padding(0.2)?;
 
         // Test exact band positions
-        let result = scale.invert(7.5, &BandScaleOptions::default()).unwrap();
+        let result = scale.invert(7.5).unwrap();
         assert_eq!(result, "a");
 
-        let result = scale.invert(45.0, &BandScaleOptions::default()).unwrap();
+        let result = scale.invert(45.0).unwrap();
         assert_eq!(result, "b");
 
         // Test position within band
-        let result = scale.invert(15.0, &BandScaleOptions::default()).unwrap();
+        let result = scale.invert(15.0).unwrap();
         assert_eq!(result, "a");
 
         // Test position in padding (should return None)
-        assert!(scale.invert(40.0, &BandScaleOptions::default()).is_none());
+        assert!(scale.invert(40.0).is_none());
 
         // Test out of range
-        assert!(scale.invert(-10.0, &BandScaleOptions::default()).is_none());
-        assert!(scale.invert(130.0, &BandScaleOptions::default()).is_none());
+        assert!(scale.invert(-10.0).is_none());
+        assert!(scale.invert(130.0).is_none());
 
         Ok(())
     }
@@ -477,59 +544,47 @@ mod tests {
     #[test]
     fn test_band_scale_invert_range() -> Result<(), AvengerScaleError> {
         let domain = vec!["a", "b", "c"];
-        let scale = BandScale::try_new(domain)?
-            .range((0.0, 120.0))?
-            .padding(0.2)?;
+        let scale = BandScale::try_new(domain, &BandScaleConfig::default())?
+            .with_range((0.0, 120.0))?
+            .with_padding(0.2)?;
 
         // Test range covering multiple bands
-        let result = scale
-            .invert_range((7.5, 82.5), &BandScaleOptions::default())
-            .unwrap();
+        let result = scale.invert_range((7.5, 82.5)).unwrap();
         assert_eq!(result.len(), 3);
         assert_eq!(result[0], "a");
         assert_eq!(result[1], "b");
         assert_eq!(result[2], "c");
 
         // Test partial range
-        let result = scale
-            .invert_range((45.0, 82.5), &BandScaleOptions::default())
-            .unwrap();
+        let result = scale.invert_range((45.0, 82.5)).unwrap();
         assert_eq!(result.len(), 2);
         assert_eq!(result[0], "b");
         assert_eq!(result[1], "c");
 
         // Test reversed range (should handle automatically)
-        let result = scale
-            .invert_range((82.5, 45.0), &BandScaleOptions::default())
-            .unwrap();
+        let result = scale.invert_range((82.5, 45.0)).unwrap();
         assert_eq!(result.len(), 2);
         assert_eq!(result[0], "b");
         assert_eq!(result[1], "c");
 
         // Test out of range
-        assert!(scale
-            .invert_range((-10.0, -5.0), &BandScaleOptions::default())
-            .is_none());
-        assert!(scale
-            .invert_range((130.0, 140.0), &BandScaleOptions::default())
-            .is_none());
+        assert!(scale.invert_range((-10.0, -5.0)).is_none());
+        assert!(scale.invert_range((130.0, 140.0)).is_none());
 
         // Test invalid range (NaN)
-        assert!(scale
-            .invert_range((f32::NAN, 50.0), &BandScaleOptions::default())
-            .is_none());
+        assert!(scale.invert_range((f32::NAN, 50.0)).is_none());
 
         Ok(())
     }
 
     #[test]
     fn test_basic_band() -> Result<(), AvengerScaleError> {
-        let scale: BandScale<String> =
-            BandScale::try_new(vec!["A".into(), "B".into(), "C".into()])?;
+        let scale: BandScale<String> = BandScale::try_new(
+            vec!["A".into(), "B".into(), "C".into()],
+            &BandScaleConfig::default(),
+        )?;
         let values = vec!["A".into(), "B".into(), "C".into()];
-        let result = scale
-            .scale(&values, &BandScaleOptions::default())
-            .as_vec(values.len(), None);
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         let margin = F32Margin {
             epsilon: 0.0001,
@@ -544,19 +599,13 @@ mod tests {
 
     #[test]
     fn test_band_position() -> Result<(), AvengerScaleError> {
-        let scale: BandScale<String> =
-            BandScale::try_new(vec!["A".into(), "B".into(), "C".into()])?;
+        let scale: BandScale<String> = BandScale::try_new(
+            vec!["A".into(), "B".into(), "C".into()],
+            &BandScaleConfig::default(),
+        )?
+        .with_band(0.5)?;
         let values = vec!["A".into(), "B".into(), "C".into()];
-        let result = scale
-            .scale(
-                &values,
-                &BandScaleOptions {
-                    band: Some(0.5),
-                    ..Default::default()
-                },
-            )
-            .as_vec(values.len(), None);
-
+        let result = scale.scale(&values).as_vec(values.len(), None);
         let margin = F32Margin {
             epsilon: 0.0001,
             ..Default::default()
@@ -569,19 +618,15 @@ mod tests {
 
     #[test]
     fn test_band_position_offset() -> Result<(), AvengerScaleError> {
-        let scale: BandScale<String> =
-            BandScale::try_new(vec!["A".into(), "B".into(), "C".into()])?;
+        let scale: BandScale<String> = BandScale::try_new(
+            vec!["A".into(), "B".into(), "C".into()],
+            &BandScaleConfig::default(),
+        )?
+        .with_band(0.5)?
+        .with_range_offset(1.0)?;
+
         let values = vec!["A".into(), "B".into(), "C".into()];
-        let result = scale
-            .scale(
-                &values,
-                &BandScaleOptions {
-                    band: Some(0.5),
-                    range_offset: Some(1.0),
-                    ..Default::default()
-                },
-            )
-            .as_vec(values.len(), None);
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         let margin = F32Margin {
             epsilon: 0.0001,
