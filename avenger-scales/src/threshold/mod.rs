@@ -42,14 +42,35 @@ where
         })
     }
 
+    pub fn with_domain_and_range(
+        mut self,
+        domain: Vec<f32>,
+        range: Vec<R>,
+    ) -> Result<Self, AvengerScaleError> {
+        if domain.len() != range.len() + 1 {
+            return Err(AvengerScaleError::ThresholdDomainMismatch {
+                domain_len: domain.len(),
+                range_len: self.range.len(),
+            });
+        }
+        self.thresholds = domain;
+        self.range = range;
+        Ok(self)
+    }
+
     /// Returns a reference to the threshold values
-    pub fn get_thresholds(&self) -> &[f32] {
+    pub fn thresholds(&self) -> &[f32] {
         &self.thresholds
     }
 
     /// Returns a reference to the output range
-    pub fn get_range(&self) -> &Vec<R> {
+    pub fn range(&self) -> &Vec<R> {
         &self.range
+    }
+
+    /// Returns the default value
+    pub fn default(&self) -> &R {
+        &self.default
     }
 
     pub fn scale<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, f32>>) -> ScalarOrArray<R> {
