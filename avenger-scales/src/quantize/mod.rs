@@ -1,6 +1,9 @@
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 
-use crate::numeric::{linear::LinearNumericScale, ContinuousNumericScale};
+use crate::numeric::{
+    linear::{LinearNumericScale, LinearNumericScaleConfig},
+    ContinuousNumericScale,
+};
 use std::fmt::Debug;
 /// A quantize scale divides a continuous domain into uniform segments and maps values to a discrete range.
 ///
@@ -51,10 +54,12 @@ where
     /// Extends the domain to nice round numbers for better quantization boundaries
     pub fn nice(mut self, count: Option<usize>) -> Self {
         // Use linear scale for the nice calculation
-        self.domain = LinearNumericScale::new()
-            .domain(self.domain)
-            .nice(count)
-            .get_domain();
+        self.domain = LinearNumericScale::new(&LinearNumericScaleConfig {
+            domain: self.domain,
+            ..Default::default()
+        })
+        .nice(count)
+        .domain();
         self
     }
 

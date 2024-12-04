@@ -1,7 +1,7 @@
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 use chrono::{Datelike, NaiveDate, Weekday};
 
-use crate::numeric::{opts::NumericScaleOptions, ContinuousNumericScale};
+use crate::numeric::ContinuousNumericScale;
 
 /// Define DateInterval as a trait for dates
 pub trait DateInterval: Send + Sync + std::fmt::Debug {
@@ -156,6 +156,27 @@ pub mod interval {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct DateScaleConfig {
+    pub domain: (NaiveDate, NaiveDate),
+    pub range: (f32, f32),
+    pub clamp: bool,
+    pub range_offset: f32,
+    pub nice: bool,
+}
+
+impl Default for DateScaleConfig {
+    fn default() -> Self {
+        Self {
+            domain: (NaiveDate::MIN, NaiveDate::MAX),
+            range: (0.0, 1.0),
+            clamp: false,
+            range_offset: 0.0,
+            nice: false,
+        }
+    }
+}
+
 /// A scale that maps dates to a numeric range
 #[derive(Clone, Debug)]
 pub struct DateScale {
@@ -164,37 +185,49 @@ pub struct DateScale {
     range_start: f32,
     range_end: f32,
     clamp: bool,
+    range_offset: f32,
 }
 
 impl DateScale {
     /// Creates a new date scale with the specified domain and default range [0, 1]
-    pub fn new(domain: (NaiveDate, NaiveDate)) -> Self {
-        Self {
-            domain_start: domain.0,
-            domain_end: domain.1,
-            range_start: 0.0,
-            range_end: 1.0,
-            clamp: false,
+    pub fn new(config: &DateScaleConfig) -> Self {
+        let mut this = Self {
+            domain_start: config.domain.0,
+            domain_end: config.domain.1,
+            range_start: config.range.0,
+            range_end: config.range.1,
+            clamp: config.clamp,
+            range_offset: config.range_offset,
+        };
+        if config.nice {
+            this = this.nice(None);
         }
+        this
     }
 
     /// Sets the input domain of the scale
-    pub fn domain(mut self, domain: (NaiveDate, NaiveDate)) -> Self {
+    pub fn with_domain(mut self, domain: (NaiveDate, NaiveDate)) -> Self {
         self.domain_start = domain.0;
         self.domain_end = domain.1;
         self
     }
 
     /// Sets the output range of the scale
-    pub fn range(mut self, range: (f32, f32)) -> Self {
+    pub fn with_range(mut self, range: (f32, f32)) -> Self {
         self.range_start = range.0;
         self.range_end = range.1;
         self
     }
 
     /// Enables or disables clamping of output values to the range
-    pub fn clamp(mut self, clamp: bool) -> Self {
+    pub fn with_clamp(mut self, clamp: bool) -> Self {
         self.clamp = clamp;
+        self
+    }
+
+    /// Sets the range offset
+    pub fn with_range_offset(mut self, range_offset: f32) -> Self {
+        self.range_offset = range_offset;
         self
     }
 
@@ -209,7 +242,7 @@ impl DateScale {
     }
 
     /// Extends the domain to nice round values
-    pub fn nice(&mut self, interval: Option<Box<dyn DateInterval>>) -> &mut Self {
+    pub fn nice(mut self, interval: Option<Box<dyn DateInterval>>) -> Self {
         if self.domain_start == self.domain_end {
             return self;
         }
@@ -239,26 +272,22 @@ impl DateScale {
 
 impl ContinuousNumericScale<NaiveDate> for DateScale {
     /// Returns the current domain as (start, end)
-    fn get_domain(&self) -> (NaiveDate, NaiveDate) {
+    fn domain(&self) -> (NaiveDate, NaiveDate) {
         (self.domain_start, self.domain_end)
     }
 
     /// Returns the current range as (start, end)
-    fn get_range(&self) -> (f32, f32) {
+    fn range(&self) -> (f32, f32) {
         (self.range_start, self.range_end)
     }
 
     /// Returns whether output clamping is enabled
-    fn get_clamp(&self) -> bool {
+    fn clamp(&self) -> bool {
         self.clamp
     }
 
     /// Maps input values from domain to range
-    fn scale<'a>(
-        &self,
-        values: impl Into<ScalarOrArrayRef<'a, NaiveDate>>,
-        opts: &NumericScaleOptions,
-    ) -> ScalarOrArray<f32> {
+    fn scale<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, NaiveDate>>) -> ScalarOrArray<f32> {
         if self.domain_start == self.domain_end || self.range_start == self.range_end {
             return values.into().map(|_| self.range_start);
         }
@@ -270,7 +299,7 @@ impl ContinuousNumericScale<NaiveDate> for DateScale {
         let domain_end_ts = Self::to_timestamp(&self.domain_end);
         let domain_span = domain_end_ts - domain_start_ts;
         let scale = (range_end - range_start) / domain_span;
-        let range_offset = opts.range_offset.unwrap_or(0.0) as f64;
+        let range_offset = self.range_offset as f64;
         let offset = (range_start - scale * domain_start_ts + range_offset) as f32;
 
         if self.clamp {
@@ -293,11 +322,7 @@ impl ContinuousNumericScale<NaiveDate> for DateScale {
     }
 
     /// Maps output values from range back to domain
-    fn invert<'a>(
-        &self,
-        values: impl Into<ScalarOrArrayRef<'a, f32>>,
-        opts: &NumericScaleOptions,
-    ) -> ScalarOrArray<NaiveDate> {
+    fn invert<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, f32>>) -> ScalarOrArray<NaiveDate> {
         if self.domain_start == self.domain_end
             || self.range_start == self.range_end
             || self.range_start.is_nan()
@@ -312,7 +337,7 @@ impl ContinuousNumericScale<NaiveDate> for DateScale {
         let scale =
             (domain_end_ts - domain_start_ts) / (self.range_end as f64 - self.range_start as f64);
 
-        let range_offset = opts.range_offset.unwrap_or(0.0) as f64;
+        let range_offset = self.range_offset as f64;
         let offset = domain_start_ts - scale * (self.range_start as f64);
 
         if self.clamp {
@@ -382,10 +407,9 @@ mod tests {
 
     #[test]
     fn test_defaults() {
-        let today = chrono::Local::now().date_naive();
-        let scale = DateScale::new((today, today));
-        assert_eq!(scale.domain_start, today);
-        assert_eq!(scale.domain_end, today);
+        let scale = DateScale::new(&DateScaleConfig::default());
+        assert_eq!(scale.domain_start, NaiveDate::MIN);
+        assert_eq!(scale.domain_end, NaiveDate::MAX);
         assert_eq!(scale.range_start, 0.0);
         assert_eq!(scale.range_end, 1.0);
         assert_eq!(scale.clamp, false);
@@ -397,7 +421,10 @@ mod tests {
         let end = date(2023, 1, 11);
         let mid = date(2023, 1, 6);
 
-        let scale = DateScale::new((start, end)).range((0.0, 100.0)).clamp(true);
+        let scale = DateScale::new(&DateScaleConfig::default())
+            .with_domain((start, end))
+            .with_range((0.0, 100.0))
+            .with_clamp(true);
 
         let values = vec![
             date(2022, 12, 31), // < domain
@@ -407,9 +434,7 @@ mod tests {
             date(2023, 1, 12),  // > domain
         ];
 
-        let result = scale
-            .scale(&values, &Default::default())
-            .as_vec(values.len(), None);
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], 0.0); // clamped
         assert_approx_eq!(f32, result[1], 0.0); // domain start
@@ -424,18 +449,15 @@ mod tests {
         let end = date(2023, 1, 11);
         let mid = date(2023, 1, 6);
 
-        let scale = DateScale::new((start, end)).range((0.0, 100.0)).clamp(true);
+        let scale = DateScale::new(&DateScaleConfig::default())
+            .with_domain((start, end))
+            .with_range((0.0, 100.0))
+            .with_range_offset(10.0)
+            .with_clamp(true);
 
         let values = vec![date(2022, 12, 31), start, mid, end, date(2023, 1, 12)];
 
-        let result = scale
-            .scale(
-                &values,
-                &NumericScaleOptions {
-                    range_offset: Some(10.0),
-                },
-            )
-            .as_vec(values.len(), None);
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], 0.0); // clamped
         assert_approx_eq!(f32, result[1], 10.0); // domain start + offset
@@ -447,9 +469,10 @@ mod tests {
     #[test]
     fn test_scale_degenerate() {
         let today = chrono::Local::now().date_naive();
-        let scale = DateScale::new((today, today))
-            .range((0.0, 100.0))
-            .clamp(true);
+        let scale = DateScale::new(&DateScaleConfig::default())
+            .with_domain((today, today))
+            .with_range((0.0, 100.0))
+            .with_clamp(true);
 
         let values = vec![
             today - chrono::Duration::days(1),
@@ -457,9 +480,7 @@ mod tests {
             today + chrono::Duration::days(1),
         ];
 
-        let result = scale
-            .scale(&values, &Default::default())
-            .as_vec(values.len(), None);
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         // All values should map to range_start
         for r in result {
@@ -472,12 +493,13 @@ mod tests {
         let start = date(2023, 1, 1);
         let end = date(2023, 1, 11);
 
-        let scale = DateScale::new((start, end)).range((0.0, 100.0)).clamp(true);
+        let scale = DateScale::new(&DateScaleConfig::default())
+            .with_domain((start, end))
+            .with_range((0.0, 100.0))
+            .with_clamp(true);
 
         let values = vec![-10.0, 0.0, 50.0, 100.0, 110.0];
-        let result = scale
-            .invert(&values, &Default::default())
-            .as_vec(values.len(), None);
+        let result = scale.invert(&values).as_vec(values.len(), None);
 
         assert_eq!(result[0], start); // clamped below
         assert_eq!(result[1], start); // range start
@@ -491,17 +513,14 @@ mod tests {
         let start = date(2023, 1, 1);
         let end = date(2023, 1, 11);
 
-        let scale = DateScale::new((start, end)).range((0.0, 100.0)).clamp(true);
+        let scale = DateScale::new(&DateScaleConfig::default())
+            .with_domain((start, end))
+            .with_range((0.0, 100.0))
+            .with_range_offset(10.0)
+            .with_clamp(true);
 
         let values = vec![-10.0, 10.0, 60.0, 110.0, 120.0];
-        let result = scale
-            .invert(
-                &values,
-                &NumericScaleOptions {
-                    range_offset: Some(10.0),
-                },
-            )
-            .as_vec(values.len(), None);
+        let result = scale.invert(&values).as_vec(values.len(), None);
 
         assert_eq!(result[0], start); // clamped below
         assert_eq!(result[1], start); // range start
@@ -515,14 +534,13 @@ mod tests {
         let start = date(2023, 1, 1);
         let end = date(2023, 1, 11);
 
-        let scale = DateScale::new((end, start))
-            .range((100.0, 0.0)) // Reversed range
-            .clamp(true);
+        let scale = DateScale::new(&DateScaleConfig::default())
+            .with_domain((end, start))
+            .with_range((100.0, 0.0)) // Reversed range
+            .with_clamp(true);
 
         let values = vec![110.0, 100.0, 50.0, 0.0, -10.0];
-        let result = scale
-            .invert(&values, &Default::default())
-            .as_vec(values.len(), None);
+        let result = scale.invert(&values).as_vec(values.len(), None);
 
         assert_eq!(result[0], end); // clamped to end (> 100)
         assert_eq!(result[1], end); // range start (100.0)
@@ -536,8 +554,11 @@ mod tests {
         let start = date(2023, 1, 1);
         let end = date(2023, 1, 15);
 
-        let mut scale = DateScale::new((start, end));
-        scale.nice(Some(interval::month()));
+        let scale = DateScale::new(&DateScaleConfig::default())
+            .with_domain((start, end))
+            .with_range((0.0, 100.0))
+            .with_clamp(true)
+            .nice(Some(interval::month()));
 
         assert_eq!(scale.domain_start, date(2023, 1, 1));
         assert_eq!(scale.domain_end, date(2023, 2, 1));
@@ -549,8 +570,11 @@ mod tests {
         let start = date(2023, 1, 1);
         let end = date(2023, 1, 15);
 
-        let mut scale = DateScale::new((start, end));
-        scale.nice(None);
+        let scale = DateScale::new(&DateScaleConfig::default())
+            .with_domain((start, end))
+            .with_range((0.0, 100.0))
+            .with_clamp(true)
+            .nice(None);
 
         assert_eq!(scale.domain_start, date(2023, 1, 1));
         assert_eq!(scale.domain_end, date(2023, 1, 15));
@@ -559,8 +583,11 @@ mod tests {
         let start = date(2023, 1, 15);
         let end = date(2023, 3, 15);
 
-        let mut scale = DateScale::new((start, end));
-        scale.nice(None);
+        let scale = DateScale::new(&DateScaleConfig::default())
+            .with_domain((start, end))
+            .with_range((0.0, 100.0))
+            .with_clamp(true)
+            .nice(None);
 
         assert_eq!(scale.domain_start, date(2023, 1, 1));
         assert_eq!(scale.domain_end, date(2023, 4, 1));
@@ -570,7 +597,10 @@ mod tests {
     fn test_ticks_days() {
         let start = date(2023, 1, 1);
         let end = date(2023, 1, 5);
-        let scale = DateScale::new((start, end));
+        let scale = DateScale::new(&DateScaleConfig::default())
+            .with_domain((start, end))
+            .with_range((0.0, 100.0))
+            .with_clamp(true);
 
         let ticks = scale.ticks(Some(5.0));
         assert_eq!(ticks.len(), 5);
@@ -585,7 +615,10 @@ mod tests {
     fn test_ticks_months() {
         let start = date(2023, 1, 1);
         let end = date(2023, 6, 1);
-        let scale = DateScale::new((start, end));
+        let scale = DateScale::new(&DateScaleConfig::default())
+            .with_domain((start, end))
+            .with_range((0.0, 100.0))
+            .with_clamp(true);
 
         let ticks = scale.ticks(Some(6.0));
         assert_eq!(ticks.len(), 6);
@@ -601,7 +634,10 @@ mod tests {
     fn test_ticks_years() {
         let start = date(2020, 1, 1);
         let end = date(2025, 1, 1);
-        let scale = DateScale::new((start, end));
+        let scale = DateScale::new(&DateScaleConfig::default())
+            .with_domain((start, end))
+            .with_range((0.0, 100.0))
+            .with_clamp(true);
 
         let ticks = scale.ticks(Some(6.0));
         assert_eq!(ticks.len(), 6);

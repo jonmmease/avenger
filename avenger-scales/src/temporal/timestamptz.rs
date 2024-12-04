@@ -1,6 +1,5 @@
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 
-use crate::numeric::opts::NumericScaleOptions;
 use crate::numeric::ContinuousNumericScale;
 
 use chrono::{DateTime, TimeZone, Utc};
@@ -277,6 +276,28 @@ pub mod interval {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct TimestampTzScaleConfig {
+    pub domain: (DateTime<Utc>, DateTime<Utc>),
+    pub range: (f32, f32),
+    pub clamp: bool,
+    pub range_offset: f32,
+    pub nice: bool,
+}
+
+impl Default for TimestampTzScaleConfig {
+    fn default() -> Self {
+        let d = DateTime::<Utc>::from_timestamp(0, 0).unwrap();
+        Self {
+            domain: (d, d),
+            range: (0.0, 1.0),
+            clamp: false,
+            range_offset: 0.0,
+            nice: false,
+        }
+    }
+}
+
 /// A scale that maps timestamps to a numeric range.
 /// While calculations are done in UTC internally, the scale maintains awareness
 /// of a display timezone for operations like tick generation and nice rounding.
@@ -287,20 +308,26 @@ pub struct TimestampTzScale<Tz: TimeZone + Copy> {
     range_start: f32,
     range_end: f32,
     clamp: bool,
+    range_offset: f32,
     display_tz: Tz,
 }
 
 impl<Tz: TimeZone + Copy> TimestampTzScale<Tz> {
     /// Creates a new timestamp scale with the specified UTC domain and default range [0, 1]
-    pub fn new(domain: (DateTime<Utc>, DateTime<Utc>), display_tz: Tz) -> Self {
-        Self {
-            domain_start: domain.0,
-            domain_end: domain.1,
-            range_start: 0.0,
-            range_end: 1.0,
-            clamp: false,
+    pub fn new(config: &TimestampTzScaleConfig, display_tz: Tz) -> Self {
+        let mut this = Self {
+            domain_start: config.domain.0,
+            domain_end: config.domain.1,
+            range_start: config.range.0,
+            range_end: config.range.1,
+            clamp: config.clamp,
+            range_offset: config.range_offset,
             display_tz,
+        };
+        if config.nice {
+            this = this.nice(None);
         }
+        this
     }
 
     /// Sets the timezone used for display operations (tick formatting, nice rounding)
@@ -315,22 +342,28 @@ impl<Tz: TimeZone + Copy> TimestampTzScale<Tz> {
     }
 
     /// Sets the input domain of the scale
-    pub fn domain(mut self, domain: (DateTime<Utc>, DateTime<Utc>)) -> Self {
+    pub fn with_domain(mut self, domain: (DateTime<Utc>, DateTime<Utc>)) -> Self {
         self.domain_start = domain.0;
         self.domain_end = domain.1;
         self
     }
 
     /// Sets the output range of the scale
-    pub fn range(mut self, range: (f32, f32)) -> Self {
+    pub fn with_range(mut self, range: (f32, f32)) -> Self {
         self.range_start = range.0;
         self.range_end = range.1;
         self
     }
 
     /// Enables or disables clamping of output values to the range
-    pub fn clamp(mut self, clamp: bool) -> Self {
+    pub fn with_clamp(mut self, clamp: bool) -> Self {
         self.clamp = clamp;
+        self
+    }
+
+    /// Sets the range offset
+    pub fn with_range_offset(mut self, range_offset: f32) -> Self {
+        self.range_offset = range_offset;
         self
     }
 
@@ -346,7 +379,7 @@ impl<Tz: TimeZone + Copy> TimestampTzScale<Tz> {
     }
 
     /// Extends the domain to nice round values.
-    pub fn nice(&mut self, interval: Option<Box<dyn TimestampTzInterval<Tz>>>) -> &mut Self {
+    pub fn nice(mut self, interval: Option<Box<dyn TimestampTzInterval<Tz>>>) -> Self {
         if self.domain_start == self.domain_end {
             return self;
         }
@@ -389,22 +422,21 @@ impl<Tz> ContinuousNumericScale<DateTime<Utc>> for TimestampTzScale<Tz>
 where
     Tz: TimeZone + Copy,
 {
-    fn get_domain(&self) -> (DateTime<Utc>, DateTime<Utc>) {
+    fn domain(&self) -> (DateTime<Utc>, DateTime<Utc>) {
         (self.domain_start, self.domain_end)
     }
 
-    fn get_range(&self) -> (f32, f32) {
+    fn range(&self) -> (f32, f32) {
         (self.range_start, self.range_end)
     }
 
-    fn get_clamp(&self) -> bool {
+    fn clamp(&self) -> bool {
         self.clamp
     }
 
     fn scale<'a>(
         &self,
         values: impl Into<ScalarOrArrayRef<'a, DateTime<Utc>>>,
-        opts: &NumericScaleOptions,
     ) -> ScalarOrArray<f32> {
         if self.domain_start == self.domain_end || self.range_start == self.range_end {
             return values.into().map(|_| self.range_start);
@@ -417,7 +449,7 @@ where
         let domain_end_ts = Self::to_timestamp(&self.domain_end);
         let domain_span = domain_end_ts - domain_start_ts;
         let scale = (range_end - range_start) / domain_span;
-        let range_offset = opts.range_offset.unwrap_or(0.0) as f64;
+        let range_offset = self.range_offset as f64;
         let offset = (range_start - scale * domain_start_ts + range_offset) as f32;
 
         if self.clamp {
@@ -442,7 +474,6 @@ where
     fn invert<'a>(
         &self,
         values: impl Into<ScalarOrArrayRef<'a, f32>>,
-        opts: &NumericScaleOptions,
     ) -> ScalarOrArray<DateTime<Utc>> {
         // Handle degenerate domain case
         if self.domain_start == self.domain_end
@@ -458,7 +489,7 @@ where
         let scale =
             (domain_end_ts - domain_start_ts) / (self.range_end as f64 - self.range_start as f64);
 
-        let range_offset = opts.range_offset.unwrap_or(0.0) as f64;
+        let range_offset = self.range_offset as f64;
         let offset = domain_start_ts - scale * (self.range_start as f64);
 
         if self.clamp {
@@ -558,7 +589,13 @@ mod tests {
     #[test]
     fn test_defaults() {
         let now = Utc::now();
-        let scale = TimestampTzScale::new((now, now), Utc);
+        let scale = TimestampTzScale::new(
+            &TimestampTzScaleConfig {
+                domain: (now, now),
+                ..Default::default()
+            },
+            Utc,
+        );
         assert_eq!(scale.domain_start, now);
         assert_eq!(scale.domain_end, now);
         assert_eq!(scale.range_start, 0.0);
@@ -572,9 +609,15 @@ mod tests {
         let end = start + chrono::Duration::days(10);
         let mid = start + chrono::Duration::days(5);
 
-        let scale = TimestampTzScale::new((start, end), Utc)
-            .range((0.0, 100.0))
-            .clamp(true);
+        let scale = TimestampTzScale::new(
+            &TimestampTzScaleConfig {
+                domain: (start, end),
+                ..Default::default()
+            },
+            Utc,
+        )
+        .with_range((0.0, 100.0))
+        .with_clamp(true);
 
         let values = vec![
             start - chrono::Duration::days(1), // < domain
@@ -584,9 +627,7 @@ mod tests {
             end + chrono::Duration::days(1),   // > domain
         ];
 
-        let result = scale
-            .scale(&values, &Default::default())
-            .as_vec(values.len(), None);
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], 0.0); // clamped
         assert_approx_eq!(f32, result[1], 0.0); // domain start
@@ -601,9 +642,16 @@ mod tests {
         let end = start + chrono::Duration::days(10);
         let mid = start + chrono::Duration::days(5);
 
-        let scale = TimestampTzScale::new((start, end), Utc)
-            .range((0.0, 100.0))
-            .clamp(true);
+        let scale = TimestampTzScale::new(
+            &TimestampTzScaleConfig {
+                domain: (start, end),
+                ..Default::default()
+            },
+            Utc,
+        )
+        .with_range((0.0, 100.0))
+        .with_range_offset(10.0)
+        .with_clamp(true);
 
         let values = vec![
             start - chrono::Duration::days(1),
@@ -613,14 +661,7 @@ mod tests {
             end + chrono::Duration::days(1),
         ];
 
-        let result = scale
-            .scale(
-                &values,
-                &NumericScaleOptions {
-                    range_offset: Some(10.0),
-                },
-            )
-            .as_vec(values.len(), None);
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         assert_approx_eq!(f32, result[0], 0.0); // clamped
         assert_approx_eq!(f32, result[1], 10.0); // domain start + offset
@@ -632,9 +673,15 @@ mod tests {
     #[test]
     fn test_scale_degenerate() {
         let now = Utc::now();
-        let scale = TimestampTzScale::new((now, now), Utc)
-            .range((0.0, 100.0))
-            .clamp(true);
+        let scale = TimestampTzScale::new(
+            &TimestampTzScaleConfig {
+                domain: (now, now),
+                ..Default::default()
+            },
+            Utc,
+        )
+        .with_range((0.0, 100.0))
+        .with_clamp(true);
 
         let values = vec![
             now - chrono::Duration::days(1),
@@ -642,9 +689,7 @@ mod tests {
             now + chrono::Duration::days(1),
         ];
 
-        let result = scale
-            .scale(&values, &Default::default())
-            .as_vec(values.len(), None);
+        let result = scale.scale(&values).as_vec(values.len(), None);
 
         // All values should map to range_start
         for r in result {
@@ -657,14 +702,18 @@ mod tests {
         let start = Utc::now();
         let end = start + chrono::Duration::days(10);
 
-        let scale = TimestampTzScale::new((start, end), Utc)
-            .range((0.0, 100.0))
-            .clamp(true);
+        let scale = TimestampTzScale::new(
+            &TimestampTzScaleConfig {
+                domain: (start, end),
+                ..Default::default()
+            },
+            Utc,
+        )
+        .with_range((0.0, 100.0))
+        .with_clamp(true);
 
         let values = vec![-10.0, 0.0, 50.0, 100.0, 110.0];
-        let result = scale
-            .invert(&values, &Default::default())
-            .as_vec(values.len(), None);
+        let result = scale.invert(&values).as_vec(values.len(), None);
 
         assert_datetime_approx_eq(result[0], start); // clamped below
         assert_datetime_approx_eq(result[1], start); // range start
@@ -678,19 +727,19 @@ mod tests {
         let start = Utc::now();
         let end = start + chrono::Duration::days(10);
 
-        let scale = TimestampTzScale::new((start, end), Utc)
-            .range((0.0, 100.0))
-            .clamp(true);
+        let scale = TimestampTzScale::new(
+            &TimestampTzScaleConfig {
+                domain: (start, end),
+                range_offset: 10.0,
+                ..Default::default()
+            },
+            Utc,
+        )
+        .with_range((0.0, 100.0))
+        .with_clamp(true);
 
         let values = vec![-10.0, 10.0, 60.0, 110.0, 120.0];
-        let result = scale
-            .invert(
-                &values,
-                &NumericScaleOptions {
-                    range_offset: Some(10.0),
-                },
-            )
-            .as_vec(values.len(), None);
+        let result = scale.invert(&values).as_vec(values.len(), None);
 
         assert_datetime_approx_eq(result[0], start); // clamped below
         assert_datetime_approx_eq(result[1], start); // range start
@@ -704,14 +753,18 @@ mod tests {
         let start = Utc::now();
         let end = start + chrono::Duration::days(10);
 
-        let scale = TimestampTzScale::new((end, start), Utc)
-            .range((100.0, 0.0)) // Reversed range
-            .clamp(true);
+        let scale = TimestampTzScale::new(
+            &TimestampTzScaleConfig {
+                domain: (end, start),
+                range: (100.0, 0.0),
+                ..Default::default()
+            },
+            Utc,
+        )
+        .with_clamp(true);
 
         let values = vec![110.0, 100.0, 50.0, 0.0, -10.0];
-        let result = scale
-            .invert(&values, &Default::default())
-            .as_vec(values.len(), None);
+        let result = scale.invert(&values).as_vec(values.len(), None);
 
         assert_datetime_approx_eq(result[0], end); // clamped to end (> 100)
         assert_datetime_approx_eq(result[1], end); // range start (100.0)
@@ -725,8 +778,14 @@ mod tests {
         let start = Utc.with_ymd_and_hms(2023, 1, 1, 3, 45, 30).unwrap();
         let end = Utc.with_ymd_and_hms(2023, 1, 1, 15, 20, 45).unwrap();
 
-        let mut scale = TimestampTzScale::new((start, end), New_York);
-        scale.nice(Some(interval::day()));
+        let scale = TimestampTzScale::new(
+            &TimestampTzScaleConfig {
+                domain: (start, end),
+                ..Default::default()
+            },
+            New_York,
+        )
+        .nice(Some(interval::day()));
 
         // Nice calculation should happen in the display timezone, so when converted back to UTC it should not
         // be round days.
@@ -740,8 +799,14 @@ mod tests {
         );
 
         // Nice in UTC should be round days
-        let mut scale = TimestampTzScale::new((start, end), Utc);
-        scale.nice(Some(interval::day()));
+        let scale = TimestampTzScale::new(
+            &TimestampTzScaleConfig {
+                domain: (start, end),
+                ..Default::default()
+            },
+            Utc,
+        )
+        .nice(Some(interval::day()));
         assert_eq!(
             scale.domain_start,
             Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap()
@@ -757,8 +822,14 @@ mod tests {
         let start = Utc.with_ymd_and_hms(2023, 1, 1, 3, 45, 30).unwrap();
         let end = Utc.with_ymd_and_hms(2023, 1, 1, 9, 20, 45).unwrap();
 
-        let mut scale = TimestampTzScale::new((start, end), New_York);
-        scale.nice(None);
+        let scale = TimestampTzScale::new(
+            &TimestampTzScaleConfig {
+                domain: (start, end),
+                ..Default::default()
+            },
+            New_York,
+        )
+        .nice(None);
 
         assert_eq!(
             scale.domain_start,
@@ -774,7 +845,13 @@ mod tests {
     fn test_ticks_hourly() {
         let start = Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap();
         let end = Utc.with_ymd_and_hms(2023, 1, 1, 6, 0, 0).unwrap();
-        let scale = TimestampTzScale::new((start, end), New_York);
+        let scale = TimestampTzScale::new(
+            &TimestampTzScaleConfig {
+                domain: (start, end),
+                ..Default::default()
+            },
+            New_York,
+        );
 
         // Should generate hourly ticks
         let ticks = scale.ticks(Some(6.0));
@@ -788,7 +865,13 @@ mod tests {
         // Test ~2 day span
         let start = Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap();
         let end = Utc.with_ymd_and_hms(2023, 1, 3, 0, 0, 0).unwrap();
-        let scale = TimestampTzScale::new((start, end), New_York);
+        let scale = TimestampTzScale::new(
+            &TimestampTzScaleConfig {
+                domain: (start, end),
+                ..Default::default()
+            },
+            New_York,
+        );
 
         // Should generate 6-hourly ticks with default count
         let ticks = scale.ticks(None);
@@ -805,7 +888,13 @@ mod tests {
         // Test ~30 day span
         let start = Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap();
         let end = Utc.with_ymd_and_hms(2023, 1, 5, 0, 0, 0).unwrap();
-        let scale = TimestampTzScale::new((start, end), New_York);
+        let scale = TimestampTzScale::new(
+            &TimestampTzScaleConfig {
+                domain: (start, end),
+                ..Default::default()
+            },
+            New_York,
+        );
 
         // Should place ticks at day boundaries in the display timezone
         let ticks = scale.ticks(Some(5.0));
@@ -820,7 +909,13 @@ mod tests {
         assert_eq!(ticks[4], Utc.with_ymd_and_hms(2023, 1, 4, 5, 0, 0).unwrap());
 
         // Should place ticks at day boundaries in UTC
-        let scale = TimestampTzScale::new((start, end), Utc);
+        let scale = TimestampTzScale::new(
+            &TimestampTzScaleConfig {
+                domain: (start, end),
+                ..Default::default()
+            },
+            Utc,
+        );
         let ticks = scale.ticks(Some(5.0));
         assert_eq!(ticks.len(), 5);
         assert_eq!(ticks[0], Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap());

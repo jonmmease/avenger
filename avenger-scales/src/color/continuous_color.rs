@@ -5,15 +5,14 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 
 use crate::error::AvengerScaleError;
-use crate::numeric::linear::LinearNumericScale;
-use crate::numeric::log::LogNumericScale;
-use crate::numeric::opts::NumericScaleOptions;
-use crate::numeric::pow::PowNumericScale;
-use crate::numeric::symlog::SymlogNumericScale;
+use crate::numeric::linear::{LinearNumericScale, LinearNumericScaleConfig};
+use crate::numeric::log::{LogNumericScale, LogNumericScaleConfig};
+use crate::numeric::pow::{PowNumericScale, PowNumericScaleConfig};
+use crate::numeric::symlog::{SymlogNumericScale, SymlogNumericScaleConfig};
 use crate::numeric::ContinuousNumericScale;
-use crate::temporal::date::DateScale;
-use crate::temporal::timestamp::TimestampScale;
-use crate::temporal::timestamptz::TimestampTzScale;
+use crate::temporal::date::{DateScale, DateScaleConfig};
+use crate::temporal::timestamp::{TimestampScale, TimestampScaleConfig};
+use crate::temporal::timestamptz::{TimestampTzScale, TimestampTzScaleConfig};
 
 /// A trait for color spaces that can be used with the `NumericColorScale`
 pub trait ColorSpace:
@@ -45,13 +44,13 @@ where
     D: 'static + Send + Sync + Clone,
 {
     pub fn from_scale(numeric_scale: S, colors: Vec<C>) -> Result<Self, AvengerScaleError> {
-        if !numeric_scale.get_clamp() {
+        if !numeric_scale.clamp() {
             return Err(AvengerScaleError::IncompatibleNumericScaleForColorRange(
                 "Clamping must be enabled".to_string(),
             ));
         }
         let expected_range = (0.0, colors.len() as f32 - 1.0);
-        if numeric_scale.get_range() != expected_range {
+        if numeric_scale.range() != expected_range {
             return Err(AvengerScaleError::IncompatibleNumericScaleForColorRange(
                 format!("Range must be ({}, {})", expected_range.0, expected_range.1),
             ));
@@ -65,7 +64,7 @@ where
     }
 
     pub fn get_domain(&self) -> (D, D) {
-        self.numeric_scale.get_domain()
+        self.numeric_scale.domain()
     }
 
     pub fn get_range(&self) -> &[C] {
@@ -77,9 +76,7 @@ where
         values: impl Into<ScalarOrArrayRef<'a, D>>,
     ) -> ScalarOrArray<ColorOrGradient> {
         // Normalize the input values to the range [0, number of colors - 1]
-        let normalized_values = self
-            .numeric_scale
-            .scale(values, &NumericScaleOptions::default());
+        let normalized_values = self.numeric_scale.scale(values);
 
         normalized_values.map(|v| Self::interp_color_to_color_or_gradient(&self.range, *v))
     }
@@ -106,18 +103,12 @@ where
 // Helper to create a linear color scale
 impl<C: ColorSpace> ContinuousColorScale<C, LinearNumericScale, f32> {
     pub fn new_linear(
-        domain: (f32, f32),
+        config: &LinearNumericScaleConfig,
         colors: Vec<C>,
-        nice: Option<usize>,
     ) -> ContinuousColorScale<C, LinearNumericScale, f32> {
-        let mut numeric_scale = LinearNumericScale::new()
-            .domain(domain)
-            .clamp(true)
-            .range((0.0, colors.len() as f32 - 1.0));
-
-        if let Some(count) = nice {
-            numeric_scale = numeric_scale.nice(Some(count));
-        }
+        let numeric_scale = LinearNumericScale::new(&config)
+            .with_clamp(true)
+            .with_range((0.0, colors.len() as f32 - 1.0));
 
         Self {
             numeric_scale,
@@ -128,15 +119,13 @@ impl<C: ColorSpace> ContinuousColorScale<C, LinearNumericScale, f32> {
 }
 
 impl<C: ColorSpace> ContinuousColorScale<C, LogNumericScale, f32> {
-    pub fn new_log(domain: (f32, f32), colors: Vec<C>, base: Option<f32>, nice: bool) -> Self {
-        let mut numeric_scale = LogNumericScale::new(base)
-            .domain(domain)
-            .clamp(true)
-            .range((0.0, colors.len() as f32 - 1.0));
-
-        if nice {
-            numeric_scale = numeric_scale.nice();
-        }
+    pub fn new_log(
+        config: &LogNumericScaleConfig,
+        colors: Vec<C>,
+    ) -> ContinuousColorScale<C, LogNumericScale, f32> {
+        let numeric_scale = LogNumericScale::new(&config)
+            .with_clamp(true)
+            .with_range((0.0, colors.len() as f32 - 1.0));
 
         Self {
             numeric_scale,
@@ -147,21 +136,10 @@ impl<C: ColorSpace> ContinuousColorScale<C, LogNumericScale, f32> {
 }
 
 impl<C: ColorSpace> ContinuousColorScale<C, PowNumericScale, f32> {
-    pub fn new_pow(
-        domain: (f32, f32),
-        colors: Vec<C>,
-        exponent: Option<f32>,
-        nice: Option<usize>,
-    ) -> Self {
-        let mut numeric_scale = PowNumericScale::new()
-            .exponent(exponent.unwrap_or(1.0))
-            .domain(domain)
-            .clamp(true)
-            .range((0.0, colors.len() as f32 - 1.0));
-
-        if let Some(count) = nice {
-            numeric_scale = numeric_scale.nice(Some(count));
-        }
+    pub fn new_pow(config: &PowNumericScaleConfig, colors: Vec<C>) -> Self {
+        let numeric_scale = PowNumericScale::new(&config)
+            .with_clamp(true)
+            .with_range((0.0, colors.len() as f32 - 1.0));
 
         Self {
             numeric_scale,
@@ -172,20 +150,10 @@ impl<C: ColorSpace> ContinuousColorScale<C, PowNumericScale, f32> {
 }
 
 impl<C: ColorSpace> ContinuousColorScale<C, SymlogNumericScale, f32> {
-    pub fn new_symlog(
-        domain: (f32, f32),
-        colors: Vec<C>,
-        constant: Option<f32>,
-        nice: Option<usize>,
-    ) -> Self {
-        let mut numeric_scale = SymlogNumericScale::new(constant)
-            .domain(domain)
-            .clamp(true)
-            .range((0.0, colors.len() as f32 - 1.0));
-
-        if let Some(count) = nice {
-            numeric_scale = numeric_scale.nice(Some(count));
-        }
+    pub fn new_symlog(config: &SymlogNumericScaleConfig, colors: Vec<C>) -> Self {
+        let numeric_scale = SymlogNumericScale::new(&config)
+            .with_clamp(true)
+            .with_range((0.0, colors.len() as f32 - 1.0));
 
         Self {
             numeric_scale,
@@ -196,10 +164,10 @@ impl<C: ColorSpace> ContinuousColorScale<C, SymlogNumericScale, f32> {
 }
 
 impl<C: ColorSpace> ContinuousColorScale<C, DateScale, NaiveDate> {
-    pub fn new_date(domain: (NaiveDate, NaiveDate), colors: Vec<C>) -> Self {
-        let numeric_scale = DateScale::new(domain)
-            .clamp(true)
-            .range((0.0, colors.len() as f32 - 1.0));
+    pub fn new_date(config: &DateScaleConfig, colors: Vec<C>) -> Self {
+        let numeric_scale = DateScale::new(&config)
+            .with_clamp(true)
+            .with_range((0.0, colors.len() as f32 - 1.0));
 
         Self {
             numeric_scale,
@@ -210,10 +178,10 @@ impl<C: ColorSpace> ContinuousColorScale<C, DateScale, NaiveDate> {
 }
 
 impl<C: ColorSpace> ContinuousColorScale<C, TimestampScale, NaiveDateTime> {
-    pub fn new_timestamp(domain: (NaiveDateTime, NaiveDateTime), colors: Vec<C>) -> Self {
-        let numeric_scale = TimestampScale::new(domain)
-            .clamp(true)
-            .range((0.0, colors.len() as f32 - 1.0));
+    pub fn new_timestamp(config: &TimestampScaleConfig, colors: Vec<C>) -> Self {
+        let numeric_scale = TimestampScale::new(&config)
+            .with_clamp(true)
+            .with_range((0.0, colors.len() as f32 - 1.0));
 
         Self {
             numeric_scale,
@@ -231,9 +199,15 @@ impl<C: ColorSpace, Tz: TimeZone + Copy>
         colors: Vec<C>,
         display_tz: Tz,
     ) -> Self {
-        let numeric_scale = TimestampTzScale::new(domain, display_tz)
-            .clamp(true)
-            .range((0.0, colors.len() as f32 - 1.0));
+        let numeric_scale = TimestampTzScale::new(
+            &TimestampTzScaleConfig {
+                domain,
+                ..Default::default()
+            },
+            display_tz,
+        )
+        .with_clamp(true)
+        .with_range((0.0, colors.len() as f32 - 1.0));
 
         Self {
             numeric_scale,
@@ -293,7 +267,13 @@ mod tests {
     #[test]
     fn test_defaults() {
         let colors = vec![Srgba::new(0.0, 0.0, 0.0, 1.0)];
-        let scale = ContinuousColorScale::new_linear((0.0, 1.0), colors.clone(), None);
+        let scale = ContinuousColorScale::new_linear(
+            &LinearNumericScaleConfig {
+                domain: (0.0, 1.0),
+                ..Default::default()
+            },
+            colors.clone(),
+        );
         assert_eq!(scale.get_domain(), (0.0, 1.0));
         assert_eq!(scale.get_range(), colors);
     }
@@ -303,12 +283,14 @@ mod tests {
     fn test_scale_srgb() -> Result<(), AvengerScaleError> {
         // Tests basic scaling with nulls and clamping
         let scale = ContinuousColorScale::new_linear(
-            (10.0, 30.0),
+            &LinearNumericScaleConfig {
+                domain: (10.0, 30.0),
+                ..Default::default()
+            },
             vec![
                 Srgba::new(0.0, 0.0, 0.0, 1.0), // black
                 Srgba::new(1.0, 0.0, 0.0, 1.0), // red
             ],
-            None,
         );
 
         let values = vec![
@@ -351,12 +333,14 @@ mod tests {
     fn test_scale_hsl() -> Result<(), AvengerScaleError> {
         // Test HSL color interpolation with nulls and clamping
         let scale = ContinuousColorScale::new_linear(
-            (10.0, 30.0),
+            &LinearNumericScaleConfig {
+                domain: (10.0, 30.0),
+                ..Default::default()
+            },
             vec![
                 Hsla::new(0.0, 0.5, 0.5, 1.0),  // red
                 Hsla::new(60.0, 0.5, 0.5, 1.0), // yellow
             ],
-            None,
         );
 
         let values = vec![
@@ -406,7 +390,13 @@ mod tests {
             Srgba::new(1.0, 0.0, 0.0, 1.0), // red
         ];
 
-        let scale = ContinuousColorScale::new_timestamp((start, end), colors);
+        let scale = ContinuousColorScale::new_timestamp(
+            &TimestampScaleConfig {
+                domain: (start, end),
+                ..Default::default()
+            },
+            colors,
+        );
 
         let values = vec![
             start - chrono::Duration::days(1), // < domain
