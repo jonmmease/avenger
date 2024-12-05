@@ -420,7 +420,7 @@ impl<Tz: TimeZone + Copy> TimestampTzScale<Tz> {
 
 impl<Tz> ContinuousNumericScale<DateTime<Utc>> for TimestampTzScale<Tz>
 where
-    Tz: TimeZone + Copy,
+    Tz: TimeZone + Copy + 'static,
 {
     fn domain(&self) -> (DateTime<Utc>, DateTime<Utc>) {
         (self.domain_start, self.domain_end)
@@ -432,6 +432,20 @@ where
 
     fn clamp(&self) -> bool {
         self.clamp
+    }
+
+    fn set_domain(&mut self, domain: (DateTime<Utc>, DateTime<Utc>)) {
+        self.domain_start = domain.0;
+        self.domain_end = domain.1;
+    }
+
+    fn set_range(&mut self, range: (f32, f32)) {
+        self.range_start = range.0;
+        self.range_end = range.1;
+    }
+
+    fn set_clamp(&mut self, clamp: bool) {
+        self.clamp = clamp;
     }
 
     fn scale<'a>(

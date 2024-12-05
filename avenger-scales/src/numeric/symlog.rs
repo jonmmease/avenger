@@ -151,6 +151,20 @@ impl ContinuousNumericScale<f32> for SymlogNumericScale {
         self.clamp
     }
 
+    fn set_domain(&mut self, domain: (f32, f32)) {
+        self.domain_start = domain.0;
+        self.domain_end = domain.1;
+    }
+
+    fn set_range(&mut self, range: (f32, f32)) {
+        self.range_start = range.0;
+        self.range_end = range.1;
+    }
+
+    fn set_clamp(&mut self, clamp: bool) {
+        self.clamp = clamp;
+    }
+
     fn scale<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, f32>>) -> ScalarOrArray<f32> {
         // Handle degenerate domain case
         if self.domain_start == self.domain_end
