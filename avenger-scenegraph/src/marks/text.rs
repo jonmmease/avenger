@@ -1,6 +1,8 @@
 use avenger_common::value::ScalarOrArray;
 use serde::{Deserialize, Serialize};
 
+use super::mark::SceneMark;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneTextMark {
@@ -138,4 +140,10 @@ pub enum FontStyleSpec {
     #[default]
     Normal,
     Italic,
+}
+
+impl From<SceneTextMark> for SceneMark {
+    fn from(mark: SceneTextMark) -> Self {
+        SceneMark::Text(Box::new(mark))
+    }
 }

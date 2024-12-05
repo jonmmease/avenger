@@ -154,3 +154,9 @@ impl Default for SceneGroup {
         }
     }
 }
+
+impl From<SceneGroup> for SceneMark {
+    fn from(mark: SceneGroup) -> Self {
+        SceneMark::Group(mark)
+    }
+}

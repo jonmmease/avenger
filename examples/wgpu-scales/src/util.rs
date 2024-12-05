@@ -1,23 +1,26 @@
+use avenger_common::value::ColorOrGradient;
+use avenger_guides::axis::band::make_band_axis_marks;
+use avenger_guides::axis::numeric::make_numeric_axis_marks;
+use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
+use avenger_scales::band::BandScale;
+use avenger_scales::color::continuous_color::ContinuousColorScale;
+use avenger_scales::color::Srgba;
+use avenger_scales::numeric::linear::{LinearNumericScale, LinearNumericScaleConfig};
+use avenger_scales::numeric::ContinuousNumericScale;
+use avenger_scenegraph::marks::group::SceneGroup;
+use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasDimensions, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard;
 use winit::keyboard::NamedKey;
 use winit::window::{WindowAttributes, WindowId};
-use avenger_common::value::{ColorOrGradient};
-use avenger_scales::band::BandScale;
-use avenger_scales::color::continuous_color::ContinuousColorScale;
-use avenger_scales::color::Srgba;
-use avenger_scales::numeric::ContinuousNumericScale;
-use avenger_scales::numeric::linear::{LinearNumericScale, LinearNumericScaleConfig};
-use avenger_scenegraph::marks::group::SceneGroup;
-use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::rect::SceneRectMark;
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
 
 struct App<'a> {
     canvas: Option<WindowCanvas<'a>>,
@@ -41,7 +44,8 @@ impl<'a> ApplicationHandler for App<'a> {
                 .and_then(|win| win.document())
                 .and_then(|doc| {
                     let dst = doc.get_element_by_id("wasm-example")?;
-                    let canvas = web_sys::Element::from(window.canvas().expect("Failed to get canvas"));
+                    let canvas =
+                        web_sys::Element::from(window.canvas().expect("Failed to get canvas"));
                     dst.append_child(&canvas).ok()?;
                     Some(())
                 })
@@ -52,18 +56,16 @@ impl<'a> ApplicationHandler for App<'a> {
             size: [self.scene_graph.width, self.scene_graph.height],
             scale: self.scale,
         };
-        
-        let mut canvas = pollster::block_on(WindowCanvas::new(
-            window, 
-            dimensions,
-            Default::default()
-        )).expect("Failed to create canvas");
+
+        let mut canvas =
+            pollster::block_on(WindowCanvas::new(window, dimensions, Default::default()))
+                .expect("Failed to create canvas");
 
         canvas.set_scene(&self.scene_graph).unwrap();
-        
+
         // Request initial redraw
         canvas.window().request_redraw();
-        
+
         self.canvas = Some(canvas);
     }
 
@@ -135,21 +137,28 @@ pub async fn run() {
     }
 
     // Initialize data
-    let x_values: Vec<_> = ["A", "B", "C", "D", "E", "F", "G", "H", "I"].iter().map(
-        |s| s.to_string()
-    ).collect();
+    let x_values: Vec<_> = ["A", "B", "C", "D", "E", "F", "G", "H", "I"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
 
     let y_values = vec![28.0f32, 55.0, 43.0, 91.0, 81.0, 53.0, 19.0, 87.0, 52.0];
 
     // Build scales
-    let x_scale = BandScale::try_new(x_values.clone(), &Default::default()).unwrap()
-        .with_range((0.0, 200.0)).unwrap()
-        .with_padding(0.2).unwrap();
+    let width = 200.0;
+    let height = 200.0;
+
+    let x_scale = BandScale::try_new(x_values.clone(), &Default::default())
+        .unwrap()
+        .with_range((0.0, width))
+        .unwrap()
+        .with_padding(0.2)
+        .unwrap();
     let x2_scale = x_scale.clone().with_band(1.0).unwrap();
 
     let y_scale = LinearNumericScale::new(&Default::default())
         .with_domain((0.0, 100.0))
-        .with_range((200.0, 0.0));
+        .with_range((height, 0.0));
 
     let color_scale = ContinuousColorScale::new_linear(
         &LinearNumericScaleConfig {
@@ -160,7 +169,7 @@ pub async fn run() {
         vec![
             Srgba::new(0.9, 0.9, 0.9, 1.0),
             Srgba::new(0.1, 0.1, 0.9, 1.0),
-        ]
+        ],
     );
 
     // Make rect mark
@@ -171,32 +180,52 @@ pub async fn run() {
         y: y_scale.scale(0.0),
         y2: Some(y_scale.scale(&y_values)),
         fill: color_scale.scale(&y_values),
-        stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0]).into(),
+        // stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0]).into(),
         stroke_width: 1.0f32.into(),
         ..Default::default()
     };
 
-    // Wrap in group
+    // Make y-axis
+    let y_axis = make_numeric_axis_marks(
+        &y_scale,
+        [0.0, 0.0],
+        &AxisConfig {
+            orientation: AxisOrientation::Left,
+        },
+    );
+
+    // Make x-axis
+    let x_axis = make_band_axis_marks(
+        &x_scale,
+        [0.0, 0.0],
+        &AxisConfig {
+            orientation: AxisOrientation::Bottom { height },
+        },
+    );
+
+    // Wrap axis and rect in group
     let group = SceneGroup {
-        origin: [20.0, 20.0],
-        marks: vec![SceneMark::Rect(rect)],
+        origin: [40.0, 40.0],
+        marks: vec![y_axis.into(), x_axis.into(), rect.into()],
         ..Default::default()
     };
 
     let scene_graph = SceneGraph {
         groups: vec![group],
-        width: 240.0,
-        height: 240.0,
+        width: 280.0,
+        height: 280.0,
         origin: [0.0; 2],
     };
 
     let scale = 2.0;
     let event_loop = EventLoop::new().expect("Failed to build event loop");
-    let mut app = App { 
+    let mut app = App {
         canvas: None,
         scene_graph,
         scale,
     };
-    
-    event_loop.run_app(&mut app).expect("Failed to run event loop");
+
+    event_loop
+        .run_app(&mut app)
+        .expect("Failed to run event loop");
 }

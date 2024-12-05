@@ -7,6 +7,8 @@ use lyon_path::{Path, Winding};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
+use super::mark::SceneMark;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneSymbolMark {
@@ -288,4 +290,10 @@ pub fn parse_svg_path(path: &str) -> Result<Path, AvengerError> {
     let mut builder = lyon_path::Path::builder();
     parser.parse(&opts, &mut source, &mut builder)?;
     Ok(builder.build())
+}
+
+impl From<SceneSymbolMark> for SceneMark {
+    fn from(mark: SceneSymbolMark) -> Self {
+        SceneMark::Symbol(mark)
+    }
 }

@@ -1,7 +1,7 @@
+use avenger_common::value::{ColorOrGradient, ScalarOrArray};
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::symbol::{SceneSymbolMark, SymbolShape};
-use avenger_common::value::{ColorOrGradient, ScalarOrArray};
 use avenger_scenegraph::scene_graph::SceneGraph;
 
 use avenger_wgpu::canvas::{Canvas, CanvasDimensions, WindowCanvas};

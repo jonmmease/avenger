@@ -159,6 +159,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-guides"
+version = "0.1.0"
+dependencies = [
+ "avenger-common",
+ "avenger-scales",
+ "avenger-scenegraph",
+]
+
+[[package]]
 name = "avenger-scales"
 version = "0.1.0"
 dependencies = [
@@ -2727,6 +2736,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "wgpu-scales"
+version = "0.1.0"
+dependencies = [
+ "avenger-common",
+ "avenger-guides",
+ "avenger-scales",
+ "avenger-scenegraph",
+ "avenger-vega",
+ "avenger-wgpu",
+ "cfg-if",
+ "console_error_panic_hook",
+ "console_log",
+ "env_logger",
+ "log",
+ "pollster 0.3.0",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "wgpu 0.19.3",
+ "wgpu 23.0.1",
+ "winit",
+]
+
+[[package]]
 name = "wgpu-types"
 version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2746,30 +2780,6 @@ dependencies = [
  "bitflags 2.6.0",
  "js-sys",
  "web-sys",
-]
-
-[[package]]
-name = "wgpu-winit"
-version = "0.1.0"
-dependencies = [
- "avenger-common",
- "avenger-scales",
- "avenger-scenegraph",
- "avenger-vega",
- "avenger-wgpu",
- "cfg-if",
- "console_error_panic_hook",
- "console_log",
- "env_logger",
- "log",
- "pollster 0.3.0",
- "serde_json",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
- "wgpu 0.19.3",
- "wgpu 23.0.1",
- "winit",
 ]
 
 [[package]]

@@ -34,7 +34,8 @@ impl<'a> ApplicationHandler for App<'a> {
                 .and_then(|win| win.document())
                 .and_then(|doc| {
                     let dst = doc.get_element_by_id("wasm-example")?;
-                    let canvas = web_sys::Element::from(window.canvas().expect("Failed to get canvas"));
+                    let canvas =
+                        web_sys::Element::from(window.canvas().expect("Failed to get canvas"));
                     dst.append_child(&canvas).ok()?;
                     Some(())
                 })
@@ -45,18 +46,16 @@ impl<'a> ApplicationHandler for App<'a> {
             size: [self.scene_graph.width, self.scene_graph.height],
             scale: self.scale,
         };
-        
-        let mut canvas = pollster::block_on(WindowCanvas::new(
-            window, 
-            dimensions,
-            Default::default()
-        )).expect("Failed to create canvas");
+
+        let mut canvas =
+            pollster::block_on(WindowCanvas::new(window, dimensions, Default::default()))
+                .expect("Failed to create canvas");
 
         canvas.set_scene(&self.scene_graph).unwrap();
-        
+
         // Request initial redraw
         canvas.window().request_redraw();
-        
+
         self.canvas = Some(canvas);
     }
 
@@ -139,11 +138,13 @@ pub async fn run() {
         .expect("Failed to parse scene graph");
 
     let event_loop = EventLoop::new().expect("Failed to build event loop");
-    let mut app = App { 
+    let mut app = App {
         canvas: None,
         scene_graph,
         scale,
     };
-    
-    event_loop.run_app(&mut app).expect("Failed to run event loop");
+
+    event_loop
+        .run_app(&mut app)
+        .expect("Failed to run event loop");
 }
