@@ -375,6 +375,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-geometry"
+version = "0.0.8"
+dependencies = [
+ "avenger-common",
+ "float-cmp 0.10.0",
+ "geo-types",
+ "lyon_path",
+]
+
+[[package]]
 name = "avenger-guides"
 version = "0.1.0"
 dependencies = [
@@ -3052,6 +3062,17 @@ dependencies = [
  "typenum",
  "version_check",
  "zeroize",
+]
+
+[[package]]
+name = "geo-types"
+version = "0.7.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6f47c611187777bbca61ea7aba780213f5f3441fd36294ab333e96cfa791b65"
+dependencies = [
+ "approx",
+ "num-traits",
+ "serde",
 ]
 
 [[package]]

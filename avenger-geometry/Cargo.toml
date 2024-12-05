@@ -1,0 +1,13 @@
+[package]
+name = "avenger-geometry"
+version = "0.0.8"
+edition = "2021"
+
+[dependencies]
+avenger-common = { path = "../avenger-common" }
+lyon_path = { workspace = true }
+geo-types = "0.7.14"
+
+
+[dev-dependencies]
+float-cmp = "0.10.0"
