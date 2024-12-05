@@ -2,6 +2,7 @@ use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 
 use crate::error::AvengerScaleError;
 use std::fmt::Debug;
+
 /// A threshold scale maps continuous values to discrete values based on explicit threshold boundaries.
 ///
 /// Unlike quantize scales which create uniform segments, threshold scales let you specify
