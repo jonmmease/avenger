@@ -1,6 +1,8 @@
 use avenger_common::value::{ColorOrGradient, Gradient, ScalarOrArray};
 use serde::{Deserialize, Serialize};
 
+use super::mark::SceneMark;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneArcMark {
@@ -88,5 +90,11 @@ impl Default for SceneArcMark {
             indices: None,
             zindex: None,
         }
+    }
+}
+
+impl From<SceneArcMark> for SceneMark {
+    fn from(mark: SceneArcMark) -> Self {
+        SceneMark::Arc(mark)
     }
 }

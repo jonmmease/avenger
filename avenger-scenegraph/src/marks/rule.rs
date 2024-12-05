@@ -1,6 +1,8 @@
 use avenger_common::value::{ColorOrGradient, Gradient, ScalarOrArray, StrokeCap};
 use serde::{Deserialize, Serialize};
 
+use super::mark::SceneMark;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneRuleMark {
@@ -72,5 +74,11 @@ impl Default for SceneRuleMark {
             indices: None,
             zindex: None,
         }
+    }
+}
+
+impl From<SceneRuleMark> for SceneMark {
+    fn from(mark: SceneRuleMark) -> Self {
+        SceneMark::Rule(mark)
     }
 }

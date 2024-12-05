@@ -6,9 +6,6 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-# Empty workspace needed so cargo doesn't try to add example as a workspace member
-[workspace]
-
 [dependencies]
 avenger-vega = { path = "../../avenger-vega" }
 avenger-wgpu = { path = "../../avenger-wgpu", default-features = false }

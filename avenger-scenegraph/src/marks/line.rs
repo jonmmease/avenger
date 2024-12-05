@@ -1,6 +1,8 @@
 use avenger_common::value::{ColorOrGradient, Gradient, ScalarOrArray, StrokeCap, StrokeJoin};
 use serde::{Deserialize, Serialize};
 
+use super::mark::SceneMark;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneLineMark {
@@ -50,5 +52,11 @@ impl Default for SceneLineMark {
             stroke_dash: None,
             zindex: None,
         }
+    }
+}
+
+impl From<SceneLineMark> for SceneMark {
+    fn from(mark: SceneLineMark) -> Self {
+        SceneMark::Line(mark)
     }
 }

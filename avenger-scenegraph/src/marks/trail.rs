@@ -1,6 +1,8 @@
 use avenger_common::value::{ColorOrGradient, Gradient, ScalarOrArray};
 use serde::{Deserialize, Serialize};
 
+use super::mark::SceneMark;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneTrailMark {
@@ -48,5 +50,11 @@ impl Default for SceneTrailMark {
             gradients: vec![],
             zindex: None,
         }
+    }
+}
+
+impl From<SceneTrailMark> for SceneMark {
+    fn from(mark: SceneTrailMark) -> Self {
+        SceneMark::Trail(mark)
     }
 }

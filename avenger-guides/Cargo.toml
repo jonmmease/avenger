@@ -1,0 +1,10 @@
+[package]
+name = "avenger-guides"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+avenger-scales = { path = "../avenger-scales" }
+avenger-common = { path = "../avenger-common" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+

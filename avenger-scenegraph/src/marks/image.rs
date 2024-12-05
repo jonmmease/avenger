@@ -1,6 +1,8 @@
 use avenger_common::value::{ImageAlign, ImageBaseline, ScalarOrArray};
 use serde::{Deserialize, Serialize};
 
+use super::mark::SceneMark;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneImageMark {
@@ -85,5 +87,11 @@ impl RgbaImage {
             height: img.height(),
             data: img.to_vec(),
         }
+    }
+}
+
+impl From<SceneImageMark> for SceneMark {
+    fn from(mark: SceneImageMark) -> Self {
+        SceneMark::Image(Box::new(mark))
     }
 }

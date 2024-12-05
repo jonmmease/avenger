@@ -2,6 +2,8 @@ use avenger_common::value::{ColorOrGradient, Gradient, ScalarOrArray, StrokeCap,
 use lyon_path::geom::euclid::{Transform2D, UnknownUnit};
 use serde::{Deserialize, Serialize};
 
+use super::mark::SceneMark;
+
 pub type PathTransform = Transform2D<f32, UnknownUnit, UnknownUnit>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,5 +78,11 @@ impl Default for ScenePathMark {
             indices: None,
             zindex: None,
         }
+    }
+}
+
+impl From<ScenePathMark> for SceneMark {
+    fn from(mark: ScenePathMark) -> Self {
+        SceneMark::Path(mark)
     }
 }
