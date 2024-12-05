@@ -158,9 +158,10 @@ pub async fn run() {
             ..Default::default()
         },
         vec![
-        Srgba::new(0.9, 0.9, 0.9, 1.0),
-        Srgba::new(0.1, 0.1, 0.9, 1.0),
-    ]);
+            Srgba::new(0.9, 0.9, 0.9, 1.0),
+            Srgba::new(0.1, 0.1, 0.9, 1.0),
+        ]
+    );
 
     // Make rect mark
     let rect = SceneRectMark {

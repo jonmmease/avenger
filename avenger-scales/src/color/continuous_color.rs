@@ -63,12 +63,22 @@ where
         })
     }
 
-    pub fn get_domain(&self) -> (D, D) {
+    pub fn domain(&self) -> (D, D) {
         self.numeric_scale.domain()
     }
 
-    pub fn get_range(&self) -> &[C] {
+    pub fn range(&self) -> &[C] {
         &self.range
+    }
+
+    pub fn with_domain(mut self, domain: (D, D)) -> Self {
+        self.numeric_scale.set_domain(domain);
+        self
+    }
+
+    pub fn with_range(mut self, range: Vec<C>) -> Self {
+        self.range = range;
+        self
     }
 
     pub fn scale<'a>(
@@ -191,7 +201,7 @@ impl<C: ColorSpace> ContinuousColorScale<C, TimestampScale, NaiveDateTime> {
     }
 }
 
-impl<C: ColorSpace, Tz: TimeZone + Copy>
+impl<C: ColorSpace, Tz: 'static + TimeZone + Copy>
     ContinuousColorScale<C, TimestampTzScale<Tz>, DateTime<Utc>>
 {
     pub fn new_timestamp_tz(
@@ -274,8 +284,8 @@ mod tests {
             },
             colors.clone(),
         );
-        assert_eq!(scale.get_domain(), (0.0, 1.0));
-        assert_eq!(scale.get_range(), colors);
+        assert_eq!(scale.domain(), (0.0, 1.0));
+        assert_eq!(scale.range(), colors);
     }
 
     // Core scaling functionality

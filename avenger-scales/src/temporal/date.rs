@@ -394,6 +394,20 @@ impl ContinuousNumericScale<NaiveDate> for DateScale {
 
         ticks
     }
+
+    fn set_domain(&mut self, domain: (NaiveDate, NaiveDate)) {
+        self.domain_start = domain.0;
+        self.domain_end = domain.1;
+    }
+
+    fn set_range(&mut self, range: (f32, f32)) {
+        self.range_start = range.0;
+        self.range_end = range.1;
+    }
+
+    fn set_clamp(&mut self, clamp: bool) {
+        self.clamp = clamp;
+    }
 }
 
 #[cfg(test)]
