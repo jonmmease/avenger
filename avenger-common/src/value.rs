@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ScalarOrArray<T: Sync + Clone> {
-    Scalar { value: T },
-    Array { values: Vec<T> },
+    Scalar(T),
+    Array(Vec<T>),
 }
 
 impl<T: Sync + Clone> ScalarOrArray<T> {
@@ -14,8 +14,8 @@ impl<T: Sync + Clone> ScalarOrArray<T> {
         indices: Option<&'a Vec<usize>>,
     ) -> Box<dyn Iterator<Item = &T> + '_> {
         match self {
-            ScalarOrArray::Scalar { value } => Box::new(std::iter::repeat(value).take(scalar_len)),
-            ScalarOrArray::Array { values } => match indices {
+            ScalarOrArray::Scalar(value) => Box::new(std::iter::repeat(value).take(scalar_len)),
+            ScalarOrArray::Array(values) => match indices {
                 None => Box::new(values.iter()),
                 Some(indices) => Box::new(indices.iter().map(|i| &values[*i])),
             },
@@ -28,10 +28,10 @@ impl<T: Sync + Clone> ScalarOrArray<T> {
         indices: Option<&'a Vec<usize>>,
     ) -> Box<dyn Iterator<Item = T> + '_> {
         match self {
-            ScalarOrArray::Scalar { value } => {
+            ScalarOrArray::Scalar(value) => {
                 Box::new(std::iter::repeat(value.clone()).take(scalar_len))
             }
-            ScalarOrArray::Array { values } => match indices {
+            ScalarOrArray::Array(values) => match indices {
                 None => Box::new(values.iter().cloned()),
                 Some(indices) => Box::new(indices.iter().map(|i| values[*i].clone())),
             },
@@ -46,10 +46,8 @@ impl<T: Sync + Clone> ScalarOrArray<T> {
 
     pub fn map<U: Sync + Clone>(&self, f: impl Fn(&T) -> U) -> ScalarOrArray<U> {
         match self {
-            ScalarOrArray::Scalar { value } => ScalarOrArray::Scalar { value: f(value) },
-            ScalarOrArray::Array { values } => ScalarOrArray::Array {
-                values: values.iter().map(f).collect(),
-            },
+            ScalarOrArray::Scalar(value) => ScalarOrArray::Scalar(f(value)),
+            ScalarOrArray::Array(values) => ScalarOrArray::Array(values.iter().map(f).collect()),
         }
     }
 }
@@ -57,7 +55,7 @@ impl<T: Sync + Clone> ScalarOrArray<T> {
 impl ScalarOrArray<f32> {
     pub fn equals_scalar(&self, v: f32) -> bool {
         match self {
-            ScalarOrArray::Scalar { value } => v == *value,
+            ScalarOrArray::Scalar(value) => v == *value,
             _ => false,
         }
     }
@@ -65,73 +63,63 @@ impl ScalarOrArray<f32> {
 
 impl<T: Sync + Clone> From<Vec<T>> for ScalarOrArray<T> {
     fn from(values: Vec<T>) -> Self {
-        ScalarOrArray::Array { values }
+        ScalarOrArray::Array(values)
     }
 }
 
 impl<T: Sync + Clone> From<T> for ScalarOrArray<T> {
     fn from(value: T) -> Self {
-        ScalarOrArray::Scalar { value }
+        ScalarOrArray::Scalar(value)
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum ScalarOrArrayRef<'a, T: Sync + Clone> {
-    Scalar { value: T },
-    Array { values: &'a [T] },
+    Scalar(T),
+    Array(&'a [T]),
 }
 
 impl<'a, T: Sync + Clone> ScalarOrArrayRef<'a, T> {
     pub fn from_slice(values: &'a [T]) -> Self {
-        ScalarOrArrayRef::Array { values }
+        ScalarOrArrayRef::Array(values)
     }
 
     pub fn to_owned(self) -> ScalarOrArray<T> {
         match self {
-            ScalarOrArrayRef::Scalar { value } => ScalarOrArray::Scalar {
-                value: value.clone(),
-            },
-            ScalarOrArrayRef::Array { values } => ScalarOrArray::Array {
-                values: values.to_vec(),
-            },
+            ScalarOrArrayRef::Scalar(value) => ScalarOrArray::Scalar(value.clone()),
+            ScalarOrArrayRef::Array(values) => ScalarOrArray::Array(values.to_vec()),
         }
     }
 
     pub fn map<U: Sync + Clone>(self, f: impl Fn(&T) -> U) -> ScalarOrArray<U> {
         match self {
-            ScalarOrArrayRef::Scalar { value } => ScalarOrArray::Scalar { value: f(&value) },
-            ScalarOrArrayRef::Array { values } => ScalarOrArray::Array {
-                values: values.iter().map(f).collect(),
-            },
+            ScalarOrArrayRef::Scalar(value) => ScalarOrArray::Scalar(f(&value)),
+            ScalarOrArrayRef::Array(values) => ScalarOrArray::Array(values.iter().map(f).collect()),
         }
     }
 }
 
 impl<'a, T: Sync + Clone> From<&'a [T]> for ScalarOrArrayRef<'a, T> {
     fn from(values: &'a [T]) -> Self {
-        ScalarOrArrayRef::Array { values }
+        ScalarOrArrayRef::Array(values)
     }
 }
 
 impl<'a, T: Sync + Clone> From<&'a Vec<T>> for ScalarOrArrayRef<'a, T> {
     fn from(values: &'a Vec<T>) -> Self {
-        ScalarOrArrayRef::Array {
-            values: values.as_slice(),
-        }
+        ScalarOrArrayRef::Array(values.as_slice())
     }
 }
 
 impl<'a, T: Sync + Clone> From<&'a T> for ScalarOrArrayRef<'a, T> {
     fn from(value: &'a T) -> Self {
-        ScalarOrArrayRef::Scalar {
-            value: value.clone(),
-        }
+        ScalarOrArrayRef::Scalar(value.clone())
     }
 }
 
 impl<'a, T: Sync + Clone> From<T> for ScalarOrArrayRef<'a, T> {
     fn from(value: T) -> Self {
-        ScalarOrArrayRef::Scalar { value }
+        ScalarOrArrayRef::Scalar(value)
     }
 }
 

@@ -1,4 +1,4 @@
-use avenger_scenegraph::marks::value::{ColorOrGradient, Gradient};
+use avenger_common::value::{ColorOrGradient, Gradient};
 use avenger_vega::error::AvengerVegaError;
 use avenger_vega::marks::values::CssColorOrGradient;
 use gloo_utils::format::JsValueSerdeExt;

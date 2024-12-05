@@ -85,32 +85,28 @@ impl VegaMarkContainer<VegaRectItem> {
         mark.len = len as u32;
 
         if x.len() == len {
-            mark.x = ScalarOrArray::Array { values: x };
+            mark.x = ScalarOrArray::Array(x);
         }
         if y.len() == len {
-            mark.y = ScalarOrArray::Array { values: y };
+            mark.y = ScalarOrArray::Array(y);
         }
         if width.len() == len {
-            mark.width = Some(ScalarOrArray::Array { values: width });
+            mark.width = Some(ScalarOrArray::Array(width));
         }
         if height.len() == len {
-            mark.height = Some(ScalarOrArray::Array { values: height });
+            mark.height = Some(ScalarOrArray::Array(height));
         }
         if fill.len() == len {
-            mark.fill = ScalarOrArray::Array { values: fill };
+            mark.fill = ScalarOrArray::Array(fill);
         }
         if stroke.len() == len {
-            mark.stroke = ScalarOrArray::Array { values: stroke };
+            mark.stroke = ScalarOrArray::Array(stroke);
         }
         if stroke_width.len() == len {
-            mark.stroke_width = ScalarOrArray::Array {
-                values: stroke_width,
-            };
+            mark.stroke_width = ScalarOrArray::Array(stroke_width);
         }
         if corner_radius.len() == len {
-            mark.corner_radius = ScalarOrArray::Array {
-                values: corner_radius,
-            };
+            mark.corner_radius = ScalarOrArray::Array(corner_radius);
         }
         if zindex.len() == len {
             let mut indices: Vec<usize> = (0..len).collect();

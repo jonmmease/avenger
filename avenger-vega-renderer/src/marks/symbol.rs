@@ -1,7 +1,7 @@
 use crate::marks::util::{decode_colors, decode_gradients, zindex_to_indices};
+use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::error::AvengerError;
 use avenger_scenegraph::marks::symbol::{SceneSymbolMark as RsSymbolMark, SymbolShape};
-use avenger_scenegraph::marks::value::ScalarOrArray;
 use gloo_utils::format::JsValueSerdeExt;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};
@@ -37,16 +37,16 @@ impl SymbolMark {
     }
 
     pub fn set_xy(&mut self, x: Vec<f32>, y: Vec<f32>) {
-        self.inner.x = ScalarOrArray::Array { values: x };
-        self.inner.y = ScalarOrArray::Array { values: y };
+        self.inner.x = ScalarOrArray::Array(x);
+        self.inner.y = ScalarOrArray::Array(y);
     }
 
     pub fn set_size(&mut self, size: Vec<f32>) {
-        self.inner.size = ScalarOrArray::Array { values: size };
+        self.inner.size = ScalarOrArray::Array(size);
     }
 
     pub fn set_angle(&mut self, angle: Vec<f32>) {
-        self.inner.angle = ScalarOrArray::Array { values: angle };
+        self.inner.angle = ScalarOrArray::Array(angle);
     }
 
     pub fn set_stroke_width(&mut self, width: Option<f32>) {
@@ -65,9 +65,7 @@ impl SymbolMark {
         indices: Vec<usize>,
         opacity: Vec<f32>,
     ) -> Result<(), JsError> {
-        self.inner.stroke = ScalarOrArray::Array {
-            values: decode_colors(color_values, indices, opacity)?,
-        };
+        self.inner.stroke = ScalarOrArray::Array(decode_colors(color_values, indices, opacity)?);
         Ok(())
     }
 
@@ -81,9 +79,11 @@ impl SymbolMark {
         values: JsValue,
         opacity: Vec<f32>,
     ) -> Result<(), JsError> {
-        self.inner.stroke = ScalarOrArray::Array {
-            values: decode_gradients(values, opacity, &mut self.inner.gradients)?,
-        };
+        self.inner.stroke = ScalarOrArray::Array(decode_gradients(
+            values,
+            opacity,
+            &mut self.inner.gradients,
+        )?);
         Ok(())
     }
 
@@ -99,9 +99,7 @@ impl SymbolMark {
         indices: Vec<usize>,
         opacity: Vec<f32>,
     ) -> Result<(), JsError> {
-        self.inner.fill = ScalarOrArray::Array {
-            values: decode_colors(color_values, indices, opacity)?,
-        };
+        self.inner.fill = ScalarOrArray::Array(decode_colors(color_values, indices, opacity)?);
         Ok(())
     }
 
@@ -111,9 +109,11 @@ impl SymbolMark {
     /// @param {Float32Array} opacity
     #[wasm_bindgen(skip_jsdoc)]
     pub fn set_fill_gradient(&mut self, values: JsValue, opacity: Vec<f32>) -> Result<(), JsError> {
-        self.inner.fill = ScalarOrArray::Array {
-            values: decode_gradients(values, opacity, &mut self.inner.gradients)?,
-        };
+        self.inner.fill = ScalarOrArray::Array(decode_gradients(
+            values,
+            opacity,
+            &mut self.inner.gradients,
+        )?);
         Ok(())
     }
 
@@ -131,7 +131,7 @@ impl SymbolMark {
             .map_err(|_| JsError::new("Failed to parse shapes"))?;
 
         self.inner.shapes = shapes;
-        self.inner.shape_index = ScalarOrArray::Array { values: indices };
+        self.inner.shape_index = ScalarOrArray::Array(indices);
         Ok(())
     }
 }

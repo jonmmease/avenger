@@ -1,8 +1,8 @@
 use crate::marks::util::zindex_to_indices;
+use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::text::{
     FontStyleSpec, FontWeightSpec, SceneTextMark as RsTextMark, TextAlignSpec, TextBaselineSpec,
 };
-use avenger_scenegraph::marks::value::ScalarOrArray;
 use gloo_utils::format::JsValueSerdeExt;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};
@@ -38,20 +38,20 @@ impl TextMark {
     }
 
     pub fn set_xy(&mut self, x: Vec<f32>, y: Vec<f32>) {
-        self.inner.x = ScalarOrArray::Array { values: x };
-        self.inner.y = ScalarOrArray::Array { values: y };
+        self.inner.x = ScalarOrArray::Array(x);
+        self.inner.y = ScalarOrArray::Array(y);
     }
 
     pub fn set_angle(&mut self, angle: Vec<f32>) {
-        self.inner.angle = ScalarOrArray::Array { values: angle };
+        self.inner.angle = ScalarOrArray::Array(angle);
     }
 
     pub fn set_font_size(&mut self, font_size: Vec<f32>) {
-        self.inner.font_size = ScalarOrArray::Array { values: font_size };
+        self.inner.font_size = ScalarOrArray::Array(font_size);
     }
 
     pub fn set_font_limit(&mut self, limit: Vec<f32>) {
-        self.inner.limit = ScalarOrArray::Array { values: limit };
+        self.inner.limit = ScalarOrArray::Array(limit);
     }
 
     pub fn set_indices(&mut self, indices: Vec<usize>) {
@@ -64,7 +64,7 @@ impl TextMark {
     #[wasm_bindgen(skip_jsdoc)]
     pub fn set_text(&mut self, text: JsValue) -> Result<(), JsError> {
         let text: Vec<String> = text.into_serde()?;
-        self.inner.text = ScalarOrArray::Array { values: text };
+        self.inner.text = ScalarOrArray::Array(text);
         Ok(())
     }
 
@@ -79,7 +79,7 @@ impl TextMark {
             .iter()
             .map(|ind| font_values[*ind].clone())
             .collect::<Vec<_>>();
-        self.inner.font = ScalarOrArray::Array { values };
+        self.inner.font = ScalarOrArray::Array(values);
         Ok(())
     }
 
@@ -94,7 +94,7 @@ impl TextMark {
             .iter()
             .map(|ind| align_values[*ind].clone())
             .collect::<Vec<_>>();
-        self.inner.align = ScalarOrArray::Array { values };
+        self.inner.align = ScalarOrArray::Array(values);
         Ok(())
     }
 
@@ -113,7 +113,7 @@ impl TextMark {
             .iter()
             .map(|ind| baseline_values[*ind].clone())
             .collect::<Vec<_>>();
-        self.inner.baseline = ScalarOrArray::Array { values };
+        self.inner.baseline = ScalarOrArray::Array(values);
         Ok(())
     }
 
@@ -132,7 +132,7 @@ impl TextMark {
             .iter()
             .map(|ind| weight_values[*ind].clone())
             .collect::<Vec<_>>();
-        self.inner.font_weight = ScalarOrArray::Array { values };
+        self.inner.font_weight = ScalarOrArray::Array(values);
         Ok(())
     }
 
@@ -151,7 +151,7 @@ impl TextMark {
             .iter()
             .map(|ind| style_values[*ind].clone())
             .collect::<Vec<_>>();
-        self.inner.font_style = ScalarOrArray::Array { values };
+        self.inner.font_style = ScalarOrArray::Array(values);
         Ok(())
     }
 
@@ -189,7 +189,7 @@ impl TextMark {
             })
             .collect::<Vec<_>>();
 
-        self.inner.color = ScalarOrArray::Array { values: colors };
+        self.inner.color = ScalarOrArray::Array(colors);
         Ok(())
     }
 }

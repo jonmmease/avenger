@@ -55,19 +55,13 @@ impl Default for SceneImageMark {
             aspect: true,
             indices: None,
             smooth: true,
-            x: ScalarOrArray::Scalar { value: 0.0 },
-            y: ScalarOrArray::Scalar { value: 0.0 },
-            width: ScalarOrArray::Scalar { value: 0.0 },
-            height: ScalarOrArray::Scalar { value: 0.0 },
-            align: ScalarOrArray::Scalar {
-                value: Default::default(),
-            },
-            baseline: ScalarOrArray::Scalar {
-                value: Default::default(),
-            },
-            image: ScalarOrArray::Scalar {
-                value: Default::default(),
-            },
+            x: ScalarOrArray::Scalar(0.0),
+            y: ScalarOrArray::Scalar(0.0),
+            width: ScalarOrArray::Scalar(0.0),
+            height: ScalarOrArray::Scalar(0.0),
+            align: ScalarOrArray::Scalar(Default::default()),
+            baseline: ScalarOrArray::Scalar(Default::default()),
+            image: ScalarOrArray::Scalar(Default::default()),
             zindex: None,
         }
     }

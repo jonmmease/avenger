@@ -69,18 +69,10 @@ impl Default for ScenePathMark {
             stroke_cap: StrokeCap::Butt,
             stroke_join: StrokeJoin::Miter,
             stroke_width: Some(0.0),
-            path: ScalarOrArray::Scalar {
-                value: lyon_path::Path::default(),
-            },
-            fill: ScalarOrArray::Scalar {
-                value: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
-            },
-            stroke: ScalarOrArray::Scalar {
-                value: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
-            },
-            transform: ScalarOrArray::Scalar {
-                value: PathTransform::identity(),
-            },
+            path: ScalarOrArray::Scalar(lyon_path::Path::default()),
+            fill: ScalarOrArray::Scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+            stroke: ScalarOrArray::Scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+            transform: ScalarOrArray::Scalar(PathTransform::identity()),
             indices: None,
             zindex: None,
         }
