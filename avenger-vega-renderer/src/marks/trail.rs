@@ -1,5 +1,5 @@
+use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::trail::SceneTrailMark as RsTrailMark;
-use avenger_scenegraph::marks::value::ScalarOrArray;
 use avenger_vega::marks::values::CssColorOrGradient;
 use gloo_utils::format::JsValueSerdeExt;
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -48,18 +48,16 @@ impl TrailMark {
     }
 
     pub fn set_xy(&mut self, x: Vec<f32>, y: Vec<f32>) {
-        self.inner.x = ScalarOrArray::Array { values: x };
-        self.inner.y = ScalarOrArray::Array { values: y };
+        self.inner.x = ScalarOrArray::Array(x);
+        self.inner.y = ScalarOrArray::Array(y);
     }
 
     pub fn set_defined(&mut self, defined: Vec<u8>) -> Result<(), JsError> {
-        self.inner.defined = ScalarOrArray::Array {
-            values: defined.into_iter().map(|d| d != 0).collect(),
-        };
+        self.inner.defined = ScalarOrArray::Array(defined.into_iter().map(|d| d != 0).collect());
         Ok(())
     }
 
     pub fn set_size(&mut self, size: Vec<f32>) {
-        self.inner.size = ScalarOrArray::Array { values: size };
+        self.inner.size = ScalarOrArray::Array(size);
     }
 }

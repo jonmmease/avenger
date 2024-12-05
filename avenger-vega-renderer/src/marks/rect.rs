@@ -1,6 +1,6 @@
 use crate::marks::util::{decode_colors, decode_gradients, zindex_to_indices};
+use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::rect::SceneRectMark as RsRectMark;
-use avenger_scenegraph::marks::value::ScalarOrArray;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};
 
@@ -34,26 +34,24 @@ impl RectMark {
     }
 
     pub fn set_xy(&mut self, x: Vec<f32>, y: Vec<f32>) {
-        self.inner.x = ScalarOrArray::Array { values: x };
-        self.inner.y = ScalarOrArray::Array { values: y };
+        self.inner.x = ScalarOrArray::Array(x);
+        self.inner.y = ScalarOrArray::Array(y);
     }
 
     pub fn set_width(&mut self, width: Vec<f32>) {
-        self.inner.width = ScalarOrArray::Array { values: width };
+        self.inner.width = Some(ScalarOrArray::Array(width));
     }
 
     pub fn set_height(&mut self, height: Vec<f32>) {
-        self.inner.height = ScalarOrArray::Array { values: height };
+        self.inner.height = Some(ScalarOrArray::Array(height));
     }
 
     pub fn set_corner_radius(&mut self, corner_radius: Vec<f32>) {
-        self.inner.corner_radius = ScalarOrArray::Array {
-            values: corner_radius,
-        };
+        self.inner.corner_radius = ScalarOrArray::Array(corner_radius);
     }
 
     pub fn set_stroke_width(&mut self, width: Vec<f32>) {
-        self.inner.stroke_width = ScalarOrArray::Array { values: width }
+        self.inner.stroke_width = ScalarOrArray::Array(width)
     }
 
     /// Set stroke color.
@@ -68,9 +66,7 @@ impl RectMark {
         indices: Vec<usize>,
         opacity: Vec<f32>,
     ) -> Result<(), JsError> {
-        self.inner.stroke = ScalarOrArray::Array {
-            values: decode_colors(color_values, indices, opacity)?,
-        };
+        self.inner.stroke = ScalarOrArray::Array(decode_colors(color_values, indices, opacity)?);
         Ok(())
     }
 
@@ -84,9 +80,11 @@ impl RectMark {
         values: JsValue,
         opacity: Vec<f32>,
     ) -> Result<(), JsError> {
-        self.inner.stroke = ScalarOrArray::Array {
-            values: decode_gradients(values, opacity, &mut self.inner.gradients)?,
-        };
+        self.inner.stroke = ScalarOrArray::Array(decode_gradients(
+            values,
+            opacity,
+            &mut self.inner.gradients,
+        )?);
         Ok(())
     }
 
@@ -102,9 +100,7 @@ impl RectMark {
         indices: Vec<usize>,
         opacity: Vec<f32>,
     ) -> Result<(), JsError> {
-        self.inner.fill = ScalarOrArray::Array {
-            values: decode_colors(color_values, indices, opacity)?,
-        };
+        self.inner.fill = ScalarOrArray::Array(decode_colors(color_values, indices, opacity)?);
         Ok(())
     }
 
@@ -114,9 +110,11 @@ impl RectMark {
     /// @param {Float32Array} opacity
     #[wasm_bindgen(skip_jsdoc)]
     pub fn set_fill_gradient(&mut self, values: JsValue, opacity: Vec<f32>) -> Result<(), JsError> {
-        self.inner.fill = ScalarOrArray::Array {
-            values: decode_gradients(values, opacity, &mut self.inner.gradients)?,
-        };
+        self.inner.fill = ScalarOrArray::Array(decode_gradients(
+            values,
+            opacity,
+            &mut self.inner.gradients,
+        )?);
         Ok(())
     }
 }

@@ -72,32 +72,18 @@ impl Default for SceneTextMark {
             name: "text_mark".to_string(),
             clip: true,
             len: 1,
-            text: ScalarOrArray::Scalar {
-                value: String::new(),
-            },
-            x: ScalarOrArray::Scalar { value: 0.0 },
-            y: ScalarOrArray::Scalar { value: 0.0 },
-            align: ScalarOrArray::Scalar {
-                value: TextAlignSpec::Left,
-            },
-            baseline: ScalarOrArray::Scalar {
-                value: TextBaselineSpec::Alphabetic,
-            },
-            angle: ScalarOrArray::Scalar { value: 0.0 },
-            color: ScalarOrArray::Scalar {
-                value: [0.0, 0.0, 0.0, 1.0],
-            },
-            font: ScalarOrArray::Scalar {
-                value: "sans serif".to_string(),
-            },
-            font_size: ScalarOrArray::Scalar { value: 10.0 },
-            font_weight: ScalarOrArray::Scalar {
-                value: FontWeightSpec::Name(FontWeightNameSpec::Normal),
-            },
-            font_style: ScalarOrArray::Scalar {
-                value: FontStyleSpec::Normal,
-            },
-            limit: ScalarOrArray::Scalar { value: 0.0 },
+            text: ScalarOrArray::Scalar(String::new()),
+            x: ScalarOrArray::Scalar(0.0),
+            y: ScalarOrArray::Scalar(0.0),
+            align: ScalarOrArray::Scalar(TextAlignSpec::Left),
+            baseline: ScalarOrArray::Scalar(TextBaselineSpec::Alphabetic),
+            angle: ScalarOrArray::Scalar(0.0),
+            color: ScalarOrArray::Scalar([0.0, 0.0, 0.0, 1.0]),
+            font: ScalarOrArray::Scalar("sans serif".to_string()),
+            font_size: ScalarOrArray::Scalar(10.0),
+            font_weight: ScalarOrArray::Scalar(FontWeightSpec::Name(FontWeightNameSpec::Normal)),
+            font_style: ScalarOrArray::Scalar(FontStyleSpec::Normal),
+            limit: ScalarOrArray::Scalar(0.0),
             indices: None,
             zindex: None,
         }

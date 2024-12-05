@@ -90,32 +90,28 @@ impl VegaMarkContainer<VegaRuleItem> {
         mark.len = len as u32;
 
         if x0.len() == len {
-            mark.x0 = ScalarOrArray::Array { values: x0 };
+            mark.x0 = ScalarOrArray::Array(x0);
         }
         if y0.len() == len {
-            mark.y0 = ScalarOrArray::Array { values: y0 };
+            mark.y0 = ScalarOrArray::Array(y0);
         }
         if x1.len() == len {
-            mark.x1 = ScalarOrArray::Array { values: x1 };
+            mark.x1 = ScalarOrArray::Array(x1);
         }
         if y1.len() == len {
-            mark.y1 = ScalarOrArray::Array { values: y1 };
+            mark.y1 = ScalarOrArray::Array(y1);
         }
         if stroke.len() == len {
-            mark.stroke = ScalarOrArray::Array { values: stroke };
+            mark.stroke = ScalarOrArray::Array(stroke);
         }
         if stroke_width.len() == len {
-            mark.stroke_width = ScalarOrArray::Array {
-                values: stroke_width,
-            };
+            mark.stroke_width = ScalarOrArray::Array(stroke_width);
         }
         if stroke_cap.len() == len {
-            mark.stroke_cap = ScalarOrArray::Array { values: stroke_cap };
+            mark.stroke_cap = ScalarOrArray::Array(stroke_cap);
         }
         if stroke_dash.len() == len {
-            mark.stroke_dash = Some(ScalarOrArray::Array {
-                values: stroke_dash,
-            });
+            mark.stroke_dash = Some(ScalarOrArray::Array(stroke_dash));
         }
         if zindex.len() == len {
             let mut indices: Vec<usize> = (0..len).collect();

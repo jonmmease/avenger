@@ -1,5 +1,5 @@
+use avenger_common::value::{ScalarOrArray, StrokeCap, StrokeJoin};
 use avenger_scenegraph::marks::area::{AreaOrientation, SceneAreaMark as RsAreaMark};
-use avenger_scenegraph::marks::value::{ScalarOrArray, StrokeCap, StrokeJoin};
 use avenger_vega::marks::values::{CssColorOrGradient, StrokeDashSpec};
 use gloo_utils::format::JsValueSerdeExt;
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -116,22 +116,20 @@ impl AreaMark {
     }
 
     pub fn set_xy(&mut self, x: Vec<f32>, y: Vec<f32>) {
-        self.inner.x = ScalarOrArray::Array { values: x };
-        self.inner.y = ScalarOrArray::Array { values: y };
+        self.inner.x = ScalarOrArray::Array(x);
+        self.inner.y = ScalarOrArray::Array(y);
     }
 
     pub fn set_x2(&mut self, x2: Vec<f32>) {
-        self.inner.x2 = ScalarOrArray::Array { values: x2 };
+        self.inner.x2 = ScalarOrArray::Array(x2);
     }
 
     pub fn set_y2(&mut self, y2: Vec<f32>) {
-        self.inner.y2 = ScalarOrArray::Array { values: y2 };
+        self.inner.y2 = ScalarOrArray::Array(y2);
     }
 
     pub fn set_defined(&mut self, defined: Vec<u8>) -> Result<(), JsError> {
-        self.inner.defined = ScalarOrArray::Array {
-            values: defined.into_iter().map(|d| d != 0).collect(),
-        };
+        self.inner.defined = ScalarOrArray::Array(defined.into_iter().map(|d| d != 0).collect());
         Ok(())
     }
 }

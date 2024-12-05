@@ -97,47 +97,37 @@ impl VegaMarkContainer<VegaArcItem> {
         mark.len = len as u32;
 
         if x.len() == len {
-            mark.x = ScalarOrArray::Array { values: x };
+            mark.x = ScalarOrArray::Array(x);
         }
         if y.len() == len {
-            mark.y = ScalarOrArray::Array { values: y };
+            mark.y = ScalarOrArray::Array(y);
         }
         if start_angle.len() == len {
-            mark.start_angle = ScalarOrArray::Array {
-                values: start_angle,
-            };
+            mark.start_angle = ScalarOrArray::Array(start_angle);
         }
         if end_angle.len() == len {
-            mark.end_angle = ScalarOrArray::Array { values: end_angle };
+            mark.end_angle = ScalarOrArray::Array(end_angle);
         }
         if outer_radius.len() == len {
-            mark.outer_radius = ScalarOrArray::Array {
-                values: outer_radius,
-            };
+            mark.outer_radius = ScalarOrArray::Array(outer_radius);
         }
         if inner_radius.len() == len {
-            mark.inner_radius = ScalarOrArray::Array {
-                values: inner_radius,
-            };
+            mark.inner_radius = ScalarOrArray::Array(inner_radius);
         }
         if pad_angle.len() == len {
-            mark.pad_angle = ScalarOrArray::Array { values: pad_angle };
+            mark.pad_angle = ScalarOrArray::Array(pad_angle);
         }
         if corner_radius.len() == len {
-            mark.corner_radius = ScalarOrArray::Array {
-                values: corner_radius,
-            };
+            mark.corner_radius = ScalarOrArray::Array(corner_radius);
         }
         if fill.len() == len {
-            mark.fill = ScalarOrArray::Array { values: fill };
+            mark.fill = ScalarOrArray::Array(fill);
         }
         if stroke.len() == len {
-            mark.stroke = ScalarOrArray::Array { values: stroke };
+            mark.stroke = ScalarOrArray::Array(stroke);
         }
         if stroke_width.len() == len {
-            mark.stroke_width = ScalarOrArray::Array {
-                values: stroke_width,
-            };
+            mark.stroke_width = ScalarOrArray::Array(stroke_width);
         }
         if zindex.len() == len {
             let mut indices: Vec<usize> = (0..len).collect();

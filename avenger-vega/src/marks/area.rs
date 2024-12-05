@@ -100,19 +100,19 @@ impl VegaMarkContainer<VegaAreaItem> {
         mark.len = len as u32;
 
         if x.len() == len {
-            mark.x = ScalarOrArray::Array { values: x };
+            mark.x = ScalarOrArray::Array(x);
         }
         if y.len() == len {
-            mark.y = ScalarOrArray::Array { values: y };
+            mark.y = ScalarOrArray::Array(y);
         }
         if x2.len() == len {
-            mark.x2 = ScalarOrArray::Array { values: x2 };
+            mark.x2 = ScalarOrArray::Array(x2);
         }
         if y2.len() == len {
-            mark.y2 = ScalarOrArray::Array { values: y2 };
+            mark.y2 = ScalarOrArray::Array(y2);
         }
         if defined.len() == len {
-            mark.defined = ScalarOrArray::Array { values: defined };
+            mark.defined = ScalarOrArray::Array(defined);
         }
         mark.gradients = gradients;
 

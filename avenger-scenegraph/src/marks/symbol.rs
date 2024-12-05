@@ -89,8 +89,8 @@ impl SceneSymbolMark {
 
     pub fn max_size(&self) -> f32 {
         match &self.size {
-            ScalarOrArray::Scalar { value: size } => *size,
-            ScalarOrArray::Array { values } => *values
+            ScalarOrArray::Scalar(size) => *size,
+            ScalarOrArray::Array(values) => *values
                 .iter()
                 .max_by(|a, b| a.partial_cmp(b).unwrap())
                 .unwrap_or(&1.0),
@@ -106,17 +106,13 @@ impl Default for SceneSymbolMark {
             shapes: vec![Default::default()],
             stroke_width: None,
             len: 1,
-            x: ScalarOrArray::Scalar { value: 0.0 },
-            y: ScalarOrArray::Scalar { value: 0.0 },
-            shape_index: ScalarOrArray::Scalar { value: 0 },
-            fill: ScalarOrArray::Scalar {
-                value: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
-            },
-            size: ScalarOrArray::Scalar { value: 20.0 },
-            stroke: ScalarOrArray::Scalar {
-                value: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
-            },
-            angle: ScalarOrArray::Scalar { value: 0.0 },
+            x: ScalarOrArray::Scalar(0.0),
+            y: ScalarOrArray::Scalar(0.0),
+            shape_index: ScalarOrArray::Scalar(0),
+            fill: ScalarOrArray::Scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+            size: ScalarOrArray::Scalar(20.0),
+            stroke: ScalarOrArray::Scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+            angle: ScalarOrArray::Scalar(0.0),
             indices: None,
             gradients: vec![],
             zindex: None,

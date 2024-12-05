@@ -117,25 +117,21 @@ impl SceneGroup {
             clip: false,
             len: 1,
             gradients: self.gradients.clone(),
-            path: ScalarOrArray::Scalar { value: path },
-            fill: ScalarOrArray::Scalar {
-                value: self
-                    .fill
+            path: ScalarOrArray::Scalar(path),
+            fill: ScalarOrArray::Scalar(
+                self.fill
                     .clone()
                     .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
-            },
-            stroke: ScalarOrArray::Scalar {
-                value: self
-                    .stroke
+            ),
+            stroke: ScalarOrArray::Scalar(
+                self.stroke
                     .clone()
                     .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
-            },
+            ),
             stroke_width: Some(stroke_width),
             stroke_cap: Default::default(),
             stroke_join: Default::default(),
-            transform: ScalarOrArray::Scalar {
-                value: PathTransform::identity(),
-            },
+            transform: ScalarOrArray::Scalar(PathTransform::identity()),
             indices: None,
             zindex: self.zindex,
         })

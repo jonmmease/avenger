@@ -61,10 +61,8 @@ impl VegaMarkContainer<VegaSymbolItem> {
                     clip: false,
                     zindex: self.zindex,
                     len: 2,
-                    x: ScalarOrArray::Array {
-                        values: vec![x - width / 2.0, x + width / 2.0],
-                    },
-                    y: ScalarOrArray::Scalar { value: y },
+                    x: ScalarOrArray::Array(vec![x - width / 2.0, x + width / 2.0]),
+                    y: ScalarOrArray::Scalar(y),
                     stroke,
                     stroke_width: item.stroke_width.unwrap_or(1.0),
                     stroke_cap: item.stroke_cap.unwrap_or_default(),
@@ -170,22 +168,22 @@ impl VegaMarkContainer<VegaSymbolItem> {
         }
 
         if x.len() == len {
-            mark.x = ScalarOrArray::Array { values: x };
+            mark.x = ScalarOrArray::Array(x);
         }
         if y.len() == len {
-            mark.y = ScalarOrArray::Array { values: y };
+            mark.y = ScalarOrArray::Array(y);
         }
         if fill.len() == len {
-            mark.fill = ScalarOrArray::Array { values: fill };
+            mark.fill = ScalarOrArray::Array(fill);
         }
         if size.len() == len {
-            mark.size = ScalarOrArray::Array { values: size };
+            mark.size = ScalarOrArray::Array(size);
         }
         if stroke.len() == len {
-            mark.stroke = ScalarOrArray::Array { values: stroke };
+            mark.stroke = ScalarOrArray::Array(stroke);
         }
         if angle.len() == len {
-            mark.angle = ScalarOrArray::Array { values: angle };
+            mark.angle = ScalarOrArray::Array(angle);
         }
         if zindex.len() == len {
             let mut indices: Vec<usize> = (0..len).collect();
@@ -193,9 +191,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
             mark.indices = Some(indices);
         }
         if shape_index.len() == len {
-            mark.shape_index = ScalarOrArray::Array {
-                values: shape_index,
-            };
+            mark.shape_index = ScalarOrArray::Array(shape_index);
             mark.shapes = shape_strings
                 .iter()
                 .map(|s| SymbolShape::from_vega_str(s))

@@ -110,17 +110,15 @@ impl VegaMarkContainer<VegaPathItem> {
         let len = self.items.len();
         mark.len = len as u32;
         if fill.len() == len {
-            mark.fill = ScalarOrArray::Array { values: fill };
+            mark.fill = ScalarOrArray::Array(fill);
         }
         if stroke.len() == len {
-            mark.stroke = ScalarOrArray::Array { values: stroke };
+            mark.stroke = ScalarOrArray::Array(stroke);
         }
         if transform.len() == len {
-            mark.transform = ScalarOrArray::Array { values: transform };
+            mark.transform = ScalarOrArray::Array(transform);
         } else {
-            mark.transform = ScalarOrArray::Scalar {
-                value: PathTransform::identity(),
-            }
+            mark.transform = ScalarOrArray::Scalar(PathTransform::identity());
         }
         if zindex.len() == len {
             let mut indices: Vec<usize> = (0..len).collect();
@@ -133,9 +131,7 @@ impl VegaMarkContainer<VegaPathItem> {
         if num_unique == 1 {
             // Parse single path and store as a scalar
             let path_str = path_str.first().unwrap();
-            mark.path = ScalarOrArray::Scalar {
-                value: parse_svg_path(path_str)?,
-            };
+            mark.path = ScalarOrArray::Scalar(parse_svg_path(path_str)?);
         } else {
             // Parse each path individually
             let paths = path_str
@@ -143,7 +139,7 @@ impl VegaMarkContainer<VegaPathItem> {
                 .map(|p| parse_svg_path(p))
                 .collect::<Result<Vec<_>, AvengerError>>()?;
 
-            mark.path = ScalarOrArray::Array { values: paths };
+            mark.path = ScalarOrArray::Array(paths);
         }
 
         // Add gradients

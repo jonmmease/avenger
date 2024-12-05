@@ -24,6 +24,10 @@ unicode-segmentation = "*"
 [dependencies.console_error_panic_hook]
 version = "0.1.1"
 
+[dependencies.avenger-common]
+path = "../avenger-common"
+version = "0.0.8"
+
 [dependencies.avenger-vega]
 path = "../avenger-vega"
 version = "0.0.8"
