@@ -9,6 +9,7 @@ members = [
     "avenger-scales",
     "avenger-guides",
     "avenger-common",
+    "avenger-geometry",
     "examples/wgpu-scales",
     "examples/scatter-panning",
     "examples/wgpu-winit",
