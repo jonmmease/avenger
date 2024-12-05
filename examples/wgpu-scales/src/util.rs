@@ -1,5 +1,4 @@
 use avenger_scenegraph::scene_graph::SceneGraph;
-use avenger_vega::scene_graph::VegaSceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasDimensions, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
 use winit::application::ApplicationHandler;
@@ -8,13 +7,12 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard;
 use winit::keyboard::NamedKey;
 use winit::window::{WindowAttributes, WindowId};
-use avenger_common::value::{ColorOrGradient, ScalarOrArray};
+use avenger_common::value::{ColorOrGradient};
 use avenger_scales::band::BandScale;
-use avenger_scales::band::opts::BandScaleOptions;
-use avenger_scales::color::numeric_color::NumericColorScale;
+use avenger_scales::color::continuous_color::ContinuousColorScale;
 use avenger_scales::color::Srgba;
-use avenger_scales::identity::IdentityScale;
-use avenger_scales::numeric::linear::LinearNumericScale;
+use avenger_scales::numeric::ContinuousNumericScale;
+use avenger_scales::numeric::linear::{LinearNumericScale, LinearNumericScaleConfig};
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
@@ -144,24 +142,33 @@ pub async fn run() {
     let y_values = vec![28.0f32, 55.0, 43.0, 91.0, 81.0, 53.0, 19.0, 87.0, 52.0];
 
     // Build scales
-    let x_scale = BandScale::try_new(x_values.clone()).unwrap()
-        .range((0.0, 200.0)).unwrap()
-        .padding(0.2).unwrap();
+    let x_scale = BandScale::try_new(x_values.clone(), &Default::default()).unwrap()
+        .with_range((0.0, 200.0)).unwrap()
+        .with_padding(0.2).unwrap();
+    let x2_scale = x_scale.clone().with_band(1.0).unwrap();
 
-    let y_scale = LinearNumericScale::new().domain((0.0, 100.0)).range((200.0, 0.0));
-    let color_scale = NumericColorScale::new(y_scale.clone(), vec![
+    let y_scale = LinearNumericScale::new(&Default::default())
+        .with_domain((0.0, 100.0))
+        .with_range((200.0, 0.0));
+
+    let color_scale = ContinuousColorScale::new_linear(
+        &LinearNumericScaleConfig {
+            domain: (0.0, 100.0),
+            nice: Some(10),
+            ..Default::default()
+        },
+        vec![
         Srgba::new(0.9, 0.9, 0.9, 1.0),
         Srgba::new(0.1, 0.1, 0.9, 1.0),
     ]);
-    let id_scale = IdentityScale::new();
 
     // Make rect mark
     let rect = SceneRectMark {
         len: x_values.len() as u32,
-        x: x_scale.scale(&x_values, &BandScaleOptions{ band: Some(0.0), ..Default::default() }),
-        x2: Some(x_scale.scale(&x_values, &BandScaleOptions{ band: Some(1.0), ..Default::default() })),
-        y: y_scale.scale(0.0, &Default::default()),
-        y2: Some(y_scale.scale(&y_values, &Default::default())),
+        x: x_scale.scale(&x_values),
+        x2: Some(x2_scale.scale(&x_values)),
+        y: y_scale.scale(0.0),
+        y2: Some(y_scale.scale(&y_values)),
         fill: color_scale.scale(&y_values),
         stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0]).into(),
         stroke_width: 1.0f32.into(),
@@ -181,8 +188,6 @@ pub async fn run() {
         height: 240.0,
         origin: [0.0; 2],
     };
-
-    println!("{:#?}", scene_graph);
 
     let scale = 2.0;
     let event_loop = EventLoop::new().expect("Failed to build event loop");
