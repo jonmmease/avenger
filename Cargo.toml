@@ -36,3 +36,7 @@ wgpu = "23.0.1"
 palette = "0.7.6"
 chrono = "0.4.38"
 chrono-tz = "0.10.0"
+geo-types = "0.7.14"
+geo = "0.29.3"
+itertools = "0.13.0"
+rstar = { git = "https://github.com/georust/rstar.git", branch = "master" }

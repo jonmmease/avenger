@@ -1,5 +1,11 @@
 use crate::error::AvengerError;
 use avenger_common::value::{ColorOrGradient, Gradient, ScalarOrArray};
+use avenger_geometry::geo_types::Geometry;
+use avenger_geometry::lyon_to_geo::IntoGeoType;
+use avenger_geometry::rtree::MarkRTree;
+use avenger_geometry::GeometryInstance;
+use geo::{Rotate as GeoRotate, Scale as GeoScale, Translate as GeoTranslate};
+use itertools::izip;
 use lyon_extra::parser::{ParserOptions, Source};
 use lyon_path::geom::euclid::Point2D;
 use lyon_path::geom::{Box2D, Point, Scale};
@@ -89,6 +95,42 @@ impl SceneSymbolMark {
             .as_vec(self.len as usize, self.indices.as_ref())
     }
 
+    pub fn indices_iter(&self) -> Box<dyn Iterator<Item = usize> + '_> {
+        if let Some(indices) = self.indices.as_ref() {
+            Box::new(indices.iter().cloned())
+        } else {
+            Box::new((0..self.len as usize).into_iter())
+        }
+    }
+
+    pub fn geometry_iter(&self) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
+        let symbol_geometries: Vec<_> = self.shapes.iter().map(|symbol| symbol.as_geo()).collect();
+        let half_stroke_width = self.stroke_width.unwrap_or(0.0) / 2.0;
+        Box::new(
+            izip!(
+                self.indices_iter(),
+                self.x_iter(),
+                self.y_iter(),
+                self.size_iter(),
+                self.angle_iter(),
+                self.shape_index_iter()
+            )
+            .map(move |(id, x, y, size, angle, shape_idx)| {
+                let geometry = symbol_geometries[*shape_idx]
+                    .clone()
+                    .scale(size.sqrt())
+                    .rotate_around_point(angle.to_radians(), geo::Point::new(0.0, 0.0))
+                    .translate(*x, *y);
+
+                GeometryInstance {
+                    id,
+                    geometry,
+                    half_stroke_width,
+                }
+            }),
+        )
+    }
+
     pub fn max_size(&self) -> f32 {
         match &self.size {
             ScalarOrArray::Scalar(size) => *size,
@@ -97,6 +139,11 @@ impl SceneSymbolMark {
                 .max_by(|a, b| a.partial_cmp(b).unwrap())
                 .unwrap_or(&1.0),
         }
+    }
+
+    /// Creates an R-tree containing the geometries of all symbol instances
+    pub fn to_rtree(&self) -> MarkRTree {
+        MarkRTree::new(self.geometry_iter().collect())
     }
 }
 
@@ -280,6 +327,11 @@ impl SymbolShape {
             }
             SymbolShape::Path(path) => Cow::Borrowed(path),
         }
+    }
+
+    pub fn as_geo(&self) -> Geometry<f32> {
+        let path = self.as_path();
+        path.as_geo_type(0.1, true)
     }
 }
 
