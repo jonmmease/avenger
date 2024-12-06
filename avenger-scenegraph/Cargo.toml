@@ -26,5 +26,20 @@ features = [ "png",]
 workspace = true
 optional = true
 
+[dependencies.geo]
+workspace = true
+
+[dependencies.itertools]
+workspace = true
+
+[dependencies.rstar]
+workspace = true
+
 [dependencies.avenger-common]
 path = "../avenger-common"
+
+[dependencies.avenger-geometry]
+path = "../avenger-geometry"
+
+[dev-dependencies]
+float-cmp = "0.10.0"
