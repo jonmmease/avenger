@@ -11,7 +11,7 @@ crate-type = [ "cdylib", "rlib",]
 
 [features]
 default = [ "cosmic-text", "rayon",]
-cosmic-text = [ "dep:cosmic-text", "lazy_static",]
+cosmic-text = [ "dep:cosmic-text", "lazy_static", "avenger-text/rasterization", "avenger-text/cosmic-text",]
 deno = []
 
 [dependencies]

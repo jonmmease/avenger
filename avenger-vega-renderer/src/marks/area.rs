@@ -116,16 +116,16 @@ impl AreaMark {
     }
 
     pub fn set_xy(&mut self, x: Vec<f32>, y: Vec<f32>) {
-        self.inner.x = ScalarOrArray::Array(x);
-        self.inner.y = ScalarOrArray::Array(y);
+        self.inner.x0 = ScalarOrArray::Array(x);
+        self.inner.y0 = ScalarOrArray::Array(y);
     }
 
     pub fn set_x2(&mut self, x2: Vec<f32>) {
-        self.inner.x2 = ScalarOrArray::Array(x2);
+        self.inner.x1 = ScalarOrArray::Array(x2);
     }
 
     pub fn set_y2(&mut self, y2: Vec<f32>) {
-        self.inner.y2 = ScalarOrArray::Array(y2);
+        self.inner.y1 = ScalarOrArray::Array(y2);
     }
 
     pub fn set_defined(&mut self, defined: Vec<u8>) -> Result<(), JsError> {
