@@ -453,6 +453,7 @@ dependencies = [
  "cosmic-text",
  "image 0.25.5",
  "lazy_static",
+ "lyon_path",
  "serde",
  "thiserror 2.0.3",
  "unicode-segmentation",

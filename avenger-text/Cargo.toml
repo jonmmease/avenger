@@ -16,6 +16,7 @@ serde = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 avenger-common = { path = "../avenger-common" }
 unicode-segmentation = "1.12.0"
+lyon_path = { workspace = true }
 
 [dependencies.cosmic-text]
 workspace = true
