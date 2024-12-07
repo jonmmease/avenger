@@ -5,6 +5,9 @@ use avenger_common::canvas::CanvasDimensions;
 #[cfg(feature = "cosmic-text")]
 pub mod cosmic;
 
+#[cfg(target_arch = "wasm32")]
+pub mod html_canvas;
+
 use crate::{
     error::AvengerTextError,
     measurement::{TextBounds, TextMeasurementConfig},
