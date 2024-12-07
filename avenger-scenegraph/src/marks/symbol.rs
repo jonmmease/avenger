@@ -141,20 +141,24 @@ impl SceneSymbolMark {
                 self.angle_iter(),
                 self.shape_index_iter()
             )
-            .map(move |(instance_idx, x, y, size, angle, shape_idx)| {
-                let geometry = symbol_geometries[*shape_idx]
-                    .clone()
-                    .scale(size.sqrt())
-                    .rotate_around_point(angle.to_radians(), geo::Point::new(0.0, 0.0))
-                    .translate(*x, *y);
+            .enumerate()
+            .map(
+                move |(z_index, (instance_idx, x, y, size, angle, shape_idx))| {
+                    let geometry = symbol_geometries[*shape_idx]
+                        .clone()
+                        .scale(size.sqrt())
+                        .rotate_around_point(angle.to_radians(), geo::Point::new(0.0, 0.0))
+                        .translate(*x, *y);
 
-                GeometryInstance {
-                    mark_index,
-                    instance_idx: Some(instance_idx),
-                    geometry,
-                    half_stroke_width,
-                }
-            }),
+                    GeometryInstance {
+                        mark_index,
+                        instance_index: Some(instance_idx),
+                        z_index,
+                        geometry,
+                        half_stroke_width,
+                    }
+                },
+            ),
         )
     }
 

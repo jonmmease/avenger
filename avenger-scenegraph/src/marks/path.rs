@@ -89,17 +89,18 @@ impl ScenePathMark {
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let half_stroke_width = self.stroke_width.unwrap_or(0.0) / 2.0;
         Box::new(
-            izip!(self.indices_iter(), self.transformed_path_iter([0.0, 0.0])).map(
-                move |(id, path)| {
+            izip!(self.indices_iter(), self.transformed_path_iter([0.0, 0.0]))
+                .enumerate()
+                .map(move |(z_index, (id, path))| {
                     let geometry = path.as_geo_type(0.1, true);
                     GeometryInstance {
                         mark_index,
-                        instance_idx: Some(id),
+                        instance_index: Some(id),
+                        z_index,
                         geometry,
                         half_stroke_width,
                     }
-                },
-            ),
+                }),
         )
     }
 }

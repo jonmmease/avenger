@@ -2,7 +2,7 @@ use geo::{BoundingRect, Distance, Euclidean};
 use geo_types::Geometry;
 use rstar::{
     iterators::{
-        IntersectionIterator, LocateInEnvelope, LocateInEnvelopeIntersecting,
+        IntersectionIterator, LocateAllAtPoint, LocateInEnvelope, LocateInEnvelopeIntersecting,
         LocateWithinDistanceIterator, NearestNeighborDistance2Iterator, NearestNeighborIterator,
         RTreeIterator,
     },
@@ -13,7 +13,8 @@ use rstar::{
 #[derive(Debug, Clone)]
 pub struct GeometryInstance {
     pub mark_index: usize,
-    pub instance_idx: Option<usize>,
+    pub instance_index: Option<usize>,
+    pub z_index: usize,
     pub geometry: Geometry<f32>,
     pub half_stroke_width: f32,
 }
@@ -89,11 +90,43 @@ impl MarkRTree {
         self.rtree.iter()
     }
 
+    /// Returns a single top-most mark instance at a given point.
+    ///
+    /// If multiple marks or mark instances contain the given point, the top-most one is returned.
+    pub fn pick_top_mark_at_point(&self, point: &[f32; 2]) -> Option<&GeometryInstance> {
+        let mut candidate_instance: Option<&GeometryInstance> = None;
+        for next_instance in self.rtree.locate_all_at_point(point) {
+            if let Some(inner_candidate_instance) = candidate_instance {
+                if next_instance.mark_index == inner_candidate_instance.mark_index {
+                    if next_instance.z_index > inner_candidate_instance.z_index {
+                        // Same mark as current candidate, but higher z-index, so keep it.
+                        candidate_instance = Some(next_instance);
+                    }
+                } else if next_instance.mark_index > inner_candidate_instance.mark_index {
+                    // Mark is above the current candidate's mark, so keep it.
+                    candidate_instance = Some(next_instance);
+                }
+            } else {
+                candidate_instance = Some(next_instance);
+            }
+        }
+        candidate_instance
+    }
+
+    /// Returns all elements contained in an envelope
+
     /// Returns a single object that covers a given point.
     ///
     /// If multiple elements contain the given point, any of them is returned.
     pub fn locate_at_point(&self, point: &[f32; 2]) -> Option<&GeometryInstance> {
         self.rtree.locate_at_point(point)
+    }
+
+    /// Returns a mutable reference to the object that covers a given point.
+    ///
+    /// If multiple elements contain the given point, any of them is returned.
+    pub fn locate_all_at_point(&self, point: &[f32; 2]) -> LocateAllAtPoint<GeometryInstance> {
+        self.rtree.locate_all_at_point(point)
     }
 
     /// Returns all elements contained in an envelope

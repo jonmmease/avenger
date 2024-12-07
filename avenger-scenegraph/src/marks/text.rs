@@ -107,19 +107,23 @@ impl SceneTextMark {
                 self.align_iter(),
                 self.baseline_iter()
             )
+            .enumerate()
             .map(
                 move |(
-                    id,
-                    text,
-                    x,
-                    y,
-                    angle,
-                    font,
-                    font_size,
-                    font_weight,
-                    font_style,
-                    align,
-                    baseline,
+                    z_index,
+                    (
+                        id,
+                        text,
+                        x,
+                        y,
+                        angle,
+                        font,
+                        font_size,
+                        font_weight,
+                        font_style,
+                        align,
+                        baseline,
+                    ),
                 )| {
                     let config = TextMeasurementConfig {
                         text: text,
@@ -149,7 +153,8 @@ impl SceneTextMark {
 
                     GeometryInstance {
                         mark_index,
-                        instance_idx: Some(id),
+                        instance_index: Some(id),
+                        z_index,
                         geometry,
                         half_stroke_width: 0.0,
                     }
