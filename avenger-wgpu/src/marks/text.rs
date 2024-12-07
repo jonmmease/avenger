@@ -169,7 +169,7 @@ where
         let mut verts: Vec<MultiVertex> = Vec::new();
         let mut indices: Vec<u32> = Vec::new();
 
-        for glyph_data in &buffer.glyphs {
+        for (glyph_data, phys_pos) in &buffer.glyphs {
             let glyph_bbox_and_atlas_coords =
                 if let Some(glyph_position) = self.next_cache.get(&glyph_data.cache_key) {
                     // Glyph has already been written to atlas
@@ -268,10 +268,9 @@ where
 
             // Create verts for rectangle around glyph
             let bbox = &glyph_bbox_and_atlas_coords.bbox;
-            let x0 = (glyph_data.physical_position.x + bbox.left as f32) / dimensions.scale
-                + buffer_left;
+            let x0 = (phys_pos.x + bbox.left as f32) / dimensions.scale + buffer_left;
             let y0 = (buffer.text_bounds.ascent).ceil()
-                + (glyph_data.physical_position.y - bbox.top as f32) / dimensions.scale
+                + (phys_pos.y - bbox.top as f32) / dimensions.scale
                 + buffer_top;
             let x1 = x0 + bbox.width as f32 / dimensions.scale;
             let y1 = y0 + bbox.height as f32 / dimensions.scale;
