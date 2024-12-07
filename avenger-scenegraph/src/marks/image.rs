@@ -129,8 +129,9 @@ impl SceneImageMark {
         mark_index: usize,
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         Box::new(
-            izip!(self.indices_iter(), self.transformed_path_iter([0.0, 0.0])).map(
-                move |(id, path)| {
+            izip!(self.indices_iter(), self.transformed_path_iter([0.0, 0.0]))
+                .enumerate()
+                .map(move |(z_index, (id, path))| {
                     let half_stroke_width = 0.0;
 
                     let bbox = bounding_box(&path);
@@ -141,12 +142,12 @@ impl SceneImageMark {
 
                     GeometryInstance {
                         mark_index,
-                        instance_idx: Some(id),
+                        instance_index: Some(id),
+                        z_index,
                         geometry,
                         half_stroke_width,
                     }
-                },
-            ),
+                }),
         )
     }
 }

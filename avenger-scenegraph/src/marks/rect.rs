@@ -230,7 +230,8 @@ impl SceneRectMark {
                     self.y2_iter(),
                     self.stroke_width_iter()
                 )
-                .map(move |(id, x, y, x2, y2, stroke_width)| {
+                .enumerate()
+                .map(move |(z_index, (id, x, y, x2, y2, stroke_width))| {
                     // Create rect geometry
                     let x0 = f32::min(*x, x2);
                     let x1 = f32::max(*x, x2);
@@ -243,7 +244,8 @@ impl SceneRectMark {
                     ));
                     GeometryInstance {
                         mark_index,
-                        instance_idx: Some(id),
+                        instance_index: Some(id),
+                        z_index,
                         geometry,
                         half_stroke_width: *stroke_width / 2.0,
                     }
@@ -257,12 +259,14 @@ impl SceneRectMark {
                     self.transformed_path_iter([0.0, 0.0]),
                     self.stroke_width_iter()
                 )
-                .map(move |(id, path, stroke_width)| {
+                .enumerate()
+                .map(move |(z_index, (id, path, stroke_width))| {
                     let half_stroke_width = stroke_width / 2.0;
                     let geometry = path.as_geo_type(0.1, true);
                     GeometryInstance {
                         mark_index,
-                        instance_idx: Some(id),
+                        instance_index: Some(id),
+                        z_index,
                         geometry,
                         half_stroke_width,
                     }

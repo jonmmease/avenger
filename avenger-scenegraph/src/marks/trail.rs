@@ -76,7 +76,8 @@ impl SceneTrailMark {
         let geometry = path.trail_as_geo_type(0.1, 0);
         GeometryInstance {
             mark_index,
-            instance_idx: None,
+            instance_index: None,
+            z_index: 0,
             geometry,
             half_stroke_width: 0.0,
         }

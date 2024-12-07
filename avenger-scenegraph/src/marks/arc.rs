@@ -167,12 +167,14 @@ impl SceneArcMark {
                 self.transformed_path_iter([0.0, 0.0]),
                 self.stroke_width_iter()
             )
-            .map(move |(id, path, stroke_width)| {
+            .enumerate()
+            .map(move |(z_index, (id, path, stroke_width))| {
                 let half_stroke_width = stroke_width / 2.0;
                 let geometry = path.as_geo_type(half_stroke_width, true);
                 GeometryInstance {
                     mark_index,
-                    instance_idx: Some(id),
+                    instance_index: Some(id),
+                    z_index,
                     geometry,
                     half_stroke_width,
                 }

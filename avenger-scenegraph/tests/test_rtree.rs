@@ -1,5 +1,8 @@
 use avenger_geometry::rtree::MarkRTree;
-use avenger_scenegraph::marks::symbol::{SceneSymbolMark, SymbolShape};
+use avenger_scenegraph::marks::{
+    area::{AreaOrientation, SceneAreaMark},
+    symbol::{SceneSymbolMark, SymbolShape},
+};
 use float_cmp::assert_approx_eq;
 use geo::BoundingRect;
 use rstar::{PointDistance, AABB};
@@ -19,14 +22,14 @@ fn test_symbol_rtree_single() {
 
     // Test point inside the circle
     let nearest = rtree.locate_at_point(&[1.0, 1.0]).unwrap();
-    assert_eq!(nearest.instance_idx, Some(0));
+    assert_eq!(nearest.instance_index, Some(0));
 
     // Test point outside but close. Locate should return None
     assert!(rtree.locate_at_point(&[2.5, 1.0]).is_none());
 
     // Nearest should return the circle, with distance 0.5
     let nearest: &avenger_geometry::GeometryInstance = rtree.nearest_neighbor(&[2.5, 1.0]).unwrap();
-    assert_eq!(nearest.instance_idx, Some(0));
+    assert_eq!(nearest.instance_index, Some(0));
     assert_approx_eq!(f32, nearest.distance_2(&[2.5, 1.0]), 0.5);
 
     // Check bounding box
@@ -53,19 +56,19 @@ fn test_symbol_rtree_multiple() {
 
     // Test nearest to first symbol
     let nearest = rtree.nearest_neighbor(&[0.2, 0.2]).unwrap();
-    assert_eq!(nearest.instance_idx, Some(0));
+    assert_eq!(nearest.instance_index, Some(0));
     assert_approx_eq!(f32, nearest.distance_2(&[0.2, 0.2]), 0.0);
 
     // Test nearest to second symbol
     let nearest = rtree.nearest_neighbor(&[3.0, 0.0]).unwrap();
-    assert_eq!(nearest.instance_idx, Some(1));
+    assert_eq!(nearest.instance_index, Some(1));
     assert_approx_eq!(f32, nearest.distance_2(&[3.0, 0.0]), 0.0);
 
     // Test that we get both symbols in order of distance
     let nearest_two: Vec<_> = rtree.nearest_neighbor_iter(&[1.5, 0.0]).take(2).collect();
     assert_eq!(nearest_two.len(), 2);
-    assert_eq!(nearest_two[0].instance_idx, Some(0));
-    assert_eq!(nearest_two[1].instance_idx, Some(1));
+    assert_eq!(nearest_two[0].instance_index, Some(0));
+    assert_eq!(nearest_two[1].instance_index, Some(1));
 }
 
 #[test]
@@ -118,5 +121,39 @@ fn test_symbol_rtree_spatial_query() {
     let results: Vec<_> = rtree.locate_in_envelope(&query_box).collect();
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].instance_idx, Some(1)); // Middle circle
+    assert_eq!(results[0].instance_index, Some(1)); // Middle circle
+}
+
+#[test]
+fn test_stacked_area_rtree() {
+    // Create two area marks, stacked vertically
+    let mut upper_mark = SceneAreaMark::default();
+    upper_mark.len = 3;
+    upper_mark.stroke_width = 0.0;
+    upper_mark.x0 = vec![0.0, 2.0, 4.0].into();
+    upper_mark.y0 = vec![0.0, 0.0, 0.0].into();
+    upper_mark.y1 = vec![1.0, 2.0, 1.0].into();
+    upper_mark.orientation = AreaOrientation::Vertical;
+
+    let mut lower_mark = upper_mark.clone();
+    lower_mark.len = 3;
+    lower_mark.stroke_width = 0.0;
+    lower_mark.x0 = vec![0.0, 2.0, 4.0].into();
+    lower_mark.y0 = vec![1.0, 2.0, 1.0].into();
+    lower_mark.y1 = vec![2.0, 3.0, 2.0].into();
+    lower_mark.orientation = AreaOrientation::Vertical;
+
+    // Create the rtree
+    let geometries = vec![upper_mark.geometry(0), lower_mark.geometry(1)];
+    let rtree = MarkRTree::new(geometries);
+
+    // Test spatial query
+    let instance = rtree
+        // .pick_mark_at_point(&[2.0, 1.9])
+        .locate_at_point(&[2.0, 1.9])
+        .expect("Expected an instance at point");
+
+    println!("{:?}", instance);
+    assert_eq!(instance.instance_index, None);
+    assert_eq!(instance.mark_index, 0);
 }

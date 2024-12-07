@@ -116,7 +116,8 @@ impl SceneAreaMark {
         let half_stroke_width = self.stroke_width / 2.0;
         GeometryInstance {
             mark_index,
-            instance_idx: None,
+            instance_index: None,
+            z_index: 0,
             geometry: path.as_geo_type(half_stroke_width, true),
             half_stroke_width,
         }
