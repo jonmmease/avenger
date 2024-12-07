@@ -124,7 +124,10 @@ impl SceneImageMark {
         )
     }
 
-    pub fn geometry_iter(&self) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
+    pub fn geometry_iter(
+        &self,
+        mark_index: usize,
+    ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         Box::new(
             izip!(self.indices_iter(), self.transformed_path_iter([0.0, 0.0])).map(
                 move |(id, path)| {
@@ -137,7 +140,8 @@ impl SceneImageMark {
                     ));
 
                     GeometryInstance {
-                        id,
+                        mark_index,
+                        instance_idx: Some(id),
                         geometry,
                         half_stroke_width,
                     }

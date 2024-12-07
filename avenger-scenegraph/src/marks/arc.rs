@@ -157,7 +157,10 @@ impl SceneArcMark {
         )
     }
 
-    pub fn geometry_iter(&self) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
+    pub fn geometry_iter(
+        &self,
+        mark_index: usize,
+    ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         Box::new(
             izip!(
                 self.indices_iter(),
@@ -168,7 +171,8 @@ impl SceneArcMark {
                 let half_stroke_width = stroke_width / 2.0;
                 let geometry = path.as_geo_type(half_stroke_width, true);
                 GeometryInstance {
-                    id,
+                    mark_index,
+                    instance_idx: Some(id),
                     geometry,
                     half_stroke_width,
                 }

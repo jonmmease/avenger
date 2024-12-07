@@ -12,7 +12,8 @@ use rstar::{
 /// A geometry with an associated instance ID for storage in the R-tree
 #[derive(Debug, Clone)]
 pub struct GeometryInstance {
-    pub id: usize,
+    pub mark_index: usize,
+    pub instance_idx: Option<usize>,
     pub geometry: Geometry<f32>,
     pub half_stroke_width: f32,
 }
@@ -57,12 +58,15 @@ pub struct MarkRTree {
 
 impl MarkRTree {
     pub fn new(geometries: Vec<GeometryInstance>) -> Self {
-        // Compute the envelope of the geometries
-        let envelope = geometries
-            .iter()
-            .map(|g| g.envelope())
-            .reduce(|a, b| a.merged(&b))
-            .unwrap();
+        let envelope = if geometries.is_empty() {
+            AABB::from_corners([0.0, 0.0], [0.0, 0.0])
+        } else {
+            geometries
+                .iter()
+                .map(|g| g.envelope())
+                .reduce(|a, b| a.merged(&b))
+                .unwrap()
+        };
 
         // Bulk load the geometries into an R-tree
         let rtree = RTree::bulk_load(geometries);

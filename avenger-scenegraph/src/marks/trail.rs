@@ -71,11 +71,12 @@ impl SceneTrailMark {
         path_builder.build()
     }
 
-    pub fn geometry(&self) -> GeometryInstance {
+    pub fn geometry(&self, mark_index: usize) -> GeometryInstance {
         let path = self.transformed_path([0.0, 0.0]);
         let geometry = path.trail_as_geo_type(0.1, 0);
         GeometryInstance {
-            id: 0,
+            mark_index,
+            instance_idx: None,
             geometry,
             half_stroke_width: 0.0,
         }
