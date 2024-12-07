@@ -14,10 +14,10 @@ pub struct SceneAreaMark {
     pub len: u32,
     pub orientation: AreaOrientation,
     pub gradients: Vec<Gradient>,
-    pub x: ScalarOrArray<f32>,
-    pub y: ScalarOrArray<f32>,
-    pub x2: ScalarOrArray<f32>,
-    pub y2: ScalarOrArray<f32>,
+    pub x0: ScalarOrArray<f32>,
+    pub y0: ScalarOrArray<f32>,
+    pub x1: ScalarOrArray<f32>,
+    pub y1: ScalarOrArray<f32>,
     pub defined: ScalarOrArray<bool>,
     pub fill: ColorOrGradient,
     pub stroke: ColorOrGradient,
@@ -29,20 +29,20 @@ pub struct SceneAreaMark {
 }
 
 impl SceneAreaMark {
-    pub fn x_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.x.as_iter(self.len as usize, None)
+    pub fn x0_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
+        self.x0.as_iter(self.len as usize, None)
     }
 
-    pub fn y_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.y.as_iter(self.len as usize, None)
+    pub fn y0_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
+        self.y0.as_iter(self.len as usize, None)
     }
 
-    pub fn x2_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.x2.as_iter(self.len as usize, None)
+    pub fn x1_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
+        self.x1.as_iter(self.len as usize, None)
     }
 
-    pub fn y2_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.y2.as_iter(self.len as usize, None)
+    pub fn y1_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
+        self.y1.as_iter(self.len as usize, None)
     }
 
     pub fn defined_iter(&self) -> Box<dyn Iterator<Item = &bool> + '_> {
@@ -67,9 +67,9 @@ impl SceneAreaMark {
 
         if self.orientation == AreaOrientation::Vertical {
             for (x, y, y2, defined) in izip!(
-                self.x_iter(),
-                self.y_iter(),
-                self.y2_iter(),
+                self.x0_iter(),
+                self.y0_iter(),
+                self.y1_iter(),
                 self.defined_iter(),
             ) {
                 if *defined {
@@ -87,9 +87,9 @@ impl SceneAreaMark {
             }
         } else {
             for (y, x, x2, defined) in izip!(
-                self.y_iter(),
-                self.x_iter(),
-                self.x2_iter(),
+                self.y0_iter(),
+                self.x0_iter(),
+                self.x1_iter(),
                 self.defined_iter(),
             ) {
                 if *defined {
@@ -131,10 +131,10 @@ impl Default for SceneAreaMark {
             len: 1,
             orientation: Default::default(),
             gradients: vec![],
-            x: ScalarOrArray::Scalar(0.0),
-            y: ScalarOrArray::Scalar(0.0),
-            x2: ScalarOrArray::Scalar(0.0),
-            y2: ScalarOrArray::Scalar(0.0),
+            x0: ScalarOrArray::Scalar(0.0),
+            y0: ScalarOrArray::Scalar(0.0),
+            x1: ScalarOrArray::Scalar(0.0),
+            y1: ScalarOrArray::Scalar(0.0),
             defined: ScalarOrArray::Scalar(true),
             fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
             stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
