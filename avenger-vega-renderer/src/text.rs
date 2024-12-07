@@ -182,7 +182,10 @@ impl TextRasterizer for HtmlCanvasTextRasterizer {
         let full_metrics = text_context.measure_text(config.text)?;
         let buffer_width =
             full_metrics.actual_bounding_box_left() + full_metrics.actual_bounding_box_right();
-        let ascent = full_metrics.font_bounding_box_ascent();
+
+        // Using font_bounding_box_descent instead of actual_bounding_box_descent
+        // results in a better match with cosmic-text
+        let ascent = full_metrics.actual_bounding_box_ascent();
         let descent = full_metrics.font_bounding_box_descent();
 
         let text_bounds = TextBounds {
