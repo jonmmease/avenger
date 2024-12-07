@@ -20,9 +20,9 @@ use lyon::algorithms::aabb::bounding_box;
 use lyon::geom::euclid::{Point2D, Vector2D};
 use lyon::geom::{Angle, Box2D};
 use lyon::lyon_tessellation::{
-    BuffersBuilder, FillOptions, FillTessellator, FillVertex,
-    FillVertexConstructor, LineCap, LineJoin, StrokeOptions, StrokeTessellator, StrokeVertex,
-    StrokeVertexConstructor, VertexBuffers,
+    BuffersBuilder, FillOptions, FillTessellator, FillVertex, FillVertexConstructor, LineCap,
+    LineJoin, StrokeOptions, StrokeTessellator, StrokeVertex, StrokeVertexConstructor,
+    VertexBuffers,
 };
 use lyon::path::builder::BorderRadii;
 use lyon::path::Winding;
@@ -875,7 +875,7 @@ impl MultiMarkRenderer {
                 stroke,
                 stroke_width,
             )|
-             -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> { 
+             -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
                 // Compute bounding box
                 let bbox = bounding_box(&path);
 
@@ -937,58 +937,62 @@ impl MultiMarkRenderer {
         origin: [f32; 2],
         clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
-        let verts_inds = izip!(
-            mark.image_iter(),
-            mark.transformed_path_iter(origin)
-        ).map(|(img, path)| -> Result<(usize, Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-            let Some(rgba_image) = img.to_image() else {
-                return Err(AvengerWgpuError::ConversionError("Failed to convert raw image to rgba image".to_string()))
-            };
+        let verts_inds = izip!(mark.image_iter(), mark.transformed_path_iter(origin))
+            .map(
+                |(img, path)| -> Result<(usize, Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+                    let Some(rgba_image) = img.to_image() else {
+                        return Err(AvengerWgpuError::ConversionError(
+                            "Failed to convert raw image to rgba image".to_string(),
+                        ));
+                    };
 
-            let (atlas_index, tex_coords) = self.image_atlas_builder.register_image(&rgba_image)?;
+                    let (atlas_index, tex_coords) =
+                        self.image_atlas_builder.register_image(&rgba_image)?;
 
-            // Get bounding box of path
-            let bbox = bounding_box(&path);
-            let left = bbox.min.x;
-            let top = bbox.min.y;
-            let width = bbox.max.x - bbox.min.x;
-            let height = bbox.max.y - bbox.min.y;
+                    // Get bounding box of path
+                    let bbox = bounding_box(&path);
+                    let left = bbox.min.x;
+                    let top = bbox.min.y;
+                    let width = bbox.max.x - bbox.min.x;
+                    let height = bbox.max.y - bbox.min.y;
 
-            let top_left = [top, left];
-            let bottom_right = [top + height, left + width];
-            let verts = vec![
-                // Upper left
-                MultiVertex {
-                    color: [IMAGE_TEXTURE_CODE, tex_coords.x0, tex_coords.y0, 0.0],
-                    position: [left, top],
-                    top_left,
-                    bottom_right,
+                    let top_left = [top, left];
+                    let bottom_right = [top + height, left + width];
+                    let verts = vec![
+                        // Upper left
+                        MultiVertex {
+                            color: [IMAGE_TEXTURE_CODE, tex_coords.x0, tex_coords.y0, 0.0],
+                            position: [left, top],
+                            top_left,
+                            bottom_right,
+                        },
+                        // Lower left
+                        MultiVertex {
+                            color: [IMAGE_TEXTURE_CODE, tex_coords.x0, tex_coords.y1, 0.0],
+                            position: [left, top + height],
+                            top_left,
+                            bottom_right,
+                        },
+                        // Lower right
+                        MultiVertex {
+                            color: [IMAGE_TEXTURE_CODE, tex_coords.x1, tex_coords.y1, 0.0],
+                            position: [left + width, top + height],
+                            top_left,
+                            bottom_right,
+                        },
+                        // Upper right
+                        MultiVertex {
+                            color: [IMAGE_TEXTURE_CODE, tex_coords.x1, tex_coords.y0, 0.0],
+                            position: [left + width, top],
+                            top_left,
+                            bottom_right,
+                        },
+                    ];
+                    let indices: Vec<u32> = vec![0, 1, 2, 0, 2, 3];
+                    Ok((atlas_index, verts, indices))
                 },
-                // Lower left
-                MultiVertex {
-                    color: [IMAGE_TEXTURE_CODE, tex_coords.x0, tex_coords.y1, 0.0],
-                    position: [left, top + height],
-                    top_left,
-                    bottom_right,
-                },
-                // Lower right
-                MultiVertex {
-                    color: [IMAGE_TEXTURE_CODE, tex_coords.x1, tex_coords.y1, 0.0],
-                    position: [left + width, top + height],
-                    top_left,
-                    bottom_right,
-                },
-                // Upper right
-                MultiVertex {
-                    color: [IMAGE_TEXTURE_CODE, tex_coords.x1, tex_coords.y0, 0.0],
-                    position: [left + width, top],
-                    top_left,
-                    bottom_right,
-                },
-            ];
-            let indices: Vec<u32> = vec![0, 1, 2, 0, 2, 3];
-            Ok((atlas_index, verts, indices))
-        }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
+            )
+            .collect::<Result<Vec<_>, AvengerWgpuError>>()?;
 
         // Construct batches, one batch per image atlas index
         let start_ind = self.num_indices() as u32;
