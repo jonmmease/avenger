@@ -1,6 +1,13 @@
+use geo::BooleanOps;
+// use geo_booleanop::boolean::BooleanOp;
 use geo_types::{Coord, Geometry, LineString, MultiLineString, MultiPolygon, Point, Polygon};
+use lyon_path::geom::euclid::{Point2D, UnknownUnit};
 use lyon_path::iterator::PathIterator;
-use lyon_path::{Path, PathEvent};
+use lyon_path::{LineCap, LineJoin, Path, PathEvent};
+use lyon_tessellation::{
+    geometry_builder::{simple_builder, VertexBuffers},
+    StrokeOptions, StrokeTessellator,
+};
 
 pub trait IntoGeoType {
     /// Convert the path into a geo-types geometry
@@ -11,6 +18,14 @@ pub trait IntoGeoType {
     /// * `filled` - If true, treat all paths as filled polygons by forcing closure.
     ///             If false, treat all paths as lines
     fn as_geo_type(&self, tolerance: f32, filled: bool) -> Geometry<f32>;
+
+    /// Convert a trail path with variable width into a geo-types geometry
+    ///
+    /// # Arguments
+    ///
+    /// * `tolerance` - The tolerance to use when flattening curves
+    /// * `size_attribute_index` - Index of the size attribute in the path's attributes
+    fn trail_as_geo_type(&self, tolerance: f32, size_attribute_index: usize) -> Geometry<f32>;
 }
 
 impl IntoGeoType for Path {
@@ -121,6 +136,73 @@ impl IntoGeoType for Path {
                 1 => Geometry::LineString(lines.into_iter().next().unwrap()),
                 _ => Geometry::MultiLineString(MultiLineString(lines)),
             }
+        }
+    }
+
+    fn trail_as_geo_type(&self, tolerance: f32, size_attribute_index: usize) -> Geometry<f32> {
+        let mut stroke_tessellator = StrokeTessellator::new();
+        let mut buffers: VertexBuffers<Point2D<f32, UnknownUnit>, u16> = VertexBuffers::new();
+
+        // Configure stroke options with variable width
+        let stroke_options = StrokeOptions::default()
+            .with_tolerance(tolerance)
+            .with_line_join(LineJoin::Round)
+            .with_line_cap(LineCap::Round)
+            .with_variable_line_width(size_attribute_index);
+
+        // Tessellate into triangles
+        if let Ok(()) = stroke_tessellator.tessellate_path(
+            self,
+            &stroke_options,
+            &mut simple_builder(&mut buffers),
+        ) {
+            // Convert triangles to polygons
+            let mut polygons = Vec::new();
+            let vertices = &buffers.vertices;
+
+            // Process triangles in groups of 3 indices
+            for triangle in buffers.indices.chunks(3) {
+                if triangle.len() == 3 {
+                    let coords = vec![
+                        Coord {
+                            x: vertices[triangle[0] as usize].x as f32,
+                            y: vertices[triangle[0] as usize].y as f32,
+                        },
+                        Coord {
+                            x: vertices[triangle[1] as usize].x as f32,
+                            y: vertices[triangle[1] as usize].y as f32,
+                        },
+                        Coord {
+                            x: vertices[triangle[2] as usize].x as f32,
+                            y: vertices[triangle[2] as usize].y as f32,
+                        },
+                        // Close the polygon by repeating first point
+                        Coord {
+                            x: vertices[triangle[0] as usize].x as f32,
+                            y: vertices[triangle[0] as usize].y as f32,
+                        },
+                    ];
+
+                    polygons.push(Polygon::new(LineString::new(coords), vec![]));
+                }
+            }
+
+            // Union all polygons together
+            if let Some(first) = polygons.pop() {
+                let result = polygons
+                    .into_iter()
+                    .fold(MultiPolygon::from(first), |acc, poly| acc.union(&poly));
+                match result.0.len() {
+                    0 => Geometry::Point(Point::new(0.0, 0.0)),
+                    1 => Geometry::Polygon(result.0[0].clone()),
+                    _ => Geometry::MultiPolygon(result),
+                }
+            } else {
+                Geometry::Point(Point::new(0.0, 0.0))
+            }
+        } else {
+            // Fallback to point if tessellation fails
+            Geometry::Point(Point::new(0.0, 0.0))
         }
     }
 }
@@ -471,6 +553,61 @@ mod tests {
                 assert_eq!(multi_line.0[1].coords().count(), 3); // Not closed in unfilled mode
             }
             _ => panic!("Expected MultiLineString"),
+        }
+    }
+
+    #[test]
+    fn test_variable_width_trail_single_segment() {
+        let mut builder = Path::builder_with_attributes(1);
+
+        // Create a simple path with varying width
+        builder.begin(point(0.0, 0.0), &[1.0]);
+        builder.line_to(point(1.0, 1.0), &[2.0]);
+        builder.line_to(point(2.0, 0.0), &[0.5]);
+        builder.line_to(point(3.0, 1.0), &[3.0]);
+        builder.end(false);
+
+        let path = builder.build();
+
+        // Convert to geometry with size attribute at index 0
+        let geometry = path.trail_as_geo_type(0.1, 0);
+
+        match geometry {
+            Geometry::Polygon(p) => {
+                assert!(
+                    !p.exterior().0.is_empty(),
+                    "Polygon exterior should contain at least one point"
+                );
+            }
+            _ => panic!("Expected MultiPolygon geometry"),
+        }
+    }
+
+    #[test]
+    fn test_variable_width_trail_multiple_segments() {
+        let mut builder = Path::builder_with_attributes(1);
+
+        // Create a simple path with varying width
+        builder.begin(point(0.0, 0.0), &[1.0]);
+        builder.line_to(point(1.0, 1.0), &[2.0]);
+        builder.line_to(point(2.0, 0.0), &[0.5]);
+        builder.end(false);
+
+        builder.begin(point(4.0, 1.0), &[3.0]);
+        builder.line_to(point(5.0, 2.0), &[2.0]);
+        builder.line_to(point(6.0, 0.0), &[1.0]);
+        builder.end(false);
+
+        let path = builder.build();
+
+        // Convert to geometry with size attribute at index 0
+        let geometry = path.trail_as_geo_type(0.1, 0);
+
+        match geometry {
+            Geometry::MultiPolygon(mp) => {
+                assert_eq!(mp.0.len(), 2, "Should contain two polygons");
+            }
+            _ => panic!("Expected MultiPolygon geometry"),
         }
     }
 }

@@ -3,5 +3,9 @@ name = "avenger-common"
 version = "0.0.8"
 edition = "2021"
 
+[features]
+serde = ["dep:serde"]
+default = ["serde"]
+
 [dependencies]
-serde = { workspace = true }
+serde = { workspace = true, optional = true }

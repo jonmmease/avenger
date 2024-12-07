@@ -2,7 +2,7 @@ use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::CssColorOrGradient;
 use avenger_common::value::{ColorOrGradient, Gradient, ScalarOrArray, StrokeCap, StrokeJoin};
-use avenger_scenegraph::error::AvengerError;
+use avenger_scenegraph::error::AvengerSceneGraphError;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::path::{PathTransform, ScenePathMark};
 use avenger_scenegraph::marks::symbol::parse_svg_path;
@@ -137,7 +137,7 @@ impl VegaMarkContainer<VegaPathItem> {
             let paths = path_str
                 .iter()
                 .map(|p| parse_svg_path(p))
-                .collect::<Result<Vec<_>, AvengerError>>()?;
+                .collect::<Result<Vec<_>, AvengerSceneGraphError>>()?;
 
             mark.path = ScalarOrArray::Array(paths);
         }

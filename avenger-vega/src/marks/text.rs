@@ -3,9 +3,8 @@ use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::MissingNullOrValue;
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::text::{
-    FontStyleSpec, FontWeightSpec, SceneTextMark, TextAlignSpec, TextBaselineSpec,
-};
+use avenger_scenegraph::marks::text::SceneTextMark;
+use avenger_text::types::{FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 

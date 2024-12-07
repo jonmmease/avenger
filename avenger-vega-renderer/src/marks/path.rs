@@ -1,6 +1,6 @@
 use crate::marks::util::{decode_colors, decode_gradients, zindex_to_indices};
 use avenger_common::value::ScalarOrArray;
-use avenger_scenegraph::error::AvengerError;
+use avenger_scenegraph::error::AvengerSceneGraphError;
 use avenger_scenegraph::marks::path::{PathTransform, ScenePathMark as RsPathMark};
 use avenger_scenegraph::marks::symbol::parse_svg_path;
 use gloo_utils::format::JsValueSerdeExt;
@@ -67,7 +67,7 @@ impl PathMark {
         let unique_paths = svg_paths
             .iter()
             .map(|s| parse_svg_path(s))
-            .collect::<Result<Vec<_>, AvengerError>>()
+            .collect::<Result<Vec<_>, AvengerSceneGraphError>>()
             .map_err(|_| JsError::new("Failed to parse shapes"))?;
 
         let paths = indices

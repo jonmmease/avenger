@@ -2,7 +2,7 @@ use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::{CssColorOrGradient, StrokeDashSpec};
 use avenger_common::value::{ColorOrGradient, Gradient, ScalarOrArray, StrokeCap, StrokeJoin};
-use avenger_scenegraph::error::AvengerError;
+use avenger_scenegraph::error::AvengerSceneGraphError;
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::line::SceneLineMark;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -195,7 +195,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
             mark.shapes = shape_strings
                 .iter()
                 .map(|s| SymbolShape::from_vega_str(s))
-                .collect::<Result<Vec<SymbolShape>, AvengerError>>()?;
+                .collect::<Result<Vec<SymbolShape>, AvengerSceneGraphError>>()?;
         }
 
         // Add gradients

@@ -1,4 +1,9 @@
 use avenger_common::value::{ColorOrGradient, Gradient, ScalarOrArray};
+use avenger_geometry::{lyon_to_geo::IntoGeoType, GeometryInstance};
+use geo::{Coord, Geometry, Rect};
+use itertools::izip;
+use lyon_extra::euclid::Point2D;
+use lyon_path::{builder::BorderRadii, geom::Box2D, Path, Winding};
 use serde::{Deserialize, Serialize};
 
 use super::mark::SceneMark;
@@ -160,6 +165,105 @@ impl SceneRectMark {
     pub fn corner_radius_vec(&self) -> Vec<f32> {
         self.corner_radius
             .as_vec(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn indices_iter(&self) -> Box<dyn Iterator<Item = usize> + '_> {
+        if let Some(indices) = self.indices.as_ref() {
+            Box::new(indices.iter().cloned())
+        } else {
+            Box::new((0..self.len as usize).into_iter())
+        }
+    }
+
+    pub fn transformed_path_iter(&self, origin: [f32; 2]) -> Box<dyn Iterator<Item = Path> + '_> {
+        Box::new(
+            izip!(
+                self.x_iter(),
+                self.y_iter(),
+                self.x2_iter(),
+                self.y2_iter(),
+                self.corner_radius_iter()
+            )
+            .map(move |(x, y, x2, y2, corner_radius)| {
+                // Create rect path
+                let mut path_builder = Path::builder();
+                let x0 = f32::min(*x + origin[0], x2 + origin[0]);
+                let x1 = f32::max(*x + origin[0], x2 + origin[0]);
+                let y0 = f32::min(*y + origin[1], y2 + origin[1]);
+                let y1 = f32::max(*y + origin[1], y2 + origin[1]);
+
+                if *corner_radius > 0.0 {
+                    path_builder.add_rounded_rectangle(
+                        &Box2D::new(Point2D::new(x0, y0), Point2D::new(x1, y1)),
+                        &BorderRadii {
+                            top_left: *corner_radius,
+                            top_right: *corner_radius,
+                            bottom_left: *corner_radius,
+                            bottom_right: *corner_radius,
+                        },
+                        Winding::Positive,
+                    );
+                } else {
+                    path_builder.add_rectangle(
+                        &Box2D::new(Point2D::new(x0, y0), Point2D::new(x1, y1)),
+                        Winding::Positive,
+                    );
+                }
+
+                path_builder.build()
+            }),
+        )
+    }
+
+    pub fn geometry_iter(&self) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
+        if self.corner_radius.equals_scalar(0.0) {
+            // Simple case where we don't need to build lyon paths first
+            Box::new(
+                izip!(
+                    self.indices_iter(),
+                    self.x_iter(),
+                    self.y_iter(),
+                    self.x2_iter(),
+                    self.y2_iter(),
+                    self.stroke_width_iter()
+                )
+                .map(|(id, x, y, x2, y2, stroke_width)| {
+                    // Create rect geometry
+                    let x0 = f32::min(*x, x2);
+                    let x1 = f32::max(*x, x2);
+                    let y0 = f32::min(*y, y2);
+                    let y1 = f32::max(*y, y2);
+
+                    let geometry = Geometry::Rect(Rect::<f32>::new(
+                        Coord { x: x0, y: y0 },
+                        Coord { x: x1, y: y1 },
+                    ));
+                    GeometryInstance {
+                        id,
+                        geometry,
+                        half_stroke_width: *stroke_width / 2.0,
+                    }
+                }),
+            )
+        } else {
+            // General case
+            Box::new(
+                izip!(
+                    self.indices_iter(),
+                    self.transformed_path_iter([0.0, 0.0]),
+                    self.stroke_width_iter()
+                )
+                .map(move |(id, path, stroke_width)| {
+                    let half_stroke_width = stroke_width / 2.0;
+                    let geometry = path.as_geo_type(0.1, true);
+                    GeometryInstance {
+                        id,
+                        geometry,
+                        half_stroke_width,
+                    }
+                }),
+            )
+        }
     }
 }
 

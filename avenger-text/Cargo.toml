@@ -1,0 +1,26 @@
+[package]
+name = "avenger-text"
+version = "0.0.8"
+edition = "2021"
+
+[features]
+serde = ["dep:serde"]
+cosmic-text = ["dep:cosmic-text", "lazy_static"]
+rasterization = ["dep:image"]
+
+default = ["serde", "cosmic-text", "rasterization"]
+
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true, optional = true }
+image = { workspace = true, optional = true }
+
+avenger-common = { path = "../avenger-common" }
+
+[dependencies.cosmic-text]
+workspace = true
+optional = true
+
+[dependencies.lazy_static]
+workspace = true
+optional = true

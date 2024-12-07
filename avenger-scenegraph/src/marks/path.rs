@@ -1,5 +1,11 @@
 use avenger_common::value::{ColorOrGradient, Gradient, ScalarOrArray, StrokeCap, StrokeJoin};
-use lyon_path::geom::euclid::{Transform2D, UnknownUnit};
+use avenger_geometry::{lyon_to_geo::IntoGeoType, GeometryInstance};
+use itertools::izip;
+use lyon_extra::euclid::Vector2D;
+use lyon_path::{
+    geom::euclid::{Transform2D, UnknownUnit},
+    Path,
+};
 use serde::{Deserialize, Serialize};
 
 use super::mark::SceneMark;
@@ -58,6 +64,39 @@ impl ScenePathMark {
     pub fn transform_vec(&self) -> Vec<PathTransform> {
         self.transform
             .as_vec(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn indices_iter(&self) -> Box<dyn Iterator<Item = usize> + '_> {
+        if let Some(indices) = self.indices.as_ref() {
+            Box::new(indices.iter().cloned())
+        } else {
+            Box::new((0..self.len as usize).into_iter())
+        }
+    }
+
+    pub fn transformed_path_iter(&self, origin: [f32; 2]) -> Box<dyn Iterator<Item = Path> + '_> {
+        Box::new(
+            izip!(self.path_iter(), self.transform_iter()).map(move |(path, transform)| {
+                path.clone()
+                    .transformed(&transform.then_translate(Vector2D::new(origin[0], origin[1])))
+            }),
+        )
+    }
+
+    pub fn geometry_iter(&self) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
+        let half_stroke_width = self.stroke_width.unwrap_or(0.0) / 2.0;
+        Box::new(
+            izip!(self.indices_iter(), self.transformed_path_iter([0.0, 0.0])).map(
+                move |(id, path)| {
+                    let geometry = path.as_geo_type(0.1, true);
+                    GeometryInstance {
+                        id,
+                        geometry,
+                        half_stroke_width,
+                    }
+                },
+            ),
+        )
     }
 }
 

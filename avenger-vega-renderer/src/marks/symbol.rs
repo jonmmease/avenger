@@ -1,6 +1,6 @@
 use crate::marks::util::{decode_colors, decode_gradients, zindex_to_indices};
 use avenger_common::value::ScalarOrArray;
-use avenger_scenegraph::error::AvengerError;
+use avenger_scenegraph::error::AvengerSceneGraphError;
 use avenger_scenegraph::marks::symbol::{SceneSymbolMark as RsSymbolMark, SymbolShape};
 use gloo_utils::format::JsValueSerdeExt;
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -127,7 +127,7 @@ impl SymbolMark {
         let shapes = shapes
             .iter()
             .map(|s| SymbolShape::from_vega_str(s))
-            .collect::<Result<Vec<_>, AvengerError>>()
+            .collect::<Result<Vec<_>, AvengerSceneGraphError>>()
             .map_err(|_| JsError::new("Failed to parse shapes"))?;
 
         self.inner.shapes = shapes;

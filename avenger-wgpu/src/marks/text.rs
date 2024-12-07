@@ -1,16 +1,30 @@
-use crate::canvas::CanvasDimensions;
 use crate::error::AvengerWgpuError;
 use crate::marks::multi::{MultiVertex, TEXT_TEXTURE_CODE};
+use avenger_common::canvas::CanvasDimensions;
 use avenger_scenegraph::marks::path::PathTransform;
-use avenger_scenegraph::marks::text::{
-    FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec,
-};
+use avenger_text::rasterization::{GlyphBBox, TextRasterizationConfig, TextRasterizer};
+use avenger_text::types::{FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
 use etagere::euclid::{Angle, Point2D, Vector2D};
 use image::DynamicImage;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::Arc;
 use wgpu::Extent3d;
+
+#[derive(Clone)]
+pub struct GlyphBBoxAndAtlasCoords {
+    pub bbox: GlyphBBox,
+    pub tex_coords: TextAtlasCoords,
+}
+
+// Position of glyph in text atlas
+#[derive(Copy, Clone)]
+pub struct TextAtlasCoords {
+    pub x0: f32,
+    pub y0: f32,
+    pub x1: f32,
+    pub y1: f32,
+}
 
 pub trait TextAtlasBuilderTrait {
     fn register_text(
@@ -49,8 +63,11 @@ impl TextAtlasBuilderTrait for NullTextAtlasBuilder {
 }
 
 #[derive(Clone)]
-pub struct TextAtlasBuilder<CacheKey: Hash + Eq + Clone> {
-    rasterizer: Arc<dyn TextRasterizer<CacheKey = CacheKey>>,
+pub struct TextAtlasBuilder<CacheKey>
+where
+    CacheKey: Hash + Eq + Clone,
+{
+    rasterizer: Arc<dyn TextRasterizer<CacheKey = CacheKey, CacheValue = GlyphBBoxAndAtlasCoords>>,
     extent: Extent3d,
     next_atlas: image::RgbaImage,
     next_cache: HashMap<CacheKey, GlyphBBoxAndAtlasCoords>,
@@ -59,8 +76,15 @@ pub struct TextAtlasBuilder<CacheKey: Hash + Eq + Clone> {
     allocator: etagere::AtlasAllocator,
 }
 
-impl<CacheKey: Hash + Eq + Clone> TextAtlasBuilder<CacheKey> {
-    pub fn new(rasterizer: Arc<dyn TextRasterizer<CacheKey = CacheKey>>) -> Self {
+impl<CacheKey> TextAtlasBuilder<CacheKey>
+where
+    CacheKey: Hash + Eq + Clone,
+{
+    pub fn new(
+        rasterizer: Arc<
+            dyn TextRasterizer<CacheKey = CacheKey, CacheValue = GlyphBBoxAndAtlasCoords>,
+        >,
+    ) -> Self {
         Self {
             rasterizer,
             extent: Extent3d {
@@ -76,8 +100,10 @@ impl<CacheKey: Hash + Eq + Clone> TextAtlasBuilder<CacheKey> {
         }
     }
 }
-
-impl<CacheKey: Hash + Eq + Clone> TextAtlasBuilderTrait for TextAtlasBuilder<CacheKey> {
+impl<CacheKey> TextAtlasBuilderTrait for TextAtlasBuilder<CacheKey>
+where
+    CacheKey: Hash + Eq + Clone + 'static,
+{
     fn register_text(
         &mut self,
         text: TextInstance,
@@ -113,25 +139,22 @@ impl<CacheKey: Hash + Eq + Clone> TextAtlasBuilderTrait for TextAtlasBuilder<Cac
         let angle = text.angle;
 
         let buffer = self.rasterizer.rasterize(
-            dimensions,
-            &TextRasterizationConfig::from(text),
+            &dimensions,
+            &TextRasterizationConfig {
+                text: text.text,
+                color: text.color,
+                font: text.font,
+                font_size: text.font_size,
+                font_weight: text.font_weight,
+                font_style: text.font_style,
+                limit: text.limit,
+            },
             &self.next_cache,
         )?;
 
-        let buffer_left = match align {
-            TextAlignSpec::Left => position[0],
-            TextAlignSpec::Center => position[0] - buffer.buffer_width / 2.0,
-            TextAlignSpec::Right => position[0] - buffer.buffer_width,
-        };
-
-        let buffer_top = match baseline {
-            TextBaselineSpec::Alphabetic => position[1] - buffer.buffer_line_y,
-            TextBaselineSpec::Top => position[1],
-            TextBaselineSpec::Middle => position[1] - buffer.buffer_height * 0.5,
-            TextBaselineSpec::Bottom => position[1] - buffer.buffer_height,
-            TextBaselineSpec::LineTop => todo!(),
-            TextBaselineSpec::LineBottom => todo!(),
-        };
+        let [buffer_left, buffer_top] = buffer
+            .text_bounds
+            .calculate_origin(position, &align, &baseline);
 
         // Build rotation_transform
         let rotation_transform = if angle != 0.0 {
@@ -246,7 +269,7 @@ impl<CacheKey: Hash + Eq + Clone> TextAtlasBuilderTrait for TextAtlasBuilder<Cac
             // Create verts for rectangle around glyph
             let bbox = &glyph_bbox_and_atlas_coords.bbox;
             let x0 = (phys_position.x + bbox.left as f32) / dimensions.scale + buffer_left;
-            let y0 = (buffer.buffer_line_y).round()
+            let y0 = (buffer.text_bounds.ascent).ceil()
                 + (phys_position.y - bbox.top as f32) / dimensions.scale
                 + buffer_top;
             let x1 = x0 + bbox.width as f32 / dimensions.scale;
@@ -345,96 +368,4 @@ pub struct TextInstance<'a> {
     pub font_weight: &'a FontWeightSpec,
     pub font_style: &'a FontStyleSpec,
     pub limit: f32,
-}
-
-// Position of glyph in text buffer
-#[derive(Debug, Clone)]
-pub struct PhysicalGlyphPosition {
-    pub x: f32,
-    pub y: f32,
-}
-
-// Position of glyph in text atlas
-#[derive(Copy, Clone)]
-pub struct TextAtlasCoords {
-    pub x0: f32,
-    pub y0: f32,
-    pub x1: f32,
-    pub y1: f32,
-}
-
-// Glyph bounding box relative to glyph origin
-#[derive(Clone, Copy)]
-pub struct GlyphBBox {
-    pub top: i32,
-    pub left: i32,
-    pub width: u32,
-    pub height: u32,
-}
-
-#[derive(Clone)]
-pub struct GlyphImage<CacheKey: Hash + Eq + Clone> {
-    pub cache_key: CacheKey,
-    // None if image for same CacheKey was already included
-    pub image: Option<image::RgbaImage>,
-    pub bbox: GlyphBBox,
-}
-
-impl<CacheKey: Hash + Eq + Clone> GlyphImage<CacheKey> {
-    pub fn without_image(&self) -> Self {
-        Self {
-            cache_key: self.cache_key.clone(),
-            image: None,
-            bbox: self.bbox,
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct GlyphBBoxAndAtlasCoords {
-    pub bbox: GlyphBBox,
-    pub tex_coords: TextAtlasCoords,
-}
-
-#[derive(Debug, Clone)]
-pub struct TextRasterizationConfig<'a> {
-    pub text: &'a String,
-    pub color: &'a [f32; 4],
-    pub font: &'a String,
-    pub font_size: f32,
-    pub font_weight: &'a FontWeightSpec,
-    pub font_style: &'a FontStyleSpec,
-    pub limit: f32,
-}
-
-impl<'a> From<TextInstance<'a>> for TextRasterizationConfig<'a> {
-    fn from(value: TextInstance<'a>) -> Self {
-        Self {
-            text: value.text,
-            color: value.color,
-            font: value.font,
-            font_size: value.font_size,
-            font_weight: value.font_weight,
-            font_style: value.font_style,
-            limit: value.limit,
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct TextRasterizationBuffer<CacheKey: Hash + Eq + Clone> {
-    pub glyphs: Vec<(GlyphImage<CacheKey>, PhysicalGlyphPosition)>,
-    pub buffer_width: f32,
-    pub buffer_height: f32,
-    pub buffer_line_y: f32,
-}
-
-pub trait TextRasterizer {
-    type CacheKey: Hash + Eq + Clone;
-    fn rasterize(
-        &self,
-        dimensions: CanvasDimensions,
-        config: &TextRasterizationConfig,
-        cached_glyphs: &HashMap<Self::CacheKey, GlyphBBoxAndAtlasCoords>,
-    ) -> Result<TextRasterizationBuffer<Self::CacheKey>, AvengerWgpuError>;
 }

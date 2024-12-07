@@ -1,4 +1,8 @@
 use avenger_common::value::ScalarOrArray;
+use avenger_geometry::GeometryInstance;
+use avenger_text::types::{
+    FontStyleSpec, FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec,
+};
 use serde::{Deserialize, Serialize};
 
 use super::mark::SceneMark;
@@ -66,6 +70,46 @@ impl SceneTextMark {
     pub fn limit_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
         self.limit.as_iter(self.len as usize, self.indices.as_ref())
     }
+
+    pub fn indices_iter(&self) -> Box<dyn Iterator<Item = usize> + '_> {
+        if let Some(indices) = self.indices.as_ref() {
+            Box::new(indices.iter().cloned())
+        } else {
+            Box::new((0..self.len as usize).into_iter())
+        }
+    }
+
+    pub fn geometry_iter(&self) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
+        todo!()
+        // // Simple case where we don't need to build lyon paths first
+        // Box::new(
+        //     izip!(
+        //         self.indices_iter(),
+        //         self.x_iter(),
+        //         self.y_iter(),
+        //         self.x2_iter(),
+        //         self.y2_iter(),
+        //         self.stroke_width_iter()
+        //     )
+        //     .map(|(id, x, y, x2, y2, stroke_width)| {
+        //         // Create rect geometry
+        //         let x0 = f32::min(*x, x2);
+        //         let x1 = f32::max(*x, x2);
+        //         let y0 = f32::min(*y, y2);
+        //         let y1 = f32::max(*y, y2);
+
+        //         let geometry = Geometry::Rect(Rect::<f32>::new(
+        //             Coord { x: x0, y: y0 },
+        //             Coord { x: x1, y: y1 },
+        //         ));
+        //         GeometryInstance {
+        //             id,
+        //             geometry,
+        //             half_stroke_width: *stroke_width / 2.0,
+        //         }
+        //     }),
+        // )
+    }
 }
 
 impl Default for SceneTextMark {
@@ -90,56 +134,6 @@ impl Default for SceneTextMark {
             zindex: None,
         }
     }
-}
-
-#[derive(Default, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TextAlignSpec {
-    #[default]
-    Left,
-    Center,
-    Right,
-}
-
-#[derive(Default, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum TextBaselineSpec {
-    Alphabetic,
-    Top,
-    Middle,
-    #[default]
-    Bottom,
-    LineTop,
-    LineBottom,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum FontWeightSpec {
-    Name(FontWeightNameSpec),
-    Number(f32),
-}
-
-impl Default for FontWeightSpec {
-    fn default() -> Self {
-        Self::Name(FontWeightNameSpec::Normal)
-    }
-}
-
-#[derive(Default, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum FontWeightNameSpec {
-    #[default]
-    Normal,
-    Bold,
-}
-
-#[derive(Default, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum FontStyleSpec {
-    #[default]
-    Normal,
-    Italic,
 }
 
 impl From<SceneTextMark> for SceneMark {

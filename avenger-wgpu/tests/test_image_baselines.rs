@@ -1,6 +1,7 @@
-use avenger_wgpu::register_font_directory;
 use std::path::Path;
 use std::sync::Once;
+
+use avenger_text::measurement::cosmic::register_font_directory;
 
 static INIT: Once = Once::new();
 
@@ -20,7 +21,7 @@ mod test_image_baselines {
     use crate::initialize;
     use avenger_scenegraph::scene_graph::SceneGraph;
     use avenger_vega::scene_graph::VegaSceneGraph;
-    use avenger_wgpu::canvas::{Canvas, CanvasDimensions, PngCanvas};
+    use avenger_wgpu::canvas::{Canvas, PngCanvas};
     use dssim::Dssim;
     use rstest::rstest;
     use std::fs;
@@ -183,6 +184,8 @@ mod test_image_baselines {
         case("clip", "bar_rounded", 0.02),
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {
+        use avenger_common::canvas::CanvasDimensions;
+
         initialize();
 
         println!("{spec_name}");
