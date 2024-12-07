@@ -6,6 +6,9 @@ extern crate lazy_static;
 #[cfg(feature = "cosmic-text")]
 pub mod cosmic;
 
+#[cfg(target_arch = "wasm32")]
+pub mod html_canvas;
+
 /// Core trait for text measurement functionality
 pub trait TextMeasurer: Send + Sync {
     /// Measures the bounding dimensions for a text string with given configuration
@@ -70,6 +73,16 @@ impl TextBounds {
         };
 
         [x, y]
+    }
+
+    pub fn empty() -> Self {
+        TextBounds {
+            width: 0.0,
+            height: 10.0,
+            ascent: 10.0 * 0.8,
+            descent: 10.0 * 0.2,
+            line_height: 10.0 * 1.2,
+        }
     }
 }
 

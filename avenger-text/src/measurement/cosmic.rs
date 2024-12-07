@@ -93,13 +93,7 @@ pub fn measure_text_buffer(buffer: &Buffer) -> TextBounds {
     let runs = buffer.layout_runs().collect::<Vec<_>>();
 
     if runs.is_empty() {
-        return TextBounds {
-            width: 0.0,
-            height: 10.0,
-            ascent: 10.0 * 0.8,
-            descent: 10.0 * 0.2,
-            line_height: 10.0 * 1.2,
-        };
+        return TextBounds::empty();
     }
 
     // Get metrics across all runs
