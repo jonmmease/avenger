@@ -6,10 +6,12 @@ use cosmic_text::SwashContent;
 use crate::{
     error::AvengerTextError,
     measurement::cosmic::{make_cosmic_text_buffer, measure_text_buffer},
-    rasterization::{GlyphImage, PhysicalGlyphPosition},
+    rasterization::PhysicalGlyphPosition,
 };
 
-use super::{GlyphBBox, TextRasterizationBuffer, TextRasterizationConfig, TextRasterizer};
+use super::{
+    GlyphBBox, GlyphData, TextRasterizationBuffer, TextRasterizationConfig, TextRasterizer,
+};
 
 use crate::measurement::cosmic::{FONT_SYSTEM, SWASH_CACHE};
 
@@ -50,7 +52,7 @@ where
             .expect("Failed to acquire lock on SWASH_CACHE");
 
         // Build image cache
-        let mut next_cache: HashMap<CosmicCacheKey, GlyphImage<CosmicCacheKey>> = HashMap::new();
+        let mut next_cache: HashMap<CosmicCacheKey, GlyphData<CosmicCacheKey>> = HashMap::new();
 
         let buffer = make_cosmic_text_buffer(
             &config.to_measurement_config(),
@@ -68,7 +70,7 @@ where
         ];
 
         // Initialize glyphs
-        let mut glyphs: Vec<(GlyphImage<CosmicCacheKey>, PhysicalGlyphPosition)> = Vec::new();
+        let mut glyphs: Vec<GlyphData<CosmicCacheKey>> = Vec::new();
 
         for run in buffer.layout_runs() {
             for glyph in run.glyphs.iter() {
@@ -85,7 +87,12 @@ where
                 if let Some(glyph_image) = next_cache.get(&cache_key) {
                     // Glyph has already been rasterized by this call to rasterize and the full image
                     // is already in the glyphs Vec, so we can store the reference only.
-                    glyphs.push((glyph_image.without_image(), phys_pos));
+                    glyphs.push(
+                        glyph_image
+                            .clone()
+                            .without_image_and_path()
+                            .with_physical_position(phys_pos),
+                    );
                 } else {
                     // We need to rasterize glyph and write it to next_atlas
                     let Some(image) = cache
@@ -115,14 +122,13 @@ where
                     if cached_glyphs.contains_key(&cache_key) {
                         // Glyph already rasterized by a prior call to rasterize(), so we can just
                         // store the cache key and position info.
-                        glyphs.push((
-                            GlyphImage {
-                                cache_key,
-                                image: None,
-                                bbox,
-                            },
-                            phys_pos,
-                        ));
+                        glyphs.push(GlyphData {
+                            cache_key,
+                            image: None,
+                            path: None,
+                            bbox,
+                            physical_position: phys_pos,
+                        });
                     } else {
                         let img = match image.content {
                             SwashContent::Color => {
@@ -179,21 +185,23 @@ where
                         };
 
                         // Create new glyph image
-                        let glyph_image = GlyphImage {
+                        let glyph_data = GlyphData {
                             cache_key: (physical_glyph.cache_key, text_color),
                             image: Some(img),
+                            path: None,
                             bbox: GlyphBBox {
                                 top: image.placement.top,
                                 left: image.placement.left,
                                 width: image.placement.width,
                                 height: image.placement.height,
                             },
+                            physical_position: phys_pos,
                         };
 
                         // Update cache
-                        next_cache.insert(cache_key, glyph_image.without_image());
+                        next_cache.insert(cache_key, glyph_data.clone().without_image_and_path());
 
-                        glyphs.push((glyph_image, phys_pos));
+                        glyphs.push(glyph_data);
                     }
                 };
             }

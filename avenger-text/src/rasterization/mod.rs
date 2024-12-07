@@ -72,8 +72,44 @@ impl<'a> TextRasterizationConfig<'a> {
 }
 
 #[derive(Clone)]
+pub struct GlyphData<CacheKey: Hash + Eq + Clone> {
+    pub cache_key: CacheKey,
+    // image and path are None if the CacheKey was already included
+    pub image: Option<image::RgbaImage>,
+    pub path: Option<lyon_path::Path>,
+    pub bbox: GlyphBBox,
+    pub physical_position: PhysicalGlyphPosition,
+}
+
+impl<CacheKey: Hash + Eq + Clone> GlyphData<CacheKey> {
+    pub fn without_image_and_path(self) -> Self {
+        Self {
+            cache_key: self.cache_key,
+            image: None,
+            path: None,
+            bbox: self.bbox,
+            physical_position: self.physical_position,
+        }
+    }
+
+    pub fn with_physical_position(self, physical_position: PhysicalGlyphPosition) -> Self {
+        Self {
+            physical_position,
+            ..self.clone()
+        }
+    }
+
+    pub fn with_bbox(self, bbox: GlyphBBox) -> Self {
+        Self {
+            bbox,
+            ..self.clone()
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct TextRasterizationBuffer<CacheKey: Hash + Eq + Clone> {
-    pub glyphs: Vec<(GlyphImage<CacheKey>, PhysicalGlyphPosition)>,
+    pub glyphs: Vec<GlyphData<CacheKey>>,
     pub text_bounds: TextBounds,
 }
 

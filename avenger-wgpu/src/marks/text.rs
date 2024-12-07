@@ -169,17 +169,17 @@ where
         let mut verts: Vec<MultiVertex> = Vec::new();
         let mut indices: Vec<u32> = Vec::new();
 
-        for (glyph_image, phys_position) in &buffer.glyphs {
+        for glyph_data in &buffer.glyphs {
             let glyph_bbox_and_atlas_coords =
-                if let Some(glyph_position) = self.next_cache.get(&glyph_image.cache_key) {
+                if let Some(glyph_position) = self.next_cache.get(&glyph_data.cache_key) {
                     // Glyph has already been written to atlas
                     glyph_position
                 } else {
                     // Allocate space in active atlas image, leaving space for 1 pixel empty border
                     let allocation = if let Some(allocation) =
                         self.allocator.allocate(etagere::Size::new(
-                            (glyph_image.bbox.width + 2) as i32,
-                            (glyph_image.bbox.height + 2) as i32,
+                            (glyph_data.bbox.width + 2) as i32,
+                            (glyph_data.bbox.height + 2) as i32,
                         )) {
                         // Successfully allocated space in the active atlas
                         allocation
@@ -216,8 +216,8 @@ where
 
                         // Try allocation again
                         if let Some(allocation) = self.allocator.allocate(etagere::Size::new(
-                            (glyph_image.bbox.width + 2) as i32,
-                            (glyph_image.bbox.height + 2) as i32,
+                            (glyph_data.bbox.width + 2) as i32,
+                            (glyph_data.bbox.height + 2) as i32,
                         )) {
                             allocation
                         } else {
@@ -231,11 +231,11 @@ where
                     // Use one pixel offset to avoid aliasing artifacts in linear interpolation
                     let p0 = allocation.rectangle.min;
                     let atlas_x0 = p0.x + 1;
-                    let atlas_x1 = atlas_x0 + glyph_image.bbox.width as i32;
+                    let atlas_x1 = atlas_x0 + glyph_data.bbox.width as i32;
                     let atlas_y0 = p0.y + 1;
-                    let atlas_y1 = atlas_y0 + glyph_image.bbox.height as i32;
+                    let atlas_y1 = atlas_y0 + glyph_data.bbox.height as i32;
 
-                    let Some(img) = glyph_image.image.as_ref() else {
+                    let Some(img) = glyph_data.image.as_ref() else {
                         return Err(AvengerWgpuError::TextError(
                             "Expected glyph image to be available on first use".to_string(),
                         ));
@@ -252,9 +252,9 @@ where
                     }
 
                     self.next_cache.insert(
-                        glyph_image.cache_key.clone(),
+                        glyph_data.cache_key.clone(),
                         GlyphBBoxAndAtlasCoords {
-                            bbox: glyph_image.bbox,
+                            bbox: glyph_data.bbox,
                             tex_coords: TextAtlasCoords {
                                 x0: (atlas_x0 as f32) / self.extent.width as f32,
                                 y0: (atlas_y0 as f32) / self.extent.height as f32,
@@ -263,14 +263,15 @@ where
                             },
                         },
                     );
-                    self.next_cache.get(&glyph_image.cache_key).unwrap()
+                    self.next_cache.get(&glyph_data.cache_key).unwrap()
                 };
 
             // Create verts for rectangle around glyph
             let bbox = &glyph_bbox_and_atlas_coords.bbox;
-            let x0 = (phys_position.x + bbox.left as f32) / dimensions.scale + buffer_left;
+            let x0 = (glyph_data.physical_position.x + bbox.left as f32) / dimensions.scale
+                + buffer_left;
             let y0 = (buffer.text_bounds.ascent).ceil()
-                + (phys_position.y - bbox.top as f32) / dimensions.scale
+                + (glyph_data.physical_position.y - bbox.top as f32) / dimensions.scale
                 + buffer_top;
             let x1 = x0 + bbox.width as f32 / dimensions.scale;
             let y1 = y0 + bbox.height as f32 / dimensions.scale;
