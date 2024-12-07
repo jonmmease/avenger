@@ -7,4 +7,4 @@ edition = "2021"
 avenger-scales = { path = "../avenger-scales" }
 avenger-common = { path = "../avenger-common" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
-
+avenger-text = { path = "../avenger-text" }
