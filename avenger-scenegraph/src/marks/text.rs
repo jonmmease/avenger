@@ -199,7 +199,8 @@ impl SceneTextMark {
                         text_poly = text_poly.union(&glyph_bbox_poly);
                     }
 
-                    let geometry = Geometry::MultiPolygon(text_poly);
+                    let geometry = Geometry::MultiPolygon(text_poly)
+                        .rotate_around_point(*angle, geo::Point::new(*x, *y));
 
                     GeometryInstance {
                         mark_index,
