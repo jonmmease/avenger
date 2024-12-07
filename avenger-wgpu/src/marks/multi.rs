@@ -13,7 +13,6 @@ use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::marks::rule::SceneRuleMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use avenger_scenegraph::marks::trail::SceneTrailMark;
-use avenger_text::rasterization::cosmic::CosmicTextRasterizer;
 use etagere::euclid::UnknownUnit;
 use image::DynamicImage;
 use itertools::izip;
@@ -36,7 +35,7 @@ use wgpu::{
 };
 
 // Import rayon prelude as required by par_izip.
-use crate::marks::text::{GlyphBBoxAndAtlasCoords, TextAtlasBuilderTrait, TextInstance};
+use crate::marks::text::{TextAtlasBuilderTrait, TextInstance};
 
 use avenger_scenegraph::marks::arc::SceneArcMark;
 use avenger_scenegraph::marks::group::Clip;
@@ -118,7 +117,9 @@ impl MultiMarkRenderer {
                 if #[cfg(feature = "cosmic-text")] {
                     use crate::marks::text::TextAtlasBuilder;
                     use std::sync::Arc;
-                    let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(CosmicTextRasterizer::<GlyphBBoxAndAtlasCoords>::new())));
+                    let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(
+                        avenger_text::rasterization::cosmic::CosmicTextRasterizer::<crate::marks::text::GlyphBBoxAndAtlasCoords>::new())
+                    ));
                 } else {
                     use crate::marks::text::NullTextAtlasBuilder;
                     let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(NullTextAtlasBuilder);
@@ -503,7 +504,7 @@ impl MultiMarkRenderer {
                     mark.fill_vec(),
                     mark.stroke_vec(),
                 ).map(|(path, fill, stroke)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                    build_verts_inds(path, &fill, &stroke)
+                    build_verts_inds(&path, &fill, &stroke)
                 }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
             } else {
                 let verts_inds = izip!(
@@ -511,7 +512,7 @@ impl MultiMarkRenderer {
                     mark.fill_iter(),
                     mark.stroke_iter(),
                 ).map(|(path, fill, stroke)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                    build_verts_inds(path, &fill, &stroke)
+                    build_verts_inds(&path, &fill, &stroke)
                 }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
             }
         }

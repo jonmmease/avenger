@@ -38,6 +38,8 @@ path = "../avenger-common"
 
 [dependencies.avenger-text]
 path = "../avenger-text"
+default-features = false
+features = ["rasterization",]
 
 [dependencies.rayon]
 workspace = true

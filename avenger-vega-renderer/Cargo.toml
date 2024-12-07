@@ -36,6 +36,10 @@ version = "0.0.8"
 path = "../avenger-scenegraph"
 version = "0.0.8"
 
+[dependencies.avenger-text]
+path = "../avenger-text"
+version = "0.0.8"
+
 [dependencies.avenger-wgpu]
 path = "../avenger-wgpu"
 default-features = false

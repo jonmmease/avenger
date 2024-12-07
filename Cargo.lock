@@ -455,6 +455,7 @@ dependencies = [
  "lazy_static",
  "serde",
  "thiserror 2.0.3",
+ "web-sys",
 ]
 
 [[package]]
@@ -487,6 +488,7 @@ version = "0.0.8"
 dependencies = [
  "avenger-common",
  "avenger-scenegraph",
+ "avenger-text",
  "avenger-vega",
  "avenger-wgpu",
  "console_error_panic_hook",

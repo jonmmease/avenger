@@ -1,6 +1,7 @@
+use avenger_common::canvas::CanvasDimensions;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_vega::scene_graph::VegaSceneGraph;
-use avenger_wgpu::canvas::{Canvas, CanvasDimensions, WindowCanvas};
+use avenger_wgpu::canvas::{Canvas, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, WindowEvent};

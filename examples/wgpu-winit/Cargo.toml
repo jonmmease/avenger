@@ -25,7 +25,7 @@ console_error_panic_hook = "0.1.6"
 console_log = "1.0"
 wgpu = { version = "0.19.3", features = ["webgl", "webgpu"]}
 wasm-bindgen = "0.2.92"
-wasm-bindgen-futures = "0.4.42"
+wasm-bindgen-futures = { version = "0.4.42" }
 web-sys = { version = "0.3.67", features = [
     "Document",
     "Window",

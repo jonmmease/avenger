@@ -1,5 +1,6 @@
 use crate::types::{FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
 
+#[cfg(feature = "cosmic-text")]
 extern crate lazy_static;
 
 #[cfg(feature = "cosmic-text")]
