@@ -87,6 +87,7 @@ impl SceneTextMark {
 
     pub fn geometry_iter(
         &self,
+        mark_index: usize,
         measurer: Arc<dyn TextMeasurer>,
         dimensions: &CanvasDimensions,
     ) -> Result<Box<dyn Iterator<Item = GeometryInstance> + '_>, AvengerTextError> {
@@ -147,7 +148,8 @@ impl SceneTextMark {
                         .rotate_around_point((*angle).to_radians(), geo::Point::new(*x, *y));
 
                     GeometryInstance {
-                        id,
+                        mark_index,
+                        instance_idx: Some(id),
                         geometry,
                         half_stroke_width: 0.0,
                     }

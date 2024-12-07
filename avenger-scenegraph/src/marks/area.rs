@@ -111,11 +111,12 @@ impl SceneAreaMark {
         path_builder.build()
     }
 
-    pub fn geometry(&self) -> GeometryInstance {
+    pub fn geometry(&self, mark_index: usize) -> GeometryInstance {
         let path = self.transformed_path([0.0, 0.0]);
         let half_stroke_width = self.stroke_width / 2.0;
         GeometryInstance {
-            id: 0,
+            mark_index,
+            instance_idx: None,
             geometry: path.as_geo_type(half_stroke_width, true),
             half_stroke_width,
         }

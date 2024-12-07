@@ -3,7 +3,6 @@ use crate::marks::path::PathTransform;
 use avenger_common::value::{ColorOrGradient, Gradient, ScalarOrArray};
 use avenger_geometry::geo_types::Geometry;
 use avenger_geometry::lyon_to_geo::IntoGeoType;
-use avenger_geometry::rtree::MarkRTree;
 use avenger_geometry::GeometryInstance;
 use geo::{Rotate as GeoRotate, Scale as GeoScale, Translate as GeoTranslate};
 use itertools::izip;
@@ -127,7 +126,10 @@ impl SceneSymbolMark {
         )
     }
 
-    pub fn geometry_iter(&self) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
+    pub fn geometry_iter(
+        &self,
+        mark_index: usize,
+    ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let symbol_geometries: Vec<_> = self.shapes.iter().map(|symbol| symbol.as_geo()).collect();
         let half_stroke_width = self.stroke_width.unwrap_or(0.0) / 2.0;
         Box::new(
@@ -139,7 +141,7 @@ impl SceneSymbolMark {
                 self.angle_iter(),
                 self.shape_index_iter()
             )
-            .map(move |(id, x, y, size, angle, shape_idx)| {
+            .map(move |(instance_idx, x, y, size, angle, shape_idx)| {
                 let geometry = symbol_geometries[*shape_idx]
                     .clone()
                     .scale(size.sqrt())
@@ -147,7 +149,8 @@ impl SceneSymbolMark {
                     .translate(*x, *y);
 
                 GeometryInstance {
-                    id,
+                    mark_index,
+                    instance_idx: Some(instance_idx),
                     geometry,
                     half_stroke_width,
                 }
@@ -163,11 +166,6 @@ impl SceneSymbolMark {
                 .max_by(|a, b| a.partial_cmp(b).unwrap())
                 .unwrap_or(&1.0),
         }
-    }
-
-    /// Creates an R-tree containing the geometries of all symbol instances
-    pub fn to_rtree(&self) -> MarkRTree {
-        MarkRTree::new(self.geometry_iter().collect())
     }
 }
 

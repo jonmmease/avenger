@@ -215,7 +215,10 @@ impl SceneRectMark {
         )
     }
 
-    pub fn geometry_iter(&self) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
+    pub fn geometry_iter(
+        &self,
+        mark_index: usize,
+    ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         if self.corner_radius.equals_scalar(0.0) {
             // Simple case where we don't need to build lyon paths first
             Box::new(
@@ -227,7 +230,7 @@ impl SceneRectMark {
                     self.y2_iter(),
                     self.stroke_width_iter()
                 )
-                .map(|(id, x, y, x2, y2, stroke_width)| {
+                .map(move |(id, x, y, x2, y2, stroke_width)| {
                     // Create rect geometry
                     let x0 = f32::min(*x, x2);
                     let x1 = f32::max(*x, x2);
@@ -239,7 +242,8 @@ impl SceneRectMark {
                         Coord { x: x1, y: y1 },
                     ));
                     GeometryInstance {
-                        id,
+                        mark_index,
+                        instance_idx: Some(id),
                         geometry,
                         half_stroke_width: *stroke_width / 2.0,
                     }
@@ -257,7 +261,8 @@ impl SceneRectMark {
                     let half_stroke_width = stroke_width / 2.0;
                     let geometry = path.as_geo_type(0.1, true);
                     GeometryInstance {
-                        id,
+                        mark_index,
+                        instance_idx: Some(id),
                         geometry,
                         half_stroke_width,
                     }
