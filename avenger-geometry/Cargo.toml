@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 avenger-common = { path = "../avenger-common" }
 lyon_path = { workspace = true }
+lyon_tessellation = { workspace = true }
 geo-types = { workspace = true }
 rstar = { workspace = true }
 geo = { workspace = true }

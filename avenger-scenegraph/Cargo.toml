@@ -18,6 +18,9 @@ workspace = true
 workspace = true
 features = [ "serialization",]
 
+[dependencies.lyon_algorithms]
+workspace = true
+
 [dependencies.image]
 workspace = true
 features = [ "png",]
@@ -40,6 +43,9 @@ path = "../avenger-common"
 
 [dependencies.avenger-geometry]
 path = "../avenger-geometry"
+
+[dependencies.avenger-text]
+path = "../avenger-text"
 
 [dev-dependencies]
 float-cmp = "0.10.0"

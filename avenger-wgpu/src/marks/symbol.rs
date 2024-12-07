@@ -1,6 +1,6 @@
-use crate::canvas::CanvasDimensions;
 use crate::error::AvengerWgpuError;
 use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
+use avenger_common::canvas::CanvasDimensions;
 use avenger_scenegraph::marks::path::PathTransform;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use itertools::izip;

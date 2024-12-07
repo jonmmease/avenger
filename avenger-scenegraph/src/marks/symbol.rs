@@ -1,4 +1,5 @@
-use crate::error::AvengerError;
+use crate::error::AvengerSceneGraphError;
+use crate::marks::path::PathTransform;
 use avenger_common::value::{ColorOrGradient, Gradient, ScalarOrArray};
 use avenger_geometry::geo_types::Geometry;
 use avenger_geometry::lyon_to_geo::IntoGeoType;
@@ -6,9 +7,10 @@ use avenger_geometry::rtree::MarkRTree;
 use avenger_geometry::GeometryInstance;
 use geo::{Rotate as GeoRotate, Scale as GeoScale, Translate as GeoTranslate};
 use itertools::izip;
+use lyon_extra::euclid::Vector2D;
 use lyon_extra::parser::{ParserOptions, Source};
 use lyon_path::geom::euclid::Point2D;
-use lyon_path::geom::{Box2D, Point, Scale};
+use lyon_path::geom::{Angle, Box2D, Point, Scale};
 use lyon_path::{Path, Winding};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -103,6 +105,28 @@ impl SceneSymbolMark {
         }
     }
 
+    pub fn transformed_path_iter(&self, origin: [f32; 2]) -> Box<dyn Iterator<Item = Path> + '_> {
+        let paths = self.shapes.iter().map(|s| s.as_path()).collect::<Vec<_>>();
+        Box::new(
+            izip!(
+                self.x_iter(),
+                self.y_iter(),
+                self.size_iter(),
+                self.angle_iter(),
+                self.shape_index_iter()
+            )
+            .map(move |(x, y, size, angle, shape_idx)| {
+                let scale = size.sqrt();
+                let angle = Angle::degrees(*angle);
+                let transform = PathTransform::scale(scale, scale)
+                    .then_rotate(angle)
+                    .then_translate(Vector2D::new(*x + origin[0], *y + origin[1]));
+
+                paths[*shape_idx].as_ref().clone().transformed(&transform)
+            }),
+        )
+    }
+
     pub fn geometry_iter(&self) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let symbol_geometries: Vec<_> = self.shapes.iter().map(|symbol| symbol.as_geo()).collect();
         let half_stroke_width = self.stroke_width.unwrap_or(0.0) / 2.0;
@@ -179,7 +203,7 @@ pub enum SymbolShape {
 }
 
 impl SymbolShape {
-    pub fn from_vega_str(shape: &str) -> Result<SymbolShape, AvengerError> {
+    pub fn from_vega_str(shape: &str) -> Result<SymbolShape, AvengerSceneGraphError> {
         let tan30: f32 = (30.0 * std::f32::consts::PI / 180.0).tan();
         let sqrt3: f32 = 3.0f32.sqrt();
 
@@ -335,7 +359,7 @@ impl SymbolShape {
     }
 }
 
-pub fn parse_svg_path(path: &str) -> Result<Path, AvengerError> {
+pub fn parse_svg_path(path: &str) -> Result<Path, AvengerSceneGraphError> {
     let mut source = Source::new(path.chars());
     let mut parser = lyon_extra::parser::PathParser::new();
     let opts = ParserOptions::DEFAULT;

@@ -36,6 +36,8 @@ version = "0.0.8"
 [dependencies.avenger-common]
 path = "../avenger-common"
 
+[dependencies.avenger-text]
+path = "../avenger-text"
 
 [dependencies.rayon]
 workspace = true
@@ -60,7 +62,7 @@ workspace = true
 optional = true
 
 [dependencies.cosmic-text]
-version = "0.12.1"
+workspace = true
 optional = true
 
 [dependencies.lyon]

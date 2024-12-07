@@ -1,3 +1,4 @@
+use avenger_common::canvas::CanvasDimensions;
 use image::imageops::crop_imm;
 use std::sync::Arc;
 use wgpu::{
@@ -35,30 +36,20 @@ pub enum MarkRenderer {
     Multi(Box<MultiMarkRenderer>),
 }
 
-#[derive(Debug, Copy, Clone)]
-pub struct CanvasDimensions {
-    pub size: [f32; 2],
-    pub scale: f32,
+pub type TextBuildCtor = Arc<fn() -> Box<dyn TextAtlasBuilderTrait>>;
+
+pub trait CanvasDimensionUtils {
+    fn to_physical_size(&self) -> winit::dpi::PhysicalSize<u32>;
 }
 
-impl CanvasDimensions {
-    pub fn to_physical_width(&self) -> u32 {
-        (self.size[0] * self.scale) as u32
-    }
-
-    pub fn to_physical_height(&self) -> u32 {
-        (self.size[1] * self.scale) as u32
-    }
-
-    pub fn to_physical_size(&self) -> winit::dpi::PhysicalSize<u32> {
+impl CanvasDimensionUtils for CanvasDimensions {
+    fn to_physical_size(&self) -> winit::dpi::PhysicalSize<u32> {
         winit::dpi::PhysicalSize {
             width: self.to_physical_width(),
             height: self.to_physical_height(),
         }
     }
 }
-
-pub type TextBuildCtor = Arc<fn() -> Box<dyn TextAtlasBuilderTrait>>;
 
 #[derive(Default)]
 pub struct CanvasConfig {

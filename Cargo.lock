@@ -383,6 +383,7 @@ dependencies = [
  "geo",
  "geo-types",
  "lyon_path",
+ "lyon_tessellation",
  "rstar 0.12.2 (git+https://github.com/georust/rstar.git?branch=master)",
 ]
 
@@ -430,14 +431,28 @@ version = "0.0.8"
 dependencies = [
  "avenger-common",
  "avenger-geometry",
+ "avenger-text",
  "float-cmp 0.10.0",
  "geo",
  "image 0.25.5",
  "itertools 0.13.0",
+ "lyon_algorithms",
  "lyon_extra",
  "lyon_path",
  "pyo3",
  "rstar 0.12.2 (git+https://github.com/georust/rstar.git?branch=master)",
+ "serde",
+ "thiserror 2.0.3",
+]
+
+[[package]]
+name = "avenger-text"
+version = "0.0.8"
+dependencies = [
+ "avenger-common",
+ "cosmic-text",
+ "image 0.25.5",
+ "lazy_static",
  "serde",
  "thiserror 2.0.3",
 ]
@@ -448,6 +463,7 @@ version = "0.0.8"
 dependencies = [
  "avenger-common",
  "avenger-scenegraph",
+ "avenger-text",
  "cfg-if",
  "csscolorparser",
  "image 0.25.5",
@@ -505,6 +521,7 @@ version = "0.0.8"
 dependencies = [
  "avenger-common",
  "avenger-scenegraph",
+ "avenger-text",
  "avenger-vega",
  "bytemuck",
  "cfg-if",

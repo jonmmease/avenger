@@ -4,7 +4,7 @@ use thiserror::Error;
 use pyo3::{exceptions::PyValueError, PyErr};
 
 #[derive(Error, Debug)]
-pub enum AvengerError {
+pub enum AvengerSceneGraphError {
     #[error("Internal error: `{0}`")]
     InternalError(String),
 
@@ -15,13 +15,13 @@ pub enum AvengerError {
 
 // Conversion to PyO3 error
 #[cfg(feature = "pyo3")]
-impl From<AvengerError> for PyErr {
-    fn from(err: AvengerError) -> PyErr {
+impl From<AvengerSceneGraphError> for PyErr {
+    fn from(err: AvengerSceneGraphError) -> PyErr {
         PyValueError::new_err(err.to_string())
     }
 }
 
-impl From<lyon_extra::parser::ParseError> for AvengerError {
+impl From<lyon_extra::parser::ParseError> for AvengerSceneGraphError {
     fn from(value: lyon_extra::parser::ParseError) -> Self {
         Self::InvalidSvgPath(value)
     }

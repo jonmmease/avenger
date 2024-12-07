@@ -1,4 +1,7 @@
 use avenger_common::value::{ColorOrGradient, Gradient, ScalarOrArray, StrokeCap, StrokeJoin};
+use avenger_geometry::{lyon_to_geo::IntoGeoType, GeometryInstance};
+use itertools::izip;
+use lyon_path::{builder::WithSvg, geom::point, BuilderImpl, Path};
 use serde::{Deserialize, Serialize};
 
 use super::mark::SceneMark;
@@ -44,6 +47,78 @@ impl SceneAreaMark {
 
     pub fn defined_iter(&self) -> Box<dyn Iterator<Item = &bool> + '_> {
         self.defined.as_iter(self.len as usize, None)
+    }
+
+    pub fn transformed_path(&self, origin: [f32; 2]) -> Path {
+        let mut path_builder = Path::builder().with_svg();
+        let mut tail: Vec<(f32, f32)> = Vec::new();
+
+        fn close_area(b: &mut WithSvg<BuilderImpl>, tail: &mut Vec<(f32, f32)>) {
+            if tail.is_empty() {
+                return;
+            }
+            for (x, y) in tail.iter().rev() {
+                b.line_to(point(*x, *y));
+            }
+
+            tail.clear();
+            b.close();
+        }
+
+        if self.orientation == AreaOrientation::Vertical {
+            for (x, y, y2, defined) in izip!(
+                self.x_iter(),
+                self.y_iter(),
+                self.y2_iter(),
+                self.defined_iter(),
+            ) {
+                if *defined {
+                    if !tail.is_empty() {
+                        // Continue path
+                        path_builder.line_to(point(*x + origin[0], *y + origin[1]));
+                    } else {
+                        // New path
+                        path_builder.move_to(point(*x + origin[0], *y + origin[1]));
+                    }
+                    tail.push((*x + origin[0], *y2 + origin[1]));
+                } else {
+                    close_area(&mut path_builder, &mut tail);
+                }
+            }
+        } else {
+            for (y, x, x2, defined) in izip!(
+                self.y_iter(),
+                self.x_iter(),
+                self.x2_iter(),
+                self.defined_iter(),
+            ) {
+                if *defined {
+                    if !tail.is_empty() {
+                        // Continue path
+                        path_builder.line_to(point(*x + origin[0], *y + origin[1]));
+                    } else {
+                        // New path
+                        path_builder.move_to(point(*x + origin[0], *y + origin[1]));
+                    }
+                    tail.push((*x2 + origin[0], *y + origin[1]));
+                } else {
+                    close_area(&mut path_builder, &mut tail);
+                }
+            }
+        }
+
+        close_area(&mut path_builder, &mut tail);
+        path_builder.build()
+    }
+
+    pub fn geometry(&self) -> GeometryInstance {
+        let path = self.transformed_path([0.0, 0.0]);
+        let half_stroke_width = self.stroke_width / 2.0;
+        GeometryInstance {
+            id: 0,
+            geometry: path.as_geo_type(half_stroke_width, true),
+            half_stroke_width,
+        }
     }
 }
 

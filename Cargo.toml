@@ -10,6 +10,7 @@ members = [
     "avenger-guides",
     "avenger-common",
     "avenger-geometry",
+    "avenger-text",
     "examples/wgpu-scales",
     "examples/scatter-panning",
     "examples/wgpu-winit",
@@ -23,6 +24,8 @@ serde_json = "^1.0"
 thiserror = "2.0.3"
 lyon_path = "1.0.1"
 lyon_extra = "1.0.1"
+lyon_algorithms = "1.0.1"
+lyon_tessellation = "1.0.15"
 lyon = "1.0.1"
 image = { version = "0.25.5", default-features = false, features = ["png"] }
 lazy_static = "1.4.0"
@@ -40,3 +43,4 @@ geo-types = "0.7.14"
 geo = "0.29.3"
 itertools = "0.13.0"
 rstar = { git = "https://github.com/georust/rstar.git", branch = "master" }
+cosmic-text = "0.12.1"
