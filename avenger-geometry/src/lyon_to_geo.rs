@@ -41,16 +41,18 @@ impl IntoGeoType for Path {
                 PathEvent::Begin { at } => {
                     if !current_line.is_empty() {
                         let line = std::mem::take(&mut current_line);
-                        if filled && line.len() >= 3 {
-                            // In filled mode, force close any path with 3 or more points
-                            let mut closed_line = line;
-                            if closed_line.first() != closed_line.last() {
-                                closed_line.push(closed_line[0].clone());
+                        if filled {
+                            if line.len() >= 3 {
+                                // In filled mode, force close any path with 3 or more points
+                                let mut closed_line = line;
+                                if closed_line.first() != closed_line.last() {
+                                    closed_line.push(closed_line[0].clone());
+                                }
+                                polygons.push(Polygon::new(
+                                    LineString::new(closed_line),
+                                    vec![], // No interior rings
+                                ));
                             }
-                            polygons.push(Polygon::new(
-                                LineString::new(closed_line),
-                                vec![], // No interior rings
-                            ));
                         } else {
                             lines.push(LineString::new(line));
                         }
@@ -72,17 +74,19 @@ impl IntoGeoType for Path {
                     close: _, first: _, ..
                 } => {
                     if !current_line.is_empty() {
-                        if filled && current_line.len() >= 3 {
-                            // In filled mode, force close any path with 3 or more points
-                            if current_line.first() != current_line.last() {
-                                if let Some(start) = current_start.clone() {
-                                    current_line.push(start);
+                        if filled {
+                            if current_line.len() >= 3 {
+                                // In filled mode, force close any path with 3 or more points
+                                if current_line.first() != current_line.last() {
+                                    if let Some(start) = current_start.clone() {
+                                        current_line.push(start);
+                                    }
                                 }
+                                polygons.push(Polygon::new(
+                                    LineString::new(std::mem::take(&mut current_line)),
+                                    vec![], // No interior rings
+                                ));
                             }
-                            polygons.push(Polygon::new(
-                                LineString::new(std::mem::take(&mut current_line)),
-                                vec![], // No interior rings
-                            ));
                         } else {
                             lines.push(LineString::new(std::mem::take(&mut current_line)));
                         }
@@ -95,10 +99,12 @@ impl IntoGeoType for Path {
 
         // Handle the final path segment if any
         if !current_line.is_empty() {
-            if filled && current_line.len() >= 3 {
-                if current_line.first() != current_line.last() {
-                    if let Some(start) = current_start {
-                        current_line.push(start);
+            if filled {
+                if current_line.len() >= 3 {
+                    if current_line.first() != current_line.last() {
+                        if let Some(start) = current_start {
+                            current_line.push(start);
+                        }
                     }
                 }
                 polygons.push(Polygon::new(LineString::new(current_line), vec![]));

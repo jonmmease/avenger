@@ -1,11 +1,10 @@
 use avenger_common::value::{ColorOrGradient, ScalarOrArray};
 use avenger_scales::band::BandScale;
 use avenger_scenegraph::marks::{
-    group::SceneGroup,
-    mark::SceneMark,
-    rule::SceneRuleMark,
-    text::{SceneTextMark, TextAlignSpec, TextBaselineSpec},
+    group::SceneGroup, mark::SceneMark, rule::SceneRuleMark, text::SceneTextMark,
 };
+
+use avenger_text::types::{TextAlignSpec, TextBaselineSpec};
 
 use super::opts::{AxisConfig, AxisOrientation};
 
