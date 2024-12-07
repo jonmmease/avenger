@@ -1,6 +1,6 @@
 use super::{TextBounds, TextMeasurementConfig, TextMeasurer};
 use crate::measurement::CanvasDimensions;
-use crate::rasterization::GlyphImage;
+use crate::rasterization::GlyphData;
 use crate::types::{FontStyleSpec, FontWeightNameSpec, FontWeightSpec};
 use lazy_static::lazy_static;
 use std::collections::HashMap;
@@ -10,7 +10,8 @@ use web_sys::{OffscreenCanvas, OffscreenCanvasRenderingContext2d};
 
 lazy_static! {
     // TODO: use LRU cache
-    pub(crate) static ref GLYPH_CACHE: Mutex<HashMap<u64, GlyphImage<u64>>> = Mutex::new(HashMap::new());
+    pub(crate) static ref GLYPH_CACHE: Mutex<HashMap<u64, GlyphData<u64>>> =
+        Mutex::new(HashMap::new());
 }
 
 /// Helper function to create a canvas font string

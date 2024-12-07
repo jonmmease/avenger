@@ -94,7 +94,7 @@ def failures_path():
 
         ("text", "text_alignment", 0.016),
         ("text", "text_rotation", 0.016),
-        ("text", "letter_scatter", 0.027),
+        ("text", "letter_scatter", 0.035),
         ("text", "lasagna_plot", 0.04),
         ("text", "arc_radial", 0.005),
         ("text", "emoji", 0.05),

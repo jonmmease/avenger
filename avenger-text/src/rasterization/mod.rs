@@ -78,7 +78,6 @@ pub struct GlyphData<CacheKey: Hash + Eq + Clone> {
     pub image: Option<image::RgbaImage>,
     pub path: Option<lyon_path::Path>,
     pub bbox: GlyphBBox,
-    pub physical_position: PhysicalGlyphPosition,
 }
 
 impl<CacheKey: Hash + Eq + Clone> GlyphData<CacheKey> {
@@ -88,14 +87,6 @@ impl<CacheKey: Hash + Eq + Clone> GlyphData<CacheKey> {
             image: None,
             path: None,
             bbox: self.bbox,
-            physical_position: self.physical_position,
-        }
-    }
-
-    pub fn with_physical_position(self, physical_position: PhysicalGlyphPosition) -> Self {
-        Self {
-            physical_position,
-            ..self.clone()
         }
     }
 
@@ -109,7 +100,7 @@ impl<CacheKey: Hash + Eq + Clone> GlyphData<CacheKey> {
 
 #[derive(Clone)]
 pub struct TextRasterizationBuffer<CacheKey: Hash + Eq + Clone> {
-    pub glyphs: Vec<GlyphData<CacheKey>>,
+    pub glyphs: Vec<(GlyphData<CacheKey>, PhysicalGlyphPosition)>,
     pub text_bounds: TextBounds,
 }
 

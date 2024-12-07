@@ -71,7 +71,7 @@ where
         ];
 
         // Initialize glyphs
-        let mut glyphs: Vec<GlyphData<CosmicCacheKey>> = Vec::new();
+        let mut glyphs: Vec<(GlyphData<CosmicCacheKey>, PhysicalGlyphPosition)> = Vec::new();
 
         for run in buffer.layout_runs() {
             for glyph in run.glyphs.iter() {
@@ -88,12 +88,7 @@ where
                 if let Some(glyph_image) = next_cache.get(&cache_key) {
                     // Glyph has already been rasterized by this call to rasterize and the full image
                     // is already in the glyphs Vec, so we can store the reference only.
-                    glyphs.push(
-                        glyph_image
-                            .clone()
-                            .without_image_and_path()
-                            .with_physical_position(phys_pos),
-                    );
+                    glyphs.push((glyph_image.clone().without_image_and_path(), phys_pos));
                 } else {
                     // We need to rasterize glyph and write it to next_atlas
                     let Some(image) = cache
@@ -123,13 +118,15 @@ where
                     if cached_glyphs.contains_key(&cache_key) {
                         // Glyph already rasterized by a prior call to rasterize(), so we can just
                         // store the cache key and position info.
-                        glyphs.push(GlyphData {
-                            cache_key,
-                            image: None,
-                            path: None,
-                            bbox,
-                            physical_position: phys_pos,
-                        });
+                        glyphs.push((
+                            GlyphData {
+                                cache_key,
+                                image: None,
+                                path: None,
+                                bbox,
+                            },
+                            phys_pos,
+                        ));
                     } else {
                         let img = match image.content {
                             SwashContent::Color => {
@@ -202,13 +199,12 @@ where
                             image: Some(img),
                             path,
                             bbox,
-                            physical_position: phys_pos,
                         };
 
                         // Update cache
                         next_cache.insert(cache_key, glyph_data.clone().without_image_and_path());
 
-                        glyphs.push(glyph_data);
+                        glyphs.push((glyph_data, phys_pos));
                     }
                 };
             }

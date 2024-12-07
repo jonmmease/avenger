@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use crate::measurement::html_canvas::create_font_string;
 use crate::measurement::TextBounds;
 use crate::rasterization::{
-    GlyphBBox, GlyphImage, PhysicalGlyphPosition, TextRasterizationBuffer, TextRasterizationConfig,
+    GlyphBBox, GlyphData, PhysicalGlyphPosition, TextRasterizationBuffer, TextRasterizationConfig,
     TextRasterizer,
 };
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -74,7 +74,7 @@ where
         let mut str_so_far = String::new();
 
         // Initialize glyphs
-        let mut glyphs: Vec<(GlyphImage<u64>, PhysicalGlyphPosition)> = Vec::new();
+        let mut glyphs: Vec<(GlyphData<u64>, PhysicalGlyphPosition)> = Vec::new();
 
         for cluster in config.text.graphemes(true) {
             // Compute right edge using full string up through this cluster
@@ -111,9 +111,9 @@ where
                 y: top as f32,
             };
 
-            if let Some(glyph_image) = glyph_cache.get(&cache_key) {
+            if let Some(glyph_data) = glyph_cache.get(&cache_key) {
                 // Glyph has already been rasterized previously, but the image may be needed
-                glyphs.push((glyph_image.clone(), phys_pos));
+                glyphs.push((glyph_data.clone(), phys_pos));
             } else {
                 // Extract bbox dimensions
                 let canvas_width = cluster_actual_width.ceil() as u32 + 2;
@@ -130,11 +130,12 @@ where
 
                 if cached_glyphs.contains_key(&cache_key) {
                     // Glyph already rasterized by a prior call to rasterize() so we can just
-                    // store the cache key and bbox position info.
+                    // return the cache key and physical position info.
                     glyphs.push((
-                        GlyphImage {
+                        GlyphData {
                             cache_key,
                             image: None,
+                            path: None,
                             bbox,
                         },
                         phys_pos,
@@ -170,9 +171,10 @@ where
                     )
                     .expect("Failed to import glyph image");
 
-                    let glyph_image = GlyphImage {
+                    let glyph_data = GlyphData {
                         cache_key,
                         image: Some(img),
+                        path: None,
                         bbox: GlyphBBox {
                             left: -draw_x as i32,
                             top: 0i32,
@@ -180,8 +182,8 @@ where
                             height: image_data.height(),
                         },
                     };
-                    glyph_cache.insert(cache_key, glyph_image.clone());
-                    glyphs.push((glyph_image, phys_pos));
+                    glyph_cache.insert(cache_key, glyph_data.clone());
+                    glyphs.push((glyph_data, phys_pos));
                 }
             }
         }

@@ -156,7 +156,7 @@ impl SceneTextMark {
                     // Build up the text polygon by unioning the glyph bounding boxes
                     let mut text_poly = geo::MultiPolygon::<f32>::new(vec![]);
 
-                    for glyph_data in text_buffer.glyphs {
+                    for (glyph_data, phys_pos) in text_buffer.glyphs {
                         let glyph_bbox = glyph_data.bbox;
 
                         let glyph_bbox_poly = if let Some(path) = glyph_data.path {
@@ -194,10 +194,7 @@ impl SceneTextMark {
                                 vec![],
                             )])
                         }
-                        .translate(
-                            glyph_data.physical_position.x + origin[0],
-                            glyph_data.physical_position.y + origin[1],
-                        );
+                        .translate(phys_pos.x + origin[0], phys_pos.y + origin[1]);
 
                         text_poly = text_poly.union(&glyph_bbox_poly);
                     }
