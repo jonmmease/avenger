@@ -1,13 +1,16 @@
-use avenger_scenegraph::marks::text::{FontStyleSpec, FontWeightNameSpec, FontWeightSpec};
-use avenger_wgpu::canvas::CanvasDimensions;
+use avenger_common::canvas::CanvasDimensions;
+use avenger_text::error::AvengerTextError;
+use avenger_text::types::{FontStyleSpec, FontWeightNameSpec, FontWeightSpec};
 use avenger_wgpu::error::AvengerWgpuError;
-use avenger_wgpu::marks::text::{
-    GlyphBBox, GlyphBBoxAndAtlasCoords, GlyphImage, PhysicalGlyphPosition, TextRasterizationBuffer,
-    TextRasterizationConfig, TextRasterizer,
-};
+use avenger_wgpu::marks::text::GlyphBBoxAndAtlasCoords;
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 
+use avenger_text::measurement::TextBounds;
+use avenger_text::rasterization::{
+    GlyphBBox, GlyphImage, PhysicalGlyphPosition, TextRasterizationBuffer, TextRasterizationConfig,
+    TextRasterizer,
+};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Mutex;
 use unicode_segmentation::UnicodeSegmentation;
@@ -24,13 +27,14 @@ pub struct HtmlCanvasTextRasterizer;
 
 impl TextRasterizer for HtmlCanvasTextRasterizer {
     type CacheKey = u64;
+    type CacheValue = GlyphBBoxAndAtlasCoords;
 
     fn rasterize(
         &self,
-        dimensions: CanvasDimensions,
+        dimensions: &CanvasDimensions,
         config: &TextRasterizationConfig,
         cached_glyphs: &HashMap<Self::CacheKey, GlyphBBoxAndAtlasCoords>,
-    ) -> Result<TextRasterizationBuffer<Self::CacheKey>, AvengerWgpuError> {
+    ) -> Result<TextRasterizationBuffer<Self::CacheKey>, AvengerTextError> {
         let mut glyph_cache = GLYPH_CACHE
             .lock()
             .expect("Failed to acquire lock on GLYPH_CACHE");
@@ -178,15 +182,19 @@ impl TextRasterizer for HtmlCanvasTextRasterizer {
         let full_metrics = text_context.measure_text(config.text)?;
         let buffer_width =
             full_metrics.actual_bounding_box_left() + full_metrics.actual_bounding_box_right();
-        let buffer_height =
-            full_metrics.font_bounding_box_ascent() + full_metrics.font_bounding_box_descent();
-        let buffer_line_y = full_metrics.font_bounding_box_ascent();
+        let ascent = full_metrics.font_bounding_box_ascent();
+        let descent = full_metrics.font_bounding_box_descent();
 
+        let text_bounds = TextBounds {
+            width: buffer_width as f32 / dimensions.scale,
+            height: (ascent + descent) as f32 / dimensions.scale,
+            ascent: ascent as f32 / dimensions.scale,
+            descent: descent as f32 / dimensions.scale,
+            line_height: (ascent + descent) as f32 / dimensions.scale,
+        };
         Ok(TextRasterizationBuffer {
             glyphs,
-            buffer_width: buffer_width as f32 / dimensions.scale,
-            buffer_height: buffer_height as f32 / dimensions.scale,
-            buffer_line_y: buffer_line_y as f32 / dimensions.scale,
+            text_bounds,
         })
     }
 }

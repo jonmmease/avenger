@@ -46,6 +46,8 @@ path = "../avenger-geometry"
 
 [dependencies.avenger-text]
 path = "../avenger-text"
+default-features = false
+features = ["serde"]
 
 [dev-dependencies]
 float-cmp = "0.10.0"

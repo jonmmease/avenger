@@ -41,6 +41,7 @@ version = "0.0.8"
 
 [dependencies.avenger-text]
 path = "../avenger-text"
+default-features = false
 version = "0.0.8"
 
 [dependencies.thiserror]

@@ -5,7 +5,8 @@ mod text;
 use crate::scene::SceneGraph;
 use crate::text::HtmlCanvasTextRasterizer;
 
-use avenger_wgpu::canvas::{Canvas, CanvasConfig, CanvasDimensions, PngCanvas};
+use avenger_common::canvas::CanvasDimensions;
+use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use avenger_wgpu::html_canvas::HtmlCanvasCanvas;
 use avenger_wgpu::marks::text::TextAtlasBuilder;
 use image::ImageFormat;
