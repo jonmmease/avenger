@@ -2,10 +2,7 @@ use cosmic_text::{fontdb::Database, Attrs, Buffer, Family, FontSystem, Metrics, 
 use std::{collections::HashSet, sync::Mutex};
 
 use super::{TextBounds, TextMeasurementConfig, TextMeasurer};
-use crate::{
-    error::AvengerTextError,
-    types::{FontStyleSpec, FontWeightNameSpec, FontWeightSpec},
-};
+use crate::types::{FontStyleSpec, FontWeightNameSpec, FontWeightSpec};
 
 use lazy_static::lazy_static;
 
@@ -82,13 +79,13 @@ impl TextMeasurer for CosmicTextMeasurer {
         &self,
         config: &TextMeasurementConfig,
         dimensions: &[f32; 2],
-    ) -> Result<TextBounds, AvengerTextError> {
+    ) -> TextBounds {
         let mut font_system = FONT_SYSTEM
             .lock()
             .expect("Failed to acquire lock on FONT_SYSTEM");
 
         let buffer = make_cosmic_text_buffer(config, dimensions, &mut font_system);
-        Ok(measure_text_buffer(&buffer))
+        measure_text_buffer(&buffer)
     }
 }
 
@@ -99,9 +96,9 @@ pub fn measure_text_buffer(buffer: &Buffer) -> TextBounds {
         return TextBounds {
             width: 0.0,
             height: 10.0,
-            ascent: 10.0 * 0.8, // Typical approximation
+            ascent: 10.0 * 0.8,
             descent: 10.0 * 0.2,
-            line_height: 10.0 * 1.2, // Typical approximation
+            line_height: 10.0 * 1.2,
         };
     }
 
@@ -221,9 +218,7 @@ mod tests {
             font_style: &FontStyleSpec::Normal,
         };
 
-        let bounds = measurer
-            .measure_text_bounds(&config, &[800.0, 600.0])
-            .unwrap();
+        let bounds = measurer.measure_text_bounds(&config, &[800.0, 600.0]);
 
         println!("{:?}", bounds);
 
