@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use avenger_common::value::ScalarOrArray;
+use avenger_common::{canvas::CanvasDimensions, value::ScalarOrArray};
 use avenger_geometry::GeometryInstance;
 use avenger_text::{
     error::AvengerTextError,
@@ -88,7 +88,7 @@ impl SceneTextMark {
     pub fn geometry_iter(
         &self,
         measurer: Arc<dyn TextMeasurer>,
-        dimensions: &[f32; 2],
+        dimensions: &CanvasDimensions,
     ) -> Result<Box<dyn Iterator<Item = GeometryInstance> + '_>, AvengerTextError> {
         // Simple case where we don't need to build lyon paths first
         let dimensions = *dimensions;
