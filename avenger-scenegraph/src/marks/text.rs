@@ -1,8 +1,14 @@
+use std::sync::Arc;
+
 use avenger_common::value::ScalarOrArray;
 use avenger_geometry::GeometryInstance;
-use avenger_text::types::{
-    FontStyleSpec, FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec,
+use avenger_text::{
+    error::AvengerTextError,
+    measurement::{TextMeasurementConfig, TextMeasurer},
+    types::{FontStyleSpec, FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec},
 };
+use geo::{Geometry, Rotate};
+use itertools::izip;
 use serde::{Deserialize, Serialize};
 
 use super::mark::SceneMark;
@@ -79,36 +85,75 @@ impl SceneTextMark {
         }
     }
 
-    pub fn geometry_iter(&self) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
-        todo!()
-        // // Simple case where we don't need to build lyon paths first
-        // Box::new(
-        //     izip!(
-        //         self.indices_iter(),
-        //         self.x_iter(),
-        //         self.y_iter(),
-        //         self.x2_iter(),
-        //         self.y2_iter(),
-        //         self.stroke_width_iter()
-        //     )
-        //     .map(|(id, x, y, x2, y2, stroke_width)| {
-        //         // Create rect geometry
-        //         let x0 = f32::min(*x, x2);
-        //         let x1 = f32::max(*x, x2);
-        //         let y0 = f32::min(*y, y2);
-        //         let y1 = f32::max(*y, y2);
+    pub fn geometry_iter(
+        &self,
+        measurer: Arc<dyn TextMeasurer>,
+        dimensions: &[f32; 2],
+    ) -> Result<Box<dyn Iterator<Item = GeometryInstance> + '_>, AvengerTextError> {
+        // Simple case where we don't need to build lyon paths first
+        let dimensions = *dimensions;
+        Ok(Box::new(
+            izip!(
+                self.indices_iter(),
+                self.text_iter(),
+                self.x_iter(),
+                self.y_iter(),
+                self.angle_iter(),
+                self.font_iter(),
+                self.font_size_iter(),
+                self.font_weight_iter(),
+                self.font_style_iter(),
+                self.align_iter(),
+                self.baseline_iter()
+            )
+            .map(
+                move |(
+                    id,
+                    text,
+                    x,
+                    y,
+                    angle,
+                    font,
+                    font_size,
+                    font_weight,
+                    font_style,
+                    align,
+                    baseline,
+                )| {
+                    let config = TextMeasurementConfig {
+                        text: text,
+                        font: font,
+                        font_size: *font_size,
+                        font_weight: font_weight,
+                        font_style: font_style,
+                    };
 
-        //         let geometry = Geometry::Rect(Rect::<f32>::new(
-        //             Coord { x: x0, y: y0 },
-        //             Coord { x: x1, y: y1 },
-        //         ));
-        //         GeometryInstance {
-        //             id,
-        //             geometry,
-        //             half_stroke_width: *stroke_width / 2.0,
-        //         }
-        //     }),
-        // )
+                    let bounds = measurer.measure_text_bounds(&config, &dimensions);
+                    let origin = bounds.calculate_origin([*x, *y], align, baseline);
+
+                    let text_rect = Geometry::Rect(geo::Rect::<f32>::new(
+                        geo::Coord {
+                            x: origin[0],
+                            y: origin[1],
+                        },
+                        geo::Coord {
+                            x: origin[0] + bounds.width,
+                            y: origin[1] + bounds.height,
+                        },
+                    ));
+
+                    // Rotate around x/y position
+                    let geometry = text_rect
+                        .rotate_around_point((*angle).to_radians(), geo::Point::new(*x, *y));
+
+                    GeometryInstance {
+                        id,
+                        geometry,
+                        half_stroke_width: 0.0,
+                    }
+                },
+            ),
+        ))
     }
 }
 

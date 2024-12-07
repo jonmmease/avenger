@@ -1,7 +1,4 @@
-use crate::{
-    error::AvengerTextError,
-    types::{FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec},
-};
+use crate::types::{FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
 
 extern crate lazy_static;
 
@@ -15,7 +12,7 @@ pub trait TextMeasurer: Send + Sync {
         &self,
         config: &TextMeasurementConfig,
         dimensions: &[f32; 2],
-    ) -> Result<TextBounds, AvengerTextError>;
+    ) -> TextBounds;
 }
 
 /// Configuration needed for text measurement
