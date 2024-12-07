@@ -22,7 +22,7 @@ pub struct PhysicalGlyphPosition {
 }
 
 // Glyph bounding box relative to glyph origin
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct GlyphBBox {
     pub top: i32,
     pub left: i32,

@@ -1,17 +1,22 @@
-use std::sync::Arc;
+use std::{collections::HashMap, hash::Hash, sync::Arc};
 
 use avenger_common::{canvas::CanvasDimensions, value::ScalarOrArray};
-use avenger_geometry::GeometryInstance;
+use avenger_geometry::{lyon_to_geo::IntoGeoType, GeometryInstance};
 use avenger_text::{
     error::AvengerTextError,
-    measurement::{TextMeasurementConfig, TextMeasurer},
+    measurement::TextMeasurementConfig,
+    rasterization::{TextRasterizationConfig, TextRasterizer},
     types::{FontStyleSpec, FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec},
 };
-use geo::{Geometry, Rotate};
+use geo::{BooleanOps, Geometry, MultiPolygon, Rotate, Translate};
 use itertools::izip;
+use lyon_path::{
+    geom::{Box2D, Point},
+    traits::PathBuilder,
+};
 use serde::{Deserialize, Serialize};
 
-use super::mark::SceneMark;
+use super::{mark::SceneMark, path::PathTransform};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -85,12 +90,16 @@ impl SceneTextMark {
         }
     }
 
-    pub fn geometry_iter(
+    pub fn geometry_iter<CacheKey, CacheValue>(
         &self,
         mark_index: usize,
-        measurer: Arc<dyn TextMeasurer>,
+        rasterizer: Arc<dyn TextRasterizer<CacheKey = CacheKey, CacheValue = CacheValue>>,
         dimensions: &CanvasDimensions,
-    ) -> Result<Box<dyn Iterator<Item = GeometryInstance> + '_>, AvengerTextError> {
+    ) -> Result<Box<dyn Iterator<Item = GeometryInstance> + '_>, AvengerTextError>
+    where
+        CacheKey: Hash + Eq + Clone + 'static,
+        CacheValue: Clone + 'static,
+    {
         // Simple case where we don't need to build lyon paths first
         let dimensions = *dimensions;
         Ok(Box::new(
@@ -125,31 +134,75 @@ impl SceneTextMark {
                         baseline,
                     ),
                 )| {
-                    let config = TextMeasurementConfig {
+                    let config = TextRasterizationConfig {
                         text: text,
                         font: font,
                         font_size: *font_size,
                         font_weight: font_weight,
                         font_style: font_style,
+                        color: &[0.0, 0.0, 0.0, 1.0],
+                        limit: 0.0,
                     };
 
-                    let bounds = measurer.measure_text_bounds(&config, &dimensions);
-                    let origin = bounds.calculate_origin([*x, *y], align, baseline);
+                    let text_buffer = rasterizer
+                        .rasterize(&dimensions, &config, &Default::default())
+                        .unwrap();
 
-                    let text_rect = Geometry::Rect(geo::Rect::<f32>::new(
-                        geo::Coord {
-                            x: origin[0],
-                            y: origin[1],
-                        },
-                        geo::Coord {
-                            x: origin[0] + bounds.width,
-                            y: origin[1] + bounds.height,
-                        },
-                    ));
+                    let origin =
+                        text_buffer
+                            .text_bounds
+                            .calculate_origin([*x, *y], align, baseline);
 
-                    // Rotate around x/y position
-                    let geometry = text_rect
-                        .rotate_around_point((*angle).to_radians(), geo::Point::new(*x, *y));
+                    // Build up the text polygon by unioning the glyph bounding boxes
+                    let mut text_poly = geo::MultiPolygon::<f32>::new(vec![]);
+
+                    for glyph_data in text_buffer.glyphs {
+                        let glyph_bbox = glyph_data.bbox;
+
+                        let glyph_bbox_poly = if let Some(path) = glyph_data.path {
+                            // We have vector path info, so we can use it to build a polygon
+                            match path.as_geo_type(0.0, true) {
+                                geo::Geometry::Polygon(poly) => geo::MultiPolygon::new(vec![poly]),
+                                geo::Geometry::MultiPolygon(mpoly) => mpoly,
+                                g => panic!("Expected polygon or multipolygon: {:?}", g),
+                            }
+                        } else {
+                            // No vector path info, so we use the bounding box of the glyph image to build a polygon
+                            geo::MultiPolygon::new(vec![geo::Polygon::new(
+                                geo::LineString::new(vec![
+                                    geo::Coord {
+                                        x: glyph_bbox.left as f32,
+                                        y: -glyph_bbox.top as f32,
+                                    },
+                                    geo::Coord {
+                                        x: glyph_bbox.left as f32 + glyph_bbox.width as f32,
+                                        y: -glyph_bbox.top as f32,
+                                    },
+                                    geo::Coord {
+                                        x: glyph_bbox.left as f32 + glyph_bbox.width as f32,
+                                        y: -glyph_bbox.top as f32 + glyph_bbox.height as f32,
+                                    },
+                                    geo::Coord {
+                                        x: glyph_bbox.left as f32,
+                                        y: -glyph_bbox.top as f32 + glyph_bbox.height as f32,
+                                    },
+                                    geo::Coord {
+                                        x: glyph_bbox.left as f32,
+                                        y: -glyph_bbox.top as f32,
+                                    },
+                                ]),
+                                vec![],
+                            )])
+                        }
+                        .translate(
+                            glyph_data.physical_position.x + origin[0],
+                            glyph_data.physical_position.y + origin[1],
+                        );
+
+                        text_poly = text_poly.union(&glyph_bbox_poly);
+                    }
+
+                    let geometry = Geometry::MultiPolygon(text_poly);
 
                     GeometryInstance {
                         mark_index,

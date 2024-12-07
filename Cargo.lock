@@ -394,6 +394,7 @@ dependencies = [
  "avenger-common",
  "avenger-scales",
  "avenger-scenegraph",
+ "avenger-text",
 ]
 
 [[package]]
@@ -434,6 +435,7 @@ dependencies = [
  "avenger-text",
  "float-cmp 0.10.0",
  "geo",
+ "geo-svg",
  "image 0.25.5",
  "itertools 0.13.0",
  "lyon_algorithms",
@@ -3119,6 +3121,16 @@ dependencies = [
  "robust",
  "rstar 0.12.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "spade",
+]
+
+[[package]]
+name = "geo-svg"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ea7476abfcbe12742a9d2da9e67afbe11bd34fdf836ec4cc0707b6bbc507a26c"
+dependencies = [
+ "geo",
+ "num-traits",
 ]
 
 [[package]]
