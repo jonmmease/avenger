@@ -1,7 +1,8 @@
 use std::{collections::HashMap, marker::PhantomData};
 
 use avenger_common::canvas::CanvasDimensions;
-use cosmic_text::SwashContent;
+use cosmic_text::{Command, SwashContent};
+use lyon_path::geom::Point;
 
 use crate::{
     error::AvengerTextError,
@@ -184,17 +185,23 @@ where
                             }
                         };
 
+                        // Get path
+                        // We need to rasterize glyph and write it to next_atlas
+                        let path = if let Some(outline_commands) =
+                            cache.get_outline_commands(&mut font_system, physical_glyph.cache_key)
+                        {
+                            Some(import_path_commands(&outline_commands))
+                        } else {
+                            // Path data not available, leave as None
+                            None
+                        };
+
                         // Create new glyph image
                         let glyph_data = GlyphData {
                             cache_key: (physical_glyph.cache_key, text_color),
                             image: Some(img),
-                            path: None,
-                            bbox: GlyphBBox {
-                                top: image.placement.top,
-                                left: image.placement.left,
-                                width: image.placement.width,
-                                height: image.placement.height,
-                            },
+                            path,
+                            bbox,
                             physical_position: phys_pos,
                         };
 
@@ -212,4 +219,33 @@ where
             text_bounds,
         })
     }
+}
+
+/// Import cosmic text path commands into a lyon path
+fn import_path_commands(commands: &[Command]) -> lyon_path::Path {
+    let mut builder = lyon_path::Builder::new().with_svg();
+
+    for command in commands {
+        match command {
+            Command::MoveTo(p) => {
+                builder.move_to(Point::new(p.x, -p.y));
+            }
+            Command::LineTo(p) => {
+                builder.line_to(Point::new(p.x, -p.y));
+            }
+            Command::CurveTo(p1, p2, p3) => {
+                builder.cubic_bezier_to(
+                    Point::new(p1.x, -p1.y),
+                    Point::new(p2.x, -p2.y),
+                    Point::new(p3.x, -p3.y),
+                );
+            }
+            Command::QuadTo(p1, p2) => {
+                builder.quadratic_bezier_to(Point::new(p1.x, -p1.y), Point::new(p2.x, -p2.y));
+            }
+            Command::Close => builder.close(),
+        };
+    }
+
+    builder.build()
 }

@@ -47,7 +47,13 @@ path = "../avenger-geometry"
 [dependencies.avenger-text]
 path = "../avenger-text"
 default-features = false
-features = ["serde"]
+features = ["serde", "rasterization"]
 
 [dev-dependencies]
 float-cmp = "0.10.0"
+geo-svg = "0.7.0"
+
+[dev-dependencies.avenger-text]
+path = "../avenger-text"
+default-features = false
+features = ["rasterization", "cosmic-text"]

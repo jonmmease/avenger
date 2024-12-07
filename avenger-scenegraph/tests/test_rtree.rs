@@ -1,10 +1,16 @@
+use std::sync::Arc;
+
+use avenger_common::canvas::CanvasDimensions;
 use avenger_geometry::rtree::MarkRTree;
 use avenger_scenegraph::marks::{
     area::{AreaOrientation, SceneAreaMark},
     symbol::{SceneSymbolMark, SymbolShape},
+    text::SceneTextMark,
 };
+use avenger_text::rasterization::{cosmic::CosmicTextRasterizer, TextRasterizer};
 use float_cmp::assert_approx_eq;
 use geo::BoundingRect;
+use geo_svg::ToSvg;
 use rstar::{PointDistance, AABB};
 
 #[test]
@@ -156,4 +162,29 @@ fn test_stacked_area_rtree() {
     println!("{:?}", instance);
     assert_eq!(instance.instance_index, None);
     assert_eq!(instance.mark_index, 0);
+}
+
+#[test]
+fn test_text_rtree() {
+    let mut mark = SceneTextMark::default();
+    mark.len = 1;
+    mark.x = vec![0.0].into();
+    mark.y = vec![0.0].into();
+    mark.text = vec!["Hello".to_string()].into();
+
+    let rasterizer = CosmicTextRasterizer::<()>::new();
+    let dimensions = CanvasDimensions {
+        size: [100.0, 100.0],
+        scale: 1.0,
+    };
+
+    let geometries: Vec<_> = mark
+        .geometry_iter(0, Arc::new(rasterizer), &dimensions)
+        .unwrap()
+        .collect();
+    // let rtree = MarkRTree::new(geometries);
+
+    println!("{}", geometries[0].geometry.to_svg().svg_str())
+    // let instance = rtree.locate_at_point(&[0.0, 0.0]).unwrap();
+    // assert_eq!(instance.instance_index, Some(0));
 }
