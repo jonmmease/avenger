@@ -1,36 +1,32 @@
-use avenger_common::canvas::CanvasDimensions;
 use crate::error::AvengerTextError;
-use crate::types::{FontStyleSpec, FontWeightNameSpec, FontWeightSpec};
-use lazy_static::lazy_static;
+use crate::measurement::html_canvas::GLYPH_CACHE;
+
+use avenger_common::canvas::CanvasDimensions;
 use std::collections::HashMap;
 
+use crate::measurement::html_canvas::create_font_string;
 use crate::measurement::TextBounds;
 use crate::rasterization::{
     GlyphBBox, GlyphImage, PhysicalGlyphPosition, TextRasterizationBuffer, TextRasterizationConfig,
     TextRasterizer,
 };
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::sync::Mutex;
+use std::marker::PhantomData;
 use unicode_segmentation::UnicodeSegmentation;
 use wasm_bindgen::JsCast;
 use web_sys::{OffscreenCanvas, OffscreenCanvasRenderingContext2d};
-use std::marker::PhantomData;
-
-
-lazy_static! {
-    // TODO: use LRU cache
-    static ref GLYPH_CACHE: Mutex<HashMap<u64, GlyphImage<u64>>> = Mutex::new(HashMap::new());
-}
 
 #[derive(Clone, Debug)]
 pub struct HtmlCanvasTextRasterizer<CacheValue>
-    where CacheValue: Clone + 'static
+where
+    CacheValue: Clone + 'static,
 {
     _phantom: PhantomData<CacheValue>,
 }
 
-impl <CacheValue> HtmlCanvasTextRasterizer<CacheValue>
-    where CacheValue: Clone + 'static
+impl<CacheValue> HtmlCanvasTextRasterizer<CacheValue>
+where
+    CacheValue: Clone + 'static,
 {
     pub fn new() -> Self {
         Self {
@@ -39,8 +35,9 @@ impl <CacheValue> HtmlCanvasTextRasterizer<CacheValue>
     }
 }
 
-impl <CacheValue> TextRasterizer for HtmlCanvasTextRasterizer<CacheValue>
-    where CacheValue: Clone + 'static
+impl<CacheValue> TextRasterizer for HtmlCanvasTextRasterizer<CacheValue>
+where
+    CacheValue: Clone + 'static,
 {
     type CacheKey = u64;
     type CacheValue = CacheValue;
@@ -61,22 +58,7 @@ impl <CacheValue> TextRasterizer for HtmlCanvasTextRasterizer<CacheValue>
         let text_context = context.dyn_into::<OffscreenCanvasRenderingContext2d>()?;
 
         // Build font string compatible with canvas
-        let weight = match &config.font_weight {
-            FontWeightSpec::Name(FontWeightNameSpec::Bold) => "bold".to_string(),
-            FontWeightSpec::Name(FontWeightNameSpec::Normal) => "normal".to_string(),
-            FontWeightSpec::Number(w) => (*w as u32).to_string(),
-        };
-
-        let style = match &config.font_style {
-            FontStyleSpec::Normal => "normal",
-            FontStyleSpec::Italic => "italic",
-        };
-
-        let font_str = format!(
-            "{style} {weight} {}px {}",
-            config.font_size * dimensions.scale,
-            config.font
-        );
+        let font_str = create_font_string(&config.to_measurement_config(), dimensions.scale);
         text_context.set_font(&font_str);
 
         let color = config.color;
@@ -159,10 +141,7 @@ impl <CacheValue> TextRasterizer for HtmlCanvasTextRasterizer<CacheValue>
                     ));
                 } else {
                     // Create image for glyph
-                    let glyph_canvas = OffscreenCanvas::new(
-                        canvas_width,
-                        canvas_height,
-                    )?;
+                    let glyph_canvas = OffscreenCanvas::new(canvas_width, canvas_height)?;
                     let glyph_context = glyph_canvas.get_context("2d")?.unwrap();
                     let glyph_context =
                         glyph_context.dyn_into::<OffscreenCanvasRenderingContext2d>()?;
@@ -189,7 +168,7 @@ impl <CacheValue> TextRasterizer for HtmlCanvasTextRasterizer<CacheValue>
                         image_data.height(),
                         image_data.data().0,
                     )
-                        .expect("Failed to import glyph image");
+                    .expect("Failed to import glyph image");
 
                     let glyph_image = GlyphImage {
                         cache_key,
