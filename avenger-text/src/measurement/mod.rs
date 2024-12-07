@@ -1,3 +1,5 @@
+use avenger_common::canvas::CanvasDimensions;
+
 use crate::types::{FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
 
 #[cfg(feature = "cosmic-text")]
@@ -15,7 +17,7 @@ pub trait TextMeasurer: Send + Sync {
     fn measure_text_bounds(
         &self,
         config: &TextMeasurementConfig,
-        dimensions: &[f32; 2],
+        dimensions: &CanvasDimensions,
     ) -> TextBounds;
 }
 

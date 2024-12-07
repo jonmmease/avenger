@@ -1,3 +1,4 @@
+use avenger_common::canvas::CanvasDimensions;
 use cosmic_text::{fontdb::Database, Attrs, Buffer, Family, FontSystem, Metrics, SwashCache};
 use std::{collections::HashSet, sync::Mutex};
 
@@ -78,7 +79,7 @@ impl TextMeasurer for CosmicTextMeasurer {
     fn measure_text_bounds(
         &self,
         config: &TextMeasurementConfig,
-        dimensions: &[f32; 2],
+        dimensions: &CanvasDimensions,
     ) -> TextBounds {
         let mut font_system = FONT_SYSTEM
             .lock()
@@ -139,7 +140,7 @@ pub fn measure_text_buffer(buffer: &Buffer) -> TextBounds {
 
 pub fn make_cosmic_text_buffer(
     config: &TextMeasurementConfig,
-    dimensions: &[f32; 2],
+    dimensions: &CanvasDimensions,
     font_system: &mut FontSystem,
 ) -> Buffer {
     let mut attrs = Attrs::new();
@@ -180,7 +181,11 @@ pub fn make_cosmic_text_buffer(
         attrs,
         cosmic_text::Shaping::Advanced,
     );
-    buffer.set_size(font_system, Some(dimensions[0]), Some(dimensions[1]));
+    buffer.set_size(
+        font_system,
+        Some(dimensions.size[0]),
+        Some(dimensions.size[1]),
+    );
     buffer.shape_until_scroll(font_system, false);
 
     buffer
@@ -212,7 +217,13 @@ mod tests {
             font_style: &FontStyleSpec::Normal,
         };
 
-        let bounds = measurer.measure_text_bounds(&config, &[800.0, 600.0]);
+        let bounds = measurer.measure_text_bounds(
+            &config,
+            &CanvasDimensions {
+                size: [800.0, 600.0],
+                scale: 1.0,
+            },
+        );
 
         println!("{:?}", bounds);
 

@@ -54,7 +54,7 @@ where
 
         let buffer = make_cosmic_text_buffer(
             &config.to_measurement_config(),
-            &dimensions.size,
+            dimensions,
             &mut font_system,
         );
 
