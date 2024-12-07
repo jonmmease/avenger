@@ -1,14 +1,12 @@
 mod marks;
 mod scene;
-mod text;
 
 use crate::scene::SceneGraph;
-use crate::text::HtmlCanvasTextRasterizer;
-
+use avenger_text::rasterization::html_canvas::HtmlCanvasTextRasterizer;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use avenger_wgpu::html_canvas::HtmlCanvasCanvas;
-use avenger_wgpu::marks::text::TextAtlasBuilder;
+use avenger_wgpu::marks::text::{GlyphBBoxAndAtlasCoords, TextAtlasBuilder};
 use image::ImageFormat;
 use std::io::Cursor;
 use std::sync::Arc;
@@ -129,7 +127,7 @@ pub async fn scene_graph_to_png(scene_graph: SceneGraph) -> Result<js_sys::Uint8
 fn make_config() -> CanvasConfig {
     CanvasConfig {
         text_builder_ctor: Some(Arc::new(|| {
-            Box::new(TextAtlasBuilder::new(Arc::new(HtmlCanvasTextRasterizer)))
+            Box::new(TextAtlasBuilder::new(Arc::new(HtmlCanvasTextRasterizer::<GlyphBBoxAndAtlasCoords>::new())))
         })),
         ..Default::default()
     }

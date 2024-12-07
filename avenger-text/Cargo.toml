@@ -14,8 +14,8 @@ default = ["serde", "cosmic-text", "rasterization"]
 thiserror = { workspace = true }
 serde = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
-
 avenger-common = { path = "../avenger-common" }
+unicode-segmentation = "1.12.0"
 
 [dependencies.cosmic-text]
 workspace = true
@@ -25,7 +25,16 @@ optional = true
 workspace = true
 optional = true
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.92"
+web-sys = { version = "0.3.67", features = [
+    "Document",
+    "Window",
+    "Element",
+    "Performance",
+    "OffscreenCanvas",
+    "OffscreenCanvasRenderingContext2d",
+    "TextMetrics",
+    "ImageData"
+]}
 
-[target."cfg(target_arch = \"wasm32\")".dependencies.web-sys]
-version = "0.3.67"
-features = [ "Document", "Window", "Element", "HtmlCanvasElement",]
