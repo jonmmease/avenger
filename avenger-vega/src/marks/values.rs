@@ -1,5 +1,5 @@
 use crate::error::AvengerVegaError;
-use avenger_common::value::{
+use avenger_common::types::{
     ColorOrGradient, Gradient, GradientStop, LinearGradient, RadialGradient,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};

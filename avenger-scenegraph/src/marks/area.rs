@@ -1,4 +1,5 @@
-use avenger_common::value::{ColorOrGradient, Gradient, ScalarOrArray, StrokeCap, StrokeJoin};
+use avenger_common::types::{AreaOrientation, ColorOrGradient, Gradient, StrokeCap, StrokeJoin};
+use avenger_common::value::ScalarOrArray;
 use avenger_geometry::{lyon_to_geo::IntoGeoType, GeometryInstance};
 use itertools::izip;
 use lyon_path::{builder::WithSvg, geom::point, BuilderImpl, Path};
@@ -146,14 +147,6 @@ impl Default for SceneAreaMark {
             zindex: None,
         }
     }
-}
-
-#[derive(Default, Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum AreaOrientation {
-    #[default]
-    Vertical,
-    Horizontal,
 }
 
 impl From<SceneAreaMark> for SceneMark {

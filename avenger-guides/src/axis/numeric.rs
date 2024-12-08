@@ -1,9 +1,6 @@
 use std::sync::Arc;
 
-use avenger_common::{
-    canvas::CanvasDimensions,
-    value::{ColorOrGradient, ScalarOrArray},
-};
+use avenger_common::{canvas::CanvasDimensions, types::ColorOrGradient, value::ScalarOrArray};
 use avenger_geometry::rtree::MarkRTree;
 use avenger_scales::numeric::ContinuousNumericScale;
 use avenger_scenegraph::marks::{

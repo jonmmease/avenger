@@ -1,7 +1,8 @@
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::{CssColorOrGradient, MissingNullOrValue, StrokeDashSpec};
-use avenger_common::value::{ColorOrGradient, Gradient, ScalarOrArray, StrokeCap};
+use avenger_common::types::{ColorOrGradient, Gradient, StrokeCap};
+use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rule::SceneRuleMark;
 use serde::{Deserialize, Serialize};
