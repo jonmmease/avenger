@@ -1,3 +1,4 @@
+use avenger_common::canvas::CanvasDimensions;
 use avenger_common::value::ColorOrGradient;
 use avenger_guides::axis::band::make_band_axis_marks;
 use avenger_guides::axis::numeric::make_numeric_axis_marks;
@@ -11,7 +12,7 @@ use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
-use avenger_wgpu::canvas::{Canvas, CanvasDimensions, WindowCanvas};
+use avenger_wgpu::canvas::{Canvas, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -188,6 +189,7 @@ pub async fn run() {
     // Make y-axis
     let y_axis = make_numeric_axis_marks(
         &y_scale,
+        "My Long Y-Axis Label",
         [0.0, 0.0],
         &AxisConfig {
             orientation: AxisOrientation::Left,
@@ -197,6 +199,7 @@ pub async fn run() {
     // Make x-axis
     let x_axis = make_band_axis_marks(
         &x_scale,
+        "My Long X-Axis Label",
         [0.0, 0.0],
         &AxisConfig {
             orientation: AxisOrientation::Bottom { height },

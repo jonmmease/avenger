@@ -8,3 +8,4 @@ avenger-scales = { path = "../avenger-scales" }
 avenger-common = { path = "../avenger-common" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-text = { path = "../avenger-text" }
+avenger-geometry = { path = "../avenger-geometry" }
