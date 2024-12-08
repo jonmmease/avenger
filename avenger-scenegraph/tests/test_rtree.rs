@@ -170,7 +170,7 @@ fn test_text_rtree() {
     mark.len = 1;
     mark.x = vec![0.0].into();
     mark.y = vec![0.0].into();
-    mark.text = vec!["Hello".to_string()].into();
+    mark.text = vec!["0".to_string()].into();
 
     let rasterizer = CosmicTextRasterizer::<()>::new();
     let dimensions = CanvasDimensions {

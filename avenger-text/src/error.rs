@@ -11,6 +11,9 @@ pub enum AvengerTextError {
     #[error("Failed to allocate image")]
     ImageAllocationError(String),
 
+    #[error("Internal error: `{0}`")]
+    InternalError(String),
+
     #[cfg(target_arch = "wasm32")]
     #[error("Failed to convert to JS value")]
     JsError(JsValue),

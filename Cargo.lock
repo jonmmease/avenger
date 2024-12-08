@@ -392,6 +392,7 @@ name = "avenger-guides"
 version = "0.1.0"
 dependencies = [
  "avenger-common",
+ "avenger-geometry",
  "avenger-scales",
  "avenger-scenegraph",
  "avenger-text",
@@ -9638,6 +9639,7 @@ dependencies = [
  "avenger-guides",
  "avenger-scales",
  "avenger-scenegraph",
+ "avenger-text",
  "avenger-vega",
  "avenger-wgpu",
  "cfg-if",

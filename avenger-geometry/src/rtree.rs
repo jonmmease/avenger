@@ -24,17 +24,21 @@ impl RTreeObject for GeometryInstance {
 
     /// Returns the envelope of the geometry, including the stroke width
     fn envelope(&self) -> Self::Envelope {
-        let bbox = self.geometry.bounding_rect().unwrap();
-        AABB::from_corners(
-            [
-                bbox.min().x - self.half_stroke_width,
-                bbox.min().y - self.half_stroke_width,
-            ],
-            [
-                bbox.max().x + self.half_stroke_width,
-                bbox.max().y + self.half_stroke_width,
-            ],
-        )
+        if let Some(bbox) = self.geometry.bounding_rect() {
+            AABB::from_corners(
+                [
+                    bbox.min().x - self.half_stroke_width,
+                    bbox.min().y - self.half_stroke_width,
+                ],
+                [
+                    bbox.max().x + self.half_stroke_width,
+                    bbox.max().y + self.half_stroke_width,
+                ],
+            )
+        } else {
+            println!("No bounding box for geometry: {:?}", self.geometry);
+            AABB::from_corners([0.0, 0.0], [0.0, 0.0])
+        }
     }
 }
 

@@ -8,7 +8,7 @@ use avenger_text::{
     rasterization::{TextRasterizationConfig, TextRasterizer},
     types::{FontStyleSpec, FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec},
 };
-use geo::{BooleanOps, Geometry, MultiPolygon, Rotate, Translate};
+use geo::{BooleanOps, BoundingRect, Geometry, MultiPolygon, Rotate, Translate};
 use itertools::izip;
 use lyon_path::{
     geom::{Box2D, Point},
@@ -159,7 +159,9 @@ impl SceneTextMark {
                     for (glyph_data, phys_pos) in text_buffer.glyphs {
                         let glyph_bbox = glyph_data.bbox;
 
-                        let glyph_bbox_poly = if let Some(path) = glyph_data.path {
+                        // let path = glyph_data.path;
+                        let path: Option<lyon_path::Path> = None;
+                        let glyph_bbox_poly = if let Some(path) = path {
                             // We have vector path info, so we can use it to build a polygon
                             match path.as_geo_type(0.0, true) {
                                 geo::Geometry::Polygon(poly) => geo::MultiPolygon::new(vec![poly]),
@@ -194,7 +196,10 @@ impl SceneTextMark {
                                 vec![],
                             )])
                         }
-                        .translate(phys_pos.x + origin[0], phys_pos.y + origin[1]);
+                        .translate(
+                            phys_pos.x + origin[0],
+                            phys_pos.y + origin[1] + text_buffer.text_bounds.height,
+                        );
 
                         text_poly = text_poly.union(&glyph_bbox_poly);
                     }
