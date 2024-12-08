@@ -1,6 +1,7 @@
 use crate::error::AvengerSceneGraphError;
 use crate::marks::path::PathTransform;
-use avenger_common::value::{ColorOrGradient, Gradient, ScalarOrArray};
+use avenger_common::types::{ColorOrGradient, Gradient};
+use avenger_common::value::ScalarOrArray;
 use avenger_geometry::geo_types::Geometry;
 use avenger_geometry::lyon_to_geo::IntoGeoType;
 use avenger_geometry::GeometryInstance;

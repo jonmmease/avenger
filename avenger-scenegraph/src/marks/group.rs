@@ -1,11 +1,11 @@
 use crate::marks::mark::SceneMark;
 use crate::marks::path::{PathTransform, ScenePathMark};
-use avenger_common::value::{ColorOrGradient, Gradient, ScalarOrArray};
+use avenger_common::types::{ColorOrGradient, Gradient};
+use avenger_common::value::ScalarOrArray;
 use lyon_path::geom::euclid::Point2D;
 use lyon_path::geom::Box2D;
 use lyon_path::Winding;
 use serde::{Deserialize, Serialize};
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Clip {
     None,

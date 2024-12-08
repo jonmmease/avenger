@@ -1,9 +1,6 @@
 use std::sync::Arc;
 
-use avenger_common::{
-    canvas::CanvasDimensions,
-    value::{ColorOrGradient, ScalarOrArray},
-};
+use avenger_common::{canvas::CanvasDimensions, types::ColorOrGradient, value::ScalarOrArray};
 use avenger_geometry::rtree::MarkRTree;
 use avenger_scales::band::BandScale;
 use avenger_scenegraph::marks::{
@@ -57,8 +54,6 @@ pub fn make_band_axis_marks(
             let rasterizer = Arc::new(CosmicTextRasterizer::<()>::new());
             marks.push(tick_x_mark.into());
 
-            println!("ticks envelope: {:?}", rtree.envelope());
-
             // Axis line rule mark
             let axis_x0 = ScalarOrArray::Scalar(scale.range().0);
             let axis_x1 = ScalarOrArray::Scalar(scale.range().1);
@@ -75,8 +70,6 @@ pub fn make_band_axis_marks(
             };
             rtree.insert_all(axis_rule_mark.geometry_iter(1).collect());
             marks.push(axis_rule_mark.into());
-
-            println!("ticks+rule envelope: {:?}", rtree.envelope());
 
             // Add tick text
             let tick_text_mark = SceneTextMark {
@@ -106,7 +99,6 @@ pub fn make_band_axis_marks(
             );
             marks.push(tick_text_mark.into());
 
-            println!("ticks+rule+label envelope: {:?}", rtree.envelope());
             let y_offset = rtree.envelope().upper()[1];
             let title_margin = 2.0;
 

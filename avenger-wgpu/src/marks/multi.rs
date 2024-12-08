@@ -4,7 +4,7 @@ use crate::error::AvengerWgpuError;
 use crate::marks::gradient::{to_color_or_gradient_coord, GradientAtlasBuilder};
 use crate::marks::image::ImageAtlasBuilder;
 use avenger_common::canvas::CanvasDimensions;
-use avenger_common::value::{ColorOrGradient, StrokeCap, StrokeJoin};
+use avenger_common::types::{ColorOrGradient, StrokeCap, StrokeJoin};
 use avenger_scenegraph::marks::area::SceneAreaMark;
 use avenger_scenegraph::marks::image::SceneImageMark;
 use avenger_scenegraph::marks::line::SceneLineMark;

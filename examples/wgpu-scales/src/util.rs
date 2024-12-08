@@ -1,5 +1,5 @@
 use avenger_common::canvas::CanvasDimensions;
-use avenger_common::value::ColorOrGradient;
+use avenger_common::types::ColorOrGradient;
 use avenger_guides::axis::band::make_band_axis_marks;
 use avenger_guides::axis::numeric::make_numeric_axis_marks;
 use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};

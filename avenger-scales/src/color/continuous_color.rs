@@ -1,4 +1,5 @@
-use avenger_common::value::{ColorOrGradient, ScalarOrArray, ScalarOrArrayRef};
+use avenger_common::types::ColorOrGradient;
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use palette::{Hsla, IntoColor, Laba, Mix, Srgba};
 use std::fmt::Debug;

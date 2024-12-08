@@ -1,4 +1,5 @@
-use avenger_common::value::{ImageAlign, ImageBaseline, ScalarOrArray};
+use avenger_common::types::{ImageAlign, ImageBaseline};
+use avenger_common::value::ScalarOrArray;
 use avenger_geometry::GeometryInstance;
 use geo::{coord, Geometry, Rect};
 use itertools::izip;
