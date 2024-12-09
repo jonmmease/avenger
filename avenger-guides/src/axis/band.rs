@@ -98,13 +98,7 @@ pub fn make_band_axis_marks(
 
             // Make rtree for ticks, rule, and tick labels
             let rasterizer = Arc::new(CosmicTextRasterizer::<()>::new());
-            let rtree = group.make_rtree(
-                rasterizer,
-                &CanvasDimensions {
-                    size: [width, width],
-                    scale: 1.0,
-                },
-            );
+            let rtree = group.make_rtree(rasterizer);
 
             // Compute offset for axis label so that it doesn't overlap with tick labels
             let y_offset = rtree.envelope().upper()[1];

@@ -110,8 +110,8 @@ pub trait TextRasterizer: 'static {
 
     fn rasterize(
         &self,
-        dimensions: &CanvasDimensions,
         config: &TextRasterizationConfig,
+        scale: f32,
         cached_glyphs: &HashMap<Self::CacheKey, Self::CacheValue>,
     ) -> Result<TextRasterizationBuffer<Self::CacheKey>, AvengerTextError>;
 }

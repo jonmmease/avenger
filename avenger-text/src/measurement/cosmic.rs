@@ -76,16 +76,12 @@ impl CosmicTextMeasurer {
 }
 
 impl TextMeasurer for CosmicTextMeasurer {
-    fn measure_text_bounds(
-        &self,
-        config: &TextMeasurementConfig,
-        dimensions: &CanvasDimensions,
-    ) -> TextBounds {
+    fn measure_text_bounds(&self, config: &TextMeasurementConfig) -> TextBounds {
         let mut font_system = FONT_SYSTEM
             .lock()
             .expect("Failed to acquire lock on FONT_SYSTEM");
 
-        let buffer = make_cosmic_text_buffer(config, dimensions, &mut font_system);
+        let buffer = make_cosmic_text_buffer(config, &mut font_system);
         measure_text_buffer(&buffer)
     }
 }
@@ -140,7 +136,6 @@ pub fn measure_text_buffer(buffer: &Buffer) -> TextBounds {
 
 pub fn make_cosmic_text_buffer(
     config: &TextMeasurementConfig,
-    dimensions: &CanvasDimensions,
     font_system: &mut FontSystem,
 ) -> Buffer {
     let mut attrs = Attrs::new();
@@ -181,11 +176,7 @@ pub fn make_cosmic_text_buffer(
         attrs,
         cosmic_text::Shaping::Advanced,
     );
-    buffer.set_size(
-        font_system,
-        Some(dimensions.size[0]),
-        Some(dimensions.size[1]),
-    );
+    buffer.set_size(font_system, Some(1024.0), Some(512.0));
     buffer.shape_until_scroll(font_system, false);
 
     buffer

@@ -139,7 +139,6 @@ where
         let angle = text.angle;
 
         let buffer = self.rasterizer.rasterize(
-            &dimensions,
             &TextRasterizationConfig {
                 text: text.text,
                 color: text.color,
@@ -149,6 +148,7 @@ where
                 font_style: text.font_style,
                 limit: text.limit,
             },
+            dimensions.scale,
             &self.next_cache,
         )?;
 

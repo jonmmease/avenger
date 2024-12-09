@@ -70,12 +70,10 @@ impl HtmlCanvasTextMeasurer {
 }
 
 impl TextMeasurer for HtmlCanvasTextMeasurer {
-    fn measure_text_bounds(
-        &self,
-        config: &TextMeasurementConfig,
-        dimensions: &CanvasDimensions,
-    ) -> TextBounds {
-        let scale = dimensions.scale;
+    fn measure_text_bounds(&self, config: &TextMeasurementConfig) -> TextBounds {
+        // Scale always 1.0 for text measurement because we want measurement
+        // in base coordinates.
+        let scale = 1.0;
         let font_str = create_font_string(config, scale);
         measure_text_with_canvas(&config.text, &font_str, scale)
             .unwrap_or_else(|_e| TextBounds::empty())

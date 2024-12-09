@@ -44,21 +44,21 @@ where
 
     fn rasterize(
         &self,
-        dimensions: &CanvasDimensions,
         config: &TextRasterizationConfig,
-        cached_glyphs: &HashMap<Self::CacheKey, CacheValue>,
+        scale: f32,
+        cached_glyphs: &HashMap<Self::CacheKey, Self::CacheValue>,
     ) -> Result<TextRasterizationBuffer<Self::CacheKey>, AvengerTextError> {
         let mut glyph_cache = GLYPH_CACHE
             .lock()
             .expect("Failed to acquire lock on GLYPH_CACHE");
 
         // Create context for measuring text (we don't draw to this one)
-        let offscreen_canvas = OffscreenCanvas::new(400, 400)?;
+        let offscreen_canvas = OffscreenCanvas::new(512, 1024)?;
         let context = offscreen_canvas.get_context("2d")?.unwrap();
         let text_context = context.dyn_into::<OffscreenCanvasRenderingContext2d>()?;
 
         // Build font string compatible with canvas
-        let font_str = create_font_string(&config.to_measurement_config(), dimensions.scale);
+        let font_str = create_font_string(&config.to_measurement_config(), scale);
         text_context.set_font(&font_str);
 
         let color = config.color;
@@ -199,11 +199,11 @@ where
         let descent = full_metrics.font_bounding_box_descent();
 
         let text_bounds = TextBounds {
-            width: buffer_width as f32 / dimensions.scale,
-            height: (ascent + descent) as f32 / dimensions.scale,
-            ascent: ascent as f32 / dimensions.scale,
-            descent: descent as f32 / dimensions.scale,
-            line_height: (ascent + descent) as f32 / dimensions.scale,
+            width: buffer_width as f32 / scale.scale,
+            height: (ascent + descent) as f32 / scale.scale,
+            ascent: ascent as f32 / scale.scale,
+            descent: descent as f32 / scale.scale,
+            line_height: (ascent + descent) as f32 / scale.scale,
         };
         Ok(TextRasterizationBuffer {
             glyphs,
