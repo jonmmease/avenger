@@ -95,13 +95,7 @@ pub fn make_numeric_axis_marks(
             );
 
             // make rtree
-            let rtree = group.make_rtree(
-                rasterizer,
-                &CanvasDimensions {
-                    size: [height, height],
-                    scale: 1.0,
-                },
-            );
+            let rtree = group.make_rtree(rasterizer);
 
             // Add axis label, offset to avoid overlap with ticks
             let x_offset = rtree.envelope().lower()[0];

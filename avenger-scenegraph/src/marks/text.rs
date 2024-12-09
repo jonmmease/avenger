@@ -94,14 +94,16 @@ impl SceneTextMark {
         &self,
         mark_index: usize,
         rasterizer: Arc<dyn TextRasterizer<CacheKey = CacheKey, CacheValue = CacheValue>>,
-        dimensions: &CanvasDimensions,
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_>
     where
         CacheKey: Hash + Eq + Clone + 'static,
         CacheValue: Clone + 'static,
     {
-        // Simple case where we don't need to build lyon paths first
-        let dimensions = *dimensions;
+        // For measurement, use scale 1.0 and a large canvas.
+        let dimensions = CanvasDimensions {
+            size: [1024.0, 512.0],
+            scale: 1.0,
+        };
         Box::new(
             izip!(
                 self.indices_iter(),
@@ -145,7 +147,7 @@ impl SceneTextMark {
                     };
 
                     let text_buffer = rasterizer
-                        .rasterize(&dimensions, &config, &Default::default())
+                        .rasterize(&config, 1.0, &Default::default())
                         .unwrap();
 
                     let origin =

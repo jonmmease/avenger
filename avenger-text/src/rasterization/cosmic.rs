@@ -40,8 +40,8 @@ where
 
     fn rasterize(
         &self,
-        dimensions: &CanvasDimensions,
         config: &TextRasterizationConfig,
+        scale: f32,
         cached_glyphs: &HashMap<Self::CacheKey, Self::CacheValue>,
     ) -> Result<TextRasterizationBuffer<Self::CacheKey>, AvengerTextError> {
         let mut font_system = FONT_SYSTEM
@@ -55,11 +55,7 @@ where
         // Build image cache
         let mut next_cache: HashMap<CosmicCacheKey, GlyphData<CosmicCacheKey>> = HashMap::new();
 
-        let buffer = make_cosmic_text_buffer(
-            &config.to_measurement_config(),
-            dimensions,
-            &mut font_system,
-        );
+        let buffer = make_cosmic_text_buffer(&config.to_measurement_config(), &mut font_system);
 
         let text_bounds = measure_text_buffer(&buffer);
 
@@ -75,7 +71,7 @@ where
 
         for run in buffer.layout_runs() {
             for glyph in run.glyphs.iter() {
-                let physical_glyph = glyph.physical((0.0, 0.0), dimensions.scale);
+                let physical_glyph = glyph.physical((0.0, 0.0), scale);
 
                 let phys_pos = PhysicalGlyphPosition {
                     x: physical_glyph.x as f32,

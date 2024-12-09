@@ -14,11 +14,7 @@ pub mod html_canvas;
 /// Core trait for text measurement functionality
 pub trait TextMeasurer: Send + Sync {
     /// Measures the bounding dimensions for a text string with given configuration
-    fn measure_text_bounds(
-        &self,
-        config: &TextMeasurementConfig,
-        dimensions: &CanvasDimensions,
-    ) -> TextBounds;
+    fn measure_text_bounds(&self, config: &TextMeasurementConfig) -> TextBounds;
 }
 
 /// Configuration needed for text measurement

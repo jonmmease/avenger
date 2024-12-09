@@ -147,7 +147,6 @@ impl SceneGroup {
     pub fn make_rtree<CacheKey, CacheValue>(
         &self,
         rasterizer: Arc<dyn TextRasterizer<CacheKey = CacheKey, CacheValue = CacheValue>>,
-        dimensions: &CanvasDimensions,
     ) -> MarkRTree
     where
         CacheKey: Hash + Eq + Clone + 'static,
@@ -181,11 +180,7 @@ impl SceneGroup {
                     geometry_instances.extend(mark.geometry_iter(mark_index));
                 }
                 SceneMark::Text(mark) => {
-                    geometry_instances.extend(mark.geometry_iter(
-                        mark_index,
-                        rasterizer.clone(),
-                        dimensions,
-                    ));
+                    geometry_instances.extend(mark.geometry_iter(mark_index, rasterizer.clone()));
                 }
                 SceneMark::Image(mark) => {
                     geometry_instances.extend(mark.geometry_iter(mark_index));
