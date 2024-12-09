@@ -1,15 +1,17 @@
-use std::sync::Arc;
-
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 use avenger_geometry::rtree::MarkRTree;
 use avenger_scales::numeric::ContinuousNumericScale;
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
-use avenger_text::{
-    rasterization::cosmic::CosmicTextRasterizer,
-    types::{FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec},
-};
+use avenger_text::types::{FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
 
 use super::opts::{AxisConfig, AxisOrientation};
+
+const TICK_LENGTH: f32 = 5.0;
+const TEXT_MARGIN: f32 = 3.0;
+const TITLE_MARGIN: f32 = 2.0;
+const TITLE_FONT_SIZE: f32 = 10.0;
+const TICK_FONT_SIZE: f32 = 8.0;
+const PIXEL_OFFSET: f32 = 0.5;
 
 pub fn make_numeric_axis_marks(
     scale: &impl ContinuousNumericScale<f32>,
@@ -17,107 +19,293 @@ pub fn make_numeric_axis_marks(
     origin: [f32; 2],
     config: &AxisConfig,
 ) -> SceneGroup {
-    match config.orientation {
-        AxisOrientation::Top => todo!(),
-        AxisOrientation::Bottom { .. } => todo!(),
-        AxisOrientation::Left => {
-            let mut group = SceneGroup {
-                origin,
-                ..Default::default()
-            };
+    let mut group = SceneGroup {
+        origin,
+        ..Default::default()
+    };
 
-            let y_offset = 0.5;
+    // Get ticks
+    let ticks = scale.ticks(None);
 
-            // ticks rule mark
-            let ticks = scale.ticks(None);
-            let tick_y0 = scale.scale(&ticks).map(|y| y + y_offset);
-            let tick_x0 = ScalarOrArray::Scalar(0.0);
-            let tick_x1 = ScalarOrArray::Scalar(-5.0);
-
-            group.marks.push(
-                SceneRuleMark {
-                    len: ticks.len() as u32,
-                    clip: false,
-                    x0: tick_x0,
-                    x1: tick_x1.clone(),
-                    y0: tick_y0.clone(),
-                    y1: tick_y0.clone(),
-                    stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
-                    stroke_width: 1.0.into(),
-                    ..Default::default()
-                }
-                .into(),
-            );
-
-            let rasterizer = Arc::new(CosmicTextRasterizer::<()>::new());
-
-            // Axis line rule mark
-            // Offset bottom by a half pixel to not overlay with tick at zero
-            let y_upper = f32::min(scale.range().1, scale.range().0);
-            let y_lower = f32::max(scale.range().0, scale.range().1) + y_offset;
-            let height = y_lower - y_upper;
-            let y_mid = (y_lower + y_upper) / 2.0;
-
-            let axis_y0 = ScalarOrArray::Scalar(y_lower);
-            let axis_y1 = ScalarOrArray::Scalar(y_upper);
-
-            group.marks.push(
-                SceneRuleMark {
-                    x0: 0.0.into(),
-                    x1: 0.0.into(),
-                    y0: axis_y0,
-                    y1: axis_y1,
-                    stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
-                    stroke_width: 1.0.into(),
-                    ..Default::default()
-                }
-                .into(),
-            );
-
-            // Add tick text
-            let tick_text = ticks.iter().map(|t| t.to_string()).collect::<Vec<String>>();
-            group.marks.push(
-                SceneTextMark {
-                    len: ticks.len() as u32,
-                    text: tick_text.clone().into(),
-                    x: tick_x1.map(|x| -8.0),
-                    y: tick_y0,
-                    align: TextAlignSpec::Right.into(),
-                    baseline: TextBaselineSpec::Middle.into(),
-                    angle: 0.0.into(),
-                    color: [0.0, 0.0, 0.0, 1.0].into(),
-                    font_size: 8.0.into(),
-                    ..Default::default()
-                }
-                .into(),
-            );
-
-            // make rtree
-            let rtree = MarkRTree::from_scene_group(&group);
-
-            // Add axis label, offset to avoid overlap with ticks
-            let x_offset = rtree.envelope().lower()[0];
-            let title_margin = 2.0;
-
-            group.marks.push(
-                SceneTextMark {
-                    len: 1,
-                    text: title.to_string().into(),
-                    x: (x_offset - title_margin).into(),
-                    y: y_mid.into(),
-                    align: TextAlignSpec::Center.into(),
-                    baseline: TextBaselineSpec::LineBottom.into(),
-                    angle: (-90.0).into(),
-                    color: [0.0, 0.0, 0.0, 1.0].into(),
-                    font_size: 10.0.into(),
-                    font_weight: FontWeightSpec::Name(FontWeightNameSpec::Bold).into(),
-                    ..Default::default()
-                }
-                .into(),
-            );
-
-            group
+    // Get range bounds considering orientation
+    let range = scale.range();
+    let (start, end) = match config.orientation {
+        AxisOrientation::Left | AxisOrientation::Right => {
+            let upper = f32::min(range.1, range.0) - PIXEL_OFFSET;
+            let lower = f32::max(range.0, range.1) + PIXEL_OFFSET;
+            (lower, upper)
         }
-        AxisOrientation::Right { width } => todo!(),
+        AxisOrientation::Top | AxisOrientation::Bottom => {
+            let left = f32::min(range.0, range.1) - PIXEL_OFFSET;
+            let right = f32::max(range.0, range.1) + PIXEL_OFFSET;
+            (left, right)
+        }
+    };
+
+    // Add axis line
+    let is_vertical = matches!(
+        config.orientation,
+        AxisOrientation::Left | AxisOrientation::Right
+    );
+    let offset = match config.orientation {
+        AxisOrientation::Right => config.dimensions[0],
+        AxisOrientation::Bottom => config.dimensions[1],
+        _ => 0.0,
+    };
+
+    // Add tick grid
+    if config.grid {
+        group.marks.push(
+            make_tick_grid_marks(&ticks, scale, &config.orientation, &config.dimensions).into(),
+        );
+    }
+
+    // Add axis line
+    group
+        .marks
+        .push(make_axis_line(start, end, is_vertical, offset).into());
+
+    // Add tick marks
+    group
+        .marks
+        .push(make_tick_marks(&ticks, scale, &config.orientation, &config.dimensions).into());
+
+    // Add tick labels
+    group
+        .marks
+        .push(make_tick_labels(&ticks, scale, &config.orientation, &config.dimensions).into());
+
+    // Create rtree for calculating title position
+    let rtree = MarkRTree::from_scene_group(&group);
+
+    // Add title
+    group
+        .marks
+        .push(make_title(title, scale, &rtree, &config.orientation).into());
+
+    group
+}
+
+fn make_axis_line(start: f32, end: f32, is_vertical: bool, offset: f32) -> SceneRuleMark {
+    let (x0, x1, y0, y1) = if is_vertical {
+        (offset, offset, start, end)
+    } else {
+        (start, end, offset, offset)
+    };
+
+    SceneRuleMark {
+        x0: x0.into(),
+        x1: x1.into(),
+        y0: y0.into(),
+        y1: y1.into(),
+        stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
+        stroke_width: 1.0.into(),
+        ..Default::default()
+    }
+}
+
+fn make_tick_marks(
+    ticks: &[f32],
+    scale: &impl ContinuousNumericScale<f32>,
+    orientation: &AxisOrientation,
+    dimensions: &[f32; 2],
+) -> SceneRuleMark {
+    let scaled_values = scale.scale(ticks);
+
+    let (x0, x1, y0, y1) = match orientation {
+        AxisOrientation::Left => (
+            ScalarOrArray::Scalar(0.0),
+            ScalarOrArray::Scalar(-TICK_LENGTH),
+            scaled_values.clone(),
+            scaled_values.clone(),
+        ),
+        AxisOrientation::Right => (
+            ScalarOrArray::Scalar(dimensions[0]),
+            ScalarOrArray::Scalar(dimensions[0] + TICK_LENGTH),
+            scaled_values.clone(),
+            scaled_values.clone(),
+        ),
+        AxisOrientation::Top => (
+            scaled_values.clone(),
+            scaled_values.clone(),
+            ScalarOrArray::Scalar(0.0),
+            ScalarOrArray::Scalar(-TICK_LENGTH),
+        ),
+        AxisOrientation::Bottom => (
+            scaled_values.clone(),
+            scaled_values.clone(),
+            ScalarOrArray::Scalar(dimensions[1]),
+            ScalarOrArray::Scalar(dimensions[1] + TICK_LENGTH),
+        ),
+    };
+
+    SceneRuleMark {
+        len: ticks.len() as u32,
+        clip: false,
+        x0,
+        x1,
+        y0,
+        y1,
+        stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
+        stroke_width: 1.0.into(),
+        ..Default::default()
+    }
+}
+
+fn make_tick_grid_marks(
+    ticks: &[f32],
+    scale: &impl ContinuousNumericScale<f32>,
+    orientation: &AxisOrientation,
+    dimensions: &[f32; 2],
+) -> SceneRuleMark {
+    let scaled_values = scale.scale(ticks);
+
+    let (x0, x1, y0, y1) = match orientation {
+        AxisOrientation::Left => (
+            ScalarOrArray::Scalar(0.0),
+            ScalarOrArray::Scalar(dimensions[0]),
+            scaled_values.clone(),
+            scaled_values.clone(),
+        ),
+        AxisOrientation::Right => (
+            ScalarOrArray::Scalar(0.0),
+            ScalarOrArray::Scalar(dimensions[0]),
+            scaled_values.clone(),
+            scaled_values.clone(),
+        ),
+        AxisOrientation::Top => (
+            scaled_values.clone(),
+            scaled_values.clone(),
+            ScalarOrArray::Scalar(0.0),
+            ScalarOrArray::Scalar(dimensions[1]),
+        ),
+        AxisOrientation::Bottom => (
+            scaled_values.clone(),
+            scaled_values.clone(),
+            ScalarOrArray::Scalar(0.0),
+            ScalarOrArray::Scalar(dimensions[1]),
+        ),
+    };
+
+    SceneRuleMark {
+        len: ticks.len() as u32,
+        clip: false,
+        x0,
+        x1,
+        y0,
+        y1,
+        stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.3]).into(),
+        stroke_width: 0.5.into(),
+        ..Default::default()
+    }
+}
+
+fn make_tick_labels(
+    ticks: &[f32],
+    scale: &impl ContinuousNumericScale<f32>,
+    orientation: &AxisOrientation,
+    dimensions: &[f32; 2],
+) -> SceneTextMark {
+    let tick_text = ticks.iter().map(|t| t.to_string()).collect::<Vec<String>>();
+    let scaled_values = scale.scale(ticks);
+
+    let (x, y, align, baseline, angle) = match orientation {
+        AxisOrientation::Left => (
+            ScalarOrArray::Scalar(-TICK_LENGTH - TEXT_MARGIN),
+            scaled_values,
+            TextAlignSpec::Right,
+            TextBaselineSpec::Middle,
+            0.0,
+        ),
+        AxisOrientation::Right => (
+            ScalarOrArray::Scalar(dimensions[0] + TICK_LENGTH + TEXT_MARGIN),
+            scaled_values,
+            TextAlignSpec::Left,
+            TextBaselineSpec::Middle,
+            0.0,
+        ),
+        AxisOrientation::Top => (
+            scaled_values,
+            ScalarOrArray::Scalar(-TICK_LENGTH),
+            TextAlignSpec::Center,
+            TextBaselineSpec::Bottom,
+            0.0,
+        ),
+        AxisOrientation::Bottom => (
+            scaled_values,
+            ScalarOrArray::Scalar(dimensions[1] + TICK_LENGTH + TEXT_MARGIN),
+            TextAlignSpec::Center,
+            TextBaselineSpec::Top,
+            0.0,
+        ),
+    };
+
+    SceneTextMark {
+        len: ticks.len() as u32,
+        text: tick_text.into(),
+        x,
+        y,
+        align: align.into(),
+        baseline: baseline.into(),
+        angle: angle.into(),
+        color: [0.0, 0.0, 0.0, 1.0].into(),
+        font_size: TICK_FONT_SIZE.into(),
+        ..Default::default()
+    }
+}
+
+fn make_title(
+    title: &str,
+    scale: &impl ContinuousNumericScale<f32>,
+    rtree: &MarkRTree,
+    orientation: &AxisOrientation,
+) -> SceneTextMark {
+    let range = scale.range();
+    let mid = (range.0 + range.1) / 2.0;
+    let envelope = rtree.envelope();
+
+    let (x, y, align, baseline, angle) = match orientation {
+        AxisOrientation::Left => (
+            (envelope.lower()[0] - TITLE_MARGIN).into(),
+            mid.into(),
+            TextAlignSpec::Center,
+            TextBaselineSpec::LineBottom,
+            -90.0,
+        ),
+        AxisOrientation::Right => (
+            (envelope.upper()[0] + TITLE_MARGIN).into(),
+            mid.into(),
+            TextAlignSpec::Center,
+            TextBaselineSpec::LineBottom,
+            90.0,
+        ),
+        AxisOrientation::Top => (
+            mid.into(),
+            (envelope.lower()[1] - TITLE_MARGIN).into(),
+            TextAlignSpec::Center,
+            TextBaselineSpec::Bottom,
+            0.0,
+        ),
+        AxisOrientation::Bottom => (
+            mid.into(),
+            (envelope.upper()[1] + TITLE_MARGIN).into(),
+            TextAlignSpec::Center,
+            TextBaselineSpec::Top,
+            0.0,
+        ),
+    };
+
+    SceneTextMark {
+        len: 1,
+        text: title.to_string().into(),
+        x,
+        y,
+        align: align.into(),
+        baseline: baseline.into(),
+        angle: angle.into(),
+        color: [0.0, 0.0, 0.0, 1.0].into(),
+        font_size: TITLE_FONT_SIZE.into(),
+        font_weight: FontWeightSpec::Name(FontWeightNameSpec::Bold).into(),
+        ..Default::default()
     }
 }

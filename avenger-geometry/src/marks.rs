@@ -310,59 +310,69 @@ impl GeometryIter for SceneTextMark {
                             .text_bounds
                             .calculate_origin([*x, *y], align, baseline);
 
-                    // Build up the text polygon by unioning the glyph bounding boxes
-                    let mut text_poly = geo::MultiPolygon::<f32>::new(vec![]);
+                    // text_buffer.text_bounds
+                    let bounds = geo::Rect::new(
+                        coord!(x: origin[0], y: origin[1]),
+                        coord!(x: origin[0] + text_buffer.text_bounds.width, y: origin[1] + text_buffer.text_bounds.line_height),
+                    );
 
-                    for (glyph_data, phys_pos) in text_buffer.glyphs {
-                        let glyph_bbox = glyph_data.bbox;
-
-                        // let path = glyph_data.path;
-                        let path: Option<lyon_path::Path> = None;
-                        let glyph_bbox_poly = if let Some(path) = path {
-                            // We have vector path info, so we can use it to build a polygon
-                            match path.as_geo_type(0.0, true) {
-                                geo::Geometry::Polygon(poly) => geo::MultiPolygon::new(vec![poly]),
-                                geo::Geometry::MultiPolygon(mpoly) => mpoly,
-                                g => panic!("Expected polygon or multipolygon: {:?}", g),
-                            }
-                        } else {
-                            // No vector path info, so we use the bounding box of the glyph image to build a polygon
-                            geo::MultiPolygon::new(vec![geo::Polygon::new(
-                                geo::LineString::new(vec![
-                                    geo::Coord {
-                                        x: glyph_bbox.left as f32,
-                                        y: -glyph_bbox.top as f32,
-                                    },
-                                    geo::Coord {
-                                        x: glyph_bbox.left as f32 + glyph_bbox.width as f32,
-                                        y: -glyph_bbox.top as f32,
-                                    },
-                                    geo::Coord {
-                                        x: glyph_bbox.left as f32 + glyph_bbox.width as f32,
-                                        y: -glyph_bbox.top as f32 + glyph_bbox.height as f32,
-                                    },
-                                    geo::Coord {
-                                        x: glyph_bbox.left as f32,
-                                        y: -glyph_bbox.top as f32 + glyph_bbox.height as f32,
-                                    },
-                                    geo::Coord {
-                                        x: glyph_bbox.left as f32,
-                                        y: -glyph_bbox.top as f32,
-                                    },
-                                ]),
-                                vec![],
-                            )])
-                        }
-                        .translate(
-                            phys_pos.x + origin[0],
-                            phys_pos.y + origin[1] + text_buffer.text_bounds.height,
-                        );
-
-                        text_poly = text_poly.union(&glyph_bbox_poly);
-                    }
-
-                    let geometry = Geometry::MultiPolygon(text_poly)
+                    let geometry = Geometry::Rect(bounds)
                         .rotate_around_point(*angle, geo::Point::new(*x, *y));
+
+                    // TODO: Consider when to use the glyph bounding boxes, or glyph paths, verses text bounds
+                    // // Build up the text polygon by unioning the glyph bounding boxes
+                    // let mut text_poly = geo::MultiPolygon::<f32>::new(vec![]);
+                    // 
+                    // for (glyph_data, phys_pos) in text_buffer.glyphs {
+                    //     let glyph_bbox = glyph_data.bbox;
+                    // 
+                    //     // let path = glyph_data.path;
+                    //     let path: Option<lyon_path::Path> = None;
+                    //     let glyph_bbox_poly = if let Some(path) = path {
+                    //         // We have vector path info, so we can use it to build a polygon
+                    //         match path.as_geo_type(0.0, true) {
+                    //             geo::Geometry::Polygon(poly) => geo::MultiPolygon::new(vec![poly]),
+                    //             geo::Geometry::MultiPolygon(mpoly) => mpoly,
+                    //             g => panic!("Expected polygon or multipolygon: {:?}", g),
+                    //         }
+                    //     } else {
+                    //         // No vector path info, so we use the bounding box of the glyph image to build a polygon
+                    //         geo::MultiPolygon::new(vec![geo::Polygon::new(
+                    //             geo::LineString::new(vec![
+                    //                 geo::Coord {
+                    //                     x: glyph_bbox.left as f32,
+                    //                     y: -glyph_bbox.top as f32,
+                    //                 },
+                    //                 geo::Coord {
+                    //                     x: glyph_bbox.left as f32 + glyph_bbox.width as f32,
+                    //                     y: -glyph_bbox.top as f32,
+                    //                 },
+                    //                 geo::Coord {
+                    //                     x: glyph_bbox.left as f32 + glyph_bbox.width as f32,
+                    //                     y: -glyph_bbox.top as f32 + glyph_bbox.height as f32,
+                    //                 },
+                    //                 geo::Coord {
+                    //                     x: glyph_bbox.left as f32,
+                    //                     y: -glyph_bbox.top as f32 + glyph_bbox.height as f32,
+                    //                 },
+                    //                 geo::Coord {
+                    //                     x: glyph_bbox.left as f32,
+                    //                     y: -glyph_bbox.top as f32,
+                    //                 },
+                    //             ]),
+                    //             vec![],
+                    //         )])
+                    //     }
+                    //     .translate(
+                    //         phys_pos.x + origin[0],
+                    //         phys_pos.y + origin[1] + text_buffer.text_bounds.height,
+                    //     );
+                    // }
+                    //     text_poly = text_poly.union(&glyph_bbox_poly);
+                    // }
+                    // 
+                    // let geometry = Geometry::MultiPolygon(text_poly)
+                    //     .rotate_around_point(*angle, geo::Point::new(*x, *y));
 
                     GeometryInstance {
                         mark_index,
