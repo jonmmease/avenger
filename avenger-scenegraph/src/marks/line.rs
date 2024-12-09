@@ -1,6 +1,5 @@
 use avenger_common::types::{ColorOrGradient, Gradient, StrokeCap, StrokeJoin};
 use avenger_common::value::ScalarOrArray;
-use avenger_geometry::{lyon_to_geo::IntoGeoType, GeometryInstance};
 use lyon_algorithms::measure::{PathMeasurements, PathSampler, SampleType};
 use lyon_path::{geom::point, Path};
 use serde::{Deserialize, Serialize};
@@ -123,18 +122,6 @@ impl SceneLineMark {
                 }
             }
             combined_builder.build()
-        }
-    }
-
-    pub fn geometry(&self, mark_index: usize) -> GeometryInstance {
-        let path = self.transformed_path([0.0, 0.0]);
-        let half_stroke_width = self.stroke_width / 2.0;
-        GeometryInstance {
-            mark_index,
-            instance_index: None,
-            z_index: 0,
-            geometry: path.as_geo_type(half_stroke_width, false),
-            half_stroke_width,
         }
     }
 }

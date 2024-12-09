@@ -1,7 +1,5 @@
 use std::{collections::HashMap, hash::Hash};
 
-use avenger_common::canvas::CanvasDimensions;
-
 #[cfg(feature = "cosmic-text")]
 pub mod cosmic;
 
@@ -114,4 +112,14 @@ pub trait TextRasterizer: 'static {
         scale: f32,
         cached_glyphs: &HashMap<Self::CacheKey, Self::CacheValue>,
     ) -> Result<TextRasterizationBuffer<Self::CacheKey>, AvengerTextError>;
+}
+
+#[cfg(feature = "cosmic-text")]
+pub fn default_rasterizer() -> impl TextRasterizer<CacheValue = ()> {
+    return crate::rasterization::cosmic::CosmicTextRasterizer::new();
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn default_rasterizer() -> impl TextRasterizer<CacheValue = ()> {
+    return crate::rasterization::html_canvas::HtmlCanvasTextRasterizer::new();
 }

@@ -6,14 +6,12 @@ edition = "2021"
 [features]
 serde = ["dep:serde"]
 cosmic-text = ["dep:cosmic-text", "lazy_static"]
-rasterization = ["dep:image"]
-
-default = ["serde", "cosmic-text", "rasterization"]
+default = ["serde", "cosmic-text"]
 
 [dependencies]
 thiserror = { workspace = true }
 serde = { workspace = true, optional = true }
-image = { workspace = true, optional = true }
+image = { workspace = true }
 avenger-common = { path = "../avenger-common" }
 unicode-segmentation = "1.12.0"
 lyon_path = { workspace = true }

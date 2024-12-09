@@ -1,4 +1,3 @@
-use avenger_common::canvas::CanvasDimensions;
 use cosmic_text::{fontdb::Database, Attrs, Buffer, Family, FontSystem, Metrics, SwashCache};
 use std::{collections::HashSet, sync::Mutex};
 
@@ -208,13 +207,7 @@ mod tests {
             font_style: &FontStyleSpec::Normal,
         };
 
-        let bounds = measurer.measure_text_bounds(
-            &config,
-            &CanvasDimensions {
-                size: [800.0, 600.0],
-                scale: 1.0,
-            },
-        );
+        let bounds = measurer.measure_text_bounds(&config);
 
         println!("{:?}", bounds);
 

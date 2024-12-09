@@ -1,6 +1,5 @@
 use std::{collections::HashMap, marker::PhantomData};
 
-use avenger_common::canvas::CanvasDimensions;
 use cosmic_text::{Command, SwashContent};
 use lyon_path::geom::Point;
 

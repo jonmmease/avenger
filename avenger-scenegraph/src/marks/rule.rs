@@ -1,6 +1,5 @@
 use avenger_common::types::{ColorOrGradient, Gradient, StrokeCap};
 use avenger_common::value::ScalarOrArray;
-use avenger_geometry::{lyon_to_geo::IntoGeoType, GeometryInstance};
 use itertools::izip;
 use lyon_path::{geom::Point, Path};
 use serde::{Deserialize, Serialize};
@@ -148,31 +147,6 @@ impl SceneRuleMark {
                 }),
             )
         }
-    }
-
-    pub fn geometry_iter(
-        &self,
-        mark_index: usize,
-    ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
-        Box::new(
-            izip!(
-                self.indices_iter(),
-                self.transformed_path_iter([0.0, 0.0]),
-                self.stroke_width_iter(),
-            )
-            .enumerate()
-            .map(move |(z_index, (id, path, stroke_width))| {
-                let half_stroke_width = stroke_width / 2.0;
-                let geometry = path.as_geo_type(0.1, false);
-                GeometryInstance {
-                    mark_index,
-                    instance_index: Some(id),
-                    z_index,
-                    geometry,
-                    half_stroke_width,
-                }
-            }),
-        )
     }
 }
 

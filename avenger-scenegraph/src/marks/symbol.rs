@@ -2,10 +2,6 @@ use crate::error::AvengerSceneGraphError;
 use crate::marks::path::PathTransform;
 use avenger_common::types::{ColorOrGradient, Gradient};
 use avenger_common::value::ScalarOrArray;
-use avenger_geometry::geo_types::Geometry;
-use avenger_geometry::lyon_to_geo::IntoGeoType;
-use avenger_geometry::GeometryInstance;
-use geo::{Rotate as GeoRotate, Scale as GeoScale, Translate as GeoTranslate};
 use itertools::izip;
 use lyon_extra::euclid::Vector2D;
 use lyon_extra::parser::{ParserOptions, Source};
@@ -124,42 +120,6 @@ impl SceneSymbolMark {
 
                 paths[*shape_idx].as_ref().clone().transformed(&transform)
             }),
-        )
-    }
-
-    pub fn geometry_iter(
-        &self,
-        mark_index: usize,
-    ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
-        let symbol_geometries: Vec<_> = self.shapes.iter().map(|symbol| symbol.as_geo()).collect();
-        let half_stroke_width = self.stroke_width.unwrap_or(0.0) / 2.0;
-        Box::new(
-            izip!(
-                self.indices_iter(),
-                self.x_iter(),
-                self.y_iter(),
-                self.size_iter(),
-                self.angle_iter(),
-                self.shape_index_iter()
-            )
-            .enumerate()
-            .map(
-                move |(z_index, (instance_idx, x, y, size, angle, shape_idx))| {
-                    let geometry = symbol_geometries[*shape_idx]
-                        .clone()
-                        .scale(size.sqrt())
-                        .rotate_around_point(angle.to_radians(), geo::Point::new(0.0, 0.0))
-                        .translate(*x, *y);
-
-                    GeometryInstance {
-                        mark_index,
-                        instance_index: Some(instance_idx),
-                        z_index,
-                        geometry,
-                        half_stroke_width,
-                    }
-                },
-            ),
         )
     }
 
@@ -354,11 +314,6 @@ impl SymbolShape {
             }
             SymbolShape::Path(path) => Cow::Borrowed(path),
         }
-    }
-
-    pub fn as_geo(&self) -> Geometry<f32> {
-        let path = self.as_path();
-        path.as_geo_type(0.1, true)
     }
 }
 
