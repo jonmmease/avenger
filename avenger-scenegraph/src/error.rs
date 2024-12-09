@@ -1,3 +1,4 @@
+use avenger_text::error::AvengerTextError;
 use thiserror::Error;
 
 #[cfg(feature = "pyo3")]
@@ -11,6 +12,9 @@ pub enum AvengerSceneGraphError {
     // ParseError doesn't implement std::Error, so #[from] doesn't seem to work
     #[error("Error parsing SVG path")]
     InvalidSvgPath(lyon_extra::parser::ParseError),
+
+    #[error("Error generating text geometry")]
+    TextGeometryError(AvengerTextError),
 }
 
 // Conversion to PyO3 error

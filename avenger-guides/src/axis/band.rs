@@ -38,90 +38,97 @@ pub fn make_band_axis_marks(
             let tick_x = scale.scale(scale.domain());
             let tick_y0 = ScalarOrArray::Scalar(height);
             let tick_y1 = ScalarOrArray::Scalar(height + tick_length);
-            let tick_x_mark = SceneRuleMark {
-                len: scale.domain().len() as u32,
-                clip: false,
-                x0: tick_x.clone(),
-                x1: tick_x.clone(),
-                y0: tick_y0,
-                y1: tick_y1,
-                stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
-                stroke_width: 1.0.into(),
-                ..Default::default()
-            };
 
-            let mut rtree = MarkRTree::new(tick_x_mark.geometry_iter(0).collect());
-            let rasterizer = Arc::new(CosmicTextRasterizer::<()>::new());
-            marks.push(tick_x_mark.into());
+            marks.push(
+                SceneRuleMark {
+                    len: scale.domain().len() as u32,
+                    clip: false,
+                    x0: tick_x.clone(),
+                    x1: tick_x.clone(),
+                    y0: tick_y0,
+                    y1: tick_y1,
+                    stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
+                    stroke_width: 1.0.into(),
+                    ..Default::default()
+                }
+                .into(),
+            );
 
             // Axis line rule mark
             let axis_x0 = ScalarOrArray::Scalar(scale.range().0);
             let axis_x1 = ScalarOrArray::Scalar(scale.range().1);
             let width = scale.range().1 - scale.range().0;
             let x_mid = (scale.range().0 + scale.range().1) / 2.0;
-            let axis_rule_mark = SceneRuleMark {
-                x0: axis_x0.clone(),
-                x1: axis_x1.clone(),
-                y0: height.into(),
-                y1: height.into(),
-                stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
-                stroke_width: 1.0.into(),
-                ..Default::default()
-            };
-            rtree.insert_all(axis_rule_mark.geometry_iter(1).collect());
-            marks.push(axis_rule_mark.into());
+            marks.push(
+                SceneRuleMark {
+                    x0: axis_x0.clone(),
+                    x1: axis_x1.clone(),
+                    y0: height.into(),
+                    y1: height.into(),
+                    stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
+                    stroke_width: 1.0.into(),
+                    ..Default::default()
+                }
+                .into(),
+            );
 
             // Add tick text
-            let tick_text_mark = SceneTextMark {
-                len: scale.domain().len() as u32,
-                text: scale.domain().clone().into(),
-                x: tick_x,
-                y: (height + 8.0).into(),
-                align: TextAlignSpec::Center.into(),
-                baseline: TextBaselineSpec::Top.into(),
-                angle: 0.0.into(),
-                color: [0.0, 0.0, 0.0, 1.0].into(),
-                font_size: 8.0.into(),
-                ..Default::default()
-            };
-            rtree.insert_all(
-                tick_text_mark
-                    .geometry_iter(
-                        2,
-                        rasterizer,
-                        &CanvasDimensions {
-                            size: [width, width],
-                            scale: 1.0,
-                        },
-                    )
-                    .unwrap()
-                    .collect(),
+            marks.push(
+                SceneTextMark {
+                    len: scale.domain().len() as u32,
+                    text: scale.domain().clone().into(),
+                    x: tick_x,
+                    y: (height + 8.0).into(),
+                    align: TextAlignSpec::Center.into(),
+                    baseline: TextBaselineSpec::Top.into(),
+                    angle: 0.0.into(),
+                    color: [0.0, 0.0, 0.0, 1.0].into(),
+                    font_size: 8.0.into(),
+                    ..Default::default()
+                }
+                .into(),
             );
-            marks.push(tick_text_mark.into());
 
-            let y_offset = rtree.envelope().upper()[1];
-            let title_margin = 2.0;
-
-            let label_text_mark = SceneTextMark {
-                len: 1,
-                text: title.to_string().into(),
-                x: x_mid.into(),
-                y: (y_offset + title_margin).into(),
-                align: TextAlignSpec::Center.into(),
-                baseline: TextBaselineSpec::Top.into(),
-                angle: (0.0).into(),
-                color: [0.0, 0.0, 0.0, 1.0].into(),
-                font_size: 10.0.into(),
-                font_weight: FontWeightSpec::Name(FontWeightNameSpec::Bold).into(),
-                ..Default::default()
-            };
-            marks.push(label_text_mark.into());
-
-            SceneGroup {
+            // Initialize scene group
+            let mut group = SceneGroup {
                 marks,
                 origin,
                 ..Default::default()
-            }
+            };
+
+            // Make rtree for ticks, rule, and tick labels
+            let rasterizer = Arc::new(CosmicTextRasterizer::<()>::new());
+            let rtree = group.make_rtree(
+                rasterizer,
+                &CanvasDimensions {
+                    size: [width, width],
+                    scale: 1.0,
+                },
+            );
+
+            // Compute offset for axis label so that it doesn't overlap with tick labels
+            let y_offset = rtree.envelope().upper()[1];
+            let title_margin = 2.0;
+
+            // Add axis label
+            group.marks.push(
+                SceneTextMark {
+                    len: 1,
+                    text: title.to_string().into(),
+                    x: x_mid.into(),
+                    y: (y_offset + title_margin).into(),
+                    align: TextAlignSpec::Center.into(),
+                    baseline: TextBaselineSpec::Top.into(),
+                    angle: (0.0).into(),
+                    color: [0.0, 0.0, 0.0, 1.0].into(),
+                    font_size: 10.0.into(),
+                    font_weight: FontWeightSpec::Name(FontWeightNameSpec::Bold).into(),
+                    ..Default::default()
+                }
+                .into(),
+            );
+
+            group
         }
         AxisOrientation::Right { width } => todo!(),
     }
