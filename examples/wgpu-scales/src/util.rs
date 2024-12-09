@@ -6,6 +6,9 @@ use avenger_scales::band::BandScale;
 use avenger_scales::color::continuous_color::ContinuousColorScale;
 use avenger_scales::color::Srgba;
 use avenger_scales::numeric::linear::{LinearNumericScale, LinearNumericScaleConfig};
+use avenger_scales::numeric::log::{LogNumericScale, LogNumericScaleConfig};
+use avenger_scales::numeric::pow::{PowNumericScale, PowNumericScaleConfig};
+use avenger_scales::numeric::symlog::{SymlogNumericScale, SymlogNumericScaleConfig};
 use avenger_scales::numeric::ContinuousNumericScale;
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::rect::SceneRectMark;
@@ -156,9 +159,30 @@ pub async fn run() {
         .unwrap();
     let x2_scale = x_scale.clone().with_band(1.0).unwrap();
 
-    let y_scale = LinearNumericScale::new(&Default::default())
-        .with_domain((0.0, 100.0))
-        .with_range((height, 0.0));
+    // let y_scale = LinearNumericScale::new(&Default::default())
+    //     .with_domain((0.0, 100.0))
+    //     .with_range((height, 0.0));
+
+    let y_scale = PowNumericScale::new(&PowNumericScaleConfig {
+        domain: (0.0, 100.0),
+        range: (height, 0.0),
+        exponent: 0.5,
+        ..Default::default()
+    });
+
+    // let y_scale = LogNumericScale::new(&LogNumericScaleConfig {
+    //     domain: (1.0, 100.0),
+    //     range: (height, 0.0),
+    //     base: 10.0,
+    //     ..Default::default()
+    // });
+
+    // let y_scale = SymlogNumericScale::new(&SymlogNumericScaleConfig {
+    //     domain: (0.0, 100.0),
+    //     range: (height, 0.0),
+    //     // c: 10.0,
+    //     ..Default::default()
+    // });
 
     let color_scale = ContinuousColorScale::new_linear(
         &LinearNumericScaleConfig {
@@ -225,19 +249,19 @@ pub async fn run() {
 
     // Wrap axis and rect in group
     let group = SceneGroup {
-        origin: [40.0, 40.0],
+        origin: [60.0, 60.0],
         marks: vec![y_axis.into(), x_axis.into(), mark_group.into()],
         ..Default::default()
     };
 
     let scene_graph = SceneGraph {
         groups: vec![group],
-        width: 280.0,
-        height: 280.0,
+        width: 300.0,
+        height: 300.0,
         origin: [0.0; 2],
     };
 
-    let scale = 2.0;
+    let scale = 3.0;
     let event_loop = EventLoop::new().expect("Failed to build event loop");
     let mut app = App {
         canvas: None,

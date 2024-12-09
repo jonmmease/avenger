@@ -338,20 +338,12 @@ impl ContinuousNumericScale<f32> for PowNumericScale {
     }
 
     fn ticks(&self, count: Option<f32>) -> Vec<f32> {
-        // Transform domain to log space
-        let d0 = self.transform(self.domain_start);
-        let d1 = self.transform(self.domain_end);
-
-        // Use linear scale to generate ticks in transformed space
+        // Use linear scale to generate ticks
         let linear = LinearNumericScale::new(&LinearNumericScaleConfig {
-            domain: (d0, d1),
+            domain: self.domain(),
             ..Default::default()
         });
-
-        let log_ticks = linear.ticks(count);
-
-        // Transform ticks back to original space
-        log_ticks.iter().map(|&x| self.transform_inv(x)).collect()
+        return linear.ticks(count);
     }
 }
 
