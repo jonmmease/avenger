@@ -1,5 +1,3 @@
-use avenger_common::canvas::CanvasDimensions;
-
 use crate::types::{FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
 
 #[cfg(feature = "cosmic-text")]

@@ -1,7 +1,5 @@
 use avenger_common::types::{ColorOrGradient, Gradient};
 use avenger_common::value::ScalarOrArray;
-use avenger_geometry::{lyon_to_geo::IntoGeoType, GeometryInstance};
-use geo::{Coord, Geometry, Rect};
 use itertools::izip;
 use lyon_extra::euclid::Point2D;
 use lyon_path::{builder::BorderRadii, geom::Box2D, Path, Winding};
@@ -214,66 +212,6 @@ impl SceneRectMark {
                 path_builder.build()
             }),
         )
-    }
-
-    pub fn geometry_iter(
-        &self,
-        mark_index: usize,
-    ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
-        if self.corner_radius.equals_scalar(0.0) {
-            // Simple case where we don't need to build lyon paths first
-            Box::new(
-                izip!(
-                    self.indices_iter(),
-                    self.x_iter(),
-                    self.y_iter(),
-                    self.x2_iter(),
-                    self.y2_iter(),
-                    self.stroke_width_iter()
-                )
-                .enumerate()
-                .map(move |(z_index, (id, x, y, x2, y2, stroke_width))| {
-                    // Create rect geometry
-                    let x0 = f32::min(*x, x2);
-                    let x1 = f32::max(*x, x2);
-                    let y0 = f32::min(*y, y2);
-                    let y1 = f32::max(*y, y2);
-
-                    let geometry = Geometry::Rect(Rect::<f32>::new(
-                        Coord { x: x0, y: y0 },
-                        Coord { x: x1, y: y1 },
-                    ));
-                    GeometryInstance {
-                        mark_index,
-                        instance_index: Some(id),
-                        z_index,
-                        geometry,
-                        half_stroke_width: *stroke_width / 2.0,
-                    }
-                }),
-            )
-        } else {
-            // General case
-            Box::new(
-                izip!(
-                    self.indices_iter(),
-                    self.transformed_path_iter([0.0, 0.0]),
-                    self.stroke_width_iter()
-                )
-                .enumerate()
-                .map(move |(z_index, (id, path, stroke_width))| {
-                    let half_stroke_width = stroke_width / 2.0;
-                    let geometry = path.as_geo_type(0.1, true);
-                    GeometryInstance {
-                        mark_index,
-                        instance_index: Some(id),
-                        z_index,
-                        geometry,
-                        half_stroke_width,
-                    }
-                }),
-            )
-        }
     }
 }
 

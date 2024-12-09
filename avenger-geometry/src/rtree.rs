@@ -1,3 +1,6 @@
+use crate::marks::GeometryIter;
+use avenger_scenegraph::marks::group::SceneGroup;
+use avenger_scenegraph::marks::mark::SceneMark;
 use geo::{BoundingRect, Distance, Euclidean};
 use geo_types::Geometry;
 use rstar::{
@@ -77,6 +80,48 @@ impl MarkRTree {
         let rtree = RTree::bulk_load(geometries);
 
         Self { rtree, envelope }
+    }
+
+    pub fn from_scene_group(group: &SceneGroup) -> MarkRTree {
+        let mut geometry_instances: Vec<GeometryInstance> = vec![];
+        for (mark_index, mark) in group.marks.iter().enumerate() {
+            match mark {
+                SceneMark::Arc(mark) => {
+                    geometry_instances.extend(mark.geometry_iter(mark_index));
+                }
+                SceneMark::Area(mark) => {
+                    geometry_instances.extend(mark.geometry_iter(mark_index));
+                }
+                SceneMark::Path(mark) => {
+                    geometry_instances.extend(mark.geometry_iter(mark_index));
+                }
+                SceneMark::Symbol(mark) => {
+                    geometry_instances.extend(mark.geometry_iter(mark_index));
+                }
+                SceneMark::Line(mark) => {
+                    geometry_instances.extend(mark.geometry_iter(mark_index));
+                }
+                SceneMark::Trail(mark) => {
+                    geometry_instances.extend(mark.geometry_iter(mark_index));
+                }
+                SceneMark::Rect(mark) => {
+                    geometry_instances.extend(mark.geometry_iter(mark_index));
+                }
+                SceneMark::Rule(mark) => {
+                    geometry_instances.extend(mark.geometry_iter(mark_index));
+                }
+                SceneMark::Text(mark) => {
+                    geometry_instances.extend(mark.geometry_iter(mark_index));
+                }
+                SceneMark::Image(mark) => {
+                    geometry_instances.extend(mark.geometry_iter(mark_index));
+                }
+                SceneMark::Group(_scene_group) => {
+                    // Consider whether to recurse into group marks
+                }
+            }
+        }
+        MarkRTree::new(geometry_instances)
     }
 
     /// Returns the envelope of the entire tree

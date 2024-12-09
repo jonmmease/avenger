@@ -1,5 +1,4 @@
 use avenger_common::canvas::CanvasDimensions;
-use avenger_common::types::ColorOrGradient;
 use avenger_guides::axis::band::make_band_axis_marks;
 use avenger_guides::axis::numeric::make_numeric_axis_marks;
 use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
@@ -9,11 +8,11 @@ use avenger_scales::color::Srgba;
 use avenger_scales::numeric::linear::{LinearNumericScale, LinearNumericScaleConfig};
 use avenger_scales::numeric::ContinuousNumericScale;
 use avenger_scenegraph::marks::group::SceneGroup;
-use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
+
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 use winit::application::ApplicationHandler;

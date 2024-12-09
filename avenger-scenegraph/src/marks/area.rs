@@ -1,6 +1,5 @@
 use avenger_common::types::{AreaOrientation, ColorOrGradient, Gradient, StrokeCap, StrokeJoin};
 use avenger_common::value::ScalarOrArray;
-use avenger_geometry::{lyon_to_geo::IntoGeoType, GeometryInstance};
 use itertools::izip;
 use lyon_path::{builder::WithSvg, geom::point, BuilderImpl, Path};
 use serde::{Deserialize, Serialize};
@@ -110,18 +109,6 @@ impl SceneAreaMark {
 
         close_area(&mut path_builder, &mut tail);
         path_builder.build()
-    }
-
-    pub fn geometry(&self, mark_index: usize) -> GeometryInstance {
-        let path = self.transformed_path([0.0, 0.0]);
-        let half_stroke_width = self.stroke_width / 2.0;
-        GeometryInstance {
-            mark_index,
-            instance_index: None,
-            z_index: 0,
-            geometry: path.as_geo_type(half_stroke_width, true),
-            half_stroke_width,
-        }
     }
 }
 

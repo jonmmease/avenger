@@ -2,7 +2,6 @@ use std::ops::{Mul, Neg};
 
 use avenger_common::types::{ColorOrGradient, Gradient};
 use avenger_common::value::ScalarOrArray;
-use avenger_geometry::{lyon_to_geo::IntoGeoType, GeometryInstance};
 use itertools::izip;
 use lyon_path::{
     geom::{euclid::Vector2D, Angle, Point, Vector},
@@ -155,31 +154,6 @@ impl SceneArcMark {
                     path
                 },
             ),
-        )
-    }
-
-    pub fn geometry_iter(
-        &self,
-        mark_index: usize,
-    ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
-        Box::new(
-            izip!(
-                self.indices_iter(),
-                self.transformed_path_iter([0.0, 0.0]),
-                self.stroke_width_iter()
-            )
-            .enumerate()
-            .map(move |(z_index, (id, path, stroke_width))| {
-                let half_stroke_width = stroke_width / 2.0;
-                let geometry = path.as_geo_type(half_stroke_width, true);
-                GeometryInstance {
-                    mark_index,
-                    instance_index: Some(id),
-                    z_index,
-                    geometry,
-                    half_stroke_width,
-                }
-            }),
         )
     }
 }

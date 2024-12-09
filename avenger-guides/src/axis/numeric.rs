@@ -1,13 +1,11 @@
 use std::sync::Arc;
 
-use avenger_common::{canvas::CanvasDimensions, types::ColorOrGradient, value::ScalarOrArray};
+use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 use avenger_geometry::rtree::MarkRTree;
 use avenger_scales::numeric::ContinuousNumericScale;
-use avenger_scenegraph::marks::{
-    group::SceneGroup, mark::SceneMark, rule::SceneRuleMark, text::SceneTextMark,
-};
+use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
 use avenger_text::{
-    rasterization::{cosmic::CosmicTextRasterizer, TextRasterizer},
+    rasterization::cosmic::CosmicTextRasterizer,
     types::{FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec},
 };
 
@@ -21,7 +19,7 @@ pub fn make_numeric_axis_marks(
 ) -> SceneGroup {
     match config.orientation {
         AxisOrientation::Top => todo!(),
-        AxisOrientation::Bottom { height } => todo!(),
+        AxisOrientation::Bottom { .. } => todo!(),
         AxisOrientation::Left => {
             let mut group = SceneGroup {
                 origin,
@@ -95,7 +93,7 @@ pub fn make_numeric_axis_marks(
             );
 
             // make rtree
-            let rtree = group.make_rtree(rasterizer);
+            let rtree = MarkRTree::from_scene_group(&group);
 
             // Add axis label, offset to avoid overlap with ticks
             let x_offset = rtree.envelope().lower()[0];

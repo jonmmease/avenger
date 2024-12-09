@@ -1,6 +1,5 @@
 use avenger_common::types::{ColorOrGradient, Gradient};
 use avenger_common::value::ScalarOrArray;
-use avenger_geometry::{lyon_to_geo::IntoGeoType, GeometryInstance};
 use itertools::izip;
 use lyon_path::{geom::point, Path};
 use serde::{Deserialize, Serialize};
@@ -70,18 +69,6 @@ impl SceneTrailMark {
         }
         path_builder.end(false);
         path_builder.build()
-    }
-
-    pub fn geometry(&self, mark_index: usize) -> GeometryInstance {
-        let path = self.transformed_path([0.0, 0.0]);
-        let geometry = path.trail_as_geo_type(0.1, 0);
-        GeometryInstance {
-            mark_index,
-            instance_index: None,
-            z_index: 0,
-            geometry,
-            half_stroke_width: 0.0,
-        }
     }
 }
 

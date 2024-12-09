@@ -1,16 +1,11 @@
-use std::sync::Arc;
-
-use avenger_common::{canvas::CanvasDimensions, types::ColorOrGradient, value::ScalarOrArray};
+use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 use avenger_geometry::rtree::MarkRTree;
 use avenger_scales::band::BandScale;
 use avenger_scenegraph::marks::{
     group::SceneGroup, mark::SceneMark, rule::SceneRuleMark, text::SceneTextMark,
 };
 
-use avenger_text::{
-    rasterization::cosmic::CosmicTextRasterizer,
-    types::{FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec},
-};
+use avenger_text::types::{FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
 
 use super::opts::{AxisConfig, AxisOrientation};
 
@@ -57,7 +52,6 @@ pub fn make_band_axis_marks(
             // Axis line rule mark
             let axis_x0 = ScalarOrArray::Scalar(scale.range().0);
             let axis_x1 = ScalarOrArray::Scalar(scale.range().1);
-            let width = scale.range().1 - scale.range().0;
             let x_mid = (scale.range().0 + scale.range().1) / 2.0;
             marks.push(
                 SceneRuleMark {
@@ -97,8 +91,7 @@ pub fn make_band_axis_marks(
             };
 
             // Make rtree for ticks, rule, and tick labels
-            let rasterizer = Arc::new(CosmicTextRasterizer::<()>::new());
-            let rtree = group.make_rtree(rasterizer);
+            let rtree = MarkRTree::from_scene_group(&group);
 
             // Compute offset for axis label so that it doesn't overlap with tick labels
             let y_offset = rtree.envelope().upper()[1];
@@ -124,6 +117,6 @@ pub fn make_band_axis_marks(
 
             group
         }
-        AxisOrientation::Right { width } => todo!(),
+        AxisOrientation::Right { .. } => todo!(),
     }
 }

@@ -1,9 +1,6 @@
 use avenger_common::types::{ImageAlign, ImageBaseline};
 use avenger_common::value::ScalarOrArray;
-use avenger_geometry::GeometryInstance;
-use geo::{coord, Geometry, Rect};
 use itertools::izip;
-use lyon_algorithms::aabb::bounding_box;
 use lyon_path::Path;
 use serde::{Deserialize, Serialize};
 
@@ -122,33 +119,6 @@ impl SceneImageMark {
                 path_builder.close();
                 path_builder.build()
             }),
-        )
-    }
-
-    pub fn geometry_iter(
-        &self,
-        mark_index: usize,
-    ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
-        Box::new(
-            izip!(self.indices_iter(), self.transformed_path_iter([0.0, 0.0]))
-                .enumerate()
-                .map(move |(z_index, (id, path))| {
-                    let half_stroke_width = 0.0;
-
-                    let bbox = bounding_box(&path);
-                    let geometry = Geometry::<f32>::Rect(Rect::new(
-                        coord!(x: bbox.min.x, y: bbox.min.y),
-                        coord!(x: bbox.max.x, y: bbox.max.y),
-                    ));
-
-                    GeometryInstance {
-                        mark_index,
-                        instance_index: Some(id),
-                        z_index,
-                        geometry,
-                        half_stroke_width,
-                    }
-                }),
         )
     }
 }

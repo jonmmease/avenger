@@ -5,10 +5,15 @@ edition = "2021"
 
 [dependencies]
 avenger-common = { path = "../avenger-common" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-text = { path = "../avenger-text" }
 lyon_path = { workspace = true }
 lyon_tessellation = { workspace = true }
+lyon_algorithms = { workspace = true }
 geo-types = { workspace = true }
 rstar = { workspace = true }
 geo = { workspace = true }
+itertools = { workspace = true }
+
 [dev-dependencies]
 float-cmp = "0.10.0"

@@ -1,18 +1,12 @@
-use crate::error::AvengerSceneGraphError;
 use crate::marks::mark::SceneMark;
 use crate::marks::path::{PathTransform, ScenePathMark};
-use avenger_common::canvas::CanvasDimensions;
 use avenger_common::types::{ColorOrGradient, Gradient};
 use avenger_common::value::ScalarOrArray;
-use avenger_geometry::rtree::MarkRTree;
-use avenger_geometry::GeometryInstance;
-use avenger_text::rasterization::TextRasterizer;
 use lyon_path::geom::euclid::Point2D;
 use lyon_path::geom::Box2D;
 use lyon_path::Winding;
 use serde::{Deserialize, Serialize};
-use std::hash::Hash;
-use std::sync::Arc;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Clip {
     None,
@@ -142,55 +136,6 @@ impl SceneGroup {
             indices: None,
             zindex: self.zindex,
         })
-    }
-
-    pub fn make_rtree<CacheKey, CacheValue>(
-        &self,
-        rasterizer: Arc<dyn TextRasterizer<CacheKey = CacheKey, CacheValue = CacheValue>>,
-    ) -> MarkRTree
-    where
-        CacheKey: Hash + Eq + Clone + 'static,
-        CacheValue: Clone + 'static,
-    {
-        let mut geometry_instances: Vec<GeometryInstance> = vec![];
-        for (mark_index, mark) in self.marks.iter().enumerate() {
-            match mark {
-                SceneMark::Arc(mark) => {
-                    geometry_instances.extend(mark.geometry_iter(mark_index));
-                }
-                SceneMark::Area(mark) => {
-                    geometry_instances.push(mark.geometry(mark_index));
-                }
-                SceneMark::Path(mark) => {
-                    geometry_instances.extend(mark.geometry_iter(mark_index));
-                }
-                SceneMark::Symbol(mark) => {
-                    geometry_instances.extend(mark.geometry_iter(mark_index));
-                }
-                SceneMark::Line(mark) => {
-                    geometry_instances.push(mark.geometry(mark_index));
-                }
-                SceneMark::Trail(mark) => {
-                    geometry_instances.push(mark.geometry(mark_index));
-                }
-                SceneMark::Rect(mark) => {
-                    geometry_instances.extend(mark.geometry_iter(mark_index));
-                }
-                SceneMark::Rule(mark) => {
-                    geometry_instances.extend(mark.geometry_iter(mark_index));
-                }
-                SceneMark::Text(mark) => {
-                    geometry_instances.extend(mark.geometry_iter(mark_index, rasterizer.clone()));
-                }
-                SceneMark::Image(mark) => {
-                    geometry_instances.extend(mark.geometry_iter(mark_index));
-                }
-                SceneMark::Group(_scene_group) => {
-                    // Consider whether to recurse into group marks
-                }
-            }
-        }
-        MarkRTree::new(geometry_instances)
     }
 }
 
