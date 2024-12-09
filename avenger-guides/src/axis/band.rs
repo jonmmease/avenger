@@ -6,6 +6,7 @@ use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::Sc
 use avenger_text::types::{FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
 
 use super::opts::{AxisConfig, AxisOrientation};
+use std::{fmt::Debug, hash::Hash};
 
 const TICK_LENGTH: f32 = 5.0;
 const TEXT_MARGIN: f32 = 3.0;
@@ -14,12 +15,15 @@ const TITLE_FONT_SIZE: f32 = 10.0;
 const TICK_FONT_SIZE: f32 = 8.0;
 const PIXEL_OFFSET: f32 = 0.5;
 
-pub fn make_band_axis_marks(
-    scale: &BandScale<String>,
+pub fn make_band_axis_marks<T>(
+    scale: &BandScale<T>,
     title: &str,
     origin: [f32; 2],
     config: &AxisConfig,
-) -> SceneGroup {
+) -> SceneGroup
+where
+    T: ToString + Debug + Clone + Hash + Eq + Sync + 'static,
+{
     // Make sure ticks end up centered in the band
     // Unwrap is safe because this band value is always valid
     let scale = scale.clone().with_band(0.5).unwrap();
@@ -107,11 +111,14 @@ fn make_axis_line(start: f32, end: f32, is_vertical: bool, offset: f32) -> Scene
     }
 }
 
-fn make_tick_marks(
-    scale: &BandScale<String>,
+fn make_tick_marks<T>(
+    scale: &BandScale<T>,
     orientation: &AxisOrientation,
     dimensions: &[f32; 2],
-) -> SceneRuleMark {
+) -> SceneRuleMark
+where
+    T: ToString + Debug + Clone + Hash + Eq + Sync + 'static,
+{
     let scaled_values = scale.scale(scale.domain());
 
     let (x0, x1, y0, y1) = match orientation {
@@ -154,11 +161,14 @@ fn make_tick_marks(
     }
 }
 
-fn make_tick_grid_marks(
-    scale: &BandScale<String>,
+fn make_tick_grid_marks<T>(
+    scale: &BandScale<T>,
     orientation: &AxisOrientation,
     dimensions: &[f32; 2],
-) -> SceneRuleMark {
+) -> SceneRuleMark
+where
+    T: ToString + Debug + Clone + Hash + Eq + Sync + 'static,
+{
     let scaled_values = scale.scale(scale.domain());
 
     let (x0, x1, y0, y1) = match orientation {
@@ -189,11 +199,14 @@ fn make_tick_grid_marks(
     }
 }
 
-fn make_tick_labels(
-    scale: &BandScale<String>,
+fn make_tick_labels<T>(
+    scale: &BandScale<T>,
     orientation: &AxisOrientation,
     dimensions: &[f32; 2],
-) -> SceneTextMark {
+) -> SceneTextMark
+where
+    T: ToString + Debug + Clone + Hash + Eq + Sync + 'static,
+{
     let scaled_values = scale.scale(scale.domain());
 
     let (x, y, align, baseline, angle) = match orientation {
@@ -229,7 +242,12 @@ fn make_tick_labels(
 
     SceneTextMark {
         len: scale.domain().len() as u32,
-        text: scale.domain().clone().into(),
+        text: scale
+            .domain()
+            .iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .into(),
         x,
         y,
         align: align.into(),
@@ -241,12 +259,15 @@ fn make_tick_labels(
     }
 }
 
-fn make_title(
+fn make_title<T>(
     title: &str,
-    scale: &BandScale<String>,
+    scale: &BandScale<T>,
     rtree: &MarkRTree,
     orientation: &AxisOrientation,
-) -> SceneTextMark {
+) -> SceneTextMark
+where
+    T: ToString + Debug + Clone + Hash + Eq + Sync + 'static,
+{
     let range = scale.range();
     let mid = (range.0 + range.1) / 2.0;
     let envelope = rtree.envelope();
