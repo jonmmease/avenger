@@ -317,20 +317,13 @@ impl ContinuousNumericScale<f32> for SymlogNumericScale {
 
     /// Generates evenly spaced tick values within the domain
     fn ticks(&self, count: Option<f32>) -> Vec<f32> {
-        // Transform domain to log space
-        let d0 = self.transform(self.domain_start);
-        let d1 = self.transform(self.domain_end);
-
         // Use linear scale to generate ticks in transformed space
         let linear = LinearNumericScale::new(&LinearNumericScaleConfig {
-            domain: (d0, d1),
+            domain: self.domain(),
             ..Default::default()
         });
 
-        let log_ticks = linear.ticks(count);
-
-        // Transform ticks back to original space
-        log_ticks.iter().map(|&x| self.transform_inv(x)).collect()
+        return linear.ticks(count);
     }
 }
 
@@ -582,12 +575,12 @@ mod tests {
         });
         let ticks = scale.ticks(Some(10.0));
         let expected = vec![
-            -0.6f32, -0.5, -0.4, -0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6,
+            -1.0f32, -0.8, -0.6, -0.4, -0.2, 0.0, 0.2, 0.4, 0.6, 0.8, 1.0,
         ];
 
         assert_eq!(ticks.len(), expected.len());
         for (a, b) in ticks.iter().zip(expected.iter()) {
-            assert_approx_eq!(f32, *a, scale.transform_inv(*b));
+            assert_approx_eq!(f32, *a, *b);
         }
     }
 
