@@ -7,7 +7,7 @@ use avenger_scales::color::continuous_color::ContinuousColorScale;
 use avenger_scales::color::Srgba;
 use avenger_scales::numeric::linear::{LinearNumericScale, LinearNumericScaleConfig};
 use avenger_scales::numeric::ContinuousNumericScale;
-use avenger_scenegraph::marks::group::SceneGroup;
+use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, WindowCanvas};
@@ -185,13 +185,29 @@ pub async fn run() {
         ..Default::default()
     };
 
+    // make mark group with clipping
+    let mark_group = SceneGroup {
+        origin: [0.0, 0.0],
+        marks: vec![rect.into()],
+        // Clip to not overlap with axis
+        clip: Clip::Rect {
+            x: 0.5,
+            y: 0.5,
+            width: width - 1.0,
+            height: height - 1.0,
+        },
+        ..Default::default()
+    };
+
     // Make y-axis
     let y_axis = make_numeric_axis_marks(
         &y_scale,
         "My Long Y-Axis Label",
         [0.0, 0.0],
         &AxisConfig {
+            dimensions: [width, height],
             orientation: AxisOrientation::Left,
+            grid: true,
         },
     );
 
@@ -201,14 +217,16 @@ pub async fn run() {
         "My Long X-Axis Label",
         [0.0, 0.0],
         &AxisConfig {
-            orientation: AxisOrientation::Bottom { height },
+            dimensions: [width, height],
+            orientation: AxisOrientation::Bottom,
+            grid: false,
         },
     );
 
     // Wrap axis and rect in group
     let group = SceneGroup {
         origin: [40.0, 40.0],
-        marks: vec![y_axis.into(), x_axis.into(), rect.into()],
+        marks: vec![y_axis.into(), x_axis.into(), mark_group.into()],
         ..Default::default()
     };
 

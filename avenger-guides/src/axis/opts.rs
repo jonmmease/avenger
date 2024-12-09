@@ -1,10 +1,14 @@
+#[derive(Debug, Clone)]
 pub enum AxisOrientation {
     Top,
-    Bottom { height: f32 },
+    Bottom,
     Left,
-    Right { width: f32 },
+    Right,
 }
 
+#[derive(Debug, Clone)]
 pub struct AxisConfig {
     pub orientation: AxisOrientation,
+    pub dimensions: [f32; 2],
+    pub grid: bool,
 }
