@@ -140,6 +140,11 @@ impl<D: Debug + Clone + Hash + Eq + Sync + 'static> PointScale<D> {
     pub fn invert(&self, value: f32) -> Option<D> {
         self.band_scale.invert(value)
     }
+
+    /// Returns the underlying band scale.
+    pub fn to_band(self) -> BandScale<D> {
+        self.band_scale
+    }
 }
 
 #[cfg(test)]

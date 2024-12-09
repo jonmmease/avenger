@@ -14,6 +14,81 @@ const TITLE_FONT_SIZE: f32 = 10.0;
 const TICK_FONT_SIZE: f32 = 8.0;
 const PIXEL_OFFSET: f32 = 0.5;
 
+pub fn make_band_axis_marks(
+    scale: &BandScale<String>,
+    title: &str,
+    origin: [f32; 2],
+    config: &AxisConfig,
+) -> SceneGroup {
+    // Make sure ticks end up centered in the band
+    // Unwrap is safe because this band value is always valid
+    let scale = scale.clone().with_band(0.5).unwrap();
+
+    let mut group = SceneGroup {
+        origin,
+        ..Default::default()
+    };
+
+    // Get range bounds considering orientation
+    let range = scale.range();
+    let (start, end) = match config.orientation {
+        AxisOrientation::Left | AxisOrientation::Right { .. } => {
+            let upper = f32::min(range.1, range.0);
+            let lower = f32::max(range.0, range.1);
+            (lower, upper)
+        }
+        AxisOrientation::Top | AxisOrientation::Bottom { .. } => {
+            let left = f32::min(range.0, range.1);
+            let right = f32::max(range.0, range.1);
+            (left, right)
+        }
+    };
+
+    // Add axis line
+    let is_vertical = matches!(
+        config.orientation,
+        AxisOrientation::Left | AxisOrientation::Right { .. }
+    );
+    let offset = match config.orientation {
+        AxisOrientation::Right => config.dimensions[0],
+        AxisOrientation::Bottom => config.dimensions[1],
+        AxisOrientation::Top => 0.0,
+        AxisOrientation::Left => 0.0,
+    };
+
+    // Add axis line
+    group
+        .marks
+        .push(make_axis_line(start, end, is_vertical, offset).into());
+
+    // Add tick grid
+    if config.grid {
+        group
+            .marks
+            .push(make_tick_grid_marks(&scale, &config.orientation, &config.dimensions).into());
+    }
+
+    // Add tick marks
+    group
+        .marks
+        .push(make_tick_marks(&scale, &config.orientation, &config.dimensions).into());
+
+    // Add tick labels
+    group
+        .marks
+        .push(make_tick_labels(&scale, &config.orientation, &config.dimensions).into());
+
+    // Create rtree for calculating title position
+    let rtree = MarkRTree::from_scene_group(&group);
+
+    // Add title
+    group
+        .marks
+        .push(make_title(title, &scale, &rtree, &config.orientation).into());
+
+    group
+}
+
 fn make_axis_line(start: f32, end: f32, is_vertical: bool, offset: f32) -> SceneRuleMark {
     let (x0, x1, y0, y1) = if is_vertical {
         (offset, offset, start, end)
@@ -164,81 +239,6 @@ fn make_tick_labels(
         font_size: TICK_FONT_SIZE.into(),
         ..Default::default()
     }
-}
-
-pub fn make_band_axis_marks(
-    scale: &BandScale<String>,
-    title: &str,
-    origin: [f32; 2],
-    config: &AxisConfig,
-) -> SceneGroup {
-    // Make sure ticks end up centered in the band
-    // Unwrap is safe because this band value is always valid
-    let scale = scale.clone().with_band(0.5).unwrap();
-
-    let mut group = SceneGroup {
-        origin,
-        ..Default::default()
-    };
-
-    // Get range bounds considering orientation
-    let range = scale.range();
-    let (start, end) = match config.orientation {
-        AxisOrientation::Left | AxisOrientation::Right { .. } => {
-            let upper = f32::min(range.1, range.0);
-            let lower = f32::max(range.0, range.1);
-            (lower, upper)
-        }
-        AxisOrientation::Top | AxisOrientation::Bottom { .. } => {
-            let left = f32::min(range.0, range.1);
-            let right = f32::max(range.0, range.1);
-            (left, right)
-        }
-    };
-
-    // Add axis line
-    let is_vertical = matches!(
-        config.orientation,
-        AxisOrientation::Left | AxisOrientation::Right { .. }
-    );
-    let offset = match config.orientation {
-        AxisOrientation::Right => config.dimensions[0],
-        AxisOrientation::Bottom => config.dimensions[1],
-        AxisOrientation::Top => 0.0,
-        AxisOrientation::Left => 0.0,
-    };
-
-    // Add axis line
-    group
-        .marks
-        .push(make_axis_line(start, end, is_vertical, offset).into());
-
-    // Add tick grid
-    if config.grid {
-        group
-            .marks
-            .push(make_tick_grid_marks(&scale, &config.orientation, &config.dimensions).into());
-    }
-
-    // Add tick marks
-    group
-        .marks
-        .push(make_tick_marks(&scale, &config.orientation, &config.dimensions).into());
-
-    // Add tick labels
-    group
-        .marks
-        .push(make_tick_labels(&scale, &config.orientation, &config.dimensions).into());
-
-    // Create rtree for calculating title position
-    let rtree = MarkRTree::from_scene_group(&group);
-
-    // Add title
-    group
-        .marks
-        .push(make_title(title, &scale, &rtree, &config.orientation).into());
-
-    group
 }
 
 fn make_title(
