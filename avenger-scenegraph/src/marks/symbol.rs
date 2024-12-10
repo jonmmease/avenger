@@ -132,6 +132,13 @@ impl SceneSymbolMark {
                 .unwrap_or(&1.0),
         }
     }
+
+    pub fn single_symbol_mark(&self, index: usize) -> SceneSymbolMark {
+        let mut mark = self.clone();
+        mark.len = 1;
+        mark.indices = Some(vec![index]);
+        mark
+    }
 }
 
 impl Default for SceneSymbolMark {

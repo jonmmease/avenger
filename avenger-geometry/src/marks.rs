@@ -12,17 +12,25 @@ use avenger_scenegraph::marks::text::SceneTextMark;
 use avenger_scenegraph::marks::trail::SceneTrailMark;
 use avenger_text::rasterization::TextRasterizer;
 use avenger_text::rasterization::{default_rasterizer, TextRasterizationConfig};
-use geo::{BooleanOps, Rotate, Scale, Translate};
+use geo::{Rotate, Scale, Translate};
 use geo_types::{coord, Geometry, Rect};
 use itertools::izip;
 use lyon_algorithms::aabb::bounding_box;
+use rstar::{Envelope, RTreeObject, AABB};
 use std::iter::once;
 
-pub trait GeometryIter {
+pub trait MarkGeometryUtils {
     fn geometry_iter(&self, mark_index: usize) -> Box<dyn Iterator<Item = GeometryInstance> + '_>;
+
+    fn bounding_box(&self) -> AABB<[f32; 2]> {
+        self.geometry_iter(0)
+            .map(|g| g.envelope())
+            .reduce(|a, b| a.merged(&b))
+            .unwrap_or(AABB::from_corners([0.0, 0.0], [0.0, 0.0]))
+    }
 }
 
-impl GeometryIter for SceneArcMark {
+impl MarkGeometryUtils for SceneArcMark {
     fn geometry_iter(&self, mark_index: usize) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         Box::new(
             izip!(
@@ -46,7 +54,7 @@ impl GeometryIter for SceneArcMark {
     }
 }
 
-impl GeometryIter for SceneAreaMark {
+impl MarkGeometryUtils for SceneAreaMark {
     fn geometry_iter(&self, mark_index: usize) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let path = self.transformed_path([0.0, 0.0]);
         let half_stroke_width = self.stroke_width / 2.0;
@@ -60,7 +68,7 @@ impl GeometryIter for SceneAreaMark {
     }
 }
 
-impl GeometryIter for SceneImageMark {
+impl MarkGeometryUtils for SceneImageMark {
     fn geometry_iter(&self, mark_index: usize) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         Box::new(
             izip!(self.indices_iter(), self.transformed_path_iter([0.0, 0.0]))
@@ -86,7 +94,7 @@ impl GeometryIter for SceneImageMark {
     }
 }
 
-impl GeometryIter for SceneLineMark {
+impl MarkGeometryUtils for SceneLineMark {
     fn geometry_iter(&self, mark_index: usize) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let path = self.transformed_path([0.0, 0.0]);
         let half_stroke_width = self.stroke_width / 2.0;
@@ -100,7 +108,7 @@ impl GeometryIter for SceneLineMark {
     }
 }
 
-impl GeometryIter for ScenePathMark {
+impl MarkGeometryUtils for ScenePathMark {
     fn geometry_iter(&self, mark_index: usize) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let half_stroke_width = self.stroke_width.unwrap_or(0.0) / 2.0;
         Box::new(
@@ -120,7 +128,7 @@ impl GeometryIter for ScenePathMark {
     }
 }
 
-impl GeometryIter for SceneRectMark {
+impl MarkGeometryUtils for SceneRectMark {
     fn geometry_iter(&self, mark_index: usize) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         if self.corner_radius.equals_scalar(0.0) {
             // Simple case where we don't need to build lyon paths first
@@ -179,7 +187,7 @@ impl GeometryIter for SceneRectMark {
     }
 }
 
-impl GeometryIter for SceneRuleMark {
+impl MarkGeometryUtils for SceneRuleMark {
     fn geometry_iter(&self, mark_index: usize) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         Box::new(
             izip!(
@@ -203,7 +211,7 @@ impl GeometryIter for SceneRuleMark {
     }
 }
 
-impl GeometryIter for SceneSymbolMark {
+impl MarkGeometryUtils for SceneSymbolMark {
     fn geometry_iter(&self, mark_index: usize) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let symbol_geometries: Vec<_> = self
             .shapes
@@ -242,7 +250,7 @@ impl GeometryIter for SceneSymbolMark {
     }
 }
 
-impl GeometryIter for SceneTrailMark {
+impl MarkGeometryUtils for SceneTrailMark {
     fn geometry_iter(&self, mark_index: usize) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let path = self.transformed_path([0.0, 0.0]);
         let geometry = path.trail_as_geo_type(0.1, 0);
@@ -256,7 +264,7 @@ impl GeometryIter for SceneTrailMark {
     }
 }
 
-impl GeometryIter for SceneTextMark {
+impl MarkGeometryUtils for SceneTextMark {
     fn geometry_iter(&self, mark_index: usize) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let rasterizer = default_rasterizer();
         Box::new(

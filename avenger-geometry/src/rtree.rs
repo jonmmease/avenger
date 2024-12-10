@@ -1,4 +1,4 @@
-use crate::marks::GeometryIter;
+use crate::marks::MarkGeometryUtils;
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::mark::SceneMark;
 use geo::{BoundingRect, Distance, Euclidean};
@@ -255,5 +255,20 @@ impl MarkRTree {
         for geometry in geometries {
             self.insert(geometry);
         }
+    }
+}
+
+pub trait EnvelopeUtils {
+    fn height(&self) -> f32;
+    fn width(&self) -> f32;
+}
+
+impl EnvelopeUtils for AABB<[f32; 2]> {
+    fn height(&self) -> f32 {
+        self.upper()[1] - self.lower()[1]
+    }
+
+    fn width(&self) -> f32 {
+        self.upper()[0] - self.lower()[0]
     }
 }

@@ -193,8 +193,8 @@ where
         x1,
         y0,
         y1,
-        stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.3]).into(),
-        stroke_width: 0.5.into(),
+        stroke: ColorOrGradient::Color([8.0, 8.0, 8.0, 0.2]).into(),
+        stroke_width: 0.1.into(),
         ..Default::default()
     }
 }
