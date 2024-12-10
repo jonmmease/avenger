@@ -50,6 +50,13 @@ impl<T: Sync + Clone> ScalarOrArray<T> {
             ScalarOrArray::Array(values) => ScalarOrArray::Array(values.iter().map(f).collect()),
         }
     }
+
+    pub fn len(&self) -> usize {
+        match self {
+            ScalarOrArray::Scalar(_) => 1,
+            ScalarOrArray::Array(values) => values.len(),
+        }
+    }
 }
 
 impl ScalarOrArray<f32> {
@@ -70,6 +77,18 @@ impl<T: Sync + Clone> From<Vec<T>> for ScalarOrArray<T> {
 impl<T: Sync + Clone> From<T> for ScalarOrArray<T> {
     fn from(value: T) -> Self {
         ScalarOrArray::Scalar(value)
+    }
+}
+
+impl From<&str> for ScalarOrArray<String> {
+    fn from(value: &str) -> Self {
+        ScalarOrArray::Scalar(value.to_string())
+    }
+}
+
+impl From<Vec<&str>> for ScalarOrArray<String> {
+    fn from(values: Vec<&str>) -> Self {
+        ScalarOrArray::Array(values.into_iter().map(|s| s.to_string()).collect())
     }
 }
 
