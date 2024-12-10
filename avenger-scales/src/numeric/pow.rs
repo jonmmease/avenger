@@ -77,6 +77,7 @@ pub struct PowNumericScaleConfig {
     pub clamp: bool,
     pub range_offset: f32,
     pub nice: Option<usize>,
+    pub round: bool,
 }
 
 impl Default for PowNumericScaleConfig {
@@ -88,6 +89,7 @@ impl Default for PowNumericScaleConfig {
             clamp: false,
             range_offset: 0.0,
             nice: None,
+            round: false,
         }
     }
 }
@@ -102,6 +104,7 @@ pub struct PowNumericScale {
     range_end: f32,
     clamp: bool,
     range_offset: f32,
+    round: bool,
     power_fun: Arc<PowerFunction>,
 }
 
@@ -116,6 +119,7 @@ impl PowNumericScale {
             clamp: config.clamp,
             range_offset: config.range_offset,
             power_fun: Arc::new(PowerFunction::new(config.exponent)),
+            round: config.round,
         };
         if let Some(count) = config.nice {
             this = this.nice(Some(count));
@@ -188,6 +192,12 @@ impl PowNumericScale {
         self.power_fun = Arc::new(PowerFunction::new(exponent));
         self
     }
+
+    /// Sets the round flag
+    pub fn with_round(mut self, round: bool) -> Self {
+        self.round = round;
+        self
+    }
 }
 
 impl ContinuousNumericScale<f32> for PowNumericScale {
@@ -236,14 +246,15 @@ impl ContinuousNumericScale<f32> for PowNumericScale {
         let offset =
             self.range_start - scale * self.power_fun.pow(self.domain_start) + self.range_offset;
 
-        if self.clamp {
-            let (range_min, range_max) = if self.range_start <= self.range_end {
-                (self.range_start, self.range_end)
-            } else {
-                (self.range_end, self.range_start)
-            };
+        let (range_min, range_max) = if self.range_start <= self.range_end {
+            (self.range_start, self.range_end)
+        } else {
+            (self.range_end, self.range_start)
+        };
 
-            match self.power_fun.as_ref() {
+        match (self.clamp, self.round) {
+            (true, false) => match self.power_fun.as_ref() {
+                // Clamp, no rounding
                 PowerFunction::Static { pow_fun, .. } => values.into().map(|&v| {
                     let abs_v = v.abs();
                     let sign = if v < 0.0 { -1.0 } else { 1.0 };
@@ -257,9 +268,29 @@ impl ContinuousNumericScale<f32> for PowNumericScale {
                         (scale * (sign * abs_v.powf(exponent)) + offset).clamp(range_min, range_max)
                     })
                 }
-            }
-        } else {
-            match self.power_fun.as_ref() {
+            },
+            (true, true) => match self.power_fun.as_ref() {
+                // Clamp and rounding
+                PowerFunction::Static { pow_fun, .. } => values.into().map(|&v| {
+                    let abs_v = v.abs();
+                    let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                    (scale * (sign * pow_fun(abs_v)) + offset)
+                        .clamp(range_min, range_max)
+                        .round()
+                }),
+                PowerFunction::Custom { exponent } => {
+                    let exponent = *exponent;
+                    values.into().map(|&v| {
+                        let abs_v = v.abs();
+                        let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                        (scale * (sign * abs_v.powf(exponent)) + offset)
+                            .clamp(range_min, range_max)
+                            .round()
+                    })
+                }
+            },
+            (false, false) => match self.power_fun.as_ref() {
+                // no clamping or rounding
                 PowerFunction::Static { pow_fun, .. } => values.into().map(|&v| {
                     let abs_v = v.abs();
                     let sign = if v < 0.0 { -1.0 } else { 1.0 };
@@ -273,7 +304,23 @@ impl ContinuousNumericScale<f32> for PowNumericScale {
                         scale * (sign * abs_v.powf(exponent)) + offset
                     })
                 }
-            }
+            },
+            (false, true) => match self.power_fun.as_ref() {
+                // no clamping and rounding
+                PowerFunction::Static { pow_fun, .. } => values.into().map(|&v| {
+                    let abs_v = v.abs();
+                    let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                    (scale * (sign * pow_fun(abs_v)) + offset).round()
+                }),
+                PowerFunction::Custom { exponent } => {
+                    let exponent = *exponent;
+                    values.into().map(|&v| {
+                        let abs_v = v.abs();
+                        let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                        (scale * (sign * abs_v.powf(exponent)) + offset).round()
+                    })
+                }
+            },
         }
     }
 

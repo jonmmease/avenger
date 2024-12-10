@@ -80,6 +80,7 @@ pub struct LogNumericScaleConfig {
     pub clamp: bool,
     pub range_offset: f32,
     pub nice: bool,
+    pub round: bool,
 }
 
 impl Default for LogNumericScaleConfig {
@@ -91,6 +92,7 @@ impl Default for LogNumericScaleConfig {
             clamp: false,
             range_offset: 0.0,
             nice: false,
+            round: false,
         }
     }
 }
@@ -106,6 +108,7 @@ pub struct LogNumericScale {
     clamp: bool,
     range_offset: f32,
     log_fun: Arc<LogFunction>,
+    round: bool,
 }
 
 impl LogNumericScale {
@@ -119,6 +122,7 @@ impl LogNumericScale {
             clamp: config.clamp,
             range_offset: config.range_offset,
             log_fun: Arc::new(LogFunction::new(config.base)),
+            round: config.round,
         };
         if config.nice {
             this = this.nice();
@@ -281,49 +285,105 @@ impl ContinuousNumericScale<f32> for LogNumericScale {
         let scale = (self.range_end - self.range_start) / log_domain_span;
         let offset = self.range_start - scale * log_domain_start + self.range_offset;
 
-        if self.clamp {
-            let (range_min, range_max) = if self.range_start <= self.range_end {
-                (self.range_start, self.range_end)
-            } else {
-                (self.range_end, self.range_start)
-            };
+        match (self.clamp, self.round) {
+            (true, true) => {
+                // clamp and round
+                let (range_min, range_max) = if self.range_start <= self.range_end {
+                    (self.range_start, self.range_end)
+                } else {
+                    (self.range_end, self.range_start)
+                };
 
-            values.into().map(|&v| {
-                if v.is_nan() {
-                    return f32::NAN;
-                }
-                if v <= 0.0 {
-                    return if self.range_start <= self.range_end {
-                        range_min
-                    } else {
-                        range_max
-                    };
-                }
-                let log_v = self.log(v);
-                (scale * log_v + offset).clamp(range_min, range_max)
-            })
-        } else {
-            match self.log_fun.as_ref() {
-                LogFunction::Static { log_fun, .. } => values.into().map(|&v| {
-                    if v < 0.0 {
-                        scale * (-log_fun(-v)) + offset
-                    } else if v > 0.0 {
-                        scale * log_fun(v) + offset
-                    } else {
-                        f32::NAN
+                values.into().map(|&v| {
+                    if v.is_nan() {
+                        return f32::NAN;
                     }
-                }),
-                LogFunction::Custom { ln_base, .. } => {
-                    let ln_base = *ln_base;
-                    values.into().map(|&v| {
+                    if v <= 0.0 {
+                        return if self.range_start <= self.range_end {
+                            range_min.round()
+                        } else {
+                            range_max.round()
+                        };
+                    }
+                    let log_v = self.log(v);
+                    (scale * log_v + offset).clamp(range_min, range_max).round()
+                })
+            }
+            (true, false) => {
+                // clamp, no round
+                let (range_min, range_max) = if self.range_start <= self.range_end {
+                    (self.range_start, self.range_end)
+                } else {
+                    (self.range_end, self.range_start)
+                };
+
+                values.into().map(|&v| {
+                    if v.is_nan() {
+                        return f32::NAN;
+                    }
+                    if v <= 0.0 {
+                        return if self.range_start <= self.range_end {
+                            range_min
+                        } else {
+                            range_max
+                        };
+                    }
+                    let log_v = self.log(v);
+                    (scale * log_v + offset).clamp(range_min, range_max)
+                })
+            }
+            (false, true) => {
+                // no clamp, round
+                match self.log_fun.as_ref() {
+                    LogFunction::Static { log_fun, .. } => values.into().map(|&v| {
                         if v < 0.0 {
-                            scale * (-v.ln() / ln_base) + offset
+                            scale * (-log_fun(-v)) + offset
                         } else if v > 0.0 {
-                            scale * (v.ln() / ln_base) + offset
+                            scale * log_fun(v) + offset
                         } else {
                             f32::NAN
                         }
-                    })
+                        .round()
+                    }),
+                    LogFunction::Custom { ln_base, .. } => {
+                        let ln_base = *ln_base;
+                        values.into().map(|&v| {
+                            if v < 0.0 {
+                                scale * (-v.ln() / ln_base) + offset
+                            } else if v > 0.0 {
+                                scale * (v.ln() / ln_base) + offset
+                            } else {
+                                f32::NAN
+                            }
+                            .round()
+                        })
+                    }
+                }
+            }
+            (false, false) => {
+                // no clamp, no round
+                match self.log_fun.as_ref() {
+                    LogFunction::Static { log_fun, .. } => values.into().map(|&v| {
+                        if v < 0.0 {
+                            scale * (-log_fun(-v)) + offset
+                        } else if v > 0.0 {
+                            scale * log_fun(v) + offset
+                        } else {
+                            f32::NAN
+                        }
+                    }),
+                    LogFunction::Custom { ln_base, .. } => {
+                        let ln_base = *ln_base;
+                        values.into().map(|&v| {
+                            if v < 0.0 {
+                                scale * (-v.ln() / ln_base) + offset
+                            } else if v > 0.0 {
+                                scale * (v.ln() / ln_base) + offset
+                            } else {
+                                f32::NAN
+                            }
+                        })
+                    }
                 }
             }
         }

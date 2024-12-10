@@ -14,6 +14,7 @@ pub struct SymlogNumericScaleConfig {
     pub clamp: bool,
     pub range_offset: f32,
     pub nice: Option<usize>,
+    pub round: bool,
 }
 
 impl Default for SymlogNumericScaleConfig {
@@ -25,6 +26,7 @@ impl Default for SymlogNumericScaleConfig {
             clamp: false,
             range_offset: 0.0,
             nice: None,
+            round: false,
         }
     }
 }
@@ -40,6 +42,7 @@ pub struct SymlogNumericScale {
     constant: f32,
     clamp: bool,
     range_offset: f32,
+    round: bool,
 }
 
 impl SymlogNumericScale {
@@ -53,6 +56,7 @@ impl SymlogNumericScale {
             constant: config.constant,
             clamp: config.clamp,
             range_offset: config.range_offset,
+            round: config.round,
         };
         if let Some(count) = config.nice {
             this = this.nice(Some(count));
@@ -136,6 +140,11 @@ impl SymlogNumericScale {
     pub fn with_constant(self, constant: f32) -> Self {
         Self { constant, ..self }
     }
+
+    /// Sets the round flag
+    pub fn with_round(self, round: bool) -> Self {
+        Self { round, ..self }
+    }
 }
 
 impl ContinuousNumericScale<f32> for SymlogNumericScale {
@@ -186,51 +195,100 @@ impl ContinuousNumericScale<f32> for SymlogNumericScale {
         let offset = self.range_start - scale * d0 + self.range_offset;
         let constant = self.constant;
 
-        if self.clamp {
-            // Pre-compute range bounds outside the loop
-            let (range_min, range_max) = if self.range_start <= self.range_end {
-                (self.range_start, self.range_end)
-            } else {
-                (self.range_end, self.range_start)
-            };
-
-            values.into().map(|&v| {
-                if v.is_nan() {
-                    return f32::NAN;
-                }
-                if v.is_infinite() {
-                    if v.is_sign_positive() {
-                        return range_max;
-                    } else {
-                        return range_min;
-                    }
-                }
-                // Apply symlog transform
-                let sign: f32 = if v < 0.0 { -1.0 } else { 1.0 };
-                let transformed = sign * (1.0 + (v.abs() / constant)).ln();
-
-                // Apply scale and offset, then clamp
-                (scale * transformed + offset).clamp(range_min, range_max)
-            })
+        // Pre-compute range bounds outside the loop
+        let (range_min, range_max) = if self.range_start <= self.range_end {
+            (self.range_start, self.range_end)
         } else {
-            values.into().map(|&v| {
-                if v.is_nan() {
-                    return f32::NAN;
-                }
-                if v.is_infinite() {
-                    return if v.is_sign_positive() {
-                        self.range_end
-                    } else {
-                        self.range_start
-                    };
-                }
-                // Apply symlog transform
-                let sign = if v < 0.0 { -1.0 } else { 1.0 };
-                let transformed = sign * (1.0 + (v.abs() / constant)).ln();
+            (self.range_end, self.range_start)
+        };
 
-                // Apply scale and offset
-                scale * transformed + offset
-            })
+        match (self.clamp, self.round) {
+            (true, true) => {
+                // clamp, and round
+                values.into().map(|&v| {
+                    if v.is_nan() {
+                        return f32::NAN;
+                    }
+                    if v.is_infinite() {
+                        if v.is_sign_positive() {
+                            return range_max.round();
+                        } else {
+                            return range_min.round();
+                        }
+                    }
+                    // Apply symlog transform
+                    let sign: f32 = if v < 0.0 { -1.0 } else { 1.0 };
+                    let transformed = sign * (1.0 + (v.abs() / constant)).ln();
+
+                    // Apply scale and offset, then clamp
+                    (scale * transformed + offset)
+                        .clamp(range_min, range_max)
+                        .round()
+                })
+            }
+            (true, false) => {
+                // clamp, no round
+                values.into().map(|&v| {
+                    if v.is_nan() {
+                        return f32::NAN;
+                    }
+                    if v.is_infinite() {
+                        if v.is_sign_positive() {
+                            return range_max;
+                        } else {
+                            return range_min;
+                        }
+                    }
+                    // Apply symlog transform
+                    let sign: f32 = if v < 0.0 { -1.0 } else { 1.0 };
+                    let transformed = sign * (1.0 + (v.abs() / constant)).ln();
+
+                    // Apply scale and offset, then clamp
+                    (scale * transformed + offset).clamp(range_min, range_max)
+                })
+            }
+            (false, true) => {
+                // no clamp, round
+                values.into().map(|&v| {
+                    if v.is_nan() {
+                        return f32::NAN;
+                    }
+                    if v.is_infinite() {
+                        return if v.is_sign_positive() {
+                            self.range_end.round()
+                        } else {
+                            self.range_start.round()
+                        };
+                    }
+                    // Apply symlog transform
+                    let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                    let transformed = sign * (1.0 + (v.abs() / constant)).ln();
+
+                    // Apply scale and offset
+                    (scale * transformed + offset).round()
+                })
+            }
+            (false, false) => {
+                // no clamp, no round
+                values.into().map(|&v| {
+                    if v.is_nan() {
+                        return f32::NAN;
+                    }
+                    if v.is_infinite() {
+                        return if v.is_sign_positive() {
+                            self.range_end
+                        } else {
+                            self.range_start
+                        };
+                    }
+                    // Apply symlog transform
+                    let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                    let transformed = sign * (1.0 + (v.abs() / constant)).ln();
+
+                    // Apply scale and offset
+                    scale * transformed + offset
+                })
+            }
         }
     }
 
