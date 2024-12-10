@@ -11,6 +11,7 @@ pub struct LinearNumericScaleConfig {
     pub clamp: bool,
     pub range_offset: Option<f32>,
     pub nice: Option<usize>,
+    pub round: bool,
 }
 
 impl Default for LinearNumericScaleConfig {
@@ -21,6 +22,7 @@ impl Default for LinearNumericScaleConfig {
             clamp: false,
             range_offset: None,
             nice: None,
+            round: false,
         }
     }
 }
@@ -35,6 +37,7 @@ pub struct LinearNumericScale {
     range_end: f32,
     clamp: bool,
     range_offset: Option<f32>,
+    round: bool,
 }
 
 impl LinearNumericScale {
@@ -47,6 +50,7 @@ impl LinearNumericScale {
             range_end: config.range.1,
             clamp: config.clamp,
             range_offset: config.range_offset,
+            round: config.round,
         };
 
         if let Some(nice) = config.nice {
@@ -133,6 +137,11 @@ impl LinearNumericScale {
         self.range_offset = range_offset;
         self
     }
+
+    pub fn with_round(mut self, round: bool) -> Self {
+        self.round = round;
+        self
+    }
 }
 
 impl ContinuousNumericScale<f32> for LinearNumericScale {
@@ -168,18 +177,33 @@ impl ContinuousNumericScale<f32> for LinearNumericScale {
         let range_offset = self.range_offset.unwrap_or(0.0);
         let offset = self.range_start - scale * self.domain_start + range_offset;
 
-        if self.clamp {
-            let (range_min, range_max) = if self.range_start <= self.range_end {
-                (self.range_start, self.range_end)
-            } else {
-                (self.range_end, self.range_start)
-            };
-
-            values
-                .into()
-                .map(|v| (scale * v + offset).clamp(range_min, range_max))
+        let (range_min, range_max) = if self.range_start <= self.range_end {
+            (self.range_start, self.range_end)
         } else {
-            values.into().map(|v| scale * v + offset)
+            (self.range_end, self.range_start)
+        };
+
+        match (self.clamp, self.round) {
+            (true, true) => {
+                // clamp and round
+                values
+                    .into()
+                    .map(|v| (scale * v + offset).clamp(range_min, range_max).round())
+            }
+            (true, false) => {
+                // clamp, no round
+                values
+                    .into()
+                    .map(|v| (scale * v + offset).clamp(range_min, range_max))
+            }
+            (false, true) => {
+                // no clamp, round
+                values.into().map(|v| (scale * v + offset).round())
+            }
+            (false, false) => {
+                // no clamp, no round
+                values.into().map(|v| scale * v + offset)
+            }
         }
     }
 
