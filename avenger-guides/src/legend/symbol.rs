@@ -112,7 +112,6 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
         );
         let group_rtree = MarkRTree::from_scene_group(&group);
         let height = group_rtree.envelope().height();
-        println!("height: {}", height);
         groups.push(SceneMark::Group(group));
         y += height;
     }
