@@ -41,7 +41,7 @@ struct App<'a> {
 impl<'a> ApplicationHandler for App<'a> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = event_loop
-            .create_window(WindowAttributes::default())
+            .create_window(WindowAttributes::default().with_resizable(false))
             .expect("Failed to create window");
 
         #[cfg(target_arch = "wasm32")]
@@ -174,17 +174,45 @@ pub async fn run() {
         }
     }
 
-    // Build scales
-    let width = 200.0;
-    let height = 200.0;
+    let scene_graph = make_scene_graph(
+        200.0,
+        200.0,
+        (4.0, 8.5),
+        (1.5, 5.0),
+        sepal_length,
+        sepal_width,
+        species,
+    );
+    let scale = 2.0;
+    let event_loop = EventLoop::new().expect("Failed to build event loop");
+    let mut app = App {
+        canvas: None,
+        scene_graph,
+        scale,
+    };
 
+    event_loop
+        .run_app(&mut app)
+        .expect("Failed to run event loop");
+}
+
+fn make_scene_graph(
+    width: f32,
+    height: f32,
+    domain_sepal_length: (f32, f32),
+    domain_sepal_width: (f32, f32),
+    sepal_length: Vec<f32>,
+    sepal_width: Vec<f32>,
+    species: Vec<String>,
+) -> SceneGraph {
+    // Build scales
     let x_scale = LinearNumericScale::new(&Default::default())
-        .with_domain((4.0, 8.5))
+        .with_domain(domain_sepal_length)
         .with_range((0.0, width))
         .with_round(true);
 
     let y_scale = LinearNumericScale::new(&Default::default())
-        .with_domain((1.5, 5.0))
+        .with_domain(domain_sepal_width)
         .with_range((height, 0.0))
         .with_round(true);
 
@@ -202,18 +230,6 @@ pub async fn run() {
         ColorOrGradient::Color([0.9, 0.9, 0.9, 1.0]),
     )
     .unwrap();
-
-    // let color_scale = ContinuousColorScale::new_linear(
-    //     &LinearNumericScaleConfig {
-    //         domain: (0.0, 100.0),
-    //         nice: Some(10),
-    //         ..Default::default()
-    //     },
-    //     vec![
-    //         Srgba::new(0.9, 0.9, 0.9, 1.0),
-    //         Srgba::new(0.1, 0.1, 0.9, 1.0),
-    //     ],
-    // );
 
     // Make rect mark
     let points = SceneSymbolMark {
@@ -267,14 +283,7 @@ pub async fn run() {
     // Make symbol legend
     let symbol_legend = make_symbol_legend(&SymbolLegendConfig {
         text: color_scale.domain().into(),
-        // shape: vec![
-        //     SymbolShape::Circle,
-        //     SymbolShape::from_vega_str("triangle-up").unwrap(),
-        //     SymbolShape::from_vega_str("diamond").unwrap(),
-        // ]
-        // .into(),
         shape: SymbolShape::Circle.into(),
-        // size: vec![10.0, 40.0, 80.0, 120.0, 240.0].into(),
         title: None,
         stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
         stroke_width: Some(1.0),
@@ -298,22 +307,10 @@ pub async fn run() {
         ..Default::default()
     };
 
-    let scene_graph = SceneGraph {
+    SceneGraph {
         groups: vec![group],
         width: 340.0,
         height: 300.0,
         origin: [0.0; 2],
-    };
-
-    let scale = 2.0;
-    let event_loop = EventLoop::new().expect("Failed to build event loop");
-    let mut app = App {
-        canvas: None,
-        scene_graph,
-        scale,
-    };
-
-    event_loop
-        .run_app(&mut app)
-        .expect("Failed to run event loop");
+    }
 }
