@@ -1488,12 +1488,27 @@ impl MultiMarkRenderer {
                     height,
                 } = batch.clip
                 {
-                    // Set scissors rect
+                    // Convert to physical coordinates
+                    let physical_x = (x * self.uniform.scale) as u32;
+                    let physical_y = (y * self.uniform.scale) as u32;
+                    let physical_width = (width * self.uniform.scale) as u32;
+                    let physical_height = (height * self.uniform.scale) as u32;
+
+                    // Clamp to canvas dimensions
+                    let canvas_width = self.dimensions.to_physical_width();
+                    let canvas_height = self.dimensions.to_physical_height();
+
+                    let clamped_x = physical_x.min(canvas_width);
+                    let clamped_y = physical_y.min(canvas_height);
+                    let clamped_width = physical_width.min(canvas_width - clamped_x);
+                    let clamped_height = physical_height.min(canvas_height - clamped_y);
+
+                    // Set scissors rect with clamped values
                     render_pass.set_scissor_rect(
-                        (x * self.uniform.scale) as u32,
-                        (y * self.uniform.scale) as u32,
-                        (width * self.uniform.scale) as u32,
-                        (height * self.uniform.scale) as u32,
+                        clamped_x,
+                        clamped_y,
+                        clamped_width,
+                        clamped_height,
                     );
                 } else {
                     // Clear scissors rect

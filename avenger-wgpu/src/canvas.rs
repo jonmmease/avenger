@@ -497,13 +497,31 @@ impl<'window> WindowCanvas<'window> {
         &self.window
     }
 
-    pub fn resize(&mut self, _new_size: winit::dpi::PhysicalSize<u32>) {
-        // if new_size.width > 0 && new_size.height > 0 {
-        //     self.size = new_size;
-        //     self.config.width = new_size.width;
-        //     self.config.height = new_size.height;
-        //     self.surface.configure(&self.device, &self.config);
-        // }
+    pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+        if new_size.width > 0 && new_size.height > 0 {
+            // Update dimensions
+            self.dimensions = CanvasDimensions {
+                size: [
+                    new_size.width as f32 / self.dimensions.scale,
+                    new_size.height as f32 / self.dimensions.scale,
+                ],
+                scale: self.dimensions.scale,
+            };
+
+            // Update surface configuration
+            self.surface_config.width = new_size.width;
+            self.surface_config.height = new_size.height;
+            self.surface.configure(&self.device, &self.surface_config);
+
+            // Create new multisampled framebuffer with updated size
+            self.multisampled_framebuffer = create_multisampled_framebuffer(
+                &self.device,
+                new_size.width,
+                new_size.height,
+                self.surface_config.format,
+                self.sample_count,
+            );
+        }
     }
 
     #[allow(unused_variables)]
