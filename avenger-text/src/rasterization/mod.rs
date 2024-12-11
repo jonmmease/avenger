@@ -79,12 +79,10 @@ pub struct GlyphData<CacheKey: Hash + Eq + Clone> {
 }
 
 impl<CacheKey: Hash + Eq + Clone> GlyphData<CacheKey> {
-    pub fn without_image_and_path(self) -> Self {
+    pub fn without_image(self) -> Self {
         Self {
-            cache_key: self.cache_key,
             image: None,
-            path: None,
-            bbox: self.bbox,
+            ..self
         }
     }
 

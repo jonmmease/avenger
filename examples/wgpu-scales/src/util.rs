@@ -1,5 +1,6 @@
 use avenger_common::canvas::CanvasDimensions;
 use avenger_common::types::ColorOrGradient;
+use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::axis::band::make_band_axis_marks;
 use avenger_guides::axis::numeric::make_numeric_axis_marks;
 use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
@@ -257,44 +258,45 @@ pub async fn run() {
         },
     );
 
-    // // Make symbol legend
-    // let symbol_legend = make_symbol_legend(&SymbolLegendConfig {
-    //     text: vec!["First", "Second", "Third", "Fourth", "Fifth"].into(),
-    //     // shape: vec![
-    //     //     SymbolShape::Circle,
-    //     //     SymbolShape::from_vega_str("triangle-up").unwrap(),
-    //     //     SymbolShape::from_vega_str("diamond").unwrap(),
-    //     // ]
-    //     // .into(),
-    //     shape: SymbolShape::Circle.into(),
-    //     size: vec![10.0, 40.0, 80.0, 120.0, 240.0].into(),
-    //     title: None,
-    //     stroke: ColorOrGradient::Color([0.0, 0.0, 1.0, 1.0]).into(),
-    //     stroke_width: Some(1.0),
-    //     fill: ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0]).into(),
-    //     angle: 0.0.into(),
-    //     inner_width: width,
-    //     inner_height: height,
-    //     ..Default::default()
-    // })
-    // .unwrap();
-
-    // Make line legend
-    let line_legend = make_line_legend(&LineLegendConfig {
+    // Make symbol legend
+    let symbol_legend = make_symbol_legend(&SymbolLegendConfig {
+        text: vec!["First", "Second", "Third", "Fourth", "Fifth"].into(),
+        // text: vec!["", "", "", "", ""].into(),
+        // shape: vec![
+        //     SymbolShape::Circle,
+        //     SymbolShape::from_vega_str("triangle-up").unwrap(),
+        //     SymbolShape::from_vega_str("diamond").unwrap(),
+        // ]
+        // .into(),
+        shape: SymbolShape::Circle.into(),
+        size: vec![10.0, 40.0, 80.0, 120.0, 240.0].into(),
+        title: None,
+        stroke: ColorOrGradient::Color([0.0, 0.0, 1.0, 1.0]).into(),
+        stroke_width: Some(1.0),
+        fill: ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0]).into(),
+        angle: 0.0.into(),
         inner_width: width,
         inner_height: height,
-        text: vec!["First", "Second", "Third"].into(),
-        stroke: vec![
-            ColorOrGradient::Color([0.0, 0.0, 1.0, 1.0]).into(),
-            ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0]).into(),
-            ColorOrGradient::Color([0.0, 1.0, 1.0, 1.0]).into(),
-        ]
-        .into(),
-        stroke_dash: vec![None, Some(vec![6.0, 2.0]), Some(vec![3.0])].into(),
-        line_length: 20.0,
         ..Default::default()
     })
     .unwrap();
+
+    // // Make line legend
+    // let line_legend = make_line_legend(&LineLegendConfig {
+    //     inner_width: width,
+    //     inner_height: height,
+    //     text: vec!["First", "Second", "Third"].into(),
+    //     stroke: vec![
+    //         ColorOrGradient::Color([0.0, 0.0, 1.0, 1.0]).into(),
+    //         ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0]).into(),
+    //         ColorOrGradient::Color([0.0, 1.0, 1.0, 1.0]).into(),
+    //     ]
+    //     .into(),
+    //     stroke_dash: vec![None, Some(vec![6.0, 2.0]), Some(vec![3.0])].into(),
+    //     line_length: 20.0,
+    //     ..Default::default()
+    // })
+    // .unwrap();
 
     // // Make colorbar
     // let colorbar = make_colorbar_marks(
@@ -315,8 +317,8 @@ pub async fn run() {
             y_axis.into(),
             x_axis.into(),
             mark_group.into(),
-            // symbol_legend.into(),
-            line_legend.into(),
+            symbol_legend.into(),
+            // line_legend.into(),
             // colorbar.into(),
         ],
         ..Default::default()
@@ -328,6 +330,10 @@ pub async fn run() {
         height: 300.0,
         origin: [0.0; 2],
     };
+
+    let rtree = SceneGraphRTree::from_scene_graph(&scene_graph);
+    let svg = rtree.to_svg();
+    std::fs::write("geometry.svg", svg).expect("Failed to write SVG file");
 
     let scale = 2.0;
     let event_loop = EventLoop::new().expect("Failed to build event loop");

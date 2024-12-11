@@ -46,7 +46,7 @@ features = ["serde"]
 [dev-dependencies]
 float-cmp = "0.10.0"
 geo = { workspace = true }
-geo-svg = "0.7.0"
+geo-svg = { workspace = true }
 
 [dev-dependencies.avenger-text]
 path = "../avenger-text"

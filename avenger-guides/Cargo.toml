@@ -12,3 +12,4 @@ avenger-geometry = { path = "../avenger-geometry" }
 thiserror = { workspace = true }
 itertools = { workspace = true }
 geo = { workspace = true }
+rstar = { workspace = true }
