@@ -3,6 +3,7 @@ use avenger_common::types::ColorOrGradient;
 use avenger_guides::axis::band::make_band_axis_marks;
 use avenger_guides::axis::numeric::make_numeric_axis_marks;
 use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
+use avenger_guides::legend::colorbar::{make_colorbar_marks, ColorbarConfig, ColorbarOrientation};
 use avenger_guides::legend::line::{make_line_legend, LineLegendConfig};
 use avenger_guides::legend::symbol::{make_symbol_legend, SymbolLegendConfig};
 use avenger_scales::band::BandScale;
@@ -295,6 +296,18 @@ pub async fn run() {
     })
     .unwrap();
 
+    // // Make colorbar
+    // let colorbar = make_colorbar_marks(
+    //     &color_scale,
+    //     "My Colorbar",
+    //     [0.0, 0.0],
+    //     &ColorbarConfig {
+    //         orientation: ColorbarOrientation::Right,
+    //         dimensions: [width, height],
+    //         ..Default::default()
+    //     },
+    // );
+
     // Wrap axis and rect in group
     let group = SceneGroup {
         origin: [60.0, 60.0],
@@ -304,6 +317,7 @@ pub async fn run() {
             mark_group.into(),
             // symbol_legend.into(),
             line_legend.into(),
+            // colorbar.into(),
         ],
         ..Default::default()
     };
