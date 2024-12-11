@@ -1,9 +1,10 @@
+pub mod colorbar;
 pub mod line;
 pub mod symbol;
 
 use crate::error::AvengerGuidesError;
 
-pub fn compute_encoding_length(lengths: &[usize]) -> Result<usize, AvengerGuidesError> {
+fn compute_encoding_length(lengths: &[usize]) -> Result<usize, AvengerGuidesError> {
     let lengths = lengths
         .into_iter()
         .cloned()

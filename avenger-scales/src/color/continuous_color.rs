@@ -1,4 +1,4 @@
-use avenger_common::types::ColorOrGradient;
+use avenger_common::types::{ColorOrGradient, GradientStop};
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use palette::{Hsla, IntoColor, Laba, Mix, Srgba};
@@ -80,6 +80,10 @@ where
     pub fn with_range(mut self, range: Vec<C>) -> Self {
         self.range = range;
         self
+    }
+
+    pub fn get_numeric_scale(&self) -> &S {
+        &self.numeric_scale
     }
 
     pub fn scale<'a>(
@@ -225,6 +229,36 @@ impl<C: ColorSpace, Tz: 'static + TimeZone + Copy>
             range: colors,
             _marker: PhantomData,
         }
+    }
+}
+
+impl<C, S> ContinuousColorScale<C, S, f32>
+where
+    C: ColorSpace,
+    S: ContinuousNumericScale<f32>,
+{
+    pub fn to_gradient_stops(&self) -> Vec<GradientStop> {
+        let domain_start: f32 = self.domain().0.into();
+        let domain_end: f32 = self.domain().1.into();
+
+        let num_segments = 10;
+        let step = (domain_end - domain_start) / num_segments as f32;
+        let fractions: Vec<f32> = (0..=num_segments)
+            .map(|i| i as f32 / num_segments as f32)
+            .collect();
+        let domain_values: Vec<f32> = (0..=num_segments)
+            .map(|i| domain_start + i as f32 * step)
+            .collect();
+        let colors = self.scale(&domain_values).as_vec(domain_values.len(), None);
+
+        fractions
+            .iter()
+            .zip(colors)
+            .map(|(f, c)| GradientStop {
+                offset: *f,
+                color: c.color_or_transparent(),
+            })
+            .collect()
     }
 }
 
