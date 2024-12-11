@@ -1,9 +1,10 @@
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
-use avenger_geometry::rtree::MarkRTree;
+use avenger_geometry::{marks::MarkGeometryUtils, rtree::SceneGraphRTree};
 use avenger_scales::band::BandScale;
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
 
 use avenger_text::types::{FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
+use rstar::AABB;
 
 use super::opts::{AxisConfig, AxisOrientation};
 use std::{fmt::Debug, hash::Hash};
@@ -82,13 +83,10 @@ where
         .marks
         .push(make_tick_labels(&scale, &config.orientation, &config.dimensions).into());
 
-    // Create rtree for calculating title position
-    let rtree = MarkRTree::from_scene_group(&group);
-
     // Add title
     group
         .marks
-        .push(make_title(title, &scale, &rtree, &config.orientation).into());
+        .push(make_title(title, &scale, &group.bounding_box(), &config.orientation).into());
 
     group
 }
@@ -262,7 +260,7 @@ where
 fn make_title<T>(
     title: &str,
     scale: &BandScale<T>,
-    rtree: &MarkRTree,
+    envelope: &AABB<[f32; 2]>,
     orientation: &AxisOrientation,
 ) -> SceneTextMark
 where
@@ -270,7 +268,6 @@ where
 {
     let range = scale.range();
     let mid = (range.0 + range.1) / 2.0;
-    let envelope = rtree.envelope();
 
     let (x, y, align, baseline, angle) = match orientation {
         AxisOrientation::Left => (

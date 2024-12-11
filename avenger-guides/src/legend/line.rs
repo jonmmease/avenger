@@ -155,7 +155,7 @@ fn make_line_group(
         ..Default::default()
     };
 
-    // Legent entry group
+    // Legend entry group
     let group = SceneGroup {
         origin: [config.inner_width + config.outer_margin, y],
         marks: vec![

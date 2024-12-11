@@ -13,6 +13,7 @@ lyon_algorithms = { workspace = true }
 geo-types = { workspace = true }
 rstar = { workspace = true }
 geo = { workspace = true }
+geo-svg = { workspace = true }
 itertools = { workspace = true }
 
 [dev-dependencies]

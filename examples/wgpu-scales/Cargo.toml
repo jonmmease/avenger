@@ -13,6 +13,7 @@ avenger-scenegraph = { path = "../../avenger-scenegraph" }
 avenger-common = { path = "../../avenger-common" }
 avenger-scales = { path = "../../avenger-scales" }
 avenger-guides = { path = "../../avenger-guides" }
+avenger-geometry = { path = "../../avenger-geometry" }
 
 cfg-if = "1"
 winit = "0.30.5"

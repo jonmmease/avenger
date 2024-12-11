@@ -1,7 +1,7 @@
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 use avenger_geometry::{
     marks::MarkGeometryUtils,
-    rtree::{EnvelopeUtils, MarkRTree},
+    rtree::{EnvelopeUtils, SceneGraphRTree},
 };
 use avenger_scenegraph::marks::{
     group::SceneGroup,
@@ -110,8 +110,7 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
             i,
             [config.inner_width + config.outer_margin, y],
         );
-        let group_rtree = MarkRTree::from_scene_group(&group);
-        let height = group_rtree.envelope().height();
+        let height = group.bounding_box().height();
         groups.push(SceneMark::Group(group));
         y += height;
     }

@@ -83,7 +83,7 @@ where
                 if let Some(glyph_image) = next_cache.get(&cache_key) {
                     // Glyph has already been rasterized by this call to rasterize and the full image
                     // is already in the glyphs Vec, so we can store the reference only.
-                    glyphs.push((glyph_image.clone().without_image_and_path(), phys_pos));
+                    glyphs.push((glyph_image.clone().without_image(), phys_pos));
                 } else {
                     // We need to rasterize glyph and write it to next_atlas
                     let Some(image) = cache
@@ -197,7 +197,7 @@ where
                         };
 
                         // Update cache
-                        next_cache.insert(cache_key, glyph_data.clone().without_image_and_path());
+                        next_cache.insert(cache_key, glyph_data.clone().without_image());
 
                         glyphs.push((glyph_data, phys_pos));
                     }

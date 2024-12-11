@@ -1,7 +1,8 @@
 use crate::marks::MarkGeometryUtils;
-use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::mark::SceneMark;
-use geo::{BoundingRect, Distance, Euclidean};
+use avenger_scenegraph::{marks::group::SceneGroup, scene_graph::SceneGraph};
+use geo::{coord, BoundingRect, Distance, Euclidean, Rect};
+use geo_svg::{Color, CombineToSVG, ToSvg};
 use geo_types::Geometry;
 use rstar::{
     iterators::{
@@ -15,7 +16,7 @@ use rstar::{
 /// A geometry with an associated instance ID for storage in the R-tree
 #[derive(Debug, Clone)]
 pub struct GeometryInstance {
-    pub mark_index: usize,
+    pub mark_path: Vec<usize>,
     pub instance_index: Option<usize>,
     pub z_index: usize,
     pub geometry: Geometry<f32>,
@@ -59,12 +60,14 @@ impl PointDistance for GeometryInstance {
 }
 
 #[derive(Debug, Clone)]
-pub struct MarkRTree {
+pub struct SceneGraphRTree {
+    /// The R-tree containing the geometries, relative to the scene graph origin
     rtree: RTree<GeometryInstance>,
+    /// The envelope of the scene graph, relative to the scene graph origin
     envelope: AABB<[f32; 2]>,
 }
 
-impl MarkRTree {
+impl SceneGraphRTree {
     pub fn new(geometries: Vec<GeometryInstance>) -> Self {
         let envelope = if geometries.is_empty() {
             AABB::from_corners([0.0, 0.0], [0.0, 0.0])
@@ -82,46 +85,20 @@ impl MarkRTree {
         Self { rtree, envelope }
     }
 
-    pub fn from_scene_group(group: &SceneGroup) -> MarkRTree {
+    pub fn from_scene_graph(scene_graph: &SceneGraph) -> SceneGraphRTree {
         let mut geometry_instances: Vec<GeometryInstance> = vec![];
-        for (mark_index, mark) in group.marks.iter().enumerate() {
-            match mark {
-                SceneMark::Arc(mark) => {
-                    geometry_instances.extend(mark.geometry_iter(mark_index));
-                }
-                SceneMark::Area(mark) => {
-                    geometry_instances.extend(mark.geometry_iter(mark_index));
-                }
-                SceneMark::Path(mark) => {
-                    geometry_instances.extend(mark.geometry_iter(mark_index));
-                }
-                SceneMark::Symbol(mark) => {
-                    geometry_instances.extend(mark.geometry_iter(mark_index));
-                }
-                SceneMark::Line(mark) => {
-                    geometry_instances.extend(mark.geometry_iter(mark_index));
-                }
-                SceneMark::Trail(mark) => {
-                    geometry_instances.extend(mark.geometry_iter(mark_index));
-                }
-                SceneMark::Rect(mark) => {
-                    geometry_instances.extend(mark.geometry_iter(mark_index));
-                }
-                SceneMark::Rule(mark) => {
-                    geometry_instances.extend(mark.geometry_iter(mark_index));
-                }
-                SceneMark::Text(mark) => {
-                    geometry_instances.extend(mark.geometry_iter(mark_index));
-                }
-                SceneMark::Image(mark) => {
-                    geometry_instances.extend(mark.geometry_iter(mark_index));
-                }
-                SceneMark::Group(_scene_group) => {
-                    // Consider whether to recurse into group marks
-                }
-            }
+
+        for (group_index, group) in scene_graph.groups.iter().enumerate() {
+            let mark_path = vec![group_index];
+            // Compute absolute origin for group
+            let origin = [
+                scene_graph.origin[0] + group.origin[0],
+                scene_graph.origin[1] + group.origin[1],
+            ];
+            geometry_instances.extend(group.geometry_iter(mark_path, origin));
         }
-        MarkRTree::new(geometry_instances)
+
+        SceneGraphRTree::new(geometry_instances)
     }
 
     /// Returns the envelope of the entire tree
@@ -146,12 +123,12 @@ impl MarkRTree {
         let mut candidate_instance: Option<&GeometryInstance> = None;
         for next_instance in self.rtree.locate_all_at_point(point) {
             if let Some(inner_candidate_instance) = candidate_instance {
-                if next_instance.mark_index == inner_candidate_instance.mark_index {
+                if next_instance.mark_path == inner_candidate_instance.mark_path {
                     if next_instance.z_index > inner_candidate_instance.z_index {
                         // Same mark as current candidate, but higher z-index, so keep it.
                         candidate_instance = Some(next_instance);
                     }
-                } else if next_instance.mark_index > inner_candidate_instance.mark_index {
+                } else if next_instance.mark_path > inner_candidate_instance.mark_path {
                     // Mark is above the current candidate's mark, so keep it.
                     candidate_instance = Some(next_instance);
                 }
@@ -234,7 +211,7 @@ impl MarkRTree {
     /// Returns all possible intersecting objects between this and another tree
     pub fn intersection_candidates_with_other_tree<'a>(
         &'a self,
-        other: &'a MarkRTree,
+        other: &'a SceneGraphRTree,
     ) -> IntersectionIterator<'a, GeometryInstance, GeometryInstance> {
         self.rtree
             .intersection_candidates_with_other_tree(&other.rtree)
@@ -255,6 +232,20 @@ impl MarkRTree {
         for geometry in geometries {
             self.insert(geometry);
         }
+    }
+
+    pub fn to_svg(&self) -> String {
+        self.iter()
+            .map(|g| g.geometry.clone())
+            .collect::<Vec<_>>()
+            .combine_to_svg()
+            .unwrap()
+            .with_stroke_color(Color::Named("crimson"))
+            .with_stroke_opacity(0.5)
+            .with_stroke_width(0.5)
+            .with_fill_color(Color::Named("blue"))
+            .with_fill_opacity(0.2)
+            .to_string()
     }
 }
 
