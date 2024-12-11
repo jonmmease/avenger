@@ -39,7 +39,7 @@ struct App<'a> {
 impl<'a> ApplicationHandler for App<'a> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = event_loop
-            .create_window(WindowAttributes::default())
+            .create_window(WindowAttributes::default().with_resizable(false))
             .expect("Failed to create window");
 
         #[cfg(target_arch = "wasm32")]
