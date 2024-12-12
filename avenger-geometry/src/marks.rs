@@ -1,6 +1,5 @@
 use crate::lyon_to_geo::IntoGeoType;
 use crate::GeometryInstance;
-use avenger_scenegraph::marks::arc::SceneArcMark;
 use avenger_scenegraph::marks::area::SceneAreaMark;
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::image::SceneImageMark;
@@ -12,6 +11,7 @@ use avenger_scenegraph::marks::rule::SceneRuleMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use avenger_scenegraph::marks::text::SceneTextMark;
 use avenger_scenegraph::marks::trail::SceneTrailMark;
+use avenger_scenegraph::marks::{arc::SceneArcMark, mark::MarkInstance};
 use avenger_text::measurement::{default_text_measurer, TextMeasurementConfig, TextMeasurer};
 use geo::{Rotate, Scale, Translate};
 use geo_types::{coord, Geometry, Rect};
@@ -52,8 +52,10 @@ impl MarkGeometryUtils for SceneArcMark {
                 let half_stroke_width = stroke_width / 2.0;
                 let geometry = path.as_geo_type(half_stroke_width, true);
                 GeometryInstance {
-                    mark_path: mark_path.clone(),
-                    instance_index: Some(id),
+                    mark_instance: MarkInstance {
+                        mark_path: mark_path.clone(),
+                        instance_index: Some(id),
+                    },
                     z_index,
                     geometry,
                     half_stroke_width,
@@ -72,8 +74,10 @@ impl MarkGeometryUtils for SceneAreaMark {
         let path = self.transformed_path(origin);
         let half_stroke_width = self.stroke_width / 2.0;
         Box::new(once(GeometryInstance {
-            mark_path: mark_path.clone(),
-            instance_index: None,
+            mark_instance: MarkInstance {
+                mark_path: mark_path.clone(),
+                instance_index: None,
+            },
             z_index: 0,
             geometry: path.as_geo_type(half_stroke_width, true),
             half_stroke_width,
@@ -100,8 +104,10 @@ impl MarkGeometryUtils for SceneImageMark {
                     ));
 
                     GeometryInstance {
-                        mark_path: mark_path.clone(),
-                        instance_index: Some(id),
+                        mark_instance: MarkInstance {
+                            mark_path: mark_path.clone(),
+                            instance_index: Some(id),
+                        },
                         z_index,
                         geometry,
                         half_stroke_width,
@@ -120,8 +126,10 @@ impl MarkGeometryUtils for SceneLineMark {
         let path = self.transformed_path(origin);
         let half_stroke_width = self.stroke_width / 2.0;
         Box::new(once(GeometryInstance {
-            mark_path: mark_path.clone(),
-            instance_index: None,
+            mark_instance: MarkInstance {
+                mark_path: mark_path.clone(),
+                instance_index: None,
+            },
             z_index: 0,
             geometry: path.as_geo_type(half_stroke_width, false),
             half_stroke_width,
@@ -142,8 +150,10 @@ impl MarkGeometryUtils for ScenePathMark {
                 .map(move |(z_index, (id, path))| {
                     let geometry = path.as_geo_type(0.1, true);
                     GeometryInstance {
-                        mark_path: mark_path.clone(),
-                        instance_index: Some(id),
+                        mark_instance: MarkInstance {
+                            mark_path: mark_path.clone(),
+                            instance_index: Some(id),
+                        },
                         z_index,
                         geometry,
                         half_stroke_width,
@@ -183,8 +193,10 @@ impl MarkGeometryUtils for SceneRectMark {
                         coord!(x: x1, y: y1),
                     ));
                     GeometryInstance {
-                        mark_path: mark_path.clone(),
-                        instance_index: Some(id),
+                        mark_instance: MarkInstance {
+                            mark_path: mark_path.clone(),
+                            instance_index: Some(id),
+                        },
                         z_index,
                         geometry,
                         half_stroke_width: *stroke_width / 2.0,
@@ -204,8 +216,10 @@ impl MarkGeometryUtils for SceneRectMark {
                     let half_stroke_width = stroke_width / 2.0;
                     let geometry = path.as_geo_type(0.1, true);
                     GeometryInstance {
-                        mark_path: mark_path.clone(),
-                        instance_index: Some(id),
+                        mark_instance: MarkInstance {
+                            mark_path: mark_path.clone(),
+                            instance_index: Some(id),
+                        },
                         z_index,
                         geometry,
                         half_stroke_width,
@@ -233,8 +247,10 @@ impl MarkGeometryUtils for SceneRuleMark {
                 let half_stroke_width = stroke_width / 2.0;
                 let geometry = path.as_geo_type(0.1, false);
                 GeometryInstance {
-                    mark_path: mark_path.clone(),
-                    instance_index: Some(id),
+                    mark_instance: MarkInstance {
+                        mark_path: mark_path.clone(),
+                        instance_index: Some(id),
+                    },
                     z_index,
                     geometry,
                     half_stroke_width,
@@ -275,8 +291,10 @@ impl MarkGeometryUtils for SceneSymbolMark {
                         .translate(*x + origin[0], *y + origin[1]);
 
                     GeometryInstance {
-                        mark_path: mark_path.clone(),
-                        instance_index: Some(instance_idx),
+                        mark_instance: MarkInstance {
+                            mark_path: mark_path.clone(),
+                            instance_index: Some(instance_idx),
+                        },
                         z_index,
                         geometry,
                         half_stroke_width,
@@ -296,8 +314,10 @@ impl MarkGeometryUtils for SceneTrailMark {
         let path = self.transformed_path(origin);
         let geometry = path.trail_as_geo_type(0.1, 0);
         Box::new(once(GeometryInstance {
-            mark_path: mark_path.clone(),
-            instance_index: None,
+            mark_instance: MarkInstance {
+                mark_path: mark_path.clone(),
+                instance_index: None,
+            },
             z_index: 0,
             geometry,
             half_stroke_width: 0.0,
@@ -441,8 +461,10 @@ impl MarkGeometryUtils for SceneTextMark {
                     // };
 
                     GeometryInstance {
-                        mark_path: mark_path.clone(),
-                        instance_index: Some(id),
+                        mark_instance: MarkInstance {
+                            mark_path: mark_path.clone(),
+                            instance_index: Some(id),
+                        },
                         z_index,
                         geometry,
                         half_stroke_width: 1.0,

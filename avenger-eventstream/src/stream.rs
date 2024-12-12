@@ -1,0 +1,492 @@
+use crate::scene::{
+    SceneClickEvent, SceneCursorMovedEvent, SceneDoubleClickEvent, SceneGraphEvent,
+    SceneGraphEventType, SceneKeyPressEvent, SceneMouseEnterEvent, SceneMouseLeaveEvent,
+    SceneMouseWheelEvent,
+};
+use crate::window::{ElementState, MouseButton, WindowEvent};
+use avenger_geometry::rtree::SceneGraphRTree;
+use avenger_scenegraph::marks::mark::MarkInstance;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+#[derive(Clone, Default)]
+pub struct DebounceConfig {
+    /// The number of milliseconds to delay
+    pub wait: u64,
+    /// The maximum time func is allowed to be delayed before it's invoked
+    pub max_wait: Option<u64>,
+    /// Specify invoking on the leading edge of the timeout
+    pub leading: bool,
+}
+
+impl DebounceConfig {
+    pub fn new(wait: u64) -> Self {
+        Self {
+            wait,
+            leading: false,
+            max_wait: None,
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct EventStreamConfig {
+    /// Event types to include in the stream
+    pub types: Vec<SceneGraphEventType>,
+
+    /// If specified, only events associated with marks within
+    /// the specified scene group will be included
+    pub source_group: Option<Vec<usize>>,
+
+    /// If true, the event will be consumed by the event stream and
+    /// not propagated to other streams
+    pub consume: bool,
+
+    /// If specified, only events matching all of the filters will be included
+    pub filter: Option<Vec<Arc<dyn Fn(&SceneGraphEvent) -> bool>>>,
+
+    /// If specified, only events that occur after the start stream has been triggered
+    /// and before the end stream has been triggered will be included
+    pub between: Option<(Box<EventStreamConfig>, Box<EventStreamConfig>)>,
+
+    /// If specified, only events associated with the specified mark paths will be included
+    pub mark_paths: Option<Vec<Vec<usize>>>,
+
+    /// Time-based debounce configuration
+    pub debounce: Option<DebounceConfig>,
+}
+
+/// Internal struct representing the state of an event stream and it's handler
+#[derive(Clone)]
+struct EventStream {
+    config: EventStreamConfig,
+    between_state: Option<BetweenState>,
+    last_event_time: Option<Instant>,
+    last_handled_time: Option<Instant>,
+    debounce_state: Option<DebounceState>,
+    handler: Arc<dyn Fn(&SceneGraphEvent)>,
+}
+
+#[derive(Clone)]
+struct BetweenState {
+    started: bool,
+    start_stream: Box<EventStream>,
+    end_stream: Box<EventStream>,
+}
+
+#[derive(Clone)]
+struct DebounceState {
+    /// Time of first event in current debounce window
+    first_event: Instant,
+    /// Time of last event
+    last_event: Instant,
+    /// Whether we've handled the leading event in current window
+    handled_leading: bool,
+}
+
+impl EventStream {
+    fn new(config: EventStreamConfig, handler: Arc<dyn Fn(&SceneGraphEvent)>) -> Self {
+        // Initialize between_state if config.between is specified
+        let between_state = config
+            .between
+            .as_ref()
+            .map(|(start_cfg, end_cfg)| BetweenState {
+                started: false,
+                start_stream: Box::new(EventStream::new(
+                    start_cfg.as_ref().clone(),
+                    handler.clone(),
+                )),
+                end_stream: Box::new(EventStream::new(end_cfg.as_ref().clone(), handler.clone())),
+            });
+
+        Self {
+            config,
+            between_state,
+            last_event_time: None,
+            last_handled_time: None,
+            debounce_state: None,
+            handler,
+        }
+    }
+
+    fn matches_and_update(
+        &mut self,
+        event: &SceneGraphEvent,
+        mark_instance: Option<&MarkInstance>,
+    ) -> bool {
+        // Handle between state
+        if let Some(between) = &mut self.between_state {
+            if !between.started {
+                // Not started yet, check if this is start event
+                if between.start_stream.matches_event(event, mark_instance) {
+                    between.started = true;
+                }
+                return false;
+            } else {
+                // Started, check if this is end event
+                if between.end_stream.matches_event(event, mark_instance) {
+                    between.started = false;
+                    return false;
+                }
+            }
+        }
+
+        // Perform regular matching
+        self.matches_event(event, mark_instance)
+    }
+
+    fn matches_event(&self, event: &SceneGraphEvent, mark_instance: Option<&MarkInstance>) -> bool {
+        // Check event type matches
+        if !self.config.types.contains(&event.event_type()) {
+            return false;
+        }
+
+        // Apply filters
+        if let Some(filters) = &self.config.filter {
+            for filter in filters {
+                if !filter(event) {
+                    return false;
+                }
+            }
+        }
+
+        // Check source group if specified
+        if let Some(group) = &self.config.source_group {
+            if let Some(mark_instance) = mark_instance {
+                if group != &mark_instance.mark_path[0..group.len()] {
+                    // Mark path is not under the source group, so ignore
+                    return false;
+                }
+            }
+        }
+
+        // Check mark paths are specified
+        if let Some(paths) = &self.config.mark_paths {
+            if let Some(mark_instance) = mark_instance {
+                if !paths.contains(&mark_instance.mark_path) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    fn should_handle_event(&mut self, now: Instant) -> bool {
+        // If no debounce config, always handle the event
+        let Some(debounce) = &self.config.debounce else {
+            return true;
+        };
+
+        let wait = Duration::from_millis(debounce.wait);
+
+        match &mut self.debounce_state {
+            Some(state) => {
+                let time_since_last = now.duration_since(state.last_event);
+                let time_since_first = now.duration_since(state.first_event);
+
+                // Update last event time
+                state.last_event = now;
+
+                // Check max_wait first
+                if let Some(max_wait) = debounce.max_wait {
+                    if time_since_first >= Duration::from_millis(max_wait) {
+                        // Max wait exceeded, reset state and fire
+                        self.debounce_state = None;
+                        return true;
+                    }
+                }
+
+                // Check if wait time has elapsed
+                if time_since_last >= wait {
+                    // Wait time elapsed, reset state and fire
+                    self.debounce_state = None;
+                    return true;
+                }
+
+                false
+            }
+            None => {
+                // First event in new window
+                self.debounce_state = Some(DebounceState {
+                    first_event: now,
+                    last_event: now,
+                    handled_leading: false,
+                });
+
+                // Handle leading edge if configured
+                if debounce.leading {
+                    self.debounce_state.as_mut().unwrap().handled_leading = true;
+                    return true;
+                }
+
+                false
+            }
+        }
+    }
+}
+
+pub struct EventManager {
+    streams: Vec<EventStream>,
+    // Track currently hovered mark for mouseover/out events
+    current_mark: Option<MarkInstance>,
+    // Track last click for double-click detection
+    last_click: Option<(Instant, [f32; 2])>,
+    // Double-click time threshold (e.g., 500ms)
+    double_click_threshold: Duration,
+    // Double-click distance threshold (e.g., 5 pixels)
+    double_click_distance: f32,
+    // Track current cursor position
+    current_cursor_position: Option<[f32; 2]>,
+}
+
+impl EventManager {
+    pub fn new() -> Self {
+        Self {
+            streams: Vec::new(),
+            current_mark: None,
+            last_click: None,
+            double_click_threshold: Duration::from_millis(500),
+            double_click_distance: 5.0,
+            current_cursor_position: None,
+        }
+    }
+
+    /// Register a new event handler with the given configuration
+    pub fn register_handler<F>(&mut self, config: EventStreamConfig, handler: F)
+    where
+        F: Fn(&SceneGraphEvent) + 'static,
+    {
+        let stream = EventStream::new(config, Arc::new(handler));
+        self.streams.push(stream);
+    }
+
+    pub fn dispatch_event(
+        &mut self,
+        event: &WindowEvent,
+        rtree: &SceneGraphRTree,
+        instant: Instant,
+    ) {
+        // Update cursor position tracking
+        if let Some(position) = event.position() {
+            self.current_cursor_position = Some(position);
+        }
+
+        // Convert window event to scene graph event
+        let scene_event = match event {
+            WindowEvent::MouseInput(input) => {
+                if let Some(position) = self.current_cursor_position {
+                    let mark_instance = self.get_mark_path_for_event_at_position(&position, rtree);
+
+                    // Handle double click detection for mouse clicks
+                    if input.state == ElementState::Pressed && input.button == MouseButton::Left {
+                        self.check_double_click(position, mark_instance.clone(), rtree, instant);
+                    }
+
+                    Some(SceneGraphEvent::Click(SceneClickEvent {
+                        position,
+                        button: input.button.clone(),
+                        mark_instance,
+                    }))
+                } else {
+                    None
+                }
+            }
+            WindowEvent::CursorMoved(e) => {
+                let mark_instance = self.get_mark_path_for_event_at_position(&e.position, rtree);
+                Some(SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                    position: e.position,
+                    mark_instance,
+                }))
+            }
+            WindowEvent::MouseWheel(e) => {
+                if let Some(position) = self.current_cursor_position {
+                    let mark_instance = self.get_mark_path_for_event_at_position(&position, rtree);
+                    Some(SceneGraphEvent::MouseWheel(SceneMouseWheelEvent {
+                        position,
+                        delta: e.delta,
+                        mark_instance,
+                    }))
+                } else {
+                    None
+                }
+            }
+            WindowEvent::KeyboardInput(e) => {
+                if let Some(position) = self.current_cursor_position {
+                    let mark_instance = self.get_mark_path_for_event_at_position(&position, rtree);
+                    Some(SceneGraphEvent::KeyPress(SceneKeyPressEvent {
+                        position,
+                        key: e.key.clone(),
+                        mark_instance,
+                    }))
+                } else {
+                    None
+                }
+            }
+            WindowEvent::WindowResize(e) => Some(SceneGraphEvent::WindowResize(e.clone())),
+            WindowEvent::WindowMoved(e) => Some(SceneGraphEvent::WindowMoved(e.clone())),
+            WindowEvent::WindowFocused(focused) => Some(SceneGraphEvent::WindowFocused(*focused)),
+            WindowEvent::WindowCloseRequested => Some(SceneGraphEvent::WindowCloseRequested),
+            _ => None,
+        };
+
+        // Process cursor movement for enter/leave events
+        if let Some(position) = event.position() {
+            self.handle_mark_mouse_events(position, rtree, instant);
+        }
+
+        // Dispatch the converted event if any
+        if let Some(scene_event) = scene_event {
+            self.dispatch_single_event(&scene_event, rtree, instant);
+        }
+    }
+
+    fn dispatch_single_event(
+        &mut self,
+        event: &SceneGraphEvent,
+        rtree: &SceneGraphRTree,
+        instant: Instant,
+    ) {
+        let mark_instance = self.get_mark_path_for_event(event, rtree);
+
+        for stream in &mut self.streams {
+            if stream.matches_and_update(event, mark_instance.as_ref()) {
+                // Update last event time
+                stream.last_event_time = Some(instant);
+
+                // Check timing rules
+                if !stream.should_handle_event(instant) {
+                    continue;
+                }
+
+                // Update last handled time
+                stream.last_handled_time = Some(instant);
+
+                // Call handler
+                (stream.handler)(event);
+
+                // Handle consume flag
+                if stream.config.consume {
+                    break;
+                }
+            }
+        }
+    }
+
+    fn get_mark_path_for_event(
+        &self,
+        event: &SceneGraphEvent,
+        rtree: &SceneGraphRTree,
+    ) -> Option<MarkInstance> {
+        event
+            .position()
+            .and_then(|pos| self.get_mark_path_for_event_at_position(&pos, rtree))
+    }
+
+    fn get_mark_path_for_event_at_position(
+        &self,
+        position: &[f32; 2],
+        rtree: &SceneGraphRTree,
+    ) -> Option<MarkInstance> {
+        rtree.pick_top_mark_at_point(position).cloned()
+    }
+
+    fn handle_mark_mouse_events(
+        &mut self,
+        position: [f32; 2],
+        rtree: &SceneGraphRTree,
+        instant: Instant,
+    ) {
+        let current_mark = self.get_mark_path_for_event_at_position(&position, rtree);
+
+        // Handle mark enter/leave
+        match (&self.current_mark, &current_mark) {
+            (Some(prev), Some(curr)) if prev != curr => {
+                // Mark changed - generate leave then enter
+                self.dispatch_single_event(
+                    &SceneGraphEvent::MouseLeave(SceneMouseLeaveEvent {
+                        position,
+                        mark_instance: prev.clone(),
+                    }),
+                    rtree,
+                    instant,
+                );
+                self.dispatch_single_event(
+                    &SceneGraphEvent::MouseEnter(SceneMouseEnterEvent {
+                        position,
+                        mark_instance: curr.clone(),
+                    }),
+                    rtree,
+                    instant,
+                );
+            }
+            (Some(prev), None) => {
+                // Left mark - generate leave
+                self.dispatch_single_event(
+                    &SceneGraphEvent::MouseLeave(SceneMouseLeaveEvent {
+                        position,
+                        mark_instance: prev.clone(),
+                    }),
+                    rtree,
+                    instant,
+                );
+            }
+            (None, Some(curr)) => {
+                // Entered mark - generate enter
+                self.dispatch_single_event(
+                    &SceneGraphEvent::MouseEnter(SceneMouseEnterEvent {
+                        position,
+                        mark_instance: curr.clone(),
+                    }),
+                    rtree,
+                    instant,
+                );
+            }
+            _ => {}
+        }
+
+        // Update current mark
+        self.current_mark = current_mark;
+    }
+
+    fn check_double_click(
+        &mut self,
+        position: [f32; 2],
+        mark_instance: Option<MarkInstance>,
+        rtree: &SceneGraphRTree,
+        instant: Instant,
+    ) {
+        // Check for double click based only on time and distance
+        if let Some((last_time, last_pos)) = &self.last_click {
+            let time_diff = instant.duration_since(*last_time);
+            let distance =
+                ((position[0] - last_pos[0]).powi(2) + (position[1] - last_pos[1]).powi(2)).sqrt();
+
+            if time_diff <= self.double_click_threshold && distance <= self.double_click_distance {
+                // Double click detected - dispatch event
+                self.dispatch_single_event(
+                    &SceneGraphEvent::DoubleClick(SceneDoubleClickEvent {
+                        position,
+                        mark_instance,
+                    }),
+                    rtree,
+                    instant,
+                );
+                // Reset last click
+                self.last_click = None;
+                return;
+            }
+        }
+
+        // Store click for potential future double-click
+        self.last_click = Some((instant, position));
+    }
+}
+
+impl Default for EventManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}

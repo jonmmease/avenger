@@ -1,5 +1,5 @@
 use crate::marks::MarkGeometryUtils;
-use avenger_scenegraph::scene_graph::SceneGraph;
+use avenger_scenegraph::{marks::mark::MarkInstance, scene_graph::SceneGraph};
 use geo::{BoundingRect, Distance, Euclidean};
 use geo_svg::{Color, CombineToSVG};
 use geo_types::Geometry;
@@ -15,8 +15,7 @@ use rstar::{
 /// A geometry with an associated instance ID for storage in the R-tree
 #[derive(Debug, Clone)]
 pub struct GeometryInstance {
-    pub mark_path: Vec<usize>,
-    pub instance_index: Option<usize>,
+    pub mark_instance: MarkInstance,
     pub z_index: usize,
     pub geometry: Geometry<f32>,
     pub half_stroke_width: f32,
@@ -115,16 +114,20 @@ impl SceneGraphRTree {
     /// Returns a single top-most mark instance at a given point.
     ///
     /// If multiple marks or mark instances contain the given point, the top-most one is returned.
-    pub fn pick_top_mark_at_point(&self, point: &[f32; 2]) -> Option<&GeometryInstance> {
+    pub fn pick_top_mark_at_point(&self, point: &[f32; 2]) -> Option<&MarkInstance> {
         let mut candidate_instance: Option<&GeometryInstance> = None;
         for next_instance in self.rtree.locate_all_at_point(point) {
             if let Some(inner_candidate_instance) = candidate_instance {
-                if next_instance.mark_path == inner_candidate_instance.mark_path {
+                if next_instance.mark_instance.mark_path
+                    == inner_candidate_instance.mark_instance.mark_path
+                {
                     if next_instance.z_index > inner_candidate_instance.z_index {
                         // Same mark as current candidate, but higher z-index, so keep it.
                         candidate_instance = Some(next_instance);
                     }
-                } else if next_instance.mark_path > inner_candidate_instance.mark_path {
+                } else if next_instance.mark_instance.mark_path
+                    > inner_candidate_instance.mark_instance.mark_path
+                {
                     // Mark is above the current candidate's mark, so keep it.
                     candidate_instance = Some(next_instance);
                 }
@@ -132,7 +135,7 @@ impl SceneGraphRTree {
                 candidate_instance = Some(next_instance);
             }
         }
-        candidate_instance
+        candidate_instance.map(|g| &g.mark_instance)
     }
 
     /// Returns all elements contained in an envelope
