@@ -1,10 +1,10 @@
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::{CssColorOrGradient, StrokeDashSpec};
-
 use avenger_common::types::{AreaOrientation, ColorOrGradient, Gradient, StrokeCap, StrokeJoin};
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::area::SceneAreaMark;
+use std::sync::Arc;
 
 use avenger_scenegraph::marks::mark::SceneMark;
 use serde::{Deserialize, Serialize};
@@ -102,19 +102,19 @@ impl VegaMarkContainer<VegaAreaItem> {
         mark.len = len as u32;
 
         if x.len() == len {
-            mark.x0 = ScalarOrArray::Array(x);
+            mark.x0 = ScalarOrArray::Array(Arc::new(x));
         }
         if y.len() == len {
-            mark.y0 = ScalarOrArray::Array(y);
+            mark.y0 = ScalarOrArray::Array(Arc::new(y));
         }
         if x2.len() == len {
-            mark.x1 = ScalarOrArray::Array(x2);
+            mark.x1 = ScalarOrArray::Array(Arc::new(x2));
         }
         if y2.len() == len {
-            mark.y1 = ScalarOrArray::Array(y2);
+            mark.y1 = ScalarOrArray::Array(Arc::new(y2));
         }
         if defined.len() == len {
-            mark.defined = ScalarOrArray::Array(defined);
+            mark.defined = ScalarOrArray::Array(Arc::new(defined));
         }
         mark.gradients = gradients;
 

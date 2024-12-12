@@ -1,3 +1,4 @@
+use super::mark::SceneMark;
 use crate::error::AvengerSceneGraphError;
 use crate::marks::path::PathTransform;
 use avenger_common::types::{ColorOrGradient, Gradient};
@@ -10,8 +11,7 @@ use lyon_path::geom::{Angle, Box2D, Point, Scale};
 use lyon_path::{Path, Winding};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
-
-use super::mark::SceneMark;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -29,7 +29,7 @@ pub struct SceneSymbolMark {
     pub size: ScalarOrArray<f32>,
     pub stroke: ScalarOrArray<ColorOrGradient>,
     pub angle: ScalarOrArray<f32>,
-    pub indices: Option<Vec<usize>>,
+    pub indices: Option<Arc<Vec<usize>>>,
     pub zindex: Option<i32>,
 }
 
@@ -136,7 +136,7 @@ impl SceneSymbolMark {
     pub fn single_symbol_mark(&self, index: usize) -> SceneSymbolMark {
         let mut mark = self.clone();
         mark.len = 1;
-        mark.indices = Some(vec![index]);
+        mark.indices = Some(Arc::new(vec![index]));
         mark
     }
 }

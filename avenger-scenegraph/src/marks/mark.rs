@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::marks::arc::SceneArcMark;
 use crate::marks::area::SceneAreaMark;
 use crate::marks::group::SceneGroup;
@@ -21,8 +23,8 @@ pub enum SceneMark {
     Trail(SceneTrailMark),
     Rect(SceneRectMark),
     Rule(SceneRuleMark),
-    Text(Box<SceneTextMark>),
-    Image(Box<SceneImageMark>),
+    Text(Arc<SceneTextMark>),
+    Image(Arc<SceneImageMark>),
     Group(SceneGroup),
 }
 

@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies.serde]
 workspace = true
+features = [ "rc",]
 
 [dependencies.lyon_extra]
 workspace = true

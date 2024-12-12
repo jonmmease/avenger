@@ -7,6 +7,7 @@ use avenger_scenegraph::marks::text::SceneTextMark;
 use avenger_text::types::{FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
+use std::sync::Arc;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -148,46 +149,46 @@ impl VegaMarkContainer<VegaTextItem> {
 
         // Override values with vectors
         if x.len() == len {
-            mark.x = ScalarOrArray::Array(x);
+            mark.x = ScalarOrArray::Array(Arc::new(x));
         }
         if y.len() == len {
-            mark.y = ScalarOrArray::Array(y);
+            mark.y = ScalarOrArray::Array(Arc::new(y));
         }
         if text.len() == len {
-            mark.text = ScalarOrArray::Array(text);
+            mark.text = ScalarOrArray::Array(Arc::new(text));
         }
         if align.len() == len {
-            mark.align = ScalarOrArray::Array(align);
+            mark.align = ScalarOrArray::Array(Arc::new(align));
         }
         if baseline.len() == len {
-            mark.baseline = ScalarOrArray::Array(baseline);
+            mark.baseline = ScalarOrArray::Array(Arc::new(baseline));
         }
         if angle.len() == len {
-            mark.angle = ScalarOrArray::Array(angle);
+            mark.angle = ScalarOrArray::Array(Arc::new(angle));
         }
         if color.len() == len {
-            mark.color = ScalarOrArray::Array(color);
+            mark.color = ScalarOrArray::Array(Arc::new(color));
         }
         if font.len() == len {
-            mark.font = ScalarOrArray::Array(font);
+            mark.font = ScalarOrArray::Array(Arc::new(font));
         }
         if font_size.len() == len {
-            mark.font_size = ScalarOrArray::Array(font_size);
+            mark.font_size = ScalarOrArray::Array(Arc::new(font_size));
         }
         if font_weight.len() == len {
-            mark.font_weight = ScalarOrArray::Array(font_weight);
+            mark.font_weight = ScalarOrArray::Array(Arc::new(font_weight));
         }
         if font_style.len() == len {
-            mark.font_style = ScalarOrArray::Array(font_style);
+            mark.font_style = ScalarOrArray::Array(Arc::new(font_style));
         }
         if limit.len() == len {
-            mark.limit = ScalarOrArray::Array(limit);
+            mark.limit = ScalarOrArray::Array(Arc::new(limit));
         }
         if zindex.len() == len {
             let mut indices: Vec<usize> = (0..len).collect();
             indices.sort_by_key(|i| zindex[*i]);
-            mark.indices = Some(indices);
+            mark.indices = Some(Arc::new(indices));
         }
-        Ok(SceneMark::Text(Box::new(mark)))
+        Ok(SceneMark::Text(Arc::new(mark)))
     }
 }

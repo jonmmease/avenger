@@ -1,10 +1,10 @@
+use super::mark::SceneMark;
 use avenger_common::types::{ColorOrGradient, Gradient, StrokeCap};
 use avenger_common::value::ScalarOrArray;
 use itertools::izip;
 use lyon_path::{geom::Point, Path};
 use serde::{Deserialize, Serialize};
-
-use super::mark::SceneMark;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -21,7 +21,7 @@ pub struct SceneRuleMark {
     pub stroke: ScalarOrArray<ColorOrGradient>,
     pub stroke_width: ScalarOrArray<f32>,
     pub stroke_cap: ScalarOrArray<StrokeCap>,
-    pub indices: Option<Vec<usize>>,
+    pub indices: Option<Arc<Vec<usize>>>,
     pub zindex: Option<i32>,
 }
 

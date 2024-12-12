@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use avenger_common::types::{ImageAlign, ImageBaseline};
 use avenger_common::value::ScalarOrArray;
 use itertools::izip;
@@ -21,7 +23,7 @@ pub struct SceneImageMark {
     pub height: ScalarOrArray<f32>,
     pub align: ScalarOrArray<ImageAlign>,
     pub baseline: ScalarOrArray<ImageBaseline>,
-    pub indices: Option<Vec<usize>>,
+    pub indices: Option<Arc<Vec<usize>>>,
     pub zindex: Option<i32>,
 }
 
@@ -167,6 +169,6 @@ impl RgbaImage {
 
 impl From<SceneImageMark> for SceneMark {
     fn from(mark: SceneImageMark) -> Self {
-        SceneMark::Image(Box::new(mark))
+        SceneMark::Image(Arc::new(mark))
     }
 }

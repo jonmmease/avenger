@@ -4,6 +4,7 @@ use itertools::izip;
 use lyon_extra::euclid::Point2D;
 use lyon_path::{builder::BorderRadii, geom::Box2D, Path, Winding};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 use super::mark::SceneMark;
 
@@ -24,7 +25,7 @@ pub struct SceneRectMark {
     pub stroke: ScalarOrArray<ColorOrGradient>,
     pub stroke_width: ScalarOrArray<f32>,
     pub corner_radius: ScalarOrArray<f32>,
-    pub indices: Option<Vec<usize>>,
+    pub indices: Option<Arc<Vec<usize>>>,
     pub zindex: Option<i32>,
 }
 
