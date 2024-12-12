@@ -91,10 +91,7 @@ impl SceneGraphRTree {
         for (group_index, group) in scene_graph.groups.iter().enumerate() {
             let mark_path = vec![group_index];
             // Compute absolute origin for group
-            let origin = [
-                scene_graph.origin[0] + group.origin[0],
-                scene_graph.origin[1] + group.origin[1],
-            ];
+            let origin = [scene_graph.origin[0], scene_graph.origin[1]];
             geometry_instances.extend(group.geometry_iter(mark_path, origin));
         }
 

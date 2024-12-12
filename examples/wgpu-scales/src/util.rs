@@ -34,7 +34,9 @@ use winit::window::{WindowAttributes, WindowId};
 struct App<'a> {
     canvas: Option<WindowCanvas<'a>>,
     scene_graph: SceneGraph,
+    rtree: SceneGraphRTree,
     scale: f32,
+    last_hover_mark: Option<(Vec<usize>, Option<usize>)>,
 }
 
 impl<'a> ApplicationHandler for App<'a> {
@@ -103,6 +105,21 @@ impl<'a> ApplicationHandler for App<'a> {
                 } => {
                     self.canvas.take();
                     _event_loop.exit();
+                }
+                WindowEvent::CursorMoved { position, .. } => {
+                    let point = [
+                        position.x as f32 / self.scale,
+                        position.y as f32 / self.scale,
+                    ];
+                    let top_mark = self
+                        .rtree
+                        .pick_top_mark_at_point(&point)
+                        .map(|m| (m.mark_path.clone(), m.instance_index));
+
+                    if top_mark != self.last_hover_mark {
+                        println!("hover: {:?}", top_mark);
+                    }
+                    self.last_hover_mark = top_mark;
                 }
                 WindowEvent::Resized(physical_size) => {
                     canvas.resize(physical_size);
@@ -340,7 +357,9 @@ pub async fn run() {
     let mut app = App {
         canvas: None,
         scene_graph,
+        rtree,
         scale,
+        last_hover_mark: None,
     };
 
     event_loop

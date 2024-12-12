@@ -14,7 +14,7 @@ use avenger_scenegraph::marks::text::SceneTextMark;
 use avenger_scenegraph::marks::trail::SceneTrailMark;
 use avenger_text::rasterization::TextRasterizer;
 use avenger_text::rasterization::{default_rasterizer, TextRasterizationConfig};
-use geo::{BooleanOps, Rotate, Scale, Translate};
+use geo::{BooleanOps, BoundingRect, Rotate, Scale, Translate};
 use geo_types::{coord, Geometry, Rect};
 use itertools::izip;
 use lyon_algorithms::aabb::bounding_box;
@@ -174,14 +174,16 @@ impl MarkGeometryUtils for SceneRectMark {
                 .enumerate()
                 .map(move |(z_index, (id, x, y, x2, y2, stroke_width))| {
                     // Create rect geometry
-                    let x0 = f32::min(*x, x2);
-                    let x1 = f32::max(*x, x2);
-                    let y0 = f32::min(*y, y2);
-                    let y1 = f32::max(*y, y2);
+                    let x0 = f32::min(*x, x2) + origin[0];
+                    let x1 = f32::max(*x, x2) + origin[0];
+                    let y0 = f32::min(*y, y2) + origin[1];
+                    let y1 = f32::max(*y, y2) + origin[1];
+
+                    println!("Rect: {:?}", ((x0, x1), (y0, y1)));
 
                     let geometry = Geometry::Rect(Rect::<f32>::new(
-                        coord!(x: x0 + origin[0], y: y0 + origin[1]),
-                        coord!(x: x1 + origin[0], y: y1 + origin[1]),
+                        coord!(x: x0, y: y0),
+                        coord!(x: x1, y: y1),
                     ));
                     GeometryInstance {
                         mark_path: mark_path.clone(),
@@ -377,40 +379,48 @@ impl MarkGeometryUtils for SceneTextMark {
                     let geometry = if has_any_path_data {
                         for (glyph_data, phys_pos) in text_buffer.glyphs {
                             let glyph_bbox_poly = if let Some(path) = &glyph_data.path {
-                                match path.as_geo_type(0.0, true) {
+                                let glyph_bbox = match path.as_geo_type(0.0, true) {
                                     geo::Geometry::Polygon(poly) => geo::MultiPolygon::new(vec![poly]),
                                     geo::Geometry::MultiPolygon(mpoly) => mpoly,
                                     g => panic!("Expected polygon or multipolygon: {:?}", g),
-                                }
+                                };
+                                // Use bounding rect around the glyph, expanded by a pixel in all directions
+                                let mut glyph_bbox = glyph_bbox.bounding_rect().unwrap();
+                                glyph_bbox.set_max(coord!(x: glyph_bbox.max().x + 1.0, y: glyph_bbox.max().y + 1.0));
+                                glyph_bbox.set_min(coord!(x: glyph_bbox.min().x - 1.0, y: glyph_bbox.min().y - 1.0));
+
+                                geo::MultiPolygon::new(vec![
+                                    glyph_bbox.to_polygon(),
+                                ])
                             } else {
                                 let glyph_bbox = glyph_data.bbox;
                                 geo::MultiPolygon::new(vec![geo::Polygon::new(
-                                    geo::LineString::new(vec![
-                                        geo::Coord {
-                                            x: glyph_bbox.left as f32,
-                                            y: -glyph_bbox.top as f32,
-                                        },
-                                        geo::Coord {
-                                            x: glyph_bbox.left as f32 + glyph_bbox.width as f32,
-                                            y: -glyph_bbox.top as f32,
-                                        },
-                                        geo::Coord {
-                                            x: glyph_bbox.left as f32 + glyph_bbox.width as f32,
-                                            y: -glyph_bbox.top as f32 + glyph_bbox.height as f32,
-                                        },
-                                        geo::Coord {
-                                            x: glyph_bbox.left as f32,
-                                            y: -glyph_bbox.top as f32 + glyph_bbox.height as f32,
-                                        },
-                                        geo::Coord {
-                                            x: glyph_bbox.left as f32,
-                                            y: -glyph_bbox.top as f32,
-                                        },
-                                    ]),
-                                    vec![],
-                                )])
-                            }
-                            .translate(
+                                        geo::LineString::new(vec![
+                                            geo::Coord {
+                                                x: glyph_bbox.left as f32 - 1.0,
+                                                y: -glyph_bbox.top as f32 - 1.0,
+                                            },
+                                            geo::Coord {
+                                                x: glyph_bbox.left as f32 + glyph_bbox.width as f32 + 1.0,
+                                                y: -glyph_bbox.top as f32 - 1.0,
+                                            },
+                                            geo::Coord {
+                                                x: glyph_bbox.left as f32 + glyph_bbox.width as f32 + 1.0,
+                                                y: -glyph_bbox.top as f32 + glyph_bbox.height as f32 + 1.0,
+                                            },
+                                            geo::Coord {
+                                                x: glyph_bbox.left as f32 - 1.0,
+                                                y: -glyph_bbox.top as f32 + glyph_bbox.height as f32 + 1.0,
+                                            },
+                                            geo::Coord {
+                                                x: glyph_bbox.left as f32 - 1.0,
+                                                y: -glyph_bbox.top as f32 - 1.0,
+                                            },
+                                        ]),
+                                        vec![],
+                                    )])
+                            }                               
+                             .translate(
                                 phys_pos.x + local_origin[0],
                                 phys_pos.y + local_origin[1] + text_buffer.text_bounds.height,
                             );
@@ -434,7 +444,7 @@ impl MarkGeometryUtils for SceneTextMark {
                         instance_index: Some(id),
                         z_index,
                         geometry,
-                        half_stroke_width: 0.0,
+                        half_stroke_width: 1.0,
                     }
                 },
             ),
