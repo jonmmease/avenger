@@ -1,8 +1,7 @@
 use crate::marks::MarkGeometryUtils;
-use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::{marks::group::SceneGroup, scene_graph::SceneGraph};
-use geo::{coord, BoundingRect, Distance, Euclidean, Rect};
-use geo_svg::{Color, CombineToSVG, ToSvg};
+use avenger_scenegraph::scene_graph::SceneGraph;
+use geo::{BoundingRect, Distance, Euclidean};
+use geo_svg::{Color, CombineToSVG};
 use geo_types::Geometry;
 use rstar::{
     iterators::{

@@ -4,7 +4,6 @@ use avenger_scales::{
     numeric::ContinuousNumericScale,
 };
 use avenger_scenegraph::marks::{group::SceneGroup, rect::SceneRectMark};
-use geo::dimensions;
 
 use crate::axis::{
     numeric::make_numeric_axis_marks,
