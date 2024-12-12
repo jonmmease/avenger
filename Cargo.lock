@@ -4057,6 +4057,7 @@ name = "iris"
 version = "0.1.0"
 dependencies = [
  "avenger-common",
+ "avenger-eventstream",
  "avenger-geometry",
  "avenger-guides",
  "avenger-scales",
