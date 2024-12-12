@@ -16,7 +16,7 @@ use avenger_scales::numeric::pow::{PowNumericScale, PowNumericScaleConfig};
 use avenger_scales::numeric::symlog::{SymlogNumericScale, SymlogNumericScaleConfig};
 use avenger_scales::numeric::ContinuousNumericScale;
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
-use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_scenegraph::marks::mark::{MarkInstance, SceneMark};
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::marks::symbol::SymbolShape;
 use avenger_scenegraph::scene_graph::SceneGraph;
@@ -37,7 +37,7 @@ struct App<'a> {
     scene_graph: SceneGraph,
     rtree: SceneGraphRTree,
     scale: f32,
-    last_hover_mark: Option<(Vec<usize>, Option<usize>)>,
+    last_hover_mark: Option<MarkInstance>,
 }
 
 impl<'a> ApplicationHandler for App<'a> {
@@ -112,10 +112,8 @@ impl<'a> ApplicationHandler for App<'a> {
                         position.x as f32 / self.scale,
                         position.y as f32 / self.scale,
                     ];
-                    let top_mark = self
-                        .rtree
-                        .pick_top_mark_at_point(&point)
-                        .map(|m| (m.mark_path.clone(), m.instance_index));
+                    let top_mark: Option<MarkInstance> =
+                        self.rtree.pick_top_mark_at_point(&point).cloned();
 
                     if top_mark != self.last_hover_mark {
                         println!("hover: {:?}", top_mark);
