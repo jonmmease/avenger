@@ -1,5 +1,6 @@
 use avenger_common::canvas::CanvasDimensions;
 use avenger_common::types::ColorOrGradient;
+use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::axis::band::make_band_axis_marks;
 use avenger_guides::axis::numeric::make_numeric_axis_marks;
 use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
@@ -14,7 +15,6 @@ use avenger_scales::numeric::symlog::{SymlogNumericScale, SymlogNumericScaleConf
 use avenger_scales::numeric::ContinuousNumericScale;
 use avenger_scales::ordinal::OrdinalScale;
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
-use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::marks::symbol::{SceneSymbolMark, SymbolShape};
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, WindowCanvas};
@@ -36,6 +36,8 @@ struct App<'a> {
     canvas: Option<WindowCanvas<'a>>,
     scene_graph: SceneGraph,
     scale: f32,
+    rtree: SceneGraphRTree,
+    last_hover_mark: Option<(Vec<usize>, Option<usize>)>,
 }
 
 impl<'a> ApplicationHandler for App<'a> {
@@ -107,6 +109,21 @@ impl<'a> ApplicationHandler for App<'a> {
                 }
                 WindowEvent::Resized(physical_size) => {
                     canvas.resize(physical_size);
+                }
+                WindowEvent::CursorMoved { position, .. } => {
+                    let point = [
+                        position.x as f32 / self.scale,
+                        position.y as f32 / self.scale,
+                    ];
+                    let top_mark = self
+                        .rtree
+                        .pick_top_mark_at_point(&point)
+                        .map(|m| (m.mark_path.clone(), m.instance_index));
+
+                    if top_mark != self.last_hover_mark {
+                        println!("hover: {:?}", top_mark);
+                    }
+                    self.last_hover_mark = top_mark;
                 }
                 WindowEvent::RedrawRequested => {
                     canvas.update();
@@ -183,12 +200,18 @@ pub async fn run() {
         sepal_width,
         species,
     );
+    let rtree = SceneGraphRTree::from_scene_graph(&scene_graph);
+    let svg = rtree.to_svg();
+    std::fs::write("geometry.svg", svg).expect("Failed to write SVG file");
+
     let scale = 2.0;
     let event_loop = EventLoop::new().expect("Failed to build event loop");
     let mut app = App {
         canvas: None,
         scene_graph,
+        rtree,
         scale,
+        last_hover_mark: None,
     };
 
     event_loop

@@ -126,3 +126,13 @@ mod tests {
         assert_eq!(origin, [10.0, 15.0]);
     }
 }
+
+#[cfg(feature = "cosmic-text")]
+pub fn default_text_measurer() -> impl TextMeasurer {
+    return crate::measurement::cosmic::CosmicTextMeasurer::new();
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn default_text_measurer() -> impl TextMeasurer {
+    return crate::measurement::html_canvas::HtmlCanvasTextMeasurer::new();
+}

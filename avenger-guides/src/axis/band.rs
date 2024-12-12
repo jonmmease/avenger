@@ -1,5 +1,5 @@
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
-use avenger_geometry::{marks::MarkGeometryUtils, rtree::SceneGraphRTree};
+use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_scales::band::BandScale;
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
 
