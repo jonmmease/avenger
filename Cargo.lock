@@ -375,6 +375,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-eventstream"
+version = "0.1.0"
+dependencies = [
+ "avenger-geometry",
+ "avenger-scenegraph",
+ "winit",
+]
+
+[[package]]
 name = "avenger-geometry"
 version = "0.0.8"
 dependencies = [

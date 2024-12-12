@@ -11,6 +11,7 @@ members = [
     "avenger-common",
     "avenger-geometry",
     "avenger-text",
+    "avenger-eventstream",
     "examples/wgpu-scales",
     "examples/scatter-panning",
     "examples/wgpu-winit",

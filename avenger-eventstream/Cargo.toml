@@ -1,0 +1,14 @@
+[package]
+name = "avenger-eventstream"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["winit_support"]
+winit_support = ["dep:winit"]
+
+[dependencies]
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-geometry = { path = "../avenger-geometry" }
+winit = { workspace = true, optional = true }
+
