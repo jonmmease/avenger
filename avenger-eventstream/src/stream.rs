@@ -228,7 +228,7 @@ impl EventStream {
     }
 }
 
-pub struct EventManager {
+pub struct EventStreamManager {
     streams: Vec<EventStream>,
     // Track currently hovered mark for mouseover/out events
     current_mark: Option<MarkInstance>,
@@ -242,7 +242,7 @@ pub struct EventManager {
     current_cursor_position: Option<[f32; 2]>,
 }
 
-impl EventManager {
+impl EventStreamManager {
     pub fn new() -> Self {
         Self {
             streams: Vec::new(),
@@ -339,7 +339,7 @@ impl EventManager {
 
         // Dispatch the converted event if any
         if let Some(scene_event) = scene_event {
-            self.dispatch_single_event(&scene_event, rtree, instant);
+            self.dispatch_single_event(&scene_event, rtree, instant, None);
         }
     }
 
@@ -348,8 +348,9 @@ impl EventManager {
         event: &SceneGraphEvent,
         rtree: &SceneGraphRTree,
         instant: Instant,
+        mark_instance: Option<MarkInstance>,
     ) {
-        let mark_instance = self.get_mark_path_for_event(event, rtree);
+        let mark_instance = mark_instance.or_else(|| self.get_mark_path_for_event(event, rtree));
 
         for stream in &mut self.streams {
             if stream.matches_and_update(event, mark_instance.as_ref()) {
@@ -405,6 +406,7 @@ impl EventManager {
         match (&self.current_mark, &current_mark) {
             (Some(prev), Some(curr)) if prev != curr => {
                 // Mark changed - generate leave then enter
+                // Use the previous mark instance for leave event
                 self.dispatch_single_event(
                     &SceneGraphEvent::MouseLeave(SceneMouseLeaveEvent {
                         position,
@@ -412,7 +414,9 @@ impl EventManager {
                     }),
                     rtree,
                     instant,
+                    Some(prev.clone()),
                 );
+                // Use the current mark instance for enter event
                 self.dispatch_single_event(
                     &SceneGraphEvent::MouseEnter(SceneMouseEnterEvent {
                         position,
@@ -420,6 +424,7 @@ impl EventManager {
                     }),
                     rtree,
                     instant,
+                    Some(curr.clone()),
                 );
             }
             (Some(prev), None) => {
@@ -431,6 +436,7 @@ impl EventManager {
                     }),
                     rtree,
                     instant,
+                    Some(prev.clone()),
                 );
             }
             (None, Some(curr)) => {
@@ -442,6 +448,7 @@ impl EventManager {
                     }),
                     rtree,
                     instant,
+                    Some(curr.clone()),
                 );
             }
             _ => {}
@@ -469,10 +476,11 @@ impl EventManager {
                 self.dispatch_single_event(
                     &SceneGraphEvent::DoubleClick(SceneDoubleClickEvent {
                         position,
-                        mark_instance,
+                        mark_instance: mark_instance,
                     }),
                     rtree,
                     instant,
+                    None,
                 );
                 // Reset last click
                 self.last_click = None;
@@ -485,7 +493,7 @@ impl EventManager {
     }
 }
 
-impl Default for EventManager {
+impl Default for EventStreamManager {
     fn default() -> Self {
         Self::new()
     }

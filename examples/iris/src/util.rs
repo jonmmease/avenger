@@ -1,5 +1,8 @@
 use avenger_common::canvas::CanvasDimensions;
 use avenger_common::types::ColorOrGradient;
+use avenger_eventstream::stream::{EventStreamConfig, EventStreamManager};
+use avenger_eventstream::window::WindowEvent as AvengerWindowEvent;
+use avenger_eventstream::SceneGraphEventType;
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::axis::band::make_band_axis_marks;
 use avenger_guides::axis::numeric::make_numeric_axis_marks;
@@ -24,6 +27,7 @@ use avenger_wgpu::error::AvengerWgpuError;
 use csv::Reader;
 use std::fs::File;
 use std::io::BufReader;
+use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 use winit::application::ApplicationHandler;
@@ -38,7 +42,7 @@ struct App<'a> {
     scene_graph: SceneGraph,
     scale: f32,
     rtree: SceneGraphRTree,
-    last_hover_mark: Option<(Vec<usize>, Option<usize>)>,
+    event_stream_manager: EventStreamManager,
 }
 
 impl<'a> ApplicationHandler for App<'a> {
@@ -111,21 +115,6 @@ impl<'a> ApplicationHandler for App<'a> {
                 WindowEvent::Resized(physical_size) => {
                     canvas.resize(physical_size);
                 }
-                WindowEvent::CursorMoved { position, .. } => {
-                    let point = [
-                        position.x as f32 / self.scale,
-                        position.y as f32 / self.scale,
-                    ];
-                    let top_mark = self
-                        .rtree
-                        .pick_top_mark_at_point(&point)
-                        .map(|m| (m.mark_path.clone(), m.instance_index));
-
-                    if top_mark != self.last_hover_mark {
-                        println!("hover: {:?}", top_mark);
-                    }
-                    self.last_hover_mark = top_mark;
-                }
                 WindowEvent::RedrawRequested => {
                     canvas.update();
 
@@ -147,7 +136,15 @@ impl<'a> ApplicationHandler for App<'a> {
                         }
                     }
                 }
-                _ => {}
+                event => {
+                    if let Some(event) = AvengerWindowEvent::from_winit_event(event, self.scale) {
+                        self.event_stream_manager.dispatch_event(
+                            &event,
+                            &self.rtree,
+                            Instant::now(),
+                        );
+                    }
+                }
             }
         }
     }
@@ -206,13 +203,47 @@ pub async fn run() {
     std::fs::write("geometry.svg", svg).expect("Failed to write SVG file");
 
     let scale = 2.0;
+
+    // Build event stream manager and register handlers
+    let mut event_stream_manager = EventStreamManager::new();
+    event_stream_manager.register_handler(
+        EventStreamConfig {
+            types: vec![SceneGraphEventType::MarkMouseEnter],
+            mark_paths: Some(vec![vec![0, 2, 0]]),
+            ..Default::default()
+        },
+        |event| {
+            println!("cursor entered: {:?}", event.mark_instance().unwrap());
+        },
+    );
+    event_stream_manager.register_handler(
+        EventStreamConfig {
+            types: vec![SceneGraphEventType::MarkMouseLeave],
+            mark_paths: Some(vec![vec![0, 2, 0]]),
+            ..Default::default()
+        },
+        |event| {
+            println!("cursor left: {:?}", event.mark_instance().unwrap());
+        },
+    );
+    event_stream_manager.register_handler(
+        EventStreamConfig {
+            types: vec![SceneGraphEventType::DoubleClick],
+            mark_paths: Some(vec![vec![0, 2, 0]]),
+            ..Default::default()
+        },
+        |event| {
+            println!("double clicked: {:?}", event.mark_instance());
+        },
+    );
+
     let event_loop = EventLoop::new().expect("Failed to build event loop");
     let mut app = App {
         canvas: None,
         scene_graph,
         rtree,
         scale,
-        last_hover_mark: None,
+        event_stream_manager,
     };
 
     event_loop
