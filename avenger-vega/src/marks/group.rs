@@ -38,18 +38,16 @@ pub struct VegaGroupItem {
 impl VegaMarkItem for VegaGroupItem {}
 
 impl VegaMarkContainer<VegaGroupItem> {
-    pub fn to_scene_graph(&self, force_clip: bool) -> Result<Vec<SceneGroup>, AvengerVegaError> {
-        let mut groups: Vec<SceneGroup> = Vec::new();
+    pub fn to_scene_graph(&self, force_clip: bool) -> Result<Vec<SceneMark>, AvengerVegaError> {
+        let mut groups: Vec<SceneMark> = Vec::new();
         for group_item in &self.items {
             let should_clip = group_item.clip.unwrap_or(false) || force_clip;
             let mut marks: Vec<SceneMark> = Vec::new();
             for item in &group_item.items {
                 let item_marks: Vec<SceneMark> = match item {
-                    VegaMark::Group(mark) => mark
-                        .to_scene_graph(should_clip)?
-                        .into_iter()
-                        .map(SceneMark::Group)
-                        .collect(),
+                    VegaMark::Group(mark) => {
+                        mark.to_scene_graph(should_clip)?.into_iter().collect()
+                    }
                     VegaMark::Rect(mark) => {
                         vec![mark.to_scene_graph(should_clip)?]
                     }
@@ -147,7 +145,7 @@ impl VegaMarkContainer<VegaGroupItem> {
                 Clip::None
             };
 
-            groups.push(SceneGroup {
+            groups.push(SceneMark::Group(SceneGroup {
                 name: self.name.clone().unwrap_or("group_mark".to_string()),
                 zindex: self.zindex,
                 origin: [group_item.x.unwrap_or(0.0), group_item.y.unwrap_or(0.0)],
@@ -158,7 +156,7 @@ impl VegaMarkContainer<VegaGroupItem> {
                 stroke,
                 stroke_width: group_item.stroke_width,
                 stroke_offset: group_item.stroke_offset,
-            })
+            }));
         }
         Ok(groups)
     }

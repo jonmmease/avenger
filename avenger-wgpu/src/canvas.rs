@@ -276,16 +276,13 @@ pub trait Canvas {
         self.clear_mark_renderer();
 
         // Sort groups by zindex
-        let zindex = scene_graph
-            .groups
-            .iter()
-            .map(|g| g.zindex)
-            .collect::<Vec<_>>();
+        let groups = scene_graph.groups();
+        let zindex = groups.iter().map(|g| (*g).zindex).collect::<Vec<_>>();
         let mut indices: Vec<usize> = (0..zindex.len()).collect();
         indices.sort_by_key(|i| zindex[*i].unwrap_or(0));
 
         for group_ind in &indices {
-            let group = &scene_graph.groups[*group_ind];
+            let group = groups[*group_ind];
             self.add_group_mark(group, scene_graph.origin, &Clip::None)?;
         }
 

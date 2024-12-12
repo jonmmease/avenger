@@ -16,6 +16,7 @@ use avenger_scales::numeric::pow::{PowNumericScale, PowNumericScaleConfig};
 use avenger_scales::numeric::symlog::{SymlogNumericScale, SymlogNumericScaleConfig};
 use avenger_scales::numeric::ContinuousNumericScale;
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
+use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::marks::symbol::SymbolShape;
 use avenger_scenegraph::scene_graph::SceneGraph;
@@ -342,7 +343,7 @@ pub async fn run() {
     };
 
     let scene_graph = SceneGraph {
-        groups: vec![group],
+        marks: vec![SceneMark::Group(group)],
         width: 340.0,
         height: 300.0,
         origin: [0.0; 2],
