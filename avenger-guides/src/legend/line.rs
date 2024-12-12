@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{error::AvengerGuidesError, legend::compute_encoding_length};
 use avenger_common::types::StrokeCap;
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
@@ -160,7 +162,7 @@ fn make_line_group(
         origin: [config.inner_width + config.outer_margin, y],
         marks: vec![
             SceneMark::Line(single_line_mark),
-            SceneMark::Text(Box::new(text_mark)),
+            SceneMark::Text(Arc::new(text_mark)),
         ],
         ..Default::default()
     };

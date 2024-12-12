@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::mark::SceneMark;
 use avenger_common::value::ScalarOrArray;
 use avenger_text::types::{
@@ -23,7 +25,7 @@ pub struct SceneTextMark {
     pub font_weight: ScalarOrArray<FontWeightSpec>,
     pub font_style: ScalarOrArray<FontStyleSpec>,
     pub limit: ScalarOrArray<f32>,
-    pub indices: Option<Vec<usize>>,
+    pub indices: Option<Arc<Vec<usize>>>,
     pub zindex: Option<i32>,
 }
 
@@ -104,6 +106,6 @@ impl Default for SceneTextMark {
 
 impl From<SceneTextMark> for SceneMark {
     fn from(mark: SceneTextMark) -> Self {
-        SceneMark::Text(Box::new(mark))
+        SceneMark::Text(Arc::new(mark))
     }
 }

@@ -1,3 +1,4 @@
+use super::mark::SceneMark;
 use avenger_common::types::{ColorOrGradient, Gradient, StrokeCap, StrokeJoin};
 use avenger_common::value::ScalarOrArray;
 use itertools::izip;
@@ -7,8 +8,7 @@ use lyon_path::{
     Path,
 };
 use serde::{Deserialize, Serialize};
-
-use super::mark::SceneMark;
+use std::sync::Arc;
 
 pub type PathTransform = Transform2D<f32, UnknownUnit, UnknownUnit>;
 
@@ -26,7 +26,7 @@ pub struct ScenePathMark {
     pub fill: ScalarOrArray<ColorOrGradient>,
     pub stroke: ScalarOrArray<ColorOrGradient>,
     pub transform: ScalarOrArray<PathTransform>,
-    pub indices: Option<Vec<usize>>,
+    pub indices: Option<Arc<Vec<usize>>>,
     pub zindex: Option<i32>,
 }
 

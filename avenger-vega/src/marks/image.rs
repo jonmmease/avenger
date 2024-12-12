@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 
@@ -90,24 +92,24 @@ impl VegaMarkContainer<VegaImageItem> {
         let indices = if zindex.len() == len {
             let mut indices: Vec<usize> = (0..len).collect();
             indices.sort_by_key(|i| zindex[*i]);
-            Some(indices)
+            Some(Arc::new(indices))
         } else {
             None
         };
 
-        Ok(SceneMark::Image(Box::new(SceneImageMark {
+        Ok(SceneMark::Image(Arc::new(SceneImageMark {
             name,
             clip: self.clip || force_clip,
             len: self.items.len() as u32,
             aspect,
             smooth,
-            align: ScalarOrArray::Array(align),
-            baseline: ScalarOrArray::Array(baseline),
-            image: ScalarOrArray::Array(images),
-            x: ScalarOrArray::Array(x),
-            y: ScalarOrArray::Array(y),
-            width: ScalarOrArray::Array(width),
-            height: ScalarOrArray::Array(height),
+            align: ScalarOrArray::Array(Arc::new(align)),
+            baseline: ScalarOrArray::Array(Arc::new(baseline)),
+            image: ScalarOrArray::Array(Arc::new(images)),
+            x: ScalarOrArray::Array(Arc::new(x)),
+            y: ScalarOrArray::Array(Arc::new(y)),
+            width: ScalarOrArray::Array(Arc::new(width)),
+            height: ScalarOrArray::Array(Arc::new(height)),
             indices,
             zindex: self.zindex,
         })))

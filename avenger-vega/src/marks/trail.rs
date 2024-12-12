@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::CssColorOrGradient;
@@ -67,16 +69,16 @@ impl VegaMarkContainer<VegaTrailItem> {
         mark.len = len as u32;
 
         if x.len() == len {
-            mark.x = ScalarOrArray::Array(x);
+            mark.x = ScalarOrArray::Array(Arc::new(x));
         }
         if y.len() == len {
-            mark.y = ScalarOrArray::Array(y);
+            mark.y = ScalarOrArray::Array(Arc::new(y));
         }
         if size.len() == len {
-            mark.size = ScalarOrArray::Array(size);
+            mark.size = ScalarOrArray::Array(Arc::new(size));
         }
         if defined.len() == len {
-            mark.defined = ScalarOrArray::Array(defined);
+            mark.defined = ScalarOrArray::Array(Arc::new(defined));
         }
 
         Ok(SceneMark::Trail(mark))

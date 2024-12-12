@@ -11,6 +11,7 @@ use lyon_extra::euclid::Vector2D;
 use lyon_path::geom::Angle;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::sync::Arc;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -111,20 +112,20 @@ impl VegaMarkContainer<VegaPathItem> {
         let len = self.items.len();
         mark.len = len as u32;
         if fill.len() == len {
-            mark.fill = ScalarOrArray::Array(fill);
+            mark.fill = ScalarOrArray::Array(Arc::new(fill));
         }
         if stroke.len() == len {
-            mark.stroke = ScalarOrArray::Array(stroke);
+            mark.stroke = ScalarOrArray::Array(Arc::new(stroke));
         }
         if transform.len() == len {
-            mark.transform = ScalarOrArray::Array(transform);
+            mark.transform = ScalarOrArray::Array(Arc::new(transform));
         } else {
             mark.transform = ScalarOrArray::Scalar(PathTransform::identity());
         }
         if zindex.len() == len {
             let mut indices: Vec<usize> = (0..len).collect();
             indices.sort_by_key(|i| zindex[*i]);
-            mark.indices = Some(indices);
+            mark.indices = Some(Arc::new(indices));
         }
 
         // Handle path shape
@@ -140,7 +141,7 @@ impl VegaMarkContainer<VegaPathItem> {
                 .map(|p| parse_svg_path(p))
                 .collect::<Result<Vec<_>, AvengerSceneGraphError>>()?;
 
-            mark.path = ScalarOrArray::Array(paths);
+            mark.path = ScalarOrArray::Array(Arc::new(paths));
         }
 
         // Add gradients

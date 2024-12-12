@@ -6,6 +6,7 @@ use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -86,33 +87,33 @@ impl VegaMarkContainer<VegaRectItem> {
         mark.len = len as u32;
 
         if x.len() == len {
-            mark.x = ScalarOrArray::Array(x);
+            mark.x = ScalarOrArray::Array(Arc::new(x));
         }
         if y.len() == len {
-            mark.y = ScalarOrArray::Array(y);
+            mark.y = ScalarOrArray::Array(Arc::new(y));
         }
         if width.len() == len {
-            mark.width = Some(ScalarOrArray::Array(width));
+            mark.width = Some(ScalarOrArray::Array(Arc::new(width)));
         }
         if height.len() == len {
-            mark.height = Some(ScalarOrArray::Array(height));
+            mark.height = Some(ScalarOrArray::Array(Arc::new(height)));
         }
         if fill.len() == len {
-            mark.fill = ScalarOrArray::Array(fill);
+            mark.fill = ScalarOrArray::Array(Arc::new(fill));
         }
         if stroke.len() == len {
-            mark.stroke = ScalarOrArray::Array(stroke);
+            mark.stroke = ScalarOrArray::Array(Arc::new(stroke));
         }
         if stroke_width.len() == len {
-            mark.stroke_width = ScalarOrArray::Array(stroke_width);
+            mark.stroke_width = ScalarOrArray::Array(Arc::new(stroke_width));
         }
         if corner_radius.len() == len {
-            mark.corner_radius = ScalarOrArray::Array(corner_radius);
+            mark.corner_radius = ScalarOrArray::Array(Arc::new(corner_radius));
         }
         if zindex.len() == len {
             let mut indices: Vec<usize> = (0..len).collect();
             indices.sort_by_key(|i| zindex[*i]);
-            mark.indices = Some(indices);
+            mark.indices = Some(Arc::new(indices));
         }
 
         // Add gradients

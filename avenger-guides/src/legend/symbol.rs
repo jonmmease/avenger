@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scenegraph::marks::{
@@ -71,7 +73,7 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
         len: len as u32,
         // Handle shapes and shape_index
         shapes: config.shape.as_vec(len, None),
-        shape_index: ScalarOrArray::Array((0..len).collect()),
+        shape_index: ScalarOrArray::Array(Arc::new((0..len).collect())),
 
         // Direct clone from config
         size: config.size.clone(),
@@ -162,7 +164,7 @@ fn make_symbol_group(
                 ..Default::default()
             }),
             SceneMark::Symbol(single_symbol_mark),
-            SceneMark::Text(Box::new(text_mark)),
+            SceneMark::Text(Arc::new(text_mark)),
         ],
 
         stroke_width: Some(1.0),

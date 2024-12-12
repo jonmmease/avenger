@@ -6,6 +6,7 @@ use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rule::SceneRuleMark;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -91,33 +92,33 @@ impl VegaMarkContainer<VegaRuleItem> {
         mark.len = len as u32;
 
         if x0.len() == len {
-            mark.x0 = ScalarOrArray::Array(x0);
+            mark.x0 = ScalarOrArray::Array(Arc::new(x0));
         }
         if y0.len() == len {
-            mark.y0 = ScalarOrArray::Array(y0);
+            mark.y0 = ScalarOrArray::Array(Arc::new(y0));
         }
         if x1.len() == len {
-            mark.x1 = ScalarOrArray::Array(x1);
+            mark.x1 = ScalarOrArray::Array(Arc::new(x1));
         }
         if y1.len() == len {
-            mark.y1 = ScalarOrArray::Array(y1);
+            mark.y1 = ScalarOrArray::Array(Arc::new(y1));
         }
         if stroke.len() == len {
-            mark.stroke = ScalarOrArray::Array(stroke);
+            mark.stroke = ScalarOrArray::Array(Arc::new(stroke));
         }
         if stroke_width.len() == len {
-            mark.stroke_width = ScalarOrArray::Array(stroke_width);
+            mark.stroke_width = ScalarOrArray::Array(Arc::new(stroke_width));
         }
         if stroke_cap.len() == len {
-            mark.stroke_cap = ScalarOrArray::Array(stroke_cap);
+            mark.stroke_cap = ScalarOrArray::Array(Arc::new(stroke_cap));
         }
         if stroke_dash.len() == len {
-            mark.stroke_dash = Some(ScalarOrArray::Array(stroke_dash));
+            mark.stroke_dash = Some(ScalarOrArray::Array(Arc::new(stroke_dash)));
         }
         if zindex.len() == len {
             let mut indices: Vec<usize> = (0..len).collect();
             indices.sort_by_key(|i| zindex[*i]);
-            mark.indices = Some(indices);
+            mark.indices = Some(Arc::new(indices));
         }
 
         // Add gradients

@@ -1,5 +1,3 @@
-use std::ops::{Mul, Neg};
-
 use avenger_common::types::{ColorOrGradient, Gradient};
 use avenger_common::value::ScalarOrArray;
 use itertools::izip;
@@ -9,6 +7,8 @@ use lyon_path::{
     Path,
 };
 use serde::{Deserialize, Serialize};
+use std::ops::{Mul, Neg};
+use std::sync::Arc;
 
 use super::{mark::SceneMark, path::PathTransform};
 
@@ -30,7 +30,7 @@ pub struct SceneArcMark {
     pub fill: ScalarOrArray<ColorOrGradient>,
     pub stroke: ScalarOrArray<ColorOrGradient>,
     pub stroke_width: ScalarOrArray<f32>,
-    pub indices: Option<Vec<usize>>,
+    pub indices: Option<Arc<Vec<usize>>>,
     pub zindex: Option<i32>,
 }
 
