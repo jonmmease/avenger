@@ -42,4 +42,11 @@ impl SceneMark {
             Self::Group(mark) => mark.zindex,
         }
     }
+
+    pub fn children(&self) -> &[SceneMark] {
+        match self {
+            Self::Group(mark) => &mark.marks,
+            _ => &[],
+        }
+    }
 }

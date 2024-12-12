@@ -15,6 +15,7 @@ use avenger_scales::numeric::symlog::{SymlogNumericScale, SymlogNumericScaleConf
 use avenger_scales::numeric::ContinuousNumericScale;
 use avenger_scales::ordinal::OrdinalScale;
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
+use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::symbol::{SceneSymbolMark, SymbolShape};
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, WindowCanvas};
@@ -319,7 +320,7 @@ fn make_scene_graph(
     .unwrap();
 
     // Wrap axis and rect in group
-    let group = SceneGroup {
+    let group = SceneMark::Group(SceneGroup {
         origin: [60.0, 60.0],
         marks: vec![
             y_axis.into(),
@@ -328,10 +329,10 @@ fn make_scene_graph(
             symbol_legend.into(),
         ],
         ..Default::default()
-    };
+    });
 
     SceneGraph {
-        groups: vec![group],
+        marks: vec![group],
         width: 340.0,
         height: 300.0,
         origin: [0.0; 2],
