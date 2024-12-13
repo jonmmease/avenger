@@ -15,6 +15,8 @@ avenger-scales = { path = "../../avenger-scales" }
 avenger-guides = { path = "../../avenger-guides" }
 avenger-geometry = { path = "../../avenger-geometry" }
 avenger-eventstream = { path = "../../avenger-eventstream" }
+avenger-app = { path = "../../avenger-app" }
+avenger-winit-wgpu = { path = "../../avenger-winit-wgpu" }
 
 cfg-if = "1"
 winit = "0.30.5"

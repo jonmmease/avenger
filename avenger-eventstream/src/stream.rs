@@ -1,3 +1,4 @@
+use crate::manager::EventStreamHandler;
 use crate::scene::{
     SceneClickEvent, SceneCursorMovedEvent, SceneDoubleClickEvent, SceneGraphEvent,
     SceneGraphEventType, SceneKeyPressEvent, SceneKeyReleaseEvent, SceneMouseDownEvent,
@@ -55,24 +56,47 @@ pub struct EventStreamConfig {
     pub throttle: Option<u64>,
 }
 
+#[derive(Clone, Default, Debug, Copy)]
+pub struct UpdateStatus {
+    pub rerender: bool,
+    pub rebuild_geometry: bool,
+}
+
+impl UpdateStatus {
+    pub fn merge(&self, other: &UpdateStatus) -> UpdateStatus {
+        UpdateStatus {
+            rerender: self.rerender || other.rerender,
+            rebuild_geometry: self.rebuild_geometry || other.rebuild_geometry,
+        }
+    }
+}
+
 /// Internal struct representing the state of an event stream and it's handler
 #[derive(Clone)]
-pub(crate) struct EventStream {
+pub(crate) struct EventStream<State: Clone + Send + Sync + 'static> {
     pub(crate) config: EventStreamConfig,
     pub(crate) between_state: Option<BetweenState>,
     pub(crate) last_handled_time: Option<Instant>,
-    pub(crate) handler: Arc<dyn Fn(&SceneGraphEvent)>,
+    pub(crate) handler: Arc<dyn EventStreamHandler<State>>,
 }
 
 #[derive(Clone)]
 struct BetweenState {
     started: bool,
-    start_stream: Box<EventStream>,
-    end_stream: Box<EventStream>,
+    start_stream: Box<EventStream<()>>,
+    end_stream: Box<EventStream<()>>,
 }
 
-impl EventStream {
-    pub(crate) fn new(config: EventStreamConfig, handler: Arc<dyn Fn(&SceneGraphEvent)>) -> Self {
+// handler that does nothing
+fn noop_handler(_: &SceneGraphEvent, _: &mut ()) -> UpdateStatus {
+    Default::default()
+}
+
+impl<State: Clone + Send + Sync + 'static> EventStream<State> {
+    pub(crate) fn new(
+        config: EventStreamConfig,
+        handler: Arc<dyn EventStreamHandler<State>>,
+    ) -> Self {
         // Initialize between_state if config.between is specified
         let between_state = config
             .between
@@ -81,9 +105,12 @@ impl EventStream {
                 started: false,
                 start_stream: Box::new(EventStream::new(
                     start_cfg.as_ref().clone(),
-                    handler.clone(),
+                    Arc::new(noop_handler),
                 )),
-                end_stream: Box::new(EventStream::new(end_cfg.as_ref().clone(), handler.clone())),
+                end_stream: Box::new(EventStream::new(
+                    end_cfg.as_ref().clone(),
+                    Arc::new(noop_handler),
+                )),
             });
 
         Self {

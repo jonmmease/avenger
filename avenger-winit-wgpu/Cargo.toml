@@ -1,0 +1,15 @@
+[package]
+name = "avenger-winit-wgpu"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+avenger-common = { path = "../avenger-common" }
+avenger-app = { path = "../avenger-app" }
+avenger-eventstream = { path = "../avenger-eventstream" }
+avenger-wgpu = { path = "../avenger-wgpu" }
+winit = { workspace = true }
+wgpu = { workspace = true }
+pollster = { workspace = true }
+log = { workspace = true }
+

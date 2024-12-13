@@ -368,6 +368,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
+name = "avenger-app"
+version = "0.1.0"
+dependencies = [
+ "avenger-eventstream",
+ "avenger-geometry",
+ "avenger-scenegraph",
+ "winit",
+]
+
+[[package]]
 name = "avenger-common"
 version = "0.0.8"
 dependencies = [
@@ -441,6 +451,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "float-cmp 0.10.0",
+ "indexmap",
  "palette",
  "thiserror 2.0.3",
 ]
@@ -567,6 +578,20 @@ dependencies = [
  "thiserror 2.0.3",
  "tracing",
  "web-sys",
+ "wgpu 23.0.1",
+ "winit",
+]
+
+[[package]]
+name = "avenger-winit-wgpu"
+version = "0.1.0"
+dependencies = [
+ "avenger-app",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-wgpu",
+ "log",
+ "pollster 0.3.0",
  "wgpu 23.0.1",
  "winit",
 ]
@@ -3971,9 +3996,9 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "2.6.0"
+version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "707907fe3c25f5424cce2cb7e1cbcafee6bdbe735ca90ef77c29e84591e5b9da"
+checksum = "62f822373a4fe84d4bb149bf54e584a7f4abec90e072ed49cda0edea5b95471f"
 dependencies = [
  "equivalent",
  "hashbrown 0.15.2",
@@ -4056,6 +4081,7 @@ dependencies = [
 name = "iris"
 version = "0.1.0"
 dependencies = [
+ "avenger-app",
  "avenger-common",
  "avenger-eventstream",
  "avenger-geometry",
@@ -4064,6 +4090,7 @@ dependencies = [
  "avenger-scenegraph",
  "avenger-vega",
  "avenger-wgpu",
+ "avenger-winit-wgpu",
  "cfg-if",
  "console_error_panic_hook",
  "console_log",
