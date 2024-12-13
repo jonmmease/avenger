@@ -1,6 +1,6 @@
 use avenger_common::canvas::CanvasDimensions;
 use avenger_common::types::ColorOrGradient;
-use avenger_eventstream::stream::{EventStreamConfig, EventStreamManager};
+use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, EventStreamManager};
 use avenger_eventstream::window::WindowEvent as AvengerWindowEvent;
 use avenger_eventstream::SceneGraphEventType;
 use avenger_geometry::rtree::SceneGraphRTree;
@@ -226,14 +226,24 @@ pub async fn run() {
     //         println!("cursor left: {:?}", event.mark_instance().unwrap());
     //     },
     // );
+    // event_stream_manager.register_handler(
+    //     EventStreamConfig {
+    //         types: vec![SceneGraphEventType::Click],
+    //         mark_paths: Some(vec![vec![0, 2, 0]]),
+    //         ..Default::default()
+    //     },
+    //     |event| {
+    //         println!("clicked: {:?}", event);
+    //     },
+    // );
     event_stream_manager.register_handler(
         EventStreamConfig {
-            types: vec![SceneGraphEventType::Click],
-            mark_paths: Some(vec![vec![0, 2, 0]]),
+            types: vec![SceneGraphEventType::CursorMoved],
+            throttle: Some(500),
             ..Default::default()
         },
         |event| {
-            println!("clicked: {:?}", event);
+            println!("debounced cursor moved: {:?}", event);
         },
     );
     // event_stream_manager.register_handler(
