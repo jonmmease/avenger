@@ -1,8 +1,9 @@
 use avenger_common::canvas::CanvasDimensions;
 use avenger_common::types::ColorOrGradient;
-use avenger_eventstream::stream::{DebounceConfig, EventStreamConfig, EventStreamManager};
+use avenger_eventstream::manager::EventStreamManager;
+use avenger_eventstream::scene::SceneGraphEventType;
+use avenger_eventstream::stream::EventStreamConfig;
 use avenger_eventstream::window::WindowEvent as AvengerWindowEvent;
-use avenger_eventstream::SceneGraphEventType;
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::axis::band::make_band_axis_marks;
 use avenger_guides::axis::numeric::make_numeric_axis_marks;
