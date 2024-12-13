@@ -148,7 +148,8 @@ impl TryFrom<WinitNamedKey> for NamedKey {
             WinitNamedKey::CapsLock => Ok(NamedKey::CapsLock),
             WinitNamedKey::Control => Ok(NamedKey::Control),
             WinitNamedKey::Shift => Ok(NamedKey::Shift),
-            WinitNamedKey::Meta => Ok(NamedKey::Meta),
+            WinitNamedKey::Meta => Ok(NamedKey::Super),
+            WinitNamedKey::Super => Ok(NamedKey::Super),
 
             // Media
             WinitNamedKey::MediaPlayPause => Ok(NamedKey::MediaPlayPause),
