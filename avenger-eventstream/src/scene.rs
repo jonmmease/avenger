@@ -9,6 +9,7 @@ pub enum SceneGraphEvent {
     DoubleClick(SceneDoubleClickEvent),
     MouseWheel(SceneMouseWheelEvent),
     KeyPress(SceneKeyPressEvent),
+    KeyRelease(SceneKeyReleaseEvent),
     CursorMoved(SceneCursorMovedEvent),
     MouseEnter(SceneMouseEnterEvent),
     MouseLeave(SceneMouseLeaveEvent),
@@ -25,6 +26,7 @@ impl SceneGraphEvent {
             Self::DoubleClick(event) => Some(event.position),
             Self::MouseWheel(event) => Some(event.position),
             Self::KeyPress(event) => Some(event.position),
+            Self::KeyRelease(event) => Some(event.position),
             Self::CursorMoved(event) => Some(event.position),
             Self::MouseEnter(event) => Some(event.position),
             Self::MouseLeave(event) => Some(event.position),
@@ -38,6 +40,7 @@ impl SceneGraphEvent {
             Self::DoubleClick(event) => event.mark_instance.as_ref(),
             Self::MouseWheel(event) => event.mark_instance.as_ref(),
             Self::KeyPress(event) => event.mark_instance.as_ref(),
+            Self::KeyRelease(event) => event.mark_instance.as_ref(),
             Self::CursorMoved(event) => event.mark_instance.as_ref(),
             Self::MouseEnter(event) => Some(&event.mark_instance),
             Self::MouseLeave(event) => Some(&event.mark_instance),
@@ -51,6 +54,7 @@ impl SceneGraphEvent {
             Self::DoubleClick(..) => SceneGraphEventType::DoubleClick,
             Self::MouseWheel(..) => SceneGraphEventType::MouseWheel,
             Self::KeyPress(..) => SceneGraphEventType::KeyPress,
+            Self::KeyRelease(..) => SceneGraphEventType::KeyRelease,
             Self::CursorMoved(..) => SceneGraphEventType::CursorMoved,
             Self::MouseEnter(..) => SceneGraphEventType::MarkMouseEnter,
             Self::MouseLeave(..) => SceneGraphEventType::MarkMouseLeave,
@@ -68,6 +72,7 @@ pub enum SceneGraphEventType {
     DoubleClick,
     MouseWheel,
     KeyPress,
+    KeyRelease,
     CursorMoved,
     MarkMouseEnter,
     MarkMouseLeave,
@@ -99,6 +104,13 @@ pub struct SceneMouseWheelEvent {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SceneKeyPressEvent {
+    pub position: [f32; 2],
+    pub key: Key,
+    pub mark_instance: Option<MarkInstance>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SceneKeyReleaseEvent {
     pub position: [f32; 2],
     pub key: Key,
     pub mark_instance: Option<MarkInstance>,
