@@ -53,8 +53,8 @@ pub struct EventStreamConfig {
     /// If specified, only events associated with the specified mark paths will be included
     pub mark_paths: Option<Vec<Vec<usize>>>,
 
-    /// Time-based debounce configuration
-    pub debounce: Option<DebounceConfig>,
+    /// Minimum time (in milliseconds) between events
+    pub throttle: Option<u64>,
 }
 
 /// Internal struct representing the state of an event stream and it's handler
@@ -62,9 +62,7 @@ pub struct EventStreamConfig {
 struct EventStream {
     config: EventStreamConfig,
     between_state: Option<BetweenState>,
-    last_event_time: Option<Instant>,
     last_handled_time: Option<Instant>,
-    debounce_state: Option<DebounceState>,
     handler: Arc<dyn Fn(&SceneGraphEvent)>,
 }
 
@@ -73,16 +71,6 @@ struct BetweenState {
     started: bool,
     start_stream: Box<EventStream>,
     end_stream: Box<EventStream>,
-}
-
-#[derive(Clone)]
-struct DebounceState {
-    /// Time of first event in current debounce window
-    first_event: Instant,
-    /// Time of last event
-    last_event: Instant,
-    /// Whether we've handled the leading event in current window
-    handled_leading: bool,
 }
 
 impl EventStream {
@@ -103,9 +91,7 @@ impl EventStream {
         Self {
             config,
             between_state,
-            last_event_time: None,
             last_handled_time: None,
-            debounce_state: None,
             handler,
         }
     }
@@ -114,6 +100,7 @@ impl EventStream {
         &mut self,
         event: &SceneGraphEvent,
         mark_instance: Option<&MarkInstance>,
+        now: Instant,
     ) -> bool {
         // Handle between state
         if let Some(between) = &mut self.between_state {
@@ -132,8 +119,12 @@ impl EventStream {
             }
         }
 
-        // Perform regular matching
-        self.matches_event(event, mark_instance)
+        // Check if event matches and throttling allows it
+        if self.matches_event(event, mark_instance) && self.should_handle_event(now) {
+            true
+        } else {
+            false
+        }
     }
 
     fn matches_event(&self, event: &SceneGraphEvent, mark_instance: Option<&MarkInstance>) -> bool {
@@ -176,56 +167,14 @@ impl EventStream {
     }
 
     fn should_handle_event(&mut self, now: Instant) -> bool {
-        // If no debounce config, always handle the event
-        let Some(debounce) = &self.config.debounce else {
-            return true;
-        };
-
-        let wait = Duration::from_millis(debounce.wait);
-
-        match &mut self.debounce_state {
-            Some(state) => {
-                let time_since_last = now.duration_since(state.last_event);
-                let time_since_first = now.duration_since(state.first_event);
-
-                // Update last event time
-                state.last_event = now;
-
-                // Check max_wait first
-                if let Some(max_wait) = debounce.max_wait {
-                    if time_since_first >= Duration::from_millis(max_wait) {
-                        // Max wait exceeded, reset state and fire
-                        self.debounce_state = None;
-                        return true;
-                    }
+        if let Some(throttle) = self.config.throttle {
+            if let Some(last_time) = self.last_handled_time {
+                if now.duration_since(last_time) < Duration::from_millis(throttle) {
+                    return false;
                 }
-
-                // Check if wait time has elapsed
-                if time_since_last >= wait {
-                    // Wait time elapsed, reset state and fire
-                    self.debounce_state = None;
-                    return true;
-                }
-
-                false
-            }
-            None => {
-                // First event in new window
-                self.debounce_state = Some(DebounceState {
-                    first_event: now,
-                    last_event: now,
-                    handled_leading: false,
-                });
-
-                // Handle leading edge if configured
-                if debounce.leading {
-                    self.debounce_state.as_mut().unwrap().handled_leading = true;
-                    return true;
-                }
-
-                false
             }
         }
+        true
     }
 }
 
@@ -436,15 +385,7 @@ impl EventStreamManager {
         let mark_instance = mark_instance.or_else(|| self.get_mark_path_for_event(event, rtree));
 
         for stream in &mut self.streams {
-            if stream.matches_and_update(event, mark_instance.as_ref()) {
-                // Update last event time
-                stream.last_event_time = Some(instant);
-
-                // Check timing rules
-                if !stream.should_handle_event(instant) {
-                    continue;
-                }
-
+            if stream.matches_and_update(event, mark_instance.as_ref(), instant) {
                 // Update last handled time
                 stream.last_handled_time = Some(instant);
 
