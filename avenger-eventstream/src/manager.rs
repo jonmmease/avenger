@@ -3,15 +3,30 @@ use crate::scene::{
     SceneKeyPressEvent, SceneKeyReleaseEvent, SceneMouseDownEvent, SceneMouseEnterEvent,
     SceneMouseLeaveEvent, SceneMouseUpEvent, SceneMouseWheelEvent,
 };
-use crate::stream::{EventStream, EventStreamConfig};
+use crate::stream::{EventStream, EventStreamConfig, UpdateStatus};
 use crate::window::{ElementState, Key, MouseButton, NamedKey, WindowEvent, WindowKeyboardInput};
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::marks::mark::MarkInstance;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-pub struct EventStreamManager {
-    streams: Vec<EventStream>,
+pub trait EventStreamHandler<State: Clone + Send + Sync + 'static> {
+    fn handle(&self, event: &SceneGraphEvent, state: &mut State) -> UpdateStatus;
+}
+
+impl<State, F> EventStreamHandler<State> for F
+where
+    State: Clone + Send + Sync + 'static,
+    F: Fn(&SceneGraphEvent, &mut State) -> UpdateStatus + 'static,
+{
+    fn handle(&self, event: &SceneGraphEvent, state: &mut State) -> UpdateStatus {
+        self(event, state)
+    }
+}
+
+pub struct EventStreamManager<State: Clone + Send + Sync + 'static> {
+    state: State,
+    streams: Vec<EventStream<State>>,
     current_mark: Option<MarkInstance>,
     last_click: Option<(Instant, [f32; 2])>,
     double_click_threshold: Duration,
@@ -25,9 +40,10 @@ pub struct EventStreamManager {
     modifiers: ModifiersState,
 }
 
-impl EventStreamManager {
-    pub fn new() -> Self {
+impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
+    pub fn new(state: State) -> Self {
         Self {
+            state,
             streams: Vec::new(),
             current_mark: None,
             last_click: None,
@@ -41,12 +57,17 @@ impl EventStreamManager {
     }
 
     /// Register a new event handler with the given configuration
-    pub fn register_handler<F>(&mut self, config: EventStreamConfig, handler: F)
-    where
-        F: Fn(&SceneGraphEvent) + 'static,
-    {
-        let stream = EventStream::new(config, Arc::new(handler));
+    pub fn register_handler(
+        &mut self,
+        config: EventStreamConfig,
+        handler: Arc<dyn EventStreamHandler<State>>,
+    ) {
+        let stream = EventStream::new(config, handler);
         self.streams.push(stream);
+    }
+
+    pub fn state(&self) -> &State {
+        &self.state
     }
 
     fn update_modifiers(&mut self, input: &WindowKeyboardInput) {
@@ -70,7 +91,7 @@ impl EventStreamManager {
         event: &WindowEvent,
         rtree: &SceneGraphRTree,
         instant: Instant,
-    ) {
+    ) -> UpdateStatus {
         // Update modifier state based on keyboard events
         if let WindowEvent::KeyboardInput(input) = event {
             self.update_modifiers(&input);
@@ -80,6 +101,8 @@ impl EventStreamManager {
         if let Some(position) = event.position() {
             self.current_cursor_position = Some(position);
         }
+
+        let mut update_status = UpdateStatus::default();
 
         // Convert window event to scene graph event
         let scene_event = match event {
@@ -103,14 +126,14 @@ impl EventStreamManager {
                             && self.mousedown_button.as_ref() == Some(&input.button)
                         {
                             if input.button == MouseButton::Left {
-                                self.check_double_click(
+                                update_status = update_status.merge(&self.check_double_click(
                                     position,
                                     mark_instance.clone(),
                                     rtree,
                                     instant,
-                                );
+                                ));
                             } else {
-                                self.dispatch_single_event(
+                                update_status = update_status.merge(&self.dispatch_single_event(
                                     &SceneGraphEvent::Click(SceneClickEvent {
                                         position,
                                         button: input.button.clone(),
@@ -120,7 +143,7 @@ impl EventStreamManager {
                                     rtree,
                                     instant,
                                     None,
-                                );
+                                ));
                             }
                         }
                         self.mousedown_mark = None;
@@ -190,13 +213,21 @@ impl EventStreamManager {
 
         // Process cursor movement for enter/leave events
         if let Some(position) = event.position() {
-            self.handle_mark_mouse_events(position, rtree, instant);
+            update_status =
+                update_status.merge(&self.handle_mark_mouse_events(position, rtree, instant));
         }
 
         // Dispatch the converted event if any
         if let Some(scene_event) = scene_event {
-            self.dispatch_single_event(&scene_event, rtree, instant, None);
+            update_status = update_status.merge(&self.dispatch_single_event(
+                &scene_event,
+                rtree,
+                instant,
+                None,
+            ));
         }
+
+        update_status
     }
 
     fn dispatch_single_event(
@@ -205,16 +236,18 @@ impl EventStreamManager {
         rtree: &SceneGraphRTree,
         instant: Instant,
         mark_instance: Option<MarkInstance>,
-    ) {
+    ) -> UpdateStatus {
         let mark_instance = mark_instance.or_else(|| self.get_mark_path_for_event(event, rtree));
+
+        let mut update_status = UpdateStatus::default();
 
         for stream in &mut self.streams {
             if stream.matches_and_update(event, mark_instance.as_ref(), instant) {
                 // Update last handled time
                 stream.last_handled_time = Some(instant);
 
-                // Call handler
-                (stream.handler)(event);
+                // Call handler and merge update status
+                update_status = update_status.merge(&stream.handler.handle(event, &mut self.state));
 
                 // Handle consume flag
                 if stream.config.consume {
@@ -222,6 +255,8 @@ impl EventStreamManager {
                 }
             }
         }
+
+        update_status
     }
 
     fn get_mark_path_for_event(
@@ -247,15 +282,16 @@ impl EventStreamManager {
         position: [f32; 2],
         rtree: &SceneGraphRTree,
         instant: Instant,
-    ) {
+    ) -> UpdateStatus {
         let current_mark = self.get_mark_path_for_event_at_position(&position, rtree);
 
+        let mut update_status = UpdateStatus::default();
         // Handle mark enter/leave
         match (&self.current_mark, &current_mark) {
             (Some(prev), Some(curr)) if prev != curr => {
                 // Mark changed - generate leave then enter
                 // Use the previous mark instance for leave event
-                self.dispatch_single_event(
+                update_status = update_status.merge(&self.dispatch_single_event(
                     &SceneGraphEvent::MouseLeave(SceneMouseLeaveEvent {
                         position,
                         mark_instance: prev.clone(),
@@ -264,9 +300,9 @@ impl EventStreamManager {
                     rtree,
                     instant,
                     Some(prev.clone()),
-                );
+                ));
                 // Use the current mark instance for enter event
-                self.dispatch_single_event(
+                update_status = update_status.merge(&self.dispatch_single_event(
                     &SceneGraphEvent::MouseEnter(SceneMouseEnterEvent {
                         position,
                         mark_instance: curr.clone(),
@@ -275,11 +311,11 @@ impl EventStreamManager {
                     rtree,
                     instant,
                     Some(curr.clone()),
-                );
+                ));
             }
             (Some(prev), None) => {
                 // Left mark - generate leave
-                self.dispatch_single_event(
+                update_status = update_status.merge(&self.dispatch_single_event(
                     &SceneGraphEvent::MouseLeave(SceneMouseLeaveEvent {
                         position,
                         mark_instance: prev.clone(),
@@ -288,11 +324,11 @@ impl EventStreamManager {
                     rtree,
                     instant,
                     Some(prev.clone()),
-                );
+                ));
             }
             (None, Some(curr)) => {
                 // Entered mark - generate enter
-                self.dispatch_single_event(
+                update_status = update_status.merge(&self.dispatch_single_event(
                     &SceneGraphEvent::MouseEnter(SceneMouseEnterEvent {
                         position,
                         mark_instance: curr.clone(),
@@ -301,13 +337,15 @@ impl EventStreamManager {
                     rtree,
                     instant,
                     Some(curr.clone()),
-                );
+                ));
             }
             _ => {}
         }
 
         // Update current mark
         self.current_mark = current_mark;
+
+        update_status
     }
 
     fn check_double_click(
@@ -316,7 +354,9 @@ impl EventStreamManager {
         mark_instance: Option<MarkInstance>,
         rtree: &SceneGraphRTree,
         instant: Instant,
-    ) {
+    ) -> UpdateStatus {
+        let mut update_status = UpdateStatus::default();
+
         if let Some((last_time, last_pos)) = &self.last_click {
             let time_diff = instant.duration_since(*last_time);
             let distance =
@@ -324,7 +364,7 @@ impl EventStreamManager {
 
             if time_diff <= self.double_click_threshold && distance <= self.double_click_distance {
                 // Double click detected - dispatch event
-                self.dispatch_single_event(
+                update_status = update_status.merge(&self.dispatch_single_event(
                     &SceneGraphEvent::DoubleClick(SceneDoubleClickEvent {
                         position,
                         mark_instance,
@@ -333,15 +373,15 @@ impl EventStreamManager {
                     rtree,
                     instant,
                     None,
-                );
+                ));
                 // Reset last click
                 self.last_click = None;
-                return;
+                return update_status;
             }
         }
 
         // Not a double click, emit single left-click and store for potential future double-click
-        self.dispatch_single_event(
+        update_status = update_status.merge(&self.dispatch_single_event(
             &SceneGraphEvent::Click(SceneClickEvent {
                 position,
                 button: MouseButton::Left,
@@ -351,17 +391,13 @@ impl EventStreamManager {
             rtree,
             instant,
             None,
-        );
+        ));
         self.last_click = Some((instant, position));
+
+        update_status
     }
 
     pub fn modifiers(&self) -> ModifiersState {
         self.modifiers
-    }
-}
-
-impl Default for EventStreamManager {
-    fn default() -> Self {
-        Self::new()
     }
 }

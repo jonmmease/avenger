@@ -1,10 +1,9 @@
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
-
 use crate::error::AvengerScaleError;
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
+use indexmap::IndexMap;
 
 /// A discrete scale that maps input values to a fixed set of output values.
 /// Supports default values for inputs not found in the domain.
@@ -14,7 +13,7 @@ where
     D: Clone + Hash + Eq + Debug + Sync + 'static,
     R: Clone + Debug + Sync + 'static,
 {
-    mapping: HashMap<D, R>,
+    mapping: IndexMap<D, R>,
     default_value: R,
 }
 
@@ -37,7 +36,7 @@ where
             .iter()
             .cloned()
             .zip(range.iter().cloned())
-            .collect::<HashMap<_, _>>();
+            .collect::<IndexMap<_, _>>();
 
         Ok(Self {
             mapping,

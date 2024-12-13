@@ -13,6 +13,7 @@ palette = { workspace = true }
 avenger-common = { path = "../avenger-common" }
 chrono = { workspace = true, optional = true }
 chrono-tz = { workspace = true, optional = true }
+indexmap = { workspace = true }
 
 [dev-dependencies]
 float-cmp = "0.10.0"

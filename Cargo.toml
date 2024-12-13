@@ -12,6 +12,8 @@ members = [
     "avenger-geometry",
     "avenger-text",
     "avenger-eventstream",
+    "avenger-app",
+    "avenger-winit-wgpu",
     "examples/wgpu-scales",
     "examples/scatter-panning",
     "examples/wgpu-winit",
@@ -47,3 +49,6 @@ itertools = "0.13.0"
 rstar = { git = "https://github.com/georust/rstar.git", branch = "master" }
 cosmic-text = "0.12.1"
 geo-svg = "0.7.0"
+indexmap = "2.7.0"
+pollster = "0.3"
+log = "0.4"
