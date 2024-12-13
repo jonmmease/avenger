@@ -109,7 +109,8 @@ pub enum NamedKey {
     CapsLock,
     Control,
     Shift,
-    Meta,
+    Super,
+
     // Media
     MediaPlayPause,
     MediaStop,

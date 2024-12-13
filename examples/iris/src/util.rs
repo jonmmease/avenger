@@ -226,37 +226,47 @@ pub async fn run() {
     //         println!("cursor left: {:?}", event.mark_instance().unwrap());
     //     },
     // );
+    event_stream_manager.register_handler(
+        EventStreamConfig {
+            types: vec![SceneGraphEventType::Click],
+            mark_paths: Some(vec![vec![0, 2, 0]]),
+            ..Default::default()
+        },
+        |event| {
+            println!("clicked: {:?}", event);
+        },
+    );
     // event_stream_manager.register_handler(
     //     EventStreamConfig {
     //         types: vec![SceneGraphEventType::DoubleClick],
-    //         mark_paths: Some(vec![vec![0, 2, 0]]),
+    //         // mark_paths: Some(vec![vec![0, 2, 0]]),
     //         ..Default::default()
     //     },
     //     |event| {
     //         println!("double clicked: {:?}", event.mark_instance());
     //     },
     // );
-    event_stream_manager.register_handler(
-        EventStreamConfig {
-            types: vec![SceneGraphEventType::KeyPress],
-            between: Some((
-                Box::new(EventStreamConfig {
-                    types: vec![SceneGraphEventType::MarkMouseEnter],
-                    mark_paths: Some(vec![vec![0, 2, 0]]),
-                    ..Default::default()
-                }),
-                Box::new(EventStreamConfig {
-                    types: vec![SceneGraphEventType::MarkMouseLeave],
-                    mark_paths: Some(vec![vec![0, 2, 0]]),
-                    ..Default::default()
-                }),
-            )),
-            ..Default::default()
-        },
-        |event| {
-            println!("key pressed: {:?}", event);
-        },
-    );
+    // event_stream_manager.register_handler(
+    //     EventStreamConfig {
+    //         types: vec![SceneGraphEventType::KeyPress],
+    //         between: Some((
+    //             Box::new(EventStreamConfig {
+    //                 types: vec![SceneGraphEventType::MarkMouseEnter],
+    //                 mark_paths: Some(vec![vec![0, 2, 0]]),
+    //                 ..Default::default()
+    //             }),
+    //             Box::new(EventStreamConfig {
+    //                 types: vec![SceneGraphEventType::MarkMouseLeave],
+    //                 mark_paths: Some(vec![vec![0, 2, 0]]),
+    //                 ..Default::default()
+    //             }),
+    //         )),
+    //         ..Default::default()
+    //     },
+    //     |event| {
+    //         println!("key pressed: {:?}", event);
+    //     },
+    // );
 
     let event_loop = EventLoop::new().expect("Failed to build event loop");
     let mut app = App {
