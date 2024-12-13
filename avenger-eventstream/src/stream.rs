@@ -1,7 +1,7 @@
 use crate::scene::{
     SceneClickEvent, SceneCursorMovedEvent, SceneDoubleClickEvent, SceneGraphEvent,
-    SceneGraphEventType, SceneKeyPressEvent, SceneMouseEnterEvent, SceneMouseLeaveEvent,
-    SceneMouseWheelEvent,
+    SceneGraphEventType, SceneKeyPressEvent, SceneKeyReleaseEvent, SceneMouseEnterEvent,
+    SceneMouseLeaveEvent, SceneMouseWheelEvent,
 };
 use crate::window::{ElementState, MouseButton, WindowEvent};
 use avenger_geometry::rtree::SceneGraphRTree;
@@ -316,11 +316,19 @@ impl EventStreamManager {
             WindowEvent::KeyboardInput(e) => {
                 if let Some(position) = self.current_cursor_position {
                     let mark_instance = self.get_mark_path_for_event_at_position(&position, rtree);
-                    Some(SceneGraphEvent::KeyPress(SceneKeyPressEvent {
-                        position,
-                        key: e.key.clone(),
-                        mark_instance,
-                    }))
+                    if e.state == ElementState::Pressed {
+                        Some(SceneGraphEvent::KeyPress(SceneKeyPressEvent {
+                            position,
+                            key: e.key.clone(),
+                            mark_instance,
+                        }))
+                    } else {
+                        Some(SceneGraphEvent::KeyRelease(SceneKeyReleaseEvent {
+                            position,
+                            key: e.key.clone(),
+                            mark_instance,
+                        }))
+                    }
                 } else {
                     None
                 }

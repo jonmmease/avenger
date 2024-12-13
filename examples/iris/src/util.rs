@@ -206,34 +206,55 @@ pub async fn run() {
 
     // Build event stream manager and register handlers
     let mut event_stream_manager = EventStreamManager::new();
+    // event_stream_manager.register_handler(
+    //     EventStreamConfig {
+    //         types: vec![SceneGraphEventType::MarkMouseEnter],
+    //         mark_paths: Some(vec![vec![0, 2, 0]]),
+    //         ..Default::default()
+    //     },
+    //     |event| {
+    //         println!("cursor entered: {:?}", event.mark_instance().unwrap());
+    //     },
+    // );
+    // event_stream_manager.register_handler(
+    //     EventStreamConfig {
+    //         types: vec![SceneGraphEventType::MarkMouseLeave],
+    //         mark_paths: Some(vec![vec![0, 2, 0]]),
+    //         ..Default::default()
+    //     },
+    //     |event| {
+    //         println!("cursor left: {:?}", event.mark_instance().unwrap());
+    //     },
+    // );
+    // event_stream_manager.register_handler(
+    //     EventStreamConfig {
+    //         types: vec![SceneGraphEventType::DoubleClick],
+    //         mark_paths: Some(vec![vec![0, 2, 0]]),
+    //         ..Default::default()
+    //     },
+    //     |event| {
+    //         println!("double clicked: {:?}", event.mark_instance());
+    //     },
+    // );
     event_stream_manager.register_handler(
         EventStreamConfig {
-            types: vec![SceneGraphEventType::MarkMouseEnter],
-            mark_paths: Some(vec![vec![0, 2, 0]]),
+            types: vec![SceneGraphEventType::KeyPress],
+            between: Some((
+                Box::new(EventStreamConfig {
+                    types: vec![SceneGraphEventType::MarkMouseEnter],
+                    mark_paths: Some(vec![vec![0, 2, 0]]),
+                    ..Default::default()
+                }),
+                Box::new(EventStreamConfig {
+                    types: vec![SceneGraphEventType::MarkMouseLeave],
+                    mark_paths: Some(vec![vec![0, 2, 0]]),
+                    ..Default::default()
+                }),
+            )),
             ..Default::default()
         },
         |event| {
-            println!("cursor entered: {:?}", event.mark_instance().unwrap());
-        },
-    );
-    event_stream_manager.register_handler(
-        EventStreamConfig {
-            types: vec![SceneGraphEventType::MarkMouseLeave],
-            mark_paths: Some(vec![vec![0, 2, 0]]),
-            ..Default::default()
-        },
-        |event| {
-            println!("cursor left: {:?}", event.mark_instance().unwrap());
-        },
-    );
-    event_stream_manager.register_handler(
-        EventStreamConfig {
-            types: vec![SceneGraphEventType::DoubleClick],
-            mark_paths: Some(vec![vec![0, 2, 0]]),
-            ..Default::default()
-        },
-        |event| {
-            println!("double clicked: {:?}", event.mark_instance());
+            println!("key pressed: {:?}", event);
         },
     );
 
