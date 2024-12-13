@@ -1,9 +1,6 @@
 use avenger_scenegraph::marks::mark::MarkInstance;
 
-use crate::{
-    stream::ModifiersState,
-    window::{Key, MouseButton, MouseScrollDelta, WindowMovedEvent, WindowResizeEvent},
-};
+use crate::window::{Key, MouseButton, MouseScrollDelta, WindowMovedEvent, WindowResizeEvent};
 
 /// Events that can be handled by event streams
 #[derive(Debug, Clone, PartialEq)]
@@ -169,4 +166,12 @@ pub struct SceneMouseLeaveEvent {
     pub position: [f32; 2],
     pub mark_instance: MarkInstance,
     pub modifiers: ModifiersState,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ModifiersState {
+    pub shift: bool,
+    pub control: bool,
+    pub alt: bool,
+    pub meta: bool,
 }
