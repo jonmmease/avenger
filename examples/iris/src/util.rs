@@ -284,45 +284,51 @@ pub async fn run() {
         ChartState::new(),
         Arc::new(make_scene_graph),
         vec![
-            // // Hover highlight
-            // (
-            //     EventStreamConfig {
-            //         types: vec![SceneGraphEventType::MarkMouseEnter],
-            //         mark_paths: Some(vec![vec![0, 2, 0]]),
-            //         ..Default::default()
-            //     },
-            //     Arc::new(
-            //         |event: &SceneGraphEvent,
-            //          state: &mut ChartState,
-            //          _rtree: &SceneGraphRTree|
-            //          -> UpdateStatus {
-            //             state.hover_index = event.mark_instance().and_then(|i| i.instance_index);
-            //             UpdateStatus {
-            //                 rerender: true,
-            //                 rebuild_geometry: true,
-            //             }
-            //         },
-            //     ),
-            // ),
-            // (
-            //     EventStreamConfig {
-            //         types: vec![SceneGraphEventType::MarkMouseLeave],
-            //         mark_paths: Some(vec![vec![0, 2, 0]]),
-            //         ..Default::default()
-            //     },
-            //     Arc::new(
-            //         |_event: &SceneGraphEvent,
-            //          state: &mut ChartState,
-            //          _rtree: &SceneGraphRTree|
-            //          -> UpdateStatus {
-            //             state.hover_index = None;
-            //             UpdateStatus {
-            //                 rerender: true,
-            //                 rebuild_geometry: true,
-            //             }
-            //         },
-            //     ),
-            // ),
+            // Hover highlight
+            (
+                EventStreamConfig {
+                    types: vec![SceneGraphEventType::MarkMouseEnter],
+                    mark_paths: Some(vec![vec![0, 2, 0]]),
+                    filter: Some(vec![Arc::new(|event| {
+                        let SceneGraphEvent::MouseEnter(mouse_enter) = event else {
+                            return false;
+                        };
+                        mouse_enter.modifiers.meta
+                    })]),
+                    ..Default::default()
+                },
+                Arc::new(
+                    |event: &SceneGraphEvent,
+                     state: &mut ChartState,
+                     _rtree: &SceneGraphRTree|
+                     -> UpdateStatus {
+                        state.hover_index = event.mark_instance().and_then(|i| i.instance_index);
+                        UpdateStatus {
+                            rerender: true,
+                            rebuild_geometry: true,
+                        }
+                    },
+                ),
+            ),
+            (
+                EventStreamConfig {
+                    types: vec![SceneGraphEventType::MarkMouseLeave],
+                    mark_paths: Some(vec![vec![0, 2, 0]]),
+                    ..Default::default()
+                },
+                Arc::new(
+                    |_event: &SceneGraphEvent,
+                     state: &mut ChartState,
+                     _rtree: &SceneGraphRTree|
+                     -> UpdateStatus {
+                        state.hover_index = None;
+                        UpdateStatus {
+                            rerender: true,
+                            rebuild_geometry: true,
+                        }
+                    },
+                ),
+            ),
             // Panning (record click anchor)
             (
                 left_mouse_down_config.clone(),
