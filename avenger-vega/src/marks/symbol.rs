@@ -62,8 +62,8 @@ impl VegaMarkContainer<VegaSymbolItem> {
                     clip: false,
                     zindex: self.zindex,
                     len: 2,
-                    x: ScalarOrArray::Array(Arc::new(vec![x - width / 2.0, x + width / 2.0])),
-                    y: ScalarOrArray::Scalar(y),
+                    x: ScalarOrArray::new_array(vec![x - width / 2.0, x + width / 2.0]),
+                    y: ScalarOrArray::new_scalar(y),
                     stroke,
                     stroke_width: item.stroke_width.unwrap_or(1.0),
                     stroke_cap: item.stroke_cap.unwrap_or_default(),
@@ -169,22 +169,22 @@ impl VegaMarkContainer<VegaSymbolItem> {
         }
 
         if x.len() == len {
-            mark.x = ScalarOrArray::Array(Arc::new(x));
+            mark.x = ScalarOrArray::new_array(x);
         }
         if y.len() == len {
-            mark.y = ScalarOrArray::Array(Arc::new(y));
+            mark.y = ScalarOrArray::new_array(y);
         }
         if fill.len() == len {
-            mark.fill = ScalarOrArray::Array(Arc::new(fill));
+            mark.fill = ScalarOrArray::new_array(fill);
         }
         if size.len() == len {
-            mark.size = ScalarOrArray::Array(Arc::new(size));
+            mark.size = ScalarOrArray::new_array(size);
         }
         if stroke.len() == len {
-            mark.stroke = ScalarOrArray::Array(Arc::new(stroke));
+            mark.stroke = ScalarOrArray::new_array(stroke);
         }
         if angle.len() == len {
-            mark.angle = ScalarOrArray::Array(Arc::new(angle));
+            mark.angle = ScalarOrArray::new_array(angle);
         }
         if zindex.len() == len {
             let mut indices: Vec<usize> = (0..len).collect();
@@ -192,7 +192,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
             mark.indices = Some(Arc::new(indices));
         }
         if shape_index.len() == len {
-            mark.shape_index = ScalarOrArray::Array(Arc::new(shape_index));
+            mark.shape_index = ScalarOrArray::new_array(shape_index);
             mark.shapes = shape_strings
                 .iter()
                 .map(|s| SymbolShape::from_vega_str(s))

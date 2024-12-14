@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager};
-use avenger_eventstream::stream::EventStreamConfig;
+use avenger_eventstream::stream::{EventStreamConfig, UpdateStatus};
 use avenger_eventstream::window::WindowEvent;
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::scene_graph::SceneGraph;
@@ -56,6 +56,13 @@ where
         }
     }
 
+    /// Update the state of the app without rebuilding the scene graph
+    pub fn update_state(&mut self, event: &WindowEvent, instant: Instant) -> UpdateStatus {
+        self.event_stream_manager
+            .dispatch_event(event, &self.rtree, instant)
+    }
+
+    /// Update the state of the app and rebuild the scene graph if needed
     pub fn update(&mut self, event: &WindowEvent, instant: Instant) -> Option<Arc<SceneGraph>> {
         let update_status = self
             .event_stream_manager

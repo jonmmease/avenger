@@ -149,40 +149,40 @@ impl VegaMarkContainer<VegaTextItem> {
 
         // Override values with vectors
         if x.len() == len {
-            mark.x = ScalarOrArray::Array(Arc::new(x));
+            mark.x = ScalarOrArray::new_array(x);
         }
         if y.len() == len {
-            mark.y = ScalarOrArray::Array(Arc::new(y));
+            mark.y = ScalarOrArray::new_array(y);
         }
         if text.len() == len {
-            mark.text = ScalarOrArray::Array(Arc::new(text));
+            mark.text = ScalarOrArray::new_array(text);
         }
         if align.len() == len {
-            mark.align = ScalarOrArray::Array(Arc::new(align));
+            mark.align = ScalarOrArray::new_array(align);
         }
         if baseline.len() == len {
-            mark.baseline = ScalarOrArray::Array(Arc::new(baseline));
+            mark.baseline = ScalarOrArray::new_array(baseline);
         }
         if angle.len() == len {
-            mark.angle = ScalarOrArray::Array(Arc::new(angle));
+            mark.angle = ScalarOrArray::new_array(angle);
         }
         if color.len() == len {
-            mark.color = ScalarOrArray::Array(Arc::new(color));
+            mark.color = ScalarOrArray::new_array(color);
         }
         if font.len() == len {
-            mark.font = ScalarOrArray::Array(Arc::new(font));
+            mark.font = ScalarOrArray::new_array(font);
         }
         if font_size.len() == len {
-            mark.font_size = ScalarOrArray::Array(Arc::new(font_size));
+            mark.font_size = ScalarOrArray::new_array(font_size);
         }
         if font_weight.len() == len {
-            mark.font_weight = ScalarOrArray::Array(Arc::new(font_weight));
+            mark.font_weight = ScalarOrArray::new_array(font_weight);
         }
         if font_style.len() == len {
-            mark.font_style = ScalarOrArray::Array(Arc::new(font_style));
+            mark.font_style = ScalarOrArray::new_array(font_style);
         }
         if limit.len() == len {
-            mark.limit = ScalarOrArray::Array(Arc::new(limit));
+            mark.limit = ScalarOrArray::new_array(limit);
         }
         if zindex.len() == len {
             let mut indices: Vec<usize> = (0..len).collect();

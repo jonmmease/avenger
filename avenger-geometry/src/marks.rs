@@ -1,4 +1,4 @@
-use crate::lyon_to_geo::IntoGeoType;
+use crate::lyon_utils::IntoGeoType;
 use crate::GeometryInstance;
 use avenger_scenegraph::marks::area::SceneAreaMark;
 use avenger_scenegraph::marks::group::SceneGroup;

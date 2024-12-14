@@ -87,28 +87,28 @@ impl VegaMarkContainer<VegaRectItem> {
         mark.len = len as u32;
 
         if x.len() == len {
-            mark.x = ScalarOrArray::Array(Arc::new(x));
+            mark.x = ScalarOrArray::new_array(x);
         }
         if y.len() == len {
-            mark.y = ScalarOrArray::Array(Arc::new(y));
+            mark.y = ScalarOrArray::new_array(y);
         }
         if width.len() == len {
-            mark.width = Some(ScalarOrArray::Array(Arc::new(width)));
+            mark.width = Some(ScalarOrArray::new_array(width));
         }
         if height.len() == len {
-            mark.height = Some(ScalarOrArray::Array(Arc::new(height)));
+            mark.height = Some(ScalarOrArray::new_array(height));
         }
         if fill.len() == len {
-            mark.fill = ScalarOrArray::Array(Arc::new(fill));
+            mark.fill = ScalarOrArray::new_array(fill);
         }
         if stroke.len() == len {
-            mark.stroke = ScalarOrArray::Array(Arc::new(stroke));
+            mark.stroke = ScalarOrArray::new_array(stroke);
         }
         if stroke_width.len() == len {
-            mark.stroke_width = ScalarOrArray::Array(Arc::new(stroke_width));
+            mark.stroke_width = ScalarOrArray::new_array(stroke_width);
         }
         if corner_radius.len() == len {
-            mark.corner_radius = ScalarOrArray::Array(Arc::new(corner_radius));
+            mark.corner_radius = ScalarOrArray::new_array(corner_radius);
         }
         if zindex.len() == len {
             let mut indices: Vec<usize> = (0..len).collect();

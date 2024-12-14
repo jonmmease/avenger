@@ -78,13 +78,13 @@ impl VegaMarkContainer<VegaLineItem> {
         mark.len = len as u32;
 
         if x.len() == len {
-            mark.x = ScalarOrArray::Array(Arc::new(x));
+            mark.x = ScalarOrArray::new_array(x);
         }
         if y.len() == len {
-            mark.y = ScalarOrArray::Array(Arc::new(y));
+            mark.y = ScalarOrArray::new_array(y);
         }
         if defined.len() == len {
-            mark.defined = ScalarOrArray::Array(Arc::new(defined));
+            mark.defined = ScalarOrArray::new_array(defined);
         }
 
         Ok(SceneMark::Line(mark))

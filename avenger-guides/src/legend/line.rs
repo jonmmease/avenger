@@ -43,8 +43,8 @@ impl Default for LineLegendConfig {
     fn default() -> Self {
         Self {
             title: None,
-            text: ScalarOrArray::Scalar("".to_string()),
-            stroke: ScalarOrArray::Scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+            text: ScalarOrArray::new_scalar("".to_string()),
+            stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             stroke_dash: None.into(),
             stroke_width: 2.0.into(),
             stroke_cap: StrokeCap::Butt,

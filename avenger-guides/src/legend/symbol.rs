@@ -41,13 +41,13 @@ impl Default for SymbolLegendConfig {
     fn default() -> Self {
         Self {
             title: None,
-            text: ScalarOrArray::Scalar("".to_string()),
-            shape: ScalarOrArray::Scalar(Default::default()),
-            size: ScalarOrArray::Scalar(20.0),
-            stroke: ScalarOrArray::Scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+            text: ScalarOrArray::new_scalar("".to_string()),
+            shape: ScalarOrArray::new_scalar(Default::default()),
+            size: ScalarOrArray::new_scalar(20.0),
+            stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             stroke_width: None,
-            fill: ScalarOrArray::Scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
-            angle: ScalarOrArray::Scalar(0.0),
+            fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+            angle: ScalarOrArray::new_scalar(0.0),
             inner_width: 100.0,
             inner_height: 100.0,
 
@@ -73,7 +73,7 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
         len: len as u32,
         // Handle shapes and shape_index
         shapes: config.shape.as_vec(len, None),
-        shape_index: ScalarOrArray::Array(Arc::new((0..len).collect())),
+        shape_index: ScalarOrArray::new_array((0..len).collect()),
 
         // Direct clone from config
         size: config.size.clone(),
