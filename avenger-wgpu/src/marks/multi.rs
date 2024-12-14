@@ -144,6 +144,12 @@ impl MultiMarkRenderer {
         }
     }
 
+    pub fn clear(&mut self) {
+        self.verts_inds.clear();
+        self.clip_verts_inds.clear();
+        self.batches.clear();
+    }
+
     fn add_clip_path(
         &mut self,
         clip: &Clip,

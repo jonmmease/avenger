@@ -184,6 +184,7 @@ impl<'window> Canvas for HtmlCanvasCanvas<'window> {
     }
 
     fn clear_mark_renderer(&mut self) {
+        self.get_multi_renderer().clear();
         self.marks.clear();
     }
 

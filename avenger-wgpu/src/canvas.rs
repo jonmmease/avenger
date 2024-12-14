@@ -609,6 +609,7 @@ impl<'window> Canvas for WindowCanvas<'window> {
     }
 
     fn clear_mark_renderer(&mut self) {
+        self.get_multi_renderer().clear();
         self.marks.clear();
     }
 
@@ -876,6 +877,7 @@ impl Canvas for PngCanvas {
     }
 
     fn clear_mark_renderer(&mut self) {
+        self.get_multi_renderer().clear();
         self.marks.clear();
     }
 
