@@ -5,6 +5,7 @@ use crate::scene::{
     SceneMouseEnterEvent, SceneMouseLeaveEvent, SceneMouseUpEvent, SceneMouseWheelEvent,
 };
 use crate::window::{ElementState, MouseButton, WindowEvent};
+use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::marks::mark::MarkInstance;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -88,7 +89,7 @@ struct BetweenState {
 }
 
 // handler that does nothing
-fn noop_handler(_: &SceneGraphEvent, _: &mut ()) -> UpdateStatus {
+fn noop_handler(_: &SceneGraphEvent, _: &mut (), _: &SceneGraphRTree) -> UpdateStatus {
     Default::default()
 }
 

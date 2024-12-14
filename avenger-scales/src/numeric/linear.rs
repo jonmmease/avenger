@@ -142,6 +142,37 @@ impl LinearNumericScale {
         self.round = round;
         self
     }
+
+    /// Pans the domain by the given delta
+    ///
+    /// The delta value represents fractional units of the scale range; for example,
+    /// 0.5 indicates panning the scale domain to the right by half the scale range.
+    pub fn pan(&self, delta: f32) -> Self {
+        let domain_delta = (self.domain_end - self.domain_start) * delta;
+        self.clone().with_domain((
+            self.domain_start - domain_delta,
+            self.domain_end - domain_delta,
+        ))
+    }
+
+    /// Zooms the domain by the given scale factor
+    ///
+    /// The anchor value represents the zoom position in terms of fractional units of the
+    /// scale range; for example, 0.5 indicates a zoom centered on the mid-point of the
+    /// scale range.
+    ///
+    /// The scale factor represents the amount to scale the domain by; for example,
+    /// 2.0 indicates zooming the scale domain to be twice as large.
+    pub fn zoom(&self, anchor: f32, scale_factor: f32) -> Self {
+        let domain_start = self.domain_start;
+        let domain_end = self.domain_end;
+        let domain_anchor = domain_start + anchor * (domain_end - domain_start);
+
+        let new_start = domain_anchor + (domain_start - domain_anchor) * scale_factor;
+        let new_end = domain_anchor + (domain_end - domain_anchor) * scale_factor;
+
+        self.clone().with_domain((new_start, new_end))
+    }
 }
 
 impl ContinuousNumericScale<f32> for LinearNumericScale {

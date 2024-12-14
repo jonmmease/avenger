@@ -3,6 +3,8 @@ use avenger_common::types::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{EventStreamConfig, UpdateStatus};
+use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
+use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::axis::numeric::make_numeric_axis_marks;
 use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
 use avenger_guides::legend::symbol::{make_symbol_legend, SymbolLegendConfig};
@@ -22,6 +24,13 @@ use std::sync::Arc;
 use winit::event_loop::EventLoop;
 
 #[derive(Clone)]
+pub struct PanAnchor {
+    pub range_position: [f32; 2],
+    pub x_domain: (f32, f32),
+    pub y_domain: (f32, f32),
+}
+
+#[derive(Clone)]
 pub struct ChartState {
     pub hover_index: Option<usize>,
     pub width: f32,
@@ -31,6 +40,10 @@ pub struct ChartState {
     pub sepal_length: Vec<f32>,
     pub sepal_width: Vec<f32>,
     pub species: Vec<String>,
+    pub plot_group_name: String,
+
+    // For panning
+    pub pan_anchor: Option<PanAnchor>,
 }
 
 impl ChartState {
@@ -72,21 +85,30 @@ impl ChartState {
             sepal_length,
             sepal_width,
             species,
+            plot_group_name: "plot".to_string(),
+            pan_anchor: None,
         }
+    }
+
+    pub fn x_scale(&self) -> LinearNumericScale {
+        LinearNumericScale::new(&Default::default())
+            .with_domain(self.domain_sepal_length)
+            .with_range((0.0, self.width))
+        // .with_round(true)
+    }
+
+    pub fn y_scale(&self) -> LinearNumericScale {
+        LinearNumericScale::new(&Default::default())
+            .with_domain(self.domain_sepal_width)
+            .with_range((self.height, 0.0))
+        // .with_round(true)
     }
 }
 
 fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
     // Build scales
-    let x_scale = LinearNumericScale::new(&Default::default())
-        .with_domain(chart_state.domain_sepal_length)
-        .with_range((0.0, chart_state.width))
-        .with_round(true);
-
-    let y_scale = LinearNumericScale::new(&Default::default())
-        .with_domain(chart_state.domain_sepal_width)
-        .with_range((chart_state.height, 0.0))
-        .with_round(true);
+    let x_scale = chart_state.x_scale();
+    let y_scale = chart_state.y_scale();
 
     let color_scale = OrdinalScale::new(
         &[
@@ -153,6 +175,7 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
 
     // make mark group with clipping
     let mark_group = SceneGroup {
+        name: chart_state.plot_group_name.clone(),
         origin: [0.0, 0.0],
         marks: vec![points.into()],
         // Clip to not overlap with axis
@@ -235,19 +258,171 @@ pub async fn run() {
         }
     }
 
+    // Predefine configs that are used in multiple handlers
+    let left_mouse_down_config = EventStreamConfig {
+        types: vec![SceneGraphEventType::MouseDown],
+        filter: Some(vec![Arc::new(|event| {
+            let SceneGraphEvent::MouseDown(mouse_down) = event else {
+                return false;
+            };
+            mouse_down.button == MouseButton::Left
+        })]),
+        ..Default::default()
+    };
+    let left_mouse_up_config = EventStreamConfig {
+        types: vec![SceneGraphEventType::MouseUp],
+        filter: Some(vec![Arc::new(|event| {
+            let SceneGraphEvent::MouseUp(mouse_up) = event else {
+                return false;
+            };
+            mouse_up.button == MouseButton::Left
+        })]),
+        ..Default::default()
+    };
+
     let avenger_app = AvengerApp::new(
         ChartState::new(),
         Arc::new(make_scene_graph),
         vec![
+            // // Hover highlight
+            // (
+            //     EventStreamConfig {
+            //         types: vec![SceneGraphEventType::MarkMouseEnter],
+            //         mark_paths: Some(vec![vec![0, 2, 0]]),
+            //         ..Default::default()
+            //     },
+            //     Arc::new(
+            //         |event: &SceneGraphEvent,
+            //          state: &mut ChartState,
+            //          _rtree: &SceneGraphRTree|
+            //          -> UpdateStatus {
+            //             state.hover_index = event.mark_instance().and_then(|i| i.instance_index);
+            //             UpdateStatus {
+            //                 rerender: true,
+            //                 rebuild_geometry: true,
+            //             }
+            //         },
+            //     ),
+            // ),
+            // (
+            //     EventStreamConfig {
+            //         types: vec![SceneGraphEventType::MarkMouseLeave],
+            //         mark_paths: Some(vec![vec![0, 2, 0]]),
+            //         ..Default::default()
+            //     },
+            //     Arc::new(
+            //         |_event: &SceneGraphEvent,
+            //          state: &mut ChartState,
+            //          _rtree: &SceneGraphRTree|
+            //          -> UpdateStatus {
+            //             state.hover_index = None;
+            //             UpdateStatus {
+            //                 rerender: true,
+            //                 rebuild_geometry: true,
+            //             }
+            //         },
+            //     ),
+            // ),
+            // Panning (record click anchor)
+            (
+                left_mouse_down_config.clone(),
+                Arc::new(
+                    |event: &SceneGraphEvent,
+                     state: &mut ChartState,
+                     rtree: &SceneGraphRTree|
+                     -> UpdateStatus {
+                        let event_position = event.position().unwrap();
+                        let plot_origin = rtree.named_group_origin(&state.plot_group_name).unwrap();
+                        let plot_x = event_position[0] - plot_origin[0];
+                        let plot_y = event_position[1] - plot_origin[1];
+
+                        // Get scales
+                        let x_scale = state.x_scale();
+                        let y_scale = state.y_scale();
+
+                        // Check if cursor is over the plot area
+                        let normalized_x = (plot_x - x_scale.range().0) / x_scale.range_length();
+                        let normalized_y = (plot_y - y_scale.range().0) / y_scale.range_length();
+                        if normalized_x < 0.0
+                            || normalized_x > 1.0
+                            || normalized_y < 0.0
+                            || normalized_y > 1.0
+                        {
+                            return UpdateStatus {
+                                rerender: false,
+                                rebuild_geometry: false,
+                            };
+                        }
+
+                        state.pan_anchor = Some(PanAnchor {
+                            range_position: [plot_x, plot_y],
+                            x_domain: state.domain_sepal_length,
+                            y_domain: state.domain_sepal_width,
+                        });
+
+                        UpdateStatus {
+                            rerender: false,
+                            rebuild_geometry: false,
+                        }
+                    },
+                ),
+            ),
+            // Panning (dragging)
             (
                 EventStreamConfig {
-                    types: vec![SceneGraphEventType::MarkMouseEnter],
-                    mark_paths: Some(vec![vec![0, 2, 0]]),
+                    types: vec![SceneGraphEventType::CursorMoved],
+                    between: Some((
+                        Box::new(left_mouse_down_config.clone()),
+                        Box::new(left_mouse_up_config.clone()),
+                    )),
                     ..Default::default()
                 },
                 Arc::new(
-                    |event: &SceneGraphEvent, state: &mut ChartState| -> UpdateStatus {
-                        state.hover_index = event.mark_instance().and_then(|i| i.instance_index);
+                    |event: &SceneGraphEvent,
+                     state: &mut ChartState,
+                     rtree: &SceneGraphRTree|
+                     -> UpdateStatus {
+                        let Some(pan_anchor) = &state.pan_anchor else {
+                            return UpdateStatus {
+                                rerender: false,
+                                rebuild_geometry: false,
+                            };
+                        };
+
+                        // Get the cursor position in range space
+                        let event_position = event.position().unwrap();
+                        let plot_origin = rtree.named_group_origin(&state.plot_group_name).unwrap();
+                        let plot_x = event_position[0] - plot_origin[0];
+                        let plot_y = event_position[1] - plot_origin[1];
+
+                        let x_scale = state.x_scale().with_domain(pan_anchor.x_domain);
+                        let y_scale = state.y_scale().with_domain(pan_anchor.y_domain);
+
+                        let x_delta =
+                            (plot_x - pan_anchor.range_position[0]) / x_scale.range_length();
+                        let y_delta =
+                            (plot_y - pan_anchor.range_position[1]) / y_scale.range_length();
+
+                        // Update domains
+                        state.domain_sepal_length = x_scale.pan(x_delta).domain();
+                        state.domain_sepal_width = y_scale.pan(y_delta).domain();
+
+                        UpdateStatus {
+                            rerender: true,
+                            rebuild_geometry: false,
+                        }
+                    },
+                ),
+            ),
+            // Panning (release)
+            (
+                left_mouse_up_config,
+                Arc::new(
+                    |_event: &SceneGraphEvent,
+                     state: &mut ChartState,
+                     _rtree: &SceneGraphRTree|
+                     -> UpdateStatus {
+                        state.pan_anchor = None;
                         UpdateStatus {
                             rerender: true,
                             rebuild_geometry: true,
@@ -255,15 +430,63 @@ pub async fn run() {
                     },
                 ),
             ),
+            // wheel zoom
             (
                 EventStreamConfig {
-                    types: vec![SceneGraphEventType::MarkMouseLeave],
-                    mark_paths: Some(vec![vec![0, 2, 0]]),
+                    types: vec![SceneGraphEventType::MouseWheel],
                     ..Default::default()
                 },
                 Arc::new(
-                    |_event: &SceneGraphEvent, state: &mut ChartState| -> UpdateStatus {
-                        state.hover_index = None;
+                    |event: &SceneGraphEvent,
+                     state: &mut ChartState,
+                     rtree: &SceneGraphRTree|
+                     -> UpdateStatus {
+                        let SceneGraphEvent::MouseWheel(event) = event else {
+                            return UpdateStatus {
+                                rerender: false,
+                                rebuild_geometry: false,
+                            };
+                        };
+
+                        // Get scales
+                        let x_scale = state.x_scale();
+                        let y_scale = state.y_scale();
+
+                        // Get cursor position
+                        let event_position = event.position;
+                        let plot_origin = rtree.named_group_origin(&state.plot_group_name).unwrap();
+                        let plot_x = event_position[0] - plot_origin[0];
+                        let plot_y = event_position[1] - plot_origin[1];
+
+                        let normalized_x = (plot_x - x_scale.range().0) / x_scale.range_length();
+                        let normalized_y = (plot_y - y_scale.range().0) / y_scale.range_length();
+
+                        // Check if cursor is over the plot area
+                        if normalized_x < 0.0
+                            || normalized_x > 1.0
+                            || normalized_y < 0.0
+                            || normalized_y > 1.0
+                        {
+                            return UpdateStatus {
+                                rerender: false,
+                                rebuild_geometry: false,
+                            };
+                        }
+
+                        let factor = match event.delta {
+                            MouseScrollDelta::LineDelta(x_line_delta, y_line_delta) => {
+                                -(x_line_delta + y_line_delta) * 0.005 + 1.0
+                            }
+                            MouseScrollDelta::PixelDelta(x_pixel_delta, y_pixel_delta) => {
+                                -((x_pixel_delta + y_pixel_delta) as f32 / x_scale.range_length())
+                                    * 0.01
+                                    + 1.0
+                            }
+                        };
+
+                        state.domain_sepal_length = x_scale.zoom(normalized_x, factor).domain();
+                        state.domain_sepal_width = y_scale.zoom(normalized_y, factor).domain();
+
                         UpdateStatus {
                             rerender: true,
                             rebuild_geometry: true,

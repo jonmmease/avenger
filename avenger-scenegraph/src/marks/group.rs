@@ -137,6 +137,22 @@ impl SceneGroup {
             zindex: self.zindex,
         })
     }
+
+    pub fn group_paths(&self) -> Vec<Vec<usize>> {
+        let mut paths = vec![];
+        for (index, mark) in self.marks.iter().enumerate() {
+            let SceneMark::Group(group) = mark else {
+                continue;
+            };
+            paths.push(vec![index]);
+            for sub_path in group.group_paths() {
+                let mut path = vec![index];
+                path.extend(sub_path);
+                paths.push(path);
+            }
+        }
+        paths
+    }
 }
 
 impl Default for SceneGroup {
