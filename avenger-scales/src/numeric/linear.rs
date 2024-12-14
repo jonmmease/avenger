@@ -173,6 +173,65 @@ impl LinearNumericScale {
 
         self.clone().with_domain((new_start, new_end))
     }
+
+    /// Compute adjustment for data that was originally scaled by `self` to be scaled
+    /// by `to_scale`
+    pub fn adjust(&self, to_scale: &Self) -> LinearScaleAdjustment {
+        // Solve with sympy
+        // -----------------
+        // ```python
+        // from sympy import symbols, solve, factor
+        // # Define variables
+        // adj_scale, adj_offset = symbols('adj_scale adj_offset', real=True)
+        // domain_a_start, domain_a_end = symbols('self.domain_start self.domain_end', real=True)
+        // range_a_start, range_a_end = symbols('self.range_start self.range_end', real=True)
+        // domain_b_start, domain_b_end = symbols('to_scale.domain_start to_scale.domain_end', real=True)
+        // range_b_start, range_b_end = symbols('to_scale.range_start to_scale.range_end', real=True)
+        //
+        // # Define scale and offset for scale A:
+        // scale_a = (range_a_end - range_a_start)/(domain_a_end - domain_a_start)
+        // offset_a = range_a_start - scale_a * domain_a_start
+        //
+        // # Define scale and offset for scale B:
+        // scale_b = (range_b_end - range_b_start)/(domain_b_end - domain_b_start)
+        // offset_b = range_b_start - scale_b * domain_b_start
+        //
+        // # Map domain_a_start with both scales:
+        // range_value_a1 = scale_a * domain_a_start + offset_a
+        // range_value_b1 = scale_b * domain_a_start + offset_b
+        //
+        // # Map domain_a_end with both scales:
+        // range_value_a2 = scale_a * domain_a_end + offset_a
+        // range_value_b2 = scale_b * domain_a_end + offset_b
+        //
+        // # Solve for adjustment factors:
+        // eq1 = adj_scale * range_value_a1 + adj_offset - range_value_b1
+        // eq2 = adj_scale * range_value_a2 + adj_offset - range_value_b2
+        //
+        // solution = solve((eq1, eq2), (adj_scale, adj_offset))
+        // print("let scale =", factor(solution[adj_scale].simplify()))
+        // print("let offset =", factor(solution[adj_offset].simplify()))
+        // ```
+        let scale = (self.domain_end - self.domain_start)
+            * (to_scale.range_end - to_scale.range_start)
+            / ((self.range_end - self.range_start) * (to_scale.domain_end - to_scale.domain_start));
+        let offset = -(self.domain_end * self.range_start * to_scale.range_end
+            - self.domain_end * self.range_start * to_scale.range_start
+            - self.domain_start * self.range_end * to_scale.range_end
+            + self.domain_start * self.range_end * to_scale.range_start
+            - self.range_end * to_scale.domain_end * to_scale.range_start
+            + self.range_end * to_scale.domain_start * to_scale.range_end
+            + self.range_start * to_scale.domain_end * to_scale.range_start
+            - self.range_start * to_scale.domain_start * to_scale.range_end)
+            / ((self.range_end - self.range_start) * (to_scale.domain_end - to_scale.domain_start));
+        LinearScaleAdjustment { scale, offset }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct LinearScaleAdjustment {
+    pub scale: f32,
+    pub offset: f32,
 }
 
 impl ContinuousNumericScale<f32> for LinearNumericScale {
@@ -551,5 +610,98 @@ mod tests {
 
         assert_eq!(scale.domain_start, -1.0);
         assert_eq!(scale.domain_end, -11.0);
+    }
+
+    #[test]
+    fn test_scale_adjustment_basic() {
+        let scale_a = LinearNumericScale::new(&LinearNumericScaleConfig {
+            domain: (0.0, 100.0),
+            range: (0.0, 1.0),
+            ..Default::default()
+        });
+
+        let scale_b = LinearNumericScale::new(&LinearNumericScaleConfig {
+            domain: (0.0, 100.0),
+            range: (0.0, 2.0),
+            ..Default::default()
+        });
+
+        let adjustment = scale_a.adjust(&scale_b);
+
+        // Scale should be 2.0 since scale_b's range is twice as large
+        assert_approx_eq!(f32, adjustment.scale, 2.0);
+        // Offset should be 0.0 since both scales start at 0
+        assert_approx_eq!(f32, adjustment.offset, 0.0);
+
+        // Test that the adjustment correctly transforms values
+        let domain_value_a = 50.0; // Middle of scale_a's range
+        let range_value_a = scale_a.scale_scalar(domain_value_a);
+        let expected_range_b = scale_b.scale_scalar(domain_value_a); // Should map to middle of scale_b's range
+        let adjusted_range_b = range_value_a * adjustment.scale + adjustment.offset;
+        assert_approx_eq!(f32, adjusted_range_b, expected_range_b);
+    }
+
+    #[test]
+    fn test_scale_adjustment_with_offset() {
+        let scale_a = LinearNumericScale::new(&LinearNumericScaleConfig {
+            domain: (100.0, 200.0),
+            range: (1.0, 2.0),
+            ..Default::default()
+        });
+
+        let scale_b = LinearNumericScale::new(&LinearNumericScaleConfig {
+            domain: (0.0, 100.0),
+            range: (10.0, 20.0),
+            ..Default::default()
+        });
+
+        let adjustment: LinearScaleAdjustment = scale_a.adjust(&scale_b);
+
+        // Test a few points to verify the transformation
+        let test_domain_values = vec![100.0, 150.0, 200.0];
+        let range_a_values = scale_a
+            .scale(&test_domain_values)
+            .as_vec(test_domain_values.len(), None);
+
+        let expected_range_b_values = scale_b
+            .scale(&test_domain_values)
+            .as_vec(test_domain_values.len(), None);
+
+        for (input, expected) in range_a_values.iter().zip(expected_range_b_values.iter()) {
+            let adjusted = input * adjustment.scale + adjustment.offset;
+            assert_approx_eq!(f32, adjusted, *expected);
+        }
+    }
+
+    #[test]
+    fn test_scale_adjustment_reversed_ranges() {
+        let scale_a = LinearNumericScale::new(&LinearNumericScaleConfig {
+            domain: (0.0, 100.0),
+            range: (1.0, 0.0), // Reversed range
+            ..Default::default()
+        });
+
+        let scale_b = LinearNumericScale::new(&LinearNumericScaleConfig {
+            domain: (0.0, 100.0),
+            range: (0.0, 2.0),
+            ..Default::default()
+        });
+
+        let adjustment = scale_a.adjust(&scale_b);
+
+        // Test a few points to verify the transformation
+        let test_domain_values = vec![0.0, 50.0, 100.0];
+        let range_a_values = scale_a
+            .scale(&test_domain_values)
+            .as_vec(test_domain_values.len(), None);
+
+        let expected_range_b_values = scale_b
+            .scale(&test_domain_values)
+            .as_vec(test_domain_values.len(), None);
+
+        for (input, expected) in range_a_values.iter().zip(expected_range_b_values.iter()) {
+            let adjusted = input * adjustment.scale + adjustment.offset;
+            assert_approx_eq!(f32, adjusted, *expected);
+        }
     }
 }

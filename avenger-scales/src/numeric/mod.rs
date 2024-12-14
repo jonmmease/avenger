@@ -22,6 +22,15 @@ where
     fn clamp(&self) -> bool;
     /// Maps input values from domain to range
     fn scale<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, D>>) -> ScalarOrArray<f32>;
+
+    /// Maps a single input value from domain to range
+    fn scale_scalar(&self, value: D) -> f32 {
+        self.scale(&vec![value])
+            .as_iter(1, None)
+            .next()
+            .cloned()
+            .unwrap()
+    }
     /// Maps output values from range back to domain
     fn invert<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, f32>>) -> ScalarOrArray<D>;
     /// Invert a single value from range back to domain
