@@ -112,28 +112,28 @@ fn make_tick_marks(
 
     let (x0, x1, y0, y1) = match orientation {
         AxisOrientation::Left => (
-            ScalarOrArray::Scalar(0.0),
-            ScalarOrArray::Scalar(-TICK_LENGTH),
+            ScalarOrArray::new_scalar(0.0),
+            ScalarOrArray::new_scalar(-TICK_LENGTH),
             scaled_values.clone(),
             scaled_values.clone(),
         ),
         AxisOrientation::Right => (
-            ScalarOrArray::Scalar(dimensions[0]),
-            ScalarOrArray::Scalar(dimensions[0] + TICK_LENGTH),
+            ScalarOrArray::new_scalar(dimensions[0]),
+            ScalarOrArray::new_scalar(dimensions[0] + TICK_LENGTH),
             scaled_values.clone(),
             scaled_values.clone(),
         ),
         AxisOrientation::Top => (
             scaled_values.clone(),
             scaled_values.clone(),
-            ScalarOrArray::Scalar(0.0),
-            ScalarOrArray::Scalar(-TICK_LENGTH),
+            ScalarOrArray::new_scalar(0.0),
+            ScalarOrArray::new_scalar(-TICK_LENGTH),
         ),
         AxisOrientation::Bottom => (
             scaled_values.clone(),
             scaled_values.clone(),
-            ScalarOrArray::Scalar(dimensions[1]),
-            ScalarOrArray::Scalar(dimensions[1] + TICK_LENGTH),
+            ScalarOrArray::new_scalar(dimensions[1]),
+            ScalarOrArray::new_scalar(dimensions[1] + TICK_LENGTH),
         ),
     };
 
@@ -160,28 +160,28 @@ fn make_tick_grid_marks(
 
     let (x0, x1, y0, y1) = match orientation {
         AxisOrientation::Left => (
-            ScalarOrArray::Scalar(0.0),
-            ScalarOrArray::Scalar(dimensions[0]),
+            ScalarOrArray::new_scalar(0.0),
+            ScalarOrArray::new_scalar(dimensions[0]),
             scaled_values.clone(),
             scaled_values.clone(),
         ),
         AxisOrientation::Right => (
-            ScalarOrArray::Scalar(0.0),
-            ScalarOrArray::Scalar(dimensions[0]),
+            ScalarOrArray::new_scalar(0.0),
+            ScalarOrArray::new_scalar(dimensions[0]),
             scaled_values.clone(),
             scaled_values.clone(),
         ),
         AxisOrientation::Top => (
             scaled_values.clone(),
             scaled_values.clone(),
-            ScalarOrArray::Scalar(0.0),
-            ScalarOrArray::Scalar(dimensions[1]),
+            ScalarOrArray::new_scalar(0.0),
+            ScalarOrArray::new_scalar(dimensions[1]),
         ),
         AxisOrientation::Bottom => (
             scaled_values.clone(),
             scaled_values.clone(),
-            ScalarOrArray::Scalar(0.0),
-            ScalarOrArray::Scalar(dimensions[1]),
+            ScalarOrArray::new_scalar(0.0),
+            ScalarOrArray::new_scalar(dimensions[1]),
         ),
     };
 
@@ -209,14 +209,14 @@ fn make_tick_labels(
 
     let (x, y, align, baseline, angle) = match orientation {
         AxisOrientation::Left => (
-            ScalarOrArray::Scalar(-TICK_LENGTH - TEXT_MARGIN),
+            ScalarOrArray::new_scalar(-TICK_LENGTH - TEXT_MARGIN),
             scaled_values,
             TextAlignSpec::Right,
             TextBaselineSpec::Middle,
             0.0,
         ),
         AxisOrientation::Right => (
-            ScalarOrArray::Scalar(dimensions[0] + TICK_LENGTH + TEXT_MARGIN),
+            ScalarOrArray::new_scalar(dimensions[0] + TICK_LENGTH + TEXT_MARGIN),
             scaled_values,
             TextAlignSpec::Left,
             TextBaselineSpec::Middle,
@@ -224,14 +224,14 @@ fn make_tick_labels(
         ),
         AxisOrientation::Top => (
             scaled_values,
-            ScalarOrArray::Scalar(-TICK_LENGTH),
+            ScalarOrArray::new_scalar(-TICK_LENGTH),
             TextAlignSpec::Center,
             TextBaselineSpec::Bottom,
             0.0,
         ),
         AxisOrientation::Bottom => (
             scaled_values,
-            ScalarOrArray::Scalar(dimensions[1] + TICK_LENGTH + TEXT_MARGIN),
+            ScalarOrArray::new_scalar(dimensions[1] + TICK_LENGTH + TEXT_MARGIN),
             TextAlignSpec::Center,
             TextBaselineSpec::Top,
             0.0,

@@ -15,6 +15,7 @@ rstar = { workspace = true }
 geo = { workspace = true }
 geo-svg = { workspace = true }
 itertools = { workspace = true }
+ordered-float = { workspace = true }
 
 [dev-dependencies]
 float-cmp = "0.10.0"

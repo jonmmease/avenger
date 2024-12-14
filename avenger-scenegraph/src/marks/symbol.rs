@@ -2,15 +2,18 @@ use super::mark::SceneMark;
 use crate::error::AvengerSceneGraphError;
 use crate::marks::path::PathTransform;
 use avenger_common::types::{ColorOrGradient, Gradient};
-use avenger_common::value::ScalarOrArray;
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use itertools::izip;
-use lyon_extra::euclid::Vector2D;
+use lyon_extra::euclid::{UnknownUnit, Vector2D};
 use lyon_extra::parser::{ParserOptions, Source};
 use lyon_path::geom::euclid::Point2D;
 use lyon_path::geom::{Angle, Box2D, Point, Scale};
+use lyon_path::PathEvent;
 use lyon_path::{Path, Winding};
+use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,12 +127,13 @@ impl SceneSymbolMark {
     }
 
     pub fn max_size(&self) -> f32 {
-        match &self.size {
-            ScalarOrArray::Scalar(size) => *size,
-            ScalarOrArray::Array(values) => *values
+        match self.size.value() {
+            ScalarOrArrayValue::Scalar(size) => *size,
+            ScalarOrArrayValue::Array(values) => values
                 .iter()
                 .max_by(|a, b| a.partial_cmp(b).unwrap())
-                .unwrap_or(&1.0),
+                .cloned()
+                .unwrap_or(1.0),
         }
     }
 
@@ -149,13 +153,13 @@ impl Default for SceneSymbolMark {
             shapes: vec![Default::default()],
             stroke_width: None,
             len: 1,
-            x: ScalarOrArray::Scalar(0.0),
-            y: ScalarOrArray::Scalar(0.0),
-            shape_index: ScalarOrArray::Scalar(0),
-            fill: ScalarOrArray::Scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
-            size: ScalarOrArray::Scalar(20.0),
-            stroke: ScalarOrArray::Scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
-            angle: ScalarOrArray::Scalar(0.0),
+            x: ScalarOrArray::new_scalar(0.0),
+            y: ScalarOrArray::new_scalar(0.0),
+            shape_index: ScalarOrArray::new_scalar(0),
+            fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+            size: ScalarOrArray::new_scalar(20.0),
+            stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+            angle: ScalarOrArray::new_scalar(0.0),
             indices: None,
             gradients: vec![],
             zindex: None,
@@ -170,6 +174,15 @@ pub enum SymbolShape {
     Circle,
     /// Path with origin top-left
     Path(lyon_path::Path),
+}
+
+impl Hash for SymbolShape {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            SymbolShape::Circle => state.write_u8(0),
+            SymbolShape::Path(path) => hash_lyon_path(path, state),
+        }
+    }
 }
 
 impl SymbolShape {
@@ -336,5 +349,48 @@ pub fn parse_svg_path(path: &str) -> Result<Path, AvengerSceneGraphError> {
 impl From<SceneSymbolMark> for SceneMark {
     fn from(mark: SceneSymbolMark) -> Self {
         SceneMark::Symbol(mark)
+    }
+}
+
+pub fn hash_point<H: Hasher>(point: &Point2D<f32, UnknownUnit>, hasher: &mut H) {
+    OrderedFloat::from(point.x).hash(hasher);
+    OrderedFloat::from(point.y).hash(hasher);
+}
+
+pub fn hash_lyon_path<H: Hasher>(path: &Path, hasher: &mut H) {
+    for evt in path.iter() {
+        // hash enum variant
+        let variant = std::mem::discriminant(&evt);
+        variant.hash(hasher);
+
+        // hash enum value
+        match evt {
+            PathEvent::Begin { at } => hash_point(&at, hasher),
+            PathEvent::Line { from, to, .. } => {
+                hash_point(&from, hasher);
+                hash_point(&to, hasher);
+            }
+            PathEvent::End { last, first, close } => {
+                hash_point(&last, hasher);
+                hash_point(&first, hasher);
+                close.hash(hasher);
+            }
+            PathEvent::Quadratic { from, ctrl, to, .. } => {
+                hash_point(&from, hasher);
+                hash_point(&ctrl, hasher);
+                hash_point(&to, hasher);
+            }
+            PathEvent::Cubic {
+                from,
+                ctrl1,
+                ctrl2,
+                to,
+            } => {
+                hash_point(&from, hasher);
+                hash_point(&ctrl1, hasher);
+                hash_point(&ctrl2, hasher);
+                hash_point(&to, hasher);
+            }
+        }
     }
 }

@@ -1,4 +1,7 @@
+use crate::impl_hash_for_scalar_or_array;
+use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
+use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -8,8 +11,9 @@ pub enum StrokeCap {
     Round,
     Square,
 }
+impl_hash_for_scalar_or_array!(StrokeCap);
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum StrokeJoin {
     Bevel,
@@ -17,8 +21,9 @@ pub enum StrokeJoin {
     Miter,
     Round,
 }
+impl_hash_for_scalar_or_array!(StrokeJoin);
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ImageAlign {
     #[default]
@@ -26,8 +31,9 @@ pub enum ImageAlign {
     Center,
     Right,
 }
+impl_hash_for_scalar_or_array!(ImageAlign);
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ImageBaseline {
     #[default]
@@ -35,6 +41,7 @@ pub enum ImageBaseline {
     Middle,
     Bottom,
 }
+impl_hash_for_scalar_or_array!(ImageBaseline);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -42,6 +49,21 @@ pub enum ColorOrGradient {
     Color([f32; 4]),
     GradientIndex(u32),
 }
+impl Hash for ColorOrGradient {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            ColorOrGradient::Color(c) => [
+                OrderedFloat::from(c[0]),
+                OrderedFloat::from(c[1]),
+                OrderedFloat::from(c[2]),
+                OrderedFloat::from(c[3]),
+            ]
+            .hash(state),
+            ColorOrGradient::GradientIndex(i) => i.hash(state),
+        }
+    }
+}
+impl_hash_for_scalar_or_array!(ColorOrGradient);
 
 impl ColorOrGradient {
     pub fn color_or_transparent(&self) -> [f32; 4] {
@@ -52,12 +74,13 @@ impl ColorOrGradient {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Gradient {
     LinearGradient(LinearGradient),
     RadialGradient(RadialGradient),
 }
+impl_hash_for_scalar_or_array!(Gradient);
 
 impl Gradient {
     pub fn stops(&self) -> &[GradientStop] {
@@ -76,6 +99,15 @@ pub struct LinearGradient {
     pub y1: f32,
     pub stops: Vec<GradientStop>,
 }
+impl Hash for LinearGradient {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        [self.x0, self.y0, self.x1, self.y1]
+            .iter()
+            .for_each(|v| OrderedFloat::from(*v).hash(state));
+
+        self.stops.hash(state);
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RadialGradient {
@@ -88,16 +120,36 @@ pub struct RadialGradient {
     pub stops: Vec<GradientStop>,
 }
 
+impl Hash for RadialGradient {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        [self.x0, self.y0, self.x1, self.y1, self.r0, self.r1]
+            .iter()
+            .for_each(|v| OrderedFloat::from(*v).hash(state));
+
+        self.stops.hash(state);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GradientStop {
     pub offset: f32,
     pub color: [f32; 4],
 }
 
-#[derive(Default, Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+impl Hash for GradientStop {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        OrderedFloat::from(self.offset).hash(state);
+        self.color
+            .iter()
+            .for_each(|v| OrderedFloat::from(*v).hash(state));
+    }
+}
+
+#[derive(Default, Debug, Copy, Clone, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AreaOrientation {
     #[default]
     Vertical,
     Horizontal,
 }
+impl_hash_for_scalar_or_array!(AreaOrientation);

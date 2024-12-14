@@ -121,28 +121,28 @@ where
 
     let (x0, x1, y0, y1) = match orientation {
         AxisOrientation::Left => (
-            ScalarOrArray::Scalar(0.0),
-            ScalarOrArray::Scalar(-TICK_LENGTH),
+            ScalarOrArray::new_scalar(0.0),
+            ScalarOrArray::new_scalar(-TICK_LENGTH),
             scaled_values.clone(),
             scaled_values,
         ),
         AxisOrientation::Right => (
-            ScalarOrArray::Scalar(dimensions[0]),
-            ScalarOrArray::Scalar(dimensions[0] + TICK_LENGTH),
+            ScalarOrArray::new_scalar(dimensions[0]),
+            ScalarOrArray::new_scalar(dimensions[0] + TICK_LENGTH),
             scaled_values.clone(),
             scaled_values,
         ),
         AxisOrientation::Top => (
             scaled_values.clone(),
             scaled_values,
-            ScalarOrArray::Scalar(0.0),
-            ScalarOrArray::Scalar(-TICK_LENGTH),
+            ScalarOrArray::new_scalar(0.0),
+            ScalarOrArray::new_scalar(-TICK_LENGTH),
         ),
         AxisOrientation::Bottom => (
             scaled_values.clone(),
             scaled_values,
-            ScalarOrArray::Scalar(dimensions[1]),
-            ScalarOrArray::Scalar(dimensions[1] + TICK_LENGTH),
+            ScalarOrArray::new_scalar(dimensions[1]),
+            ScalarOrArray::new_scalar(dimensions[1] + TICK_LENGTH),
         ),
     };
 
@@ -171,16 +171,16 @@ where
 
     let (x0, x1, y0, y1) = match orientation {
         AxisOrientation::Left | AxisOrientation::Right => (
-            ScalarOrArray::Scalar(0.0),
-            ScalarOrArray::Scalar(dimensions[0] + PIXEL_OFFSET),
+            ScalarOrArray::new_scalar(0.0),
+            ScalarOrArray::new_scalar(dimensions[0] + PIXEL_OFFSET),
             scaled_values.clone(),
             scaled_values,
         ),
         AxisOrientation::Top | AxisOrientation::Bottom => (
             scaled_values.clone(),
             scaled_values,
-            ScalarOrArray::Scalar(PIXEL_OFFSET),
-            ScalarOrArray::Scalar(dimensions[1] + PIXEL_OFFSET),
+            ScalarOrArray::new_scalar(PIXEL_OFFSET),
+            ScalarOrArray::new_scalar(dimensions[1] + PIXEL_OFFSET),
         ),
     };
 
@@ -209,14 +209,14 @@ where
 
     let (x, y, align, baseline, angle) = match orientation {
         AxisOrientation::Left => (
-            ScalarOrArray::Scalar(-TICK_LENGTH - TEXT_MARGIN),
+            ScalarOrArray::new_scalar(-TICK_LENGTH - TEXT_MARGIN),
             scaled_values,
             TextAlignSpec::Right,
             TextBaselineSpec::Middle,
             0.0,
         ),
         AxisOrientation::Right => (
-            ScalarOrArray::Scalar(dimensions[0] + TICK_LENGTH + TEXT_MARGIN),
+            ScalarOrArray::new_scalar(dimensions[0] + TICK_LENGTH + TEXT_MARGIN),
             scaled_values,
             TextAlignSpec::Left,
             TextBaselineSpec::Middle,
@@ -224,14 +224,14 @@ where
         ),
         AxisOrientation::Top => (
             scaled_values,
-            ScalarOrArray::Scalar(-TICK_LENGTH - TEXT_MARGIN + PIXEL_OFFSET),
+            ScalarOrArray::new_scalar(-TICK_LENGTH - TEXT_MARGIN + PIXEL_OFFSET),
             TextAlignSpec::Center,
             TextBaselineSpec::Bottom,
             0.0,
         ),
         AxisOrientation::Bottom => (
             scaled_values,
-            ScalarOrArray::Scalar(dimensions[1] + PIXEL_OFFSET + TICK_LENGTH + TEXT_MARGIN),
+            ScalarOrArray::new_scalar(dimensions[1] + PIXEL_OFFSET + TICK_LENGTH + TEXT_MARGIN),
             TextAlignSpec::Center,
             TextBaselineSpec::Top,
             0.0,
