@@ -11,16 +11,26 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub trait EventStreamHandler<State: Clone + Send + Sync + 'static> {
-    fn handle(&self, event: &SceneGraphEvent, state: &mut State) -> UpdateStatus;
+    fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        state: &mut State,
+        rtree: &SceneGraphRTree,
+    ) -> UpdateStatus;
 }
 
 impl<State, F> EventStreamHandler<State> for F
 where
     State: Clone + Send + Sync + 'static,
-    F: Fn(&SceneGraphEvent, &mut State) -> UpdateStatus + 'static,
+    F: Fn(&SceneGraphEvent, &mut State, &SceneGraphRTree) -> UpdateStatus + 'static,
 {
-    fn handle(&self, event: &SceneGraphEvent, state: &mut State) -> UpdateStatus {
-        self(event, state)
+    fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        state: &mut State,
+        rtree: &SceneGraphRTree,
+    ) -> UpdateStatus {
+        self(event, state, rtree)
     }
 }
 
@@ -247,7 +257,8 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
                 stream.last_handled_time = Some(instant);
 
                 // Call handler and merge update status
-                update_status = update_status.merge(&stream.handler.handle(event, &mut self.state));
+                update_status =
+                    update_status.merge(&stream.handler.handle(event, &mut self.state, rtree));
 
                 // Handle consume flag
                 if stream.config.consume {

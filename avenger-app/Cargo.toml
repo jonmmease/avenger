@@ -7,4 +7,3 @@ edition = "2021"
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-geometry = { path = "../avenger-geometry" }
-winit = { workspace = true }

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::marks::MarkGeometryUtils;
 use avenger_scenegraph::{marks::mark::MarkInstance, scene_graph::SceneGraph};
 use geo::{BoundingRect, Distance, Euclidean};
@@ -63,10 +65,18 @@ pub struct SceneGraphRTree {
     rtree: RTree<GeometryInstance>,
     /// The envelope of the scene graph, relative to the scene graph origin
     envelope: AABB<[f32; 2]>,
+    /// Absolute origin of each group
+    group_origins: HashMap<Vec<usize>, [f32; 2]>,
+    /// Names of each named group
+    group_names: HashMap<String, Vec<usize>>,
 }
 
 impl SceneGraphRTree {
-    pub fn new(geometries: Vec<GeometryInstance>) -> Self {
+    fn new(
+        geometries: Vec<GeometryInstance>,
+        group_origins: HashMap<Vec<usize>, [f32; 2]>,
+        group_names: HashMap<String, Vec<usize>>,
+    ) -> Self {
         let envelope = if geometries.is_empty() {
             AABB::from_corners([0.0, 0.0], [0.0, 0.0])
         } else {
@@ -80,7 +90,12 @@ impl SceneGraphRTree {
         // Bulk load the geometries into an R-tree
         let rtree = RTree::bulk_load(geometries);
 
-        Self { rtree, envelope }
+        Self {
+            rtree,
+            envelope,
+            group_origins,
+            group_names,
+        }
     }
 
     pub fn from_scene_graph(scene_graph: &SceneGraph) -> SceneGraphRTree {
@@ -88,17 +103,33 @@ impl SceneGraphRTree {
 
         for (group_index, group) in scene_graph.marks.iter().enumerate() {
             let mark_path = vec![group_index];
-            // Compute absolute origin for group
             let origin = [scene_graph.origin[0], scene_graph.origin[1]];
             geometry_instances.extend(group.geometry_iter(mark_path, origin));
         }
 
-        SceneGraphRTree::new(geometry_instances)
+        SceneGraphRTree::new(
+            geometry_instances,
+            scene_graph.group_origins(),
+            scene_graph.group_names(),
+        )
     }
 
     /// Returns the envelope of the entire tree
     pub fn envelope(&self) -> &AABB<[f32; 2]> {
         &self.envelope
+    }
+
+    /// Returns the absolute origin of a group
+    pub fn group_origin(&self, path: &[usize]) -> Option<[f32; 2]> {
+        self.group_origins.get(path).cloned()
+    }
+
+    /// Returns the absolute origin of a named group
+    pub fn named_group_origin(&self, name: &str) -> Option<[f32; 2]> {
+        self.group_names
+            .get(name)
+            .and_then(|path| self.group_origins.get(path))
+            .cloned()
     }
 
     /// Returns the number of objects in the r-tree
