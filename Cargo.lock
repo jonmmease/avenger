@@ -380,6 +380,7 @@ dependencies = [
 name = "avenger-common"
 version = "0.0.8"
 dependencies = [
+ "ordered-float 4.5.0",
  "serde",
 ]
 
@@ -407,6 +408,7 @@ dependencies = [
  "lyon_algorithms",
  "lyon_path",
  "lyon_tessellation",
+ "ordered-float 4.5.0",
  "rstar 0.12.2 (git+https://github.com/georust/rstar.git?branch=master)",
 ]
 
@@ -469,6 +471,7 @@ dependencies = [
  "lyon_algorithms",
  "lyon_extra",
  "lyon_path",
+ "ordered-float 4.5.0",
  "pyo3",
  "rstar 0.12.2 (git+https://github.com/georust/rstar.git?branch=master)",
  "serde",
@@ -569,6 +572,7 @@ dependencies = [
  "itertools 0.13.0",
  "lazy_static",
  "lyon",
+ "ordered-float 4.5.0",
  "pollster 0.4.0",
  "pyo3",
  "rayon",
@@ -4097,6 +4101,8 @@ dependencies = [
  "env_logger",
  "log",
  "pollster 0.3.0",
+ "rand",
+ "rand_distr",
  "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -5541,6 +5547,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ordered-float"
+version = "4.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c65ee1f9701bf938026630b455d5315f490640234259037edb259798b3bcf85e"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "os_pipe"
 version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6408,6 +6423,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 dependencies = [
  "getrandom",
+]
+
+[[package]]
+name = "rand_distr"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32cb0b9bc82b0a0876c2dd994a7e7a2683d3e7390ca40e6886785ef0c7e3ee31"
+dependencies = [
+ "num-traits",
+ "rand",
 ]
 
 [[package]]
@@ -7279,7 +7304,7 @@ version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c"
 dependencies = [
- "ordered-float",
+ "ordered-float 2.10.1",
  "serde",
 ]
 

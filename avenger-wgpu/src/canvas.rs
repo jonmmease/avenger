@@ -1,6 +1,9 @@
 use avenger_common::canvas::CanvasDimensions;
+use avenger_common::types::LinearScaleAdjustment;
 use image::imageops::crop_imm;
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 use wgpu::{
     Adapter, Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandBuffer,
     CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, ImageCopyBuffer,
@@ -14,7 +17,7 @@ use winit::event::WindowEvent;
 use winit::window::Window;
 
 use crate::error::AvengerWgpuError;
-use crate::marks::instanced_mark::InstancedMarkRenderer;
+use crate::marks::instanced_mark::{InstancedMarkFingerprint, InstancedMarkRenderer};
 use crate::marks::multi::MultiMarkRenderer;
 use crate::marks::symbol::SymbolShader;
 use crate::marks::text::TextAtlasBuilderTrait;
@@ -32,7 +35,11 @@ use avenger_scenegraph::{
 };
 
 pub enum MarkRenderer {
-    Instanced(InstancedMarkRenderer),
+    Instanced {
+        renderer: Arc<InstancedMarkRenderer>,
+        x_adjustment: Option<LinearScaleAdjustment>,
+        y_adjustment: Option<LinearScaleAdjustment>,
+    },
     Multi(Box<MultiMarkRenderer>),
 }
 
@@ -57,7 +64,13 @@ pub struct CanvasConfig {
 }
 
 pub trait Canvas {
-    fn add_mark_renderer(&mut self, mark_renderer: MarkRenderer);
+    fn add_instanced_mark_renderer(
+        &mut self,
+        mark_renderer: Arc<InstancedMarkRenderer>,
+        fingerprint: u64,
+        x_adjustment: Option<LinearScaleAdjustment>,
+        y_adjustment: Option<LinearScaleAdjustment>,
+    );
     fn clear_mark_renderer(&mut self);
     fn device(&self) -> &Device;
     fn queue(&self) -> &Queue;
@@ -68,6 +81,8 @@ pub trait Canvas {
     fn sample_count(&self) -> u32;
 
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer;
+
+    fn get_instanced_renderer(&mut self, fingerprint: u64) -> Option<Arc<InstancedMarkRenderer>>;
 
     fn add_arc_mark(
         &mut self,
@@ -130,22 +145,38 @@ pub trait Canvas {
         origin: [f32; 2],
         group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
-        if mark.len >= 10000
+        if mark.len >= 100
             && mark.gradients.is_empty()
             && matches!(group_clip, Clip::None | Clip::Rect { .. })
         {
-            self.add_mark_renderer(MarkRenderer::Instanced(InstancedMarkRenderer::new(
-                self.device(),
-                self.texture_format(),
-                self.sample_count(),
-                Box::new(SymbolShader::from_symbol_mark(
+            // Check if compatible renderer already exists
+            let fingerprint = mark.instanced_fingerprint();
+            let renderer = if let Some(renderer) = self.get_instanced_renderer(fingerprint) {
+                renderer
+            } else {
+                let shader = Box::new(SymbolShader::from_symbol_mark(
                     mark,
                     self.dimensions(),
                     origin,
-                )?),
-                group_clip.maybe_clip(mark.clip),
-                self.dimensions().scale,
-            )));
+                )?);
+
+                let renderer = Arc::new(InstancedMarkRenderer::new(
+                    self.device(),
+                    self.texture_format(),
+                    self.sample_count(),
+                    shader,
+                    group_clip.maybe_clip(mark.clip),
+                    self.dimensions().scale,
+                ));
+                renderer
+            };
+
+            self.add_instanced_mark_renderer(
+                renderer,
+                fingerprint,
+                mark.x_adjustment,
+                mark.y_adjustment,
+            );
         } else {
             self.get_multi_renderer()
                 .add_symbol_mark(mark, origin, group_clip)?;
@@ -415,6 +446,7 @@ pub struct WindowCanvas<'window> {
     dimensions: CanvasDimensions,
     marks: Vec<MarkRenderer>,
     multi_renderer: Option<MultiMarkRenderer>,
+    instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
     config: CanvasConfig,
 
     // Order of properties determines drop order.
@@ -482,6 +514,7 @@ impl<'window> WindowCanvas<'window> {
             window,
             marks: Vec::new(),
             multi_renderer: None,
+            instanced_renderers: HashMap::new(),
             config,
         })
     }
@@ -549,11 +582,21 @@ impl<'window> WindowCanvas<'window> {
         let texture_format = self.texture_format();
         for mark in &mut self.marks {
             let command = match mark {
-                MarkRenderer::Instanced(renderer) => {
+                MarkRenderer::Instanced {
+                    renderer,
+                    x_adjustment,
+                    y_adjustment,
+                } => {
                     if self.sample_count > 1 {
-                        renderer.render(&self.device, &self.multisampled_framebuffer, Some(&view))
+                        renderer.render(
+                            &self.device,
+                            &self.multisampled_framebuffer,
+                            Some(&view),
+                            *x_adjustment,
+                            *y_adjustment,
+                        )
                     } else {
-                        renderer.render(&self.device, &view, None)
+                        renderer.render(&self.device, &view, None, *x_adjustment, *y_adjustment)
                     }
                 }
                 MarkRenderer::Multi(renderer) => {
@@ -600,12 +643,28 @@ impl<'window> Canvas for WindowCanvas<'window> {
         self.multi_renderer.as_mut().unwrap()
     }
 
-    fn add_mark_renderer(&mut self, mark_renderer: MarkRenderer) {
+    fn get_instanced_renderer(&mut self, fingerprint: u64) -> Option<Arc<InstancedMarkRenderer>> {
+        self.instanced_renderers.get(&fingerprint).cloned()
+    }
+
+    fn add_instanced_mark_renderer(
+        &mut self,
+        mark_renderer: Arc<InstancedMarkRenderer>,
+        fingerprint: u64,
+        x_adjustment: Option<LinearScaleAdjustment>,
+        y_adjustment: Option<LinearScaleAdjustment>,
+    ) {
         if let Some(multi_renderer) = self.multi_renderer.take() {
             self.marks
                 .push(MarkRenderer::Multi(Box::new(multi_renderer)));
         }
-        self.marks.push(mark_renderer);
+        self.instanced_renderers
+            .insert(fingerprint, mark_renderer.clone());
+        self.marks.push(MarkRenderer::Instanced {
+            renderer: mark_renderer,
+            x_adjustment,
+            y_adjustment,
+        });
     }
 
     fn clear_mark_renderer(&mut self) {
@@ -645,6 +704,7 @@ pub struct PngCanvas {
     padded_width: u32,
     padded_height: u32,
     multi_renderer: Option<MultiMarkRenderer>,
+    instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
     config: CanvasConfig,
 
     // The order of properties in a struct is the order in which items are dropped.
@@ -727,6 +787,7 @@ impl PngCanvas {
             padded_height,
             marks: Vec::new(),
             multi_renderer: None,
+            instanced_renderers: HashMap::new(),
             config,
         })
     }
@@ -754,15 +815,27 @@ impl PngCanvas {
         let texture_format = self.texture_format();
         for mark in &mut self.marks {
             let command = match mark {
-                MarkRenderer::Instanced(renderer) => {
+                MarkRenderer::Instanced {
+                    renderer,
+                    x_adjustment,
+                    y_adjustment,
+                } => {
                     if self.sample_count > 1 {
                         renderer.render(
                             &self.device,
                             &self.multisampled_framebuffer,
                             Some(&self.texture_view),
+                            *x_adjustment,
+                            *y_adjustment,
                         )
                     } else {
-                        renderer.render(&self.device, &self.texture_view, None)
+                        renderer.render(
+                            &self.device,
+                            &self.texture_view,
+                            None,
+                            *x_adjustment,
+                            *y_adjustment,
+                        )
                     }
                 }
                 MarkRenderer::Multi(renderer) => {
@@ -868,12 +941,28 @@ impl Canvas for PngCanvas {
         self.multi_renderer.as_mut().unwrap()
     }
 
-    fn add_mark_renderer(&mut self, mark_renderer: MarkRenderer) {
+    fn get_instanced_renderer(&mut self, fingerprint: u64) -> Option<Arc<InstancedMarkRenderer>> {
+        self.instanced_renderers.get(&fingerprint).cloned()
+    }
+
+    fn add_instanced_mark_renderer(
+        &mut self,
+        mark_renderer: Arc<InstancedMarkRenderer>,
+        fingerprint: u64,
+        x_adjustment: Option<LinearScaleAdjustment>,
+        y_adjustment: Option<LinearScaleAdjustment>,
+    ) {
         if let Some(multi_renderer) = self.multi_renderer.take() {
             self.marks
                 .push(MarkRenderer::Multi(Box::new(multi_renderer)));
         }
-        self.marks.push(mark_renderer);
+        self.instanced_renderers
+            .insert(fingerprint, mark_renderer.clone());
+        self.marks.push(MarkRenderer::Instanced {
+            renderer: mark_renderer,
+            x_adjustment,
+            y_adjustment,
+        });
     }
 
     fn clear_mark_renderer(&mut self) {

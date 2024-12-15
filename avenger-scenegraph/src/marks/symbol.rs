@@ -1,7 +1,7 @@
 use super::mark::SceneMark;
 use crate::error::AvengerSceneGraphError;
 use crate::marks::path::PathTransform;
-use avenger_common::types::{ColorOrGradient, Gradient};
+use avenger_common::types::{ColorOrGradient, Gradient, LinearScaleAdjustment};
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use itertools::izip;
 use lyon_extra::euclid::{UnknownUnit, Vector2D};
@@ -34,23 +34,47 @@ pub struct SceneSymbolMark {
     pub angle: ScalarOrArray<f32>,
     pub indices: Option<Arc<Vec<usize>>>,
     pub zindex: Option<i32>,
+    pub x_adjustment: Option<LinearScaleAdjustment>,
+    pub y_adjustment: Option<LinearScaleAdjustment>,
 }
 
 impl SceneSymbolMark {
-    pub fn x_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.x.as_iter(self.len as usize, self.indices.as_ref())
+    pub fn x_iter(&self) -> Box<dyn Iterator<Item = f32> + '_> {
+        if let Some(adjustment) = self.x_adjustment {
+            let scale = adjustment.scale;
+            let offset = adjustment.offset;
+            Box::new(
+                self.x
+                    .as_iter(self.len as usize, self.indices.as_ref())
+                    .map(move |x| scale * x + offset),
+            )
+        } else {
+            self.x
+                .as_iter_owned(self.len as usize, self.indices.as_ref())
+        }
     }
 
     pub fn x_vec(&self) -> Vec<f32> {
-        self.x.as_vec(self.len as usize, self.indices.as_ref())
+        self.x_iter().collect()
     }
 
-    pub fn y_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.y.as_iter(self.len as usize, self.indices.as_ref())
+    pub fn y_iter(&self) -> Box<dyn Iterator<Item = f32> + '_> {
+        if let Some(adjustment) = self.y_adjustment {
+            let scale = adjustment.scale;
+            let offset = adjustment.offset;
+            Box::new(
+                self.y
+                    .as_iter(self.len as usize, self.indices.as_ref())
+                    .map(move |y| scale * y + offset),
+            )
+        } else {
+            self.y
+                .as_iter_owned(self.len as usize, self.indices.as_ref())
+        }
     }
 
     pub fn y_vec(&self) -> Vec<f32> {
-        self.y.as_vec(self.len as usize, self.indices.as_ref())
+        self.y_iter().collect()
     }
 
     pub fn fill_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
@@ -119,7 +143,7 @@ impl SceneSymbolMark {
                 let angle = Angle::degrees(*angle);
                 let transform = PathTransform::scale(scale, scale)
                     .then_rotate(angle)
-                    .then_translate(Vector2D::new(*x + origin[0], *y + origin[1]));
+                    .then_translate(Vector2D::new(x + origin[0], y + origin[1]));
 
                 paths[*shape_idx].as_ref().clone().transformed(&transform)
             }),
@@ -163,6 +187,8 @@ impl Default for SceneSymbolMark {
             indices: None,
             gradients: vec![],
             zindex: None,
+            x_adjustment: None,
+            y_adjustment: None,
         }
     }
 }

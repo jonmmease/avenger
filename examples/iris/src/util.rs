@@ -18,9 +18,11 @@ use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_winit_wgpu::WinitWgpuAvengerApp;
 
 use csv::Reader;
+use rand_distr::Distribution;
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
+use std::time::Instant;
 use winit::event_loop::EventLoop;
 
 #[derive(Clone)]
@@ -41,6 +43,16 @@ pub struct ChartState {
     pub sepal_width: Vec<f32>,
     pub species: Vec<String>,
     pub plot_group_name: String,
+
+    // Scales for the base plot, which are used to scale the original x/y
+    pub base_x_scale: LinearNumericScale,
+    pub base_y_scale: LinearNumericScale,
+
+    // Prescaled
+    pub x: ScalarOrArray<f32>,
+    pub y: ScalarOrArray<f32>,
+    pub fill: ScalarOrArray<ColorOrGradient>,
+    pub symbol_legend: SceneMark,
 
     // For panning
     pub pan_anchor: Option<PanAnchor>,
@@ -76,100 +88,160 @@ impl ChartState {
             }
         }
 
+        // Duplicate data N times with random jitter
+        let n = 7000;
+        let jitter = 0.1;
+        let mut large_sepal_length = Vec::with_capacity(n * species.len());
+        let mut large_sepal_width = Vec::with_capacity(n * species.len());
+        let mut large_species = Vec::with_capacity(n * species.len());
+        let normal = rand_distr::Normal::new(0.0, jitter).unwrap();
+        let mut rng = rand::thread_rng();
+
+        for _ in 0..n {
+            large_sepal_length.extend(sepal_length.iter().map(|x| x + normal.sample(&mut rng)));
+            large_sepal_width.extend(sepal_width.iter().map(|x| x + normal.sample(&mut rng)));
+            large_species.extend(species.clone());
+        }
+
+        println!("data length: {:?}", large_sepal_length.len());
+
+        let fill_opacity = 0.1;
+        let color_scale = OrdinalScale::new(
+            &[
+                "Iris-setosa".to_string(),
+                "Iris-versicolor".to_string(),
+                "Iris-virginica".to_string(),
+            ],
+            &[
+                ColorOrGradient::Color([0.9, 0.0, 0.0, fill_opacity]),
+                ColorOrGradient::Color([0.0, 0.9, 0.0, fill_opacity]),
+                ColorOrGradient::Color([0.0, 0.0, 0.9, fill_opacity]),
+            ],
+            ColorOrGradient::Color([0.9, 0.9, 0.9, fill_opacity]),
+        )
+        .unwrap();
+
+        // Make fill, taking the hover index into account
+        let fill = color_scale.scale(&large_species);
+
+        // Dimensions
+        let width = 200.0;
+        let height = 200.0;
+
+        let domain_sepal_length = (4.0, 8.5);
+        let domain_sepal_width = (1.5, 5.0);
+
+        let base_x_scale = LinearNumericScale::new(&Default::default())
+            .with_domain(domain_sepal_length)
+            .with_range((0.0, width));
+        let base_y_scale = LinearNumericScale::new(&Default::default())
+            .with_domain(domain_sepal_width)
+            .with_range((height, 0.0));
+
+        let x = base_x_scale.scale(&large_sepal_length);
+        let y = base_y_scale.scale(&large_sepal_width);
+
+        // Make symbol legend
+        let symbol_legend = SceneMark::Group(
+            make_symbol_legend(&SymbolLegendConfig {
+                text: color_scale.domain().into(),
+                title: None,
+                stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
+                stroke_width: Some(1.0),
+                fill: color_scale.scale(&color_scale.domain()),
+                angle: 0.0.into(),
+                inner_width: width,
+                inner_height: height,
+                ..Default::default()
+            })
+            .unwrap(),
+        );
+
         Self {
             hover_index: None,
-            width: 200.0,
-            height: 200.0,
-            domain_sepal_length: (4.0, 8.5),
-            domain_sepal_width: (1.5, 5.0),
-            sepal_length,
-            sepal_width,
-            species,
+            width,
+            height,
+            base_x_scale,
+            base_y_scale,
+            domain_sepal_length,
+            domain_sepal_width,
+            x,
+            y,
+            sepal_length: large_sepal_length,
+            sepal_width: large_sepal_width,
+            species: large_species,
             plot_group_name: "plot".to_string(),
+            fill,
+            symbol_legend,
             pan_anchor: None,
         }
     }
 
+    /// Scale for current x domain
     pub fn x_scale(&self) -> LinearNumericScale {
         LinearNumericScale::new(&Default::default())
             .with_domain(self.domain_sepal_length)
             .with_range((0.0, self.width))
-        // .with_round(true)
     }
 
+    /// Scale for current y domain
     pub fn y_scale(&self) -> LinearNumericScale {
         LinearNumericScale::new(&Default::default())
             .with_domain(self.domain_sepal_width)
             .with_range((self.height, 0.0))
-        // .with_round(true)
     }
 }
 
 fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
-    // Build scales
+    let start_time = Instant::now(); // Start timing
+
+    // Build scales and compute adjustments
     let x_scale = chart_state.x_scale();
+    let x_adjustment = chart_state.base_x_scale.adjust(&x_scale);
     let y_scale = chart_state.y_scale();
+    let y_adjustment = chart_state.base_y_scale.adjust(&y_scale);
 
-    let color_scale = OrdinalScale::new(
-        &[
-            "Iris-setosa".to_string(),
-            "Iris-versicolor".to_string(),
-            "Iris-virginica".to_string(),
-        ],
-        &[
-            ColorOrGradient::Color([0.9, 0.0, 0.0, 1.0]),
-            ColorOrGradient::Color([0.0, 0.9, 0.0, 1.0]),
-            ColorOrGradient::Color([0.0, 0.0, 0.9, 1.0]),
-        ],
-        ColorOrGradient::Color([0.9, 0.9, 0.9, 1.0]),
-    )
-    .unwrap();
+    // // lift hover point to the top with indices
+    // let indices = if let Some(hover) = chart_state.hover_index {
+    //     (0..chart_state.species.len())
+    //         .map(|i| {
+    //             if i < hover {
+    //                 i // before hover: keep same
+    //             } else if i < chart_state.species.len() - 1 {
+    //                 i + 1 // after hover: shift up by 1
+    //             } else {
+    //                 hover // last position: put hover index
+    //             }
+    //         })
+    //         .collect()
+    // } else {
+    //     Vec::from_iter(0..chart_state.species.len())
+    // };
 
-    // lift hover point to the top with indices
-    let indices = if let Some(hover) = chart_state.hover_index {
-        (0..chart_state.species.len())
-            .map(|i| {
-                if i < hover {
-                    i // before hover: keep same
-                } else if i < chart_state.species.len() - 1 {
-                    i + 1 // after hover: shift up by 1
-                } else {
-                    hover // last position: put hover index
-                }
-            })
-            .collect()
-    } else {
-        Vec::from_iter(0..chart_state.species.len())
-    };
-
-    // Make fill, taking the hover index into account
-    let fill = match color_scale.scale(&chart_state.species) {
-        ScalarOrArray::Array(arc) => {
-            let mut colors = Arc::try_unwrap(arc).unwrap_or_else(|arc| arc.as_ref().clone());
-            if let Some(index) = chart_state.hover_index {
-                colors[index] = ColorOrGradient::Color([1.0, 1.0, 0.0, 1.0]);
-            }
-            ScalarOrArray::Array(Arc::new(colors))
-        }
-        s => s,
-    };
-
-    // Build size array, taking the hover index into account
-    let mut size = vec![30.0; chart_state.species.len()];
-    if let Some(index) = chart_state.hover_index {
-        size[index] = 60.0;
-    }
+    // // Build size array, taking the hover index into account
+    // let mut size = vec![20.0; chart_state.species.len()];
+    // if let Some(index) = chart_state.hover_index {
+    //     size[index] = 60.0;
+    // }
 
     // Make symbol mark
+    // let shape = SymbolShape::from_vega_str("square").unwrap();
+    let shape = SymbolShape::from_vega_str("circle").unwrap();
+
     let points = SceneSymbolMark {
         len: chart_state.sepal_length.len() as u32,
-        x: x_scale.scale(&chart_state.sepal_length),
-        y: y_scale.scale(&chart_state.sepal_width),
-        fill,
-        size: ScalarOrArray::Array(Arc::new(size)),
-        indices: Some(Arc::new(indices)),
-        stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
-        stroke_width: 1.0f32.into(),
+        x: chart_state.x.clone(),
+        y: chart_state.y.clone(),
+        x_adjustment: Some(x_adjustment),
+        y_adjustment: Some(y_adjustment),
+        shapes: vec![shape.clone()],
+        shape_index: 0.into(),
+        fill: chart_state.fill.clone(),
+        size: 20.0.into(),
+        // size: ScalarOrArray::new_array(size),
+        // indices: Some(Arc::new(indices)),
+        // stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
+        stroke_width: 0.0f32.into(),
         ..Default::default()
     };
 
@@ -212,21 +284,6 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
         },
     );
 
-    // Make symbol legend
-    let symbol_legend = make_symbol_legend(&SymbolLegendConfig {
-        text: color_scale.domain().into(),
-        shape: SymbolShape::Circle.into(),
-        title: None,
-        stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
-        stroke_width: Some(1.0),
-        fill: color_scale.scale(&color_scale.domain()),
-        angle: 0.0.into(),
-        inner_width: chart_state.width,
-        inner_height: chart_state.height,
-        ..Default::default()
-    })
-    .unwrap();
-
     // Wrap axis and rect in group
     let group = SceneMark::Group(SceneGroup {
         origin: [60.0, 60.0],
@@ -234,17 +291,22 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
             y_axis.into(),
             x_axis.into(),
             mark_group.into(),
-            symbol_legend.into(),
+            chart_state.symbol_legend.clone().into(),
         ],
         ..Default::default()
     });
 
-    SceneGraph {
+    let scene_graph = SceneGraph {
         marks: vec![group],
         width: 340.0,
         height: 300.0,
         origin: [0.0; 2],
-    }
+    };
+
+    let duration = start_time.elapsed(); // Calculate elapsed time
+    println!("Scene construction time: {:?}", duration); // Print the duration
+
+    scene_graph
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
@@ -284,51 +346,53 @@ pub async fn run() {
         ChartState::new(),
         Arc::new(make_scene_graph),
         vec![
-            // Hover highlight
-            (
-                EventStreamConfig {
-                    types: vec![SceneGraphEventType::MarkMouseEnter],
-                    mark_paths: Some(vec![vec![0, 2, 0]]),
-                    filter: Some(vec![Arc::new(|event| {
-                        let SceneGraphEvent::MouseEnter(mouse_enter) = event else {
-                            return false;
-                        };
-                        mouse_enter.modifiers.meta
-                    })]),
-                    ..Default::default()
-                },
-                Arc::new(
-                    |event: &SceneGraphEvent,
-                     state: &mut ChartState,
-                     _rtree: &SceneGraphRTree|
-                     -> UpdateStatus {
-                        state.hover_index = event.mark_instance().and_then(|i| i.instance_index);
-                        UpdateStatus {
-                            rerender: true,
-                            rebuild_geometry: true,
-                        }
-                    },
-                ),
-            ),
-            (
-                EventStreamConfig {
-                    types: vec![SceneGraphEventType::MarkMouseLeave],
-                    mark_paths: Some(vec![vec![0, 2, 0]]),
-                    ..Default::default()
-                },
-                Arc::new(
-                    |_event: &SceneGraphEvent,
-                     state: &mut ChartState,
-                     _rtree: &SceneGraphRTree|
-                     -> UpdateStatus {
-                        state.hover_index = None;
-                        UpdateStatus {
-                            rerender: true,
-                            rebuild_geometry: true,
-                        }
-                    },
-                ),
-            ),
+            // // Hover highlight
+            // (
+            //     EventStreamConfig {
+            //         types: vec![SceneGraphEventType::MarkMouseEnter],
+            //         mark_paths: Some(vec![vec![0, 2, 0]]),
+            //         filter: Some(vec![Arc::new(|event| {
+            //             let SceneGraphEvent::MouseEnter(mouse_enter) = event else {
+            //                 return false;
+            //             };
+            //             mouse_enter.modifiers.meta
+            //         })]),
+            //         ..Default::default()
+            //     },
+            //     Arc::new(
+            //         |event: &SceneGraphEvent,
+            //          state: &mut ChartState,
+            //          _rtree: &SceneGraphRTree|
+            //          -> UpdateStatus {
+            //             println!("MarkMouseEnter");
+            //             state.hover_index = event.mark_instance().and_then(|i| i.instance_index);
+            //             UpdateStatus {
+            //                 rerender: true,
+            //                 rebuild_geometry: false,
+            //             }
+            //         },
+            //     ),
+            // ),
+            // (
+            //     EventStreamConfig {
+            //         types: vec![SceneGraphEventType::MarkMouseLeave],
+            //         mark_paths: Some(vec![vec![0, 2, 0]]),
+            //         ..Default::default()
+            //     },
+            //     Arc::new(
+            //         |_event: &SceneGraphEvent,
+            //          state: &mut ChartState,
+            //          _rtree: &SceneGraphRTree|
+            //          -> UpdateStatus {
+            //             println!("MarkMouseLeave");
+            //             state.hover_index = None;
+            //             UpdateStatus {
+            //                 rerender: true,
+            //                 rebuild_geometry: false,
+            //             }
+            //         },
+            //     ),
+            // ),
             // Panning (record click anchor)
             (
                 left_mouse_down_config.clone(),
@@ -381,6 +445,7 @@ pub async fn run() {
                         Box::new(left_mouse_down_config.clone()),
                         Box::new(left_mouse_up_config.clone()),
                     )),
+                    throttle: Some(8), // Don't update faster than 60fps
                     ..Default::default()
                 },
                 Arc::new(
@@ -440,6 +505,7 @@ pub async fn run() {
             (
                 EventStreamConfig {
                     types: vec![SceneGraphEventType::MouseWheel],
+                    throttle: Some(8), // Don't update faster than 60fps
                     ..Default::default()
                 },
                 Arc::new(
@@ -495,7 +561,7 @@ pub async fn run() {
 
                         UpdateStatus {
                             rerender: true,
-                            rebuild_geometry: true,
+                            rebuild_geometry: false,
                         }
                     },
                 ),

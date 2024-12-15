@@ -24,6 +24,7 @@ image = { workspace = true }
 futures-intrusive = "^0.5"
 etagere = "0.2.10"
 colorgrad = "0.7.0"
+ordered-float = { workspace = true }
 
 [dev-dependencies]
 dssim = "3.2.4"

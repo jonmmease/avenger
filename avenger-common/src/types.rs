@@ -153,3 +153,26 @@ pub enum AreaOrientation {
     Horizontal,
 }
 impl_hash_for_scalar_or_array!(AreaOrientation);
+
+#[derive(Clone, Debug, Copy, Serialize, Deserialize)]
+pub struct LinearScaleAdjustment {
+    pub scale: f32,
+    pub offset: f32,
+}
+
+impl Default for LinearScaleAdjustment {
+    fn default() -> Self {
+        LinearScaleAdjustment {
+            scale: 1.0,
+            offset: 0.0,
+        }
+    }
+}
+
+impl Hash for LinearScaleAdjustment {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        [self.scale, self.offset]
+            .iter()
+            .for_each(|v| OrderedFloat::from(*v).hash(state));
+    }
+}

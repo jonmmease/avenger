@@ -1,4 +1,4 @@
-use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
+use avenger_common::{types::LinearScaleAdjustment, value::{ScalarOrArray, ScalarOrArrayRef}};
 
 use crate::array;
 
@@ -226,12 +226,6 @@ impl LinearNumericScale {
             / ((self.range_end - self.range_start) * (to_scale.domain_end - to_scale.domain_start));
         LinearScaleAdjustment { scale, offset }
     }
-}
-
-#[derive(Clone, Debug)]
-pub struct LinearScaleAdjustment {
-    pub scale: f32,
-    pub offset: f32,
 }
 
 impl ContinuousNumericScale<f32> for LinearNumericScale {

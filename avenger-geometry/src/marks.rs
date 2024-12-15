@@ -288,7 +288,7 @@ impl MarkGeometryUtils for SceneSymbolMark {
                         .clone()
                         .scale(size.sqrt())
                         .rotate_around_point(angle.to_radians(), geo::Point::new(0.0, 0.0))
-                        .translate(*x + origin[0], *y + origin[1]);
+                        .translate(x + origin[0], y + origin[1]);
 
                     GeometryInstance {
                         mark_instance: MarkInstance {
