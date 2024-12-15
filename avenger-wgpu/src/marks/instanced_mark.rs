@@ -1,5 +1,7 @@
+use avenger_common::types::LinearScaleAdjustment;
 use avenger_scenegraph::marks::group::Clip;
 use std::ops::Range;
+use std::time::Instant;
 use wgpu::util::DeviceExt;
 use wgpu::{CommandBuffer, Device, Extent3d, ImageDataLayout, TextureFormat, TextureView};
 
@@ -38,6 +40,13 @@ pub trait InstancedMarkShader {
     }
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct MarkUniform {
+    pub adjustment_scale: [f32; 2],
+    pub adjustment_offset: [f32; 2],
+}
+
 pub struct InstancedMarkRenderer {
     pub render_pipeline: wgpu::RenderPipeline,
     pub vertex_buffer: wgpu::Buffer,
@@ -51,6 +60,7 @@ pub struct InstancedMarkRenderer {
     pub texture_bind_group: wgpu::BindGroup,
     pub clip: Clip,
     pub scale: f32,
+    pub mark_uniform_buffer: wgpu::Buffer,
 }
 
 impl InstancedMarkRenderer {
@@ -74,26 +84,56 @@ impl InstancedMarkRenderer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
+        // Create mark uniform buffer with initial values
+        let mark_uniform = MarkUniform {
+            adjustment_scale: [1.0, 1.0],
+            adjustment_offset: [0.0, 0.0],
+        };
+
+        let mark_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Mark Uniform Buffer"),
+            contents: bytemuck::cast_slice(&[mark_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
         let uniform_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
             label: Some("chart_uniform_layout"),
         });
 
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &uniform_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: mark_uniform_buffer.as_entire_binding(),
+                },
+            ],
             label: Some("uniform_bind_group"),
         });
 
@@ -171,7 +211,10 @@ impl InstancedMarkRenderer {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&uniform_layout, &texture_bind_group_layout],
+                bind_group_layouts: &[
+                    &uniform_layout,            // group(0) - contains both uniforms
+                    &texture_bind_group_layout, // group(1) - for texture
+                ],
                 push_constant_ranges: &[],
             });
 
@@ -232,7 +275,7 @@ impl InstancedMarkRenderer {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        Self {
+        let renderer = Self {
             render_pipeline,
             vertex_buffer,
             index_buffer,
@@ -245,7 +288,10 @@ impl InstancedMarkRenderer {
             texture_bind_group,
             clip,
             scale,
-        }
+            mark_uniform_buffer,
+        };
+
+        renderer
     }
 
     pub fn render(
@@ -253,10 +299,42 @@ impl InstancedMarkRenderer {
         device: &Device,
         texture_view: &TextureView,
         resolve_target: Option<&TextureView>,
+        x_adjustment: Option<LinearScaleAdjustment>,
+        y_adjustment: Option<LinearScaleAdjustment>,
     ) -> CommandBuffer {
+        let start_time = Instant::now();
+
         let mut mark_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Mark Render Encoder"),
         });
+
+        // Update mark uniforms
+        let adjustment_scale = [
+            x_adjustment.map(|a| a.scale).unwrap_or(1.0),
+            y_adjustment.map(|a| a.scale).unwrap_or(1.0),
+        ];
+        let adjustment_offset = [
+            x_adjustment.map(|a| a.offset).unwrap_or(0.0),
+            y_adjustment.map(|a| a.offset).unwrap_or(0.0),
+        ];
+        let mark_uniform = MarkUniform {
+            adjustment_scale,
+            adjustment_offset,
+        };
+
+        let temp_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Temp Mark Uniform Buffer"),
+            contents: bytemuck::cast_slice(&[mark_uniform]),
+            usage: wgpu::BufferUsages::COPY_SRC,
+        });
+
+        mark_encoder.copy_buffer_to_buffer(
+            &temp_buffer,
+            0,
+            &self.mark_uniform_buffer,
+            0,
+            std::mem::size_of::<MarkUniform>() as u64,
+        );
 
         for batch in self.batches.iter() {
             if let Some(img) = &batch.image {
@@ -327,6 +405,20 @@ impl InstancedMarkRenderer {
             }
         }
 
-        mark_encoder.finish()
+        let command_buffer = mark_encoder.finish();
+
+        let duration = start_time.elapsed();
+        println!("Instanced mark render time: {:?}", duration);
+
+        command_buffer
     }
+}
+
+pub trait InstancedMarkFingerprint {
+    /// Fingerprint that uniquely identifies the portions of the mark that are not
+    /// controlled by the instance renderer's uniform buffer.
+    ///
+    /// An instance renderer may be reused across scene marks with the same fingerprint
+    /// if the mark's uniform buffer is updated to match the new mark.
+    fn instanced_fingerprint(&self) -> u64;
 }

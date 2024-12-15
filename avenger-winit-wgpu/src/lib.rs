@@ -18,6 +18,7 @@ where
     canvas: Option<WindowCanvas<'a>>,
     scale: f32,
     avenger_app: AvengerApp<State>,
+    render_pending: bool,
 }
 
 impl<'a, State> WinitWgpuAvengerApp<'a, State>
@@ -29,6 +30,7 @@ where
             canvas: None,
             scale,
             avenger_app,
+            render_pending: false,
         }
     }
 }
@@ -58,6 +60,7 @@ where
         canvas.set_scene(&self.avenger_app.scene_graph()).unwrap();
 
         // Request initial redraw
+        self.render_pending = true;
         canvas.window().request_redraw();
 
         self.canvas = Some(canvas);
@@ -93,10 +96,14 @@ where
                     canvas.resize(physical_size);
                 }
                 WindowEvent::RedrawRequested => {
+                    let start_time = Instant::now(); // Start timing
+
                     canvas.update();
 
                     match canvas.render() {
-                        Ok(_) => {}
+                        Ok(_) => {
+                            self.render_pending = false;
+                        }
                         Err(AvengerWgpuError::SurfaceError(err)) => match err {
                             wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
                                 canvas.resize(canvas.get_size());
@@ -112,12 +119,25 @@ where
                             log::error!("{:?}", err);
                         }
                     }
+
+                    let duration = start_time.elapsed(); // Calculate elapsed time
+                    println!("Render time: {:?}", duration); // Print the duration
                 }
                 event => {
                     if let Some(event) = AvengerWindowEvent::from_winit_event(event, self.scale) {
-                        if let Some(scene_graph) = self.avenger_app.update(&event, Instant::now()) {
-                            canvas.set_scene(&scene_graph).unwrap();
-                            canvas.window().request_redraw();
+                        if !self.render_pending {
+                            if let Some(scene_graph) =
+                                self.avenger_app.update(&event, Instant::now())
+                            {
+                                let start_time = Instant::now();
+                                canvas.set_scene(&scene_graph).unwrap();
+                                let duration = start_time.elapsed();
+                                self.render_pending = true;
+                                canvas.window().request_redraw();
+                            }
+                        } else {
+                            // Update the state of the app without rebuilding the scene graph
+                            self.avenger_app.update_state(&event, Instant::now());
                         }
                     }
                 }
