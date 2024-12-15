@@ -503,6 +503,9 @@ impl<'window> WindowCanvas<'window> {
             sample_count,
         );
 
+        // // Uncomment to capture GPU boundary
+        // device.start_capture();
+
         Ok(Self {
             surface,
             device,
@@ -692,6 +695,12 @@ impl<'window> Canvas for WindowCanvas<'window> {
         self.sample_count
     }
 }
+
+// impl<'window> Drop for WindowCanvas<'window> {
+//     fn drop(&mut self) {
+//         self.device.stop_capture();
+//     }
+// }
 
 pub struct PngCanvas {
     sample_count: u32,
