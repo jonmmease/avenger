@@ -302,8 +302,6 @@ impl InstancedMarkRenderer {
         x_adjustment: Option<LinearScaleAdjustment>,
         y_adjustment: Option<LinearScaleAdjustment>,
     ) -> CommandBuffer {
-        let start_time = Instant::now();
-
         let mut mark_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Mark Render Encoder"),
         });
@@ -406,10 +404,6 @@ impl InstancedMarkRenderer {
         }
 
         let command_buffer = mark_encoder.finish();
-
-        let duration = start_time.elapsed();
-        println!("Instanced mark render time: {:?}", duration);
-
         command_buffer
     }
 }

@@ -89,7 +89,7 @@ impl ChartState {
         }
 
         // Duplicate data N times with random jitter
-        let n = 7000;
+        let n = 700;
         let jitter = 0.1;
         let mut large_sepal_length = Vec::with_capacity(n * species.len());
         let mut large_sepal_width = Vec::with_capacity(n * species.len());
@@ -569,7 +569,7 @@ pub async fn run() {
         ],
     );
 
-    let mut app = WinitWgpuAvengerApp::new(avenger_app, 3.0);
+    let mut app = WinitWgpuAvengerApp::new(avenger_app, 2.0);
 
     let event_loop = EventLoop::new().expect("Failed to build event loop");
     event_loop
