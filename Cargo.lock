@@ -624,6 +624,8 @@ dependencies = [
  "avenger-scales",
  "avenger-scenegraph",
  "avenger-text",
+ "chrono",
+ "chrono-tz",
  "datafusion",
  "lazy_static",
  "serde",
