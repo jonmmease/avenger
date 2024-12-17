@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 
-use super::ContinuousNumericScale;
+use super::{ContinuousNumericScale, ContinuousNumericScaleBuilder};
 
 /// Handles logarithmic transformations with different bases
 #[derive(Clone, Debug)]
@@ -210,6 +210,33 @@ impl LogNumericScale {
         self.log_fun = Arc::new(LogFunction::new(base));
         self
     }
+
+    pub fn with_domain(mut self, domain: (f32, f32)) -> Self {
+        self.domain_start = domain.0;
+        self.domain_end = domain.1;
+        self
+    }
+
+    pub fn with_range(mut self, range: (f32, f32)) -> Self {
+        self.range_start = range.0;
+        self.range_end = range.1;
+        self
+    }
+
+    pub fn with_clamp(mut self, clamp: bool) -> Self {
+        self.clamp = clamp;
+        self
+    }
+
+    pub fn with_round(mut self, round: bool) -> Self {
+        self.round = round;
+        self
+    }
+
+    pub fn builder(&self) -> ContinuousNumericScaleBuilder<f32> {
+        let cloned = self.clone();
+        Arc::new(move || Box::new(cloned.clone()))
+    }
 }
 
 impl ContinuousNumericScale for LogNumericScale {
@@ -219,44 +246,42 @@ impl ContinuousNumericScale for LogNumericScale {
         (self.domain_start, self.domain_end)
     }
 
-    fn with_domain(mut self, domain: (f32, f32)) -> Self {
+    fn set_domain(&mut self, domain: (f32, f32)) {
         self.domain_start = domain.0;
         self.domain_end = domain.1;
-        self
     }
 
     fn range(&self) -> (f32, f32) {
         (self.range_start, self.range_end)
     }
 
-    fn with_range(mut self, range: (f32, f32)) -> Self {
+    fn set_range(&mut self, range: (f32, f32)) {
         self.range_start = range.0;
         self.range_end = range.1;
-        self
     }
 
     fn clamp(&self) -> bool {
         self.clamp
     }
 
-    fn with_clamp(mut self, clamp: bool) -> Self {
+    fn set_clamp(&mut self, clamp: bool) {
         self.clamp = clamp;
-        self
     }
 
     fn round(&self) -> bool {
         self.round
     }
 
-    fn with_round(mut self, round: bool) -> Self {
+    fn set_round(&mut self, round: bool) {
         self.round = round;
-        self
     }
 
-    fn scale<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, f32>>) -> ScalarOrArray<f32> {
+    fn scale(&self, values: &[f32]) -> ScalarOrArray<f32> {
+        let values = ScalarOrArrayRef::from_slice(values);
+
         // Handle degenerate domain and range cases
         if self.domain_start == self.domain_end || self.range_start == self.range_end {
-            return values.into().map(|_| self.range_start);
+            return values.map(|_| self.range_start);
         }
 
         // Transform to log space
@@ -276,7 +301,7 @@ impl ContinuousNumericScale for LogNumericScale {
 
         // Handle degenerate domain in log space
         if log_domain_span == 0.0 || log_domain_span.is_nan() {
-            return values.into().map(|_| self.range_start);
+            return values.map(|_| self.range_start);
         }
 
         let scale = (self.range_end - self.range_start) / log_domain_span;
@@ -291,7 +316,7 @@ impl ContinuousNumericScale for LogNumericScale {
                     (self.range_end, self.range_start)
                 };
 
-                values.into().map(|&v| {
+                values.map(|&v| {
                     if v.is_nan() {
                         return f32::NAN;
                     }
@@ -314,7 +339,7 @@ impl ContinuousNumericScale for LogNumericScale {
                     (self.range_end, self.range_start)
                 };
 
-                values.into().map(|&v| {
+                values.map(|&v| {
                     if v.is_nan() {
                         return f32::NAN;
                     }
@@ -332,7 +357,7 @@ impl ContinuousNumericScale for LogNumericScale {
             (false, true) => {
                 // no clamp, round
                 match self.log_fun.as_ref() {
-                    LogFunction::Static { log_fun, .. } => values.into().map(|&v| {
+                    LogFunction::Static { log_fun, .. } => values.map(|&v| {
                         if v < 0.0 {
                             scale * (-log_fun(-v)) + offset
                         } else if v > 0.0 {
@@ -344,7 +369,7 @@ impl ContinuousNumericScale for LogNumericScale {
                     }),
                     LogFunction::Custom { ln_base, .. } => {
                         let ln_base = *ln_base;
-                        values.into().map(|&v| {
+                        values.map(|&v| {
                             if v < 0.0 {
                                 scale * (-v.ln() / ln_base) + offset
                             } else if v > 0.0 {
@@ -360,7 +385,7 @@ impl ContinuousNumericScale for LogNumericScale {
             (false, false) => {
                 // no clamp, no round
                 match self.log_fun.as_ref() {
-                    LogFunction::Static { log_fun, .. } => values.into().map(|&v| {
+                    LogFunction::Static { log_fun, .. } => values.map(|&v| {
                         if v < 0.0 {
                             scale * (-log_fun(-v)) + offset
                         } else if v > 0.0 {
@@ -371,7 +396,7 @@ impl ContinuousNumericScale for LogNumericScale {
                     }),
                     LogFunction::Custom { ln_base, .. } => {
                         let ln_base = *ln_base;
-                        values.into().map(|&v| {
+                        values.map(|&v| {
                             if v < 0.0 {
                                 scale * (-v.ln() / ln_base) + offset
                             } else if v > 0.0 {
@@ -386,11 +411,13 @@ impl ContinuousNumericScale for LogNumericScale {
         }
     }
 
-    fn invert<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, f32>>) -> ScalarOrArray<f32> {
+    fn invert(&self, values: &[f32]) -> ScalarOrArray<f32> {
+        let values = ScalarOrArrayRef::from_slice(values);
+
         // Handle degenerate cases
         if self.domain_start <= 0.0 || self.domain_end <= 0.0 || self.range_start == self.range_end
         {
-            return values.into().map(|_| self.range_start);
+            return values.map(|_| self.range_start);
         }
 
         // Transform to log space
@@ -400,7 +427,7 @@ impl ContinuousNumericScale for LogNumericScale {
 
         // Handle degenerate domain in log space
         if log_domain_span == 0.0 || log_domain_span.is_nan() {
-            return values.into().map(|_| self.range_start);
+            return values.map(|_| self.range_start);
         }
 
         let scale = (self.range_end - self.range_start) / log_domain_span;
@@ -414,11 +441,11 @@ impl ContinuousNumericScale for LogNumericScale {
             };
 
             match self.log_fun.as_ref() {
-                LogFunction::Static { pow_fun, .. } => values.into().map(|&v| {
+                LogFunction::Static { pow_fun, .. } => values.map(|&v| {
                     let v = v.clamp(range_min, range_max);
                     pow_fun((v - offset) / scale)
                 }),
-                LogFunction::Custom { base, .. } => values.into().map(|&v| {
+                LogFunction::Custom { base, .. } => values.map(|&v| {
                     let v = v.clamp(range_min, range_max);
                     base.powf((v - offset) / scale)
                 }),
@@ -426,10 +453,10 @@ impl ContinuousNumericScale for LogNumericScale {
         } else {
             match self.log_fun.as_ref() {
                 LogFunction::Static { pow_fun, .. } => {
-                    values.into().map(|&v| pow_fun((v - offset) / scale))
+                    values.map(|&v| pow_fun((v - offset) / scale))
                 }
                 LogFunction::Custom { base, .. } => {
-                    values.into().map(|&v| base.powf((v - offset) / scale))
+                    values.map(|&v| base.powf((v - offset) / scale))
                 }
             }
         }

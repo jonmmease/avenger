@@ -1,9 +1,11 @@
 use avenger_common::types::{ColorOrGradient, GradientStop};
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use core::num;
 use palette::{Hsla, IntoColor, Laba, Mix, Srgba};
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 use crate::error::AvengerScaleError;
 use crate::numeric::linear::{LinearNumericScale, LinearNumericScaleConfig};
@@ -26,7 +28,7 @@ impl<T: Mix<Scalar = f32> + Copy + IntoColor<Srgba> + Debug + Send + Sync + 'sta
 {
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ContinuousColorScale<C, S, D>
 where
     C: ColorSpace,
@@ -34,6 +36,7 @@ where
     D: 'static + Send + Sync + Clone,
 {
     numeric_scale: S,
+    numeric_scale_cloner: Arc<dyn Fn() -> S>,
     range: Vec<C>,
     _marker: PhantomData<D>,
 }
@@ -44,21 +47,16 @@ where
     S: ContinuousNumericScale<Domain = D>,
     D: 'static + Send + Sync + Clone,
 {
-    pub fn from_scale(numeric_scale: S, colors: Vec<C>) -> Result<Self, AvengerScaleError> {
-        if !numeric_scale.clamp() {
-            return Err(AvengerScaleError::IncompatibleNumericScaleForColorRange(
-                "Clamping must be enabled".to_string(),
-            ));
-        }
-        let expected_range = (0.0, colors.len() as f32 - 1.0);
-        if numeric_scale.range() != expected_range {
-            return Err(AvengerScaleError::IncompatibleNumericScaleForColorRange(
-                format!("Range must be ({}, {})", expected_range.0, expected_range.1),
-            ));
-        }
-
+    pub fn from_scale(
+        numeric_scale_cloner: Arc<dyn Fn() -> S>,
+        colors: Vec<C>,
+    ) -> Result<Self, AvengerScaleError> {
+        let mut numeric_scale = numeric_scale_cloner();
+        numeric_scale.set_clamp(true);
+        numeric_scale.set_range((0.0, colors.len() as f32 - 1.0));
         Ok(Self {
             numeric_scale,
+            numeric_scale_cloner,
             range: colors,
             _marker: PhantomData,
         })
@@ -73,17 +71,21 @@ where
     }
 
     pub fn with_domain(self, domain: (S::Domain, S::Domain)) -> Self {
+        let mut new_scale = self.clone_numeric_scale();
+        new_scale.set_domain(domain);
         Self {
-            numeric_scale: self.numeric_scale.with_domain(domain),
+            numeric_scale: new_scale,
             ..self
         }
     }
 
     pub fn with_range(self, range: Vec<C>) -> Self {
+        let mut new_scale = self.clone_numeric_scale();
+        new_scale.set_range((0.0, range.len() as f32 - 1.0));
         Self {
-            numeric_scale: self.numeric_scale,
+            numeric_scale: new_scale,
             range,
-            _marker: PhantomData,
+            ..self
         }
     }
 
@@ -91,10 +93,17 @@ where
         &self.numeric_scale
     }
 
-    pub fn scale<'a>(
-        &self,
-        values: impl Into<ScalarOrArrayRef<'a, S::Domain>>,
-    ) -> ScalarOrArray<ColorOrGradient> {
+    /// Clone the numeric scale by calling the builder function and
+    /// configuring it with the same settings as the original scale
+    pub fn clone_numeric_scale(&self) -> S {
+        let mut new_scale = (self.numeric_scale_cloner)();
+        new_scale.set_clamp(self.numeric_scale.clamp());
+        new_scale.set_range(self.numeric_scale.range());
+        new_scale.set_domain(self.numeric_scale.domain());
+        new_scale
+    }
+
+    pub fn scale(&self, values: &[S::Domain]) -> ScalarOrArray<ColorOrGradient> {
         // Normalize the input values to the range [0, number of colors - 1]
         let normalized_values = self.numeric_scale.scale(values);
 
@@ -126,12 +135,19 @@ impl<C: ColorSpace> ContinuousColorScale<C, LinearNumericScale, f32> {
         config: &LinearNumericScaleConfig,
         colors: Vec<C>,
     ) -> ContinuousColorScale<C, LinearNumericScale, f32> {
-        let numeric_scale = LinearNumericScale::new(&config)
-            .with_clamp(true)
-            .with_range((0.0, colors.len() as f32 - 1.0));
+        let config = config.clone();
+        let num_colors = colors.len();
+        let numeric_scale_builder = Arc::new(move || {
+            LinearNumericScale::new(&config)
+                .with_clamp(true)
+                .with_range((0.0, num_colors as f32 - 1.0))
+        });
+
+        let numeric_scale = numeric_scale_builder();
 
         Self {
             numeric_scale,
+            numeric_scale_cloner: numeric_scale_builder,
             range: colors,
             _marker: PhantomData,
         }
@@ -143,12 +159,19 @@ impl<C: ColorSpace> ContinuousColorScale<C, LogNumericScale, f32> {
         config: &LogNumericScaleConfig,
         colors: Vec<C>,
     ) -> ContinuousColorScale<C, LogNumericScale, f32> {
-        let numeric_scale = LogNumericScale::new(&config)
-            .with_clamp(true)
-            .with_range((0.0, colors.len() as f32 - 1.0));
+        let config = config.clone();
+        let num_colors = colors.len();
+        let numeric_scale_builder = Arc::new(move || {
+            LogNumericScale::new(&config)
+                .with_clamp(true)
+                .with_range((0.0, num_colors as f32 - 1.0))
+        });
+
+        let numeric_scale = numeric_scale_builder();
 
         Self {
             numeric_scale,
+            numeric_scale_cloner: numeric_scale_builder,
             range: colors,
             _marker: PhantomData,
         }
@@ -156,13 +179,23 @@ impl<C: ColorSpace> ContinuousColorScale<C, LogNumericScale, f32> {
 }
 
 impl<C: ColorSpace> ContinuousColorScale<C, PowNumericScale, f32> {
-    pub fn new_pow(config: &PowNumericScaleConfig, colors: Vec<C>) -> Self {
-        let numeric_scale = PowNumericScale::new(&config)
-            .with_clamp(true)
-            .with_range((0.0, colors.len() as f32 - 1.0));
+    pub fn new_pow(
+        config: &PowNumericScaleConfig,
+        colors: Vec<C>,
+    ) -> ContinuousColorScale<C, PowNumericScale, f32> {
+        let config = config.clone();
+        let num_colors = colors.len();
+        let numeric_scale_builder = Arc::new(move || {
+            PowNumericScale::new(&config)
+                .with_clamp(true)
+                .with_range((0.0, num_colors as f32 - 1.0))
+        });
+
+        let numeric_scale = numeric_scale_builder();
 
         Self {
             numeric_scale,
+            numeric_scale_cloner: numeric_scale_builder,
             range: colors,
             _marker: PhantomData,
         }
@@ -170,13 +203,23 @@ impl<C: ColorSpace> ContinuousColorScale<C, PowNumericScale, f32> {
 }
 
 impl<C: ColorSpace> ContinuousColorScale<C, SymlogNumericScale, f32> {
-    pub fn new_symlog(config: &SymlogNumericScaleConfig, colors: Vec<C>) -> Self {
-        let numeric_scale = SymlogNumericScale::new(&config)
-            .with_clamp(true)
-            .with_range((0.0, colors.len() as f32 - 1.0));
+    pub fn new_symlog(
+        config: &SymlogNumericScaleConfig,
+        colors: Vec<C>,
+    ) -> ContinuousColorScale<C, SymlogNumericScale, f32> {
+        let config = config.clone();
+        let num_colors = colors.len();
+        let numeric_scale_builder = Arc::new(move || {
+            SymlogNumericScale::new(&config)
+                .with_clamp(true)
+                .with_range((0.0, num_colors as f32 - 1.0))
+        });
+
+        let numeric_scale = numeric_scale_builder();
 
         Self {
             numeric_scale,
+            numeric_scale_cloner: numeric_scale_builder,
             range: colors,
             _marker: PhantomData,
         }
@@ -185,12 +228,19 @@ impl<C: ColorSpace> ContinuousColorScale<C, SymlogNumericScale, f32> {
 
 impl<C: ColorSpace> ContinuousColorScale<C, DateScale, NaiveDate> {
     pub fn new_date(config: &DateScaleConfig, colors: Vec<C>) -> Self {
-        let numeric_scale = DateScale::new(&config)
-            .with_clamp(true)
-            .with_range((0.0, colors.len() as f32 - 1.0));
+        let config = config.clone();
+        let num_colors = colors.len();
+        let numeric_scale_builder = Arc::new(move || {
+            DateScale::new(&config)
+                .with_clamp(true)
+                .with_range((0.0, num_colors as f32 - 1.0))
+        });
+
+        let numeric_scale = numeric_scale_builder();
 
         Self {
             numeric_scale,
+            numeric_scale_cloner: numeric_scale_builder,
             range: colors,
             _marker: PhantomData,
         }
@@ -199,38 +249,46 @@ impl<C: ColorSpace> ContinuousColorScale<C, DateScale, NaiveDate> {
 
 impl<C: ColorSpace> ContinuousColorScale<C, TimestampScale, NaiveDateTime> {
     pub fn new_timestamp(config: &TimestampScaleConfig, colors: Vec<C>) -> Self {
-        let numeric_scale = TimestampScale::new(&config)
-            .with_clamp(true)
-            .with_range((0.0, colors.len() as f32 - 1.0));
+        let config = config.clone();
+        let num_colors = colors.len();
+        let numeric_scale_builder = Arc::new(move || {
+            TimestampScale::new(&config)
+                .with_clamp(true)
+                .with_range((0.0, num_colors as f32 - 1.0))
+        });
+
+        let numeric_scale = numeric_scale_builder();
 
         Self {
             numeric_scale,
+            numeric_scale_cloner: numeric_scale_builder,
             range: colors,
             _marker: PhantomData,
         }
     }
 }
 
-impl<C: ColorSpace, Tz: 'static + TimeZone + Copy>
+impl<C: ColorSpace, Tz: 'static + TimeZone + Copy + Send + Sync>
     ContinuousColorScale<C, TimestampTzScale<Tz>, DateTime<Utc>>
 {
     pub fn new_timestamp_tz(
-        domain: (DateTime<Utc>, DateTime<Utc>),
+        config: &TimestampTzScaleConfig,
         colors: Vec<C>,
         display_tz: Tz,
     ) -> Self {
-        let numeric_scale = TimestampTzScale::new(
-            &TimestampTzScaleConfig {
-                domain,
-                ..Default::default()
-            },
-            display_tz,
-        )
-        .with_clamp(true)
-        .with_range((0.0, colors.len() as f32 - 1.0));
+        let config = config.clone();
+        let num_colors = colors.len();
+        let numeric_scale_builder = Arc::new(move || {
+            TimestampTzScale::new(&config, display_tz)
+                .with_clamp(true)
+                .with_range((0.0, num_colors as f32 - 1.0))
+        });
+
+        let numeric_scale = numeric_scale_builder();
 
         Self {
             numeric_scale,
+            numeric_scale_cloner: numeric_scale_builder,
             range: colors,
             _marker: PhantomData,
         }

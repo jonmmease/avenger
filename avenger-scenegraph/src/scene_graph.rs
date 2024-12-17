@@ -47,9 +47,6 @@ impl SceneGraph {
     pub fn get_absolute_origin(&self, group_path: &[usize]) -> Option<[f32; 2]> {
         let mut origin = self.origin;
 
-        let mark_at_path = self.get_mark(group_path)?;
-        // println!("mark_at_path: {:?}", mark_at_path);
-
         if group_path.is_empty() {
             return Some(origin);
         }

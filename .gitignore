@@ -19,3 +19,4 @@ __pycache__/
 /avenger-vega-renderer/dist-deno/
 examples/wgpu-scales/geometry.svg
 examples/iris/geometry.svg
+.vscode/launch.json
