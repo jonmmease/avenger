@@ -17,7 +17,8 @@ arrow = { version = "*" }
 tokio = { workspace = true, default-features = false }
 lazy_static = { workspace = true }
 async-trait = { workspace = true }
-
+chrono = { workspace = true }
+chrono-tz = { workspace = true }
 
 serde = { workspace = true }
 thiserror = { workspace = true }

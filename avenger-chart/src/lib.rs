@@ -1,4 +1,4 @@
 pub mod error;
-pub mod scale;
+pub mod scales;
 pub mod types;
 pub mod utils;
