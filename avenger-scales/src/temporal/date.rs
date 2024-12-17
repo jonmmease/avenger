@@ -186,6 +186,7 @@ pub struct DateScale {
     range_end: f32,
     clamp: bool,
     range_offset: f32,
+    round: bool,
 }
 
 impl DateScale {
@@ -198,18 +199,12 @@ impl DateScale {
             range_end: config.range.1,
             clamp: config.clamp,
             range_offset: config.range_offset,
+            round: false,
         };
         if config.nice {
             this = this.nice(None);
         }
         this
-    }
-
-    /// Sets the input domain of the scale
-    pub fn with_domain(mut self, domain: (NaiveDate, NaiveDate)) -> Self {
-        self.domain_start = domain.0;
-        self.domain_end = domain.1;
-        self
     }
 
     /// Sets the output range of the scale
@@ -270,10 +265,21 @@ impl DateScale {
     }
 }
 
-impl ContinuousNumericScale<NaiveDate> for DateScale {
+impl ContinuousNumericScale for DateScale {
+    type Domain = NaiveDate;
+
     /// Returns the current domain as (start, end)
     fn domain(&self) -> (NaiveDate, NaiveDate) {
         (self.domain_start, self.domain_end)
+    }
+
+    /// Sets the input domain of the scale
+    fn with_domain(self, domain: (NaiveDate, NaiveDate)) -> Self {
+        Self {
+            domain_start: domain.0,
+            domain_end: domain.1,
+            ..self
+        }
     }
 
     /// Returns the current range as (start, end)
@@ -281,9 +287,33 @@ impl ContinuousNumericScale<NaiveDate> for DateScale {
         (self.range_start, self.range_end)
     }
 
+    /// Sets the output range of the scale
+    fn with_range(self, range: (f32, f32)) -> Self {
+        Self {
+            range_start: range.0,
+            range_end: range.1,
+            ..self
+        }
+    }
+
     /// Returns whether output clamping is enabled
     fn clamp(&self) -> bool {
         self.clamp
+    }
+
+    /// Enables or disables clamping of output values to the range
+    fn with_clamp(self, clamp: bool) -> Self {
+        Self { clamp, ..self }
+    }
+
+    /// Returns whether output rounding is enabled
+    fn round(&self) -> bool {
+        self.round
+    }
+
+    /// Enables or disables rounding of output values
+    fn with_round(self, round: bool) -> Self {
+        Self { round, ..self }
     }
 
     /// Maps input values from domain to range
@@ -309,15 +339,31 @@ impl ContinuousNumericScale<NaiveDate> for DateScale {
                 (self.range_end, self.range_start)
             };
 
-            values.into().map(|v| {
-                let v_ts = Self::to_timestamp(&v);
-                ((scale * v_ts) as f32 + offset).clamp(range_min, range_max)
-            })
+            if self.round() {
+                values.into().map(|v| {
+                    let v_ts = Self::to_timestamp(&v);
+                    ((scale * v_ts) as f32 + offset)
+                        .clamp(range_min, range_max)
+                        .round()
+                })
+            } else {
+                values.into().map(|v| {
+                    let v_ts = Self::to_timestamp(&v);
+                    ((scale * v_ts) as f32 + offset).clamp(range_min, range_max)
+                })
+            }
         } else {
-            values.into().map(|v| {
-                let v_ts = Self::to_timestamp(&v);
-                (scale * v_ts) as f32 + offset
-            })
+            if self.round() {
+                values.into().map(|v| {
+                    let v_ts = Self::to_timestamp(&v);
+                    ((scale * v_ts) as f32 + offset).round()
+                })
+            } else {
+                values.into().map(|v| {
+                    let v_ts = Self::to_timestamp(&v);
+                    (scale * v_ts) as f32 + offset
+                })
+            }
         }
     }
 
@@ -393,20 +439,6 @@ impl ContinuousNumericScale<NaiveDate> for DateScale {
         }
 
         ticks
-    }
-
-    fn set_domain(&mut self, domain: (NaiveDate, NaiveDate)) {
-        self.domain_start = domain.0;
-        self.domain_end = domain.1;
-    }
-
-    fn set_range(&mut self, range: (f32, f32)) {
-        self.range_start = range.0;
-        self.range_end = range.1;
-    }
-
-    fn set_clamp(&mut self, clamp: bool) {
-        self.clamp = clamp;
     }
 }
 

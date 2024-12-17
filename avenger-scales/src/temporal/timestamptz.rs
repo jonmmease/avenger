@@ -310,6 +310,7 @@ pub struct TimestampTzScale<Tz: TimeZone + Copy> {
     clamp: bool,
     range_offset: f32,
     display_tz: Tz,
+    round: bool,
 }
 
 impl<Tz: TimeZone + Copy> TimestampTzScale<Tz> {
@@ -323,6 +324,7 @@ impl<Tz: TimeZone + Copy> TimestampTzScale<Tz> {
             clamp: config.clamp,
             range_offset: config.range_offset,
             display_tz,
+            round: false,
         };
         if config.nice {
             this = this.nice(None);
@@ -339,26 +341,6 @@ impl<Tz: TimeZone + Copy> TimestampTzScale<Tz> {
     /// Gets the current display timezone
     pub fn get_display_timezone(&self) -> Tz {
         self.display_tz
-    }
-
-    /// Sets the input domain of the scale
-    pub fn with_domain(mut self, domain: (DateTime<Utc>, DateTime<Utc>)) -> Self {
-        self.domain_start = domain.0;
-        self.domain_end = domain.1;
-        self
-    }
-
-    /// Sets the output range of the scale
-    pub fn with_range(mut self, range: (f32, f32)) -> Self {
-        self.range_start = range.0;
-        self.range_end = range.1;
-        self
-    }
-
-    /// Enables or disables clamping of output values to the range
-    pub fn with_clamp(mut self, clamp: bool) -> Self {
-        self.clamp = clamp;
-        self
     }
 
     /// Sets the range offset
@@ -418,10 +400,12 @@ impl<Tz: TimeZone + Copy> TimestampTzScale<Tz> {
     }
 }
 
-impl<Tz> ContinuousNumericScale<DateTime<Utc>> for TimestampTzScale<Tz>
+impl<Tz> ContinuousNumericScale for TimestampTzScale<Tz>
 where
     Tz: TimeZone + Copy + 'static,
 {
+    type Domain = DateTime<Utc>;
+
     fn domain(&self) -> (DateTime<Utc>, DateTime<Utc>) {
         (self.domain_start, self.domain_end)
     }
@@ -434,18 +418,35 @@ where
         self.clamp
     }
 
-    fn set_domain(&mut self, domain: (DateTime<Utc>, DateTime<Utc>)) {
-        self.domain_start = domain.0;
-        self.domain_end = domain.1;
+    fn round(&self) -> bool {
+        self.round
     }
 
-    fn set_range(&mut self, range: (f32, f32)) {
-        self.range_start = range.0;
-        self.range_end = range.1;
+    /// Sets the input domain of the scale
+    fn with_domain(self, domain: (DateTime<Utc>, DateTime<Utc>)) -> Self {
+        Self {
+            domain_start: domain.0,
+            domain_end: domain.1,
+            ..self
+        }
     }
 
-    fn set_clamp(&mut self, clamp: bool) {
-        self.clamp = clamp;
+    /// Sets the output range of the scale
+    fn with_range(self, range: (f32, f32)) -> Self {
+        Self {
+            range_start: range.0,
+            range_end: range.1,
+            ..self
+        }
+    }
+
+    /// Enables or disables clamping of output values to the range
+    fn with_clamp(self, clamp: bool) -> Self {
+        Self { clamp, ..self }
+    }
+
+    fn with_round(self, round: bool) -> Self {
+        Self { round, ..self }
     }
 
     fn scale<'a>(
@@ -473,15 +474,31 @@ where
                 (self.range_end, self.range_start)
             };
 
-            values.into().map(|v| {
-                let v_ts = Self::to_timestamp(&v);
-                ((scale * v_ts) as f32 + offset).clamp(range_min, range_max)
-            })
+            if self.round() {
+                values.into().map(|v| {
+                    let v_ts = Self::to_timestamp(&v);
+                    ((scale * v_ts) as f32 + offset)
+                        .clamp(range_min, range_max)
+                        .round()
+                })
+            } else {
+                values.into().map(|v| {
+                    let v_ts = Self::to_timestamp(&v);
+                    ((scale * v_ts) as f32 + offset).clamp(range_min, range_max)
+                })
+            }
         } else {
-            values.into().map(|v| {
-                let v_ts = Self::to_timestamp(&v);
-                (scale * v_ts) as f32 + offset
-            })
+            if self.round() {
+                values.into().map(|v| {
+                    let v_ts = Self::to_timestamp(&v);
+                    ((scale * v_ts) as f32 + offset).round()
+                })
+            } else {
+                values.into().map(|v| {
+                    let v_ts = Self::to_timestamp(&v);
+                    (scale * v_ts) as f32 + offset
+                })
+            }
         }
     }
 

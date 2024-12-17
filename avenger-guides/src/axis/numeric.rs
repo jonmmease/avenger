@@ -15,7 +15,7 @@ const TICK_FONT_SIZE: f32 = 8.0;
 const PIXEL_OFFSET: f32 = 0.5;
 
 pub fn make_numeric_axis_marks(
-    scale: &impl ContinuousNumericScale<f32>,
+    scale: &impl ContinuousNumericScale<Domain = f32>,
     title: &str,
     origin: [f32; 2],
     config: &AxisConfig,
@@ -104,7 +104,7 @@ fn make_axis_line(start: f32, end: f32, is_vertical: bool, offset: f32) -> Scene
 
 fn make_tick_marks(
     ticks: &[f32],
-    scale: &impl ContinuousNumericScale<f32>,
+    scale: &impl ContinuousNumericScale<Domain = f32>,
     orientation: &AxisOrientation,
     dimensions: &[f32; 2],
 ) -> SceneRuleMark {
@@ -152,7 +152,7 @@ fn make_tick_marks(
 
 fn make_tick_grid_marks(
     ticks: &[f32],
-    scale: &impl ContinuousNumericScale<f32>,
+    scale: &impl ContinuousNumericScale<Domain = f32>,
     orientation: &AxisOrientation,
     dimensions: &[f32; 2],
 ) -> SceneRuleMark {
@@ -200,7 +200,7 @@ fn make_tick_grid_marks(
 
 fn make_tick_labels(
     ticks: &[f32],
-    scale: &impl ContinuousNumericScale<f32>,
+    scale: &impl ContinuousNumericScale<Domain = f32>,
     orientation: &AxisOrientation,
     dimensions: &[f32; 2],
 ) -> SceneTextMark {
@@ -254,7 +254,7 @@ fn make_tick_labels(
 
 fn make_title(
     title: &str,
-    scale: &impl ContinuousNumericScale<f32>,
+    scale: &impl ContinuousNumericScale<Domain = f32>,
     envelope: &AABB<[f32; 2]>,
     orientation: &AxisOrientation,
 ) -> SceneTextMark {

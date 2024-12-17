@@ -30,7 +30,7 @@ impl<T: Mix<Scalar = f32> + Copy + IntoColor<Srgba> + Debug + Send + Sync + 'sta
 pub struct ContinuousColorScale<C, S, D>
 where
     C: ColorSpace,
-    S: ContinuousNumericScale<D>,
+    S: ContinuousNumericScale<Domain = D>,
     D: 'static + Send + Sync + Clone,
 {
     numeric_scale: S,
@@ -41,7 +41,7 @@ where
 impl<C, S, D> ContinuousColorScale<C, S, D>
 where
     C: ColorSpace,
-    S: ContinuousNumericScale<D>,
+    S: ContinuousNumericScale<Domain = D>,
     D: 'static + Send + Sync + Clone,
 {
     pub fn from_scale(numeric_scale: S, colors: Vec<C>) -> Result<Self, AvengerScaleError> {
@@ -64,7 +64,7 @@ where
         })
     }
 
-    pub fn domain(&self) -> (D, D) {
+    pub fn domain(&self) -> (S::Domain, S::Domain) {
         self.numeric_scale.domain()
     }
 
@@ -72,14 +72,19 @@ where
         &self.range
     }
 
-    pub fn with_domain(mut self, domain: (D, D)) -> Self {
-        self.numeric_scale.set_domain(domain);
-        self
+    pub fn with_domain(self, domain: (S::Domain, S::Domain)) -> Self {
+        Self {
+            numeric_scale: self.numeric_scale.with_domain(domain),
+            ..self
+        }
     }
 
-    pub fn with_range(mut self, range: Vec<C>) -> Self {
-        self.range = range;
-        self
+    pub fn with_range(self, range: Vec<C>) -> Self {
+        Self {
+            numeric_scale: self.numeric_scale,
+            range,
+            _marker: PhantomData,
+        }
     }
 
     pub fn get_numeric_scale(&self) -> &S {
@@ -88,7 +93,7 @@ where
 
     pub fn scale<'a>(
         &self,
-        values: impl Into<ScalarOrArrayRef<'a, D>>,
+        values: impl Into<ScalarOrArrayRef<'a, S::Domain>>,
     ) -> ScalarOrArray<ColorOrGradient> {
         // Normalize the input values to the range [0, number of colors - 1]
         let normalized_values = self.numeric_scale.scale(values);
@@ -96,7 +101,7 @@ where
         normalized_values.map(|v| Self::interp_color_to_color_or_gradient(&self.range, *v))
     }
 
-    pub fn ticks(&self, count: Option<f32>) -> Vec<D> {
+    pub fn ticks(&self, count: Option<f32>) -> Vec<S::Domain> {
         self.numeric_scale.ticks(count)
     }
 
@@ -235,7 +240,7 @@ impl<C: ColorSpace, Tz: 'static + TimeZone + Copy>
 impl<C, S> ContinuousColorScale<C, S, f32>
 where
     C: ColorSpace,
-    S: ContinuousNumericScale<f32>,
+    S: ContinuousNumericScale<Domain = f32>,
 {
     pub fn to_gradient_stops(&self) -> Vec<GradientStop> {
         let domain_start: f32 = self.domain().0.into();

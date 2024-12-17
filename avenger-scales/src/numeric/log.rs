@@ -201,23 +201,6 @@ impl LogNumericScale {
         self
     }
 
-    pub fn with_domain(mut self, domain: (f32, f32)) -> Self {
-        self.domain_start = domain.0;
-        self.domain_end = domain.1;
-        self
-    }
-
-    pub fn with_range(mut self, range: (f32, f32)) -> Self {
-        self.range_start = range.0;
-        self.range_end = range.1;
-        self
-    }
-
-    pub fn with_clamp(mut self, clamp: bool) -> Self {
-        self.clamp = clamp;
-        self
-    }
-
     pub fn with_range_offset(mut self, range_offset: f32) -> Self {
         self.range_offset = range_offset;
         self
@@ -229,31 +212,45 @@ impl LogNumericScale {
     }
 }
 
-impl ContinuousNumericScale<f32> for LogNumericScale {
+impl ContinuousNumericScale for LogNumericScale {
+    type Domain = f32;
+
+    fn domain(&self) -> (f32, f32) {
+        (self.domain_start, self.domain_end)
+    }
+
+    fn with_domain(mut self, domain: (f32, f32)) -> Self {
+        self.domain_start = domain.0;
+        self.domain_end = domain.1;
+        self
+    }
+
     fn range(&self) -> (f32, f32) {
         (self.range_start, self.range_end)
     }
 
-    fn domain(&self) -> (f32, f32) {
-        (self.domain_start, self.domain_end)
+    fn with_range(mut self, range: (f32, f32)) -> Self {
+        self.range_start = range.0;
+        self.range_end = range.1;
+        self
     }
 
     fn clamp(&self) -> bool {
         self.clamp
     }
 
-    fn set_domain(&mut self, domain: (f32, f32)) {
-        self.domain_start = domain.0;
-        self.domain_end = domain.1;
-    }
-
-    fn set_range(&mut self, range: (f32, f32)) {
-        self.range_start = range.0;
-        self.range_end = range.1;
-    }
-
-    fn set_clamp(&mut self, clamp: bool) {
+    fn with_clamp(mut self, clamp: bool) -> Self {
         self.clamp = clamp;
+        self
+    }
+
+    fn round(&self) -> bool {
+        self.round
+    }
+
+    fn with_round(mut self, round: bool) -> Self {
+        self.round = round;
+        self
     }
 
     fn scale<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, f32>>) -> ScalarOrArray<f32> {
