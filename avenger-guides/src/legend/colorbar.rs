@@ -18,7 +18,7 @@ pub fn make_colorbar_marks<C, S>(
 ) -> SceneGroup
 where
     C: ColorSpace,
-    S: ContinuousNumericScale<f32>,
+    S: ContinuousNumericScale<Domain = f32>,
 {
     match config.orientation {
         ColorbarOrientation::Top => todo!(),
@@ -34,8 +34,11 @@ where
                 dimensions: [config.dimensions[0] + scale_x_offset, config.dimensions[1]],
                 grid: false,
             };
-            let mut numeric_scale = scale.get_numeric_scale().clone();
-            numeric_scale.set_range((config.dimensions[1], 0.0));
+
+            let numeric_scale = scale
+                .get_numeric_scale()
+                .clone()
+                .with_range((config.dimensions[1], 0.0));
             let axis = make_numeric_axis_marks(&numeric_scale, title, origin, &axis_config);
 
             let gradient = Gradient::LinearGradient(LinearGradient {

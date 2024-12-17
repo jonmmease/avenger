@@ -1,4 +1,7 @@
-use avenger_common::{types::LinearScaleAdjustment, value::{ScalarOrArray, ScalarOrArrayRef}};
+use avenger_common::{
+    types::LinearScaleAdjustment,
+    value::{ScalarOrArray, ScalarOrArrayRef},
+};
 
 use crate::array;
 
@@ -116,30 +119,8 @@ impl LinearNumericScale {
         self
     }
 
-    pub fn with_domain(mut self, domain: (f32, f32)) -> Self {
-        self.domain_start = domain.0;
-        self.domain_end = domain.1;
-        self
-    }
-
-    pub fn with_range(mut self, range: (f32, f32)) -> Self {
-        self.range_start = range.0;
-        self.range_end = range.1;
-        self
-    }
-
-    pub fn with_clamp(mut self, clamp: bool) -> Self {
-        self.clamp = clamp;
-        self
-    }
-
     pub fn with_range_offset(mut self, range_offset: Option<f32>) -> Self {
         self.range_offset = range_offset;
-        self
-    }
-
-    pub fn with_round(mut self, round: bool) -> Self {
-        self.round = round;
         self
     }
 
@@ -228,9 +209,17 @@ impl LinearNumericScale {
     }
 }
 
-impl ContinuousNumericScale<f32> for LinearNumericScale {
+impl ContinuousNumericScale for LinearNumericScale {
+    type Domain = f32;
+
     fn domain(&self) -> (f32, f32) {
         (self.domain_start, self.domain_end)
+    }
+
+    fn with_domain(mut self, domain: (f32, f32)) -> Self {
+        self.domain_start = domain.0;
+        self.domain_end = domain.1;
+        self
     }
 
     /// Returns the current range as (start, end)
@@ -238,9 +227,30 @@ impl ContinuousNumericScale<f32> for LinearNumericScale {
         (self.range_start, self.range_end)
     }
 
+    fn with_range(self, range: (f32, f32)) -> Self {
+        Self {
+            range_start: range.0,
+            range_end: range.1,
+            ..self
+        }
+    }
+
     /// Returns whether output clamping is enabled
     fn clamp(&self) -> bool {
         self.clamp
+    }
+
+    /// Enables or disables output clamping
+    fn with_clamp(self, clamp: bool) -> Self {
+        Self { clamp, ..self }
+    }
+
+    fn round(&self) -> bool {
+        self.round
+    }
+
+    fn with_round(self, round: bool) -> Self {
+        Self { round, ..self }
     }
 
     /// Maps input values from domain to range
@@ -328,20 +338,6 @@ impl ContinuousNumericScale<f32> for LinearNumericScale {
     fn ticks(&self, count: Option<f32>) -> Vec<f32> {
         let count = count.unwrap_or(10.0);
         array::ticks(self.domain_start as f32, self.domain_end as f32, count)
-    }
-
-    fn set_domain(&mut self, domain: (f32, f32)) {
-        self.domain_start = domain.0;
-        self.domain_end = domain.1;
-    }
-
-    fn set_range(&mut self, range: (f32, f32)) {
-        self.range_start = range.0;
-        self.range_end = range.1;
-    }
-
-    fn set_clamp(&mut self, clamp: bool) {
-        self.clamp = clamp;
     }
 }
 

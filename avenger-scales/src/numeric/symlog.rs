@@ -105,29 +105,6 @@ impl SymlogNumericScale {
         }
     }
 
-    /// Sets the domain
-    pub fn with_domain(self, (domain_start, domain_end): (f32, f32)) -> Self {
-        Self {
-            domain_start,
-            domain_end,
-            ..self
-        }
-    }
-
-    /// Sets the range
-    pub fn with_range(self, (range_start, range_end): (f32, f32)) -> Self {
-        Self {
-            range_start,
-            range_end,
-            ..self
-        }
-    }
-
-    /// Sets the clamp flag
-    pub fn with_clamp(self, clamp: bool) -> Self {
-        Self { clamp, ..self }
-    }
-
     /// Sets the range offset
     pub fn with_range_offset(self, range_offset: f32) -> Self {
         Self {
@@ -140,38 +117,52 @@ impl SymlogNumericScale {
     pub fn with_constant(self, constant: f32) -> Self {
         Self { constant, ..self }
     }
-
-    /// Sets the round flag
-    pub fn with_round(self, round: bool) -> Self {
-        Self { round, ..self }
-    }
 }
 
-impl ContinuousNumericScale<f32> for SymlogNumericScale {
+impl ContinuousNumericScale for SymlogNumericScale {
+    type Domain = f32;
+
     fn domain(&self) -> (f32, f32) {
         (self.domain_start, self.domain_end)
     }
 
+    /// Sets the domain
+    fn with_domain(self, (domain_start, domain_end): (f32, f32)) -> Self {
+        Self {
+            domain_start,
+            domain_end,
+            ..self
+        }
+    }
     fn range(&self) -> (f32, f32) {
         (self.range_start, self.range_end)
     }
 
+    /// Sets the range
+    fn with_range(self, (range_start, range_end): (f32, f32)) -> Self {
+        Self {
+            range_start,
+            range_end,
+            ..self
+        }
+    }
     fn clamp(&self) -> bool {
         self.clamp
     }
 
-    fn set_domain(&mut self, domain: (f32, f32)) {
-        self.domain_start = domain.0;
-        self.domain_end = domain.1;
+    /// Sets the clamp flag
+    fn with_clamp(self, clamp: bool) -> Self {
+        Self { clamp, ..self }
     }
 
-    fn set_range(&mut self, range: (f32, f32)) {
-        self.range_start = range.0;
-        self.range_end = range.1;
+    /// Returns whether output rounding is enabled
+    fn round(&self) -> bool {
+        self.round
     }
 
-    fn set_clamp(&mut self, clamp: bool) {
-        self.clamp = clamp;
+    /// Sets the round flag
+    fn with_round(self, round: bool) -> Self {
+        Self { round, ..self }
     }
 
     fn scale<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, f32>>) -> ScalarOrArray<f32> {
