@@ -1,8 +1,10 @@
+use std::sync::Arc;
+
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 
 use super::{
     linear::{LinearNumericScale, LinearNumericScaleConfig},
-    ContinuousNumericScale,
+    ContinuousNumericScale, ContinuousNumericScaleBuilder,
 };
 
 /// Configuration for a symlog scale
@@ -117,6 +119,39 @@ impl SymlogNumericScale {
     pub fn with_constant(self, constant: f32) -> Self {
         Self { constant, ..self }
     }
+
+    /// Sets the domain
+    pub fn with_domain(self, (domain_start, domain_end): (f32, f32)) -> Self {
+        Self {
+            domain_start,
+            domain_end,
+            ..self
+        }
+    }
+
+    /// Sets the range
+    pub fn with_range(self, (range_start, range_end): (f32, f32)) -> Self {
+        Self {
+            range_start,
+            range_end,
+            ..self
+        }
+    }
+
+    /// Sets the clamp flag
+    pub fn with_clamp(self, clamp: bool) -> Self {
+        Self { clamp, ..self }
+    }
+
+    /// Sets the round flag
+    pub fn with_round(self, round: bool) -> Self {
+        Self { round, ..self }
+    }
+
+    pub fn builder(&self) -> ContinuousNumericScaleBuilder<f32> {
+        let cloned = self.clone();
+        Arc::new(move || Box::new(cloned.clone()))
+    }
 }
 
 impl ContinuousNumericScale for SymlogNumericScale {
@@ -126,46 +161,39 @@ impl ContinuousNumericScale for SymlogNumericScale {
         (self.domain_start, self.domain_end)
     }
 
-    /// Sets the domain
-    fn with_domain(self, (domain_start, domain_end): (f32, f32)) -> Self {
-        Self {
-            domain_start,
-            domain_end,
-            ..self
-        }
+    fn set_domain(&mut self, (domain_start, domain_end): (f32, f32)) {
+        self.domain_start = domain_start;
+        self.domain_end = domain_end;
     }
+
     fn range(&self) -> (f32, f32) {
         (self.range_start, self.range_end)
     }
 
-    /// Sets the range
-    fn with_range(self, (range_start, range_end): (f32, f32)) -> Self {
-        Self {
-            range_start,
-            range_end,
-            ..self
-        }
+    fn set_range(&mut self, (range_start, range_end): (f32, f32)) {
+        self.range_start = range_start;
+        self.range_end = range_end;
     }
+
     fn clamp(&self) -> bool {
         self.clamp
     }
 
-    /// Sets the clamp flag
-    fn with_clamp(self, clamp: bool) -> Self {
-        Self { clamp, ..self }
+    fn set_clamp(&mut self, clamp: bool) {
+        self.clamp = clamp;
     }
 
-    /// Returns whether output rounding is enabled
     fn round(&self) -> bool {
         self.round
     }
 
-    /// Sets the round flag
-    fn with_round(self, round: bool) -> Self {
-        Self { round, ..self }
+    fn set_round(&mut self, round: bool) {
+        self.round = round;
     }
 
-    fn scale<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, f32>>) -> ScalarOrArray<f32> {
+    fn scale(&self, values: &[f32]) -> ScalarOrArray<f32> {
+        let values = ScalarOrArrayRef::from_slice(values);
+
         // Handle degenerate domain case
         if self.domain_start == self.domain_end
             || self.range_start == self.range_end
@@ -174,7 +202,7 @@ impl ContinuousNumericScale for SymlogNumericScale {
             || self.range_start.is_nan()
             || self.range_end.is_nan()
         {
-            return values.into().map(|_| self.range_start);
+            return values.map(|_| self.range_start);
         }
 
         // Pre-compute transformed domain endpoints
@@ -196,7 +224,7 @@ impl ContinuousNumericScale for SymlogNumericScale {
         match (self.clamp, self.round) {
             (true, true) => {
                 // clamp, and round
-                values.into().map(|&v| {
+                values.map(|&v| {
                     if v.is_nan() {
                         return f32::NAN;
                     }
@@ -219,7 +247,7 @@ impl ContinuousNumericScale for SymlogNumericScale {
             }
             (true, false) => {
                 // clamp, no round
-                values.into().map(|&v| {
+                values.map(|&v| {
                     if v.is_nan() {
                         return f32::NAN;
                     }
@@ -240,7 +268,7 @@ impl ContinuousNumericScale for SymlogNumericScale {
             }
             (false, true) => {
                 // no clamp, round
-                values.into().map(|&v| {
+                values.map(|&v| {
                     if v.is_nan() {
                         return f32::NAN;
                     }
@@ -261,7 +289,7 @@ impl ContinuousNumericScale for SymlogNumericScale {
             }
             (false, false) => {
                 // no clamp, no round
-                values.into().map(|&v| {
+                values.map(|&v| {
                     if v.is_nan() {
                         return f32::NAN;
                     }
@@ -284,7 +312,9 @@ impl ContinuousNumericScale for SymlogNumericScale {
     }
 
     /// Maps output values from range back to domain using inverse symlog transform
-    fn invert<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, f32>>) -> ScalarOrArray<f32> {
+    fn invert(&self, values: &[f32]) -> ScalarOrArray<f32> {
+        let values = ScalarOrArrayRef::from_slice(values);
+
         // Handle degenerate domain case
         if self.domain_start == self.domain_end
             || self.range_start == self.range_end
@@ -293,7 +323,7 @@ impl ContinuousNumericScale for SymlogNumericScale {
             || self.range_start.is_nan()
             || self.range_end.is_nan()
         {
-            return values.into().map(|_| self.domain_start);
+            return values.map(|_| self.domain_start);
         }
 
         // Pre-compute transformed domain endpoints
@@ -316,7 +346,7 @@ impl ContinuousNumericScale for SymlogNumericScale {
             // Pre-compute constant for efficiency
             let constant = self.constant;
 
-            values.into().map(|&v| {
+            values.map(|&v| {
                 if v.is_nan() {
                     return f32::NAN;
                 }
@@ -342,7 +372,7 @@ impl ContinuousNumericScale for SymlogNumericScale {
             // Pre-compute constant for efficiency
             let constant = self.constant;
 
-            values.into().map(|&v| {
+            values.map(|&v| {
                 if v.is_nan() {
                     return f32::NAN;
                 }

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use super::{
     linear::{LinearNumericScale, LinearNumericScaleConfig},
-    ContinuousNumericScale,
+    ContinuousNumericScale, ContinuousNumericScaleBuilder,
 };
 
 /// Handles power transformations with different exponents
@@ -172,6 +172,37 @@ impl PowNumericScale {
         self.power_fun = Arc::new(PowerFunction::new(exponent));
         self
     }
+
+    /// Sets the domain
+    pub fn with_domain(mut self, domain: (f32, f32)) -> Self {
+        self.domain_start = domain.0;
+        self.domain_end = domain.1;
+        self
+    }
+
+    /// Sets the range
+    pub fn with_range(mut self, range: (f32, f32)) -> Self {
+        self.range_start = range.0;
+        self.range_end = range.1;
+        self
+    }
+
+    /// Sets the clamp flag
+    pub fn with_clamp(mut self, clamp: bool) -> Self {
+        self.clamp = clamp;
+        self
+    }
+
+    /// Sets the round flag
+    pub fn with_round(mut self, round: bool) -> Self {
+        self.round = round;
+        self
+    }
+
+    pub fn builder(&self) -> ContinuousNumericScaleBuilder<f32> {
+        let cloned = self.clone();
+        Arc::new(move || Box::new(cloned.clone()))
+    }
 }
 
 impl ContinuousNumericScale for PowNumericScale {
@@ -181,49 +212,42 @@ impl ContinuousNumericScale for PowNumericScale {
         (self.domain_start, self.domain_end)
     }
 
-    /// Sets the domain
-    fn with_domain(mut self, domain: (f32, f32)) -> Self {
+    fn set_domain(&mut self, domain: (f32, f32)) {
         self.domain_start = domain.0;
         self.domain_end = domain.1;
-        self
     }
 
     fn range(&self) -> (f32, f32) {
         (self.range_start, self.range_end)
     }
 
-    /// Sets the range
-    fn with_range(mut self, range: (f32, f32)) -> Self {
+    fn set_range(&mut self, range: (f32, f32)) {
         self.range_start = range.0;
         self.range_end = range.1;
-        self
     }
 
     fn clamp(&self) -> bool {
         self.clamp
     }
 
-    /// Sets the clamp flag
-    fn with_clamp(mut self, clamp: bool) -> Self {
+    fn set_clamp(&mut self, clamp: bool) {
         self.clamp = clamp;
-        self
     }
 
-    /// Returns whether output rounding is enabled
     fn round(&self) -> bool {
         self.round
     }
 
-    /// Sets the round flag
-    fn with_round(mut self, round: bool) -> Self {
+    fn set_round(&mut self, round: bool) {
         self.round = round;
-        self
     }
 
-    fn scale<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, f32>>) -> ScalarOrArray<f32> {
+    fn scale(&self, values: &[f32]) -> ScalarOrArray<f32> {
+        let values = ScalarOrArrayRef::from_slice(values);
+
         // If range start equals end, return constant range value
         if self.range_start == self.range_end {
-            return values.into().map(|_| self.range_start);
+            return values.map(|_| self.range_start);
         }
 
         let d0 = self.power_fun.pow(self.domain_start);
@@ -231,7 +255,7 @@ impl ContinuousNumericScale for PowNumericScale {
 
         // If domain start equals end, return constant domain value
         if d0 == d1 {
-            return values.into().map(|_| self.domain_start);
+            return values.map(|_| self.domain_start);
         }
 
         // At this point, we know (d1 - d0) cannot be zero
@@ -248,14 +272,14 @@ impl ContinuousNumericScale for PowNumericScale {
         match (self.clamp, self.round) {
             (true, false) => match self.power_fun.as_ref() {
                 // Clamp, no rounding
-                PowerFunction::Static { pow_fun, .. } => values.into().map(|&v| {
+                PowerFunction::Static { pow_fun, .. } => values.map(|&v| {
                     let abs_v = v.abs();
                     let sign = if v < 0.0 { -1.0 } else { 1.0 };
                     (scale * (sign * pow_fun(abs_v)) + offset).clamp(range_min, range_max)
                 }),
                 PowerFunction::Custom { exponent } => {
                     let exponent = *exponent;
-                    values.into().map(|&v| {
+                    values.map(|&v| {
                         let abs_v = v.abs();
                         let sign = if v < 0.0 { -1.0 } else { 1.0 };
                         (scale * (sign * abs_v.powf(exponent)) + offset).clamp(range_min, range_max)
@@ -264,7 +288,7 @@ impl ContinuousNumericScale for PowNumericScale {
             },
             (true, true) => match self.power_fun.as_ref() {
                 // Clamp and rounding
-                PowerFunction::Static { pow_fun, .. } => values.into().map(|&v| {
+                PowerFunction::Static { pow_fun, .. } => values.map(|&v| {
                     let abs_v = v.abs();
                     let sign = if v < 0.0 { -1.0 } else { 1.0 };
                     (scale * (sign * pow_fun(abs_v)) + offset)
@@ -273,7 +297,7 @@ impl ContinuousNumericScale for PowNumericScale {
                 }),
                 PowerFunction::Custom { exponent } => {
                     let exponent = *exponent;
-                    values.into().map(|&v| {
+                    values.map(|&v| {
                         let abs_v = v.abs();
                         let sign = if v < 0.0 { -1.0 } else { 1.0 };
                         (scale * (sign * abs_v.powf(exponent)) + offset)
@@ -284,14 +308,14 @@ impl ContinuousNumericScale for PowNumericScale {
             },
             (false, false) => match self.power_fun.as_ref() {
                 // no clamping or rounding
-                PowerFunction::Static { pow_fun, .. } => values.into().map(|&v| {
+                PowerFunction::Static { pow_fun, .. } => values.map(|&v| {
                     let abs_v = v.abs();
                     let sign = if v < 0.0 { -1.0 } else { 1.0 };
                     scale * (sign * pow_fun(abs_v)) + offset
                 }),
                 PowerFunction::Custom { exponent } => {
                     let exponent = *exponent;
-                    values.into().map(|&v| {
+                    values.map(|&v| {
                         let abs_v = v.abs();
                         let sign = if v < 0.0 { -1.0 } else { 1.0 };
                         scale * (sign * abs_v.powf(exponent)) + offset
@@ -300,14 +324,14 @@ impl ContinuousNumericScale for PowNumericScale {
             },
             (false, true) => match self.power_fun.as_ref() {
                 // no clamping and rounding
-                PowerFunction::Static { pow_fun, .. } => values.into().map(|&v| {
+                PowerFunction::Static { pow_fun, .. } => values.map(|&v| {
                     let abs_v = v.abs();
                     let sign = if v < 0.0 { -1.0 } else { 1.0 };
                     (scale * (sign * pow_fun(abs_v)) + offset).round()
                 }),
                 PowerFunction::Custom { exponent } => {
                     let exponent = *exponent;
-                    values.into().map(|&v| {
+                    values.map(|&v| {
                         let abs_v = v.abs();
                         let sign = if v < 0.0 { -1.0 } else { 1.0 };
                         (scale * (sign * abs_v.powf(exponent)) + offset).round()
@@ -317,13 +341,15 @@ impl ContinuousNumericScale for PowNumericScale {
         }
     }
 
-    fn invert<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, f32>>) -> ScalarOrArray<f32> {
+    fn invert(&self, values: &[f32]) -> ScalarOrArray<f32> {
+        let values = ScalarOrArrayRef::from_slice(values);
+
         let d0 = self.power_fun.pow(self.domain_start);
         let d1 = self.power_fun.pow(self.domain_end);
 
         // If domain start equals end, return constant
         if d0 == d1 {
-            return values.into().map(|_| self.domain_start);
+            return values.map(|_| self.domain_start);
         }
 
         let scale = (self.range_end - self.range_start) / (d1 - d0);
@@ -338,7 +364,7 @@ impl ContinuousNumericScale for PowNumericScale {
             };
 
             match self.power_fun.as_ref() {
-                PowerFunction::Static { pow_inv_fun, .. } => values.into().map(|&v| {
+                PowerFunction::Static { pow_inv_fun, .. } => values.map(|&v| {
                     let v = v.clamp(range_min, range_max);
                     let normalized = (v - offset) / scale;
                     let abs_norm = normalized.abs();
@@ -347,7 +373,7 @@ impl ContinuousNumericScale for PowNumericScale {
                 }),
                 PowerFunction::Custom { exponent } => {
                     let inv_exponent = 1.0 / exponent;
-                    values.into().map(|&v| {
+                    values.map(|&v| {
                         let v = v.clamp(range_min, range_max);
                         let normalized = (v - offset) / scale;
                         let abs_norm = normalized.abs();
@@ -358,7 +384,7 @@ impl ContinuousNumericScale for PowNumericScale {
             }
         } else {
             match self.power_fun.as_ref() {
-                PowerFunction::Static { pow_inv_fun, .. } => values.into().map(|&v| {
+                PowerFunction::Static { pow_inv_fun, .. } => values.map(|&v| {
                     let normalized = (v - offset) / scale;
                     let abs_norm = normalized.abs();
                     let sign = if normalized < 0.0 { -1.0 } else { 1.0 };
@@ -366,7 +392,7 @@ impl ContinuousNumericScale for PowNumericScale {
                 }),
                 PowerFunction::Custom { exponent } => {
                     let inv_exponent = 1.0 / exponent;
-                    values.into().map(|&v| {
+                    values.map(|&v| {
                         let normalized = (v - offset) / scale;
                         let abs_norm = normalized.abs();
                         let sign = if normalized < 0.0 { -1.0 } else { 1.0 };

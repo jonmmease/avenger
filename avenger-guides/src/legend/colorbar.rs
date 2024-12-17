@@ -35,10 +35,8 @@ where
                 grid: false,
             };
 
-            let numeric_scale = scale
-                .get_numeric_scale()
-                .clone()
-                .with_range((config.dimensions[1], 0.0));
+            let mut numeric_scale = scale.clone_numeric_scale();
+            numeric_scale.set_range((config.dimensions[1], 0.0));
             let axis = make_numeric_axis_marks(&numeric_scale, title, origin, &axis_config);
 
             let gradient = Gradient::LinearGradient(LinearGradient {

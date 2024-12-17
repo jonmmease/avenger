@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use avenger_common::{
     types::LinearScaleAdjustment,
     value::{ScalarOrArray, ScalarOrArrayRef},
@@ -5,7 +7,7 @@ use avenger_common::{
 
 use crate::array;
 
-use super::ContinuousNumericScale;
+use super::{ContinuousNumericScale, ContinuousNumericScaleBuilder};
 
 #[derive(Clone, Debug)]
 pub struct LinearNumericScaleConfig {
@@ -124,6 +126,29 @@ impl LinearNumericScale {
         self
     }
 
+    pub fn with_domain(mut self, domain: (f32, f32)) -> Self {
+        self.domain_start = domain.0;
+        self.domain_end = domain.1;
+        self
+    }
+
+    pub fn with_range(self, range: (f32, f32)) -> Self {
+        Self {
+            range_start: range.0,
+            range_end: range.1,
+            ..self
+        }
+    }
+
+    pub fn with_round(self, round: bool) -> Self {
+        Self { round, ..self }
+    }
+
+    /// Enables or disables output clamping
+    pub fn with_clamp(self, clamp: bool) -> Self {
+        Self { clamp, ..self }
+    }
+
     /// Pans the domain by the given delta
     ///
     /// The delta value represents fractional units of the scale range; for example,
@@ -207,6 +232,11 @@ impl LinearNumericScale {
             / ((self.range_end - self.range_start) * (to_scale.domain_end - to_scale.domain_start));
         LinearScaleAdjustment { scale, offset }
     }
+
+    pub fn builder(&self) -> ContinuousNumericScaleBuilder<f32> {
+        let cloned = self.clone();
+        Arc::new(move || Box::new(cloned.clone()))
+    }
 }
 
 impl ContinuousNumericScale for LinearNumericScale {
@@ -216,45 +246,40 @@ impl ContinuousNumericScale for LinearNumericScale {
         (self.domain_start, self.domain_end)
     }
 
-    fn with_domain(mut self, domain: (f32, f32)) -> Self {
+    fn set_domain(&mut self, domain: (f32, f32)) {
         self.domain_start = domain.0;
         self.domain_end = domain.1;
-        self
     }
 
-    /// Returns the current range as (start, end)
     fn range(&self) -> (f32, f32) {
         (self.range_start, self.range_end)
     }
 
-    fn with_range(self, range: (f32, f32)) -> Self {
-        Self {
-            range_start: range.0,
-            range_end: range.1,
-            ..self
-        }
+    fn set_range(&mut self, range: (f32, f32)) {
+        self.range_start = range.0;
+        self.range_end = range.1;
     }
 
-    /// Returns whether output clamping is enabled
     fn clamp(&self) -> bool {
         self.clamp
     }
 
-    /// Enables or disables output clamping
-    fn with_clamp(self, clamp: bool) -> Self {
-        Self { clamp, ..self }
+    fn set_clamp(&mut self, clamp: bool) {
+        self.clamp = clamp;
     }
 
     fn round(&self) -> bool {
         self.round
     }
 
-    fn with_round(self, round: bool) -> Self {
-        Self { round, ..self }
+    fn set_round(&mut self, round: bool) {
+        self.round = round;
     }
 
     /// Maps input values from domain to range
-    fn scale<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, f32>>) -> ScalarOrArray<f32> {
+    fn scale(&self, values: &[f32]) -> ScalarOrArray<f32> {
+        let values = ScalarOrArrayRef::from_slice(values);
+
         // Handle degenerate domain/range cases
         if self.domain_start == self.domain_end
             || self.range_start == self.range_end
@@ -263,7 +288,7 @@ impl ContinuousNumericScale for LinearNumericScale {
             || self.range_start.is_nan()
             || self.range_end.is_nan()
         {
-            return values.into().map(|_| self.range_start);
+            return values.map(|_| self.range_start);
         }
 
         let domain_span = self.domain_end - self.domain_start;
@@ -280,29 +305,27 @@ impl ContinuousNumericScale for LinearNumericScale {
         match (self.clamp, self.round) {
             (true, true) => {
                 // clamp and round
-                values
-                    .into()
-                    .map(|v| (scale * v + offset).clamp(range_min, range_max).round())
+                values.map(|v| (scale * v + offset).clamp(range_min, range_max).round())
             }
             (true, false) => {
                 // clamp, no round
-                values
-                    .into()
-                    .map(|v| (scale * v + offset).clamp(range_min, range_max))
+                values.map(|v| (scale * v + offset).clamp(range_min, range_max))
             }
             (false, true) => {
                 // no clamp, round
-                values.into().map(|v| (scale * v + offset).round())
+                values.map(|v| (scale * v + offset).round())
             }
             (false, false) => {
                 // no clamp, no round
-                values.into().map(|v| scale * v + offset)
+                values.map(|v| scale * v + offset)
             }
         }
     }
 
     /// Maps output values from range back to domain
-    fn invert<'a>(&self, values: impl Into<ScalarOrArrayRef<'a, f32>>) -> ScalarOrArray<f32> {
+    fn invert(&self, values: &[f32]) -> ScalarOrArray<f32> {
+        let values = ScalarOrArrayRef::from_slice(values);
+
         // Handle degenerate domain case
         if self.domain_start == self.domain_end
             || self.range_start == self.range_end
@@ -311,7 +334,7 @@ impl ContinuousNumericScale for LinearNumericScale {
             || self.range_start.is_nan()
             || self.range_end.is_nan()
         {
-            return values.into().map(|_| self.domain_start);
+            return values.map(|_| self.domain_start);
         }
 
         let scale = (self.domain_end - self.domain_start) / (self.range_end - self.range_start);
@@ -325,12 +348,12 @@ impl ContinuousNumericScale for LinearNumericScale {
                 (self.range_end, self.range_start)
             };
 
-            values.into().map(|v| {
+            values.map(|v| {
                 let v = (v - range_offset).clamp(range_min, range_max);
                 scale * v + offset
             })
         } else {
-            values.into().map(|v| scale * (v - range_offset) + offset)
+            values.map(|v| scale * (v - range_offset) + offset)
         }
     }
 

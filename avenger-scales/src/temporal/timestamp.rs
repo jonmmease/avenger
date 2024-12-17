@@ -1,7 +1,9 @@
+use std::sync::Arc;
+
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 use chrono::{DateTime, Datelike, NaiveDateTime, Timelike, Weekday};
 
-use crate::numeric::ContinuousNumericScale;
+use crate::numeric::{ContinuousNumericScale, ContinuousNumericScaleBuilder};
 
 /// Define TimestampInterval as a trait for naive timestamps
 pub trait TimestampInterval: Send + Sync + std::fmt::Debug {
@@ -255,6 +257,7 @@ pub mod interval {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct TimestampScaleConfig {
     pub domain: (NaiveDateTime, NaiveDateTime),
     pub range: (f32, f32),
@@ -324,6 +327,19 @@ impl TimestampScale {
         self
     }
 
+    /// Sets the input domain of the scale
+    pub fn with_domain(self, domain: (NaiveDateTime, NaiveDateTime)) -> Self {
+        Self {
+            domain_start: domain.0,
+            domain_end: domain.1,
+            ..self
+        }
+    }
+
+    fn with_round(self, round: bool) -> Self {
+        Self { round, ..self }
+    }
+
     /// Internal conversion from NaiveDateTime to timestamp
     fn to_timestamp(date: &NaiveDateTime) -> f64 {
         date.and_utc().timestamp_millis() as f64
@@ -370,6 +386,11 @@ impl TimestampScale {
         self.domain_end = nice_end;
         self
     }
+
+    pub fn builder(&self) -> ContinuousNumericScaleBuilder<NaiveDateTime> {
+        let cloned = self.clone();
+        Arc::new(move || Box::new(cloned.clone()))
+    }
 }
 
 impl ContinuousNumericScale for TimestampScale {
@@ -379,51 +400,41 @@ impl ContinuousNumericScale for TimestampScale {
         (self.domain_start, self.domain_end)
     }
 
+    fn set_domain(&mut self, domain: (Self::Domain, Self::Domain)) {
+        self.domain_start = domain.0;
+        self.domain_end = domain.1;
+    }
+
     fn range(&self) -> (f32, f32) {
         (self.range_start, self.range_end)
+    }
+
+    fn set_range(&mut self, range: (f32, f32)) {
+        self.range_start = range.0;
+        self.range_end = range.1;
     }
 
     fn clamp(&self) -> bool {
         self.clamp
     }
 
+    fn set_clamp(&mut self, clamp: bool) {
+        self.clamp = clamp;
+    }
+
     fn round(&self) -> bool {
         self.round
     }
 
-    /// Sets the input domain of the scale
-    fn with_domain(self, domain: (Self::Domain, Self::Domain)) -> Self {
-        Self {
-            domain_start: domain.0,
-            domain_end: domain.1,
-            ..self
-        }
+    fn set_round(&mut self, round: bool) {
+        self.round = round;
     }
 
-    /// Sets the output range of the scale
-    fn with_range(self, range: (f32, f32)) -> Self {
-        Self {
-            range_start: range.0,
-            range_end: range.1,
-            ..self
-        }
-    }
+    fn scale(&self, values: &[Self::Domain]) -> ScalarOrArray<f32> {
+        let values = ScalarOrArrayRef::from_slice(values);
 
-    /// Enables or disables clamping of output values to the range
-    fn with_clamp(self, clamp: bool) -> Self {
-        Self { clamp, ..self }
-    }
-
-    fn with_round(self, round: bool) -> Self {
-        Self { round, ..self }
-    }
-
-    fn scale<'a>(
-        &self,
-        values: impl Into<ScalarOrArrayRef<'a, Self::Domain>>,
-    ) -> ScalarOrArray<f32> {
         if self.domain_start == self.domain_end || self.range_start == self.range_end {
-            return values.into().map(|_| self.range_start);
+            return values.map(|_| self.range_start);
         }
 
         let range_start = self.range_start as f64;
@@ -444,26 +455,26 @@ impl ContinuousNumericScale for TimestampScale {
             };
 
             if self.round() {
-                values.into().map(|v| {
+                values.map(|v| {
                     let v_ts = Self::to_timestamp(&v);
                     ((scale * v_ts) as f32 + offset)
                         .clamp(range_min, range_max)
                         .round()
                 })
             } else {
-                values.into().map(|v| {
+                values.map(|v| {
                     let v_ts = Self::to_timestamp(&v);
                     ((scale * v_ts) as f32 + offset).clamp(range_min, range_max)
                 })
             }
         } else {
             if self.round() {
-                values.into().map(|v| {
+                values.map(|v| {
                     let v_ts = Self::to_timestamp(&v);
                     ((scale * v_ts) as f32 + offset).round()
                 })
             } else {
-                values.into().map(|v| {
+                values.map(|v| {
                     let v_ts = Self::to_timestamp(&v);
                     (scale * v_ts) as f32 + offset
                 })
@@ -471,16 +482,14 @@ impl ContinuousNumericScale for TimestampScale {
         }
     }
 
-    fn invert<'a>(
-        &self,
-        values: impl Into<ScalarOrArrayRef<'a, f32>>,
-    ) -> ScalarOrArray<Self::Domain> {
+    fn invert(&self, values: &[f32]) -> ScalarOrArray<Self::Domain> {
+        let values = ScalarOrArrayRef::from_slice(values);
         if self.domain_start == self.domain_end
             || self.range_start == self.range_end
             || self.range_start.is_nan()
             || self.range_end.is_nan()
         {
-            return values.into().map(|_| self.domain_start);
+            return values.map(|_| self.domain_start);
         }
 
         let domain_start_ts = Self::to_timestamp(&self.domain_start);
@@ -496,13 +505,13 @@ impl ContinuousNumericScale for TimestampScale {
             let range_lower = f32::min(self.range_start, self.range_end) as f64;
             let range_upper = f32::max(self.range_start, self.range_end) as f64;
 
-            values.into().map(|v| {
+            values.map(|v| {
                 let v = (*v as f64 - range_offset).clamp(range_lower, range_upper);
                 let millis = scale * v + offset;
                 Self::from_timestamp(millis).unwrap_or(self.domain_start)
             })
         } else {
-            values.into().map(|v| {
+            values.map(|v| {
                 let v = *v as f64 - range_offset;
                 let millis = scale * v + offset;
                 Self::from_timestamp(millis).unwrap_or(self.domain_start)

@@ -228,7 +228,7 @@ pub async fn run() {
         len: x_values.len() as u32,
         x: x_scale.scale(&x_values),
         x2: Some(x2_scale.scale(&x_values)),
-        y: y_scale.scale(0.0),
+        y: y_scale.scale_scalar(0.0).into(),
         y2: Some(y_scale.scale(&y_values)),
         fill: color_scale.scale(&y_values),
         // stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0]).into(),
