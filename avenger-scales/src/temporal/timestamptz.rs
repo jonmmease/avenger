@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
+use chrono_tz::Tz;
 
 use crate::numeric::{ContinuousNumericScale, ContinuousNumericScaleBuilder};
 
@@ -304,7 +305,7 @@ impl Default for TimestampTzScaleConfig {
 /// While calculations are done in UTC internally, the scale maintains awareness
 /// of a display timezone for operations like tick generation and nice rounding.
 #[derive(Clone, Debug)]
-pub struct TimestampTzScale<Tz: TimeZone + Copy + Send + Sync + 'static> {
+pub struct TimestampTzScale {
     domain_start: DateTime<Utc>,
     domain_end: DateTime<Utc>,
     range_start: f32,
@@ -315,7 +316,7 @@ pub struct TimestampTzScale<Tz: TimeZone + Copy + Send + Sync + 'static> {
     round: bool,
 }
 
-impl<Tz: TimeZone + Copy + Send + Sync + 'static> TimestampTzScale<Tz> {
+impl TimestampTzScale {
     /// Creates a new timestamp scale with the specified UTC domain and default range [0, 1]
     pub fn new(config: &TimestampTzScaleConfig, display_tz: Tz) -> Self {
         let mut this = Self {
@@ -434,10 +435,7 @@ impl<Tz: TimeZone + Copy + Send + Sync + 'static> TimestampTzScale<Tz> {
     }
 }
 
-impl<Tz> ContinuousNumericScale for TimestampTzScale<Tz>
-where
-    Tz: TimeZone + Copy + Send + Sync + 'static,
-{
+impl ContinuousNumericScale for TimestampTzScale {
     type Domain = DateTime<Utc>;
 
     fn domain(&self) -> (DateTime<Utc>, DateTime<Utc>) {
@@ -648,7 +646,7 @@ mod tests {
                 domain: (now, now),
                 ..Default::default()
             },
-            Utc,
+            Tz::UTC,
         );
         assert_eq!(scale.domain_start, now);
         assert_eq!(scale.domain_end, now);
@@ -668,7 +666,7 @@ mod tests {
                 domain: (start, end),
                 ..Default::default()
             },
-            Utc,
+            Tz::UTC,
         )
         .with_range((0.0, 100.0))
         .with_clamp(true);
@@ -701,7 +699,7 @@ mod tests {
                 domain: (start, end),
                 ..Default::default()
             },
-            Utc,
+            Tz::UTC,
         )
         .with_range((0.0, 100.0))
         .with_range_offset(10.0)
@@ -732,7 +730,7 @@ mod tests {
                 domain: (now, now),
                 ..Default::default()
             },
-            Utc,
+            Tz::UTC,
         )
         .with_range((0.0, 100.0))
         .with_clamp(true);
@@ -761,7 +759,7 @@ mod tests {
                 domain: (start, end),
                 ..Default::default()
             },
-            Utc,
+            Tz::UTC,
         )
         .with_range((0.0, 100.0))
         .with_clamp(true);
@@ -787,7 +785,7 @@ mod tests {
                 range_offset: 10.0,
                 ..Default::default()
             },
-            Utc,
+            Tz::UTC,
         )
         .with_range((0.0, 100.0))
         .with_clamp(true);
@@ -813,7 +811,7 @@ mod tests {
                 range: (100.0, 0.0),
                 ..Default::default()
             },
-            Utc,
+            Tz::UTC,
         )
         .with_clamp(true);
 
@@ -858,7 +856,7 @@ mod tests {
                 domain: (start, end),
                 ..Default::default()
             },
-            Utc,
+            Tz::UTC,
         )
         .nice(Some(interval::day()));
         assert_eq!(
@@ -968,7 +966,7 @@ mod tests {
                 domain: (start, end),
                 ..Default::default()
             },
-            Utc,
+            Tz::UTC,
         );
         let ticks = scale.ticks(Some(5.0));
         assert_eq!(ticks.len(), 5);
