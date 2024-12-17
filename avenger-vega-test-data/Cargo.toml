@@ -4,7 +4,7 @@ version = "0.0.8"
 edition = "2021"
 
 [dependencies]
-vl-convert-rs = "1.2.3"
+vl-convert-rs = "1.7.0"
 pollster = "0.3"
 
 [dependencies.serde_json]
