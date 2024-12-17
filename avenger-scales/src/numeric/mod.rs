@@ -7,7 +7,7 @@ pub mod log;
 pub mod pow;
 pub mod symlog;
 
-pub type ContinuousNumericScaleBuilder<D: 'static + Send + Sync + Clone> =
+pub type ContinuousNumericScaleBuilder<D> =
     Arc<dyn Fn() -> Box<dyn ContinuousNumericScale<Domain = D>> + Send + Sync>;
 
 /// A trait for scales that map to a continuous numeric range
