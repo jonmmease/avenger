@@ -37,6 +37,16 @@ impl<T: Sync + Clone> ScalarOrArray<T> {
         &self.value
     }
 
+    pub fn to_scalar_if_len_one(self) -> Self {
+        if self.len() == 1 {
+            ScalarOrArray::new_scalar(
+                self.as_vec(1, None)[0].clone()
+            )
+        } else {
+            self
+        }
+    }
+
     pub fn as_iter<'a>(
         &'a self,
         scalar_len: usize,

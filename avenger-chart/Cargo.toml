@@ -19,6 +19,9 @@ lazy_static = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
-
+palette = { workspace = true }
+indexmap = { workspace = true }
+async-recursion = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
+ordered-float = { workspace = true }

@@ -1,6 +1,7 @@
 use avenger_common::types::{ColorOrGradient, GradientStop};
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono_tz::Tz;
 use core::num;
 use palette::{Hsla, IntoColor, Laba, Mix, Srgba};
 use std::fmt::Debug;
@@ -36,7 +37,7 @@ where
     D: 'static + Send + Sync + Clone,
 {
     numeric_scale: S,
-    numeric_scale_cloner: Arc<dyn Fn() -> S>,
+    numeric_scale_cloner: Arc<dyn Fn() -> S + Send + Sync + 'static>,
     range: Vec<C>,
     _marker: PhantomData<D>,
 }
@@ -48,7 +49,7 @@ where
     D: 'static + Send + Sync + Clone,
 {
     pub fn from_scale(
-        numeric_scale_cloner: Arc<dyn Fn() -> S>,
+        numeric_scale_cloner: Arc<dyn Fn() -> S + Send + Sync + 'static>,
         colors: Vec<C>,
     ) -> Result<Self, AvengerScaleError> {
         let mut numeric_scale = numeric_scale_cloner();
@@ -268,9 +269,7 @@ impl<C: ColorSpace> ContinuousColorScale<C, TimestampScale, NaiveDateTime> {
     }
 }
 
-impl<C: ColorSpace, Tz: 'static + TimeZone + Copy + Send + Sync>
-    ContinuousColorScale<C, TimestampTzScale<Tz>, DateTime<Utc>>
-{
+impl<C: ColorSpace> ContinuousColorScale<C, TimestampTzScale, DateTime<Utc>> {
     pub fn new_timestamp_tz(
         config: &TimestampTzScaleConfig,
         colors: Vec<C>,
