@@ -79,9 +79,9 @@ impl Group {
     }
 
     /// Add a scale to the chart.
-    pub fn scale<S: Into<String>>(self, name: S, scale: Scale) -> Self {
+    pub fn scale(self, scale: Scale) -> Self {
         let mut scales = self.scales;
-        scales.insert(name.into(), scale);
+        scales.insert(scale.name.clone(), scale);
         Self { scales, ..self }
     }
 

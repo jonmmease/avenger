@@ -7,6 +7,8 @@ members = [
     "avenger-python",
     "avenger-vega-renderer", 
     "avenger-scales",
+    "avenger-scales2",
+    "avenger-scales3",
     "avenger-guides",
     "avenger-common",
     "avenger-geometry",
@@ -57,3 +59,7 @@ ordered-float = "4.5.0"
 tokio = { version = "1.36.0" }
 async-trait = "0.1"
 async-recursion = "1.1.1"
+datafusion = { version = "43.0.0" }
+datafusion-common = { version = "43.0.0" }
+arrow = { version = "*" }
+css-color-parser = "0.1.2"

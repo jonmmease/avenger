@@ -1,13 +1,14 @@
+pub mod ordinal;
+
 use crate::config::{
-    DiscreteDomainConfig, DiscreteRangeConfig, ScaleConfig, ScaleConfigRange, ScaleConfigScalar,
-    ScaleDomainConfig,
+    DiscreteDomainConfig, DiscreteRangeConfig, ScaleConfig, ScaleConfigScalar, ScaleDomainConfig,
+    ScaleRangeConfig,
 };
 use crate::error::AvengerScaleError;
 
 #[cfg(feature = "temporal")]
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
-
-pub mod ordinal;
+use std::fmt::Debug;
 
 pub struct DiscreteToDiscreteScaleConfig {
     pub domain: DiscreteDomainConfig,
@@ -29,7 +30,7 @@ impl TryFrom<ScaleConfig> for DiscreteToDiscreteScaleConfig {
         };
 
         let range = match config.range {
-            ScaleConfigRange::Discrete(range) => range,
+            ScaleRangeConfig::Discrete(range) => range,
             _ => {
                 return Err(AvengerScaleError::ScaleOperationNotSupported(
                     "ordinal".to_string(),
@@ -47,7 +48,7 @@ impl TryFrom<ScaleConfig> for DiscreteToDiscreteScaleConfig {
     }
 }
 
-pub trait DiscreteToDiscreteScale {
+pub trait DiscreteToDiscreteScale: Debug + Send + Sync + 'static {
     /// Scale a vector of domain numbers to a vector of indices into the range array
     fn scale_numbers(
         &self,

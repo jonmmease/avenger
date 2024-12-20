@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 
+use crate::config::ScaleConfig;
+
 use super::{
     linear::{LinearNumericScale, LinearNumericScaleConfig},
     ContinuousNumericScale, ContinuousNumericScaleBuilder,
@@ -30,6 +32,37 @@ impl Default for SymlogNumericScaleConfig {
             nice: None,
             round: false,
         }
+    }
+}
+
+impl From<ScaleConfig> for SymlogNumericScaleConfig {
+    fn from(config: ScaleConfig) -> Result<Self, AvengerScaleError> {
+        if config.scale_type != "symlog" {
+            return Err(AvengerScaleError::IncompatibleConfig(format!(
+                "Config not compatible with scale type: {}",
+                config.scale_type
+            )));
+        }
+
+        let domain = match config.domain {
+            ScaleDomainState::Interval(start, end) => (start, end),
+            _ => return Err(AvengerScaleError::IncompatibleConfig("symlog".to_string())),
+        };
+
+        let range = match config.range {
+            ScaleRangeState::Numeric(start, end) => (start, end),
+            _ => return Err(AvengerScaleError::IncompatibleConfig("symlog".to_string())),
+        };
+
+        Ok(Self {
+            domain,
+            range,
+            constant: config.options.get("constant").unwrap_or(1.0),
+            clamp: config.clamp.unwrap_or(false),
+            range_offset: config.range_offset,
+            nice: config.nice,
+            round: config.round.unwrap_or(false),
+        })
     }
 }
 

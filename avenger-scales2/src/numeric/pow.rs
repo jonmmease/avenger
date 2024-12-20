@@ -60,6 +60,7 @@ impl PowerFunction {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct PowerNumericScale;
 
 impl NumericScale for PowerNumericScale {

@@ -1,35 +1,37 @@
+use std::collections::HashMap;
+
 use datafusion::{prelude::Expr, scalar::ScalarValue};
 use palette::{Hsla, Laba, Srgba};
 
 #[derive(Debug, Clone)]
 pub struct Scale {
-    pub scale_type: Option<String>,
+    pub name: String,
+    pub kind: Option<String>,
     pub domain: Option<ScaleDomain>,
-    pub domain_raw: Option<ScaleDomain>,
     pub range: Option<ScaleRange>,
-    pub round: Option<bool>,
+    pub options: HashMap<String, Expr>,
 }
 
 impl Scale {
-    pub fn new() -> Self {
+    pub fn new<S: Into<String>>(name: S) -> Self {
         Self {
-            scale_type: None,
+            name: name.into(),
+            kind: None,
             domain: None,
-            domain_raw: None,
             range: None,
-            round: None,
+            options: HashMap::new(),
         }
     }
 
-    pub fn scale_type<S: Into<String>>(self, scale_type: S) -> Self {
+    pub fn kind<S: Into<String>>(self, kind: S) -> Self {
         Self {
-            scale_type: Some(scale_type.into()),
+            kind: Some(kind.into()),
             ..self
         }
     }
 
-    pub fn get_scale_type(&self) -> Option<&String> {
-        self.scale_type.as_ref()
+    pub fn get_kind(&self) -> Option<&String> {
+        self.kind.as_ref()
     }
 
     // Domain builders
@@ -101,37 +103,17 @@ impl Scale {
         }
     }
 
-    pub fn range_rgb(self, colors: Vec<Srgba>) -> Self {
+    pub fn range_color(self, colors: Vec<Srgba>) -> Self {
         Self {
-            range: Some(ScaleRange::Rgb(colors)),
-            ..self
-        }
-    }
-
-    pub fn range_hsl(self, colors: Vec<Hsla>) -> Self {
-        Self {
-            range: Some(ScaleRange::Hsl(colors)),
-            ..self
-        }
-    }
-
-    pub fn range_lab(self, colors: Vec<Laba>) -> Self {
-        Self {
-            range: Some(ScaleRange::Lab(colors)),
+            range: Some(ScaleRange::Color(colors)),
             ..self
         }
     }
 
     // Other builder methods
-    pub fn round(self, round: bool) -> Self {
-        Self {
-            round: Some(round),
-            ..self
-        }
-    }
-
-    pub fn get_round(&self) -> Option<bool> {
-        self.round
+    pub fn option(mut self, key: String, value: Expr) -> Self {
+        self.options.insert(key, value);
+        self
     }
 }
 
@@ -185,9 +167,8 @@ pub struct DataField {
 #[derive(Debug, Clone)]
 pub enum ScaleRange {
     Numeric(Expr, Expr),
-    Rgb(Vec<Srgba>),
-    Hsl(Vec<Hsla>),
-    Lab(Vec<Laba>),
+    Enum(Vec<String>),
+    Color(Vec<Srgba>),
 }
 
 impl ScaleRange {
@@ -195,15 +176,7 @@ impl ScaleRange {
         Self::Numeric(start.into(), end.into())
     }
 
-    pub fn new_rgb(colors: Vec<Srgba>) -> Self {
-        Self::Rgb(colors)
-    }
-
-    pub fn new_hsl(colors: Vec<Hsla>) -> Self {
-        Self::Hsl(colors)
-    }
-
-    pub fn new_lab(colors: Vec<Laba>) -> Self {
-        Self::Lab(colors)
+    pub fn new_color(colors: Vec<Srgba>) -> Self {
+        Self::Color(colors)
     }
 }

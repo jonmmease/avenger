@@ -2,6 +2,7 @@ use crate::error::AvengerScaleError;
 
 use super::{NumericToDiscreteScale, NumericToDiscreteScaleConfig};
 
+#[derive(Debug, Clone)]
 pub struct ThresholdScale;
 
 impl NumericToDiscreteScale for ThresholdScale {

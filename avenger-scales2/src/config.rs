@@ -11,11 +11,10 @@ use crate::error::AvengerScaleError;
 #[derive(Debug, Clone)]
 pub struct ScaleConfig {
     pub domain: ScaleDomainConfig,
-    pub range: ScaleConfigRange,
+    pub range: ScaleRangeConfig,
     pub round: Option<bool>,
     pub clamp: Option<bool>,
     pub range_offset: Option<f32>,
-    pub nice: Option<usize>,
 
     /// Additional scale specific options
     pub options: HashMap<String, ScaleConfigScalar>,
@@ -25,18 +24,17 @@ impl ScaleConfig {
     pub fn new() -> Self {
         Self {
             domain: ScaleDomainConfig::new_interval(0.0, 1.0),
-            range: ScaleConfigRange::Interval(0.0, 1.0),
+            range: ScaleRangeConfig::Interval(0.0, 1.0),
             round: None,
             clamp: None,
             range_offset: None,
-            nice: None,
             options: HashMap::new(),
         }
     }
 
     pub fn with_numeric_range(self, start: f32, end: f32) -> Self {
         Self {
-            range: ScaleConfigRange::Interval(start, end),
+            range: ScaleRangeConfig::Interval(start, end),
             ..self
         }
     }
@@ -52,7 +50,7 @@ impl ScaleConfig {
     }
 
     pub fn get_numeric_interval_range(&self) -> Result<(f32, f32), AvengerScaleError> {
-        if let ScaleConfigRange::Interval(start, end) = self.range {
+        if let ScaleRangeConfig::Interval(start, end) = self.range {
             Ok((start, end))
         } else {
             Err(AvengerScaleError::ScaleOperationNotSupported(
@@ -77,19 +75,19 @@ impl ScaleDomainConfig {
 }
 
 #[derive(Debug, Clone)]
-pub enum ScaleConfigRange {
+pub enum ScaleRangeConfig {
     Interval(f32, f32),
     Discrete(DiscreteRangeConfig),
 }
 
-impl ScaleConfigRange {
+impl ScaleRangeConfig {
     /// Whether the scale is considered discrete
     pub fn is_discrete(&self) -> bool {
-        matches!(self, ScaleConfigRange::Discrete(_))
+        matches!(self, ScaleRangeConfig::Discrete(_))
     }
 
     pub fn colors(&self) -> Result<Vec<Srgba>, AvengerScaleError> {
-        if let ScaleConfigRange::Discrete(DiscreteRangeConfig::Colors(colors)) = self {
+        if let ScaleRangeConfig::Discrete(DiscreteRangeConfig::Colors(colors)) = self {
             Ok(colors.clone())
         } else {
             Err(AvengerScaleError::ScaleOperationNotSupported(

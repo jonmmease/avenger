@@ -2,6 +2,11 @@ use std::sync::Arc;
 
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 
+use crate::{
+    config::{ScaleConfig, ScaleDomainState, ScaleRangeState},
+    error::AvengerScaleError,
+};
+
 use super::{ContinuousNumericScale, ContinuousNumericScaleBuilder};
 
 /// Handles logarithmic transformations with different bases
@@ -94,6 +99,32 @@ impl Default for LogNumericScaleConfig {
             nice: false,
             round: false,
         }
+    }
+}
+
+impl TryFrom<ScaleConfig> for LogNumericScaleConfig {
+    type Error = AvengerScaleError;
+
+    fn try_from(config: ScaleConfig) -> Result<Self, Self::Error> {
+        let domain = match config.domain {
+            ScaleDomainState::Interval(start, end) => (start, end),
+            _ => return Err(AvengerScaleError::IncompatibleConfig("log".to_string())),
+        };
+
+        let range = match config.range {
+            ScaleRangeState::Numeric(start, end) => (start, end),
+            _ => return Err(AvengerScaleError::IncompatibleConfig("log".to_string())),
+        };
+
+        Ok(Self {
+            domain,
+            range,
+            base: config.options.get("base").cloned().unwrap_or(10.0),
+            clamp: config.clamp.unwrap_or(false),
+            range_offset: config.range_offset.unwrap_or(0.0),
+            nice: config.nice.is_some(),
+            round: config.round.unwrap_or(false),
+        })
     }
 }
 

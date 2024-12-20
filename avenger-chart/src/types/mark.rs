@@ -113,10 +113,10 @@ pub struct ScaledEncoding {
 }
 
 impl ScaledEncoding {
-    pub fn new(expr: Expr, scale: &str) -> Self {
+    pub fn new(expr: Expr, name: &str) -> Self {
         Self {
             expr,
-            scale: scale.to_string(),
+            scale: name.to_string(),
             offset: None,
             band: None,
         }

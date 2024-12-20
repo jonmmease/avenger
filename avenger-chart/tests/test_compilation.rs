@@ -30,25 +30,24 @@ async fn test_compilation() {
                 // .from("data_0")
                 .x(lit(3.0).scale("x_scale"))
                 .fill(lit(2.5).scale("color_scale")),
+            // .fill(lit("blue")),
         )
         .scale(
-            "x_scale",
-            Scale::new()
-                .scale_type("linear")
+            Scale::new("x_scale")
+                .kind("linear")
                 .domain(ScaleDomain::new_interval(lit(0.0), lit(10.0)))
                 .range(ScaleRange::new_numeric(lit(0.0), param("width"))),
         )
         .scale(
-            "color_scale",
-            Scale::new()
-                .scale_type("linear")
+            Scale::new("color_scale")
+                .kind("linear")
                 .domain(ScaleDomain::new_interval(lit(0.0), lit(10.0)))
-                .range(ScaleRange::new_rgb(vec![
+                .range(ScaleRange::new_color(vec![
                     Srgba::new(1.0, 0.0, 0.0, 1.0),
                     Srgba::new(0.0, 1.0, 0.0, 1.0),
                 ])),
         );
 
     let scene = runtime.compile_group(&chart, None).await.unwrap();
-    println!("{:?}", scene);
+    println!("{:#?}", scene);
 }
