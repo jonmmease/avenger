@@ -1,5 +1,5 @@
 use arrow::error::ArrowError;
-use datafusion_common::ScalarValue;
+use datafusion_common::{DataFusionError, ScalarValue};
 
 #[derive(Debug, thiserror::Error)]
 pub enum AvengerScaleError {
@@ -55,4 +55,7 @@ pub enum AvengerScaleError {
 
     #[error("Arrow error: {0}")]
     ArrowError(#[from] ArrowError),
+
+    #[error("DataFusion error: {0}")]
+    DataFusionError(#[from] DataFusionError),
 }

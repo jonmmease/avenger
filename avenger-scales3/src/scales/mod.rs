@@ -1,5 +1,6 @@
 pub mod linear;
 pub mod log;
+pub mod ordinal;
 pub mod pow;
 pub mod symlog;
 
@@ -9,14 +10,34 @@ use arrow::{
     array::{ArrayRef, AsArray},
     compute::cast,
     datatypes::{DataType, Float32Type},
-    tensor::Float32Tensor,
 };
-use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
+use avenger_common::{
+    types::{AreaOrientation, ColorOrGradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin},
+    value::ScalarOrArray,
+};
 use datafusion_common::ScalarValue;
 
 use crate::{
     color_interpolator::ColorInterpolator, error::AvengerScaleError, utils::ScalarValueUtils,
 };
+
+/// Macro to generate scale_to_X trait methods that return a default error implementation
+#[macro_export]
+macro_rules! declare_enum_scale_method {
+    ($type_name:ident) => {
+        paste::paste! {
+            fn [<scale_to_ $type_name:snake>](
+                &self,
+                _config: &ScaleConfig,
+                _values: &ArrayRef,
+            ) -> Result<ScalarOrArray<$type_name>, AvengerScaleError> {
+                Err(AvengerScaleError::ScaleOperationNotSupported(
+                    stringify!([<scale_to_ $type_name:snake>]).to_string(),
+                ))
+            }
+        }
+    };
+}
 
 #[derive(Debug, Clone)]
 pub struct ScaleConfig {
@@ -85,6 +106,14 @@ impl ScaleConfig {
             .cloned()
             .unwrap_or(ScalarValue::from(default))
             .as_i32()
+    }
+
+    pub fn string_option(&self, key: &str, default: &str) -> Result<String, AvengerScaleError> {
+        self.options
+            .get(key)
+            .cloned()
+            .unwrap_or(ScalarValue::from(default))
+            .as_string()
     }
 }
 
@@ -171,6 +200,13 @@ pub trait ArrowScale: Debug + Send + Sync + 'static {
             "ticks".to_string(),
         ))
     }
+
+    // Scale to enums
+    declare_enum_scale_method!(StrokeCap);
+    declare_enum_scale_method!(StrokeJoin);
+    declare_enum_scale_method!(ImageAlign);
+    declare_enum_scale_method!(ImageBaseline);
+    declare_enum_scale_method!(AreaOrientation);
 }
 
 /// Make sure the trait object safe by defining a struct

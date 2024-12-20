@@ -13,6 +13,7 @@ pub trait ScalarValueUtils {
     fn as_f32(&self) -> Result<f32, AvengerScaleError>;
     fn as_boolean(&self) -> Result<bool, AvengerScaleError>;
     fn as_i32(&self) -> Result<i32, AvengerScaleError>;
+    fn as_string(&self) -> Result<String, AvengerScaleError>;
     fn as_f32_2(&self) -> Result<[f32; 2], AvengerScaleError>;
     fn as_f32_4(&self) -> Result<[f32; 4], AvengerScaleError>;
     fn as_rgba(&self) -> Result<[f32; 4], AvengerScaleError>;
@@ -51,6 +52,18 @@ impl ScalarValueUtils for ScalarValue {
             ScalarValue::Int64(Some(val)) => Ok(*val as i32),
             _ => Err(AvengerScaleError::InternalError(format!(
                 "ScalarValue is not convertable to i32: {:?}",
+                self
+            ))),
+        }
+    }
+
+    fn as_string(&self) -> Result<String, AvengerScaleError> {
+        match self {
+            ScalarValue::Utf8(Some(val))
+            | ScalarValue::Utf8View(Some(val))
+            | ScalarValue::LargeUtf8(Some(val)) => Ok(val.to_string()),
+            _ => Err(AvengerScaleError::InternalError(format!(
+                "ScalarValue is not convertable to utf8: {:?}",
                 self
             ))),
         }
