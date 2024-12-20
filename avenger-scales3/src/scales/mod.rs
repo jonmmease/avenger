@@ -1,4 +1,7 @@
 pub mod linear;
+pub mod log;
+pub mod pow;
+pub mod symlog;
 
 use std::{collections::HashMap, fmt::Debug};
 
