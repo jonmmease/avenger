@@ -1,11 +1,11 @@
 mod threshold;
 
-use std::collections::HashMap;
-
 use crate::{
     config::{DiscreteRangeConfig, ScaleConfigScalar},
     error::AvengerScaleError,
 };
+use std::collections::HashMap;
+use std::fmt::Debug;
 
 /// Config for numeric scales
 #[derive(Debug, Clone)]
@@ -17,7 +17,7 @@ pub struct NumericToDiscreteScaleConfig {
     pub options: HashMap<String, ScaleConfigScalar>,
 }
 
-pub trait NumericToDiscreteScale {
+pub trait NumericToDiscreteScale: Debug + Send + Sync + 'static {
     /// Scale numeric values to indices into the domain vector
     fn scale(
         &self,

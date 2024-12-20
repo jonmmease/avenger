@@ -1,7 +1,7 @@
 use crate::{
     config::{
-        DiscreteDomainConfig, DiscreteRangeConfig, ScaleConfig, ScaleConfigRange,
-        ScaleConfigScalar, ScaleDomainConfig,
+        DiscreteDomainConfig, DiscreteRangeConfig, ScaleConfig, ScaleConfigScalar,
+        ScaleDomainConfig, ScaleRangeConfig,
     },
     error::AvengerScaleError,
 };
@@ -49,6 +49,7 @@ where
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct OrdinalScale;
 
 impl DiscreteToDiscreteScale for OrdinalScale {

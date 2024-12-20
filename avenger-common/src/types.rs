@@ -66,6 +66,9 @@ impl Hash for ColorOrGradient {
 impl_hash_for_scalar_or_array!(ColorOrGradient);
 
 impl ColorOrGradient {
+    pub fn transparent() -> Self {
+        ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])
+    }
     pub fn color_or_transparent(&self) -> [f32; 4] {
         match self {
             ColorOrGradient::Color(c) => *c,

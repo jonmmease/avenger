@@ -10,6 +10,7 @@ use crate::{
 
 use super::{DiscreteToNumericScale, DiscreteToNumericScaleConfig};
 
+#[derive(Debug, Clone)]
 pub struct BandScale;
 
 impl DiscreteToNumericScale for BandScale {

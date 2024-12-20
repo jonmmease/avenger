@@ -1,5 +1,5 @@
 use arrow::error::ArrowError;
-use avenger_scales::error::AvengerScaleError;
+use avenger_scales3::error::AvengerScaleError;
 use avenger_scenegraph::error::AvengerSceneGraphError;
 use datafusion::error::DataFusionError;
 use thiserror::Error;
@@ -10,7 +10,7 @@ pub enum AvengerChartError {
     InternalError(String),
 
     #[error("No scale compiler registered for scale type: `{0}`")]
-    ScaleTypeLookupError(String),
+    ScaleKindLookupError(String),
 
     #[error("No mark compiler registered for mark type: `{0}`")]
     MarkTypeLookupError(String),

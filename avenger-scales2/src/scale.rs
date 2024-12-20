@@ -3,7 +3,8 @@ use crate::{
     numeric::NumericScale, numeric_to_discrete::NumericToDiscreteScale,
 };
 
-pub enum Scale {
+#[derive(Debug)]
+pub enum ScaleImpl {
     // numeric -> numeric
     Numeric(Box<dyn NumericScale>),
     // discrete -> numeric

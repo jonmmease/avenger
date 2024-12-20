@@ -2,6 +2,11 @@ use avenger_common::value::{ScalarOrArray, ScalarOrArrayRef};
 
 use std::sync::Arc;
 
+use crate::{
+    config::{ScaleConfig, ScaleDomainState, ScaleRangeState},
+    error::AvengerScaleError,
+};
+
 use super::{
     linear::{LinearNumericScale, LinearNumericScaleConfig},
     ContinuousNumericScale, ContinuousNumericScaleBuilder,
@@ -91,6 +96,32 @@ impl Default for PowNumericScaleConfig {
             nice: None,
             round: false,
         }
+    }
+}
+
+impl TryFrom<ScaleConfig> for PowNumericScaleConfig {
+    type Error = AvengerScaleError;
+
+    fn try_from(config: ScaleConfig) -> Result<Self, Self::Error> {
+        let domain = match config.domain {
+            ScaleDomainState::Interval(start, end) => (start, end),
+            _ => return Err(AvengerScaleError::IncompatibleConfig("pow".to_string())),
+        };
+
+        let range = match config.range {
+            ScaleRangeState::Numeric(start, end) => (start, end),
+            _ => return Err(AvengerScaleError::IncompatibleConfig("pow".to_string())),
+        };
+
+        Ok(Self {
+            domain,
+            range,
+            exponent: config.options.get("exponent").cloned().unwrap_or(1.0),
+            clamp: config.clamp.unwrap_or(false),
+            range_offset: config.range_offset.unwrap_or(0.0),
+            nice: config.nice.unwrap_or(false),
+            round: config.round.unwrap_or(false),
+        })
     }
 }
 

@@ -1,0 +1,22 @@
+[package]
+name = "avenger-scales3"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+avenger-common = { path = "../avenger-common" }
+thiserror = { workspace = true }
+palette = { workspace = true }
+chrono = { workspace = true }
+chrono-tz = { workspace = true }
+indexmap = { workspace = true }
+ordered-float = { workspace = true }
+float-cmp = "0.10.0"
+
+arrow = { workspace = true }
+datafusion-common = { workspace = true }
+numfmt = "1.1"
+css-color-parser = { workspace = true }
+
+[dev-dependencies]
+float-cmp = "0.10.0"

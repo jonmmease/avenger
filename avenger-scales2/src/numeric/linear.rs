@@ -6,6 +6,7 @@ use crate::{
     numeric::{NumericScale, NumericScaleConfig},
 };
 
+#[derive(Debug, Clone)]
 pub struct LinearNumericScale;
 
 impl NumericScale for LinearNumericScale {

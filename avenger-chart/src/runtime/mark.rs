@@ -7,6 +7,11 @@ use arrow::{
 };
 use async_trait::async_trait;
 use avenger_common::value::ScalarOrArray;
+use avenger_scales3::{
+    coerce::{ColorCoercer, NumericCoercer},
+    color_interpolator::ColorInterpolator,
+    scales::ArrowScale,
+};
 use avenger_scenegraph::marks::{arc::SceneArcMark, mark::SceneMark};
 use datafusion::{
     common::ParamValues,
@@ -16,40 +21,75 @@ use indexmap::IndexMap;
 
 use crate::{
     error::AvengerChartError,
-    scales::ScaleImpl,
-    types::mark::{Encoding, Mark},
+    types::{
+        mark::{Encoding, Mark},
+        // scales::ScaleConfig,
+    },
     utils::ExprHelpers,
 };
 
+use super::scale::{ArrowScaleImpl, EvaluatedScale};
+
+// use super::scale::ScaleInterface;
+
 macro_rules! apply_f32_encoding {
-    ($mark:expr, $scales:expr, $encoding_batches:expr, $scene_mark:expr, $field:expr) => {
+    ($mark:expr, $evaluted_scales:expr, $arrow_scales:expr, $encoding_batches:expr, $scene_mark:expr, $numeric_coercer:expr, $field:expr) => {
         if let Some(Encoding::Scaled(scaled)) = $mark.encodings.get($field) {
-            let scale =
-                $scales
-                    .get(scaled.get_scale())
-                    .ok_or(AvengerChartError::ScaleTypeLookupError(
-                        scaled.get_scale().to_string(),
-                    ))?;
+            let evaluated_scale = $evaluted_scales.get(scaled.get_scale()).ok_or(
+                AvengerChartError::ScaleKindLookupError(scaled.get_scale().to_string()),
+            )?;
+            let arrow_scale = $arrow_scales.get(evaluated_scale.kind.as_str()).ok_or(
+                AvengerChartError::ScaleKindLookupError(evaluated_scale.kind.clone()),
+            )?;
             if let Some(x) = $encoding_batches.array_for_field($field) {
-                $scene_mark.x = scale.apply_to_f32(&x)?;
+                $scene_mark.x = arrow_scale.scale_to_numeric(&evaluated_scale.config, &x)?;
             }
         } else {
-            // Not scale, just cast to f32
-            if let Some(x) = $encoding_batches.f32_scalar_or_array_for_field($field)? {
-                $scene_mark.x = x;
+            // No scale, try to coerce to numeric directly
+            if let Some(x) = $encoding_batches.array_for_field($field) {
+                $scene_mark.x = $numeric_coercer.coerce_numeric(&x)?;
+            }
+        }
+    };
+}
+
+macro_rules! apply_color_encoding {
+    ($mark:expr, $evaluted_scales:expr, $arrow_scales:expr, $encoding_batches:expr, $scene_mark:expr, $interpolator:expr, $color_coercer:expr, $field:expr) => {
+        if let Some(Encoding::Scaled(scaled)) = $mark.encodings.get($field) {
+            let evaluated_scale = $evaluted_scales.get(scaled.get_scale()).ok_or(
+                AvengerChartError::ScaleKindLookupError(scaled.get_scale().to_string()),
+            )?;
+            let scale_impl = $arrow_scales.get(evaluated_scale.kind.as_str()).ok_or(
+                AvengerChartError::ScaleKindLookupError(evaluated_scale.kind.clone()),
+            )?;
+            if let Some(value) = $encoding_batches.array_for_field($field) {
+                $scene_mark.fill = scale_impl.scale_to_color(
+                    &evaluated_scale.config,
+                    &value,
+                    $interpolator.as_ref(),
+                )?;
+            }
+        } else {
+            // No scale, try to coerce to color directly
+            if let Some(value) = $encoding_batches.array_for_field($field) {
+                $scene_mark.fill = $color_coercer.coerce_color(&value)?;
             }
         }
     };
 }
 
 #[async_trait]
-pub trait MarkCompiler: Send + Sync {
+pub trait MarkCompiler: Send + Sync + 'static {
     async fn compile(
         &self,
         mark: &Mark,
         ctx: &SessionContext,
         params: &ParamValues,
-        scales: &HashMap<String, ScaleImpl>,
+        evaluted_scales: &HashMap<String, EvaluatedScale>,
+        scale_impls: &HashMap<String, Box<dyn ArrowScale>>,
+        interpolator: &Box<dyn ColorInterpolator>,
+        color_coercer: &Box<dyn ColorCoercer>,
+        numeric_coercer: &Box<dyn NumericCoercer>,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
 }
 
@@ -62,7 +102,11 @@ impl MarkCompiler for ArcMarkCompiler {
         mark: &Mark,
         ctx: &SessionContext,
         params: &ParamValues,
-        scales: &HashMap<String, ScaleImpl>,
+        evaluted_scales: &HashMap<String, EvaluatedScale>,
+        arrow_scales: &HashMap<String, Box<dyn ArrowScale>>,
+        interpolator: &Box<dyn ColorInterpolator>,
+        color_coercer: &Box<dyn ColorCoercer>,
+        numeric_coercer: &Box<dyn NumericCoercer>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let encoding_batches =
             eval_encoding_exprs(&mark.from, &mark.encodings, ctx, params).await?;
@@ -70,30 +114,92 @@ impl MarkCompiler for ArcMarkCompiler {
         let mut scene_mark = SceneArcMark::default();
 
         // Apply f32 encodings
-        apply_f32_encoding!(mark, scales, encoding_batches, scene_mark, "x");
-        apply_f32_encoding!(mark, scales, encoding_batches, scene_mark, "y");
-        apply_f32_encoding!(mark, scales, encoding_batches, scene_mark, "start_angle");
-        apply_f32_encoding!(mark, scales, encoding_batches, scene_mark, "end_angle");
-        apply_f32_encoding!(mark, scales, encoding_batches, scene_mark, "outer_radius");
-        apply_f32_encoding!(mark, scales, encoding_batches, scene_mark, "inner_radius");
-        apply_f32_encoding!(mark, scales, encoding_batches, scene_mark, "pad_angle");
-        apply_f32_encoding!(mark, scales, encoding_batches, scene_mark, "corner_radius");
-        apply_f32_encoding!(mark, scales, encoding_batches, scene_mark, "stroke_width");
+        apply_f32_encoding!(
+            mark,
+            evaluted_scales,
+            arrow_scales,
+            encoding_batches,
+            scene_mark,
+            numeric_coercer,
+            "x"
+        );
+        // if let Some(Encoding::Scaled(scaled)) = mark.encodings.get("x") {
+        //     let evaluated_scale = evaluted_scales.get(scaled.get_scale()).ok_or(
+        //         AvengerChartError::ScaleKindLookupError(scaled.get_scale().to_string()),
+        //     )?;
+        //     let arrow_scale = arrow_scales.get(evaluated_scale.kind.as_str()).ok_or(
+        //         AvengerChartError::ScaleKindLookupError(evaluated_scale.kind.clone()),
+        //     )?;
+        //     if let Some(x) = encoding_batches.array_for_field("x") {
+        //         scene_mark.x = arrow_scale.scale_to_numeric(&evaluated_scale.config, &x)?;
+        //     }
+        // } else {
+        //     if let Some(x) = encoding_batches.f32_scalar_or_array_for_field("x")? {
+        //         scene_mark.x = x;
+        //     }
+        // }
+        // apply_f32_encoding!(mark, evaluted_scales, encoding_batches, scene_mark, "y");
+        // apply_f32_encoding!(
+        //     mark,
+        //     evaluted_scales,
+        //     encoding_batches,
+        //     scene_mark,
+        //     "start_angle"
+        // );
+        // apply_f32_encoding!(
+        //     mark,
+        //     evaluted_scales,
+        //     encoding_batches,
+        //     scene_mark,
+        //     "end_angle"
+        // );
+        // apply_f32_encoding!(
+        //     mark,
+        //     evaluted_scales,
+        //     encoding_batches,
+        //     scene_mark,
+        //     "outer_radius"
+        // );
+        // apply_f32_encoding!(
+        //     mark,
+        //     evaluted_scales,
+        //     encoding_batches,
+        //     scene_mark,
+        //     "inner_radius"
+        // );
+        // apply_f32_encoding!(
+        //     mark,
+        //     evaluted_scales,
+        //     encoding_batches,
+        //     scene_mark,
+        //     "pad_angle"
+        // );
+        // apply_f32_encoding!(
+        //     mark,
+        //     evaluted_scales,
+        //     encoding_batches,
+        //     scene_mark,
+        //     "corner_radius"
+        // );
+        // apply_f32_encoding!(
+        //     mark,
+        //     evaluted_scales,
+        //     encoding_batches,
+        //     scene_mark,
+        //     "stroke_width"
+        // );
 
         // Apply color encoding
-        if let Some(Encoding::Scaled(scaled)) = mark.encodings.get("fill") {
-            let scale =
-                scales
-                    .get(scaled.get_scale())
-                    .ok_or(AvengerChartError::ScaleTypeLookupError(
-                        scaled.get_scale().to_string(),
-                    ))?;
-            if let Some(fill) = encoding_batches.array_for_field("fill") {
-                scene_mark.fill = scale.apply_to_color_or_gradient(&fill)?;
-            }
-        } else {
-            todo!()
-        }
+        apply_color_encoding!(
+            mark,
+            evaluted_scales,
+            arrow_scales,
+            encoding_batches,
+            scene_mark,
+            interpolator,
+            color_coercer,
+            "fill"
+        );
 
         Ok(vec![SceneMark::Arc(scene_mark)])
     }

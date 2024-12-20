@@ -8,7 +8,7 @@ version = "0.11.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fe438c63458706e03479442743baae6c88256498e6431708f6dfc520a26515d3"
 dependencies = [
- "lazy_static",
+ "lazy_static 1.5.0",
  "regex",
 ]
 
@@ -322,7 +322,7 @@ dependencies = [
  "chrono",
  "csv",
  "csv-core",
- "lazy_static",
+ "lazy_static 1.5.0",
  "lexical-core",
  "regex",
 ]
@@ -408,9 +408,6 @@ name = "arrow-schema"
 version = "53.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b95513080e728e4cec37f1ff5af4f12c9688d47795d17cda80b6ec2cf74d4678"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "arrow-select"
@@ -632,15 +629,14 @@ dependencies = [
  "avenger-common",
  "avenger-eventstream",
  "avenger-geometry",
- "avenger-guides",
- "avenger-scales",
+ "avenger-scales3",
  "avenger-scenegraph",
  "avenger-text",
  "chrono",
  "chrono-tz",
  "datafusion",
  "indexmap",
- "lazy_static",
+ "lazy_static 1.5.0",
  "ordered-float 4.5.0",
  "palette",
  "serde",
@@ -707,7 +703,7 @@ dependencies = [
  "avenger-vega",
  "avenger-wgpu",
  "image 0.25.5",
- "lazy_static",
+ "lazy_static 1.5.0",
  "pollster 0.3.0",
  "pyo3",
  "pythonize",
@@ -720,11 +716,44 @@ dependencies = [
 name = "avenger-scales"
 version = "0.1.0"
 dependencies = [
+ "arrow",
  "avenger-common",
  "chrono",
  "chrono-tz",
  "float-cmp 0.10.0",
  "indexmap",
+ "palette",
+ "thiserror 2.0.3",
+]
+
+[[package]]
+name = "avenger-scales2"
+version = "0.1.0"
+dependencies = [
+ "avenger-common",
+ "chrono",
+ "chrono-tz",
+ "float-cmp 0.10.0",
+ "indexmap",
+ "ordered-float 4.5.0",
+ "palette",
+ "thiserror 2.0.3",
+]
+
+[[package]]
+name = "avenger-scales3"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "avenger-common",
+ "chrono",
+ "chrono-tz",
+ "css-color-parser",
+ "datafusion-common",
+ "float-cmp 0.10.0",
+ "indexmap",
+ "numfmt",
+ "ordered-float 4.5.0",
  "palette",
  "thiserror 2.0.3",
 ]
@@ -757,7 +786,7 @@ dependencies = [
  "avenger-common",
  "cosmic-text",
  "image 0.25.5",
- "lazy_static",
+ "lazy_static 1.5.0",
  "lyon_path",
  "serde",
  "thiserror 2.0.3",
@@ -776,7 +805,7 @@ dependencies = [
  "cfg-if",
  "csscolorparser",
  "image 0.25.5",
- "lazy_static",
+ "lazy_static 1.5.0",
  "lyon_extra",
  "lyon_path",
  "pyo3",
@@ -805,7 +834,7 @@ dependencies = [
  "image 0.25.5",
  "itertools 0.13.0",
  "js-sys",
- "lazy_static",
+ "lazy_static 1.5.0",
  "lyon_path",
  "serde-wasm-bindgen",
  "serde_json",
@@ -842,7 +871,7 @@ dependencies = [
  "futures-intrusive",
  "image 0.25.5",
  "itertools 0.13.0",
- "lazy_static",
+ "lazy_static 1.5.0",
  "lyon",
  "ordered-float 4.5.0",
  "pollster 0.4.0",
@@ -963,7 +992,7 @@ dependencies = [
  "cexpr",
  "clang-sys",
  "itertools 0.12.1",
- "lazy_static",
+ "lazy_static 1.5.0",
  "lazycell",
  "log",
  "prettyplease 0.2.25",
@@ -1655,6 +1684,15 @@ dependencies = [
  "generic-array",
  "rand_core",
  "typenum",
+]
+
+[[package]]
+name = "css-color-parser"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ccb6ce7ef97e6dc6e575e51b596c9889a5cc88a307b5ef177d215c61fd7581d"
+dependencies = [
+ "lazy_static 0.1.16",
 ]
 
 [[package]]
@@ -3271,6 +3309,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dtoa"
+version = "1.0.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dcbb2bf8e87535c23f7a8a321e364ce21462d0ff10cb6407820e8e96dfff6653"
+
+[[package]]
 name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3290,7 +3334,7 @@ checksum = "add9a102807b524ec050363f09e06f1504214b0e1c7797f64261c891022dce8b"
 dependencies = [
  "bitflags 1.3.2",
  "byteorder",
- "lazy_static",
+ "lazy_static 1.5.0",
  "proc-macro-error",
  "proc-macro2",
  "quote",
@@ -5129,6 +5173,12 @@ dependencies = [
 
 [[package]]
 name = "lazy_static"
+version = "0.1.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf186d1a8aa5f5bee5fd662bc9c1b949e0259e1bcc379d1f006847b0080c7417"
+
+[[package]]
+name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
@@ -5946,7 +5996,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc84195820f291c7697304f3cbdadd1cb7199c0efc917ff5eafd71225c136151"
 dependencies = [
  "byteorder",
- "lazy_static",
+ "lazy_static 1.5.0",
  "libm",
  "num-integer",
  "num-iter",
@@ -6042,6 +6092,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.89",
+]
+
+[[package]]
+name = "numfmt"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db7467e47de9fb6ea5b3f47dc34c1cf0b86359f072a46f6278119544cdbd0021"
+dependencies = [
+ "dtoa",
+ "itoa",
 ]
 
 [[package]]
@@ -7016,7 +7076,7 @@ dependencies = [
  "bytes",
  "heck 0.4.1",
  "itertools 0.10.5",
- "lazy_static",
+ "lazy_static 1.5.0",
  "log",
  "multimap",
  "petgraph",
@@ -8306,7 +8366,7 @@ version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f40ca3c46823713e0d4209592e8d6e826aa57e928f09752619fc696c499637f6"
 dependencies = [
- "lazy_static",
+ "lazy_static 1.5.0",
 ]
 
 [[package]]
@@ -10191,7 +10251,7 @@ dependencies = [
  "futures",
  "futures-util",
  "image 0.25.5",
- "lazy_static",
+ "lazy_static 1.5.0",
  "log",
  "lz-str",
  "png",
@@ -11333,7 +11393,7 @@ dependencies = [
  "asn1-rs",
  "data-encoding",
  "der-parser",
- "lazy_static",
+ "lazy_static 1.5.0",
  "nom 7.1.3",
  "oid-registry",
  "rusticata-macros",

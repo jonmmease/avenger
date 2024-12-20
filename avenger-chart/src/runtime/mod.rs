@@ -2,7 +2,17 @@ pub mod mark;
 pub mod scale;
 use std::{collections::HashMap, sync::Arc};
 
+use crate::{
+    error::AvengerChartError,
+    types::group::{Group, MarkOrGroup},
+    utils::ExprHelpers,
+};
 use async_recursion::async_recursion;
+use avenger_scales3::{
+    coerce::{CastNumericCoercer, ColorCoercer, CssColorCoercer, NumericCoercer},
+    color_interpolator::{ColorInterpolator, SrgbaColorInterpolator},
+    scales::{linear::LinearScale, ArrowScale},
+};
 use avenger_scenegraph::marks::{
     group::{Clip, SceneGroup},
     mark::SceneMark,
@@ -19,38 +29,34 @@ use datafusion::{
     scalar::ScalarValue,
 };
 use mark::{ArcMarkCompiler, MarkCompiler};
-use scale::{LinearScaleCompiler, ScaleCompiler};
-
-use crate::{
-    error::AvengerChartError,
-    scales::ScaleImpl,
-    types::{
-        group::{Group, MarkOrGroup},
-        mark::Mark,
-        scales::Scale,
-    },
-    utils::ExprHelpers,
-};
+use scale::evaluate_scale;
 
 pub struct AvengerRuntime {
     ctx: SessionContext,
-    scale_compilers: HashMap<String, Box<dyn ScaleCompiler>>,
+    // scale_compilers: HashMap<String, Box<dyn ScaleCompiler>>,
     mark_compilers: HashMap<String, Box<dyn MarkCompiler>>,
+
+    scales: HashMap<String, Box<dyn ArrowScale>>,
+    interpolator: Box<dyn ColorInterpolator>,
+    color_coercer: Box<dyn ColorCoercer>,
+    numeric_coercer: Box<dyn NumericCoercer>,
 }
 
 impl AvengerRuntime {
     pub fn new(ctx: SessionContext) -> Self {
-        // Initialize scale compilers
-        let mut scale_compilers: HashMap<String, Box<dyn ScaleCompiler>> = HashMap::new();
-        scale_compilers.insert("linear".to_string(), Box::new(LinearScaleCompiler));
-
         let mut mark_compilers: HashMap<String, Box<dyn MarkCompiler>> = HashMap::new();
         mark_compilers.insert("arc".to_string(), Box::new(ArcMarkCompiler));
 
+        let mut scales: HashMap<String, Box<dyn ArrowScale>> = HashMap::new();
+        scales.insert("linear".to_string(), Box::new(LinearScale));
+
         Self {
             ctx,
-            scale_compilers,
             mark_compilers,
+            scales,
+            interpolator: Box::new(SrgbaColorInterpolator),
+            color_coercer: Box::new(CssColorCoercer),
+            numeric_coercer: Box::new(CastNumericCoercer),
         }
     }
 
@@ -85,22 +91,13 @@ impl AvengerRuntime {
             self.ctx.register_table(key.clone(), Arc::new(view_table))?;
         }
 
-        // Collect and compile scales
-        let mut scales = HashMap::new();
-        for (key, value) in group.get_scales() {
-            let scale_type = value
-                .get_scale_type()
-                .cloned()
-                .unwrap_or_else(|| "linear".to_string());
+        // Collect and evaluate scales
+        let mut evaluated_scales = HashMap::new();
 
-            let scale_compiler = self
-                .scale_compilers
-                .get(&scale_type)
-                .ok_or(AvengerChartError::ScaleTypeLookupError(scale_type))?;
-            let scale_impl = scale_compiler
-                .compile(&value, &self.ctx, &query_values)
-                .await?;
-            scales.insert(key.clone(), scale_impl);
+        for (key, value) in group.get_scales() {
+            let evaluated_scale =
+                evaluate_scale(&value, &key, &self.ctx, &query_values, &self.scales).await?;
+            evaluated_scales.insert(key.clone(), evaluated_scale);
         }
 
         // Collect and compile scene marks
@@ -114,7 +111,16 @@ impl AvengerRuntime {
                     )?;
 
                     let new_marks = mark_compiler
-                        .compile(mark, &self.ctx, &query_values, &scales)
+                        .compile(
+                            mark,
+                            &self.ctx,
+                            &query_values,
+                            &evaluated_scales,
+                            &self.scales,
+                            &self.interpolator,
+                            &self.color_coercer,
+                            &self.numeric_coercer,
+                        )
                         .await?;
                     scene_marks.extend(new_marks);
                 }

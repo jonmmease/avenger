@@ -2,9 +2,9 @@ pub mod color;
 pub mod linear;
 pub mod pow;
 
-use std::collections::HashMap;
-
 use avenger_common::value::ScalarOrArray;
+use std::collections::HashMap;
+use std::fmt::Debug;
 
 use crate::{
     config::{ScaleConfig, ScaleConfigScalar},
@@ -53,7 +53,7 @@ impl TryFrom<ScaleConfig> for NumericScaleConfig {
 }
 
 /// Trait for all continuous numeric-to-numeric scales
-pub trait NumericScale: Send + Sync + 'static {
+pub trait NumericScale: Debug + Send + Sync + 'static {
     /// Scale numeric values from continuous domain to continuous range
     /// e.g. linear with numeric range
     fn scale(

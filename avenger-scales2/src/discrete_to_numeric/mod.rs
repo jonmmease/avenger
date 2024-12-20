@@ -3,12 +3,12 @@ pub mod point;
 
 use std::collections::HashMap;
 
-use avenger_common::value::ScalarOrArray;
-
 use crate::{
     config::{DiscreteDomainConfig, ScaleConfig, ScaleConfigScalar, ScaleDomainConfig},
     error::AvengerScaleError,
 };
+use avenger_common::value::ScalarOrArray;
+use std::fmt::Debug;
 
 pub struct DiscreteToNumericScaleConfig {
     pub domain: DiscreteDomainConfig,
@@ -53,7 +53,7 @@ impl TryFrom<ScaleConfig> for DiscreteToNumericScaleConfig {
     }
 }
 
-pub trait DiscreteToNumericScale {
+pub trait DiscreteToNumericScale: Debug + Send + Sync + 'static {
     /// Scale from discrete domain to numeric range (e.g. band and point scales)
     ///
     /// Input indices correspond to the index of the domain vector in config.

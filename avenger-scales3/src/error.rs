@@ -1,5 +1,11 @@
-#[derive(Debug, PartialEq, thiserror::Error)]
+use arrow::error::ArrowError;
+use datafusion_common::ScalarValue;
+
+#[derive(Debug, thiserror::Error)]
 pub enum AvengerScaleError {
+    #[error("Internal error: {0}")]
+    InternalError(String),
+
     #[error("Domain length ({domain_len}) does not match range length ({range_len})")]
     DomainRangeMismatch { domain_len: usize, range_len: usize },
 
@@ -34,4 +40,19 @@ pub enum AvengerScaleError {
 
     #[error("Scale operation not supported for this scale type: {0}")]
     ScaleOperationNotSupported(String),
+
+    #[error("Expected scalar value of type {expected_type}, got {scalar:?}")]
+    InvalidScaleConfigScalarValue {
+        expected_type: String,
+        scalar: ScalarValue,
+    },
+
+    #[error("Invalid {data_type} format string: {format_str}")]
+    InvalidFormatString {
+        format_str: String,
+        data_type: String,
+    },
+
+    #[error("Arrow error: {0}")]
+    ArrowError(#[from] ArrowError),
 }

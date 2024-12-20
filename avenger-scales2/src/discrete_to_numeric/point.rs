@@ -4,6 +4,7 @@ use crate::{config::ScaleConfigScalarMapUtils, error::AvengerScaleError};
 
 use super::{band::BandScale, DiscreteToNumericScale, DiscreteToNumericScaleConfig};
 
+#[derive(Debug, Clone)]
 pub struct PointScale;
 
 impl DiscreteToNumericScale for PointScale {

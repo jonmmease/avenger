@@ -5,7 +5,11 @@ use avenger_common::{
     value::{ScalarOrArray, ScalarOrArrayRef},
 };
 
-use crate::array;
+use crate::{
+    array,
+    config::{ScaleConfig, ScaleDomainState, ScaleRangeState},
+    error::AvengerScaleError,
+};
 
 use super::{ContinuousNumericScale, ContinuousNumericScaleBuilder};
 
@@ -14,9 +18,34 @@ pub struct LinearNumericScaleConfig {
     pub domain: (f32, f32),
     pub range: (f32, f32),
     pub clamp: bool,
-    pub range_offset: Option<f32>,
+    pub range_offset: f32,
     pub nice: Option<usize>,
     pub round: bool,
+}
+
+impl TryFrom<ScaleConfig> for LinearNumericScaleConfig {
+    type Error = AvengerScaleError;
+
+    fn try_from(config: ScaleConfig) -> Result<Self, Self::Error> {
+        let domain = match config.domain {
+            ScaleDomainState::Interval(start, end) => (start, end),
+            _ => return Err(AvengerScaleError::IncompatibleConfig("linear".to_string())),
+        };
+
+        let range = match config.range {
+            ScaleRangeState::Numeric(start, end) => (start, end),
+            _ => return Err(AvengerScaleError::IncompatibleConfig("linear".to_string())),
+        };
+
+        Ok(Self {
+            domain,
+            range,
+            clamp: config.clamp.unwrap_or(false),
+            range_offset: config.range_offset.unwrap_or(0.0),
+            nice: config.nice,
+            round: config.round.unwrap_or(false),
+        })
+    }
 }
 
 impl Default for LinearNumericScaleConfig {
@@ -25,7 +54,7 @@ impl Default for LinearNumericScaleConfig {
             domain: (0.0, 1.0),
             range: (0.0, 1.0),
             clamp: false,
-            range_offset: None,
+            range_offset: 0.0,
             nice: None,
             round: false,
         }
@@ -41,7 +70,7 @@ pub struct LinearNumericScale {
     range_start: f32,
     range_end: f32,
     clamp: bool,
-    range_offset: Option<f32>,
+    range_offset: f32,
     round: bool,
 }
 
@@ -121,7 +150,7 @@ impl LinearNumericScale {
         self
     }
 
-    pub fn with_range_offset(mut self, range_offset: Option<f32>) -> Self {
+    pub fn with_range_offset(mut self, range_offset: f32) -> Self {
         self.range_offset = range_offset;
         self
     }
@@ -293,7 +322,7 @@ impl ContinuousNumericScale for LinearNumericScale {
 
         let domain_span = self.domain_end - self.domain_start;
         let scale = (self.range_end - self.range_start) / domain_span;
-        let range_offset = self.range_offset.unwrap_or(0.0);
+        let range_offset = self.range_offset;
         let offset = self.range_start - scale * self.domain_start + range_offset;
 
         let (range_min, range_max) = if self.range_start <= self.range_end {
@@ -338,7 +367,7 @@ impl ContinuousNumericScale for LinearNumericScale {
         }
 
         let scale = (self.domain_end - self.domain_start) / (self.range_end - self.range_start);
-        let range_offset = self.range_offset.unwrap_or(0.0);
+        let range_offset = self.range_offset;
         let offset = self.domain_start - scale * self.range_start;
 
         if self.clamp {
@@ -413,7 +442,7 @@ mod tests {
         let scale = LinearNumericScale::new(&LinearNumericScaleConfig {
             domain: (10.0, 30.0),
             range: (0.0, 100.0),
-            range_offset: Some(3.0),
+            range_offset: 3.0,
             clamp: true,
             ..Default::default()
         });
@@ -529,7 +558,7 @@ mod tests {
         let scale = LinearNumericScale::new(&LinearNumericScaleConfig {
             domain: (10.0, 30.0),
             range: (0.0, 100.0),
-            range_offset: Some(3.0),
+            range_offset: 3.0,
             clamp: false,
             ..Default::default()
         });

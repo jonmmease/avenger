@@ -4,8 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["temporal"]
+default = ["temporal", "arrow"]
 temporal = ["dep:chrono", "dep:chrono-tz"]
+arrow = ["dep:arrow"]
 
 [dependencies]
 thiserror = { workspace = true }
@@ -14,6 +15,7 @@ avenger-common = { path = "../avenger-common" }
 chrono = { workspace = true, optional = true }
 chrono-tz = { workspace = true, optional = true }
 indexmap = { workspace = true }
+arrow = { workspace = true, optional = true }
 
 [dev-dependencies]
 float-cmp = "0.10.0"

@@ -5,15 +5,15 @@ edition = "2021"
 
 [dependencies]
 avenger-common = { path = "../avenger-common" }
-avenger-scales = { path = "../avenger-scales" }
+avenger-scales3 = { path = "../avenger-scales3" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-geometry = { path = "../avenger-geometry" }
 avenger-text = { path = "../avenger-text" }
-avenger-guides = { path = "../avenger-guides" }
+# avenger-guides = { path = "../avenger-guides" }
 avenger-eventstream = { path = "../avenger-eventstream" }
 
-datafusion = { version = "43.0.0", features = ["serde"] }
-arrow = { version = "*" }
+datafusion = { workspace = true }
+arrow = { workspace = true }
 tokio = { workspace = true, default-features = false }
 lazy_static = { workspace = true }
 async-trait = { workspace = true }

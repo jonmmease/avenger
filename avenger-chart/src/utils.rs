@@ -10,7 +10,7 @@ use datafusion::functions_aggregate::min_max::{max, min};
 use datafusion::functions_array::make_array::make_array;
 use datafusion::logical_expr::expr::Placeholder;
 use datafusion::logical_expr::utils::expr_to_columns;
-use datafusion::logical_expr::{Expr, ExprSchemable, Subquery, TryCast};
+use datafusion::logical_expr::{Expr, ExprSchemable, SortExpr, Subquery, TryCast};
 use datafusion::optimizer::simplify_expressions::SimplifyInfo;
 use datafusion::physical_expr::execution_props::ExecutionProps;
 use datafusion::prelude::{array_sort, ident, lit, DataFrame, SessionContext};
@@ -45,6 +45,11 @@ pub trait ExprHelpers {
         ctx: &SessionContext,
         params: Option<&ParamValues>,
     ) -> Result<ScalarValue, DataFusionError>;
+    async fn eval_to_f32(
+        &self,
+        ctx: &SessionContext,
+        params: Option<&ParamValues>,
+    ) -> Result<f32, AvengerChartError>;
     fn try_cast_to(
         self,
         cast_to_type: &DataType,
@@ -98,6 +103,33 @@ impl ExprHelpers for Expr {
         Ok(scalar)
     }
 
+    async fn eval_to_f32(
+        &self,
+        ctx: &SessionContext,
+        params: Option<&ParamValues>,
+    ) -> Result<f32, AvengerChartError> {
+        // Must apply params before looking up the schema, or DataFusion errors
+        let expr = if let Some(params) = params {
+            self.clone().apply_params(params)?
+        } else {
+            self.clone()
+        };
+
+        let schema = DFSchema::empty();
+
+        let ScalarValue::Float32(Some(f32_value)) = expr
+            .clone()
+            .cast_to(&DataType::Float32, &schema)?
+            .eval_to_scalar(ctx, None)
+            .await?
+        else {
+            return Err(AvengerChartError::InternalError(
+                "Expected start of interval to have been casted to a float".to_string(),
+            ));
+        };
+        Ok(f32_value)
+    }
+
     fn try_cast_to(
         self,
         cast_to_type: &DataType,
@@ -139,9 +171,20 @@ impl<'a> TreeNodeRewriter for ExprParamReplacer<'a> {
 }
 
 pub trait DataFrameChartUtils {
+    /// Return two-element float32 array of min and max values across all of the columns in the input DataFrame
     fn span(&self) -> Result<Expr, AvengerChartError>;
-    fn uniques(&self, sort_ascending: Option<bool>) -> Result<Expr, AvengerChartError>;
-    fn scalar_aggregate(&self, expr: Expr) -> Result<Expr, AvengerChartError>;
+
+    /// Return single-column DataFrame with all columns in the input DataFrame unioned (concatenated) together
+    fn union_all_cols(&self, col_name: Option<&str>) -> Result<DataFrame, AvengerChartError>;
+
+    /// Return DataFrame with single column of unique values across all of the columns in the input DataFrame
+    fn uniques(
+        &self,
+        sort_ascending: Option<bool>,
+        col_name: Option<&str>,
+    ) -> Result<DataFrame, AvengerChartError>;
+
+    // fn scalar_aggregate(&self, expr: Expr) -> Result<Expr, AvengerChartError>;
 }
 
 impl DataFrameChartUtils for DataFrame {
@@ -193,10 +236,10 @@ impl DataFrameChartUtils for DataFrame {
         Ok(Expr::ScalarSubquery(subquery))
     }
 
-    fn uniques(&self, sort_ascending: Option<bool>) -> Result<Expr, AvengerChartError> {
+    fn union_all_cols(&self, col_name: Option<&str>) -> Result<DataFrame, AvengerChartError> {
         // Collect single column DataFrames for all columns. Let DataFusion try to unify the types
         let mut union_dfs: Vec<DataFrame> = Vec::new();
-        let col_name = "vals";
+        let col_name = col_name.unwrap_or("vals");
         for field in self.schema().fields() {
             union_dfs.push(
                 self.clone()
@@ -204,49 +247,44 @@ impl DataFrameChartUtils for DataFrame {
                     .clone(),
             );
         }
-
-        if union_dfs.is_empty() {
-            return Err(AvengerChartError::InternalError(
-                "No columns found for uniques".to_string(),
-            ));
-        }
-
-        // Union all the DataFrames
-        let union_df = union_dfs.iter().fold(union_dfs[0].clone(), |acc, df| {
+        Ok(union_dfs.iter().fold(union_dfs[0].clone(), |acc, df| {
             acc.union(df.clone()).unwrap()
-        });
+        }))
+    }
 
-        let mut uniques_df = union_df.clone().distinct()?;
+    fn uniques(
+        &self,
+        sort_ascending: Option<bool>,
+        col_name: Option<&str>,
+    ) -> Result<DataFrame, AvengerChartError> {
+        let col_name = col_name.unwrap_or("vals");
 
         // Collect unique values in array
-        uniques_df =
-            uniques_df.aggregate(vec![], vec![array_agg(ident(col_name)).alias("vals_array")])?;
-
-        let subquery = Subquery {
-            subquery: Arc::new(uniques_df.logical_plan().clone()),
-            outer_ref_columns: vec![],
-        };
-
-        let expr = Expr::ScalarSubquery(subquery);
+        let union_df = self.union_all_cols(Some(col_name))?;
+        let uniques_df = union_df.clone().distinct()?;
 
         if let Some(sort_ascending) = sort_ascending {
-            Ok(array_sort(expr, lit("desc"), lit("NULLS LAST")))
+            Ok(uniques_df.sort(vec![SortExpr {
+                expr: ident(col_name),
+                asc: sort_ascending,
+                nulls_first: false,
+            }])?)
         } else {
-            Ok(expr)
+            Ok(uniques_df)
         }
     }
 
-    fn scalar_aggregate(&self, expr: Expr) -> Result<Expr, AvengerChartError> {
-        let df = self
-            .clone()
-            .aggregate(vec![], vec![expr.alias("val")])?
-            .select(vec![ident("val")])?;
-        let subquery = Subquery {
-            subquery: Arc::new(df.logical_plan().clone()),
-            outer_ref_columns: vec![],
-        };
-        Ok(Expr::ScalarSubquery(subquery))
-    }
+    // fn scalar_aggregate(&self, expr: Expr) -> Result<Expr, AvengerChartError> {
+    //     let df = self
+    //         .clone()
+    //         .aggregate(vec![], vec![expr.alias("val")])?
+    //         .select(vec![ident("val")])?;
+    //     let subquery = Subquery {
+    //         subquery: Arc::new(df.logical_plan().clone()),
+    //         outer_ref_columns: vec![],
+    //     };
+    //     Ok(Expr::ScalarSubquery(subquery))
+    // }
 }
 
 pub trait ScalarValueUtils {
