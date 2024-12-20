@@ -755,6 +755,8 @@ dependencies = [
  "numfmt",
  "ordered-float 4.5.0",
  "palette",
+ "paste",
+ "serde_json",
  "thiserror 2.0.3",
 ]
 
