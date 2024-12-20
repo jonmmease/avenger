@@ -15,77 +15,34 @@ use crate::{
     utils::ScalarValueUtils,
 };
 
-use super::{ArrowScale, InferDomainFromDataMethod, ScaleConfig};
+use super::{linear::LinearScale, ArrowScale, InferDomainFromDataMethod, ScaleConfig};
 
 #[derive(Debug)]
-pub struct LinearScale;
+pub struct PowScale;
 
-impl LinearScale {
+impl PowScale {
     /// Compute nice domain
     pub fn apply_nice(
         domain: (f32, f32),
+        exponent: f32,
         count: Option<&ScalarValue>,
     ) -> Result<(f32, f32), AvengerScaleError> {
-        // Extract count, or return raw domain if no nice option
-        let count = if let Some(count) = count {
-            if count.data_type().is_numeric() {
-                count.as_f32()?
-            } else if count == &ScalarValue::from(true) {
-                10.0
-            } else {
-                return Ok(domain);
-            }
-        } else {
-            return Ok(domain);
-        };
+        // Transform domain to linear space using power function
+        let power_fun = PowerFunction::new(exponent);
+        let d0 = power_fun.pow(domain.0);
+        let d1 = power_fun.pow(domain.1);
 
-        let (domain_start, domain_end) = domain;
+        // Use linear scale to nice the transformed values
+        let (nice_d0, nice_d1) = LinearScale::apply_nice((d0, d1), count)?;
 
-        if domain_start == domain_end || domain_start.is_nan() || domain_end.is_nan() {
-            return Ok(domain);
-        }
-
-        let (mut start, mut stop) = if domain_start <= domain_end {
-            (domain_start, domain_end)
-        } else {
-            (domain_end, domain_start)
-        };
-
-        let mut prestep = 0.0;
-        let mut max_iter = 10;
-
-        while max_iter > 0 {
-            let step = array::tick_increment(start as f32, stop as f32, count as f32);
-
-            if step == prestep {
-                if domain_start <= domain_end {
-                    return Ok((start, stop));
-                } else {
-                    return Ok((stop, start));
-                }
-            } else if step > 0.0 {
-                start = (start / step).floor() * step;
-                stop = (stop / step).ceil() * step;
-            } else if step < 0.0 {
-                start = (start * step).ceil() / step;
-                stop = (stop * step).floor() / step;
-            } else {
-                break;
-            }
-
-            prestep = step;
-            max_iter -= 1;
-        }
-
-        if domain_start <= domain_end {
-            Ok((start, stop))
-        } else {
-            Ok((stop, start))
-        }
+        // Transforming back to original domain
+        let domain_start = power_fun.pow_inv(nice_d0);
+        let domain_end = power_fun.pow_inv(nice_d1);
+        Ok((domain_start, domain_end))
     }
 }
 
-impl ArrowScale for LinearScale {
+impl ArrowScale for PowScale {
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Interval
     }
@@ -95,37 +52,38 @@ impl ArrowScale for LinearScale {
         config: &ScaleConfig,
         values: &arrow::array::ArrayRef,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
-        let (domain_start, domain_end) = LinearScale::apply_nice(
-            config.numeric_interval_domain()?,
-            config.options.get("nice"),
-        )?;
-
-        let (range_start, range_end) = config.numeric_interval_range()?;
-
-        // Handle degenerate domain/range cases
-        if domain_start == domain_end
-            || range_start == range_end
-            || domain_start.is_nan()
-            || domain_end.is_nan()
-            || range_start.is_nan()
-            || range_end.is_nan()
-        {
-            return Ok(ScalarOrArray::new_array(vec![range_start; values.len()]));
-        }
-
-        // Cast to f32 and downcast to f32 array
-        let array = cast(values, &DataType::Float32)?;
-        let array = array.as_primitive::<Float32Type>();
-
         // Get options
+        let exponent = config.f32_option("exponent", 1.0)?;
         let range_offset = config.f32_option("range_offset", 0.0)?;
         let clamp = config.boolean_option("clamp", false)?;
         let round = config.boolean_option("round", false)?;
 
-        // Extract domain and range
-        let domain_span = domain_end - domain_start;
-        let scale = (range_end - range_start) / domain_span;
-        let offset = range_start - scale * domain_start + range_offset;
+        let (range_start, range_end) = config.numeric_interval_range()?;
+        let (domain_start, domain_end) = PowScale::apply_nice(
+            config.numeric_interval_domain()?,
+            exponent,
+            config.options.get("nice"),
+        )?;
+
+        // If range start equals end, return constant range value
+        if range_start == range_end {
+            return Ok(ScalarOrArray::new_array(vec![range_start; values.len()]));
+        }
+
+        // Build the power function
+        let power_fun = PowerFunction::new(exponent);
+
+        let d0 = power_fun.pow(domain_start);
+        let d1 = power_fun.pow(domain_end);
+
+        // If domain start equals end, return constant domain value
+        if d0 == d1 {
+            return Ok(ScalarOrArray::new_array(vec![domain_start; values.len()]));
+        }
+
+        // At this point, we know (d1 - d0) cannot be zero
+        let scale = (range_end - range_start) / (d1 - d0);
+        let offset = range_start - scale * power_fun.pow(domain_start) + range_offset;
 
         let (range_min, range_max) = if range_start <= range_end {
             (range_start, range_end)
@@ -133,43 +91,128 @@ impl ArrowScale for LinearScale {
             (range_end, range_start)
         };
 
+        // Cast to f32 and downcast to f32 array
+        let values = cast(values, &DataType::Float32)?;
+        let values = values.as_primitive::<Float32Type>();
+
         match (clamp, round) {
-            (true, true) => {
-                // clamp and round
-                Ok(ScalarOrArray::new_array(
-                    array
+            (true, false) => match &power_fun {
+                // Clamp, no rounding
+                PowerFunction::Static { pow_fun, .. } => Ok(ScalarOrArray::new_array(
+                    values
                         .values()
                         .iter()
-                        .map(|v| (scale * v + offset).clamp(range_min, range_max).round())
+                        .map(|&v| {
+                            let abs_v = v.abs();
+                            let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                            (scale * (sign * pow_fun(abs_v)) + offset).clamp(range_min, range_max)
+                        })
                         .collect(),
-                ))
-            }
-            (true, false) => {
-                // clamp, no round
-                Ok(ScalarOrArray::new_array(
-                    array
+                )),
+                PowerFunction::Custom { exponent } => {
+                    let exponent = *exponent;
+                    Ok(ScalarOrArray::new_array(
+                        values
+                            .values()
+                            .iter()
+                            .map(|&v| {
+                                let abs_v = v.abs();
+                                let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                                (scale * (sign * abs_v.powf(exponent)) + offset)
+                                    .clamp(range_min, range_max)
+                            })
+                            .collect(),
+                    ))
+                }
+            },
+            (true, true) => match &power_fun {
+                // Clamp and rounding
+                PowerFunction::Static { pow_fun, .. } => Ok(ScalarOrArray::new_array(
+                    values
                         .values()
                         .iter()
-                        .map(|v| (scale * v + offset).clamp(range_min, range_max))
+                        .map(|&v| {
+                            let abs_v = v.abs();
+                            let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                            (scale * (sign * pow_fun(abs_v)) + offset)
+                                .clamp(range_min, range_max)
+                                .round()
+                        })
                         .collect(),
-                ))
-            }
-            (false, true) => {
-                // no clamp, round
-                Ok(ScalarOrArray::new_array(
-                    array
+                )),
+                PowerFunction::Custom { exponent } => {
+                    let exponent = *exponent;
+                    Ok(ScalarOrArray::new_array(
+                        values
+                            .values()
+                            .iter()
+                            .map(|&v| {
+                                let abs_v = v.abs();
+                                let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                                (scale * (sign * abs_v.powf(exponent)) + offset)
+                                    .clamp(range_min, range_max)
+                                    .round()
+                            })
+                            .collect(),
+                    ))
+                }
+            },
+            (false, false) => match &power_fun {
+                // no clamping or rounding
+                PowerFunction::Static { pow_fun, .. } => Ok(ScalarOrArray::new_array(
+                    values
                         .values()
                         .iter()
-                        .map(|v| (scale * v + offset).round())
+                        .map(|&v| {
+                            let abs_v = v.abs();
+                            let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                            scale * (sign * pow_fun(abs_v)) + offset
+                        })
                         .collect(),
-                ))
-            }
-            (false, false) => {
-                // no clamp, no round
-                Ok(ScalarOrArray::new_array(
-                    array.values().iter().map(|v| scale * v + offset).collect(),
-                ))
-            }
+                )),
+                PowerFunction::Custom { exponent } => {
+                    let exponent = *exponent;
+                    Ok(ScalarOrArray::new_array(
+                        values
+                            .values()
+                            .iter()
+                            .map(|&v| {
+                                let abs_v = v.abs();
+                                let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                                scale * (sign * abs_v.powf(exponent)) + offset
+                            })
+                            .collect(),
+                    ))
+                }
+            },
+            (false, true) => match &power_fun {
+                // no clamping and rounding
+                PowerFunction::Static { pow_fun, .. } => Ok(ScalarOrArray::new_array(
+                    values
+                        .values()
+                        .iter()
+                        .map(|&v| {
+                            let abs_v = v.abs();
+                            let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                            (scale * (sign * pow_fun(abs_v)) + offset).round()
+                        })
+                        .collect(),
+                )),
+                PowerFunction::Custom { exponent } => {
+                    let exponent = *exponent;
+                    Ok(ScalarOrArray::new_array(
+                        values
+                            .values()
+                            .iter()
+                            .map(|&v| {
+                                let abs_v = v.abs();
+                                let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                                (scale * (sign * abs_v.powf(exponent)) + offset).round()
+                            })
+                            .collect(),
+                    ))
+                }
+            },
         }
     }
 
@@ -178,32 +221,34 @@ impl ArrowScale for LinearScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
-        let (domain_start, domain_end) = LinearScale::apply_nice(
-            config.numeric_interval_domain()?,
-            config.options.get("nice"),
-        )?;
-
-        let (range_start, range_end) = config.numeric_interval_range()?;
+        // Get options
+        let exponent = config.f32_option("exponent", 1.0)?;
         let range_offset = config.f32_option("range_offset", 0.0)?;
         let clamp = config.boolean_option("clamp", false)?;
 
-        // Handle degenerate domain case
-        if domain_start == domain_end
-            || range_start == range_end
-            || domain_start.is_nan()
-            || domain_end.is_nan()
-            || range_start.is_nan()
-            || range_end.is_nan()
-        {
+        let (range_start, range_end) = config.numeric_interval_range()?;
+        let (domain_start, domain_end) = PowScale::apply_nice(
+            config.numeric_interval_domain()?,
+            exponent,
+            config.options.get("nice"),
+        )?;
+
+        // If domain start equals end, return constant domain value
+        if domain_start == domain_end {
             return Ok(ScalarOrArray::new_array(vec![domain_start; values.len()]));
         }
+
+        // Build the power function
+        let power_fun = PowerFunction::new(exponent);
+        let d0 = power_fun.pow(domain_start);
+        let d1 = power_fun.pow(domain_end);
+
+        let scale = (range_end - range_start) / (d1 - d0);
+        let offset = range_start - scale * d0;
 
         // Cast to f32 and downcast to f32 array
         let array = cast(values, &DataType::Float32)?;
         let array = array.as_primitive::<Float32Type>();
-
-        let scale = (domain_end - domain_start) / (range_end - range_start);
-        let offset = domain_start - scale * range_start;
 
         if clamp {
             let (range_min, range_max) = if range_start <= range_end {
@@ -212,24 +257,67 @@ impl ArrowScale for LinearScale {
                 (range_end, range_start)
             };
 
-            Ok(ScalarOrArray::new_array(
-                array
-                    .values()
-                    .iter()
-                    .map(|v| {
-                        let v = (v - range_offset).clamp(range_min, range_max);
-                        scale * v + offset
-                    })
-                    .collect(),
-            ))
+            match &power_fun {
+                PowerFunction::Static { pow_inv_fun, .. } => Ok(ScalarOrArray::new_array(
+                    array
+                        .values()
+                        .iter()
+                        .map(|&v| {
+                            let v = v.clamp(range_min, range_max);
+                            let normalized = (v - offset) / scale;
+                            let abs_norm = normalized.abs();
+                            let sign = if normalized < 0.0 { -1.0 } else { 1.0 };
+                            sign * pow_inv_fun(abs_norm) - range_offset
+                        })
+                        .collect(),
+                )),
+                PowerFunction::Custom { exponent } => {
+                    let inv_exponent = 1.0 / exponent;
+                    Ok(ScalarOrArray::new_array(
+                        array
+                            .values()
+                            .iter()
+                            .map(|&v| {
+                                let v = v.clamp(range_min, range_max);
+                                let normalized = (v - offset) / scale;
+                                let abs_norm = normalized.abs();
+                                let sign = if normalized < 0.0 { -1.0 } else { 1.0 };
+                                sign * abs_norm.powf(inv_exponent) - range_offset
+                            })
+                            .collect(),
+                    ))
+                }
+            }
         } else {
-            Ok(ScalarOrArray::new_array(
-                array
-                    .values()
-                    .iter()
-                    .map(|v| scale * (v - range_offset) + offset)
-                    .collect(),
-            ))
+            match &power_fun {
+                PowerFunction::Static { pow_inv_fun, .. } => Ok(ScalarOrArray::new_array(
+                    array
+                        .values()
+                        .iter()
+                        .map(|&v| {
+                            let normalized = (v - offset) / scale;
+                            let abs_norm = normalized.abs();
+                            let sign = if normalized < 0.0 { -1.0 } else { 1.0 };
+                            sign * pow_inv_fun(abs_norm) - range_offset
+                        })
+                        .collect(),
+                )),
+                PowerFunction::Custom { exponent } => {
+                    let inv_exponent = 1.0 / exponent;
+                    Ok(ScalarOrArray::new_array(
+                        array
+                            .values()
+                            .iter()
+                            .map(|&v| {
+                                let normalized = (v - offset) / scale;
+                                let abs_norm = normalized.abs();
+                                let sign = if normalized < 0.0 { -1.0 } else { 1.0 };
+                                sign * abs_norm.powf(inv_exponent) - range_offset
+                            })
+                            .collect(),
+                    ))
+                }
+            }
         }
     }
 
@@ -248,14 +336,66 @@ impl ArrowScale for LinearScale {
         config: &ScaleConfig,
         count: Option<f32>,
     ) -> Result<ArrayRef, AvengerScaleError> {
-        let (domain_start, domain_end) = LinearScale::apply_nice(
+        let exponent = config.f32_option("exponent", 1.0)?;
+        let (domain_start, domain_end) = PowScale::apply_nice(
             config.numeric_interval_domain()?,
+            exponent,
             config.options.get("nice"),
         )?;
-
         let count = count.unwrap_or(10.0);
         let ticks_array = Float32Array::from(array::ticks(domain_start, domain_end, count));
         Ok(Arc::new(ticks_array) as ArrayRef)
+    }
+}
+
+/// Handles power transformations with different exponents
+#[derive(Clone, Debug)]
+enum PowerFunction {
+    Static {
+        pow_fun: fn(f32) -> f32,
+        pow_inv_fun: fn(f32) -> f32,
+    },
+    Custom {
+        exponent: f32,
+    },
+}
+
+impl PowerFunction {
+    /// Creates a new PowerFunction with optimized implementations for common exponents
+    pub fn new(exponent: f32) -> Self {
+        if exponent == 2.0 {
+            PowerFunction::Static {
+                pow_fun: |x| x * x,
+                pow_inv_fun: f32::sqrt,
+            }
+        } else if exponent == 0.5 {
+            PowerFunction::Static {
+                pow_fun: f32::sqrt,
+                pow_inv_fun: |x| x * x,
+            }
+        } else {
+            PowerFunction::Custom { exponent }
+        }
+    }
+
+    /// Raises the absolute value of x to the power, preserving sign
+    pub fn pow(&self, x: f32) -> f32 {
+        let abs_x = x.abs();
+        let sign = if x < 0.0 { -1.0 } else { 1.0 };
+        match self {
+            PowerFunction::Static { pow_fun, .. } => sign * pow_fun(abs_x),
+            PowerFunction::Custom { exponent } => sign * abs_x.powf(*exponent),
+        }
+    }
+
+    /// Computes the inverse power transform, preserving sign
+    pub fn pow_inv(&self, x: f32) -> f32 {
+        let abs_x = x.abs();
+        let sign = if x < 0.0 { -1.0 } else { 1.0 };
+        match self {
+            PowerFunction::Static { pow_inv_fun, .. } => sign * pow_inv_fun(abs_x),
+            PowerFunction::Custom { exponent } => sign * abs_x.powf(1.0 / *exponent),
+        }
     }
 }
 
@@ -572,7 +712,7 @@ mod tests {
         };
 
         let niced_domain =
-            LinearScale::apply_nice(config.numeric_interval_domain()?, Some(&10.0.into()))?;
+            PowScale::apply_nice(config.numeric_interval_domain()?, 1.0, Some(&10.0.into()))?;
         assert_eq!(niced_domain, (1.0, 11.0));
 
         Ok(())
