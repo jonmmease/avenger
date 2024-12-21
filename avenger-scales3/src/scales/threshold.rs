@@ -78,6 +78,15 @@ impl ArrowScale for ThresholdScale {
     impl_threshold_enum_scale_method!(ImageAlign);
     impl_threshold_enum_scale_method!(ImageBaseline);
     impl_threshold_enum_scale_method!(AreaOrientation);
+
+    fn ticks(
+        &self,
+        config: &ScaleConfig,
+        _count: Option<f32>,
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        // Ticks are the same as the domain values
+        Ok(config.domain.clone())
+    }
 }
 
 /// Generic helper function for evaluating threshold scales

@@ -4,8 +4,11 @@ pub mod log;
 pub mod ordinal;
 pub mod point;
 pub mod pow;
+pub mod quantile;
+pub mod quantize;
 pub mod symlog;
 pub mod threshold;
+
 use std::{collections::HashMap, fmt::Debug};
 
 use arrow::{
