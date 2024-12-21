@@ -11,9 +11,12 @@ avenger-vega = { path = "../../avenger-vega" }
 avenger-wgpu = { path = "../../avenger-wgpu" }
 avenger-scenegraph = { path = "../../avenger-scenegraph" }
 avenger-common = { path = "../../avenger-common" }
-avenger-scales = { path = "../../avenger-scales" }
-avenger-guides = { path = "../../avenger-guides" }
+avenger-scales3 = { path = "../../avenger-scales3" }
+#avenger-guides = { path = "../../avenger-guides" }
 avenger-geometry = { path = "../../avenger-geometry" }
+
+arrow = "*"
+datafusion-common ="*"
 
 cfg-if = "1"
 winit = "0.30.5"
