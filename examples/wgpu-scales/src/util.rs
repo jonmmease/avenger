@@ -1,20 +1,14 @@
+use std::sync::Arc;
+use arrow::array::{ArrayRef, Float32Array, StringArray};
 use avenger_common::canvas::CanvasDimensions;
 use avenger_common::types::ColorOrGradient;
 use avenger_geometry::rtree::SceneGraphRTree;
-use avenger_guides::axis::band::make_band_axis_marks;
-use avenger_guides::axis::numeric::make_numeric_axis_marks;
-use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
-use avenger_guides::legend::colorbar::{make_colorbar_marks, ColorbarConfig, ColorbarOrientation};
-use avenger_guides::legend::line::{make_line_legend, LineLegendConfig};
-use avenger_guides::legend::symbol::{make_symbol_legend, SymbolLegendConfig};
-use avenger_scales::band::BandScale;
-use avenger_scales::color::continuous_color::ContinuousColorScale;
-use avenger_scales::color::Srgba;
-use avenger_scales::numeric::linear::{LinearNumericScale, LinearNumericScaleConfig};
-use avenger_scales::numeric::log::{LogNumericScale, LogNumericScaleConfig};
-use avenger_scales::numeric::pow::{PowNumericScale, PowNumericScaleConfig};
-use avenger_scales::numeric::symlog::{SymlogNumericScale, SymlogNumericScaleConfig};
-use avenger_scales::numeric::ContinuousNumericScale;
+// use avenger_guides::axis::band::make_band_axis_marks;
+// use avenger_guides::axis::numeric::make_numeric_axis_marks;
+// use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
+// use avenger_guides::legend::colorbar::{make_colorbar_marks, ColorbarConfig, ColorbarOrientation};
+// use avenger_guides::legend::line::{make_line_legend, LineLegendConfig};
+// use avenger_guides::legend::symbol::{make_symbol_legend, SymbolLegendConfig};
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::mark::{MarkInstance, SceneMark};
 use avenger_scenegraph::marks::rect::SceneRectMark;
@@ -31,6 +25,11 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard;
 use winit::keyboard::NamedKey;
 use winit::window::{WindowAttributes, WindowId};
+use avenger_scales3::color_interpolator::{HslaColorInterpolator, LabaColorInterpolator, SrgbaColorInterpolator};
+use avenger_scales3::scales::band::BandScale;
+use avenger_scales3::scales::linear::LinearScale;
+use avenger_scales3::scales::{ArrowScale, ScaleConfig};
+use avenger_vega::marks::values::StrokeDashSpec::String;
 
 struct App<'a> {
     canvas: Option<WindowCanvas<'a>>,
@@ -166,71 +165,55 @@ pub async fn run() {
         .iter()
         .map(|s| s.to_string())
         .collect();
+    let x_array = Arc::new(StringArray::from(x_values.clone())) as ArrayRef;
 
     let y_values = vec![28.0f32, 55.0, 43.0, 91.0, 81.0, 53.0, 19.0, 87.0, 52.0];
+    let y_array = Arc::new(Float32Array::from(y_values.clone())) as ArrayRef;
 
     // Build scales
     let width = 200.0;
     let height = 200.0;
 
-    let x_scale = BandScale::try_new(x_values.clone(), &Default::default())
-        .unwrap()
-        .with_range((0.0, width))
-        .unwrap()
-        .with_padding(0.2)
-        .unwrap();
-    let x2_scale = x_scale.clone().with_band(1.0).unwrap();
+    let x_scale = BandScale;
+    let x_scale_config = ScaleConfig {
+        domain: x_array.clone(),
+        range: Arc::new(Float32Array::from(vec![0.0, width])),
+        options: vec![
+            ("padding_inner".into(), 0.2.into()),
+            ("padding_outer".into(), 0.2.into()),
+            ("band".into(), 0.0.into())
+        ].into_iter().collect()
+    };
 
-    let y_scale = LinearNumericScale::new(&Default::default())
-        .with_domain((0.0, 100.0))
-        .with_range((height, 0.0))
-        .with_round(true);
+    // Make x2 scale config
+    let mut x2_scale_config = x_scale_config.clone();
+    x2_scale_config.options.insert("band".into(), 1.0.into());
 
-    // let y_scale = PowNumericScale::new(&PowNumericScaleConfig {
-    //     domain: (0.0, 100.0),
-    //     range: (height, 0.0),
-    //     exponent: 0.5,
-    //     round: true,
-    //     nice: Some(10),
-    //     ..Default::default()
-    // });
+    let y_scale = LinearScale;
+    let y_scale_config = ScaleConfig {
+        domain: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+        range: Arc::new(Float32Array::from(vec![height, 0.0])),
+        options: Default::default(),
+    };
 
-    // let y_scale = LogNumericScale::new(&LogNumericScaleConfig {
-    //     domain: (1.0, 100.0),
-    //     range: (height, 0.0),
-    //     base: 10.0,
-    //     round: true,
-    //     ..Default::default()
-    // });
-
-    // let y_scale = SymlogNumericScale::new(&SymlogNumericScaleConfig {
-    //     domain: (0.0, 100.0),
-    //     range: (height, 0.0),
-    //     round: true,
-    //     // c: 10.0,
-    //     ..Default::default()
-    // });
-
-    let color_scale = ContinuousColorScale::new_linear(
-        &LinearNumericScaleConfig {
-            domain: (0.0, 100.0),
-            nice: Some(10),
-            ..Default::default()
-        },
-        vec![
-            Srgba::new(0.9, 0.9, 0.9, 1.0),
-            Srgba::new(0.1, 0.1, 0.9, 1.0),
-        ],
-    );
+    let color_scale_config = ScaleConfig {
+        domain: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+        range: Arc::new(StringArray::from(vec!["white", "blue"])),
+        options: vec![("nice".into(), 10.0.into())].into_iter().collect(),
+    };
+    let color_scale = LinearScale;
+    // let color_interpolator = SrgbaColorInterpolator;
+    // let color_interpolator = HslaColorInterpolator;
+    let color_interpolator = LabaColorInterpolator;
 
     // Make rect mark
     let rect = SceneRectMark {
         len: x_values.len() as u32,
-        x: x_scale.scale(&x_values),
-        x2: Some(x2_scale.scale(&x_values)),
-        y: y_scale.scale_scalar(0.0).into(),
-        y2: Some(y_scale.scale(&y_values)),
-        fill: color_scale.scale(&y_values),
+        x: x_scale.scale_to_numeric(&x_scale_config, &x_array).unwrap(),
+        x2: Some(x_scale.scale_to_numeric(&x2_scale_config, &x_array).unwrap()),
+        y: y_scale.scale_scalar_to_numeric(&y_scale_config, &0.0.into()).unwrap(),
+        y2: Some(y_scale.scale_to_numeric(&y_scale_config, &y_array).unwrap()),
+        fill: color_scale.scale_to_color(&color_scale_config, &y_array, &color_interpolator).unwrap(),
         // stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0]).into(),
         stroke_width: 1.0f32.into(),
         ..Default::default()
@@ -250,52 +233,52 @@ pub async fn run() {
         ..Default::default()
     };
 
-    // Make y-axis
-    let y_axis = make_numeric_axis_marks(
-        &y_scale,
-        "My Long Y-Axis Label",
-        [0.0, 0.0],
-        &AxisConfig {
-            dimensions: [width, height],
-            orientation: AxisOrientation::Left,
-            grid: true,
-        },
-    );
-
-    // Make x-axis
-    let x_axis = make_band_axis_marks(
-        &x_scale,
-        "My Long X-Axis Label",
-        [0.0, 0.0],
-        &AxisConfig {
-            dimensions: [width, height],
-            orientation: AxisOrientation::Bottom,
-            grid: false,
-        },
-    );
-
-    // Make symbol legend
-    let symbol_legend = make_symbol_legend(&SymbolLegendConfig {
-        text: vec!["First", "Second", "Third", "Fourth", "Fifth"].into(),
-        // text: vec!["", "", "", "", ""].into(),
-        // shape: vec![
-        //     SymbolShape::Circle,
-        //     SymbolShape::from_vega_str("triangle-up").unwrap(),
-        //     SymbolShape::from_vega_str("diamond").unwrap(),
-        // ]
-        // .into(),
-        shape: SymbolShape::Circle.into(),
-        size: vec![10.0, 40.0, 80.0, 120.0, 240.0].into(),
-        title: None,
-        stroke: ColorOrGradient::Color([0.0, 0.0, 1.0, 1.0]).into(),
-        stroke_width: Some(1.0),
-        fill: ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0]).into(),
-        angle: 0.0.into(),
-        inner_width: width,
-        inner_height: height,
-        ..Default::default()
-    })
-    .unwrap();
+    // // Make y-axis
+    // let y_axis = make_numeric_axis_marks(
+    //     &y_scale,
+    //     "My Long Y-Axis Label",
+    //     [0.0, 0.0],
+    //     &AxisConfig {
+    //         dimensions: [width, height],
+    //         orientation: AxisOrientation::Left,
+    //         grid: true,
+    //     },
+    // );
+    //
+    // // Make x-axis
+    // let x_axis = make_band_axis_marks(
+    //     &x_scale,
+    //     "My Long X-Axis Label",
+    //     [0.0, 0.0],
+    //     &AxisConfig {
+    //         dimensions: [width, height],
+    //         orientation: AxisOrientation::Bottom,
+    //         grid: false,
+    //     },
+    // );
+    //
+    // // Make symbol legend
+    // let symbol_legend = make_symbol_legend(&SymbolLegendConfig {
+    //     text: vec!["First", "Second", "Third", "Fourth", "Fifth"].into(),
+    //     // text: vec!["", "", "", "", ""].into(),
+    //     // shape: vec![
+    //     //     SymbolShape::Circle,
+    //     //     SymbolShape::from_vega_str("triangle-up").unwrap(),
+    //     //     SymbolShape::from_vega_str("diamond").unwrap(),
+    //     // ]
+    //     // .into(),
+    //     shape: SymbolShape::Circle.into(),
+    //     size: vec![10.0, 40.0, 80.0, 120.0, 240.0].into(),
+    //     title: None,
+    //     stroke: ColorOrGradient::Color([0.0, 0.0, 1.0, 1.0]).into(),
+    //     stroke_width: Some(1.0),
+    //     fill: ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0]).into(),
+    //     angle: 0.0.into(),
+    //     inner_width: width,
+    //     inner_height: height,
+    //     ..Default::default()
+    // })
+    // .unwrap();
 
     // // Make line legend
     // let line_legend = make_line_legend(&LineLegendConfig {
@@ -330,10 +313,10 @@ pub async fn run() {
     let group = SceneGroup {
         origin: [60.0, 60.0],
         marks: vec![
-            y_axis.into(),
-            x_axis.into(),
+            // y_axis.into(),
+            // x_axis.into(),
             mark_group.into(),
-            symbol_legend.into(),
+            // symbol_legend.into(),
             // line_legend.into(),
             // colorbar.into(),
         ],

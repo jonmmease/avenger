@@ -10792,16 +10792,17 @@ dependencies = [
 name = "wgpu-scales"
 version = "0.1.0"
 dependencies = [
+ "arrow",
  "avenger-common",
  "avenger-geometry",
- "avenger-guides",
- "avenger-scales",
+ "avenger-scales3",
  "avenger-scenegraph",
  "avenger-vega",
  "avenger-wgpu",
  "cfg-if",
  "console_error_panic_hook",
  "console_log",
+ "datafusion-common",
  "env_logger",
  "log",
  "pollster 0.3.0",

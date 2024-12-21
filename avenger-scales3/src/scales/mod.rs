@@ -25,6 +25,7 @@ use datafusion_common::ScalarValue;
 use crate::{
     color_interpolator::ColorInterpolator, error::AvengerScaleError, utils::ScalarValueUtils,
 };
+use crate::coerce::{ColorCoercer, CssColorCoercer};
 
 /// Macro to generate scale_to_X trait methods that return a default error implementation
 #[macro_export]
@@ -75,18 +76,13 @@ impl ScaleConfig {
     }
 
     pub fn color_range(&self) -> Result<Vec<[f32; 4]>, AvengerScaleError> {
-        let range_list = self.range.as_list::<i32>();
-        range_list
-            .iter()
-            .map(|v| match v {
-                Some(v) if v.len() == 4 => {
-                    let v = cast(v.as_ref(), &DataType::Float32)?;
-                    let v = v.as_primitive::<Float32Type>();
-                    Ok([v.value(0), v.value(1), v.value(2), v.value(3)])
-                }
-                _ => Ok([0.0, 0.0, 0.0, 0.0]),
-            })
-            .collect::<Result<Vec<[f32; 4]>, AvengerScaleError>>()
+
+        let coercer = CssColorCoercer;
+        let range_colors = coercer.coerce_color(&self.range)?;
+        let range_colors_vec: Vec<_> = range_colors.as_iter(range_colors.len(), None).map(
+            |c| c.color_or_transparent()
+        ).collect();
+        Ok(range_colors_vec)
     }
 
     pub fn f32_option(&self, key: &str, default: f32) -> f32 {
@@ -155,6 +151,15 @@ pub trait ArrowScale: Debug + Send + Sync + 'static {
         ))
     }
 
+    fn scale_scalar_to_numeric(
+        &self,
+        config: &ScaleConfig,
+        value: &ScalarValue,
+    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+        let array = value.to_array()?;
+        Ok(self.scale_to_numeric(config, &array)?.to_scalar_if_len_one())
+    }
+
     fn invert_from_numeric(
         &self,
         _config: &ScaleConfig,
@@ -200,6 +205,17 @@ pub trait ArrowScale: Debug + Send + Sync + 'static {
         ))
     }
 
+    fn scale_scalar_to_color(
+        &self,
+        config: &ScaleConfig,
+        value: &ScalarValue,
+        interpolator: &dyn ColorInterpolator,
+    ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
+        let array = value.to_array()?;
+        Ok(self.scale_to_color(config, &array, interpolator)?.to_scalar_if_len_one())
+    }
+
+
     /// Scale to string values
     fn scale_to_string(
         &self,
@@ -210,6 +226,16 @@ pub trait ArrowScale: Debug + Send + Sync + 'static {
             "scale_to_string".to_string(),
         ))
     }
+
+    fn scale_scalar_to_string(
+        &self,
+        config: &ScaleConfig,
+        value: &ScalarValue,
+    ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
+        let array = value.to_array()?;
+        Ok(self.scale_to_string(config, &array)?.to_scalar_if_len_one())
+    }
+
 
     // Scale to enums
     declare_enum_scale_method!(StrokeCap);
