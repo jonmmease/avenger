@@ -1,5 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
+use crate::{
+    color_interpolator::ColorInterpolator, error::AvengerScaleError, utils::ScalarValueUtils,
+};
 use arrow::{
     array::{ArrayRef, AsArray, DictionaryArray, UInt32Array},
     compute::kernels::{cast, take},
@@ -10,10 +13,7 @@ use avenger_common::{
     value::ScalarOrArray,
 };
 use datafusion_common::{DataFusionError, ScalarValue};
-
-use crate::{
-    color_interpolator::ColorInterpolator, error::AvengerScaleError, utils::ScalarValueUtils,
-};
+use serde::{de::DeserializeOwned, Deserialize};
 
 use super::{ArrowScale, InferDomainFromDataMethod, ScaleConfig};
 
@@ -27,29 +27,8 @@ macro_rules! impl_ordinal_enum_scale_method {
                 config: &ScaleConfig,
                 values: &ArrayRef,
             ) -> Result<ScalarOrArray<$type_name>, AvengerScaleError> {
-                // Try to convert range to Utf8
-                let range = cast(&config.range, &DataType::Utf8).map_err(|_| {
-                    AvengerScaleError::ScaleOperationNotSupported(
-                        "ordinal scale range is not a string array".to_string(),
-                    )
-                })?;
-                let default_value = $type_name::default();
-                let mut range_vec = Vec::with_capacity(range.len());
-                for s in range.as_string::<i32>().iter() {
-                    match s {
-                        Some(s) => {
-                            let v: $type_name =
-                                serde_json::from_value(serde_json::Value::String((s.to_string())))
-                                    .unwrap_or(default_value.clone());
-                            range_vec.push(v);
-                        }
-                        None => {
-                            range_vec.push(default_value.clone());
-                        }
-                    }
-                }
-
-                ordinal_scale(values, &config.domain, range_vec, Default::default())
+                let (range_vec, default_value) = prep_discrete_enum_range::<$type_name>(config)?;
+                ordinal_scale(values, &config.domain, range_vec, default_value)
             }
         }
     };
@@ -69,20 +48,7 @@ impl ArrowScale for OrdinalScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
-        // Try to convert range to f32
-        let range = cast(&config.range, &DataType::Float32).map_err(|_| {
-            AvengerScaleError::ScaleOperationNotSupported(
-                "ordinal scale range is not numeric".to_string(),
-            )
-        })?;
-        // Build vector of range values with nulls replaced with NAN
-        let default_value = config.f32_option("default", f32::NAN);
-        let range_vec = range
-            .as_primitive::<Float32Type>()
-            .iter()
-            .map(|i| i.unwrap_or(default_value))
-            .collect::<Vec<_>>();
-
+        let (range_vec, default_value) = prep_discrete_numeric_range(config)?;
         ordinal_scale(values, &config.domain, range_vec, default_value)
     }
 
@@ -91,22 +57,7 @@ impl ArrowScale for OrdinalScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
-        // Try to convert range to Utf8
-        let range = cast(&config.range, &DataType::Utf8).map_err(|_| {
-            AvengerScaleError::ScaleOperationNotSupported(
-                "ordinal scale range is not a string array".to_string(),
-            )
-        })?;
-        let default_value = config.string_option("default", "");
-        let range_vec = range
-            .as_string::<i32>()
-            .iter()
-            .map(|i| {
-                i.map(|v| v.to_string())
-                    .unwrap_or_else(|| default_value.clone())
-            })
-            .collect::<Vec<_>>();
-
+        let (range_vec, default_value) = prep_discrete_string_range(config)?;
         ordinal_scale(values, &config.domain, range_vec, default_value)
     }
 
@@ -116,29 +67,8 @@ impl ArrowScale for OrdinalScale {
         values: &ArrayRef,
         _color_interpolator: &dyn ColorInterpolator,
     ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
-        // Get default color
-        let default_color = config
-            .options
-            .get("default")
-            .cloned()
-            .unwrap_or("transparent".into())
-            .as_rgba()?;
-
-        // Get range colors
-        let range_vec = (0..config.range.len())
-            .map(|i| {
-                let rgba = ScalarValue::try_from_array(&config.range, i)
-                    .map(|v| v.as_rgba().unwrap_or(default_color))?;
-                Ok(ColorOrGradient::Color(rgba))
-            })
-            .collect::<Result<Vec<_>, DataFusionError>>()?;
-
-        ordinal_scale(
-            values,
-            &config.domain,
-            range_vec,
-            ColorOrGradient::transparent(),
-        )
+        let (range_vec, default_value) = prep_discrete_color_range(config)?;
+        ordinal_scale(values, &config.domain, range_vec, default_value)
     }
 
     // Enums
@@ -147,6 +77,86 @@ impl ArrowScale for OrdinalScale {
     impl_ordinal_enum_scale_method!(ImageAlign);
     impl_ordinal_enum_scale_method!(ImageBaseline);
     impl_ordinal_enum_scale_method!(AreaOrientation);
+}
+
+pub(crate) fn prep_discrete_numeric_range(
+    config: &ScaleConfig,
+) -> Result<(Vec<f32>, f32), AvengerScaleError> {
+    let range = config.range.as_primitive::<Float32Type>();
+    let default_value = config.f32_option("default", f32::NAN);
+    Ok((
+        range.iter().map(|i| i.unwrap_or(default_value)).collect(),
+        default_value,
+    ))
+}
+
+pub(crate) fn prep_discrete_string_range(
+    config: &ScaleConfig,
+) -> Result<(Vec<String>, String), AvengerScaleError> {
+    // Try to convert range to Utf8
+    let range = cast(&config.range, &DataType::Utf8).map_err(|_| {
+        AvengerScaleError::ScaleOperationNotSupported(
+            "ordinal scale range is not a string array".to_string(),
+        )
+    })?;
+    let default_value = config.string_option("default", "");
+    let range_vec = range
+        .as_string::<i32>()
+        .iter()
+        .map(|i| {
+            i.map(|v| v.to_string())
+                .unwrap_or_else(|| default_value.clone())
+        })
+        .collect::<Vec<_>>();
+    Ok((range_vec, default_value))
+}
+
+pub(crate) fn prep_discrete_color_range(
+    config: &ScaleConfig,
+) -> Result<(Vec<ColorOrGradient>, ColorOrGradient), AvengerScaleError> {
+    // Get default color
+    let default_color = config
+        .options
+        .get("default")
+        .cloned()
+        .unwrap_or("transparent".into())
+        .as_rgba()?;
+
+    // Get range colors
+    let range_vec = (0..config.range.len())
+        .map(|i| {
+            let rgba = ScalarValue::try_from_array(&config.range, i)
+                .map(|v| v.as_rgba().unwrap_or(default_color))?;
+            Ok(ColorOrGradient::Color(rgba))
+        })
+        .collect::<Result<Vec<_>, DataFusionError>>()?;
+    Ok((range_vec, ColorOrGradient::Color(default_color)))
+}
+
+pub(crate) fn prep_discrete_enum_range<R: Sync + Clone + DeserializeOwned + Default>(
+    config: &ScaleConfig,
+) -> Result<(Vec<R>, R), AvengerScaleError> {
+    // Try to convert range to Utf8
+    let range = cast(&config.range, &DataType::Utf8).map_err(|_| {
+        AvengerScaleError::ScaleOperationNotSupported(
+            "ordinal scale range is not a string array".to_string(),
+        )
+    })?;
+    let default_value = R::default();
+    let mut range_vec = Vec::with_capacity(range.len());
+    for s in range.as_string::<i32>().iter() {
+        match s {
+            Some(s) => {
+                let v: R = serde_json::from_value(serde_json::Value::String((s.to_string())))
+                    .unwrap_or(default_value.clone());
+                range_vec.push(v);
+            }
+            None => {
+                range_vec.push(default_value.clone());
+            }
+        }
+    }
+    Ok((range_vec, default_value))
 }
 
 /// Generic helper function for evaluating ordinal scales
