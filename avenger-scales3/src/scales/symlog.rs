@@ -52,10 +52,10 @@ impl ArrowScale for SymlogScale {
         values: &arrow::array::ArrayRef,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
         // Get options
-        let constant = config.f32_option("constant", 1.0)?;
-        let range_offset = config.f32_option("range_offset", 0.0)?;
-        let clamp = config.boolean_option("clamp", false)?;
-        let round = config.boolean_option("round", false)?;
+        let constant = config.f32_option("constant", 1.0);
+        let range_offset = config.f32_option("range_offset", 0.0);
+        let clamp = config.boolean_option("clamp", false);
+        let round = config.boolean_option("round", false);
 
         let (domain_start, domain_end) = SymlogScale::apply_nice(
             config.numeric_interval_domain()?,
@@ -215,15 +215,15 @@ impl ArrowScale for SymlogScale {
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
         let (domain_start, domain_end) = SymlogScale::apply_nice(
             config.numeric_interval_domain()?,
-            config.f32_option("constant", 1.0)?,
+            config.f32_option("constant", 1.0),
             config.options.get("nice"),
         )?;
 
         let (range_start, range_end) = config.numeric_interval_range()?;
-        let range_offset = config.f32_option("range_offset", 0.0)?;
-        let clamp = config.boolean_option("clamp", false)?;
-        let round = config.boolean_option("round", false)?;
-        let constant = config.f32_option("constant", 1.0)?;
+        let range_offset = config.f32_option("range_offset", 0.0);
+        let clamp = config.boolean_option("clamp", false);
+        let round = config.boolean_option("round", false);
+        let constant = config.f32_option("constant", 1.0);
 
         // Handle degenerate domain case
         if domain_start == domain_end
@@ -321,7 +321,7 @@ impl ArrowScale for SymlogScale {
     ) -> Result<ArrayRef, AvengerScaleError> {
         let (domain_start, domain_end) = SymlogScale::apply_nice(
             config.numeric_interval_domain()?,
-            config.f32_option("constant", 1.0)?,
+            config.f32_option("constant", 1.0),
             config.options.get("nice"),
         )?;
         let count = count.unwrap_or(10.0);

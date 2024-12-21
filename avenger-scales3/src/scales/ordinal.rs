@@ -76,7 +76,7 @@ impl ArrowScale for OrdinalScale {
             )
         })?;
         // Build vector of range values with nulls replaced with NAN
-        let default_value = config.f32_option("default", f32::NAN)?;
+        let default_value = config.f32_option("default", f32::NAN);
         let range_vec = range
             .as_primitive::<Float32Type>()
             .iter()
@@ -97,7 +97,7 @@ impl ArrowScale for OrdinalScale {
                 "ordinal scale range is not a string array".to_string(),
             )
         })?;
-        let default_value = config.string_option("default", "")?;
+        let default_value = config.string_option("default", "");
         let range_vec = range
             .as_string::<i32>()
             .iter()

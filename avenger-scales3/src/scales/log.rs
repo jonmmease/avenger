@@ -110,10 +110,10 @@ impl ArrowScale for LogScale {
         values: &ArrayRef,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
         // Get options
-        let base = config.f32_option("base", 10.0)?;
-        let range_offset = config.f32_option("range_offset", 0.0)?;
-        let clamp = config.boolean_option("clamp", false)?;
-        let round = config.boolean_option("round", false)?;
+        let base = config.f32_option("base", 10.0);
+        let range_offset = config.f32_option("range_offset", 0.0);
+        let clamp = config.boolean_option("clamp", false);
+        let round = config.boolean_option("round", false);
 
         let (range_start, range_end) = config.numeric_interval_range()?;
         let (domain_start, domain_end) = LogScale::apply_nice(
@@ -324,10 +324,10 @@ impl ArrowScale for LogScale {
         values: &ArrayRef,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
         // Get options
-        let base = config.f32_option("base", 10.0)?;
-        let range_offset = config.f32_option("range_offset", 0.0)?;
-        let clamp = config.boolean_option("clamp", false)?;
-        let round = config.boolean_option("round", false)?;
+        let base = config.f32_option("base", 10.0);
+        let range_offset = config.f32_option("range_offset", 0.0);
+        let clamp = config.boolean_option("clamp", false);
+        let round = config.boolean_option("round", false);
 
         let (range_start, range_end) = config.numeric_interval_range()?;
         let (domain_start, domain_end) = LogScale::apply_nice(
@@ -423,7 +423,7 @@ impl ArrowScale for LogScale {
         count: Option<f32>,
     ) -> Result<ArrayRef, AvengerScaleError> {
         let count = count.unwrap_or(10.0);
-        let base = config.f32_option("base", 10.0)?;
+        let base = config.f32_option("base", 10.0);
         let (domain_start, domain_end) = LogScale::apply_nice(
             config.numeric_interval_domain()?,
             base,
