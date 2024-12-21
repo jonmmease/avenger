@@ -118,9 +118,9 @@ impl ArrowScale for LinearScale {
         let array = array.as_primitive::<Float32Type>();
 
         // Get options
-        let range_offset = config.f32_option("range_offset", 0.0)?;
-        let clamp = config.boolean_option("clamp", false)?;
-        let round = config.boolean_option("round", false)?;
+        let range_offset = config.f32_option("range_offset", 0.0);
+        let clamp = config.boolean_option("clamp", false);
+        let round = config.boolean_option("round", false);
 
         // Extract domain and range
         let domain_span = domain_end - domain_start;
@@ -184,8 +184,8 @@ impl ArrowScale for LinearScale {
         )?;
 
         let (range_start, range_end) = config.numeric_interval_range()?;
-        let range_offset = config.f32_option("range_offset", 0.0)?;
-        let clamp = config.boolean_option("clamp", false)?;
+        let range_offset = config.f32_option("range_offset", 0.0);
+        let clamp = config.boolean_option("clamp", false);
 
         // Handle degenerate domain case
         if domain_start == domain_end

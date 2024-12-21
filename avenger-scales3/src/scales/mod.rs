@@ -1,6 +1,8 @@
+pub mod band;
 pub mod linear;
 pub mod log;
 pub mod ordinal;
+pub mod point;
 pub mod pow;
 pub mod symlog;
 
@@ -84,36 +86,40 @@ impl ScaleConfig {
             .collect::<Result<Vec<[f32; 4]>, AvengerScaleError>>()
     }
 
-    pub fn f32_option(&self, key: &str, default: f32) -> Result<f32, AvengerScaleError> {
+    pub fn f32_option(&self, key: &str, default: f32) -> f32 {
         self.options
             .get(key)
             .cloned()
             .unwrap_or(ScalarValue::from(default))
             .as_f32()
+            .unwrap_or(default)
     }
 
-    pub fn boolean_option(&self, key: &str, default: bool) -> Result<bool, AvengerScaleError> {
+    pub fn boolean_option(&self, key: &str, default: bool) -> bool {
         self.options
             .get(key)
             .cloned()
             .unwrap_or(ScalarValue::from(default))
             .as_boolean()
+            .unwrap_or(default)
     }
 
-    pub fn i32_option(&self, key: &str, default: i32) -> Result<i32, AvengerScaleError> {
+    pub fn i32_option(&self, key: &str, default: i32) -> i32 {
         self.options
             .get(key)
             .cloned()
             .unwrap_or(ScalarValue::from(default))
             .as_i32()
+            .unwrap_or(default)
     }
 
-    pub fn string_option(&self, key: &str, default: &str) -> Result<String, AvengerScaleError> {
+    pub fn string_option(&self, key: &str, default: &str) -> String {
         self.options
             .get(key)
             .cloned()
             .unwrap_or(ScalarValue::from(default))
             .as_string()
+            .unwrap_or(default.to_string())
     }
 }
 
@@ -156,6 +162,29 @@ pub trait ArrowScale: Debug + Send + Sync + 'static {
         ))
     }
 
+    /// Invert a range interval to a subset of the domain
+    fn invert_range_interval(
+        &self,
+        _config: &ScaleConfig,
+        _range: (f32, f32),
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        Err(AvengerScaleError::ScaleOperationNotSupported(
+            "invert_range_interval".to_string(),
+        ))
+    }
+
+    /// Get the domain values for ticks for the scale
+    /// These can be scaled to number for position, and scaled to string for labels
+    fn ticks(
+        &self,
+        _config: &ScaleConfig,
+        _count: Option<f32>,
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        Err(AvengerScaleError::ScaleOperationNotSupported(
+            "ticks".to_string(),
+        ))
+    }
+
     /// Scale to color values
     fn scale_to_color(
         &self,
@@ -176,28 +205,6 @@ pub trait ArrowScale: Debug + Send + Sync + 'static {
     ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
         Err(AvengerScaleError::ScaleOperationNotSupported(
             "scale_to_string".to_string(),
-        ))
-    }
-
-    fn scale_to_index(
-        &self,
-        _config: &ScaleConfig,
-        _values: &ArrayRef,
-    ) -> Result<Vec<Option<usize>>, AvengerScaleError> {
-        Err(AvengerScaleError::ScaleOperationNotSupported(
-            "scale_to_index".to_string(),
-        ))
-    }
-
-    /// Get the domain values for ticks for the scale
-    /// These can be scaled to number for position, and scaled to string for labels
-    fn ticks(
-        &self,
-        _config: &ScaleConfig,
-        _count: Option<f32>,
-    ) -> Result<ArrayRef, AvengerScaleError> {
-        Err(AvengerScaleError::ScaleOperationNotSupported(
-            "ticks".to_string(),
         ))
     }
 
