@@ -17,6 +17,7 @@ arrow = { workspace = true }
 datafusion-common = { workspace = true }
 numfmt = "1.1"
 css-color-parser = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 paste = { workspace = true }
 

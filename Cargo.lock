@@ -756,6 +756,7 @@ dependencies = [
  "ordered-float 4.5.0",
  "palette",
  "paste",
+ "serde",
  "serde_json",
  "thiserror 2.0.3",
 ]
