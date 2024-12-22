@@ -2,7 +2,7 @@ use crate::error::AvengerScaleError;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use chrono_tz::Tz;
 use numfmt::Formatter;
-use std::fmt::Debug;
+use std::{fmt::Debug, sync::Arc};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DefaultFormatter {
@@ -93,21 +93,21 @@ impl TimestamptzFormatter for DefaultFormatter {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Formatters {
-    pub number: Box<dyn NumberFormatter>,
-    pub date: Box<dyn DateFormatter>,
-    pub timestamp: Box<dyn TimestampFormatter>,
-    pub timestamptz: Box<dyn TimestamptzFormatter>,
+    pub number: Arc<dyn NumberFormatter>,
+    pub date: Arc<dyn DateFormatter>,
+    pub timestamp: Arc<dyn TimestampFormatter>,
+    pub timestamptz: Arc<dyn TimestamptzFormatter>,
 }
 
 impl Default for Formatters {
     fn default() -> Self {
         Self {
-            number: Box::new(DefaultFormatter::default()),
-            date: Box::new(DefaultFormatter::default()),
-            timestamp: Box::new(DefaultFormatter::default()),
-            timestamptz: Box::new(DefaultFormatter::default()),
+            number: Arc::new(DefaultFormatter::default()),
+            date: Arc::new(DefaultFormatter::default()),
+            timestamp: Arc::new(DefaultFormatter::default()),
+            timestamptz: Arc::new(DefaultFormatter::default()),
         }
     }
 }

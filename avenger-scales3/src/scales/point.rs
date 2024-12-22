@@ -6,16 +6,41 @@ use arrow::{
 };
 use avenger_common::value::ScalarOrArray;
 
-use crate::error::AvengerScaleError;
+use crate::{
+    color_interpolator::SrgbaColorInterpolator, error::AvengerScaleError, formatter::Formatters,
+};
 
 use super::{
-    band::BandScale, ordinal::OrdinalScale, ArrowScale, InferDomainFromDataMethod, ScaleConfig,
+    band::BandScale, ordinal::OrdinalScale, ConfiguredScale, InferDomainFromDataMethod,
+    ScaleConfig, ScaleImpl,
 };
 
 #[derive(Debug, Clone)]
 pub struct PointScale;
 
-impl ArrowScale for PointScale {
+impl PointScale {
+    pub fn new(domain: ArrayRef, range: (f32, f32)) -> ConfiguredScale {
+        ConfiguredScale {
+            scale_impl: Arc::new(Self),
+            config: ScaleConfig {
+                domain,
+                range: Arc::new(Float32Array::from(vec![range.0, range.1])),
+                options: vec![
+                    ("align".to_string(), 0.5.into()),
+                    ("padding".to_string(), 0.0.into()),
+                    ("round".to_string(), false.into()),
+                    ("range_offset".to_string(), 0.0.into()),
+                ]
+                .into_iter()
+                .collect(),
+            },
+            color_interpolator: Arc::new(SrgbaColorInterpolator),
+            formatters: Formatters::default(),
+        }
+    }
+}
+
+impl ScaleImpl for PointScale {
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
     }

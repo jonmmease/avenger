@@ -10,17 +10,41 @@ use datafusion_common::ScalarValue;
 
 use crate::{
     array,
-    color_interpolator::{scale_numeric_to_color, ColorInterpolator},
+    color_interpolator::{scale_numeric_to_color, ColorInterpolator, SrgbaColorInterpolator},
     error::AvengerScaleError,
+    formatter::Formatters,
     utils::ScalarValueUtils,
 };
 
-use super::{linear::LinearScale, ArrowScale, InferDomainFromDataMethod, ScaleConfig};
+use super::{
+    linear::LinearScale, ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleImpl,
+};
 
 #[derive(Debug)]
 pub struct SymlogScale;
 
 impl SymlogScale {
+    pub fn new(domain: (f32, f32), range: (f32, f32)) -> ConfiguredScale {
+        ConfiguredScale {
+            scale_impl: Arc::new(Self),
+            config: ScaleConfig {
+                domain: Arc::new(Float32Array::from(vec![domain.0, domain.1])),
+                range: Arc::new(Float32Array::from(vec![range.0, range.1])),
+                options: vec![
+                    ("constant".to_string(), 1.0.into()),
+                    ("clamp".to_string(), false.into()),
+                    ("range_offset".to_string(), 0.0.into()),
+                    ("round".to_string(), false.into()),
+                    ("nice".to_string(), false.into()),
+                ]
+                .into_iter()
+                .collect(),
+            },
+            color_interpolator: Arc::new(SrgbaColorInterpolator),
+            formatters: Formatters::default(),
+        }
+    }
+
     /// Compute nice domain
     pub fn apply_nice(
         domain: (f32, f32),
@@ -41,7 +65,7 @@ impl SymlogScale {
     }
 }
 
-impl ArrowScale for SymlogScale {
+impl ScaleImpl for SymlogScale {
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Interval
     }

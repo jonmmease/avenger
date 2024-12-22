@@ -1,9 +1,17 @@
+use std::sync::Arc;
+
+use arrow::{
+    array::{ArrayRef, AsArray, Float32Array},
+    datatypes::Float32Type,
+};
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 use avenger_geometry::marks::MarkGeometryUtils;
-use avenger_scales::numeric::ContinuousNumericScale;
+use avenger_scales3::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
 use avenger_text::types::{FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
 use rstar::AABB;
+
+use crate::error::AvengerGuidesError;
 
 use super::opts::{AxisConfig, AxisOrientation};
 
@@ -15,21 +23,21 @@ const TICK_FONT_SIZE: f32 = 8.0;
 const PIXEL_OFFSET: f32 = 0.5;
 
 pub fn make_numeric_axis_marks(
-    scale: &impl ContinuousNumericScale<Domain = f32>,
+    scale: &ConfiguredScale,
     title: &str,
     origin: [f32; 2],
     config: &AxisConfig,
-) -> SceneGroup {
+) -> Result<SceneGroup, AvengerGuidesError> {
     let mut group = SceneGroup {
         origin,
         ..Default::default()
     };
 
     // Get ticks
-    let ticks = scale.ticks(None);
+    let ticks = scale.ticks(None)?;
 
     // Get range bounds considering orientation
-    let range = scale.range();
+    let range = scale.config.numeric_interval_range()?;
     let (start, end) = match config.orientation {
         AxisOrientation::Left | AxisOrientation::Right => {
             let upper = f32::min(range.1, range.0) - PIXEL_OFFSET;
@@ -57,7 +65,7 @@ pub fn make_numeric_axis_marks(
     // Add tick grid
     if config.grid {
         group.marks.push(
-            make_tick_grid_marks(&ticks, scale, &config.orientation, &config.dimensions).into(),
+            make_tick_grid_marks(&ticks, scale, &config.orientation, &config.dimensions)?.into(),
         );
     }
 
@@ -69,19 +77,19 @@ pub fn make_numeric_axis_marks(
     // Add tick marks
     group
         .marks
-        .push(make_tick_marks(&ticks, scale, &config.orientation, &config.dimensions).into());
+        .push(make_tick_marks(&ticks, scale, &config.orientation, &config.dimensions)?.into());
 
     // Add tick labels
     group
         .marks
-        .push(make_tick_labels(&ticks, scale, &config.orientation, &config.dimensions).into());
+        .push(make_tick_labels(&ticks, scale, &config.orientation, &config.dimensions)?.into());
 
     // Add title
     group
         .marks
-        .push(make_title(title, scale, &group.bounding_box(), &config.orientation).into());
+        .push(make_title(title, scale, &group.bounding_box(), &config.orientation)?.into());
 
-    group
+    Ok(group)
 }
 
 fn make_axis_line(start: f32, end: f32, is_vertical: bool, offset: f32) -> SceneRuleMark {
@@ -103,12 +111,12 @@ fn make_axis_line(start: f32, end: f32, is_vertical: bool, offset: f32) -> Scene
 }
 
 fn make_tick_marks(
-    ticks: &[f32],
-    scale: &impl ContinuousNumericScale<Domain = f32>,
+    ticks: &ArrayRef,
+    scale: &ConfiguredScale,
     orientation: &AxisOrientation,
     dimensions: &[f32; 2],
-) -> SceneRuleMark {
-    let scaled_values = scale.scale(ticks);
+) -> Result<SceneRuleMark, AvengerGuidesError> {
+    let scaled_values = scale.scale_to_numeric(ticks)?;
 
     let (x0, x1, y0, y1) = match orientation {
         AxisOrientation::Left => (
@@ -137,7 +145,7 @@ fn make_tick_marks(
         ),
     };
 
-    SceneRuleMark {
+    Ok(SceneRuleMark {
         len: ticks.len() as u32,
         clip: false,
         x0,
@@ -147,16 +155,16 @@ fn make_tick_marks(
         stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
         stroke_width: 1.0.into(),
         ..Default::default()
-    }
+    })
 }
 
 fn make_tick_grid_marks(
-    ticks: &[f32],
-    scale: &impl ContinuousNumericScale<Domain = f32>,
+    ticks: &ArrayRef,
+    scale: &ConfiguredScale,
     orientation: &AxisOrientation,
     dimensions: &[f32; 2],
-) -> SceneRuleMark {
-    let scaled_values = scale.scale(ticks);
+) -> Result<SceneRuleMark, AvengerGuidesError> {
+    let scaled_values = scale.scale_to_numeric(ticks)?;
 
     let (x0, x1, y0, y1) = match orientation {
         AxisOrientation::Left => (
@@ -185,7 +193,7 @@ fn make_tick_grid_marks(
         ),
     };
 
-    SceneRuleMark {
+    Ok(SceneRuleMark {
         len: ticks.len() as u32,
         clip: false,
         x0,
@@ -195,17 +203,19 @@ fn make_tick_grid_marks(
         stroke: ColorOrGradient::Color([0.6, 0.6, 0.6, 0.5]).into(),
         stroke_width: 0.2.into(),
         ..Default::default()
-    }
+    })
 }
 
 fn make_tick_labels(
-    ticks: &[f32],
-    scale: &impl ContinuousNumericScale<Domain = f32>,
+    ticks: &ArrayRef,
+    scale: &ConfiguredScale,
     orientation: &AxisOrientation,
     dimensions: &[f32; 2],
-) -> SceneTextMark {
-    let tick_text = ticks.iter().map(|t| t.to_string()).collect::<Vec<String>>();
-    let scaled_values = scale.scale(ticks);
+) -> Result<SceneTextMark, AvengerGuidesError> {
+    let formatter = scale.formatters.number.as_ref();
+    let tick_text = formatter.format(&ticks.as_primitive::<Float32Type>().values());
+
+    let scaled_values = scale.scale_to_numeric(ticks)?;
 
     let (x, y, align, baseline, angle) = match orientation {
         AxisOrientation::Left => (
@@ -238,7 +248,7 @@ fn make_tick_labels(
         ),
     };
 
-    SceneTextMark {
+    Ok(SceneTextMark {
         len: ticks.len() as u32,
         text: tick_text.into(),
         x,
@@ -249,16 +259,16 @@ fn make_tick_labels(
         color: [0.0, 0.0, 0.0, 1.0].into(),
         font_size: TICK_FONT_SIZE.into(),
         ..Default::default()
-    }
+    })
 }
 
 fn make_title(
     title: &str,
-    scale: &impl ContinuousNumericScale<Domain = f32>,
+    scale: &ConfiguredScale,
     envelope: &AABB<[f32; 2]>,
     orientation: &AxisOrientation,
-) -> SceneTextMark {
-    let range = scale.range();
+) -> Result<SceneTextMark, AvengerGuidesError> {
+    let range = scale.config.numeric_interval_range()?;
     let mid = (range.0 + range.1) / 2.0;
 
     let (x, y, align, baseline, angle) = match orientation {
@@ -292,7 +302,7 @@ fn make_title(
         ),
     };
 
-    SceneTextMark {
+    Ok(SceneTextMark {
         len: 1,
         text: title.to_string().into(),
         x,
@@ -304,5 +314,5 @@ fn make_title(
         font_size: TITLE_FONT_SIZE.into(),
         font_weight: FontWeightSpec::Name(FontWeightNameSpec::Bold).into(),
         ..Default::default()
-    }
+    })
 }

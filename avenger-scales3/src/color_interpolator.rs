@@ -1,6 +1,6 @@
 use crate::{
     error::AvengerScaleError,
-    scales::{ArrowScale, ScaleConfig},
+    scales::{ScaleConfig, ScaleImpl},
 };
 use arrow::array::{ArrayRef, Float32Array};
 use avenger_common::{
@@ -14,7 +14,7 @@ pub struct ColorInterpolatorConfig {
     pub colors: Vec<[f32; 4]>,
 }
 
-pub trait ColorInterpolator: Send + Sync + 'static {
+pub trait ColorInterpolator: Debug + Send + Sync + 'static {
     /// Interpolate over evenly spaced colors based on normalized values
     fn interpolate(
         &self,
@@ -23,7 +23,7 @@ pub trait ColorInterpolator: Send + Sync + 'static {
     ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError>;
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SrgbaColorInterpolator;
 
 impl ColorInterpolator for SrgbaColorInterpolator {
@@ -42,7 +42,7 @@ impl ColorInterpolator for SrgbaColorInterpolator {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct HslaColorInterpolator;
 
 impl ColorInterpolator for HslaColorInterpolator {
@@ -60,7 +60,7 @@ impl ColorInterpolator for HslaColorInterpolator {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct LabaColorInterpolator;
 
 impl ColorInterpolator for LabaColorInterpolator {
@@ -123,7 +123,7 @@ fn interpolate_color<C: ColorSpace>(
 
 /// Generic helper function to scale numeric values to color values for continuous numeric scales
 pub(crate) fn scale_numeric_to_color(
-    scale: &impl ArrowScale,
+    scale: &impl ScaleImpl,
     config: &ScaleConfig,
     values: &ArrayRef,
     interpolator: &dyn ColorInterpolator,

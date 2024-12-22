@@ -10,7 +10,7 @@ use avenger_common::value::ScalarOrArray;
 use avenger_scales3::{
     coerce::{ColorCoercer, NumericCoercer},
     color_interpolator::ColorInterpolator,
-    scales::ArrowScale,
+    scales::ScaleImpl,
 };
 use avenger_scenegraph::marks::{arc::SceneArcMark, mark::SceneMark};
 use datafusion::{
@@ -86,7 +86,7 @@ pub trait MarkCompiler: Send + Sync + 'static {
         ctx: &SessionContext,
         params: &ParamValues,
         evaluted_scales: &HashMap<String, EvaluatedScale>,
-        scale_impls: &HashMap<String, Box<dyn ArrowScale>>,
+        scale_impls: &HashMap<String, Box<dyn ScaleImpl>>,
         interpolator: &Box<dyn ColorInterpolator>,
         color_coercer: &Box<dyn ColorCoercer>,
         numeric_coercer: &Box<dyn NumericCoercer>,
@@ -103,7 +103,7 @@ impl MarkCompiler for ArcMarkCompiler {
         ctx: &SessionContext,
         params: &ParamValues,
         evaluted_scales: &HashMap<String, EvaluatedScale>,
-        arrow_scales: &HashMap<String, Box<dyn ArrowScale>>,
+        arrow_scales: &HashMap<String, Box<dyn ScaleImpl>>,
         interpolator: &Box<dyn ColorInterpolator>,
         color_coercer: &Box<dyn ColorCoercer>,
         numeric_coercer: &Box<dyn NumericCoercer>,

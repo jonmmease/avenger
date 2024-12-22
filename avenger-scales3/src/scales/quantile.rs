@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use arrow::{
     array::{ArrayRef, AsArray, Float32Array},
@@ -14,7 +14,10 @@ use avenger_common::{
 };
 use datafusion_common::ScalarValue;
 
-use crate::{color_interpolator::ColorInterpolator, error::AvengerScaleError};
+use crate::{
+    color_interpolator::{ColorInterpolator, SrgbaColorInterpolator},
+    error::AvengerScaleError, formatter::Formatters,
+};
 
 use super::{
     linear::LinearScale,
@@ -22,7 +25,7 @@ use super::{
         prep_discrete_color_range, prep_discrete_enum_range, prep_discrete_numeric_range,
         prep_discrete_string_range,
     },
-    ArrowScale, InferDomainFromDataMethod, ScaleConfig,
+    ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleImpl,
 };
 
 /// Macro to generate scale_to_X trait methods for threshold enum scaling
@@ -45,7 +48,22 @@ macro_rules! impl_quantile_enum_scale_method {
 #[derive(Debug, Clone)]
 pub struct QuantileScale;
 
-impl ArrowScale for QuantileScale {
+impl QuantileScale {
+    pub fn new(domain: Vec<f32>, range: ArrayRef) -> ConfiguredScale {
+        ConfiguredScale {
+            scale_impl: Arc::new(Self),
+            config: ScaleConfig {
+                domain: Arc::new(Float32Array::from(domain)),
+                range,
+                options: HashMap::new(),
+            },
+            color_interpolator: Arc::new(SrgbaColorInterpolator),
+            formatters: Formatters::default(),
+        }
+    }
+}
+
+impl ScaleImpl for QuantileScale {
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
     }
