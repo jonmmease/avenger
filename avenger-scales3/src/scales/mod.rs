@@ -9,10 +9,10 @@ pub mod quantize;
 pub mod symlog;
 pub mod threshold;
 
-use std::{collections::HashMap, fmt::Debug};
+use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use arrow::{
-    array::{ArrayRef, AsArray},
+    array::{ArrayRef, AsArray, Float32Array},
     compute::cast,
     datatypes::{DataType, Float32Type},
 };
@@ -23,9 +23,12 @@ use avenger_common::{
 use datafusion_common::ScalarValue;
 
 use crate::{
+    coerce::{ColorCoercer, CssColorCoercer},
+    formatter::Formatters,
+};
+use crate::{
     color_interpolator::ColorInterpolator, error::AvengerScaleError, utils::ScalarValueUtils,
 };
-use crate::coerce::{ColorCoercer, CssColorCoercer};
 
 /// Macro to generate scale_to_X trait methods that return a default error implementation
 #[macro_export]
@@ -76,12 +79,12 @@ impl ScaleConfig {
     }
 
     pub fn color_range(&self) -> Result<Vec<[f32; 4]>, AvengerScaleError> {
-
         let coercer = CssColorCoercer;
         let range_colors = coercer.coerce_color(&self.range)?;
-        let range_colors_vec: Vec<_> = range_colors.as_iter(range_colors.len(), None).map(
-            |c| c.color_or_transparent()
-        ).collect();
+        let range_colors_vec: Vec<_> = range_colors
+            .as_iter(range_colors.len(), None)
+            .map(|c| c.color_or_transparent())
+            .collect();
         Ok(range_colors_vec)
     }
 
@@ -136,7 +139,7 @@ pub enum InferDomainFromDataMethod {
     All,
 }
 
-pub trait ArrowScale: Debug + Send + Sync + 'static {
+pub trait ScaleImpl: Debug + Send + Sync + 'static {
     /// Method that should be used to infer a scale's domain from the data that it will scale
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod;
 
@@ -157,7 +160,9 @@ pub trait ArrowScale: Debug + Send + Sync + 'static {
         value: &ScalarValue,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
         let array = value.to_array()?;
-        Ok(self.scale_to_numeric(config, &array)?.to_scalar_if_len_one())
+        Ok(self
+            .scale_to_numeric(config, &array)?
+            .to_scalar_if_len_one())
     }
 
     fn invert_from_numeric(
@@ -212,9 +217,10 @@ pub trait ArrowScale: Debug + Send + Sync + 'static {
         interpolator: &dyn ColorInterpolator,
     ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
         let array = value.to_array()?;
-        Ok(self.scale_to_color(config, &array, interpolator)?.to_scalar_if_len_one())
+        Ok(self
+            .scale_to_color(config, &array, interpolator)?
+            .to_scalar_if_len_one())
     }
-
 
     /// Scale to string values
     fn scale_to_string(
@@ -236,7 +242,6 @@ pub trait ArrowScale: Debug + Send + Sync + 'static {
         Ok(self.scale_to_string(config, &array)?.to_scalar_if_len_one())
     }
 
-
     // Scale to enums
     declare_enum_scale_method!(StrokeCap);
     declare_enum_scale_method!(StrokeJoin);
@@ -245,8 +250,172 @@ pub trait ArrowScale: Debug + Send + Sync + 'static {
     declare_enum_scale_method!(AreaOrientation);
 }
 
+/// Macro to generate scale_to_X trait methods that return a default error implementation
+#[macro_export]
+macro_rules! declare_enum_configured_scale_method {
+    ($type_name:ident) => {
+        paste::paste! {
+            pub fn [<scale_to_ $type_name:snake>](
+                &self,
+                values: &ArrayRef,
+            ) -> Result<ScalarOrArray<$type_name>, AvengerScaleError> {
+                self.scale_impl.[<scale_to_ $type_name:snake>](&self.config, values)
+
+            }
+        }
+    };
+}
+
+#[derive(Debug, Clone)]
+pub struct ConfiguredScale {
+    pub scale_impl: Arc<dyn ScaleImpl>,
+    pub config: ScaleConfig,
+    pub color_interpolator: Arc<dyn ColorInterpolator>,
+    pub formatters: Formatters,
+}
+
+// Builder methods
+impl ConfiguredScale {
+    pub fn with_scale_impl(self, scale_impl: Arc<dyn ScaleImpl>) -> ConfiguredScale {
+        ConfiguredScale { scale_impl, ..self }
+    }
+
+    pub fn with_domain(self, domain: ArrayRef) -> ConfiguredScale {
+        ConfiguredScale {
+            config: ScaleConfig {
+                domain,
+                ..self.config
+            },
+            ..self
+        }
+    }
+
+    pub fn with_range_interval(self, range: (f32, f32)) -> ConfiguredScale {
+        ConfiguredScale {
+            config: ScaleConfig {
+                range: Arc::new(Float32Array::from(vec![range.0, range.1])),
+                ..self.config
+            },
+            ..self
+        }
+    }
+
+    pub fn with_range(self, range: ArrayRef) -> ConfiguredScale {
+        ConfiguredScale {
+            config: ScaleConfig {
+                range,
+                ..self.config
+            },
+            ..self
+        }
+    }
+
+    pub fn with_config(self, config: ScaleConfig) -> ConfiguredScale {
+        ConfiguredScale { config, ..self }
+    }
+
+    pub fn with_option<S: Into<String>, V: Into<ScalarValue>>(
+        mut self,
+        key: S,
+        value: V,
+    ) -> ConfiguredScale {
+        self.config.options.insert(key.into(), value.into());
+        self
+    }
+
+    pub fn with_color_interpolator(
+        self,
+        color_interpolator: Arc<dyn ColorInterpolator>,
+    ) -> ConfiguredScale {
+        ConfiguredScale {
+            color_interpolator,
+            ..self
+        }
+    }
+}
+
+// Pass through methods
+impl ConfiguredScale {
+    /// Method that should be used to infer a scale's domain from the data that it will scale
+    pub fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
+        self.scale_impl.infer_domain_from_data_method()
+    }
+
+    /// Scale to numeric values
+    pub fn scale_to_numeric(
+        &self,
+        values: &ArrayRef,
+    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+        self.scale_impl.scale_to_numeric(&self.config, values)
+    }
+
+    pub fn scale_scalar_to_numeric(
+        &self,
+        value: &ScalarValue,
+    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+        self.scale_impl.scale_scalar_to_numeric(&self.config, value)
+    }
+
+    pub fn invert_from_numeric(
+        &self,
+        values: &ArrayRef,
+    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+        self.scale_impl.invert_from_numeric(&self.config, values)
+    }
+
+    /// Invert a range interval to a subset of the domain
+    pub fn invert_range_interval(&self, range: (f32, f32)) -> Result<ArrayRef, AvengerScaleError> {
+        self.scale_impl.invert_range_interval(&self.config, range)
+    }
+
+    /// Get the domain values for ticks for the scale
+    /// These can be scaled to number for position, and scaled to string for labels
+    pub fn ticks(&self, count: Option<f32>) -> Result<ArrayRef, AvengerScaleError> {
+        self.scale_impl.ticks(&self.config, count)
+    }
+
+    /// Scale to color values
+    pub fn scale_to_color(
+        &self,
+        values: &ArrayRef,
+    ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
+        self.scale_impl
+            .scale_to_color(&self.config, values, self.color_interpolator.as_ref())
+    }
+
+    pub fn scale_scalar_to_color(
+        &self,
+        value: &ScalarValue,
+    ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
+        self.scale_impl
+            .scale_scalar_to_color(&self.config, value, self.color_interpolator.as_ref())
+    }
+
+    /// Scale to string values
+    pub fn scale_to_string(
+        &self,
+        values: &ArrayRef,
+    ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
+        self.scale_impl.scale_to_string(&self.config, values)
+    }
+
+    pub fn scale_scalar_to_string(
+        &self,
+        value: &ScalarValue,
+    ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
+        self.scale_impl.scale_scalar_to_string(&self.config, value)
+    }
+
+    // Enums
+    declare_enum_configured_scale_method!(StrokeCap);
+    declare_enum_configured_scale_method!(StrokeJoin);
+    declare_enum_configured_scale_method!(ImageAlign);
+    declare_enum_configured_scale_method!(ImageBaseline);
+    declare_enum_configured_scale_method!(AreaOrientation);
+}
+
 /// Make sure the trait object safe by defining a struct
 #[allow(dead_code)]
 struct MakeSureItsObjectSafe {
-    pub scales: Box<dyn ArrowScale>,
+    pub scales: Box<dyn ScaleImpl>,
 }

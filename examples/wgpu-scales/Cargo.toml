@@ -12,7 +12,7 @@ avenger-wgpu = { path = "../../avenger-wgpu" }
 avenger-scenegraph = { path = "../../avenger-scenegraph" }
 avenger-common = { path = "../../avenger-common" }
 avenger-scales3 = { path = "../../avenger-scales3" }
-#avenger-guides = { path = "../../avenger-guides" }
+avenger-guides = { path = "../../avenger-guides" }
 avenger-geometry = { path = "../../avenger-geometry" }
 
 arrow = "*"

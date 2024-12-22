@@ -684,11 +684,13 @@ dependencies = [
 name = "avenger-guides"
 version = "0.1.0"
 dependencies = [
+ "arrow",
  "avenger-common",
  "avenger-geometry",
- "avenger-scales",
+ "avenger-scales3",
  "avenger-scenegraph",
  "avenger-text",
+ "datafusion-common",
  "geo",
  "itertools 0.13.0",
  "rstar 0.12.2 (git+https://github.com/georust/rstar.git?branch=master)",
@@ -10795,6 +10797,7 @@ dependencies = [
  "arrow",
  "avenger-common",
  "avenger-geometry",
+ "avenger-guides",
  "avenger-scales3",
  "avenger-scenegraph",
  "avenger-vega",

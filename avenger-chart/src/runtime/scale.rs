@@ -14,7 +14,7 @@ use arrow::{
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 
 use avenger_scales3::{
-    scales::{ArrowScale, InferDomainFromDataMethod, ScaleConfig},
+    scales::{ScaleImpl, InferDomainFromDataMethod, ScaleConfig},
     utils::ScalarValueUtils,
 };
 use datafusion::{
@@ -39,7 +39,7 @@ pub async fn evaluate_scale(
     name: &str,
     ctx: &SessionContext,
     params: &ParamValues,
-    arrow_scales: &HashMap<String, Box<dyn ArrowScale>>,
+    arrow_scales: &HashMap<String, Box<dyn ScaleImpl>>,
 ) -> Result<EvaluatedScale, AvengerChartError> {
     let kind = scale.kind.clone().unwrap_or("linear".to_string());
     let arrow_scale = arrow_scales

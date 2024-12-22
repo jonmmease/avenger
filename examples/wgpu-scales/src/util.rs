@@ -1,8 +1,10 @@
-use std::sync::Arc;
 use arrow::array::{ArrayRef, Float32Array, StringArray};
 use avenger_common::canvas::CanvasDimensions;
 use avenger_common::types::ColorOrGradient;
 use avenger_geometry::rtree::SceneGraphRTree;
+use avenger_guides::axis::numeric::make_numeric_axis_marks;
+use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
+use std::sync::Arc;
 // use avenger_guides::axis::band::make_band_axis_marks;
 // use avenger_guides::axis::numeric::make_numeric_axis_marks;
 // use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
@@ -17,6 +19,13 @@ use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
 
+use avenger_scales3::color_interpolator::{
+    HslaColorInterpolator, LabaColorInterpolator, SrgbaColorInterpolator,
+};
+use avenger_scales3::scales::band::BandScale;
+use avenger_scales3::scales::linear::LinearScale;
+use avenger_scales3::scales::{ScaleConfig, ScaleImpl};
+use avenger_vega::marks::values::StrokeDashSpec::String;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 use winit::application::ApplicationHandler;
@@ -25,11 +34,6 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard;
 use winit::keyboard::NamedKey;
 use winit::window::{WindowAttributes, WindowId};
-use avenger_scales3::color_interpolator::{HslaColorInterpolator, LabaColorInterpolator, SrgbaColorInterpolator};
-use avenger_scales3::scales::band::BandScale;
-use avenger_scales3::scales::linear::LinearScale;
-use avenger_scales3::scales::{ArrowScale, ScaleConfig};
-use avenger_vega::marks::values::StrokeDashSpec::String;
 
 struct App<'a> {
     canvas: Option<WindowCanvas<'a>>,
@@ -174,47 +178,27 @@ pub async fn run() {
     let width = 200.0;
     let height = 200.0;
 
-    let x_scale = BandScale;
-    let x_scale_config = ScaleConfig {
-        domain: x_array.clone(),
-        range: Arc::new(Float32Array::from(vec![0.0, width])),
-        options: vec![
-            ("padding_inner".into(), 0.2.into()),
-            ("padding_outer".into(), 0.2.into()),
-            ("band".into(), 0.0.into())
-        ].into_iter().collect()
-    };
+    // Make x scales
+    let x_scale = BandScale::new(x_array.clone(), (0.0, width))
+        .with_option("padding_inner", 0.2)
+        .with_option("padding_outer", 0.2)
+        .with_option("band", 0.0);
+    let x2_scale = x_scale.clone().with_option("band", 1.0);
 
-    // Make x2 scale config
-    let mut x2_scale_config = x_scale_config.clone();
-    x2_scale_config.options.insert("band".into(), 1.0.into());
+    let y_scale = LinearScale::new((0.0, 100.0), (height, 0.0));
 
-    let y_scale = LinearScale;
-    let y_scale_config = ScaleConfig {
-        domain: Arc::new(Float32Array::from(vec![0.0, 100.0])),
-        range: Arc::new(Float32Array::from(vec![height, 0.0])),
-        options: Default::default(),
-    };
-
-    let color_scale_config = ScaleConfig {
-        domain: Arc::new(Float32Array::from(vec![0.0, 100.0])),
-        range: Arc::new(StringArray::from(vec!["white", "blue"])),
-        options: vec![("nice".into(), 10.0.into())].into_iter().collect(),
-    };
-    let color_scale = LinearScale;
-    // let color_interpolator = SrgbaColorInterpolator;
-    // let color_interpolator = HslaColorInterpolator;
-    let color_interpolator = LabaColorInterpolator;
+    let color_scale =
+        LinearScale::new_color((0.0, 100.0), vec!["white", "blue"]).with_option("nice", 10.0);
 
     // Make rect mark
     let rect = SceneRectMark {
         len: x_values.len() as u32,
-        x: x_scale.scale_to_numeric(&x_scale_config, &x_array).unwrap(),
-        x2: Some(x_scale.scale_to_numeric(&x2_scale_config, &x_array).unwrap()),
-        y: y_scale.scale_scalar_to_numeric(&y_scale_config, &0.0.into()).unwrap(),
-        y2: Some(y_scale.scale_to_numeric(&y_scale_config, &y_array).unwrap()),
-        fill: color_scale.scale_to_color(&color_scale_config, &y_array, &color_interpolator).unwrap(),
-        // stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0]).into(),
+        x: x_scale.scale_to_numeric(&x_array).unwrap(),
+        x2: Some(x2_scale.scale_to_numeric(&x_array).unwrap()),
+        y: y_scale.scale_scalar_to_numeric(&0.0.into()).unwrap(),
+        y2: Some(y_scale.scale_to_numeric(&y_array).unwrap()),
+        fill: color_scale.scale_to_color(&y_array).unwrap(),
+        stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0]).into(),
         stroke_width: 1.0f32.into(),
         ..Default::default()
     };
@@ -233,18 +217,19 @@ pub async fn run() {
         ..Default::default()
     };
 
-    // // Make y-axis
-    // let y_axis = make_numeric_axis_marks(
-    //     &y_scale,
-    //     "My Long Y-Axis Label",
-    //     [0.0, 0.0],
-    //     &AxisConfig {
-    //         dimensions: [width, height],
-    //         orientation: AxisOrientation::Left,
-    //         grid: true,
-    //     },
-    // );
-    //
+    // Make y-axis
+    let y_axis = make_numeric_axis_marks(
+        &y_scale,
+        "My Long Y-Axis Label",
+        [0.0, 0.0],
+        &AxisConfig {
+            dimensions: [width, height],
+            orientation: AxisOrientation::Left,
+            grid: true,
+        },
+    )
+    .unwrap();
+
     // // Make x-axis
     // let x_axis = make_band_axis_marks(
     //     &x_scale,
@@ -313,7 +298,7 @@ pub async fn run() {
     let group = SceneGroup {
         origin: [60.0, 60.0],
         marks: vec![
-            // y_axis.into(),
+            y_axis.into(),
             // x_axis.into(),
             mark_group.into(),
             // symbol_legend.into(),

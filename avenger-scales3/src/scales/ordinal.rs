@@ -1,7 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    color_interpolator::ColorInterpolator, error::AvengerScaleError, utils::ScalarValueUtils,
+    color_interpolator::{ColorInterpolator, SrgbaColorInterpolator},
+    error::AvengerScaleError,
+    formatter::Formatters,
+    utils::ScalarValueUtils,
 };
 use arrow::{
     array::{ArrayRef, AsArray, DictionaryArray, UInt32Array},
@@ -15,7 +18,7 @@ use avenger_common::{
 use datafusion_common::{DataFusionError, ScalarValue};
 use serde::{de::DeserializeOwned, Deserialize};
 
-use super::{ArrowScale, InferDomainFromDataMethod, ScaleConfig};
+use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleImpl};
 
 /// Macro to generate scale_to_X trait methods for ordinal enum scaling
 #[macro_export]
@@ -37,7 +40,22 @@ macro_rules! impl_ordinal_enum_scale_method {
 #[derive(Debug, Clone)]
 pub struct OrdinalScale;
 
-impl ArrowScale for OrdinalScale {
+impl OrdinalScale {
+    pub fn new(domain: ArrayRef, range: ArrayRef) -> ConfiguredScale {
+        ConfiguredScale {
+            scale_impl: Arc::new(Self),
+            config: ScaleConfig {
+                domain,
+                range,
+                options: HashMap::new(),
+            },
+            color_interpolator: Arc::new(SrgbaColorInterpolator),
+            formatters: Formatters::default(),
+        }
+    }
+}
+
+impl ScaleImpl for OrdinalScale {
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
     }

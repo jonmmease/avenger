@@ -1,19 +1,45 @@
 use std::{collections::HashMap, sync::Arc};
 
+use crate::error::AvengerScaleError;
+use crate::{color_interpolator::SrgbaColorInterpolator, formatter::Formatters};
 use arrow::{
-    array::{ArrayRef, Float32Array, UInt32Array},
+    array::{ArrayRef, Float32Array, StringArray, UInt32Array},
     compute::kernels::take,
 };
 use avenger_common::value::ScalarOrArray;
 
-use crate::error::AvengerScaleError;
-
-use super::{ordinal::OrdinalScale, ArrowScale, InferDomainFromDataMethod, ScaleConfig};
+use super::{
+    ordinal::OrdinalScale, ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleImpl,
+};
 
 #[derive(Debug, Clone)]
 pub struct BandScale;
 
-impl ArrowScale for BandScale {
+impl BandScale {
+    pub fn new(domain: ArrayRef, range: (f32, f32)) -> ConfiguredScale {
+        ConfiguredScale {
+            scale_impl: Arc::new(Self),
+            config: ScaleConfig {
+                domain,
+                range: Arc::new(Float32Array::from(vec![range.0, range.1])),
+                options: vec![
+                    ("align".to_string(), 0.5.into()),
+                    ("band".to_string(), 0.0.into()),
+                    ("padding_inner".to_string(), 0.0.into()),
+                    ("padding_outer".to_string(), 0.0.into()),
+                    ("round".to_string(), false.into()),
+                    ("range_offset".to_string(), 0.0.into()),
+                ]
+                .into_iter()
+                .collect(),
+            },
+            color_interpolator: Arc::new(SrgbaColorInterpolator),
+            formatters: Formatters::default(),
+        }
+    }
+}
+
+impl ScaleImpl for BandScale {
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
     }

@@ -11,7 +11,7 @@ use async_recursion::async_recursion;
 use avenger_scales3::{
     coerce::{CastNumericCoercer, ColorCoercer, CssColorCoercer, NumericCoercer},
     color_interpolator::{ColorInterpolator, SrgbaColorInterpolator},
-    scales::{linear::LinearScale, ArrowScale},
+    scales::{linear::LinearScale, ScaleImpl},
 };
 use avenger_scenegraph::marks::{
     group::{Clip, SceneGroup},
@@ -36,7 +36,7 @@ pub struct AvengerRuntime {
     // scale_compilers: HashMap<String, Box<dyn ScaleCompiler>>,
     mark_compilers: HashMap<String, Box<dyn MarkCompiler>>,
 
-    scales: HashMap<String, Box<dyn ArrowScale>>,
+    scales: HashMap<String, Box<dyn ScaleImpl>>,
     interpolator: Box<dyn ColorInterpolator>,
     color_coercer: Box<dyn ColorCoercer>,
     numeric_coercer: Box<dyn NumericCoercer>,
@@ -47,7 +47,7 @@ impl AvengerRuntime {
         let mut mark_compilers: HashMap<String, Box<dyn MarkCompiler>> = HashMap::new();
         mark_compilers.insert("arc".to_string(), Box::new(ArcMarkCompiler));
 
-        let mut scales: HashMap<String, Box<dyn ArrowScale>> = HashMap::new();
+        let mut scales: HashMap<String, Box<dyn ScaleImpl>> = HashMap::new();
         scales.insert("linear".to_string(), Box::new(LinearScale));
 
         Self {
