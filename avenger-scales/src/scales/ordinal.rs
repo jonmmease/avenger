@@ -142,14 +142,12 @@ pub(crate) fn prep_discrete_color_range(
         .as_rgba()?;
 
     // Get range colors
-    println!("config.range {:?}", config.range);
     let range_vec = (0..config.range.len())
         .map(|i| {
             let tmp = ScalarValue::try_from_array(&config.range, i)
                 .unwrap()
                 .as_rgba()
                 .unwrap();
-            println!("tmp {:?}", tmp);
 
             let rgba = ScalarValue::try_from_array(&config.range, i)
                 .map(|v| v.as_rgba().unwrap_or(default_color))?;

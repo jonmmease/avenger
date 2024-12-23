@@ -629,7 +629,7 @@ dependencies = [
  "avenger-common",
  "avenger-eventstream",
  "avenger-geometry",
- "avenger-scales3",
+ "avenger-scales",
  "avenger-scenegraph",
  "avenger-text",
  "chrono",
@@ -687,7 +687,7 @@ dependencies = [
  "arrow",
  "avenger-common",
  "avenger-geometry",
- "avenger-scales3",
+ "avenger-scales",
  "avenger-scenegraph",
  "avenger-text",
  "datafusion-common",
@@ -716,34 +716,6 @@ dependencies = [
 
 [[package]]
 name = "avenger-scales"
-version = "0.1.0"
-dependencies = [
- "arrow",
- "avenger-common",
- "chrono",
- "chrono-tz",
- "float-cmp 0.10.0",
- "indexmap",
- "palette",
- "thiserror 2.0.3",
-]
-
-[[package]]
-name = "avenger-scales2"
-version = "0.1.0"
-dependencies = [
- "avenger-common",
- "chrono",
- "chrono-tz",
- "float-cmp 0.10.0",
- "indexmap",
- "ordered-float 4.5.0",
- "palette",
- "thiserror 2.0.3",
-]
-
-[[package]]
-name = "avenger-scales3"
 version = "0.1.0"
 dependencies = [
  "arrow",
@@ -4937,7 +4909,7 @@ dependencies = [
  "avenger-eventstream",
  "avenger-geometry",
  "avenger-guides",
- "avenger-scales3",
+ "avenger-scales",
  "avenger-scenegraph",
  "avenger-vega",
  "avenger-wgpu",
@@ -10800,7 +10772,7 @@ dependencies = [
  "avenger-common",
  "avenger-geometry",
  "avenger-guides",
- "avenger-scales3",
+ "avenger-scales",
  "avenger-scenegraph",
  "avenger-vega",
  "avenger-wgpu",
