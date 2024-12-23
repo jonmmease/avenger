@@ -41,6 +41,9 @@ pub enum AvengerScaleError {
     #[error("Scale operation not supported for this scale type: {0}")]
     ScaleOperationNotSupported(String),
 
+    #[error("Invalid timezone: {0}")]
+    InvalidTimezone(String),
+
     #[error("Expected scalar value of type {expected_type}, got {scalar:?}")]
     InvalidScaleConfigScalarValue {
         expected_type: String,

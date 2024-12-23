@@ -5,7 +5,10 @@ use arrow::{
     compute::kernels::cast,
     datatypes::{DataType, Float32Type},
 };
-use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
+use avenger_common::{
+    types::{ColorOrGradient, LinearScaleAdjustment},
+    value::ScalarOrArray,
+};
 use datafusion_common::ScalarValue;
 
 use crate::{
@@ -158,9 +161,9 @@ impl ScaleImpl for LinearScale {
         let array = array.as_primitive::<Float32Type>();
 
         // Get options
-        let range_offset = config.f32_option("range_offset", 0.0);
-        let clamp = config.boolean_option("clamp", false);
-        let round = config.boolean_option("round", false);
+        let range_offset = config.option_f32("range_offset", 0.0);
+        let clamp = config.option_boolean("clamp", false);
+        let round = config.option_boolean("round", false);
 
         // Extract domain and range
         let domain_span = domain_end - domain_start;
@@ -224,8 +227,8 @@ impl ScaleImpl for LinearScale {
         )?;
 
         let (range_start, range_end) = config.numeric_interval_range()?;
-        let range_offset = config.f32_option("range_offset", 0.0);
-        let clamp = config.boolean_option("clamp", false);
+        let range_offset = config.option_f32("range_offset", 0.0);
+        let clamp = config.option_boolean("clamp", false);
 
         // Handle degenerate domain case
         if domain_start == domain_end
@@ -296,6 +299,110 @@ impl ScaleImpl for LinearScale {
         let count = count.unwrap_or(10.0);
         let ticks_array = Float32Array::from(array::ticks(domain_start, domain_end, count));
         Ok(Arc::new(ticks_array) as ArrayRef)
+    }
+
+    /// Pans the domain by the given delta
+    ///
+    /// The delta value represents fractional units of the scale range; for example,
+    /// 0.5 indicates panning the scale domain to the right by half the scale range.
+    fn pan(&self, config: &ScaleConfig, delta: f32) -> Result<ScaleConfig, AvengerScaleError> {
+        let (domain_start, domain_end) = config.numeric_interval_domain()?;
+        let domain_delta = (domain_end - domain_start) * delta;
+        Ok(ScaleConfig {
+            domain: Arc::new(Float32Array::from(vec![
+                domain_start - domain_delta,
+                domain_end - domain_delta,
+            ])),
+            ..config.clone()
+        })
+    }
+
+    /// Zooms the domain by the given scale factor
+    ///
+    /// The anchor value represents the zoom position in terms of fractional units of the
+    /// scale range; for example, 0.5 indicates a zoom centered on the mid-point of the
+    /// scale range.
+    ///
+    /// The scale factor represents the amount to scale the domain by; for example,
+    /// 2.0 indicates zooming the scale domain to be twice as large.
+    fn zoom(
+        &self,
+        config: &ScaleConfig,
+        anchor: f32,
+        scale_factor: f32,
+    ) -> Result<ScaleConfig, AvengerScaleError> {
+        let (domain_start, domain_end) = config.numeric_interval_domain()?;
+        let domain_anchor = domain_start + anchor * (domain_end - domain_start);
+
+        let new_start = domain_anchor + (domain_start - domain_anchor) * scale_factor;
+        let new_end = domain_anchor + (domain_end - domain_anchor) * scale_factor;
+
+        Ok(ScaleConfig {
+            domain: Arc::new(Float32Array::from(vec![new_start, new_end])),
+            ..config.clone()
+        })
+    }
+
+    /// Compute adjustment for data that was originally scaled by `from_config` to be scaled
+    /// by `to_config`
+    fn adjust(
+        &self,
+        from_config: &ScaleConfig,
+        to_config: &ScaleConfig,
+    ) -> Result<LinearScaleAdjustment, AvengerScaleError> {
+        // Solve with sympy
+        // -----------------
+        // ```python
+        // from sympy import symbols, solve, factor
+        // # Define variables
+        // adj_scale, adj_offset = symbols('adj_scale adj_offset', real=True)
+        // domain_a_start, domain_a_end = symbols('from_domain_start from_domain_end', real=True)
+        // range_a_start, range_a_end = symbols('from_range_start from_range_end', real=True)
+        // domain_b_start, domain_b_end = symbols('to_domain_start to_domain_end', real=True)
+        // range_b_start, range_b_end = symbols('to_range_start to_range_end', real=True)
+        //
+        // # Define scale and offset for scale A:
+        // scale_a = (range_a_end - range_a_start)/(domain_a_end - domain_a_start)
+        // offset_a = range_a_start - scale_a * domain_a_start
+        //
+        // # Define scale and offset for scale B:
+        // scale_b = (range_b_end - range_b_start)/(domain_b_end - domain_b_start)
+        // offset_b = range_b_start - scale_b * domain_b_start
+        //
+        // # Map domain_a_start with both scales:
+        // range_value_a1 = scale_a * domain_a_start + offset_a
+        // range_value_b1 = scale_b * domain_a_start + offset_b
+        //
+        // # Map domain_a_end with both scales:
+        // range_value_a2 = scale_a * domain_a_end + offset_a
+        // range_value_b2 = scale_b * domain_a_end + offset_b
+        //
+        // # Solve for adjustment factors:
+        // eq1 = adj_scale * range_value_a1 + adj_offset - range_value_b1
+        // eq2 = adj_scale * range_value_a2 + adj_offset - range_value_b2
+        //
+        // solution = solve((eq1, eq2), (adj_scale, adj_offset))
+        // print("let scale =", factor(solution[adj_scale].simplify()))
+        // print("let offset =", factor(solution[adj_offset].simplify()))
+        // ```
+        let (from_domain_start, from_domain_end) = from_config.numeric_interval_domain()?;
+        let (from_range_start, from_range_end) = to_config.numeric_interval_range()?;
+        let (to_domain_start, to_domain_end) = to_config.numeric_interval_domain()?;
+        let (to_range_start, to_range_end) = to_config.numeric_interval_range()?;
+
+        let scale = (from_domain_end - from_domain_start) * (to_range_end - to_range_start)
+            / ((from_range_end - from_range_start) * (to_domain_end - to_domain_start));
+
+        let offset = -(from_domain_end * from_range_start * to_range_end
+            - from_domain_end * from_range_start * to_range_start
+            - from_domain_start * from_range_end * to_range_end
+            + from_domain_start * from_range_end * to_range_start
+            - from_range_end * to_domain_end * to_range_start
+            + from_range_end * to_domain_start * to_range_end
+            + from_range_start * to_domain_end * to_range_start
+            - from_range_start * to_domain_start * to_range_end)
+            / ((from_range_end - from_range_start) * (to_domain_end - to_domain_start));
+        Ok(LinearScaleAdjustment { scale, offset })
     }
 }
 

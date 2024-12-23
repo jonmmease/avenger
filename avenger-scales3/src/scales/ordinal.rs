@@ -7,7 +7,7 @@ use crate::{
     utils::ScalarValueUtils,
 };
 use arrow::{
-    array::{ArrayRef, AsArray, DictionaryArray, UInt32Array},
+    array::{ArrayRef, AsArray, DictionaryArray, Float32Array, UInt32Array},
     compute::kernels::{cast, take},
     datatypes::{DataType, Float32Type, UInt32Type, Utf8Type},
 };
@@ -41,12 +41,13 @@ macro_rules! impl_ordinal_enum_scale_method {
 pub struct OrdinalScale;
 
 impl OrdinalScale {
-    pub fn new(domain: ArrayRef, range: ArrayRef) -> ConfiguredScale {
+    pub fn new(domain: ArrayRef) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
             config: ScaleConfig {
                 domain,
-                range,
+                // Initialize with empty range
+                range: Arc::new(Float32Array::from(Vec::<f32>::new())),
                 options: HashMap::new(),
             },
             color_interpolator: Arc::new(SrgbaColorInterpolator),
@@ -101,7 +102,7 @@ pub(crate) fn prep_discrete_numeric_range(
     config: &ScaleConfig,
 ) -> Result<(Vec<f32>, f32), AvengerScaleError> {
     let range = config.range.as_primitive::<Float32Type>();
-    let default_value = config.f32_option("default", f32::NAN);
+    let default_value = config.option_f32("default", f32::NAN);
     Ok((
         range.iter().map(|i| i.unwrap_or(default_value)).collect(),
         default_value,
@@ -117,7 +118,7 @@ pub(crate) fn prep_discrete_string_range(
             "ordinal scale range is not a string array".to_string(),
         )
     })?;
-    let default_value = config.string_option("default", "");
+    let default_value = config.option_string("default", "");
     let range_vec = range
         .as_string::<i32>()
         .iter()
@@ -141,8 +142,15 @@ pub(crate) fn prep_discrete_color_range(
         .as_rgba()?;
 
     // Get range colors
+    println!("config.range {:?}", config.range);
     let range_vec = (0..config.range.len())
         .map(|i| {
+            let tmp = ScalarValue::try_from_array(&config.range, i)
+                .unwrap()
+                .as_rgba()
+                .unwrap();
+            println!("tmp {:?}", tmp);
+
             let rgba = ScalarValue::try_from_array(&config.range, i)
                 .map(|v| v.as_rgba().unwrap_or(default_color))?;
             Ok(ColorOrGradient::Color(rgba))

@@ -8,6 +8,7 @@ use arrow::{
 };
 use avenger_common::value::ScalarOrArray;
 
+use super::point::make_band_config;
 use super::{
     ordinal::OrdinalScale, ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleImpl,
 };
@@ -35,6 +36,16 @@ impl BandScale {
             },
             color_interpolator: Arc::new(SrgbaColorInterpolator),
             formatters: Formatters::default(),
+        }
+    }
+
+    /// Create a band scale from a point scale
+    pub fn from_point_scale(point_scale: &ConfiguredScale) -> ConfiguredScale {
+        ConfiguredScale {
+            scale_impl: Arc::new(Self),
+            config: make_band_config(&point_scale.config),
+            color_interpolator: point_scale.color_interpolator.clone(),
+            formatters: point_scale.formatters.clone(),
         }
     }
 }
@@ -137,12 +148,12 @@ fn build_range_values(config: &ScaleConfig) -> Result<Vec<f32>, AvengerScaleErro
         return Err(AvengerScaleError::EmptyDomain);
     }
 
-    let align = config.f32_option("align", 0.5);
-    let band = config.f32_option("band", 0.0);
-    let padding_inner = config.f32_option("padding_inner", 0.0);
-    let padding_outer = config.f32_option("padding_outer", 0.0);
-    let round = config.boolean_option("round", false);
-    let range_offset = config.f32_option("range_offset", 0.0);
+    let align = config.option_f32("align", 0.5);
+    let band = config.option_f32("band", 0.0);
+    let padding_inner = config.option_f32("padding_inner", 0.0);
+    let padding_outer = config.option_f32("padding_outer", 0.0);
+    let round = config.option_boolean("round", false);
+    let range_offset = config.option_f32("range_offset", 0.0);
     let (range_start, range_stop) = config.numeric_interval_range()?;
 
     if align < 0.0 || align > 1.0 || !align.is_finite() {
@@ -228,8 +239,8 @@ pub fn bandwidth(config: &ScaleConfig) -> Result<f32, AvengerScaleError> {
     }
 
     let (range_start, range_stop) = config.numeric_interval_range()?;
-    let padding_inner = config.f32_option("padding_inner", 0.0);
-    let padding_outer = config.f32_option("padding_outer", 0.0);
+    let padding_inner = config.option_f32("padding_inner", 0.0);
+    let padding_outer = config.option_f32("padding_outer", 0.0);
 
     let (start, stop) = if range_stop < range_start {
         (range_stop, range_start)
@@ -240,7 +251,7 @@ pub fn bandwidth(config: &ScaleConfig) -> Result<f32, AvengerScaleError> {
     let step = (stop - start) / 1.0_f32.max(bandspace(n, Some(padding_inner), Some(padding_outer)));
     let bandwidth = step * (1.0 - padding_inner);
 
-    if config.boolean_option("round", false) {
+    if config.option_boolean("round", false) {
         Ok(bandwidth.round())
     } else {
         Ok(bandwidth)
@@ -264,12 +275,12 @@ pub fn step(config: &ScaleConfig) -> Result<f32, AvengerScaleError> {
         (range_start, range_stop)
     };
 
-    let padding_inner = config.f32_option("padding_inner", 0.0);
-    let padding_outer = config.f32_option("padding_outer", 0.0);
+    let padding_inner = config.option_f32("padding_inner", 0.0);
+    let padding_outer = config.option_f32("padding_outer", 0.0);
 
     let step = (stop - start) / 1.0_f32.max(bandspace(n, Some(padding_inner), Some(padding_outer)));
 
-    if config.boolean_option("round", false) {
+    if config.option_boolean("round", false) {
         Ok(step.floor())
     } else {
         Ok(step)

@@ -9,21 +9,27 @@ pub mod quantize;
 pub mod symlog;
 pub mod threshold;
 
-use std::{collections::HashMap, fmt::Debug, sync::Arc};
+use std::{collections::HashMap, fmt::Debug, str::FromStr, sync::Arc};
 
 use arrow::{
-    array::{ArrayRef, AsArray, Float32Array},
+    array::{timezone::Tz, ArrayRef, AsArray, Float32Array, ListArray},
     compute::cast,
-    datatypes::{DataType, Float32Type},
+    datatypes::{DataType, Date32Type, Float32Type, TimeUnit, TimestampMillisecondType},
 };
 use avenger_common::{
-    types::{AreaOrientation, ColorOrGradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin},
+    types::{
+        AreaOrientation, ColorOrGradient, GradientStop, ImageAlign, ImageBaseline,
+        LinearScaleAdjustment, StrokeCap, StrokeJoin,
+    },
     value::ScalarOrArray,
 };
-use datafusion_common::ScalarValue;
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use chrono_tz::Tz as ChronoTz;
+use datafusion_common::{utils::arrays_into_list_array, ScalarValue};
 
 use crate::{
     coerce::{ColorCoercer, CssColorCoercer},
+    color_interpolator::ColorInterpolatorConfig,
     formatter::Formatters,
 };
 use crate::{
@@ -88,7 +94,7 @@ impl ScaleConfig {
         Ok(range_colors_vec)
     }
 
-    pub fn f32_option(&self, key: &str, default: f32) -> f32 {
+    pub fn option_f32(&self, key: &str, default: f32) -> f32 {
         self.options
             .get(key)
             .cloned()
@@ -97,7 +103,7 @@ impl ScaleConfig {
             .unwrap_or(default)
     }
 
-    pub fn boolean_option(&self, key: &str, default: bool) -> bool {
+    pub fn option_boolean(&self, key: &str, default: bool) -> bool {
         self.options
             .get(key)
             .cloned()
@@ -106,7 +112,7 @@ impl ScaleConfig {
             .unwrap_or(default)
     }
 
-    pub fn i32_option(&self, key: &str, default: i32) -> i32 {
+    pub fn option_i32(&self, key: &str, default: i32) -> i32 {
         self.options
             .get(key)
             .cloned()
@@ -115,7 +121,7 @@ impl ScaleConfig {
             .unwrap_or(default)
     }
 
-    pub fn string_option(&self, key: &str, default: &str) -> String {
+    pub fn option_string(&self, key: &str, default: &str) -> String {
         self.options
             .get(key)
             .cloned()
@@ -242,6 +248,34 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
         Ok(self.scale_to_string(config, &array)?.to_scalar_if_len_one())
     }
 
+    // Pan/zoom operations
+    fn pan(&self, _config: &ScaleConfig, _delta: f32) -> Result<ScaleConfig, AvengerScaleError> {
+        Err(AvengerScaleError::ScaleOperationNotSupported(
+            "pan".to_string(),
+        ))
+    }
+
+    fn zoom(
+        &self,
+        _config: &ScaleConfig,
+        _anchor: f32,
+        _scale_factor: f32,
+    ) -> Result<ScaleConfig, AvengerScaleError> {
+        Err(AvengerScaleError::ScaleOperationNotSupported(
+            "zoom".to_string(),
+        ))
+    }
+
+    fn adjust(
+        &self,
+        _from_config: &ScaleConfig,
+        _to_config: &ScaleConfig,
+    ) -> Result<LinearScaleAdjustment, AvengerScaleError> {
+        Err(AvengerScaleError::ScaleOperationNotSupported(
+            "adjust".to_string(),
+        ))
+    }
+
     // Scale to enums
     declare_enum_scale_method!(StrokeCap);
     declare_enum_scale_method!(StrokeJoin);
@@ -290,6 +324,16 @@ impl ConfiguredScale {
         }
     }
 
+    pub fn with_domain_interval(self, domain: (f32, f32)) -> ConfiguredScale {
+        ConfiguredScale {
+            config: ScaleConfig {
+                domain: Arc::new(Float32Array::from(vec![domain.0, domain.1])),
+                ..self.config
+            },
+            ..self
+        }
+    }
+
     pub fn with_range_interval(self, range: (f32, f32)) -> ConfiguredScale {
         ConfiguredScale {
             config: ScaleConfig {
@@ -298,6 +342,19 @@ impl ConfiguredScale {
             },
             ..self
         }
+    }
+
+    pub fn with_range_colors(
+        self,
+        range_colors: Vec<[f32; 4]>,
+    ) -> Result<ConfiguredScale, AvengerScaleError> {
+        let arrays = range_colors
+            .into_iter()
+            .map(|clr| Arc::new(Float32Array::from(Vec::from(clr))) as ArrayRef)
+            .collect::<Vec<_>>();
+
+        let range = Arc::new(arrays_into_list_array(arrays)?) as ArrayRef;
+        Ok(self.with_range(range))
     }
 
     pub fn with_range(self, range: ArrayRef) -> ConfiguredScale {
@@ -331,6 +388,30 @@ impl ConfiguredScale {
             color_interpolator,
             ..self
         }
+    }
+}
+
+// Pan / zoom methods
+impl ConfiguredScale {
+    pub fn pan(self, delta: f32) -> Result<ConfiguredScale, AvengerScaleError> {
+        let config = self.scale_impl.pan(&self.config, delta)?;
+        Ok(self.with_config(config))
+    }
+
+    pub fn zoom(
+        self,
+        anchor: f32,
+        scale_factor: f32,
+    ) -> Result<ConfiguredScale, AvengerScaleError> {
+        let config = self.scale_impl.zoom(&self.config, anchor, scale_factor)?;
+        Ok(self.with_config(config))
+    }
+
+    pub fn adjust(
+        &self,
+        to_scale: &ConfiguredScale,
+    ) -> Result<LinearScaleAdjustment, AvengerScaleError> {
+        self.scale_impl.adjust(&self.config, &to_scale.config)
     }
 }
 
@@ -412,6 +493,113 @@ impl ConfiguredScale {
     declare_enum_configured_scale_method!(ImageAlign);
     declare_enum_configured_scale_method!(ImageBaseline);
     declare_enum_configured_scale_method!(AreaOrientation);
+}
+
+// ScaleConfig pass through methods
+impl ConfiguredScale {
+    pub fn domain(&self) -> &ArrayRef {
+        &self.config.domain
+    }
+
+    pub fn numeric_interval_domain(&self) -> Result<(f32, f32), AvengerScaleError> {
+        self.config.numeric_interval_domain()
+    }
+
+    pub fn range(&self) -> &ArrayRef {
+        &self.config.range
+    }
+
+    pub fn numeric_interval_range(&self) -> Result<(f32, f32), AvengerScaleError> {
+        self.config.numeric_interval_range()
+    }
+
+    pub fn color_range(&self) -> Result<Vec<[f32; 4]>, AvengerScaleError> {
+        self.config.color_range()
+    }
+
+    pub fn color_range_as_gradient_stops(
+        &self,
+        num_segments: usize,
+    ) -> Result<Vec<GradientStop>, AvengerScaleError> {
+        let fractions = (0..=num_segments)
+            .map(|i| i as f32 / num_segments as f32)
+            .collect::<Vec<f32>>();
+        let fractions_array = Arc::new(Float32Array::from(fractions.clone())) as ArrayRef;
+
+        // Create a new scale with normalized domain
+        let scale = self.clone().with_domain_interval((0.0, 1.0));
+        let colors = scale
+            .scale_to_color(&fractions_array)?
+            .as_vec(num_segments + 1, None);
+
+        Ok(fractions
+            .iter()
+            .zip(colors)
+            .map(|(f, c)| GradientStop {
+                offset: *f,
+                color: c.color_or_transparent(),
+            })
+            .collect())
+    }
+
+    pub fn option(&self, key: &str) -> Option<ScalarValue> {
+        self.config.options.get(key).cloned()
+    }
+
+    pub fn option_f32(&self, key: &str, default: f32) -> f32 {
+        self.config.option_f32(key, default)
+    }
+
+    pub fn option_boolean(&self, key: &str, default: bool) -> bool {
+        self.config.option_boolean(key, default)
+    }
+
+    pub fn option_i32(&self, key: &str, default: i32) -> i32 {
+        self.config.option_i32(key, default)
+    }
+
+    pub fn option_string(&self, key: &str, default: &str) -> String {
+        self.config.option_string(key, default)
+    }
+}
+
+/// ColorInterpolator pass through methods
+impl ConfiguredScale {
+    pub fn interpolate_colors(
+        &self,
+        colors: Vec<[f32; 4]>,
+        values: &[f32],
+    ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
+        let interpolator_config = ColorInterpolatorConfig {
+            colors: colors.to_vec(),
+        };
+        self.color_interpolator
+            .as_ref()
+            .interpolate(&interpolator_config, values)
+    }
+}
+
+/// Formatter pass through methods
+impl ConfiguredScale {
+    pub fn format(&self, values: &ArrayRef) -> Result<ScalarOrArray<String>, AvengerScaleError> {
+        Ok(ScalarOrArray::new_array(self.formatters.format(values)?))
+    }
+
+    pub fn format_numbers(&self, values: &[f32]) -> ScalarOrArray<String> {
+        ScalarOrArray::new_array(self.formatters.number.format(values))
+    }
+
+    pub fn format_dates(&self, values: &[NaiveDate]) -> ScalarOrArray<String> {
+        ScalarOrArray::new_array(self.formatters.date.format(values))
+    }
+
+    pub fn format_timestamps(&self, values: &[NaiveDateTime]) -> ScalarOrArray<String> {
+        ScalarOrArray::new_array(self.formatters.timestamp.format(values))
+    }
+
+    pub fn format_timestamptz(&self, values: &[DateTime<Utc>]) -> ScalarOrArray<String> {
+        ScalarOrArray::new_array(self.formatters.timestamptz.format(values))
+    }
 }
 
 /// Make sure the trait object safe by defining a struct

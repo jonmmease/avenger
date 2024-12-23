@@ -37,7 +37,7 @@ pub fn make_numeric_axis_marks(
     let ticks = scale.ticks(None)?;
 
     // Get range bounds considering orientation
-    let range = scale.config.numeric_interval_range()?;
+    let range = scale.numeric_interval_range()?;
     let (start, end) = match config.orientation {
         AxisOrientation::Left | AxisOrientation::Right => {
             let upper = f32::min(range.1, range.0) - PIXEL_OFFSET;
@@ -212,9 +212,7 @@ fn make_tick_labels(
     orientation: &AxisOrientation,
     dimensions: &[f32; 2],
 ) -> Result<SceneTextMark, AvengerGuidesError> {
-    let formatter = scale.formatters.number.as_ref();
-    let tick_text = formatter.format(&ticks.as_primitive::<Float32Type>().values());
-
+    let tick_text = scale.format(&ticks)?;
     let scaled_values = scale.scale_to_numeric(ticks)?;
 
     let (x, y, align, baseline, angle) = match orientation {
@@ -268,7 +266,7 @@ fn make_title(
     envelope: &AABB<[f32; 2]>,
     orientation: &AxisOrientation,
 ) -> Result<SceneTextMark, AvengerGuidesError> {
-    let range = scale.config.numeric_interval_range()?;
+    let range = scale.numeric_interval_range()?;
     let mid = (range.0 + range.1) / 2.0;
 
     let (x, y, align, baseline, angle) = match orientation {

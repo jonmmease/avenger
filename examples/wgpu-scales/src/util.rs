@@ -2,8 +2,10 @@ use arrow::array::{ArrayRef, Float32Array, StringArray};
 use avenger_common::canvas::CanvasDimensions;
 use avenger_common::types::ColorOrGradient;
 use avenger_geometry::rtree::SceneGraphRTree;
+use avenger_guides::axis::band::make_band_axis_marks;
 use avenger_guides::axis::numeric::make_numeric_axis_marks;
 use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
+use avenger_guides::legend::colorbar::{make_colorbar_marks, ColorbarConfig, ColorbarOrientation};
 use std::sync::Arc;
 // use avenger_guides::axis::band::make_band_axis_marks;
 // use avenger_guides::axis::numeric::make_numeric_axis_marks;
@@ -230,18 +232,19 @@ pub async fn run() {
     )
     .unwrap();
 
-    // // Make x-axis
-    // let x_axis = make_band_axis_marks(
-    //     &x_scale,
-    //     "My Long X-Axis Label",
-    //     [0.0, 0.0],
-    //     &AxisConfig {
-    //         dimensions: [width, height],
-    //         orientation: AxisOrientation::Bottom,
-    //         grid: false,
-    //     },
-    // );
-    //
+    // Make x-axis
+    let x_axis = make_band_axis_marks(
+        &x_scale,
+        "My Long X-Axis Label",
+        [0.0, 0.0],
+        &AxisConfig {
+            dimensions: [width, height],
+            orientation: AxisOrientation::Bottom,
+            grid: false,
+        },
+    )
+    .unwrap();
+
     // // Make symbol legend
     // let symbol_legend = make_symbol_legend(&SymbolLegendConfig {
     //     text: vec!["First", "Second", "Third", "Fourth", "Fifth"].into(),
@@ -282,28 +285,29 @@ pub async fn run() {
     // })
     // .unwrap();
 
-    // // Make colorbar
-    // let colorbar = make_colorbar_marks(
-    //     &color_scale,
-    //     "My Colorbar",
-    //     [0.0, 0.0],
-    //     &ColorbarConfig {
-    //         orientation: ColorbarOrientation::Right,
-    //         dimensions: [width, height],
-    //         ..Default::default()
-    //     },
-    // );
+    // Make colorbar
+    let colorbar = make_colorbar_marks(
+        &color_scale,
+        "My Colorbar",
+        [0.0, 0.0],
+        &ColorbarConfig {
+            orientation: ColorbarOrientation::Right,
+            dimensions: [width, height],
+            ..Default::default()
+        },
+    )
+    .unwrap();
 
     // Wrap axis and rect in group
     let group = SceneGroup {
         origin: [60.0, 60.0],
         marks: vec![
             y_axis.into(),
-            // x_axis.into(),
+            x_axis.into(),
             mark_group.into(),
             // symbol_legend.into(),
             // line_legend.into(),
-            // colorbar.into(),
+            colorbar.into(),
         ],
         ..Default::default()
     };

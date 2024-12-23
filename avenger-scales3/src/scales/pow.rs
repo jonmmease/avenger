@@ -77,10 +77,10 @@ impl ScaleImpl for PowScale {
         values: &arrow::array::ArrayRef,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
         // Get options
-        let exponent = config.f32_option("exponent", 1.0);
-        let range_offset = config.f32_option("range_offset", 0.0);
-        let clamp = config.boolean_option("clamp", false);
-        let round = config.boolean_option("round", false);
+        let exponent = config.option_f32("exponent", 1.0);
+        let range_offset = config.option_f32("range_offset", 0.0);
+        let clamp = config.option_boolean("clamp", false);
+        let round = config.option_boolean("round", false);
 
         let (range_start, range_end) = config.numeric_interval_range()?;
         let (domain_start, domain_end) = PowScale::apply_nice(
@@ -246,9 +246,9 @@ impl ScaleImpl for PowScale {
         values: &ArrayRef,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
         // Get options
-        let exponent = config.f32_option("exponent", 1.0);
-        let range_offset = config.f32_option("range_offset", 0.0);
-        let clamp = config.boolean_option("clamp", false);
+        let exponent = config.option_f32("exponent", 1.0);
+        let range_offset = config.option_f32("range_offset", 0.0);
+        let clamp = config.option_boolean("clamp", false);
 
         let (range_start, range_end) = config.numeric_interval_range()?;
         let (domain_start, domain_end) = PowScale::apply_nice(
@@ -360,7 +360,7 @@ impl ScaleImpl for PowScale {
         config: &ScaleConfig,
         count: Option<f32>,
     ) -> Result<ArrayRef, AvengerScaleError> {
-        let exponent = config.f32_option("exponent", 1.0);
+        let exponent = config.option_f32("exponent", 1.0);
         let (domain_start, domain_end) = PowScale::apply_nice(
             config.numeric_interval_domain()?,
             exponent,

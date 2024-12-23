@@ -1,17 +1,15 @@
-use super::{band::make_band_axis_marks, opts::AxisConfig};
-use avenger_scales::point::PointScale;
-use avenger_scenegraph::marks::group::SceneGroup;
-use std::{fmt::Debug, hash::Hash};
+use crate::error::AvengerGuidesError;
 
-pub fn make_point_axis_marks<T>(
-    scale: &PointScale<T>,
+use super::{band::make_band_axis_marks, opts::AxisConfig};
+use avenger_scales3::scales::{band::BandScale, ConfiguredScale};
+use avenger_scenegraph::marks::group::SceneGroup;
+
+pub fn make_point_axis_marks(
+    scale: ConfiguredScale,
     title: &str,
     origin: [f32; 2],
     config: &AxisConfig,
-) -> SceneGroup
-where
-    T: ToString + Debug + Clone + Hash + Eq + Sync + 'static,
-{
-    let band_scale = scale.clone().to_band();
+) -> Result<SceneGroup, AvengerGuidesError> {
+    let band_scale = BandScale::from_point_scale(&scale);
     make_band_axis_marks(&band_scale, title, origin, config)
 }

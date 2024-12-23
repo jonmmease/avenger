@@ -1,8 +1,16 @@
 use crate::error::AvengerScaleError;
+use arrow::array::ArrayRef;
+use arrow::array::{timezone::Tz as ArrowTz, AsArray};
+use arrow::datatypes::Float32Type;
+use arrow::{
+    compute::kernels::cast,
+    datatypes::{DataType, Date32Type, TimeUnit, TimestampMillisecondType},
+};
+use avenger_common::value::ScalarOrArray;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use chrono_tz::Tz;
 use numfmt::Formatter;
-use std::{fmt::Debug, sync::Arc};
+use std::{fmt::Debug, str::FromStr, sync::Arc};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DefaultFormatter {
@@ -108,6 +116,70 @@ impl Default for Formatters {
             date: Arc::new(DefaultFormatter::default()),
             timestamp: Arc::new(DefaultFormatter::default()),
             timestamptz: Arc::new(DefaultFormatter::default()),
+        }
+    }
+}
+
+impl Formatters {
+    /// Format an arrow array according to the registered formatters.
+    /// Types other than numbers, dates, and timestamps are cast to string using the
+    /// cast arrow kernel.
+    pub fn format(&self, values: &ArrayRef) -> Result<Vec<String>, AvengerScaleError> {
+        let dtype = values.data_type();
+
+        match dtype {
+            DataType::Date32 => {
+                // TODO: do we need to handle nulls here?
+                let values = values.as_primitive::<Date32Type>();
+                let dates: Vec<_> = (0..values.len())
+                    .map(|i| values.value_as_date(i).unwrap())
+                    .collect();
+                Ok(self.date.format(&dates))
+            }
+            DataType::Timestamp(_, None) => {
+                let values = cast(values, &DataType::Timestamp(TimeUnit::Millisecond, None))?;
+                let values = values.as_primitive::<TimestampMillisecondType>();
+
+                let timestamps: Vec<_> = (0..values.len())
+                    .map(|i| values.value_as_datetime(i).unwrap())
+                    .collect();
+                Ok(self.timestamp.format(&timestamps))
+            }
+            DataType::Timestamp(_, Some(tz)) => {
+                let values = cast(
+                    values,
+                    &DataType::Timestamp(TimeUnit::Millisecond, Some(tz.clone())),
+                )?;
+                let values = values.as_primitive::<TimestampMillisecondType>();
+
+                // Parse timezone
+                let tz = ArrowTz::from_str(tz.as_ref())?;
+
+                // Convert to chrono timestamps with timezone
+                let timestamps: Vec<_> = (0..values.len())
+                    .map(|i| values.value_as_datetime_with_tz(i, tz).unwrap())
+                    .collect();
+
+                // Convert to UTC
+                let timestamps_utc: Vec<_> =
+                    timestamps.iter().map(|t| t.with_timezone(&Utc)).collect();
+                Ok(self.timestamptz.format(&timestamps_utc))
+            }
+            _ if dtype.is_numeric() => {
+                // Cast and downcast to f32
+                let values = cast(values, &DataType::Float32)?;
+                let values = values.as_primitive::<Float32Type>();
+                Ok(self.number.format(values.values()))
+            }
+            _ => {
+                // Cast to string
+                let values = cast(values, &DataType::Utf8)?;
+                Ok(values
+                    .as_string::<i32>()
+                    .iter()
+                    .map(|s| s.unwrap_or("").to_string())
+                    .collect())
+            }
         }
     }
 }

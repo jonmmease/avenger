@@ -95,7 +95,7 @@ impl ScalarValueUtils for ScalarValue {
 
     fn as_f32_4(&self) -> Result<[f32; 4], AvengerScaleError> {
         match self {
-            ScalarValue::List(list) if list.data_type().is_numeric() => {
+            ScalarValue::List(list) => {
                 let element = list.value(0);
                 let element = cast(&element, &DataType::Float32)?;
                 let array = element.as_primitive::<Float32Type>();

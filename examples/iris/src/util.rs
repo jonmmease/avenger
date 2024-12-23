@@ -1,3 +1,4 @@
+use arrow::array::{ArrayRef, Float32Builder, Float64Builder, StringArray, StringBuilder};
 use avenger_app::app::AvengerApp;
 use avenger_common::types::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
@@ -7,10 +8,12 @@ use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::axis::numeric::make_numeric_axis_marks;
 use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
+use avenger_guides::error::AvengerGuidesError;
 use avenger_guides::legend::symbol::{make_symbol_legend, SymbolLegendConfig};
-use avenger_scales::numeric::linear::LinearNumericScale;
-use avenger_scales::numeric::ContinuousNumericScale;
-use avenger_scales::ordinal::OrdinalScale;
+use avenger_scales3::error::AvengerScaleError;
+use avenger_scales3::scales::linear::LinearScale;
+use avenger_scales3::scales::ordinal::OrdinalScale;
+use avenger_scales3::scales::ConfiguredScale;
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::symbol::{SceneSymbolMark, SymbolShape};
@@ -39,14 +42,14 @@ pub struct ChartState {
     pub height: f32,
     pub domain_sepal_length: (f32, f32),
     pub domain_sepal_width: (f32, f32),
-    pub sepal_length: Vec<f32>,
-    pub sepal_width: Vec<f32>,
-    pub species: Vec<String>,
+    pub sepal_length: ArrayRef,
+    pub sepal_width: ArrayRef,
+    pub species: ArrayRef,
     pub plot_group_name: String,
 
     // Scales for the base plot, which are used to scale the original x/y
-    pub base_x_scale: LinearNumericScale,
-    pub base_y_scale: LinearNumericScale,
+    pub base_x_scale: ConfiguredScale,
+    pub base_y_scale: ConfiguredScale,
 
     // Prescaled
     pub x: ScalarOrArray<f32>,
@@ -89,40 +92,55 @@ impl ChartState {
         }
 
         // Duplicate data N times with random jitter
-        let n = 700;
+        let n = 100;
         let jitter = 0.1;
-        let mut large_sepal_length = Vec::with_capacity(n * species.len());
-        let mut large_sepal_width = Vec::with_capacity(n * species.len());
-        let mut large_species = Vec::with_capacity(n * species.len());
+        // let mut large_sepal_length = Vec::with_capacity(n * species.len());
+        // let mut large_sepal_width = Vec::with_capacity(n * species.len());
+        // let mut large_species = Vec::with_capacity(n * species.len());
+
+        let mut sepal_langth_builder = Float32Builder::new();
+        let mut sepal_width_builder = Float32Builder::new();
+        let mut species_builder = StringBuilder::new();
+
         let normal = rand_distr::Normal::new(0.0, jitter).unwrap();
         let mut rng = rand::thread_rng();
 
         for _ in 0..n {
-            large_sepal_length.extend(sepal_length.iter().map(|x| x + normal.sample(&mut rng)));
-            large_sepal_width.extend(sepal_width.iter().map(|x| x + normal.sample(&mut rng)));
-            large_species.extend(species.clone());
+            sepal_length.iter().for_each(|x| {
+                sepal_langth_builder.append_value(x + normal.sample(&mut rng));
+            });
+            sepal_width.iter().for_each(|x| {
+                sepal_width_builder.append_value(x + normal.sample(&mut rng));
+            });
+            species.iter().for_each(|x| {
+                species_builder.append_value(x.clone());
+            });
         }
 
-        println!("data length: {:?}", large_sepal_length.len());
+        // Build arrays
+        let sepal_length_array = Arc::new(sepal_langth_builder.finish()) as ArrayRef;
+        let sepal_width_array = Arc::new(sepal_width_builder.finish()) as ArrayRef;
+        let species_array = Arc::new(species_builder.finish()) as ArrayRef;
+
+        // println!("data length: {:?}", sepal_length_array.len());
 
         let fill_opacity = 0.1;
-        let color_scale = OrdinalScale::new(
-            &[
-                "Iris-setosa".to_string(),
-                "Iris-versicolor".to_string(),
-                "Iris-virginica".to_string(),
-            ],
-            &[
-                ColorOrGradient::Color([0.9, 0.0, 0.0, fill_opacity]),
-                ColorOrGradient::Color([0.0, 0.9, 0.0, fill_opacity]),
-                ColorOrGradient::Color([0.0, 0.0, 0.9, fill_opacity]),
-            ],
-            ColorOrGradient::Color([0.9, 0.9, 0.9, fill_opacity]),
-        )
+        let color_scale = OrdinalScale::new(Arc::new(StringArray::from(vec![
+            "Iris-setosa",
+            "Iris-versicolor",
+            "Iris-virginica",
+        ])))
+        .with_range_colors(vec![
+            [0.9, 0.0, 0.0, fill_opacity],
+            [0.0, 0.9, 0.0, fill_opacity],
+            [0.0, 0.0, 0.9, fill_opacity],
+        ])
         .unwrap();
 
+        // println!("color_scale {:?}", color_scale);
+
         // Make fill, taking the hover index into account
-        let fill = color_scale.scale(&large_species);
+        let fill = color_scale.scale_to_color(&species_array).unwrap();
 
         // Dimensions
         let width = 200.0;
@@ -131,24 +149,20 @@ impl ChartState {
         let domain_sepal_length = (4.0, 8.5);
         let domain_sepal_width = (1.5, 5.0);
 
-        let base_x_scale = LinearNumericScale::new(&Default::default())
-            .with_domain(domain_sepal_length)
-            .with_range((0.0, width));
-        let base_y_scale = LinearNumericScale::new(&Default::default())
-            .with_domain(domain_sepal_width)
-            .with_range((height, 0.0));
+        let base_x_scale = LinearScale::new(domain_sepal_length, (0.0, width));
+        let base_y_scale = LinearScale::new(domain_sepal_width, (height, 0.0));
 
-        let x = base_x_scale.scale(&large_sepal_length);
-        let y = base_y_scale.scale(&large_sepal_width);
+        let x = base_x_scale.scale_to_numeric(&sepal_length_array).unwrap();
+        let y = base_y_scale.scale_to_numeric(&sepal_width_array).unwrap();
 
         // Make symbol legend
         let symbol_legend = SceneMark::Group(
             make_symbol_legend(&SymbolLegendConfig {
-                text: color_scale.domain().into(),
+                text: color_scale.format(color_scale.domain()).unwrap(),
                 title: None,
                 stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
                 stroke_width: Some(1.0),
-                fill: color_scale.scale(&color_scale.domain()),
+                fill: color_scale.scale_to_color(color_scale.domain()).unwrap(),
                 angle: 0.0.into(),
                 inner_width: width,
                 inner_height: height,
@@ -167,9 +181,9 @@ impl ChartState {
             domain_sepal_width,
             x,
             y,
-            sepal_length: large_sepal_length,
-            sepal_width: large_sepal_width,
-            species: large_species,
+            sepal_length: sepal_length_array,
+            sepal_width: sepal_width_array,
+            species: species_array,
             plot_group_name: "plot".to_string(),
             fill,
             symbol_legend,
@@ -178,17 +192,13 @@ impl ChartState {
     }
 
     /// Scale for current x domain
-    pub fn x_scale(&self) -> LinearNumericScale {
-        LinearNumericScale::new(&Default::default())
-            .with_domain(self.domain_sepal_length)
-            .with_range((0.0, self.width))
+    pub fn x_scale(&self) -> ConfiguredScale {
+        LinearScale::new(self.domain_sepal_length, (0.0, self.width))
     }
 
     /// Scale for current y domain
-    pub fn y_scale(&self) -> LinearNumericScale {
-        LinearNumericScale::new(&Default::default())
-            .with_domain(self.domain_sepal_width)
-            .with_range((self.height, 0.0))
+    pub fn y_scale(&self) -> ConfiguredScale {
+        LinearScale::new(self.domain_sepal_width, (self.height, 0.0))
     }
 }
 
@@ -197,9 +207,9 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
 
     // Build scales and compute adjustments
     let x_scale = chart_state.x_scale();
-    let x_adjustment = chart_state.base_x_scale.adjust(&x_scale);
+    let x_adjustment = chart_state.base_x_scale.adjust(&x_scale).unwrap();
     let y_scale = chart_state.y_scale();
-    let y_adjustment = chart_state.base_y_scale.adjust(&y_scale);
+    let y_adjustment = chart_state.base_y_scale.adjust(&y_scale).unwrap();
 
     // // lift hover point to the top with indices
     // let indices = if let Some(hover) = chart_state.hover_index {
@@ -270,7 +280,8 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
             orientation: AxisOrientation::Left,
             grid: true,
         },
-    );
+    )
+    .unwrap();
 
     // Make x-axis
     let x_axis = make_numeric_axis_marks(
@@ -282,7 +293,8 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
             orientation: AxisOrientation::Bottom,
             grid: true,
         },
-    );
+    )
+    .unwrap();
 
     // Wrap axis and rect in group
     let group = SceneMark::Group(SceneGroup {
@@ -411,8 +423,10 @@ pub async fn run() {
                         let y_scale = state.y_scale();
 
                         // Check if cursor is over the plot area
-                        let normalized_x = (plot_x - x_scale.range().0) / x_scale.range_length();
-                        let normalized_y = (plot_y - y_scale.range().0) / y_scale.range_length();
+                        let (range_start, range_end) = x_scale.numeric_interval_range().unwrap();
+                        let normalized_x = (plot_x - range_start) / (range_end - range_start);
+                        let (range_start, range_end) = y_scale.numeric_interval_range().unwrap();
+                        let normalized_y = (plot_y - range_start) / (range_end - range_start);
                         if normalized_x < 0.0
                             || normalized_x > 1.0
                             || normalized_y < 0.0
@@ -466,17 +480,28 @@ pub async fn run() {
                         let plot_x = event_position[0] - plot_origin[0];
                         let plot_y = event_position[1] - plot_origin[1];
 
-                        let x_scale = state.x_scale().with_domain(pan_anchor.x_domain);
-                        let y_scale = state.y_scale().with_domain(pan_anchor.y_domain);
+                        let x_scale = state.x_scale().with_domain_interval(pan_anchor.x_domain);
+                        let y_scale = state.y_scale().with_domain_interval(pan_anchor.y_domain);
 
+                        let (range_start, range_end) = x_scale.numeric_interval_range().unwrap();
                         let x_delta =
-                            (plot_x - pan_anchor.range_position[0]) / x_scale.range_length();
+                            (plot_x - pan_anchor.range_position[0]) / (range_end - range_start);
+
+                        let (range_start, range_end) = y_scale.numeric_interval_range().unwrap();
                         let y_delta =
-                            (plot_y - pan_anchor.range_position[1]) / y_scale.range_length();
+                            (plot_y - pan_anchor.range_position[1]) / (range_end - range_start);
 
                         // Update domains
-                        state.domain_sepal_length = x_scale.pan(x_delta).domain();
-                        state.domain_sepal_width = y_scale.pan(y_delta).domain();
+                        state.domain_sepal_length = x_scale
+                            .pan(x_delta)
+                            .unwrap()
+                            .numeric_interval_domain()
+                            .unwrap();
+                        state.domain_sepal_width = y_scale
+                            .pan(y_delta)
+                            .unwrap()
+                            .numeric_interval_domain()
+                            .unwrap();
 
                         UpdateStatus {
                             rerender: true,
@@ -530,8 +555,10 @@ pub async fn run() {
                         let plot_x = event_position[0] - plot_origin[0];
                         let plot_y = event_position[1] - plot_origin[1];
 
-                        let normalized_x = (plot_x - x_scale.range().0) / x_scale.range_length();
-                        let normalized_y = (plot_y - y_scale.range().0) / y_scale.range_length();
+                        let (range_start, range_end) = x_scale.numeric_interval_range().unwrap();
+                        let normalized_x = (plot_x - range_start) / (range_end - range_start);
+                        let (range_start, range_end) = y_scale.numeric_interval_range().unwrap();
+                        let normalized_y = (plot_y - range_start) / (range_end - range_start);
 
                         // Check if cursor is over the plot area
                         if normalized_x < 0.0
@@ -545,19 +572,29 @@ pub async fn run() {
                             };
                         }
 
+                        let (range_start, range_end) = x_scale.numeric_interval_range().unwrap();
                         let factor = match event.delta {
                             MouseScrollDelta::LineDelta(x_line_delta, y_line_delta) => {
                                 -(x_line_delta + y_line_delta) * 0.005 + 1.0
                             }
                             MouseScrollDelta::PixelDelta(x_pixel_delta, y_pixel_delta) => {
-                                -((x_pixel_delta + y_pixel_delta) as f32 / x_scale.range_length())
+                                -((x_pixel_delta + y_pixel_delta) as f32
+                                    / (range_end - range_start))
                                     * 0.01
                                     + 1.0
                             }
                         };
 
-                        state.domain_sepal_length = x_scale.zoom(normalized_x, factor).domain();
-                        state.domain_sepal_width = y_scale.zoom(normalized_y, factor).domain();
+                        state.domain_sepal_length = x_scale
+                            .zoom(normalized_x, factor)
+                            .unwrap()
+                            .numeric_interval_domain()
+                            .unwrap();
+                        state.domain_sepal_width = y_scale
+                            .zoom(normalized_y, factor)
+                            .unwrap()
+                            .numeric_interval_domain()
+                            .unwrap();
 
                         UpdateStatus {
                             rerender: true,
