@@ -50,7 +50,7 @@ pub async fn evaluate_scale(
 
     // Compute domain
     let domain = evaluate_scale_domain(&scale, ctx, params, method).await?;
-    let range = evaluate_numeric_interval_range(&scale.range, ctx, params).await?;
+    let range = evaluate_scale_range(&scale.range, ctx, params).await?;
     let mut evaluated_options: HashMap<String, ScalarValue> = HashMap::new();
     for (key, value) in scale.options.iter() {
         let evaluated_value = value.eval_to_scalar(ctx, Some(params)).await?;
@@ -67,16 +67,6 @@ pub async fn evaluate_scale(
         },
     })
 }
-//         scale_type: scale
-//             .get_scale_type()
-//             .cloned()
-//             .unwrap_or_else(|| "linear".to_string()),
-//         domain,
-//         range,
-//         round: scale.get_round().unwrap_or(false),
-//         options: Default::default(),
-//     })
-// }
 
 /// Helper to compute a numeric domain span from a scale
 async fn evaluate_scale_domain(
@@ -227,7 +217,7 @@ async fn evaluate_scale_domain(
     }
 }
 
-async fn evaluate_numeric_interval_range(
+async fn evaluate_scale_range(
     range: &Option<ScaleRange>,
     ctx: &SessionContext,
     params: &ParamValues,
@@ -257,236 +247,26 @@ async fn evaluate_numeric_interval_range(
     }
 }
 
-/// Helper to compute a numeric range span from a scale
-async fn compute_numeric_range_span(
-    range: &Option<ScaleRange>,
-    ctx: &SessionContext,
-    params: &ParamValues,
-) -> Result<[f32; 2], AvengerChartError> {
-    let span = match range
-        .clone()
-        .unwrap_or_else(|| ScaleRange::Numeric(lit(0.0), lit(1.0)))
-    {
-        ScaleRange::Numeric(start_expr, end_expr) => {
-            let start = start_expr.eval_to_f32(ctx, Some(params)).await?;
-            let end = end_expr.eval_to_f32(ctx, Some(params)).await?;
-            [start, end]
-        }
-        _ => {
-            return Err(AvengerChartError::InternalError(
-                "Numeric range not supported for linear scale".to_string(),
-            ))
-        }
-    };
-    Ok(span)
-}
-
-pub trait ArrowScaleImpl: Debug + Send + Sync + 'static {
-    fn scale_to_numeric(
-        &self,
-        evaluated_scale: &ScaleConfig,
-        array: &ArrayRef,
-    ) -> Result<ScalarOrArray<f32>, AvengerChartError>;
-
-    fn scale_to_color(
-        &self,
-        evaluated_scale: &ScaleConfig,
-        array: &ArrayRef,
-    ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerChartError>;
-}
-
-// impl ArrowScaleImpl for ScaleImpl {
-//     fn scale_to_numeric(
-//         &self,
-//         config: &ScaleConfig,
-//         array: &ArrayRef,
-//     ) -> Result<ScalarOrArray<f32>, AvengerChartError> {
-//         match self {
-//             ScaleImpl::Numeric(numeric_scale) => {
-//                 // Cast to float32 and downcast to primitive array
-//                 let array = cast(array, &DataType::Float32)?;
-//                 let array = array.as_primitive::<Float32Type>();
-
-//                 // Convert to numeric scale config
-//                 let numeric_scale_config = NumericScaleConfig::try_from(config.clone())?;
-
-//                 // Scale the array
-//                 Ok(numeric_scale
-//                     .scale(&numeric_scale_config, array.values())?
-//                     .to_scalar_if_len_one())
-//             }
-//             ScaleImpl::DiscreteToNumeric(discrete_to_numeric_scale) => {
-//                 // Convert to DiscreteToNumeric scale config
-//                 let discrete_to_numeric_scale_config =
-//                     DiscreteToNumericScaleConfig::try_from(config.clone())?;
-
-//                 let scaled_result = match &discrete_to_numeric_scale_config.domain {
-//                     DiscreteDomainConfig::Strings(vec) => {
-//                         // Cast values to strings and downcast
-//                         let array = cast(array, &DataType::Utf8)?;
-//                         let array = array.as_string::<i32>();
-
-//                         // Convert to vec of strings (how inefficient is this?)
-//                         let values = array
-//                             .values()
-//                             .iter()
-//                             .map(|v| v.to_string())
-//                             .collect::<Vec<_>>();
-
-//                         // Scale the array
-//                         discrete_to_numeric_scale
-//                             .scale_strings(&discrete_to_numeric_scale_config, &values)?
-//                             .to_scalar_if_len_one()
-//                     }
-//                     _ => {
-//                         return Err(AvengerChartError::InternalError(format!(
-//                             "This domain not supported for discrete to numeric scale: {:?}",
-//                             config.domain
-//                         )));
-//                     }
-//                 };
-//                 Ok(scaled_result)
-//             }
-//             _ => {
-//                 return Err(AvengerChartError::InternalError(format!(
-//                     "ScaleImpl::scale_to_numeric not implemented for this scale: {:?}",
-//                     self
-//                 )));
-//             }
+// /// Helper to compute a numeric range span from a scale
+// async fn compute_numeric_range_span(
+//     range: &Option<ScaleRange>,
+//     ctx: &SessionContext,
+//     params: &ParamValues,
+// ) -> Result<[f32; 2], AvengerChartError> {
+//     let span = match range
+//         .clone()
+//         .unwrap_or_else(|| ScaleRange::Numeric(lit(0.0), lit(1.0)))
+//     {
+//         ScaleRange::Numeric(start_expr, end_expr) => {
+//             let start = start_expr.eval_to_f32(ctx, Some(params)).await?;
+//             let end = end_expr.eval_to_f32(ctx, Some(params)).await?;
+//             [start, end]
 //         }
-//     }
-
-//     fn scale_to_color(
-//         &self,
-//         evaluated_scale: &ScaleConfig,
-//         array: &ArrayRef,
-//     ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerChartError> {
-//         todo!()
-//     }
-// }
-
-// pub trait ScaleInterface: Debug + Send + Sync + 'static {
-//     fn scale_type(&self) -> &'static str;
-//     fn scale_to_numeric(
-//         &self,
-//         _evaluated_scale: &ScaleConfig,
-//         _array: &ArrayRef,
-//     ) -> Result<ScalarOrArray<f32>, AvengerChartError> {
-//         return Err(AvengerChartError::InternalError(format!(
-//             "ScaleInterface::scale_to_numeric not implemented for this scale: {:?}",
-//             self
-//         )));
-//     }
-
-//     fn scale_to_color(
-//         &self,
-//         _evaluated_scale: &ScaleConfig,
-//         _array: &ArrayRef,
-//     ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerChartError> {
-//         return Err(AvengerChartError::InternalError(format!(
-//             "ScaleInterface::scale_to_color not implemented for this scale: {:?}",
-//             self
-//         )));
-//     }
-
-//     /// Scale to an enum
-//     /// This will be called with a discrete range.
-//     /// The returned indices correspond to the discrete range array
-//     fn scale_to_enum(
-//         &self,
-//         _evaluated_scale: &ScaleConfig,
-//         _array: &ArrayRef,
-//     ) -> Result<ScalarOrArray<usize>, AvengerChartError> {
-//         return Err(AvengerChartError::InternalError(format!(
-//             "ScaleInterface::scale_to_enum not implemented for this scale: {:?}",
-//             self
-//         )));
-//     }
-// }
-
-// #[derive(Debug, Clone, Copy)]
-// pub struct LinearScaleInterface;
-
-// impl ScaleInterface for LinearScaleInterface {
-//     fn scale_type(&self) -> &'static str {
-//         "linear"
-//     }
-
-//     fn scale_to_numeric(
-//         &self,
-//         evaluated_scale: &ScaleConfig,
-//         array: &ArrayRef,
-//     ) -> Result<ScalarOrArray<f32>, AvengerChartError> {
-//         let domain = &evaluated_scale.domain;
-//         let range = &evaluated_scale.range;
-
-//         if let ScaleDomainState::Interval(start, end) = domain {
-//             match range {
-//                 ScaleRangeState::Numeric(range_start, range_end) => {
-//                     // Construct linear scale
-//                     let config = LinearNumericScaleConfig {
-//                         domain: (*start, *end),
-//                         range: (*range_start, *range_end),
-//                         ..Default::default()
-//                     };
-//                     let scale: LinearNumericScale = LinearNumericScale::new(&config);
-
-//                     // Cast to float32 and downcast to primitive array
-//                     let array = cast(array, &DataType::Float32)?;
-//                     let array = array.as_primitive::<Float32Type>();
-
-//                     // Scale the array
-//                     Ok(scale.scale(array.values()).to_scalar_if_len_one())
-//                 }
-//                 _ => {
-//                     return Err(AvengerChartError::InternalError(format!(
-//                         "Expected a numeric range: {:?}",
-//                         range
-//                     )));
-//                 }
-//             }
-//         } else {
+//         _ => {
 //             return Err(AvengerChartError::InternalError(
-//                 "Linear scale domain must be an interval".to_string(),
-//             ));
+//                 "Numeric range not supported for linear scale".to_string(),
+//             ))
 //         }
-//     }
-
-//     fn scale_to_color(
-//         &self,
-//         evaluated_scale: &ScaleConfig,
-//         array: &ArrayRef,
-//     ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerChartError> {
-//         let domain = &evaluated_scale.domain;
-//         let range = &evaluated_scale.range;
-
-//         // Cast to float32 and downcast to primitive array
-//         let array = cast(array, &DataType::Float32)?;
-//         let array = array.as_primitive::<Float32Type>();
-
-//         if let ScaleDomainState::Interval(start, end) = domain {
-//             match range {
-//                 ScaleRangeState::Color(colors) => {
-//                     // Construct linear scale
-//                     let config = LinearNumericScaleConfig {
-//                         domain: (*start, *end),
-//                         ..Default::default()
-//                     };
-
-//                     let linear_scale = LinearSrgbaScale::new_linear(&config, colors.clone());
-//                     Ok(linear_scale.scale(array.values()).to_scalar_if_len_one())
-//                 }
-//                 _ => {
-//                     return Err(AvengerChartError::InternalError(format!(
-//                         "Expected a color range: {:?}",
-//                         range
-//                     )));
-//                 }
-//             }
-//         } else {
-//             return Err(AvengerChartError::InternalError(
-//                 "Linear scale domain must be an interval".to_string(),
-//             ));
-//         }
-//     }
+//     };
+//     Ok(span)
 // }

@@ -1,5 +1,6 @@
-pub mod mark;
+pub mod marks;
 pub mod scale;
+
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
@@ -9,7 +10,6 @@ use crate::{
 };
 use async_recursion::async_recursion;
 use avenger_scales::{
-    coerce::{CastNumericCoercer, ColorCoercer, CssColorCoercer, NumericCoercer},
     color_interpolator::{ColorInterpolator, SrgbaColorInterpolator},
     scales::{linear::LinearScale, ScaleImpl},
 };
@@ -28,7 +28,8 @@ use datafusion::{
     prelude::{DataFrame, Expr, SessionContext},
     scalar::ScalarValue,
 };
-use mark::{ArcMarkCompiler, MarkCompiler};
+use avenger_scales::scales::coerce::{CastNumericCoercer, ColorCoercer, CssColorCoercer, NumericCoercer};
+use marks::{ArcMarkCompiler, MarkCompiler};
 use scale::evaluate_scale;
 
 pub struct AvengerRuntime {

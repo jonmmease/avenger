@@ -8,6 +8,7 @@ pub mod quantile;
 pub mod quantize;
 pub mod symlog;
 pub mod threshold;
+pub mod coerce;
 
 use std::{collections::HashMap, fmt::Debug, str::FromStr, sync::Arc};
 
@@ -28,13 +29,13 @@ use chrono_tz::Tz as ChronoTz;
 use datafusion_common::{utils::arrays_into_list_array, ScalarValue};
 
 use crate::{
-    coerce::{ColorCoercer, CssColorCoercer},
     color_interpolator::ColorInterpolatorConfig,
     formatter::Formatters,
 };
 use crate::{
     color_interpolator::ColorInterpolator, error::AvengerScaleError, utils::ScalarValueUtils,
 };
+use crate::scales::coerce::{ColorCoercer, CssColorCoercer};
 
 /// Macro to generate scale_to_X trait methods that return a default error implementation
 #[macro_export]
@@ -582,7 +583,7 @@ impl ConfiguredScale {
 /// Formatter pass through methods
 impl ConfiguredScale {
     pub fn format(&self, values: &ArrayRef) -> Result<ScalarOrArray<String>, AvengerScaleError> {
-        Ok(ScalarOrArray::new_array(self.formatters.format(values)?))
+        self.formatters.format(values)
     }
 
     pub fn format_numbers(&self, values: &[f32]) -> ScalarOrArray<String> {
