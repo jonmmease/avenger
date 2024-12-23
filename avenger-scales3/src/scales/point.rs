@@ -68,11 +68,11 @@ impl ScaleImpl for PointScale {
     }
 }
 
-fn make_band_config(point_config: &ScaleConfig) -> ScaleConfig {
-    let padding = point_config.f32_option("padding", 0.0);
-    let align = point_config.f32_option("align", 0.5);
-    let range_offset = point_config.f32_option("range_offset", 0.0);
-    let round = point_config.boolean_option("round", false);
+pub(crate) fn make_band_config(point_config: &ScaleConfig) -> ScaleConfig {
+    let padding = point_config.option_f32("padding", 0.0);
+    let align = point_config.option_f32("align", 0.5);
+    let range_offset = point_config.option_f32("range_offset", 0.0);
+    let round = point_config.option_boolean("round", false);
 
     ScaleConfig {
         domain: point_config.domain.clone(),

@@ -1,25 +1,21 @@
 use avenger_common::types::{ColorOrGradient, Gradient, LinearGradient};
-use avenger_scales::{
-    color::continuous_color::{ColorSpace, ContinuousColorScale},
-    numeric::ContinuousNumericScale,
-};
+use avenger_scales3::{error::AvengerScaleError, scales::ConfiguredScale};
 use avenger_scenegraph::marks::{group::SceneGroup, rect::SceneRectMark};
 
-use crate::axis::{
-    numeric::make_numeric_axis_marks,
-    opts::{AxisConfig, AxisOrientation},
+use crate::{
+    axis::{
+        numeric::make_numeric_axis_marks,
+        opts::{AxisConfig, AxisOrientation},
+    },
+    error::AvengerGuidesError,
 };
 
-pub fn make_colorbar_marks<C, S>(
-    scale: &ContinuousColorScale<C, S, f32>,
+pub fn make_colorbar_marks(
+    scale: &ConfiguredScale,
     title: &str,
     origin: [f32; 2],
     config: &ColorbarConfig,
-) -> SceneGroup
-where
-    C: ColorSpace,
-    S: ContinuousNumericScale<Domain = f32>,
-{
+) -> Result<SceneGroup, AvengerGuidesError> {
     match config.orientation {
         ColorbarOrientation::Top => todo!(),
         ColorbarOrientation::Bottom => todo!(),
@@ -35,16 +31,19 @@ where
                 grid: false,
             };
 
-            let mut numeric_scale = scale.clone_numeric_scale();
-            numeric_scale.set_range((config.dimensions[1], 0.0));
-            let axis = make_numeric_axis_marks(&numeric_scale, title, origin, &axis_config);
+            // Create a new scale with desired range for the axis
+            let numeric_scale = scale
+                .clone()
+                .with_range_interval((config.dimensions[1], 0.0));
+            let axis = make_numeric_axis_marks(&numeric_scale, title, origin, &axis_config)?;
 
+            // Create a gradient for the colorbar rect
             let gradient = Gradient::LinearGradient(LinearGradient {
                 x0: 0.0,
                 y0: config.dimensions[1],
                 x1: 0.0,
                 y1: 0.0,
-                stops: scale.to_gradient_stops(),
+                stops: scale.color_range_as_gradient_stops(10)?,
             });
 
             // Make colorbar rect
@@ -68,11 +67,11 @@ where
             //     dimensions: config.dimensions,
             //     ..Default::default()
             // };
-            SceneGroup {
+            Ok(SceneGroup {
                 origin,
                 marks: vec![rect.into(), axis.into()],
                 ..Default::default()
-            }
+            })
         }
     }
 }
