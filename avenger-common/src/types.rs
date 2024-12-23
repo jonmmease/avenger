@@ -2,9 +2,11 @@ use crate::impl_hash_for_scalar_or_array;
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
+use strum::VariantNames;
 
-#[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Serialize, Deserialize, VariantNames)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum StrokeCap {
     #[default]
     Butt,
@@ -13,8 +15,9 @@ pub enum StrokeCap {
 }
 impl_hash_for_scalar_or_array!(StrokeCap);
 
-#[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Serialize, Deserialize, VariantNames)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum StrokeJoin {
     Bevel,
     #[default]
@@ -23,8 +26,9 @@ pub enum StrokeJoin {
 }
 impl_hash_for_scalar_or_array!(StrokeJoin);
 
-#[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Serialize, Deserialize, VariantNames)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum ImageAlign {
     #[default]
     Left,
@@ -33,8 +37,9 @@ pub enum ImageAlign {
 }
 impl_hash_for_scalar_or_array!(ImageAlign);
 
-#[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Serialize, Deserialize, VariantNames)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum ImageBaseline {
     #[default]
     Top,
@@ -148,8 +153,9 @@ impl Hash for GradientStop {
     }
 }
 
-#[derive(Default, Debug, Copy, Clone, Hash, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Default, Debug, Copy, Clone, Hash, PartialEq, Serialize, Deserialize, VariantNames)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum AreaOrientation {
     #[default]
     Vertical,

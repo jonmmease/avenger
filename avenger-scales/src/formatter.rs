@@ -124,7 +124,7 @@ impl Formatters {
     /// Format an arrow array according to the registered formatters.
     /// Types other than numbers, dates, and timestamps are cast to string using the
     /// cast arrow kernel.
-    pub fn format(&self, values: &ArrayRef) -> Result<Vec<String>, AvengerScaleError> {
+    pub fn format(&self, values: &ArrayRef) -> Result<ScalarOrArray<String>, AvengerScaleError> {
         let dtype = values.data_type();
 
         match dtype {
@@ -134,7 +134,7 @@ impl Formatters {
                 let dates: Vec<_> = (0..values.len())
                     .map(|i| values.value_as_date(i).unwrap())
                     .collect();
-                Ok(self.date.format(&dates))
+                Ok(ScalarOrArray::new_array(self.date.format(&dates)))
             }
             DataType::Timestamp(_, None) => {
                 let values = cast(values, &DataType::Timestamp(TimeUnit::Millisecond, None))?;
@@ -143,7 +143,7 @@ impl Formatters {
                 let timestamps: Vec<_> = (0..values.len())
                     .map(|i| values.value_as_datetime(i).unwrap())
                     .collect();
-                Ok(self.timestamp.format(&timestamps))
+                Ok(ScalarOrArray::new_array(self.timestamp.format(&timestamps)))
             }
             DataType::Timestamp(_, Some(tz)) => {
                 let values = cast(
@@ -163,22 +163,22 @@ impl Formatters {
                 // Convert to UTC
                 let timestamps_utc: Vec<_> =
                     timestamps.iter().map(|t| t.with_timezone(&Utc)).collect();
-                Ok(self.timestamptz.format(&timestamps_utc))
+                Ok(ScalarOrArray::new_array(self.timestamptz.format(&timestamps_utc)))
             }
             _ if dtype.is_numeric() => {
                 // Cast and downcast to f32
                 let values = cast(values, &DataType::Float32)?;
                 let values = values.as_primitive::<Float32Type>();
-                Ok(self.number.format(values.values()))
+                Ok(ScalarOrArray::new_array(self.number.format(values.values())))
             }
             _ => {
                 // Cast to string
                 let values = cast(values, &DataType::Utf8)?;
-                Ok(values
+                Ok(ScalarOrArray::new_array(values
                     .as_string::<i32>()
                     .iter()
                     .map(|s| s.unwrap_or("").to_string())
-                    .collect())
+                    .collect()))
             }
         }
     }

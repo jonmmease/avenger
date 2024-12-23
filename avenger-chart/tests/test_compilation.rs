@@ -9,6 +9,10 @@ use avenger_chart::{
         scales::{Scale, ScaleDomain, ScaleRange},
     },
 };
+use avenger_common::canvas::CanvasDimensions;
+use avenger_scenegraph::scene_graph::SceneGraph;
+use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
+use avenger_wgpu::error::AvengerWgpuError;
 use datafusion::{
     logical_expr::expr::Placeholder,
     prelude::{lit, Expr, SessionContext},
@@ -16,7 +20,7 @@ use datafusion::{
 use palette::Srgba;
 
 #[tokio::test]
-async fn test_compilation() {
+async fn test_compilation() -> Result<(), AvengerWgpuError> {
     let ctx = SessionContext::new();
     let runtime = AvengerRuntime::new(ctx);
 
@@ -48,6 +52,28 @@ async fn test_compilation() {
                 ])),
         );
 
-    let scene = runtime.compile_group(&chart, None).await.unwrap();
-    println!("{:#?}", scene);
+    let scene_group = runtime.compile_group(&chart, None).await.unwrap();
+    println!("{:#?}", scene_group);
+
+    let scene_graph = SceneGraph {
+        marks: vec![scene_group.into()],
+        width: 300.0,
+        height: 400.0,
+        origin: [0.0, 0.0],
+    };
+
+    let mut canvas = PngCanvas::new(
+        CanvasDimensions {
+            size: [300.0, 400.0],
+            scale: 2.0,
+        },
+        CanvasConfig::default(),
+    )
+    .await?;
+
+    canvas.set_scene(&scene_graph)?;
+    let png = canvas.render().await?;
+    png.save("test.png").unwrap();
+
+    Ok(())
 }

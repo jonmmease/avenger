@@ -1452,104 +1452,106 @@ impl MultiMarkRenderer {
                 timestamp_writes: None,
             });
 
-            render_pass.set_pipeline(&render_pipeline);
-            render_pass.set_bind_group(0, &uniform_bind_group, &[]);
-            let mut last_grad_ind = 0;
-            let mut last_img_ind = 0;
-            let mut last_text_ind = 0;
-            let mut stencil_index: u32 = 1;
-            render_pass.set_bind_group(1, &gradient_texture_bind_groups[last_grad_ind], &[]);
-            render_pass.set_bind_group(2, &image_texture_bind_groups[last_img_ind], &[]);
-            render_pass.set_bind_group(3, &text_texture_bind_groups[last_img_ind], &[]);
-            render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-            render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            if vertex_buffer.size() > 0 {
+                render_pass.set_pipeline(&render_pipeline);
+                render_pass.set_bind_group(0, &uniform_bind_group, &[]);
+                let mut last_grad_ind = 0;
+                let mut last_img_ind = 0;
+                let mut last_text_ind = 0;
+                let mut stencil_index: u32 = 1;
+                render_pass.set_bind_group(1, &gradient_texture_bind_groups[last_grad_ind], &[]);
+                render_pass.set_bind_group(2, &image_texture_bind_groups[last_img_ind], &[]);
+                render_pass.set_bind_group(3, &text_texture_bind_groups[last_img_ind], &[]);
+                render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
-            // Initialze textures with first entry
-            for batch in &self.batches {
-                if let Some(clip_inds_range) = &batch.clip_indices_range {
-                    render_pass.set_stencil_reference(stencil_index);
-                    render_pass.set_pipeline(&stencil_pipeline);
-                    render_pass.set_vertex_buffer(0, clip_vertex_buffer.slice(..));
-                    render_pass
-                        .set_index_buffer(clip_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                    render_pass.draw_indexed(clip_inds_range.clone(), 0, 0..1);
+                // Initialze textures with first entry
+                for batch in &self.batches {
+                    if let Some(clip_inds_range) = &batch.clip_indices_range {
+                        render_pass.set_stencil_reference(stencil_index);
+                        render_pass.set_pipeline(&stencil_pipeline);
+                        render_pass.set_vertex_buffer(0, clip_vertex_buffer.slice(..));
+                        render_pass
+                            .set_index_buffer(clip_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                        render_pass.draw_indexed(clip_inds_range.clone(), 0, 0..1);
 
-                    // Restore buffers
-                    render_pass.set_pipeline(&render_pipeline);
-                    render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                    render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                        // Restore buffers
+                        render_pass.set_pipeline(&render_pipeline);
+                        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                        render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
-                    // increment stencil index for next draw
-                    stencil_index += 1;
-                } else {
-                    // Set stencil reference back to zero so that everything is drawn
-                    render_pass.set_stencil_reference(0);
-                }
-
-                // Update scissors
-                if let Clip::Rect {
-                    x,
-                    y,
-                    width,
-                    height,
-                } = batch.clip
-                {
-                    // Convert to physical coordinates
-                    let physical_x = (x * self.uniform.scale) as u32;
-                    let physical_y = (y * self.uniform.scale) as u32;
-                    let physical_width = (width * self.uniform.scale) as u32;
-                    let physical_height = (height * self.uniform.scale) as u32;
-
-                    // Clamp to canvas dimensions
-                    let canvas_width = self.dimensions.to_physical_width();
-                    let canvas_height = self.dimensions.to_physical_height();
-
-                    let clamped_x = physical_x.min(canvas_width);
-                    let clamped_y = physical_y.min(canvas_height);
-                    let clamped_width = physical_width.min(canvas_width - clamped_x);
-                    let clamped_height = physical_height.min(canvas_height - clamped_y);
-
-                    // Set scissors rect with clamped values
-                    render_pass.set_scissor_rect(
-                        clamped_x,
-                        clamped_y,
-                        clamped_width,
-                        clamped_height,
-                    );
-                } else {
-                    // Clear scissors rect
-                    render_pass.set_scissor_rect(
-                        0,
-                        0,
-                        self.dimensions.to_physical_width(),
-                        self.dimensions.to_physical_height(),
-                    );
-                }
-
-                // Update bind groups
-                if let Some(grad_ind) = batch.gradient_atlas_index {
-                    if grad_ind != last_grad_ind {
-                        render_pass.set_bind_group(1, &gradient_texture_bind_groups[grad_ind], &[]);
-                        last_grad_ind = grad_ind;
+                        // increment stencil index for next draw
+                        stencil_index += 1;
+                    } else {
+                        // Set stencil reference back to zero so that everything is drawn
+                        render_pass.set_stencil_reference(0);
                     }
-                }
 
-                if let Some(img_ind) = batch.image_atlas_index {
-                    if img_ind != last_img_ind {
-                        render_pass.set_bind_group(2, &image_texture_bind_groups[img_ind], &[]);
+                    // Update scissors
+                    if let Clip::Rect {
+                        x,
+                        y,
+                        width,
+                        height,
+                    } = batch.clip
+                    {
+                        // Convert to physical coordinates
+                        let physical_x = (x * self.uniform.scale) as u32;
+                        let physical_y = (y * self.uniform.scale) as u32;
+                        let physical_width = (width * self.uniform.scale) as u32;
+                        let physical_height = (height * self.uniform.scale) as u32;
+
+                        // Clamp to canvas dimensions
+                        let canvas_width = self.dimensions.to_physical_width();
+                        let canvas_height = self.dimensions.to_physical_height();
+
+                        let clamped_x = physical_x.min(canvas_width);
+                        let clamped_y = physical_y.min(canvas_height);
+                        let clamped_width = physical_width.min(canvas_width - clamped_x);
+                        let clamped_height = physical_height.min(canvas_height - clamped_y);
+
+                        // Set scissors rect with clamped values
+                        render_pass.set_scissor_rect(
+                            clamped_x,
+                            clamped_y,
+                            clamped_width,
+                            clamped_height,
+                        );
+                    } else {
+                        // Clear scissors rect
+                        render_pass.set_scissor_rect(
+                            0,
+                            0,
+                            self.dimensions.to_physical_width(),
+                            self.dimensions.to_physical_height(),
+                        );
                     }
-                    last_img_ind = img_ind;
-                }
 
-                if let Some(text_ind) = batch.text_atlas_index {
-                    if text_ind != last_text_ind {
-                        render_pass.set_bind_group(3, &text_texture_bind_groups[text_ind], &[]);
+                    // Update bind groups
+                    if let Some(grad_ind) = batch.gradient_atlas_index {
+                        if grad_ind != last_grad_ind {
+                            render_pass.set_bind_group(1, &gradient_texture_bind_groups[grad_ind], &[]);
+                            last_grad_ind = grad_ind;
+                        }
                     }
-                    last_text_ind = text_ind;
-                }
 
-                // draw inds
-                render_pass.draw_indexed(batch.indices_range.clone(), 0, 0..1);
+                    if let Some(img_ind) = batch.image_atlas_index {
+                        if img_ind != last_img_ind {
+                            render_pass.set_bind_group(2, &image_texture_bind_groups[img_ind], &[]);
+                        }
+                        last_img_ind = img_ind;
+                    }
+
+                    if let Some(text_ind) = batch.text_atlas_index {
+                        if text_ind != last_text_ind {
+                            render_pass.set_bind_group(3, &text_texture_bind_groups[text_ind], &[]);
+                        }
+                        last_text_ind = text_ind;
+                    }
+
+                    // draw inds
+                    render_pass.draw_indexed(batch.indices_range.clone(), 0, 0..1);
+                }
             }
         }
 

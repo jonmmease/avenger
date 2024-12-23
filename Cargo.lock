@@ -633,6 +633,7 @@ dependencies = [
  "avenger-scales",
  "avenger-scenegraph",
  "avenger-text",
+ "avenger-wgpu",
  "chrono",
  "chrono-tz",
  "datafusion",
@@ -651,6 +652,7 @@ version = "0.0.8"
 dependencies = [
  "ordered-float 4.5.0",
  "serde",
+ "strum 0.26.3",
 ]
 
 [[package]]
@@ -733,6 +735,7 @@ dependencies = [
  "paste",
  "serde",
  "serde_json",
+ "strum 0.26.3",
  "thiserror 2.0.3",
 ]
 

@@ -62,3 +62,4 @@ datafusion-common = { version = "43.0.0" }
 arrow = { version = "*" }
 css-color-parser = "0.1.2"
 paste = "1.0"
+strum = { version="0.26", features = ["derive"] }
