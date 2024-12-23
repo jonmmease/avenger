@@ -13,7 +13,7 @@ use arrow::{
 
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 
-use avenger_scales3::{
+use avenger_scales::{
     scales::{ScaleImpl, InferDomainFromDataMethod, ScaleConfig},
     utils::ScalarValueUtils,
 };

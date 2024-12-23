@@ -7,7 +7,7 @@ use arrow::{
 };
 use async_trait::async_trait;
 use avenger_common::value::ScalarOrArray;
-use avenger_scales3::{
+use avenger_scales::{
     coerce::{ColorCoercer, NumericCoercer},
     color_interpolator::ColorInterpolator,
     scales::ScaleImpl,

@@ -8,7 +8,7 @@ use crate::{
     utils::ExprHelpers,
 };
 use async_recursion::async_recursion;
-use avenger_scales3::{
+use avenger_scales::{
     coerce::{CastNumericCoercer, ColorCoercer, CssColorCoercer, NumericCoercer},
     color_interpolator::{ColorInterpolator, SrgbaColorInterpolator},
     scales::{linear::LinearScale, ScaleImpl},
