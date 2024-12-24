@@ -1,4 +1,7 @@
-use datafusion::prelude::Expr;
+use datafusion::{
+    prelude::{lit, Expr},
+    scalar::ScalarValue,
+};
 use indexmap::IndexMap;
 
 #[derive(Debug, Clone)]
@@ -83,6 +86,14 @@ impl Mark {
     encoding_fn!(stroke_dash);
     encoding_fn!(stroke_dash_offset);
     encoding_fn!(stroke_opacity);
+
+    // Arc mark encodings
+    encoding_fn!(start_angle);
+    encoding_fn!(end_angle);
+    encoding_fn!(outer_radius);
+    encoding_fn!(inner_radius);
+    encoding_fn!(pad_angle);
+    encoding_fn!(corner_radius);
 }
 
 #[derive(Debug, Clone)]
@@ -162,6 +173,12 @@ impl From<Expr> for Encoding {
 impl From<ScaledEncoding> for Encoding {
     fn from(scaled: ScaledEncoding) -> Self {
         Encoding::Scaled(scaled)
+    }
+}
+
+impl From<ScalarValue> for Encoding {
+    fn from(value: ScalarValue) -> Self {
+        Encoding::Expr(lit(value))
     }
 }
 
