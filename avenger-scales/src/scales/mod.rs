@@ -1,4 +1,5 @@
 pub mod band;
+pub mod coerce;
 pub mod linear;
 pub mod log;
 pub mod ordinal;
@@ -8,7 +9,6 @@ pub mod quantile;
 pub mod quantize;
 pub mod symlog;
 pub mod threshold;
-pub mod coerce;
 
 use std::{collections::HashMap, fmt::Debug, str::FromStr, sync::Arc};
 
@@ -28,14 +28,11 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use chrono_tz::Tz as ChronoTz;
 use datafusion_common::{utils::arrays_into_list_array, ScalarValue};
 
-use crate::{
-    color_interpolator::ColorInterpolatorConfig,
-    formatter::Formatters,
-};
+use crate::scales::coerce::{ColorCoercer, CssColorCoercer};
 use crate::{
     color_interpolator::ColorInterpolator, error::AvengerScaleError, utils::ScalarValueUtils,
 };
-use crate::scales::coerce::{ColorCoercer, CssColorCoercer};
+use crate::{color_interpolator::ColorInterpolatorConfig, formatter::Formatters};
 
 /// Macro to generate scale_to_X trait methods that return a default error implementation
 #[macro_export]
@@ -63,6 +60,14 @@ pub struct ScaleConfig {
 }
 
 impl ScaleConfig {
+    pub fn empty() -> Self {
+        Self {
+            domain: Arc::new(Float32Array::from(Vec::<f32>::new())) as ArrayRef,
+            range: Arc::new(Float32Array::from(Vec::<f32>::new())) as ArrayRef,
+            options: HashMap::new(),
+        }
+    }
+
     pub fn numeric_interval_domain(&self) -> Result<(f32, f32), AvengerScaleError> {
         if self.domain.len() != 2 {
             return Err(AvengerScaleError::ScaleOperationNotSupported(

@@ -1,3 +1,4 @@
+pub mod context;
 pub mod marks;
 pub mod scale;
 
@@ -13,10 +14,20 @@ use avenger_scales::{
     color_interpolator::{ColorInterpolator, SrgbaColorInterpolator},
     scales::{linear::LinearScale, ScaleImpl},
 };
+use avenger_scales::{
+    formatter::Formatters,
+    scales::{
+        coerce::{
+            CastNumericCoercer, CoerceScaleImpl, ColorCoercer, CssColorCoercer, NumericCoercer,
+        },
+        ConfiguredScale, ScaleConfig,
+    },
+};
 use avenger_scenegraph::marks::{
     group::{Clip, SceneGroup},
     mark::SceneMark,
 };
+use context::CompilationContext;
 use datafusion::{
     common::{
         tree_node::{Transformed, TreeNode, TreeNodeRewriter},
@@ -28,36 +39,46 @@ use datafusion::{
     prelude::{DataFrame, Expr, SessionContext},
     scalar::ScalarValue,
 };
-use avenger_scales::scales::coerce::{CastNumericCoercer, ColorCoercer, CssColorCoercer, NumericCoercer};
 use marks::{ArcMarkCompiler, MarkCompiler};
 use scale::evaluate_scale;
 
 pub struct AvengerRuntime {
     ctx: SessionContext,
-    // scale_compilers: HashMap<String, Box<dyn ScaleCompiler>>,
-    mark_compilers: HashMap<String, Box<dyn MarkCompiler>>,
-
-    scales: HashMap<String, Box<dyn ScaleImpl>>,
-    interpolator: Box<dyn ColorInterpolator>,
-    color_coercer: Box<dyn ColorCoercer>,
-    numeric_coercer: Box<dyn NumericCoercer>,
+    mark_compilers: HashMap<String, Arc<dyn MarkCompiler>>,
+    scales: HashMap<String, Arc<dyn ScaleImpl>>,
+    interpolator: Arc<dyn ColorInterpolator>,
+    color_coercer: Arc<dyn ColorCoercer>,
+    numeric_coercer: Arc<dyn NumericCoercer>,
+    coerce_scale: Arc<ConfiguredScale>,
 }
 
 impl AvengerRuntime {
     pub fn new(ctx: SessionContext) -> Self {
-        let mut mark_compilers: HashMap<String, Box<dyn MarkCompiler>> = HashMap::new();
-        mark_compilers.insert("arc".to_string(), Box::new(ArcMarkCompiler));
+        let mut mark_compilers: HashMap<String, Arc<dyn MarkCompiler>> = HashMap::new();
+        mark_compilers.insert("arc".to_string(), Arc::new(ArcMarkCompiler));
 
-        let mut scales: HashMap<String, Box<dyn ScaleImpl>> = HashMap::new();
-        scales.insert("linear".to_string(), Box::new(LinearScale));
+        let mut scales: HashMap<String, Arc<dyn ScaleImpl>> = HashMap::new();
+        scales.insert("linear".to_string(), Arc::new(LinearScale));
+
+        let coerce_scale = ConfiguredScale {
+            scale_impl: Arc::new(CoerceScaleImpl {
+                color_coercer: Arc::new(CssColorCoercer),
+                number_coercer: Arc::new(CastNumericCoercer),
+                formatters: Formatters::default(),
+            }),
+            config: ScaleConfig::empty(),
+            color_interpolator: Arc::new(SrgbaColorInterpolator),
+            formatters: Formatters::default(),
+        };
 
         Self {
             ctx,
             mark_compilers,
             scales,
-            interpolator: Box::new(SrgbaColorInterpolator),
-            color_coercer: Box::new(CssColorCoercer),
-            numeric_coercer: Box::new(CastNumericCoercer),
+            interpolator: Arc::new(SrgbaColorInterpolator),
+            color_coercer: Arc::new(CssColorCoercer),
+            numeric_coercer: Arc::new(CastNumericCoercer),
+            coerce_scale: Arc::new(coerce_scale),
         }
     }
 
@@ -96,10 +117,25 @@ impl AvengerRuntime {
         let mut evaluated_scales = HashMap::new();
 
         for (key, value) in group.get_scales() {
-            let evaluated_scale =
-                evaluate_scale(&value, &key, &self.ctx, &query_values, &self.scales).await?;
+            let evaluated_scale = evaluate_scale(
+                &value,
+                &key,
+                &self.ctx,
+                &query_values,
+                &self.scales,
+                self.interpolator.clone(),
+            )
+            .await?;
             evaluated_scales.insert(key.clone(), evaluated_scale);
         }
+
+        // Build compilation context
+        let context = CompilationContext {
+            ctx: self.ctx.clone(),
+            params: query_values.clone(),
+            scales: evaluated_scales.clone(),
+            coerce_scale: self.coerce_scale.clone(),
+        };
 
         // Collect and compile scene marks
         let mut scene_marks: Vec<SceneMark> = Vec::new();
@@ -111,18 +147,7 @@ impl AvengerRuntime {
                         AvengerChartError::MarkTypeLookupError(mark_type.to_string()),
                     )?;
 
-                    let new_marks = mark_compiler
-                        .compile(
-                            mark,
-                            &self.ctx,
-                            &query_values,
-                            &evaluated_scales,
-                            &self.scales,
-                            &self.interpolator,
-                            &self.color_coercer,
-                            &self.numeric_coercer,
-                        )
-                        .await?;
+                    let new_marks = mark_compiler.compile(mark, &context).await?;
                     scene_marks.extend(new_marks);
                 }
                 MarkOrGroup::Group(group) => {
