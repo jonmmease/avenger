@@ -1,5 +1,7 @@
 // rustfmt::skip
 
+use std::f32::consts::PI;
+
 use avenger_chart::utils::param;
 use avenger_chart::{
     runtime::AvengerRuntime,
@@ -13,6 +15,7 @@ use avenger_common::canvas::CanvasDimensions;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
+use datafusion::common::ParamValues;
 use datafusion::{
     logical_expr::expr::Placeholder,
     prelude::{lit, Expr, SessionContext},
@@ -34,8 +37,14 @@ async fn test_compilation() -> Result<(), AvengerWgpuError> {
             Mark::arc()
                 // .from("data_0")
                 .x(lit(3.0).scale("x_scale"))
+                .y(lit(150.0))
+                .start_angle(lit(0.0))
+                .end_angle(lit(PI / 2.0))
+                .outer_radius(lit(150.0))
+                .inner_radius(lit(20.0))
                 .fill(lit(2.5).scale("color_scale"))
-                .stroke(param("stroke_color")),
+                .stroke(param("stroke_color"))
+                .stroke_width(lit(3.0)),
         )
         .scale(
             Scale::new("x_scale")
@@ -53,7 +62,18 @@ async fn test_compilation() -> Result<(), AvengerWgpuError> {
                 ])),
         );
 
-    let scene_group = runtime.compile_group(&chart, None).await.unwrap();
+    // Compile while overriding params
+    let scene_group = runtime
+        .compile_group(
+            &chart,
+            Some(&ParamValues::Map(
+                vec![("stroke_color".into(), "cyan".into())]
+                    .into_iter()
+                    .collect(),
+            )),
+        )
+        .await
+        .unwrap();
     println!("{:#?}", scene_group);
 
     let scene_graph = SceneGraph {
