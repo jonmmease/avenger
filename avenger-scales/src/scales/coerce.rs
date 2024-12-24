@@ -131,9 +131,9 @@ macro_rules! define_scale_to_enum {
 
 #[derive(Debug, Clone)]
 pub struct CoerceScaleImpl {
-    color_coercer: Arc<dyn ColorCoercer>,
-    number_coercer: Arc<dyn NumericCoercer>,
-    formatters: Formatters,
+    pub color_coercer: Arc<dyn ColorCoercer>,
+    pub number_coercer: Arc<dyn NumericCoercer>,
+    pub formatters: Formatters,
 }
 
 impl ScaleImpl for CoerceScaleImpl {
@@ -165,16 +165,6 @@ impl ScaleImpl for CoerceScaleImpl {
     ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
         self.formatters.format(values)
     }
-
-    // fn scale_to_image_align(
-    //     &self,
-    //     _config: &ScaleConfig,
-    //     values: &ArrayRef,
-    // ) -> Result<ScalarOrArray<ImageAlign>, AvengerScaleError> {
-    //     let domain = Arc::new(StringArray::from(Vec::from(ImageAlign::VARIANTS))) as ArrayRef;
-    //     let scale = OrdinalScale::new(domain.clone()).with_range(domain);
-    //     scale.scale_to_image_align(values)
-    // }
 
     define_scale_to_enum!(StrokeCap);
     define_scale_to_enum!(StrokeJoin);

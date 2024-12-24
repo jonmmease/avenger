@@ -3,24 +3,6 @@ mod encoding;
 
 use std::collections::HashMap;
 
-use arrow::{
-    array::{ArrayRef, Float32Array, RecordBatch},
-    compute::{cast, concat_batches},
-    datatypes::DataType,
-};
-use async_trait::async_trait;
-use avenger_common::value::ScalarOrArray;
-use avenger_scales::{
-    color_interpolator::ColorInterpolator,
-    scales::ScaleImpl,
-};
-use avenger_scenegraph::marks::{arc::SceneArcMark, mark::SceneMark};
-use datafusion::{
-    common::ParamValues,
-    prelude::{DataFrame, Expr, SessionContext},
-};
-use indexmap::IndexMap;
-use avenger_scales::scales::coerce::{ColorCoercer, NumericCoercer};
 use crate::{
     error::AvengerChartError,
     types::{
@@ -29,22 +11,30 @@ use crate::{
     },
     utils::ExprHelpers,
 };
+use arrow::{
+    array::{ArrayRef, Float32Array, RecordBatch},
+    compute::{cast, concat_batches},
+    datatypes::DataType,
+};
+use async_trait::async_trait;
+use avenger_common::value::ScalarOrArray;
+use avenger_scales::scales::coerce::{ColorCoercer, NumericCoercer};
+use avenger_scales::{color_interpolator::ColorInterpolator, scales::ScaleImpl};
+use avenger_scenegraph::marks::{arc::SceneArcMark, mark::SceneMark};
+use datafusion::{
+    common::ParamValues,
+    prelude::{DataFrame, Expr, SessionContext},
+};
+use indexmap::IndexMap;
 
-use super::scale::EvaluatedScale;
-
+use super::{context::CompilationContext, scale::EvaluatedScale};
 
 #[async_trait]
 pub trait MarkCompiler: Send + Sync + 'static {
     async fn compile(
         &self,
         mark: &Mark,
-        ctx: &SessionContext,
-        params: &ParamValues,
-        evaluted_scales: &HashMap<String, EvaluatedScale>,
-        scale_impls: &HashMap<String, Box<dyn ScaleImpl>>,
-        interpolator: &Box<dyn ColorInterpolator>,
-        color_coercer: &Box<dyn ColorCoercer>,
-        numeric_coercer: &Box<dyn NumericCoercer>,
+        context: &CompilationContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
 }
 
@@ -120,20 +110,20 @@ impl EncodingBatches {
 async fn eval_encoding_exprs(
     from: &Option<String>,
     encodings: &IndexMap<String, Encoding>,
-    ctx: &SessionContext,
-    params: &ParamValues,
+    context: &CompilationContext,
 ) -> Result<EncodingBatches, AvengerChartError> {
     // Get the dataset to use for this mark
     let from_df = if let Some(from) = from {
         // Registered DataFrame from
-        ctx.table(from)
+        context
+            .ctx
+            .table(from)
             .await
             .map_err(|_| AvengerChartError::DatasetLookupError(from.to_string()))?
     } else {
         // Single row DataFrame with no columns
-        ctx.read_empty()?
+        context.ctx.read_empty()?
     };
-    let empty_df = ctx.read_empty()?;
 
     // Exprs that don't reference any columns, that we will evaluate against the empty DataFrame
     let mut scalar_exprs: Vec<Expr> = Vec::new();
@@ -157,9 +147,11 @@ async fn eval_encoding_exprs(
         concat_batches(&column_exprs_schema, &column_exprs_df.collect().await?)?;
 
     // Get/build DataFrame to evaluate scalar expressions against
-    let scalar_exprs_df = empty_df
+    let scalar_exprs_df = context
+        .ctx
+        .read_empty()?
         .select(scalar_exprs)?
-        .with_param_values(params.clone())?;
+        .with_param_values(context.params.clone())?;
     let scalar_schema = scalar_exprs_df.schema().inner().clone();
     let scalar_exprs_batch = concat_batches(&scalar_schema, &scalar_exprs_df.collect().await?)?;
 

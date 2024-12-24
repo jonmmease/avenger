@@ -14,7 +14,9 @@ use arrow::{
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 
 use avenger_scales::{
-    scales::{ScaleImpl, InferDomainFromDataMethod, ScaleConfig},
+    color_interpolator::{ColorInterpolator, SrgbaColorInterpolator},
+    formatter::Formatters,
+    scales::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleImpl},
     utils::ScalarValueUtils,
 };
 use datafusion::{
@@ -27,11 +29,13 @@ use ordered_float::OrderedFloat;
 use palette::Srgba;
 use std::fmt::Debug;
 
+use super::context::CompilationContext;
+
 #[derive(Debug, Clone)]
 pub struct EvaluatedScale {
     pub name: String,
     pub kind: String,
-    pub config: ScaleConfig,
+    pub scale: ConfiguredScale,
 }
 
 pub async fn evaluate_scale(
@@ -39,14 +43,18 @@ pub async fn evaluate_scale(
     name: &str,
     ctx: &SessionContext,
     params: &ParamValues,
-    arrow_scales: &HashMap<String, Box<dyn ScaleImpl>>,
+    scale_impls: &HashMap<String, Arc<dyn ScaleImpl>>,
+    color_interpolator: Arc<dyn ColorInterpolator>,
 ) -> Result<EvaluatedScale, AvengerChartError> {
     let kind = scale.kind.clone().unwrap_or("linear".to_string());
-    let arrow_scale = arrow_scales
+    println!("kind: {}", kind);
+    println!("scale_impls: {:?}", scale_impls);
+    let scale_impl = scale_impls
         .get(&kind)
         .ok_or_else(|| AvengerChartError::ScaleKindLookupError(kind.to_string()))?;
+    println!("found it");
 
-    let method = arrow_scale.infer_domain_from_data_method();
+    let method = scale_impl.infer_domain_from_data_method();
 
     // Compute domain
     let domain = evaluate_scale_domain(&scale, ctx, params, method).await?;
@@ -57,14 +65,23 @@ pub async fn evaluate_scale(
         evaluated_options.insert(key.to_string(), evaluated_value);
     }
 
+    let scale_config = ScaleConfig {
+        domain,
+        range,
+        options: evaluated_options,
+    };
+
+    let scale = ConfiguredScale {
+        scale_impl: scale_impl.clone(),
+        config: scale_config,
+        color_interpolator,
+        formatters: Formatters::default(),
+    };
+
     Ok(EvaluatedScale {
         name: name.to_string(),
-        kind: scale.get_kind().cloned().unwrap_or("linear".to_string()),
-        config: ScaleConfig {
-            domain,
-            range,
-            options: evaluated_options,
-        },
+        kind,
+        scale,
     })
 }
 
