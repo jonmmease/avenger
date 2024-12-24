@@ -86,16 +86,11 @@ impl AvengerRuntime {
     pub async fn compile_group(
         &self,
         group: &Group,
-        params: Option<&ParamValues>,
+        override_params: Option<&ParamValues>,
     ) -> Result<SceneGroup, AvengerChartError> {
         // Eval params to ScalarValues
         // treat as already in topological order, consider supporting out-of-order params later
         let mut query_values: HashMap<String, ScalarValue> = HashMap::new();
-
-        // Add parent params
-        if let Some(ParamValues::Map(params)) = params {
-            query_values.extend(params.clone().into_iter());
-        }
 
         // Add group params after parent params to then take precedence
         for (key, value) in group.get_params() {
@@ -104,6 +99,14 @@ impl AvengerRuntime {
                 .await?;
             query_values.insert(key.clone(), scalar_value);
         }
+
+        // Override with provided params
+        if let Some(ParamValues::Map(params)) = override_params {
+            for (key, value) in params.iter() {
+                query_values.insert(key.clone(), value.clone());
+            }
+        }
+
         let query_values = ParamValues::Map(query_values);
 
         // Collect DataFrames with params applied
