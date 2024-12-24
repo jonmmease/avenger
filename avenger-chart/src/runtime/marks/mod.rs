@@ -1,6 +1,8 @@
 mod arc;
 mod encoding;
 
+use super::context::CompilationContext;
+use crate::utils::ExprHelpers;
 use crate::{
     error::AvengerChartError,
     types::mark::{Encoding, Mark},
@@ -16,8 +18,6 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::prelude::Expr;
 use indexmap::IndexMap;
 
-use super::context::CompilationContext;
-
 #[async_trait]
 pub trait MarkCompiler: Send + Sync + 'static {
     async fn compile(
@@ -29,6 +29,7 @@ pub trait MarkCompiler: Send + Sync + 'static {
 
 pub struct ArcMarkCompiler;
 
+#[derive(Clone, Debug, PartialEq)]
 struct EncodingBatches {
     scalar_batch: RecordBatch,
     column_batch: RecordBatch,
@@ -122,10 +123,21 @@ async fn eval_encoding_exprs(
 
     for (name, encoding) in encodings.iter() {
         if encoding.is_scalar() {
-            // scalar_exprs.push(encoding.inner_expr().clone().apply_params(params)?.alias(name));
-            scalar_exprs.push(encoding.inner_expr().clone().alias(name));
+            scalar_exprs.push(
+                encoding
+                    .inner_expr()
+                    .clone()
+                    .apply_params(&context.params)?
+                    .alias(name),
+            );
         } else {
-            column_exprs.push(encoding.inner_expr().clone().alias(name));
+            column_exprs.push(
+                encoding
+                    .inner_expr()
+                    .clone()
+                    .apply_params(&context.params)?
+                    .alias(name),
+            );
         }
     }
 
@@ -136,11 +148,8 @@ async fn eval_encoding_exprs(
         concat_batches(&column_exprs_schema, &column_exprs_df.collect().await?)?;
 
     // Get/build DataFrame to evaluate scalar expressions against
-    let scalar_exprs_df = context
-        .ctx
-        .read_empty()?
-        .select(scalar_exprs)?
-        .with_param_values(context.params.clone())?;
+    let scalar_exprs_df = context.ctx.read_empty()?.select(scalar_exprs)?;
+
     let scalar_schema = scalar_exprs_df.schema().inner().clone();
     let scalar_exprs_batch = concat_batches(&scalar_schema, &scalar_exprs_df.collect().await?)?;
 
