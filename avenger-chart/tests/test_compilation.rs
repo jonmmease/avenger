@@ -29,12 +29,13 @@ async fn test_compilation() -> Result<(), AvengerWgpuError> {
         .x(30.0)
         .y(40.0)
         .param("width", lit(300.0))
+        .param("stroke_color", lit("red"))
         .mark(
             Mark::arc()
                 // .from("data_0")
                 .x(lit(3.0).scale("x_scale"))
-                .fill(lit(2.5).scale("color_scale")),
-            // .fill(lit("blue")),
+                .fill(lit(2.5).scale("color_scale"))
+                .stroke(param("stroke_color")),
         )
         .scale(
             Scale::new("x_scale")
