@@ -106,11 +106,11 @@ impl AvengerRuntime {
         }
         let query_values = ParamValues::Map(query_values);
 
-        // Register DataFrames with context with params applied
+        // Collect DataFrames with params applied
+        let mut dataframes: HashMap<String, DataFrame> = HashMap::new();
         for (key, value) in group.get_datasets() {
             let df = value.clone().with_param_values(query_values.clone())?;
-            let view_table = ViewTable::try_new(df.into_optimized_plan()?, None)?;
-            self.ctx.register_table(key.clone(), Arc::new(view_table))?;
+            dataframes.insert(key.clone(), df);
         }
 
         // Collect and evaluate scales
@@ -133,6 +133,7 @@ impl AvengerRuntime {
         let context = CompilationContext {
             ctx: self.ctx.clone(),
             params: query_values.clone(),
+            dataframes,
             scales: evaluated_scales.clone(),
             coerce_scale: self.coerce_scale.clone(),
         };

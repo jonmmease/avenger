@@ -1,18 +1,11 @@
 use crate::error::AvengerChartError;
 use crate::runtime::context::CompilationContext;
 use crate::runtime::marks::{eval_encoding_exprs, ArcMarkCompiler, MarkCompiler};
-use crate::runtime::scale::EvaluatedScale;
 use crate::types::mark::Mark;
 use crate::{apply_color_encoding, apply_f32_encoding};
 use async_trait::async_trait;
-use avenger_scales::color_interpolator::ColorInterpolator;
-use avenger_scales::scales::coerce::{ColorCoercer, NumericCoercer};
-use avenger_scales::scales::ScaleImpl;
 use avenger_scenegraph::marks::arc::SceneArcMark;
 use avenger_scenegraph::marks::mark::SceneMark;
-use datafusion::common::ParamValues;
-use datafusion::prelude::SessionContext;
-use std::collections::HashMap;
 
 #[async_trait]
 impl MarkCompiler for ArcMarkCompiler {
