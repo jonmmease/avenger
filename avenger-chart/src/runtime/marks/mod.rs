@@ -1,15 +1,9 @@
 mod arc;
 mod encoding;
 
-use std::collections::HashMap;
-
 use crate::{
     error::AvengerChartError,
-    types::{
-        mark::{Encoding, Mark},
-        // scales::ScaleConfig,
-    },
-    utils::ExprHelpers,
+    types::mark::{Encoding, Mark},
 };
 use arrow::{
     array::{ArrayRef, Float32Array, RecordBatch},
@@ -18,16 +12,11 @@ use arrow::{
 };
 use async_trait::async_trait;
 use avenger_common::value::ScalarOrArray;
-use avenger_scales::scales::coerce::{ColorCoercer, NumericCoercer};
-use avenger_scales::{color_interpolator::ColorInterpolator, scales::ScaleImpl};
-use avenger_scenegraph::marks::{arc::SceneArcMark, mark::SceneMark};
-use datafusion::{
-    common::ParamValues,
-    prelude::{DataFrame, Expr, SessionContext},
-};
+use avenger_scenegraph::marks::mark::SceneMark;
+use datafusion::prelude::Expr;
 use indexmap::IndexMap;
 
-use super::{context::CompilationContext, scale::EvaluatedScale};
+use super::context::CompilationContext;
 
 #[async_trait]
 pub trait MarkCompiler: Send + Sync + 'static {
@@ -116,10 +105,10 @@ async fn eval_encoding_exprs(
     let from_df = if let Some(from) = from {
         // Registered DataFrame from
         context
-            .ctx
-            .table(from)
-            .await
-            .map_err(|_| AvengerChartError::DatasetLookupError(from.to_string()))?
+            .dataframes
+            .get(from)
+            .ok_or(AvengerChartError::DatasetLookupError(from.to_string()))?
+            .clone()
     } else {
         // Single row DataFrame with no columns
         context.ctx.read_empty()?
@@ -157,81 +146,3 @@ async fn eval_encoding_exprs(
 
     Ok(EncodingBatches::new(scalar_exprs_batch, column_exprs_batch))
 }
-
-// use arrow::{
-//     array::{Float32Array, RecordBatch},
-//     datatypes::{DataType, Float32Type},
-// };
-// use avenger_common::value::ScalarOrArray;
-// use avenger_scenegraph::marks::arc::SceneArcMark;
-
-// use crate::types::mark::Mark;
-
-// pub trait SceneMarkFromBatches {
-//     fn from_batches(mark: &Mark, column_batch: &RecordBatch, scalar_batch: &RecordBatch) -> Self;
-// }
-
-// /// Extracts a float32 field from a column or scalar batch.
-// macro_rules! extract_float32_field {
-//     ($field:ident, $mark:expr, $column_batch:expr, $scalar_batch:expr) => {
-//         if let Some(arr) = $column_batch.column_by_name(stringify!($field)) {
-//             let arr = arr.as_any().downcast_ref::<Float32Array>().unwrap();
-//             $mark.$field = ScalarOrArray::new_array(arr.values().to_vec());
-//         } else if let Some(arr) = $scalar_batch.column_by_name(stringify!($field)) {
-//             let arr = arr.as_any().downcast_ref::<Float32Array>().unwrap();
-//             $mark.$field = ScalarOrArray::new_scalar(arr.value(0));
-//         }
-//     };
-// }
-
-// impl SceneMarkFromBatches for SceneArcMark {
-//     fn from_batches(mark: &Mark, column_batch: &RecordBatch, scalar_batch: &RecordBatch) -> Self {
-//         let mut mark = Self {
-//             len: column_batch.num_rows() as u32,
-//             ..Default::default()
-//         };
-
-//         // Handle float32 fields
-//         extract_float32_field!(x, mark, column_batch, scalar_batch);
-//         extract_float32_field!(y, mark, column_batch, scalar_batch);
-//         extract_float32_field!(start_angle, mark, column_batch, scalar_batch);
-//         extract_float32_field!(end_angle, mark, column_batch, scalar_batch);
-//         extract_float32_field!(outer_radius, mark, column_batch, scalar_batch);
-//         extract_float32_field!(inner_radius, mark, column_batch, scalar_batch);
-//         extract_float32_field!(pad_angle, mark, column_batch, scalar_batch);
-//         extract_float32_field!(corner_radius, mark, column_batch, scalar_batch);
-
-//         // color
-//         let fill_arr = if let Some(arr) = column_batch.column_by_name("fill") {
-//             Some(arr.clone())
-//         } else if let Some(arr) = scalar_batch.column_by_name("fill") {
-//             Some(arr.clone())
-//         } else {
-//             None
-//         };
-//         // if let Some(arr) = fill_arr {
-//         //     let dtype = arr.data_type();
-//         //     match dtype {
-//         //         DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
-//         //             // css color strings
-//         //             todo!()
-//         //             // mark.fill = ScalarOrArray::new_array(arr.values().to_vec());
-//         //         }
-//         //         DataType::FixedSizeList(field, 4) if field.data_type().is_numeric() => {
-//         //             // rgba components
-//         //             todo!()
-//         //         }
-//         //         _ => {
-//         //             mark.fill = ScalarOrArray::new_scalar(arr.value(0));
-//         //         }
-//         //     }
-//         // }
-
-//         // for (name, expr) in mark.encodings.iter() {
-//         //     let value = expr.eval(&scalar_batch)?;
-//         //     mark.encodings.insert(name.clone(), value);
-//         // }
-
-//         mark
-//     }
-// }
