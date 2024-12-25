@@ -12,7 +12,7 @@ macro_rules! apply_numeric_encoding {
             }
         } else {
             if let Some(value) = $encoding_batches.array_for_field(stringify!($field)) {
-                $scene_mark.$field = $context.coerce_scale.scale_to_numeric(&value)?;
+                $scene_mark.$field = $context.coercer.to_numeric(&value)?;
             }
         }
     };
@@ -32,7 +32,7 @@ macro_rules! apply_color_encoding {
             }
         } else {
             if let Some(value) = $encoding_batches.array_for_field(stringify!($field)) {
-                $scene_mark.$field = $context.coerce_scale.scale_to_color(&value)?;
+                $scene_mark.$field = $context.coercer.to_color(&value)?;
             }
         }
     };

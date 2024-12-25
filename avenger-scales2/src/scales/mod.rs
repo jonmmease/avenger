@@ -3,6 +3,7 @@ pub mod coerce;
 pub mod linear;
 pub mod log;
 pub mod ordinal;
+pub mod udf;
 // pub mod point;
 // pub mod pow;
 // pub mod quantile;
@@ -26,7 +27,7 @@ use avenger_common::{
 };
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use chrono_tz::Tz as ChronoTz;
-use coerce::{CastNumericCoercer, NumericCoercer};
+use coerce::{CastNumericCoercer, Coercer, NumericCoercer};
 use datafusion_common::{utils::arrays_into_list_array, ScalarValue};
 
 use crate::{
@@ -45,12 +46,12 @@ macro_rules! declare_enum_scale_method {
         paste::paste! {
             fn [<scale_to_ $type_name:snake>](
                 &self,
-                _config: &ScaleConfig,
-                _values: &ArrayRef,
+                config: &ScaleConfig,
+                values: &ArrayRef,
             ) -> Result<ScalarOrArray<$type_name>, AvengerScaleError> {
-                Err(AvengerScaleError::ScaleOperationNotSupported(
-                    stringify!([<scale_to_ $type_name:snake>]).to_string(),
-                ))
+                let scaled = self.scale(config, values)?;
+                let coercer = Coercer::default();
+                coercer.[<to_ $type_name:snake>](&scaled)
             }
         }
     };
@@ -117,7 +118,7 @@ impl ScaleConfig {
 
     pub fn color_range(&self) -> Result<Vec<[f32; 4]>, AvengerScaleError> {
         let coercer = CssColorCoercer;
-        let range_colors = coercer.coerce_color(&self.range, None)?;
+        let range_colors = coercer.coerce(&self.range, None)?;
         let range_colors_vec: Vec<_> = range_colors
             .as_iter(range_colors.len(), None)
             .map(|c| c.color_or_transparent())
@@ -194,7 +195,7 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
         let scaled = self.scale(config, values)?;
         let coercer = &config.context.numeric_coercer;
-        let t = coercer.coerce_numeric(&scaled, None)?;
+        let t = coercer.coerce(&scaled, None)?;
         Ok(t)
     }
 
@@ -250,7 +251,7 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
     ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
         let scaled = self.scale(config, values)?;
         let coercer = &config.context.color_coercer;
-        let t = coercer.coerce_color(&scaled, None)?;
+        let t = coercer.coerce(&scaled, None)?;
         Ok(t)
     }
 
@@ -266,12 +267,13 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
     /// Scale to string values
     fn scale_to_string(
         &self,
-        _config: &ScaleConfig,
-        _values: &ArrayRef,
+        config: &ScaleConfig,
+        values: &ArrayRef,
     ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
-        Err(AvengerScaleError::ScaleOperationNotSupported(
-            "scale_to_string".to_string(),
-        ))
+        let scaled = self.scale(config, values)?;
+        let formatter = &config.context.formatters;
+        let t = formatter.format(&scaled)?;
+        Ok(t)
     }
 
     fn scale_scalar_to_string(
@@ -463,6 +465,11 @@ impl ConfiguredScale {
 
     pub fn scale(&self, values: &ArrayRef) -> Result<ArrayRef, AvengerScaleError> {
         self.scale_impl.scale(&self.config, values)
+    }
+
+    pub fn scale_scalar(&self, value: &ScalarValue) -> Result<ScalarValue, AvengerScaleError> {
+        let scaled = self.scale(&ScalarValue::iter_to_array(vec![value.clone()])?)?;
+        Ok(ScalarValue::try_from_array(&scaled, 0)?)
     }
 
     /// Scale to numeric values
