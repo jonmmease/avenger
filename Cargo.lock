@@ -740,6 +740,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-scales2"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "avenger-common",
+ "chrono",
+ "chrono-tz",
+ "css-color-parser",
+ "datafusion-common",
+ "float-cmp 0.10.0",
+ "indexmap",
+ "numfmt",
+ "ordered-float 4.5.0",
+ "palette",
+ "paste",
+ "serde",
+ "serde_json",
+ "strum 0.26.3",
+ "thiserror 2.0.3",
+]
+
+[[package]]
 name = "avenger-scenegraph"
 version = "0.0.8"
 dependencies = [
