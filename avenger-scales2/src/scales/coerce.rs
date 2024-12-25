@@ -23,7 +23,7 @@ use std::sync::Arc;
 use strum::VariantNames;
 
 pub trait ColorCoercer: Debug + Send + Sync + 'static {
-    fn coerce_color(
+    fn coerce(
         &self,
         value: &ArrayRef,
         default_value: Option<ColorOrGradient>,
@@ -31,7 +31,7 @@ pub trait ColorCoercer: Debug + Send + Sync + 'static {
 }
 
 pub trait NumericCoercer: Debug + Send + Sync + 'static {
-    fn coerce_numeric(
+    fn coerce(
         &self,
         value: &ArrayRef,
         default_value: Option<f32>,
@@ -42,7 +42,7 @@ pub trait NumericCoercer: Debug + Send + Sync + 'static {
 pub struct CastNumericCoercer;
 
 impl NumericCoercer for CastNumericCoercer {
-    fn coerce_numeric(
+    fn coerce(
         &self,
         value: &ArrayRef,
         default_value: Option<f32>,
@@ -66,7 +66,7 @@ impl NumericCoercer for CastNumericCoercer {
 pub struct CssColorCoercer;
 
 impl ColorCoercer for CssColorCoercer {
-    fn coerce_color(
+    fn coerce(
         &self,
         value: &ArrayRef,
         default_value: Option<ColorOrGradient>,
@@ -137,12 +137,11 @@ impl ColorCoercer for CssColorCoercer {
 }
 
 // Define the macro using paste
-macro_rules! define_scale_to_enum {
+macro_rules! define_enum_coercer {
     ($enum_type:ty) => {
         paste! {
-            fn [<scale_to_ $enum_type:snake> ](
+            pub fn [<to_ $enum_type:snake> ](
                 &self,
-                _config: &ScaleConfig,
                 values: &ArrayRef,
             ) -> Result<ScalarOrArray<$enum_type>, AvengerScaleError> {
                 let domain = Arc::new(StringArray::from(Vec::from(<$enum_type>::VARIANTS))) as ArrayRef;
@@ -154,52 +153,41 @@ macro_rules! define_scale_to_enum {
 }
 
 #[derive(Debug, Clone)]
-pub struct CoerceScaleImpl {
+pub struct Coercer {
     pub color_coercer: Arc<dyn ColorCoercer>,
     pub number_coercer: Arc<dyn NumericCoercer>,
     pub formatters: Formatters,
 }
 
-impl ScaleImpl for CoerceScaleImpl {
-    fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
-        InferDomainFromDataMethod::All
+impl Default for Coercer {
+    fn default() -> Self {
+        Self {
+            color_coercer: Arc::new(CssColorCoercer),
+            number_coercer: Arc::new(CastNumericCoercer),
+            formatters: Formatters::default(),
+        }
+    }
+}
+
+impl Coercer {
+    pub fn to_numeric(&self, values: &ArrayRef) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+        self.number_coercer.coerce(values, None)
     }
 
-    fn scale(
+    pub fn to_color(
         &self,
-        _config: &ScaleConfig,
-        values: &ArrayRef,
-    ) -> Result<ArrayRef, AvengerScaleError> {
-        Ok(values.clone())
-    }
-
-    fn scale_to_numeric(
-        &self,
-        _config: &ScaleConfig,
-        values: &ArrayRef,
-    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
-        self.number_coercer.coerce_numeric(values, None)
-    }
-
-    fn scale_to_color(
-        &self,
-        _config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
-        self.color_coercer.coerce_color(values, None)
+        self.color_coercer.coerce(values, None)
     }
 
-    fn scale_to_string(
-        &self,
-        _config: &ScaleConfig,
-        values: &ArrayRef,
-    ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
+    pub fn to_string(&self, values: &ArrayRef) -> Result<ScalarOrArray<String>, AvengerScaleError> {
         self.formatters.format(values)
     }
 
-    define_scale_to_enum!(StrokeCap);
-    define_scale_to_enum!(StrokeJoin);
-    define_scale_to_enum!(ImageAlign);
-    define_scale_to_enum!(ImageBaseline);
-    define_scale_to_enum!(AreaOrientation);
+    define_enum_coercer!(StrokeCap);
+    define_enum_coercer!(StrokeJoin);
+    define_enum_coercer!(ImageAlign);
+    define_enum_coercer!(ImageBaseline);
+    define_enum_coercer!(AreaOrientation);
 }

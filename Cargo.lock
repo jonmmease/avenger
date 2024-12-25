@@ -630,7 +630,7 @@ dependencies = [
  "avenger-eventstream",
  "avenger-geometry",
  "avenger-guides",
- "avenger-scales",
+ "avenger-scales2",
  "avenger-scenegraph",
  "avenger-text",
  "avenger-wgpu",

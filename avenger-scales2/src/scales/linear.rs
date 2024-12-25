@@ -285,7 +285,7 @@ impl ScaleImpl for LinearScale {
         values: &ArrayRef,
     ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
         let scaled = self.scale(config, values)?;
-        config.context.color_coercer.coerce_color(&scaled, None)
+        config.context.color_coercer.coerce(&scaled, None)
     }
 
     fn ticks(

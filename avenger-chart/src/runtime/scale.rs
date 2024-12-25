@@ -13,16 +13,19 @@ use arrow::{
 
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 
-use avenger_scales::{
+use avenger_scales2::{
     color_interpolator::{ColorInterpolator, SrgbaColorInterpolator},
     formatter::Formatters,
-    scales::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleImpl},
+    scales::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl},
     utils::ScalarValueUtils,
 };
 use datafusion::{
     common::{DFSchema, ParamValues},
-    logical_expr::ExprSchemable,
-    prelude::{lit, DataFrame, Expr, SessionContext},
+    error::DataFusionError,
+    logical_expr::{
+        ColumnarValue, ExprSchemable, ScalarFunctionImplementation, ScalarUDF, Volatility,
+    },
+    prelude::{create_udf, lit, DataFrame, Expr, SessionContext},
     scalar::ScalarValue,
 };
 use ordered_float::OrderedFloat;
@@ -69,13 +72,16 @@ pub async fn evaluate_scale(
         domain,
         range,
         options: evaluated_options,
+        context: ScaleContext {
+            color_interpolator,
+            formatters: Formatters::default(),
+            ..Default::default()
+        },
     };
 
     let scale = ConfiguredScale {
         scale_impl: scale_impl.clone(),
         config: scale_config,
-        color_interpolator,
-        formatters: Formatters::default(),
     };
 
     Ok(EvaluatedScale {
@@ -264,26 +270,57 @@ async fn evaluate_scale_range(
     }
 }
 
-// /// Helper to compute a numeric range span from a scale
-// async fn compute_numeric_range_span(
-//     range: &Option<ScaleRange>,
-//     ctx: &SessionContext,
-//     params: &ParamValues,
-// ) -> Result<[f32; 2], AvengerChartError> {
-//     let span = match range
-//         .clone()
-//         .unwrap_or_else(|| ScaleRange::Numeric(lit(0.0), lit(1.0)))
-//     {
-//         ScaleRange::Numeric(start_expr, end_expr) => {
-//             let start = start_expr.eval_to_f32(ctx, Some(params)).await?;
-//             let end = end_expr.eval_to_f32(ctx, Some(params)).await?;
-//             [start, end]
-//         }
-//         _ => {
-//             return Err(AvengerChartError::InternalError(
-//                 "Numeric range not supported for linear scale".to_string(),
-//             ))
-//         }
-//     };
-//     Ok(span)
-// }
+// Function to create a DataFusion UDF from a ConfiguredScale
+pub fn create_scale_udf(scale: ConfiguredScale) -> Result<ScalarUDF, AvengerChartError> {
+    let inner_scale = scale.clone();
+    let fun: ScalarFunctionImplementation = Arc::new(
+        move |args: &[ColumnarValue]| -> Result<ColumnarValue, DataFusionError> {
+            if args.len() != 1 {
+                return Err(DataFusionError::Execution(
+                    "Expected one argument".to_string(),
+                ));
+            }
+            let values = &args[0];
+            let scaled = match values {
+                ColumnarValue::Array(array) => ColumnarValue::Array(
+                    inner_scale
+                        .scale(array)
+                        .map_err(|e| DataFusionError::Execution(e.to_string()))?,
+                ),
+                ColumnarValue::Scalar(scalar_value) => ColumnarValue::Scalar(
+                    inner_scale
+                        .scale_scalar(scalar_value)
+                        .map_err(|e| DataFusionError::Execution(e.to_string()))?,
+                ),
+            };
+            Ok(scaled)
+        },
+    );
+
+    Ok(create_udf(
+        "scale",
+        vec![scale.config.domain.data_type().clone()],
+        scale.config.range.data_type().clone(),
+        Volatility::Immutable,
+        fun,
+    ))
+}
+
+pub fn scale_placeholder_udf(name: &str) -> Result<ScalarUDF, AvengerChartError> {
+    let fun: ScalarFunctionImplementation = Arc::new(
+        move |_args: &[ColumnarValue]| -> Result<ColumnarValue, DataFusionError> {
+            return Err(DataFusionError::Execution("Not implemented".to_string()));
+        },
+    );
+
+    Ok(create_udf(
+        &format!("scale:{}", name),
+        vec![
+            DataType::Utf8, // Scale name
+            DataType::Null, // Placeholder arg for input values
+        ],
+        DataType::Null, // Placeholder for output values
+        Volatility::Immutable,
+        fun,
+    ))
+}

@@ -10,16 +10,14 @@ use crate::{
     utils::ExprHelpers,
 };
 use async_recursion::async_recursion;
-use avenger_scales::{
+use avenger_scales2::{
     color_interpolator::{ColorInterpolator, SrgbaColorInterpolator},
-    scales::{linear::LinearScale, ScaleImpl},
+    scales::{coerce::Coercer, linear::LinearScale, ScaleImpl},
 };
-use avenger_scales::{
+use avenger_scales2::{
     formatter::Formatters,
     scales::{
-        coerce::{
-            CastNumericCoercer, CoerceScaleImpl, ColorCoercer, CssColorCoercer, NumericCoercer,
-        },
+        coerce::{CastNumericCoercer, ColorCoercer, CssColorCoercer, NumericCoercer},
         ConfiguredScale, ScaleConfig,
     },
 };
@@ -49,7 +47,7 @@ pub struct AvengerRuntime {
     interpolator: Arc<dyn ColorInterpolator>,
     color_coercer: Arc<dyn ColorCoercer>,
     numeric_coercer: Arc<dyn NumericCoercer>,
-    coerce_scale: Arc<ConfiguredScale>,
+    coercer: Arc<Coercer>,
 }
 
 impl AvengerRuntime {
@@ -60,17 +58,6 @@ impl AvengerRuntime {
         let mut scales: HashMap<String, Arc<dyn ScaleImpl>> = HashMap::new();
         scales.insert("linear".to_string(), Arc::new(LinearScale));
 
-        let coerce_scale = ConfiguredScale {
-            scale_impl: Arc::new(CoerceScaleImpl {
-                color_coercer: Arc::new(CssColorCoercer),
-                number_coercer: Arc::new(CastNumericCoercer),
-                formatters: Formatters::default(),
-            }),
-            config: ScaleConfig::empty(),
-            color_interpolator: Arc::new(SrgbaColorInterpolator),
-            formatters: Formatters::default(),
-        };
-
         Self {
             ctx,
             mark_compilers,
@@ -78,7 +65,7 @@ impl AvengerRuntime {
             interpolator: Arc::new(SrgbaColorInterpolator),
             color_coercer: Arc::new(CssColorCoercer),
             numeric_coercer: Arc::new(CastNumericCoercer),
-            coerce_scale: Arc::new(coerce_scale),
+            coercer: Arc::new(Coercer::default()),
         }
     }
 
@@ -138,7 +125,7 @@ impl AvengerRuntime {
             params: query_values.clone(),
             dataframes,
             scales: evaluated_scales.clone(),
-            coerce_scale: self.coerce_scale.clone(),
+            coercer: self.coercer.clone(),
         };
 
         // Collect and compile scene marks

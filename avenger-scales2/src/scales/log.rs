@@ -458,7 +458,7 @@ impl ScaleImpl for LogScale {
         values: &ArrayRef,
     ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
         let scaled = scale_numeric_to_color2(self, config, values)?;
-        config.context.color_coercer.coerce_color(&scaled, None)
+        config.context.color_coercer.coerce(&scaled, None)
     }
 
     fn ticks(
