@@ -1,11 +1,13 @@
 use std::{collections::HashMap, sync::Arc};
 
+use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};
 use crate::{
     color_interpolator::{ColorInterpolator, SrgbaColorInterpolator},
     error::AvengerScaleError,
     formatter::Formatters,
     utils::ScalarValueUtils,
 };
+
 use arrow::{
     array::{ArrayRef, AsArray, DictionaryArray, Float32Array, UInt32Array},
     compute::kernels::{cast, take},
@@ -18,8 +20,6 @@ use avenger_common::{
 use datafusion_common::{DataFusionError, ScalarValue};
 use serde::{de::DeserializeOwned, Deserialize};
 
-use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleImpl};
-
 /// Macro to generate scale_to_X trait methods for ordinal enum scaling
 #[macro_export]
 macro_rules! impl_ordinal_enum_scale_method {
@@ -31,7 +31,7 @@ macro_rules! impl_ordinal_enum_scale_method {
                 values: &ArrayRef,
             ) -> Result<ScalarOrArray<$type_name>, AvengerScaleError> {
                 let (range_vec, default_value) = prep_discrete_enum_range::<$type_name>(config)?;
-                ordinal_scale(values, &config.domain, range_vec, default_value)
+                ordinal_scale_to(values, &config.domain, range_vec, default_value)
             }
         }
     };
@@ -46,12 +46,10 @@ impl OrdinalScale {
             scale_impl: Arc::new(Self),
             config: ScaleConfig {
                 domain,
-                // Initialize with empty range
                 range: Arc::new(Float32Array::from(Vec::<f32>::new())),
                 options: HashMap::new(),
+                context: ScaleContext::default(),
             },
-            color_interpolator: Arc::new(SrgbaColorInterpolator),
-            formatters: Formatters::default(),
         }
     }
 }
@@ -61,33 +59,15 @@ impl ScaleImpl for OrdinalScale {
         InferDomainFromDataMethod::Unique
     }
 
-    /// Scale to numeric values
-    fn scale_to_numeric(
+    fn scale(
         &self,
         config: &ScaleConfig,
         values: &ArrayRef,
-    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
-        let (range_vec, default_value) = prep_discrete_numeric_range(config)?;
-        ordinal_scale(values, &config.domain, range_vec, default_value)
-    }
-
-    fn scale_to_string(
-        &self,
-        config: &ScaleConfig,
-        values: &ArrayRef,
-    ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
-        let (range_vec, default_value) = prep_discrete_string_range(config)?;
-        ordinal_scale(values, &config.domain, range_vec, default_value)
-    }
-
-    fn scale_to_color(
-        &self,
-        config: &ScaleConfig,
-        values: &ArrayRef,
-        _color_interpolator: &dyn ColorInterpolator,
-    ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
-        let (range_vec, default_value) = prep_discrete_color_range(config)?;
-        ordinal_scale(values, &config.domain, range_vec, default_value)
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        // Cast range indices to flat u32 array
+        let range_indices = range_indices_for_values(&config.domain, config.range.len(), values)?;
+        let range_indices = range_indices.as_primitive::<UInt32Type>();
+        Ok(take::take(config.range.as_ref(), &range_indices, None)?)
     }
 
     // Enums
@@ -96,6 +76,91 @@ impl ScaleImpl for OrdinalScale {
     impl_ordinal_enum_scale_method!(ImageAlign);
     impl_ordinal_enum_scale_method!(ImageBaseline);
     impl_ordinal_enum_scale_method!(AreaOrientation);
+}
+
+/// Helper function to get range indices corresponding to values
+fn range_indices_for_values(
+    domain: &ArrayRef,
+    range_length: usize,
+    values: &ArrayRef,
+) -> Result<ArrayRef, AvengerScaleError> {
+    // values and domain should have the same type
+    if values.data_type() != domain.data_type() {
+        return Err(AvengerScaleError::ScaleOperationNotSupported(
+            "values and domain have different types".to_string(),
+        ));
+    }
+
+    if range_length != domain.len() {
+        return Err(AvengerScaleError::ScaleOperationNotSupported(
+            "range length does not match domain length".to_string(),
+        ));
+    }
+
+    // Convert domain and range to vectors of ScalarValues
+    let domain_values = (0..domain.len())
+        .map(|i| ScalarValue::try_from_array(domain.as_ref(), i).unwrap())
+        .collect::<Vec<_>>();
+
+    // Cast values to dictionary array
+    let dict_type = DataType::Dictionary(
+        Box::new(DataType::Int16),
+        Box::new(domain.data_type().clone()),
+    );
+    let dict_array = cast(values, &dict_type)?;
+
+    // Downcast to dictionary with erased types
+    let dict_array = dict_array.as_any_dictionary();
+
+    // Get array of unique domain values that are observed in the values
+    let observed_domain_array = dict_array.values();
+    let observed_domain_values = (0..observed_domain_array.len())
+        .map(|i| ScalarValue::try_from_array(observed_domain_array, i))
+        .collect::<Result<Vec<_>, DataFusionError>>()?;
+
+    // Create a mapping from domain values to indices into range values
+    let mapping = domain_values
+        .into_iter()
+        .enumerate()
+        .map(|(i, v)| (v, i as u32))
+        .collect::<HashMap<_, _>>();
+
+    // Build corresponding array of range value indices that correspond to the observed domain values
+    let observed_range_indices = Arc::new(UInt32Array::from(
+        observed_domain_values
+            .iter()
+            .map(|d| mapping.get(d).cloned())
+            .collect::<Vec<_>>(),
+    )) as ArrayRef;
+
+    // Replace domain values with range indices
+    let range_dict_array = dict_array.with_values(observed_range_indices);
+
+    // Cast range indices to flat u32 array
+    let range_indices_array = cast(&range_dict_array, &DataType::UInt32)?;
+    Ok(range_indices_array)
+}
+
+/// Generic helper function for evaluating ordinal scales
+fn ordinal_scale_to<R: Sync + Clone>(
+    values: &ArrayRef,
+    domain: &ArrayRef,
+    range: Vec<R>,
+    default_value: R,
+) -> Result<ScalarOrArray<R>, AvengerScaleError> {
+    // Cast range indices to flat u32 array
+    // let range_array = cast(&range_dict_array, &DataType::UInt32)?;
+    let range_indices = range_indices_for_values(domain, range.len(), values)?;
+    let range_indices = range_indices.as_primitive::<UInt32Type>();
+    let scaled_values = range_indices
+        .iter()
+        .map(|i| {
+            i.map(|v| range[v as usize].clone())
+                .unwrap_or_else(|| default_value.clone())
+        })
+        .collect::<Vec<_>>();
+
+    Ok(ScalarOrArray::new_array(scaled_values))
 }
 
 pub(crate) fn prep_discrete_numeric_range(
@@ -183,79 +248,6 @@ pub(crate) fn prep_discrete_enum_range<R: Sync + Clone + DeserializeOwned + Defa
     Ok((range_vec, default_value))
 }
 
-/// Generic helper function for evaluating ordinal scales
-fn ordinal_scale<R: Sync + Clone>(
-    values: &ArrayRef,
-    domain: &ArrayRef,
-    range: Vec<R>,
-    default_value: R,
-) -> Result<ScalarOrArray<R>, AvengerScaleError> {
-    // values and domain should have the same type
-    if values.data_type() != domain.data_type() {
-        return Err(AvengerScaleError::ScaleOperationNotSupported(
-            "values and domain have different types".to_string(),
-        ));
-    }
-
-    if range.len() != domain.len() {
-        return Err(AvengerScaleError::ScaleOperationNotSupported(
-            "range length does not match domain length".to_string(),
-        ));
-    }
-
-    // Convert domain and range to vectors of ScalarValues
-    let domain_values = (0..domain.len())
-        .map(|i| ScalarValue::try_from_array(domain.as_ref(), i).unwrap())
-        .collect::<Vec<_>>();
-
-    // Create a mapping from domain values to indices into range values
-    let mapping = domain_values
-        .into_iter()
-        .enumerate()
-        .map(|(i, v)| (v, i as u32))
-        .collect::<HashMap<_, _>>();
-
-    // Cast values to dictionary array
-    let dict_type = DataType::Dictionary(
-        Box::new(DataType::Int16),
-        Box::new(domain.data_type().clone()),
-    );
-    let dict_array = cast(values, &dict_type)?;
-
-    // Downcast to dictionary with erased types
-    let dict_array = dict_array.as_any_dictionary();
-
-    // Get array of unique domain values that are observed in the values
-    let observed_domain_array = dict_array.values();
-    let observed_domain_values = (0..observed_domain_array.len())
-        .map(|i| ScalarValue::try_from_array(observed_domain_array, i))
-        .collect::<Result<Vec<_>, DataFusionError>>()?;
-
-    // Build corresponding array of range value indices that correspond to the observed domain values
-    let observed_range_indices = Arc::new(UInt32Array::from(
-        observed_domain_values
-            .iter()
-            .map(|d| mapping.get(d).cloned())
-            .collect::<Vec<_>>(),
-    )) as ArrayRef;
-
-    // Replace domain values with range indices
-    let range_dict_array = dict_array.with_values(observed_range_indices);
-
-    // Cast range indices to flat u32 array
-    let range_array = cast(&range_dict_array, &DataType::UInt32)?;
-    let range_indices = range_array.as_primitive::<UInt32Type>();
-    let scaled_values = range_indices
-        .iter()
-        .map(|i| {
-            i.map(|v| range[v as usize].clone())
-                .unwrap_or_else(|| default_value.clone())
-        })
-        .collect::<Vec<_>>();
-
-    Ok(ScalarOrArray::new_array(scaled_values))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,6 +266,7 @@ mod tests {
             domain,
             range,
             options: HashMap::new(),
+            context: ScaleContext::default(),
         };
 
         // Create input values to scale
@@ -284,6 +277,7 @@ mod tests {
 
         // Convert to string array and verify results
         let result = result.as_vec(values.len(), None);
+        println!("{:?}", result);
         assert_eq!(result[0], 2.5);
         assert_eq!(result[1], 1.4);
         assert!(result[2].is_nan());
@@ -305,6 +299,7 @@ mod tests {
             domain,
             range,
             options: HashMap::new(),
+            context: ScaleContext::default(),
         };
 
         // Create input values to scale

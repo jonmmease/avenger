@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use arrow::{
     array::{ArrayRef, AsArray, Float32Array},
-    compute::kernels::cast,
+    compute::{kernels::cast, unary},
     datatypes::{DataType, Float32Type},
 };
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
@@ -10,14 +10,15 @@ use datafusion_common::ScalarValue;
 
 use crate::{
     array,
-    color_interpolator::{scale_numeric_to_color, ColorInterpolator, SrgbaColorInterpolator},
+    color_interpolator::{scale_numeric_to_color2, ColorInterpolator, SrgbaColorInterpolator},
     error::AvengerScaleError,
     formatter::Formatters,
     utils::ScalarValueUtils,
 };
 
 use super::{
-    linear::LinearScale, ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleImpl,
+    linear::LinearScale, ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext,
+    ScaleImpl,
 };
 
 #[derive(Debug)]
@@ -39,9 +40,8 @@ impl PowScale {
                 ]
                 .into_iter()
                 .collect(),
+                context: ScaleContext::default(),
             },
-            color_interpolator: Arc::new(SrgbaColorInterpolator),
-            formatters: Formatters::default(),
         }
     }
 
@@ -71,11 +71,11 @@ impl ScaleImpl for PowScale {
         InferDomainFromDataMethod::Interval
     }
 
-    fn scale_to_numeric(
+    fn scale(
         &self,
         config: &ScaleConfig,
-        values: &arrow::array::ArrayRef,
-    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+        values: &ArrayRef,
+    ) -> Result<ArrayRef, AvengerScaleError> {
         // Get options
         let exponent = config.option_f32("exponent", 1.0);
         let range_offset = config.option_f32("range_offset", 0.0);
@@ -89,9 +89,22 @@ impl ScaleImpl for PowScale {
             config.options.get("nice"),
         )?;
 
+        // Check if color interpolation is needed
+        if config.color_range().is_ok() {
+            // Create new config with niced domain
+            let config = ScaleConfig {
+                domain: Arc::new(Float32Array::from(vec![domain_start, domain_end])),
+                ..config.clone()
+            };
+            return scale_numeric_to_color2(self, &config, values);
+        }
+
         // If range start equals end, return constant range value
         if range_start == range_end {
-            return Ok(ScalarOrArray::new_array(vec![range_start; values.len()]));
+            return Ok(Arc::new(Float32Array::from(vec![
+                range_start;
+                values.len()
+            ])));
         }
 
         // Build the power function
@@ -102,7 +115,10 @@ impl ScaleImpl for PowScale {
 
         // If domain start equals end, return constant domain value
         if d0 == d1 {
-            return Ok(ScalarOrArray::new_array(vec![domain_start; values.len()]));
+            return Ok(Arc::new(Float32Array::from(vec![
+                domain_start;
+                values.len()
+            ])));
         }
 
         // At this point, we know (d1 - d0) cannot be zero
@@ -122,119 +138,86 @@ impl ScaleImpl for PowScale {
         match (clamp, round) {
             (true, false) => match &power_fun {
                 // Clamp, no rounding
-                PowerFunction::Static { pow_fun, .. } => Ok(ScalarOrArray::new_array(
-                    values
-                        .values()
-                        .iter()
-                        .map(|&v| {
-                            let abs_v = v.abs();
-                            let sign = if v < 0.0 { -1.0 } else { 1.0 };
-                            (scale * (sign * pow_fun(abs_v)) + offset).clamp(range_min, range_max)
-                        })
-                        .collect(),
-                )),
+                PowerFunction::Static { pow_fun, .. } => {
+                    // Predefined power function
+                    Ok(Arc::<Float32Array>::new(unary(values, |v| {
+                        let abs_v = v.abs();
+                        let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                        (scale * (sign * pow_fun(abs_v)) + offset).clamp(range_min, range_max)
+                    })) as ArrayRef)
+                }
                 PowerFunction::Custom { exponent } => {
+                    // Custom power function
                     let exponent = *exponent;
-                    Ok(ScalarOrArray::new_array(
-                        values
-                            .values()
-                            .iter()
-                            .map(|&v| {
-                                let abs_v = v.abs();
-                                let sign = if v < 0.0 { -1.0 } else { 1.0 };
-                                (scale * (sign * abs_v.powf(exponent)) + offset)
-                                    .clamp(range_min, range_max)
-                            })
-                            .collect(),
-                    ))
+                    Ok(Arc::<Float32Array>::new(unary(values, |v| {
+                        let abs_v = v.abs();
+                        let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                        (scale * (sign * abs_v.powf(exponent)) + offset).clamp(range_min, range_max)
+                    })) as ArrayRef)
                 }
             },
             (true, true) => match &power_fun {
                 // Clamp and rounding
-                PowerFunction::Static { pow_fun, .. } => Ok(ScalarOrArray::new_array(
-                    values
-                        .values()
-                        .iter()
-                        .map(|&v| {
-                            let abs_v = v.abs();
-                            let sign = if v < 0.0 { -1.0 } else { 1.0 };
-                            (scale * (sign * pow_fun(abs_v)) + offset)
-                                .clamp(range_min, range_max)
-                                .round()
-                        })
-                        .collect(),
-                )),
+                PowerFunction::Static { pow_fun, .. } => {
+                    // Predefined power function
+                    Ok(Arc::<Float32Array>::new(unary(values, |v| {
+                        let abs_v = v.abs();
+                        let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                        (scale * (sign * pow_fun(abs_v)) + offset)
+                            .clamp(range_min, range_max)
+                            .round()
+                    })) as ArrayRef)
+                }
                 PowerFunction::Custom { exponent } => {
+                    // Custom power function
                     let exponent = *exponent;
-                    Ok(ScalarOrArray::new_array(
-                        values
-                            .values()
-                            .iter()
-                            .map(|&v| {
-                                let abs_v = v.abs();
-                                let sign = if v < 0.0 { -1.0 } else { 1.0 };
-                                (scale * (sign * abs_v.powf(exponent)) + offset)
-                                    .clamp(range_min, range_max)
-                                    .round()
-                            })
-                            .collect(),
-                    ))
+                    Ok(Arc::<Float32Array>::new(unary(values, |v| {
+                        let abs_v = v.abs();
+                        let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                        (scale * (sign * abs_v.powf(exponent)) + offset)
+                            .clamp(range_min, range_max)
+                            .round()
+                    })) as ArrayRef)
                 }
             },
             (false, false) => match &power_fun {
                 // no clamping or rounding
-                PowerFunction::Static { pow_fun, .. } => Ok(ScalarOrArray::new_array(
-                    values
-                        .values()
-                        .iter()
-                        .map(|&v| {
-                            let abs_v = v.abs();
-                            let sign = if v < 0.0 { -1.0 } else { 1.0 };
-                            scale * (sign * pow_fun(abs_v)) + offset
-                        })
-                        .collect(),
-                )),
+                PowerFunction::Static { pow_fun, .. } => {
+                    // predefined power function
+                    Ok(Arc::<Float32Array>::new(unary(values, |v| {
+                        let abs_v = v.abs();
+                        let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                        scale * (sign * pow_fun(abs_v)) + offset
+                    })) as ArrayRef)
+                }
                 PowerFunction::Custom { exponent } => {
+                    // custom power function
                     let exponent = *exponent;
-                    Ok(ScalarOrArray::new_array(
-                        values
-                            .values()
-                            .iter()
-                            .map(|&v| {
-                                let abs_v = v.abs();
-                                let sign = if v < 0.0 { -1.0 } else { 1.0 };
-                                scale * (sign * abs_v.powf(exponent)) + offset
-                            })
-                            .collect(),
-                    ))
+                    Ok(Arc::<Float32Array>::new(unary(values, |v| {
+                        let abs_v = v.abs();
+                        let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                        scale * (sign * abs_v.powf(exponent)) + offset
+                    })) as ArrayRef)
                 }
             },
             (false, true) => match &power_fun {
                 // no clamping and rounding
-                PowerFunction::Static { pow_fun, .. } => Ok(ScalarOrArray::new_array(
-                    values
-                        .values()
-                        .iter()
-                        .map(|&v| {
-                            let abs_v = v.abs();
-                            let sign = if v < 0.0 { -1.0 } else { 1.0 };
-                            (scale * (sign * pow_fun(abs_v)) + offset).round()
-                        })
-                        .collect(),
-                )),
+                PowerFunction::Static { pow_fun, .. } => {
+                    // predefined power function
+                    Ok(Arc::<Float32Array>::new(unary(values, |v| {
+                        let abs_v = v.abs();
+                        let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                        (scale * (sign * pow_fun(abs_v)) + offset).round()
+                    })) as ArrayRef)
+                }
                 PowerFunction::Custom { exponent } => {
+                    // custom power function
                     let exponent = *exponent;
-                    Ok(ScalarOrArray::new_array(
-                        values
-                            .values()
-                            .iter()
-                            .map(|&v| {
-                                let abs_v = v.abs();
-                                let sign = if v < 0.0 { -1.0 } else { 1.0 };
-                                (scale * (sign * abs_v.powf(exponent)) + offset).round()
-                            })
-                            .collect(),
-                    ))
+                    Ok(Arc::<Float32Array>::new(unary(values, |v| {
+                        let abs_v = v.abs();
+                        let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                        (scale * (sign * abs_v.powf(exponent)) + offset).round()
+                    })) as ArrayRef)
                 }
             },
         }
@@ -350,9 +333,9 @@ impl ScaleImpl for PowScale {
         &self,
         config: &ScaleConfig,
         values: &ArrayRef,
-        interpolator: &dyn ColorInterpolator,
     ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
-        scale_numeric_to_color(self, config, values, interpolator)
+        let scaled = self.scale(config, values)?;
+        config.context.color_coercer.coerce(&scaled, None)
     }
 
     fn ticks(
@@ -439,6 +422,7 @@ mod tests {
             options: vec![("clamp".to_string(), true.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         let scale = LinearScale;
@@ -475,6 +459,7 @@ mod tests {
             ]
             .into_iter()
             .collect(),
+            context: ScaleContext::default(),
         };
 
         let scale = LinearScale;
@@ -509,6 +494,7 @@ mod tests {
             options: vec![("clamp".to_string(), true.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         let scale = LinearScale;
@@ -536,6 +522,7 @@ mod tests {
             options: vec![("clamp".to_string(), false.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         let values = Arc::new(Float32Array::from(vec![0.0, 1.0, 2.0])) as ArrayRef;
@@ -553,6 +540,7 @@ mod tests {
             options: vec![("clamp".to_string(), false.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         let result = scale
@@ -573,6 +561,7 @@ mod tests {
             options: vec![("clamp".to_string(), true.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         let scale = LinearScale;
@@ -598,6 +587,7 @@ mod tests {
             options: vec![("clamp".to_string(), false.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         let scale = LinearScale;
@@ -623,6 +613,7 @@ mod tests {
             options: vec![("range_offset".to_string(), 3.0.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         let scale = LinearScale;
@@ -648,6 +639,7 @@ mod tests {
             options: vec![("clamp".to_string(), true.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         let scale = LinearScale;
@@ -671,6 +663,7 @@ mod tests {
             domain: Arc::new(Float32Array::from(vec![0.0, 10.0])),
             range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
             options: vec![].into_iter().collect(),
+            context: ScaleContext::default(),
         };
 
         let scale = LinearScale;
@@ -699,6 +692,7 @@ mod tests {
             domain: Arc::new(Float32Array::from(vec![-100.0, 100.0])),
             range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
             options: vec![].into_iter().collect(),
+            context: ScaleContext::default(),
         };
 
         let scale = LinearScale;
@@ -733,6 +727,7 @@ mod tests {
             domain: Arc::new(Float32Array::from(vec![1.1, 10.9])),
             range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
             options: vec![].into_iter().collect(),
+            context: ScaleContext::default(),
         };
 
         let niced_domain =

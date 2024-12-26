@@ -19,72 +19,112 @@ pub struct DefaultFormatter {
 }
 
 pub trait NumberFormatter: Debug + Send + Sync + 'static {
-    fn format(&self, value: &[f32]) -> Vec<String>;
+    fn format(&self, value: &[Option<f32>], default: Option<&str>) -> Vec<String>;
 }
 
 pub trait DateFormatter: Debug + Send + Sync + 'static {
-    fn format(&self, value: &[NaiveDate]) -> Vec<String>;
+    fn format(&self, value: &[Option<NaiveDate>], default: Option<&str>) -> Vec<String>;
 }
 
 pub trait TimestampFormatter: Debug + Send + Sync + 'static {
-    fn format(&self, value: &[NaiveDateTime]) -> Vec<String>;
+    fn format(&self, value: &[Option<NaiveDateTime>], default: Option<&str>) -> Vec<String>;
 }
 
 pub trait TimestamptzFormatter: Debug + Send + Sync + 'static {
-    fn format(&self, value: &[DateTime<Utc>]) -> Vec<String>;
+    fn format(&self, value: &[Option<DateTime<Utc>>], default: Option<&str>) -> Vec<String>;
 }
 
 impl NumberFormatter for DefaultFormatter {
-    fn format(&self, value: &[f32]) -> Vec<String> {
+    fn format(&self, value: &[Option<f32>], default: Option<&str>) -> Vec<String> {
+        let default = default.unwrap_or("");
         if let Some(format_str) = &self.format_str {
             let mut f: Formatter = format_str.parse().unwrap(); // Fix panic
-            value.iter().map(|&v| f.fmt2(v).to_string()).collect()
+            value
+                .iter()
+                .map(|&v| {
+                    v.map(|v| f.fmt2(v).to_string())
+                        .unwrap_or_else(|| default.to_string())
+                })
+                .collect()
         } else {
-            value.iter().map(|&v| v.to_string()).collect()
+            value
+                .iter()
+                .map(|&v| {
+                    v.map(|v| v.to_string())
+                        .unwrap_or_else(|| default.to_string())
+                })
+                .collect()
         }
     }
 }
 
 impl DateFormatter for DefaultFormatter {
-    fn format(&self, value: &[NaiveDate]) -> Vec<String> {
+    fn format(&self, value: &[Option<NaiveDate>], default: Option<&str>) -> Vec<String> {
+        let default = default.unwrap_or("");
         // If the format string is empty, just return the date as a string with default format
         if let Some(format_str) = &self.format_str {
             value
                 .iter()
-                .map(|v| v.format(format_str).to_string())
+                .map(|v| {
+                    v.map(|v| v.format(format_str).to_string())
+                        .unwrap_or_else(|| default.to_string())
+                })
                 .collect()
         } else {
-            value.iter().map(|v| v.to_string()).collect()
+            value
+                .iter()
+                .map(|v| {
+                    v.map(|v| v.to_string())
+                        .unwrap_or_else(|| default.to_string())
+                })
+                .collect()
         }
     }
 }
 
 impl TimestampFormatter for DefaultFormatter {
-    fn format(&self, value: &[NaiveDateTime]) -> Vec<String> {
+    fn format(&self, value: &[Option<NaiveDateTime>], default: Option<&str>) -> Vec<String> {
+        let default = default.unwrap_or("");
         // If the format string is empty, just return the date as a string with default format
         if let Some(format_str) = &self.format_str {
             value
                 .iter()
-                .map(|v| v.format(format_str).to_string())
+                .map(|v| {
+                    v.map(|v| v.format(format_str).to_string())
+                        .unwrap_or_else(|| default.to_string())
+                })
                 .collect()
         } else {
-            value.iter().map(|v| v.to_string()).collect()
+            value
+                .iter()
+                .map(|v| {
+                    v.map(|v| v.to_string())
+                        .unwrap_or_else(|| default.to_string())
+                })
+                .collect()
         }
     }
 }
 
 impl TimestamptzFormatter for DefaultFormatter {
-    fn format(&self, value: &[DateTime<Utc>]) -> Vec<String> {
+    fn format(&self, value: &[Option<DateTime<Utc>>], default: Option<&str>) -> Vec<String> {
+        let default = default.unwrap_or("");
         if let Some(format_str) = &self.format_str {
             if let Some(local_tz) = &self.local_tz {
                 value
                     .iter()
-                    .map(|v| v.with_timezone(local_tz).format(format_str).to_string())
+                    .map(|v| {
+                        v.map(|v| v.with_timezone(local_tz).format(format_str).to_string())
+                            .unwrap_or_else(|| default.to_string())
+                    })
                     .collect()
             } else {
                 value
                     .iter()
-                    .map(|v| v.format(format_str).to_string())
+                    .map(|v| {
+                        v.map(|v| v.format(format_str).to_string())
+                            .unwrap_or_else(|| default.to_string())
+                    })
                     .collect()
             }
         } else {
@@ -92,10 +132,19 @@ impl TimestamptzFormatter for DefaultFormatter {
             if let Some(local_tz) = &self.local_tz {
                 value
                     .iter()
-                    .map(|v| v.with_timezone(local_tz).to_string())
+                    .map(|v| {
+                        v.map(|v| v.with_timezone(local_tz).to_string())
+                            .unwrap_or_else(|| default.to_string())
+                    })
                     .collect()
             } else {
-                value.iter().map(|v| v.to_string()).collect()
+                value
+                    .iter()
+                    .map(|v| {
+                        v.map(|v| v.to_string())
+                            .unwrap_or_else(|| default.to_string())
+                    })
+                    .collect()
             }
         }
     }
@@ -124,26 +173,31 @@ impl Formatters {
     /// Format an arrow array according to the registered formatters.
     /// Types other than numbers, dates, and timestamps are cast to string using the
     /// cast arrow kernel.
-    pub fn format(&self, values: &ArrayRef) -> Result<ScalarOrArray<String>, AvengerScaleError> {
+    pub fn format(
+        &self,
+        values: &ArrayRef,
+        default: Option<&str>,
+    ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
         let dtype = values.data_type();
 
         match dtype {
             DataType::Date32 => {
                 // TODO: do we need to handle nulls here?
                 let values = values.as_primitive::<Date32Type>();
-                let dates: Vec<_> = (0..values.len())
-                    .map(|i| values.value_as_date(i).unwrap())
-                    .collect();
-                Ok(ScalarOrArray::new_array(self.date.format(&dates)))
+                let dates: Vec<_> = (0..values.len()).map(|i| values.value_as_date(i)).collect();
+                Ok(ScalarOrArray::new_array(self.date.format(&dates, default)))
             }
+
             DataType::Timestamp(_, None) => {
                 let values = cast(values, &DataType::Timestamp(TimeUnit::Millisecond, None))?;
                 let values = values.as_primitive::<TimestampMillisecondType>();
 
                 let timestamps: Vec<_> = (0..values.len())
-                    .map(|i| values.value_as_datetime(i).unwrap())
+                    .map(|i| values.value_as_datetime(i))
                     .collect();
-                Ok(ScalarOrArray::new_array(self.timestamp.format(&timestamps)))
+                Ok(ScalarOrArray::new_array(
+                    self.timestamp.format(&timestamps, default),
+                ))
             }
             DataType::Timestamp(_, Some(tz)) => {
                 let values = cast(
@@ -157,28 +211,41 @@ impl Formatters {
 
                 // Convert to chrono timestamps with timezone
                 let timestamps: Vec<_> = (0..values.len())
-                    .map(|i| values.value_as_datetime_with_tz(i, tz).unwrap())
+                    .map(|i| values.value_as_datetime_with_tz(i, tz))
                     .collect();
 
                 // Convert to UTC
-                let timestamps_utc: Vec<_> =
-                    timestamps.iter().map(|t| t.with_timezone(&Utc)).collect();
-                Ok(ScalarOrArray::new_array(self.timestamptz.format(&timestamps_utc)))
+                let timestamps_utc: Vec<_> = timestamps
+                    .iter()
+                    .map(|t| t.map(|t| t.with_timezone(&Utc)))
+                    .collect();
+                Ok(ScalarOrArray::new_array(
+                    self.timestamptz.format(&timestamps_utc, default),
+                ))
             }
             _ if dtype.is_numeric() => {
                 // Cast and downcast to f32
                 let values = cast(values, &DataType::Float32)?;
                 let values = values.as_primitive::<Float32Type>();
-                Ok(ScalarOrArray::new_array(self.number.format(values.values())))
+                Ok(ScalarOrArray::new_array(
+                    self.number
+                        .format(&values.iter().collect::<Vec<_>>(), default),
+                ))
             }
             _ => {
                 // Cast to string
+                let default = default.unwrap_or("");
                 let values = cast(values, &DataType::Utf8)?;
-                Ok(ScalarOrArray::new_array(values
-                    .as_string::<i32>()
-                    .iter()
-                    .map(|s| s.unwrap_or("").to_string())
-                    .collect()))
+                Ok(ScalarOrArray::new_array(
+                    values
+                        .as_string::<i32>()
+                        .iter()
+                        .map(|s| {
+                            s.map(|s| s.to_string())
+                                .unwrap_or_else(|| default.to_string())
+                        })
+                        .collect(),
+                ))
             }
         }
     }

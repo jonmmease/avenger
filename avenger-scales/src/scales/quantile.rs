@@ -1,10 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
 
 use arrow::{
-    array::{ArrayRef, AsArray, Float32Array},
+    array::{ArrayRef, AsArray, Float32Array, UInt32Array},
     compute::{
-        kernels::{cast, sort},
-        SortOptions,
+        kernels::{cast, sort, take},
+        unary, SortOptions,
     },
     datatypes::{DataType, Float32Type},
 };
@@ -16,7 +16,8 @@ use datafusion_common::ScalarValue;
 
 use crate::{
     color_interpolator::{ColorInterpolator, SrgbaColorInterpolator},
-    error::AvengerScaleError, formatter::Formatters,
+    error::AvengerScaleError,
+    formatter::Formatters,
 };
 
 use super::{
@@ -25,25 +26,8 @@ use super::{
         prep_discrete_color_range, prep_discrete_enum_range, prep_discrete_numeric_range,
         prep_discrete_string_range,
     },
-    ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleImpl,
+    ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl,
 };
-
-/// Macro to generate scale_to_X trait methods for threshold enum scaling
-#[macro_export]
-macro_rules! impl_quantile_enum_scale_method {
-    ($type_name:ident) => {
-        paste::paste! {
-            fn [<scale_to_ $type_name:snake>](
-                &self,
-                config: &ScaleConfig,
-                values: &ArrayRef,
-            ) -> Result<ScalarOrArray<$type_name>, AvengerScaleError> {
-                let (range_vec, default_value) = prep_discrete_enum_range::<$type_name>(config)?;
-                quantile_scale(values, &config.domain, range_vec, default_value)
-            }
-        }
-    };
-}
 
 #[derive(Debug, Clone)]
 pub struct QuantileScale;
@@ -56,9 +40,8 @@ impl QuantileScale {
                 domain: Arc::new(Float32Array::from(domain)),
                 range,
                 options: HashMap::new(),
+                context: ScaleContext::default(),
             },
-            color_interpolator: Arc::new(SrgbaColorInterpolator),
-            formatters: Formatters::default(),
         }
     }
 }
@@ -68,42 +51,45 @@ impl ScaleImpl for QuantileScale {
         InferDomainFromDataMethod::Unique
     }
 
-    /// Scale to numeric values
-    fn scale_to_numeric(
+    fn scale(
         &self,
         config: &ScaleConfig,
         values: &ArrayRef,
-    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
-        // let domain_span = config.numeric_interval_domain()?;
-        let (range_vec, default_value) = prep_discrete_numeric_range(config)?;
-        quantile_scale(values, &config.domain, range_vec, default_value)
-    }
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        let n = config.range.len();
+        if n <= 1 || config.domain.is_empty() {
+            return Err(AvengerScaleError::ScaleOperationNotSupported(
+                "Quantile scale requires a non-empty domain and range".to_string(),
+            ));
+        }
 
-    fn scale_to_string(
-        &self,
-        config: &ScaleConfig,
-        values: &ArrayRef,
-    ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
-        let (range_vec, default_value) = prep_discrete_string_range(config)?;
-        quantile_scale(values, &config.domain, range_vec, default_value)
-    }
+        let thresholds = quantile_thresholds(&config.domain, n)?;
+        let values = cast(values, &DataType::Float32)?;
+        let values = values.as_primitive::<Float32Type>();
 
-    fn scale_to_color(
-        &self,
-        config: &ScaleConfig,
-        values: &ArrayRef,
-        _color_interpolator: &dyn ColorInterpolator,
-    ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
-        let (range_vec, default_value) = prep_discrete_color_range(config)?;
-        quantile_scale(values, &config.domain, range_vec, default_value)
-    }
+        // Compute range indices
+        let indices = UInt32Array::from(
+            values
+                .iter()
+                .map(|x| {
+                    x.and_then(|x| {
+                        if x.is_finite() {
+                            let idx =
+                                match thresholds.binary_search_by(|t| t.partial_cmp(&x).unwrap()) {
+                                    Ok(i) => (i + 1) as u32,
+                                    Err(i) => i as u32,
+                                };
+                            Some(idx)
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .collect::<Vec<_>>(),
+        );
 
-    // Enums
-    impl_quantile_enum_scale_method!(StrokeCap);
-    impl_quantile_enum_scale_method!(StrokeJoin);
-    impl_quantile_enum_scale_method!(ImageAlign);
-    impl_quantile_enum_scale_method!(ImageBaseline);
-    impl_quantile_enum_scale_method!(AreaOrientation);
+        Ok(take::take(&config.range, &indices, None)?)
+    }
 
     fn ticks(
         &self,
@@ -143,44 +129,6 @@ fn quantile_thresholds(domain: &ArrayRef, n: usize) -> Result<Vec<f32>, AvengerS
     Ok(thresholds)
 }
 
-/// Generic helper function for evaluating quantize scales
-fn quantile_scale<R: Sync + Clone>(
-    values: &ArrayRef,
-    domain: &ArrayRef,
-    range: Vec<R>,
-    default_value: R,
-) -> Result<ScalarOrArray<R>, AvengerScaleError> {
-    let n = range.len();
-    if n <= 1 || domain.is_empty() {
-        return Err(AvengerScaleError::ScaleOperationNotSupported(
-            "Quantile scale requires a non-empty domain and range".to_string(),
-        ));
-    }
-
-    let thresholds = quantile_thresholds(domain, n)?;
-    Ok(ScalarOrArray::new_array(
-        values
-            .as_primitive::<Float32Type>()
-            .iter()
-            .map(|x| match x {
-                Some(x) => {
-                    if x.is_finite() {
-                        let idx = match thresholds.binary_search_by(|t| t.partial_cmp(&x).unwrap())
-                        {
-                            Ok(i) => (i + 1) as usize,
-                            Err(i) => i as usize,
-                        };
-                        range[idx].clone()
-                    } else {
-                        default_value.clone()
-                    }
-                }
-                None => default_value.clone(),
-            })
-            .collect(),
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use std::vec;
@@ -201,6 +149,7 @@ mod tests {
             options: vec![("default".to_string(), "default".into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
         let scale = QuantileScale;
 

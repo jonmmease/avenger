@@ -3,7 +3,10 @@ use crate::error::AvengerScaleError;
 use crate::formatter::Formatters;
 use crate::scales::ordinal::OrdinalScale;
 use crate::scales::{InferDomainFromDataMethod, ScaleConfig, ScaleImpl};
-use arrow::array::{AsArray, StringArray};
+use crate::utils::ScalarValueUtils;
+use arrow::array::{Array, AsArray, Float32Array, StringArray};
+use arrow::compute::kernels::zip::zip;
+use arrow::compute::{is_not_null, is_null};
 use arrow::datatypes::Float32Type;
 use arrow::{
     array::ArrayRef,
@@ -14,29 +17,48 @@ use avenger_common::types::{AreaOrientation, ImageAlign, ImageBaseline, StrokeCa
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 use css_color_parser::Color;
 use paste::paste;
+use std::f32::NAN;
 use std::fmt::Debug;
 use std::sync::Arc;
 use strum::VariantNames;
 
 pub trait ColorCoercer: Debug + Send + Sync + 'static {
-    fn coerce_color(
+    fn coerce(
         &self,
         value: &ArrayRef,
+        default_value: Option<ColorOrGradient>,
     ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError>;
 }
 
 pub trait NumericCoercer: Debug + Send + Sync + 'static {
-    fn coerce_numeric(&self, value: &ArrayRef) -> Result<ScalarOrArray<f32>, AvengerScaleError>;
+    fn coerce(
+        &self,
+        value: &ArrayRef,
+        default_value: Option<f32>,
+    ) -> Result<ScalarOrArray<f32>, AvengerScaleError>;
 }
 
 #[derive(Default, Debug, Clone, Copy)]
 pub struct CastNumericCoercer;
 
 impl NumericCoercer for CastNumericCoercer {
-    fn coerce_numeric(&self, value: &ArrayRef) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+    fn coerce(
+        &self,
+        value: &ArrayRef,
+        default_value: Option<f32>,
+    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
         let cast_array = cast(value, &DataType::Float32)?;
         let result = cast_array.as_primitive::<Float32Type>();
-        Ok(ScalarOrArray::new_array(result.values().to_vec()))
+
+        if result.null_count() > 0 {
+            let mask = is_not_null(result)?;
+            let fill_array = Float32Array::from(vec![default_value.unwrap_or(NAN); result.len()]);
+            let filled = zip(&mask, &result, &fill_array)?;
+            let result_vec = filled.as_primitive::<Float32Type>().values().to_vec();
+            Ok(ScalarOrArray::new_array(result_vec))
+        } else {
+            Ok(ScalarOrArray::new_array(result.values().to_vec()))
+        }
     }
 }
 
@@ -44,11 +66,13 @@ impl NumericCoercer for CastNumericCoercer {
 pub struct CssColorCoercer;
 
 impl ColorCoercer for CssColorCoercer {
-    fn coerce_color(
+    fn coerce(
         &self,
         value: &ArrayRef,
+        default_value: Option<ColorOrGradient>,
     ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
         let dtype = value.data_type();
+        let default_value = default_value.unwrap_or(ColorOrGradient::transparent());
         match dtype {
             DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
                 // cast to normalize to utf8
@@ -67,8 +91,8 @@ impl ColorCoercer for CssColorCoercer {
                                     color.a,
                                 ])
                             })
-                            .unwrap_or_else(|_| ColorOrGradient::transparent()),
-                        _ => ColorOrGradient::transparent(),
+                            .unwrap_or_else(|_| default_value.clone()),
+                        _ => default_value.clone(),
                     })
                     .collect::<Vec<_>>();
                 Ok(ScalarOrArray::new_array(result))
@@ -97,7 +121,7 @@ impl ColorCoercer for CssColorCoercer {
                                 values.value(3),
                             ])
                         }
-                        _ => ColorOrGradient::transparent(),
+                        _ => default_value.clone(),
                     })
                     .collect::<Vec<_>>();
                 Ok(ScalarOrArray::new_array(result))
@@ -113,12 +137,11 @@ impl ColorCoercer for CssColorCoercer {
 }
 
 // Define the macro using paste
-macro_rules! define_scale_to_enum {
+macro_rules! define_enum_coercer {
     ($enum_type:ty) => {
         paste! {
-            fn [<scale_to_ $enum_type:snake> ](
+            pub fn [<to_ $enum_type:snake> ](
                 &self,
-                _config: &ScaleConfig,
                 values: &ArrayRef,
             ) -> Result<ScalarOrArray<$enum_type>, AvengerScaleError> {
                 let domain = Arc::new(StringArray::from(Vec::from(<$enum_type>::VARIANTS))) as ArrayRef;
@@ -130,45 +153,50 @@ macro_rules! define_scale_to_enum {
 }
 
 #[derive(Debug, Clone)]
-pub struct CoerceScaleImpl {
+pub struct Coercer {
     pub color_coercer: Arc<dyn ColorCoercer>,
     pub number_coercer: Arc<dyn NumericCoercer>,
     pub formatters: Formatters,
 }
 
-impl ScaleImpl for CoerceScaleImpl {
-    fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
-        InferDomainFromDataMethod::All
+impl Default for Coercer {
+    fn default() -> Self {
+        Self {
+            color_coercer: Arc::new(CssColorCoercer),
+            number_coercer: Arc::new(CastNumericCoercer),
+            formatters: Formatters::default(),
+        }
     }
+}
 
-    fn scale_to_numeric(
+impl Coercer {
+    pub fn to_numeric(
         &self,
-        _config: &ScaleConfig,
         values: &ArrayRef,
+        default_value: Option<f32>,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
-        self.number_coercer.coerce_numeric(values)
+        self.number_coercer.coerce(values, default_value)
     }
 
-    fn scale_to_color(
+    pub fn to_color(
         &self,
-        _config: &ScaleConfig,
         values: &ArrayRef,
-        _interpolator: &dyn ColorInterpolator,
+        default_value: Option<ColorOrGradient>,
     ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
-        self.color_coercer.coerce_color(values)
+        self.color_coercer.coerce(values, default_value)
     }
 
-    fn scale_to_string(
+    pub fn to_string(
         &self,
-        _config: &ScaleConfig,
         values: &ArrayRef,
+        default_value: Option<&str>,
     ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
-        self.formatters.format(values)
+        self.formatters.format(values, default_value)
     }
 
-    define_scale_to_enum!(StrokeCap);
-    define_scale_to_enum!(StrokeJoin);
-    define_scale_to_enum!(ImageAlign);
-    define_scale_to_enum!(ImageBaseline);
-    define_scale_to_enum!(AreaOrientation);
+    define_enum_coercer!(StrokeCap);
+    define_enum_coercer!(StrokeJoin);
+    define_enum_coercer!(ImageAlign);
+    define_enum_coercer!(ImageBaseline);
+    define_enum_coercer!(AreaOrientation);
 }

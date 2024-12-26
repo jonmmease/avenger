@@ -1,7 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use arrow::{
-    array::{ArrayRef, AsArray, Float32Array},
+    array::{ArrayRef, AsArray, Float32Array, UInt32Array},
+    compute::kernels::take,
     datatypes::Float32Type,
 };
 use avenger_common::{
@@ -22,7 +23,7 @@ use super::{
         prep_discrete_color_range, prep_discrete_enum_range, prep_discrete_numeric_range,
         prep_discrete_string_range,
     },
-    ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleImpl,
+    ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl,
 };
 
 /// Macro to generate scale_to_X trait methods for threshold enum scaling
@@ -57,9 +58,8 @@ impl QuantizeScale {
                 domain: Arc::new(Float32Array::from(vec![domain.0, domain.1])),
                 range,
                 options: HashMap::new(),
+                context: ScaleContext::default(),
             },
-            color_interpolator: Arc::new(SrgbaColorInterpolator),
-            formatters: Formatters::default(),
         }
     }
 
@@ -78,53 +78,68 @@ impl ScaleImpl for QuantizeScale {
         InferDomainFromDataMethod::Unique
     }
 
-    /// Scale to numeric values
-    fn scale_to_numeric(
+    fn scale(
         &self,
         config: &ScaleConfig,
         values: &ArrayRef,
-    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        // Pre-compute scaling factors
+        let n = config.range.len();
+        let segments = config.range.len() as f32;
+
         let domain_span = QuantizeScale::apply_nice(
             config.numeric_interval_domain()?,
             config.options.get("nice"),
         )?;
-        let (range_vec, default_value) = prep_discrete_numeric_range(config)?;
-        quantize_scale(values, domain_span, range_vec, default_value)
+
+        let indices = Arc::new(UInt32Array::from(
+            values
+                .as_primitive::<Float32Type>()
+                .iter()
+                .map(|x| match x {
+                    Some(x) => {
+                        if x.is_finite() {
+                            let normalized = (x - domain_span.0) / domain_span.1;
+                            let idx = ((normalized * segments).floor() as usize).clamp(0, n - 1);
+                            Some(idx as u32)
+                        } else {
+                            None
+                        }
+                    }
+                    None => None,
+                })
+                .collect::<Vec<_>>(),
+        )) as ArrayRef;
+
+        Ok(take::take(&config.range, &indices, None)?)
     }
 
-    fn scale_to_string(
-        &self,
-        config: &ScaleConfig,
-        values: &ArrayRef,
-    ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
-        let domain_span = QuantizeScale::apply_nice(
-            config.numeric_interval_domain()?,
-            config.options.get("nice"),
-        )?;
-        let (range_vec, default_value) = prep_discrete_string_range(config)?;
-        quantize_scale(values, domain_span, range_vec, default_value)
-    }
+    // /// Scale to numeric values
+    // fn scale_to_numeric(
+    //     &self,
+    //     config: &ScaleConfig,
+    //     values: &ArrayRef,
+    // ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+    //     let domain_span = QuantizeScale::apply_nice(
+    //         config.numeric_interval_domain()?,
+    //         config.options.get("nice"),
+    //     )?;
+    //     let (range_vec, default_value) = prep_discrete_numeric_range(config)?;
+    //     quantize_scale(values, domain_span, range_vec, default_value)
+    // }
 
-    fn scale_to_color(
-        &self,
-        config: &ScaleConfig,
-        values: &ArrayRef,
-        _color_interpolator: &dyn ColorInterpolator,
-    ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
-        let domain_span = QuantizeScale::apply_nice(
-            config.numeric_interval_domain()?,
-            config.options.get("nice"),
-        )?;
-        let (range_vec, default_value) = prep_discrete_color_range(config)?;
-        quantize_scale(values, domain_span, range_vec, default_value)
-    }
-
-    // Enums
-    impl_quantize_enum_scale_method!(StrokeCap);
-    impl_quantize_enum_scale_method!(StrokeJoin);
-    impl_quantize_enum_scale_method!(ImageAlign);
-    impl_quantize_enum_scale_method!(ImageBaseline);
-    impl_quantize_enum_scale_method!(AreaOrientation);
+    // fn scale_to_string(
+    //     &self,
+    //     config: &ScaleConfig,
+    //     values: &ArrayRef,
+    // ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
+    //     let domain_span = QuantizeScale::apply_nice(
+    //         config.numeric_interval_domain()?,
+    //         config.options.get("nice"),
+    //     )?;
+    //     let (range_vec, default_value) = prep_discrete_string_range(config)?;
+    //     quantize_scale(values, domain_span, range_vec, default_value)
+    // }
 
     fn ticks(
         &self,
@@ -137,36 +152,36 @@ impl ScaleImpl for QuantizeScale {
     }
 }
 
-/// Generic helper function for evaluating quantize scales
-fn quantize_scale<R: Sync + Clone>(
-    values: &ArrayRef,
-    domain_span: (f32, f32),
-    range: Vec<R>,
-    default_value: R,
-) -> Result<ScalarOrArray<R>, AvengerScaleError> {
-    // Pre-compute scaling factors
-    let n = range.len();
-    let segments = range.len() as f32;
+// /// Generic helper function for evaluating quantize scales
+// fn quantize_scale<R: Sync + Clone>(
+//     values: &ArrayRef,
+//     domain_span: (f32, f32),
+//     range: Vec<R>,
+//     default_value: R,
+// ) -> Result<ScalarOrArray<R>, AvengerScaleError> {
+//     // Pre-compute scaling factors
+//     let n = range.len();
+//     let segments = range.len() as f32;
 
-    let range_vec = values
-        .as_primitive::<Float32Type>()
-        .iter()
-        .map(|x| match x {
-            Some(x) => {
-                if x.is_finite() {
-                    let normalized = (x - domain_span.0) / domain_span.1;
-                    let idx = ((normalized * segments).floor() as usize).clamp(0, n - 1);
-                    range[idx].clone()
-                } else {
-                    default_value.clone()
-                }
-            }
-            None => default_value.clone(),
-        })
-        .collect::<Vec<_>>();
+//     let range_vec = values
+//         .as_primitive::<Float32Type>()
+//         .iter()
+//         .map(|x| match x {
+//             Some(x) => {
+//                 if x.is_finite() {
+//                     let normalized = (x - domain_span.0) / domain_span.1;
+//                     let idx = ((normalized * segments).floor() as usize).clamp(0, n - 1);
+//                     range[idx].clone()
+//                 } else {
+//                     default_value.clone()
+//                 }
+//             }
+//             None => default_value.clone(),
+//         })
+//         .collect::<Vec<_>>();
 
-    Ok(ScalarOrArray::new_array(range_vec))
-}
+//     Ok(ScalarOrArray::new_array(range_vec))
+// }
 
 #[cfg(test)]
 mod tests {
@@ -184,6 +199,7 @@ mod tests {
             domain: Arc::from(Float32Array::from(vec![0.0, 1.0])),
             range: Arc::from(StringArray::from(vec!["a", "b", "c"])),
             options: HashMap::new(),
+            context: ScaleContext::default(),
         };
 
         // Test array scaling with all test cases
@@ -204,6 +220,7 @@ mod tests {
             domain: Arc::from(Float32Array::from(vec![0.0, 1.0])),
             range: Arc::from(StringArray::from(vec!["vertical", "horizontal"])),
             options: HashMap::new(),
+            context: ScaleContext::default(),
         };
 
         // Test array scaling with all test cases
@@ -212,6 +229,7 @@ mod tests {
             .scale_to_area_orientation(&config, &values)
             .unwrap()
             .as_vec(values.len(), None);
+
         assert_eq!(
             result,
             vec![

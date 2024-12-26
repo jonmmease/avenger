@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use arrow::{
     array::{ArrayRef, AsArray, Float32Array},
-    compute::kernels::cast,
+    compute::{kernels::cast, unary},
     datatypes::{DataType, Float32Type},
 };
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
@@ -10,14 +10,15 @@ use datafusion_common::ScalarValue;
 
 use crate::{
     array,
-    color_interpolator::{scale_numeric_to_color, ColorInterpolator, SrgbaColorInterpolator},
+    color_interpolator::{ColorInterpolator, SrgbaColorInterpolator},
     error::AvengerScaleError,
     formatter::Formatters,
     utils::ScalarValueUtils,
 };
 
 use super::{
-    linear::LinearScale, ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleImpl,
+    linear::LinearScale, ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext,
+    ScaleImpl,
 };
 
 #[derive(Debug)]
@@ -39,9 +40,8 @@ impl SymlogScale {
                 ]
                 .into_iter()
                 .collect(),
+                context: ScaleContext::default(),
             },
-            color_interpolator: Arc::new(SrgbaColorInterpolator),
-            formatters: Formatters::default(),
         }
     }
 
@@ -70,11 +70,11 @@ impl ScaleImpl for SymlogScale {
         InferDomainFromDataMethod::Interval
     }
 
-    fn scale_to_numeric(
+    fn scale(
         &self,
         config: &ScaleConfig,
-        values: &arrow::array::ArrayRef,
-    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+        values: &ArrayRef,
+    ) -> Result<ArrayRef, AvengerScaleError> {
         // Get options
         let constant = config.option_f32("constant", 1.0);
         let range_offset = config.option_f32("range_offset", 0.0);
@@ -96,7 +96,7 @@ impl ScaleImpl for SymlogScale {
             || range_start.is_nan()
             || range_end.is_nan()
         {
-            return Ok(ScalarOrArray::new_array(vec![range_start; values.len()]));
+            return Ok(Arc::new(Float32Array::from(vec![range_start; values.len()])) as ArrayRef);
         }
 
         // Pre-compute transformed domain endpoints
@@ -121,113 +121,89 @@ impl ScaleImpl for SymlogScale {
         match (clamp, round) {
             (true, true) => {
                 // clamp, and round
-                Ok(ScalarOrArray::new_array(
-                    values
-                        .values()
-                        .iter()
-                        .map(|&v| {
-                            if v.is_nan() {
-                                return f32::NAN;
-                            }
-                            if v.is_infinite() {
-                                if v.is_sign_positive() {
-                                    return range_end.round();
-                                } else {
-                                    return range_start.round();
-                                }
-                            }
-                            // Apply symlog transform
-                            let sign: f32 = if v < 0.0 { -1.0 } else { 1.0 };
-                            let transformed = sign * (1.0 + (v.abs() / constant)).ln();
+                Ok(Arc::<Float32Array>::new(unary(values, |v| {
+                    if v.is_nan() {
+                        return f32::NAN;
+                    }
+                    if v.is_infinite() {
+                        if v.is_sign_positive() {
+                            return range_end.round();
+                        } else {
+                            return range_start.round();
+                        }
+                    }
+                    // Apply symlog transform
+                    let sign: f32 = if v < 0.0 { -1.0 } else { 1.0 };
+                    let transformed = sign * (1.0 + (v.abs() / constant)).ln();
 
-                            // Apply scale and offset, then clamp
-                            (scale * transformed + offset)
-                                .clamp(range_min, range_max)
-                                .round()
-                        })
-                        .collect(),
-                ))
+                    // Apply scale and offset, then clamp
+                    (scale * transformed + offset)
+                        .clamp(range_min, range_max)
+                        .round()
+                })))
             }
             (true, false) => {
                 // clamp, no round
-                Ok(ScalarOrArray::new_array(
-                    values
-                        .values()
-                        .iter()
-                        .map(|&v| {
-                            if v.is_nan() {
-                                return f32::NAN;
-                            }
-                            if v.is_infinite() {
-                                if v.is_sign_positive() {
-                                    return range_end;
-                                } else {
-                                    return range_start;
-                                }
-                            }
-                            // Apply symlog transform
-                            let sign: f32 = if v < 0.0 { -1.0 } else { 1.0 };
-                            let transformed = sign * (1.0 + (v.abs() / constant)).ln();
+                Ok(Arc::<Float32Array>::new(unary(values, |v| {
+                    if v.is_nan() {
+                        return f32::NAN;
+                    }
+                    if v.is_infinite() {
+                        if v.is_sign_positive() {
+                            return range_end;
+                        } else {
+                            return range_start;
+                        }
+                    }
+                    // Apply symlog transform
+                    let sign: f32 = if v < 0.0 { -1.0 } else { 1.0 };
+                    let transformed = sign * (1.0 + (v.abs() / constant)).ln();
 
-                            // Apply scale and offset, then clamp
-                            (scale * transformed + offset).clamp(range_min, range_max)
-                        })
-                        .collect(),
-                ))
+                    // Apply scale and offset, then clamp
+                    (scale * transformed + offset).clamp(range_min, range_max)
+                })))
             }
             (false, true) => {
                 // no clamp, round
-                Ok(ScalarOrArray::new_array(
-                    values
-                        .values()
-                        .iter()
-                        .map(|&v| {
-                            if v.is_nan() {
-                                return f32::NAN;
-                            }
-                            if v.is_infinite() {
-                                return if v.is_sign_positive() {
-                                    range_end.round()
-                                } else {
-                                    range_start.round()
-                                };
-                            }
-                            // Apply symlog transform
-                            let sign = if v < 0.0 { -1.0 } else { 1.0 };
-                            let transformed = sign * (1.0 + (v.abs() / constant)).ln();
+                Ok(Arc::<Float32Array>::new(unary(values, |v| {
+                    if v.is_nan() {
+                        return f32::NAN;
+                    }
+                    if v.is_infinite() {
+                        return if v.is_sign_positive() {
+                            range_end.round()
+                        } else {
+                            range_start.round()
+                        };
+                    }
+                    // Apply symlog transform
+                    let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                    let transformed = sign * (1.0 + (v.abs() / constant)).ln();
 
-                            // Apply scale and offset
-                            (scale * transformed + offset).round()
-                        })
-                        .collect(),
-                ))
+                    // Apply scale and offset
+                    (scale * transformed + offset).round()
+                })))
             }
             (false, false) => {
                 // no clamp, no round
-                Ok(ScalarOrArray::new_array(
-                    values
-                        .values()
-                        .iter()
-                        .map(|&v| {
-                            if v.is_nan() {
-                                return f32::NAN;
-                            }
-                            if v.is_infinite() {
-                                return if v.is_sign_positive() {
-                                    range_end
-                                } else {
-                                    range_start
-                                };
-                            }
-                            // Apply symlog transform
-                            let sign = if v < 0.0 { -1.0 } else { 1.0 };
-                            let transformed = sign * (1.0 + (v.abs() / constant)).ln();
+                Ok(Arc::<Float32Array>::new(unary(values, |v| {
+                    if v.is_nan() {
+                        return f32::NAN;
+                    }
+                    if v.is_infinite() {
+                        return if v.is_sign_positive() {
+                            range_end
+                        } else {
+                            range_start
+                        };
+                    }
+                    // Apply symlog transform
+                    let sign = if v < 0.0 { -1.0 } else { 1.0 };
+                    let transformed = sign * (1.0 + (v.abs() / constant)).ln();
 
-                            // Apply scale and offset
-                            scale * transformed + offset
-                        })
-                        .collect(),
-                ))
+                    // Apply scale and offset
+                    scale * transformed + offset
+                })))
             }
         }
     }
@@ -380,6 +356,7 @@ mod tests {
             domain: Arc::new(Float32Array::from(vec![-100.0, 100.0])),
             range: Arc::new(Float32Array::from(vec![0.0, 1.0])),
             options: HashMap::new(),
+            context: ScaleContext::default(),
         };
 
         let values = Arc::new(Float32Array::from(vec![-100.0, 0.0, 100.0])) as ArrayRef;
@@ -402,6 +379,7 @@ mod tests {
             options: vec![("range_offset".to_string(), 0.5.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         let values = Arc::new(Float32Array::from(vec![-100.0, 0.0, 100.0])) as ArrayRef;
@@ -424,6 +402,7 @@ mod tests {
             options: vec![("constant".to_string(), 5.0.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         let values = Arc::new(Float32Array::from(vec![-100.0, 0.0, 100.0])) as ArrayRef;
@@ -448,6 +427,7 @@ mod tests {
             options: vec![("clamp".to_string(), false.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         let result = scale
@@ -464,6 +444,7 @@ mod tests {
             options: vec![("clamp".to_string(), true.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         let result = scale
@@ -482,6 +463,7 @@ mod tests {
             domain: Arc::new(Float32Array::from(vec![-100.0, 100.0])),
             range: Arc::new(Float32Array::from(vec![0.0, 1.0])),
             options: HashMap::new(),
+            context: ScaleContext::default(),
         };
 
         // Test NaN
@@ -510,6 +492,7 @@ mod tests {
             domain: Arc::new(Float32Array::from(vec![-100.0, 100.0])),
             range: Arc::new(Float32Array::from(vec![0.0, 1.0])),
             options: HashMap::new(),
+            context: ScaleContext::default(),
         };
 
         // Test that invert(scale(x)) ≈ x
@@ -540,6 +523,7 @@ mod tests {
             options: vec![("range_offset".to_string(), 0.5.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         // Test that invert(scale(x)) ≈ x
@@ -578,6 +562,7 @@ mod tests {
             options: vec![("clamp".to_string(), true.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         // Test values outside the range
@@ -597,6 +582,7 @@ mod tests {
             options: vec![("constant".to_string(), 2.0.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         // Test that invert(scale(x)) ≈ x with different constant
@@ -623,6 +609,7 @@ mod tests {
             domain: Arc::new(Float32Array::from(vec![-100.0, 100.0])),
             range: Arc::new(Float32Array::from(vec![0.0, 1.0])),
             options: HashMap::new(),
+            context: ScaleContext::default(),
         };
 
         // Test NaN
@@ -648,6 +635,7 @@ mod tests {
             domain: Arc::new(Float32Array::from(vec![1.0, 1.0])),
             range: Arc::new(Float32Array::from(vec![0.0, 1.0])),
             options: HashMap::new(),
+            context: ScaleContext::default(),
         };
         let values = Arc::new(Float32Array::from(vec![0.0, 0.5, 1.0])) as ArrayRef;
         let result = scale.invert_from_numeric(&config, &values).unwrap();
@@ -661,6 +649,7 @@ mod tests {
             domain: Arc::new(Float32Array::from(vec![-100.0, 100.0])),
             range: Arc::new(Float32Array::from(vec![1.0, 1.0])),
             options: HashMap::new(),
+            context: ScaleContext::default(),
         };
         let result = scale.invert_from_numeric(&config, &values).unwrap();
         let result_vec = result.as_vec(values.len(), None);
@@ -690,6 +679,7 @@ mod tests {
             domain: Arc::new(Float32Array::from(vec![-1.0, 1.0])),
             range: Arc::new(Float32Array::from(vec![0.0, 1.0])),
             options: HashMap::new(),
+            context: ScaleContext::default(),
         };
         let ticks = scale.ticks(&config, Some(10.0)).unwrap();
         let ticks_array = ticks.as_primitive::<Float32Type>();
@@ -713,6 +703,7 @@ mod tests {
             options: vec![("constant".to_string(), constant.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         let ticks = scale.ticks(&config, Some(5.0)).unwrap();

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use arrow::{
     array::{ArrayRef, AsArray, Float32Array, StringArray},
-    compute::kernels::cast,
+    compute::{kernels::cast, unary},
     datatypes::{DataType, Float32Type},
 };
 use avenger_common::{
@@ -12,14 +12,11 @@ use avenger_common::{
 use datafusion_common::ScalarValue;
 
 use crate::{
-    array,
-    color_interpolator::{scale_numeric_to_color, ColorInterpolator, SrgbaColorInterpolator},
-    error::AvengerScaleError,
-    formatter::Formatters,
+    array, color_interpolator::scale_numeric_to_color2, error::AvengerScaleError,
     utils::ScalarValueUtils,
 };
 
-use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleImpl};
+use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};
 
 #[derive(Debug)]
 pub struct LinearScale;
@@ -39,9 +36,8 @@ impl LinearScale {
                 ]
                 .into_iter()
                 .collect(),
+                context: ScaleContext::default(),
             },
-            color_interpolator: Arc::new(SrgbaColorInterpolator),
-            formatters: Formatters::default(),
         }
     }
 
@@ -58,9 +54,8 @@ impl LinearScale {
                     range.into_iter().map(Into::into).collect::<Vec<String>>(),
                 )),
                 options: Default::default(),
+                context: ScaleContext::default(),
             },
-            color_interpolator: Arc::new(SrgbaColorInterpolator),
-            formatters: Formatters::default(),
         }
     }
 
@@ -133,15 +128,25 @@ impl ScaleImpl for LinearScale {
         InferDomainFromDataMethod::Interval
     }
 
-    fn scale_to_numeric(
+    fn scale(
         &self,
         config: &ScaleConfig,
-        values: &arrow::array::ArrayRef,
-    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+        values: &ArrayRef,
+    ) -> Result<ArrayRef, AvengerScaleError> {
         let (domain_start, domain_end) = LinearScale::apply_nice(
             config.numeric_interval_domain()?,
             config.options.get("nice"),
         )?;
+
+        // Check if color interpolation is needed
+        if config.color_range().is_ok() {
+            // Create new config with niced domain
+            let config = ScaleConfig {
+                domain: Arc::new(Float32Array::from(vec![domain_start, domain_end])),
+                ..config.clone()
+            };
+            return scale_numeric_to_color2(self, &config, values);
+        }
 
         let (range_start, range_end) = config.numeric_interval_range()?;
 
@@ -153,7 +158,10 @@ impl ScaleImpl for LinearScale {
             || range_start.is_nan()
             || range_end.is_nan()
         {
-            return Ok(ScalarOrArray::new_array(vec![range_start; values.len()]));
+            return Ok(Arc::new(Float32Array::from(vec![
+                range_start;
+                values.len()
+            ])));
         }
 
         // Cast to f32 and downcast to f32 array
@@ -176,44 +184,28 @@ impl ScaleImpl for LinearScale {
             (range_end, range_start)
         };
 
-        match (clamp, round) {
+        let scaled_vec: Float32Array = match (clamp, round) {
             (true, true) => {
                 // clamp and round
-                Ok(ScalarOrArray::new_array(
-                    array
-                        .values()
-                        .iter()
-                        .map(|v| (scale * v + offset).clamp(range_min, range_max).round())
-                        .collect(),
-                ))
+                unary(array, |v| {
+                    (scale * v + offset).clamp(range_min, range_max).round()
+                })
             }
             (true, false) => {
                 // clamp, no round
-                Ok(ScalarOrArray::new_array(
-                    array
-                        .values()
-                        .iter()
-                        .map(|v| (scale * v + offset).clamp(range_min, range_max))
-                        .collect(),
-                ))
+                unary(array, |v| (scale * v + offset).clamp(range_min, range_max))
             }
             (false, true) => {
                 // no clamp, round
-                Ok(ScalarOrArray::new_array(
-                    array
-                        .values()
-                        .iter()
-                        .map(|v| (scale * v + offset).round())
-                        .collect(),
-                ))
+                unary(array, |v| (scale * v + offset).round())
             }
             (false, false) => {
                 // no clamp, no round
-                Ok(ScalarOrArray::new_array(
-                    array.values().iter().map(|v| scale * v + offset).collect(),
-                ))
+                unary(array, |v| scale * v + offset)
             }
-        }
+        };
+
+        Ok(Arc::new(scaled_vec))
     }
 
     fn invert_from_numeric(
@@ -274,16 +266,6 @@ impl ScaleImpl for LinearScale {
                     .collect(),
             ))
         }
-    }
-
-    /// Scale to color values
-    fn scale_to_color(
-        &self,
-        config: &ScaleConfig,
-        values: &ArrayRef,
-        interpolator: &dyn ColorInterpolator,
-    ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
-        scale_numeric_to_color(self, config, values, interpolator)
     }
 
     fn ticks(
@@ -422,6 +404,7 @@ mod tests {
             options: vec![("clamp".to_string(), true.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         let scale = LinearScale;
@@ -458,6 +441,7 @@ mod tests {
             ]
             .into_iter()
             .collect(),
+            context: ScaleContext::default(),
         };
 
         let scale = LinearScale;
@@ -492,6 +476,7 @@ mod tests {
             options: vec![("clamp".to_string(), true.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         let scale = LinearScale;
@@ -519,6 +504,7 @@ mod tests {
             options: vec![("clamp".to_string(), false.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         let values = Arc::new(Float32Array::from(vec![0.0, 1.0, 2.0])) as ArrayRef;
@@ -536,6 +522,7 @@ mod tests {
             options: vec![("clamp".to_string(), false.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         let result = scale
@@ -556,6 +543,7 @@ mod tests {
             options: vec![("clamp".to_string(), true.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         let scale = LinearScale;
@@ -581,6 +569,7 @@ mod tests {
             options: vec![("clamp".to_string(), false.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         let scale = LinearScale;
@@ -606,6 +595,7 @@ mod tests {
             options: vec![("range_offset".to_string(), 3.0.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         let scale = LinearScale;
@@ -631,6 +621,7 @@ mod tests {
             options: vec![("clamp".to_string(), true.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         let scale = LinearScale;
@@ -654,6 +645,7 @@ mod tests {
             domain: Arc::new(Float32Array::from(vec![0.0, 10.0])),
             range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
             options: vec![].into_iter().collect(),
+            context: ScaleContext::default(),
         };
 
         let scale = LinearScale;
@@ -682,6 +674,7 @@ mod tests {
             domain: Arc::new(Float32Array::from(vec![-100.0, 100.0])),
             range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
             options: vec![].into_iter().collect(),
+            context: ScaleContext::default(),
         };
 
         let scale = LinearScale;
@@ -716,6 +709,7 @@ mod tests {
             domain: Arc::new(Float32Array::from(vec![1.1, 10.9])),
             range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
             options: vec![].into_iter().collect(),
+            context: ScaleContext::default(),
         };
 
         let niced_domain =
