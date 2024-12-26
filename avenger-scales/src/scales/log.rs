@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use arrow::{
     array::{ArrayRef, AsArray, Float32Array},
-    compute::kernels::cast,
+    compute::{kernels::cast, unary},
     datatypes::{DataType, Float32Type},
 };
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
@@ -10,13 +10,14 @@ use datafusion_common::ScalarValue;
 
 use crate::{
     array,
-    color_interpolator::{scale_numeric_to_color, ColorInterpolator, SrgbaColorInterpolator},
+    color_interpolator::{scale_numeric_to_color2, ColorInterpolator, SrgbaColorInterpolator},
     error::AvengerScaleError,
     formatter::Formatters,
+    scales::linear::LinearScale,
     utils::ScalarValueUtils,
 };
 
-use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleImpl};
+use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};
 
 #[derive(Debug)]
 pub struct LogScale;
@@ -37,9 +38,8 @@ impl LogScale {
                 ]
                 .into_iter()
                 .collect(),
+                context: ScaleContext::default(),
             },
-            color_interpolator: Arc::new(SrgbaColorInterpolator),
-            formatters: Formatters::default(),
         }
     }
 
@@ -126,17 +126,33 @@ impl ScaleImpl for LogScale {
         InferDomainFromDataMethod::Interval
     }
 
-    fn scale_to_numeric(
+    fn scale(
         &self,
         config: &ScaleConfig,
         values: &ArrayRef,
-    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        let (domain_start, domain_end) = LinearScale::apply_nice(
+            config.numeric_interval_domain()?,
+            config.options.get("nice"),
+        )?;
+
+        // Check if color interpolation is needed
+        if config.color_range().is_ok() {
+            // Create new config with niced domain
+            let config = ScaleConfig {
+                domain: Arc::new(Float32Array::from(vec![domain_start, domain_end])),
+                ..config.clone()
+            };
+            return scale_numeric_to_color2(self, &config, values);
+        }
+
         // Get options
         let base = config.option_f32("base", 10.0);
         let range_offset = config.option_f32("range_offset", 0.0);
         let clamp = config.option_boolean("clamp", false);
         let round = config.option_boolean("round", false);
 
+        // Get options
         let (range_start, range_end) = config.numeric_interval_range()?;
         let (domain_start, domain_end) = LogScale::apply_nice(
             config.numeric_interval_domain()?,
@@ -146,7 +162,10 @@ impl ScaleImpl for LogScale {
 
         // Handle degenerate domain and range cases
         if domain_start == domain_end || range_start == range_end {
-            return Ok(ScalarOrArray::new_array(vec![range_start; values.len()]));
+            return Ok(Arc::new(Float32Array::from(vec![
+                range_start;
+                values.len()
+            ])));
         }
 
         let log_fun = LogFunction::new(base);
@@ -168,7 +187,10 @@ impl ScaleImpl for LogScale {
 
         // Handle degenerate domain in log space
         if log_domain_span == 0.0 || log_domain_span.is_nan() {
-            return Ok(ScalarOrArray::new_array(vec![range_start; values.len()]));
+            return Ok(Arc::new(Float32Array::from(vec![
+                range_start;
+                values.len()
+            ])));
         }
 
         let scale = (range_end - range_start) / log_domain_span;
@@ -191,29 +213,51 @@ impl ScaleImpl for LogScale {
         match (clamp, round) {
             // clamp and round
             (true, true) => match log_fun {
-                LogFunction::Static { log_fun, .. } => Ok(ScalarOrArray::new_array(
-                    values
-                        .values()
-                        .iter()
-                        .map(|&v| {
-                            {
-                                if v < 0.0 {
-                                    scale * (-log_fun(-v)) + offset
-                                } else if v > 0.0 {
-                                    scale * log_fun(v) + offset
-                                } else {
-                                    f32::NAN
-                                }
+                LogFunction::Static { log_fun, .. } => {
+                    Ok(Arc::<Float32Array>::new(unary(values, |v| {
+                        {
+                            if v < 0.0 {
+                                scale * (-log_fun(-v)) + offset
+                            } else if v > 0.0 {
+                                scale * log_fun(v) + offset
+                            } else {
+                                f32::NAN
                             }
-                            .clamp(rounded_range_min, rounded_range_max)
-                        })
-                        .collect(),
-                )),
-                LogFunction::Custom { ln_base, .. } => Ok(ScalarOrArray::new_array(
-                    values
-                        .values()
-                        .iter()
-                        .map(|&v| {
+                        }
+                        .clamp(rounded_range_min, rounded_range_max)
+                    })))
+                }
+
+                LogFunction::Custom { ln_base, .. } => {
+                    Ok(Arc::<Float32Array>::new(unary(values, |v| {
+                        if v < 0.0 {
+                            scale * (-v.ln() / ln_base) + offset
+                        } else if v > 0.0 {
+                            scale * (v.ln() / ln_base) + offset
+                        } else {
+                            f32::NAN
+                        }
+                        .clamp(range_min, range_max)
+                    })))
+                }
+            },
+            (true, false) => {
+                // clamp, no round
+                match log_fun {
+                    LogFunction::Static { log_fun, .. } => {
+                        Ok(Arc::<Float32Array>::new(unary(values, |v| {
+                            if v < 0.0 {
+                                scale * (-log_fun(-v)) + offset
+                            } else if v > 0.0 {
+                                scale * log_fun(v) + offset
+                            } else {
+                                f32::NAN
+                            }
+                            .clamp(range_min, range_max)
+                        })))
+                    }
+                    LogFunction::Custom { ln_base, .. } => {
+                        Ok(Arc::<Float32Array>::new(unary(values, |v| {
                             if v < 0.0 {
                                 scale * (-v.ln() / ln_base) + offset
                             } else if v > 0.0 {
@@ -222,90 +266,43 @@ impl ScaleImpl for LogScale {
                                 f32::NAN
                             }
                             .clamp(range_min, range_max)
-                        })
-                        .collect(),
-                )),
-            },
-            (true, false) => {
-                // clamp, no round
-                match log_fun {
-                    LogFunction::Static { log_fun, .. } => Ok(ScalarOrArray::new_array(
-                        values
-                            .values()
-                            .iter()
-                            .map(|&v| {
-                                {
-                                    if v < 0.0 {
-                                        scale * (-log_fun(-v)) + offset
-                                    } else if v > 0.0 {
-                                        scale * log_fun(v) + offset
-                                    } else {
-                                        f32::NAN
-                                    }
-                                }
-                                .clamp(range_min, range_max)
-                            })
-                            .collect(),
-                    )),
-                    LogFunction::Custom { ln_base, .. } => Ok(ScalarOrArray::new_array(
-                        values
-                            .values()
-                            .iter()
-                            .map(|&v| {
-                                if v < 0.0 {
-                                    scale * (-v.ln() / ln_base) + offset
-                                } else if v > 0.0 {
-                                    scale * (v.ln() / ln_base) + offset
-                                } else {
-                                    f32::NAN
-                                }
-                                .clamp(range_min, range_max)
-                            })
-                            .collect(),
-                    )),
+                        })))
+                    }
                 }
             }
             (false, true) => {
                 // no clamp, round
                 match log_fun {
-                    LogFunction::Static { log_fun, .. } => Ok(ScalarOrArray::new_array(
-                        values
-                            .values()
-                            .iter()
-                            .map(|&v| {
-                                if v < 0.0 {
-                                    scale * (-log_fun(-v)) + offset
-                                } else if v > 0.0 {
-                                    scale * log_fun(v) + offset
-                                } else {
-                                    f32::NAN
-                                }
-                                .round()
-                            })
-                            .collect(),
-                    )),
-                    LogFunction::Custom { ln_base, .. } => Ok(ScalarOrArray::new_array(
-                        values
-                            .values()
-                            .iter()
-                            .map(|&v| {
-                                if v < 0.0 {
-                                    scale * (-v.ln() / ln_base) + offset
-                                } else if v > 0.0 {
-                                    scale * (v.ln() / ln_base) + offset
-                                } else {
-                                    f32::NAN
-                                }
-                                .round()
-                            })
-                            .collect(),
-                    )),
+                    LogFunction::Static { log_fun, .. } => {
+                        Ok(Arc::<Float32Array>::new(unary(values, |v| {
+                            if v < 0.0 {
+                                scale * (-log_fun(-v)) + offset
+                            } else if v > 0.0 {
+                                scale * log_fun(v) + offset
+                            } else {
+                                f32::NAN
+                            }
+                            .round()
+                        })))
+                    }
+                    LogFunction::Custom { ln_base, .. } => {
+                        Ok(Arc::<Float32Array>::new(unary(values, |v| {
+                            if v < 0.0 {
+                                scale * (-v.ln() / ln_base) + offset
+                            } else if v > 0.0 {
+                                scale * (v.ln() / ln_base) + offset
+                            } else {
+                                f32::NAN
+                            }
+                            .round()
+                        })))
+                    }
                 }
             }
             (false, false) => {
                 // no clamp, no round
                 match log_fun {
-                    LogFunction::Static { log_fun, .. } => Ok(ScalarOrArray::new_array(
+                    LogFunction::Static { log_fun, .. } => Ok(Arc::new(Float32Array::from(
                         values
                             .values()
                             .iter()
@@ -318,9 +315,9 @@ impl ScaleImpl for LogScale {
                                     f32::NAN
                                 }
                             })
-                            .collect(),
-                    )),
-                    LogFunction::Custom { ln_base, .. } => Ok(ScalarOrArray::new_array(
+                            .collect::<Vec<_>>(),
+                    ))),
+                    LogFunction::Custom { ln_base, .. } => Ok(Arc::new(Float32Array::from(
                         values
                             .values()
                             .iter()
@@ -333,8 +330,8 @@ impl ScaleImpl for LogScale {
                                     f32::NAN
                                 }
                             })
-                            .collect(),
-                    )),
+                            .collect::<Vec<_>>(),
+                    ))),
                 }
             }
         }
@@ -427,16 +424,6 @@ impl ScaleImpl for LogScale {
                 )),
             }
         }
-    }
-
-    /// Scale to color values
-    fn scale_to_color(
-        &self,
-        config: &ScaleConfig,
-        values: &ArrayRef,
-        interpolator: &dyn ColorInterpolator,
-    ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
-        scale_numeric_to_color(self, config, values, interpolator)
     }
 
     fn ticks(
@@ -616,6 +603,7 @@ mod tests {
             domain: Arc::new(Float32Array::from(vec![1.0, 10.0])),
             range: Arc::new(Float32Array::from(vec![0.0, 1.0])),
             options: HashMap::new(),
+            context: ScaleContext::default(),
         };
 
         let values = Arc::new(Float32Array::from(vec![5.0])) as ArrayRef;
@@ -643,6 +631,7 @@ mod tests {
             options: vec![("base".to_string(), ScalarValue::from(10.0))]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
         let values = Arc::new(Float32Array::from(vec![0.5, 1.0, 1.5, 2.0, 2.5])) as ArrayRef;
         let result = scale.scale_to_numeric(&config, &values).unwrap();
@@ -667,6 +656,7 @@ mod tests {
             ]
             .into_iter()
             .collect(),
+            context: ScaleContext::default(),
         };
         let values = Arc::new(Float32Array::from(vec![0.5, 1.0, 1.5, 2.0, 2.5])) as ArrayRef;
         let result = scale.scale_to_numeric(&config, &values).unwrap();
@@ -688,6 +678,7 @@ mod tests {
             options: vec![("base".to_string(), ScalarValue::from(10.0))]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
         let values = Arc::new(Float32Array::from(vec![-50.0])) as ArrayRef;
         let result = scale.scale_to_numeric(&config, &values).unwrap();
@@ -708,6 +699,7 @@ mod tests {
             ]
             .into_iter()
             .collect(),
+            context: ScaleContext::default(),
         };
         let values = Arc::new(Float32Array::from(vec![0.5, 15.0])) as ArrayRef;
         let result = scale.scale_to_numeric(&config, &values).unwrap();
@@ -726,6 +718,7 @@ mod tests {
             ]
             .into_iter()
             .collect(),
+            context: ScaleContext::default(),
         };
         let values = Arc::new(Float32Array::from(vec![-1.0, 5.0, 15.0])) as ArrayRef;
         let result = scale.scale_to_numeric(&config, &values).unwrap();
@@ -747,6 +740,7 @@ mod tests {
             ]
             .into_iter()
             .collect(),
+            context: ScaleContext::default(),
         };
         let values = Arc::new(Float32Array::from(vec![
             -0.5, 0.5, 1.0849625, 1.5, 1.8219281,

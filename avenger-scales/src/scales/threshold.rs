@@ -1,8 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use arrow::{
-    array::{ArrayRef, AsArray, Float32Array},
-    compute::kernels::cast,
+    array::{ArrayRef, AsArray, Float32Array, UInt32Array},
+    compute::kernels::{cast, take},
     datatypes::{DataType, Float32Type},
 };
 use avenger_common::{
@@ -21,7 +21,7 @@ use super::{
         prep_discrete_color_range, prep_discrete_enum_range, prep_discrete_numeric_range,
         prep_discrete_string_range,
     },
-    ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleImpl,
+    ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl,
 };
 
 /// Macro to generate scale_to_X trait methods for threshold enum scaling
@@ -52,9 +52,8 @@ impl ThresholdScale {
                 domain: Arc::new(Float32Array::from(domain)),
                 range,
                 options: HashMap::new(),
+                context: ScaleContext::default(),
             },
-            color_interpolator: Arc::new(SrgbaColorInterpolator),
-            formatters: Formatters::default(),
         }
     }
 }
@@ -64,41 +63,45 @@ impl ScaleImpl for ThresholdScale {
         InferDomainFromDataMethod::Unique
     }
 
-    /// Scale to numeric values
-    fn scale_to_numeric(
+    fn scale(
         &self,
         config: &ScaleConfig,
         values: &ArrayRef,
-    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
-        let (range_vec, default_value) = prep_discrete_numeric_range(config)?;
-        threshold_scale(values, &config.domain, range_vec, default_value)
-    }
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        let thresholds = validate_extract_thresholds(&config.domain)?;
 
-    fn scale_to_string(
-        &self,
-        config: &ScaleConfig,
-        values: &ArrayRef,
-    ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
-        let (range_vec, default_value) = prep_discrete_string_range(config)?;
-        threshold_scale(values, &config.domain, range_vec, default_value)
-    }
+        // Validate the range has the correct number of elements
+        if config.range.len() != thresholds.len() + 1 {
+            return Err(AvengerScaleError::ThresholdDomainMismatch {
+                domain_len: thresholds.len(),
+                range_len: config.range.len(),
+            });
+        }
 
-    fn scale_to_color(
-        &self,
-        config: &ScaleConfig,
-        values: &ArrayRef,
-        _color_interpolator: &dyn ColorInterpolator,
-    ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
-        let (range_vec, default_value) = prep_discrete_color_range(config)?;
-        threshold_scale(values, &config.domain, range_vec, default_value)
-    }
+        let indices = Arc::new(UInt32Array::from(
+            values
+                .as_primitive::<Float32Type>()
+                .iter()
+                .map(|x| match x {
+                    Some(x) => {
+                        if x.is_finite() {
+                            let idx =
+                                match thresholds.binary_search_by(|t| t.partial_cmp(&x).unwrap()) {
+                                    Ok(i) => (i + 1) as u32,
+                                    Err(i) => i as u32,
+                                };
+                            Some(idx)
+                        } else {
+                            None
+                        }
+                    }
+                    None => None,
+                })
+                .collect::<Vec<_>>(),
+        )) as ArrayRef;
 
-    // Enums
-    impl_threshold_enum_scale_method!(StrokeCap);
-    impl_threshold_enum_scale_method!(StrokeJoin);
-    impl_threshold_enum_scale_method!(ImageAlign);
-    impl_threshold_enum_scale_method!(ImageBaseline);
-    impl_threshold_enum_scale_method!(AreaOrientation);
+        Ok(take::take(&config.range, &indices, None)?)
+    }
 
     fn ticks(
         &self,
@@ -108,59 +111,6 @@ impl ScaleImpl for ThresholdScale {
         // Ticks are the same as the domain values
         Ok(config.domain.clone())
     }
-}
-
-/// Generic helper function for evaluating threshold scales
-fn threshold_scale<R: Sync + Clone>(
-    values: &ArrayRef,
-    domain: &ArrayRef,
-    range: Vec<R>,
-    default_value: R,
-) -> Result<ScalarOrArray<R>, AvengerScaleError> {
-    let thresholds = validate_extract_thresholds(domain)?;
-
-    // Validate the range has the correct number of elements
-    if range.len() != thresholds.len() + 1 {
-        return Err(AvengerScaleError::ThresholdDomainMismatch {
-            domain_len: thresholds.len(),
-            range_len: range.len(),
-        });
-    }
-
-    let indices = threshold_indices(values, &thresholds)?;
-    let range = indices
-        .into_iter()
-        .map(|i| {
-            i.map(|i| range[i].clone())
-                .unwrap_or_else(|| default_value.clone())
-        })
-        .collect();
-
-    Ok(ScalarOrArray::new_array(range))
-}
-
-fn threshold_indices(
-    values: &ArrayRef,
-    thresholds: &[f32],
-) -> Result<Vec<Option<usize>>, AvengerScaleError> {
-    Ok(values
-        .as_primitive::<Float32Type>()
-        .iter()
-        .map(|x| match x {
-            Some(x) => {
-                if x.is_finite() {
-                    let idx = match thresholds.binary_search_by(|t| t.partial_cmp(&x).unwrap()) {
-                        Ok(i) => (i + 1) as usize,
-                        Err(i) => i as usize,
-                    };
-                    Some(idx)
-                } else {
-                    None
-                }
-            }
-            None => None,
-        })
-        .collect())
 }
 
 fn validate_extract_thresholds(domain: &ArrayRef) -> Result<Vec<f32>, AvengerScaleError> {
@@ -203,6 +153,7 @@ mod tests {
             domain: Arc::new(Float32Array::from(vec![30.0, 70.0])),
             range: Arc::new(Float32Array::from(vec![0.0, 1.0, 2.0])),
             options: HashMap::new(),
+            context: ScaleContext::default(),
         };
         let scale = ThresholdScale;
 
@@ -222,6 +173,7 @@ mod tests {
             domain: Arc::new(Float32Array::from(vec![30.0, 70.0])),
             range: Arc::new(StringArray::from(vec!["left", "center", "right"])),
             options: HashMap::new(),
+            context: ScaleContext::default(),
         };
         let scale = ThresholdScale;
 
@@ -234,51 +186,6 @@ mod tests {
             result,
             vec![ImageAlign::Center, ImageAlign::Left, ImageAlign::Right]
         );
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_validate_range_length() -> Result<(), AvengerScaleError> {
-        // Tese are fine
-        threshold_scale(
-            &(Arc::new(Float32Array::from(vec![-1.0, 1.0])) as ArrayRef),
-            &(Arc::new(Float32Array::from(vec![0.0, 1.0, 2.0])) as ArrayRef),
-            vec![0.0, 1.0, 2.0, 3.0],
-            0.0,
-        )?;
-        threshold_scale(
-            &(Arc::new(Float32Array::from(vec![-1.0, 1.0, 3.0, 3.0])) as ArrayRef),
-            &(Arc::new(Float32Array::from(vec![0.0, 1.0, 2.0, 3.0, 4.0])) as ArrayRef),
-            vec![0, 1, 2, 3, 4, 5],
-            0,
-        )?;
-
-        // Invalid number of elements between thresholds and range
-        let err = threshold_scale(
-            &(Arc::new(Float32Array::from(vec![-1.0, 1.0, 3.0, 3.0])) as ArrayRef),
-            &(Arc::new(Float32Array::from(vec![0.0, 1.0, 2.0, 3.0])) as ArrayRef),
-            vec![0, 1, 2, 3],
-            0,
-        )
-        .unwrap_err();
-        assert!(matches!(
-            err,
-            AvengerScaleError::ThresholdDomainMismatch {
-                domain_len: 4,
-                range_len: 4,
-            }
-        ));
-
-        // Non-ascending thresholds
-        let err = threshold_scale(
-            &(Arc::new(Float32Array::from(vec![-1.0, 1.0, 4.0, 3.0])) as ArrayRef),
-            &(Arc::new(Float32Array::from(vec![0.0, 1.0, 4.0, 3.0])) as ArrayRef),
-            vec![0, 1, 2, 3, 4],
-            0,
-        )
-        .unwrap_err();
-        assert!(matches!(err, AvengerScaleError::ThresholdsNotAscending(_)));
 
         Ok(())
     }

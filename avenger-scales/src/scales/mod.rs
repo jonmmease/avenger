@@ -26,13 +26,17 @@ use avenger_common::{
 };
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use chrono_tz::Tz as ChronoTz;
+use coerce::{CastNumericCoercer, Coercer, NumericCoercer};
 use datafusion_common::{utils::arrays_into_list_array, ScalarValue};
 
-use crate::scales::coerce::{ColorCoercer, CssColorCoercer};
 use crate::{
     color_interpolator::ColorInterpolator, error::AvengerScaleError, utils::ScalarValueUtils,
 };
 use crate::{color_interpolator::ColorInterpolatorConfig, formatter::Formatters};
+use crate::{
+    color_interpolator::SrgbaColorInterpolator,
+    scales::coerce::{ColorCoercer, CssColorCoercer},
+};
 
 /// Macro to generate scale_to_X trait methods that return a default error implementation
 #[macro_export]
@@ -41,12 +45,12 @@ macro_rules! declare_enum_scale_method {
         paste::paste! {
             fn [<scale_to_ $type_name:snake>](
                 &self,
-                _config: &ScaleConfig,
-                _values: &ArrayRef,
+                config: &ScaleConfig,
+                values: &ArrayRef,
             ) -> Result<ScalarOrArray<$type_name>, AvengerScaleError> {
-                Err(AvengerScaleError::ScaleOperationNotSupported(
-                    stringify!([<scale_to_ $type_name:snake>]).to_string(),
-                ))
+                let scaled = self.scale(config, values)?;
+                let coercer = Coercer::default();
+                coercer.[<to_ $type_name:snake>](&scaled)
             }
         }
     };
@@ -57,6 +61,26 @@ pub struct ScaleConfig {
     pub domain: ArrayRef,
     pub range: ArrayRef,
     pub options: HashMap<String, ScalarValue>,
+    pub context: ScaleContext,
+}
+
+#[derive(Debug, Clone)]
+pub struct ScaleContext {
+    pub color_interpolator: Arc<dyn ColorInterpolator>,
+    pub formatters: Formatters,
+    pub color_coercer: Arc<dyn ColorCoercer>,
+    pub numeric_coercer: Arc<dyn NumericCoercer>,
+}
+
+impl Default for ScaleContext {
+    fn default() -> Self {
+        Self {
+            color_interpolator: Arc::new(SrgbaColorInterpolator),
+            formatters: Formatters::default(),
+            color_coercer: Arc::new(CssColorCoercer),
+            numeric_coercer: Arc::new(CastNumericCoercer),
+        }
+    }
 }
 
 impl ScaleConfig {
@@ -65,6 +89,7 @@ impl ScaleConfig {
             domain: Arc::new(Float32Array::from(Vec::<f32>::new())) as ArrayRef,
             range: Arc::new(Float32Array::from(Vec::<f32>::new())) as ArrayRef,
             options: HashMap::new(),
+            context: ScaleContext::default(),
         }
     }
 
@@ -92,7 +117,7 @@ impl ScaleConfig {
 
     pub fn color_range(&self) -> Result<Vec<[f32; 4]>, AvengerScaleError> {
         let coercer = CssColorCoercer;
-        let range_colors = coercer.coerce_color(&self.range)?;
+        let range_colors = coercer.coerce(&self.range, None)?;
         let range_colors_vec: Vec<_> = range_colors
             .as_iter(range_colors.len(), None)
             .map(|c| c.color_or_transparent())
@@ -155,15 +180,23 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
     /// Method that should be used to infer a scale's domain from the data that it will scale
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod;
 
-    /// Scale to numeric values
-    fn scale_to_numeric(
+    fn scale(
         &self,
         _config: &ScaleConfig,
         _values: &ArrayRef,
+    ) -> Result<ArrayRef, AvengerScaleError>;
+
+    /// Scale to numeric values
+    fn scale_to_numeric(
+        &self,
+        config: &ScaleConfig,
+        values: &ArrayRef,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
-        Err(AvengerScaleError::ScaleOperationNotSupported(
-            "scale_to_numeric".to_string(),
-        ))
+        let scaled = self.scale(config, values)?;
+        let coercer = &config.context.numeric_coercer;
+        let default = config.option_f32("default", f32::NAN);
+        let t = coercer.coerce(&scaled, Some(default))?;
+        Ok(t)
     }
 
     fn scale_scalar_to_numeric(
@@ -213,36 +246,40 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
     /// Scale to color values
     fn scale_to_color(
         &self,
-        _config: &ScaleConfig,
-        _values: &ArrayRef,
-        _interpolator: &dyn ColorInterpolator,
+        config: &ScaleConfig,
+        values: &ArrayRef,
     ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
-        Err(AvengerScaleError::ScaleOperationNotSupported(
-            "scale_to_color".to_string(),
-        ))
+        let scaled = self.scale(config, values)?;
+        let coercer = &config.context.color_coercer;
+        let default = config
+            .options
+            .get("default")
+            .and_then(|v| Some(ColorOrGradient::Color(v.as_rgba().ok()?)))
+            .unwrap_or(ColorOrGradient::transparent());
+
+        Ok(coercer.coerce(&scaled, Some(default))?)
     }
 
     fn scale_scalar_to_color(
         &self,
         config: &ScaleConfig,
         value: &ScalarValue,
-        interpolator: &dyn ColorInterpolator,
     ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
         let array = value.to_array()?;
-        Ok(self
-            .scale_to_color(config, &array, interpolator)?
-            .to_scalar_if_len_one())
+        Ok(self.scale_to_color(config, &array)?.to_scalar_if_len_one())
     }
 
     /// Scale to string values
     fn scale_to_string(
         &self,
-        _config: &ScaleConfig,
-        _values: &ArrayRef,
+        config: &ScaleConfig,
+        values: &ArrayRef,
     ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
-        Err(AvengerScaleError::ScaleOperationNotSupported(
-            "scale_to_string".to_string(),
-        ))
+        let scaled = self.scale(config, values)?;
+        let formatter = &config.context.formatters;
+        let default = config.option_string("default", "");
+        let t = formatter.format(&scaled, Some(&default))?;
+        Ok(t)
     }
 
     fn scale_scalar_to_string(
@@ -310,8 +347,6 @@ macro_rules! declare_enum_configured_scale_method {
 pub struct ConfiguredScale {
     pub scale_impl: Arc<dyn ScaleImpl>,
     pub config: ScaleConfig,
-    pub color_interpolator: Arc<dyn ColorInterpolator>,
-    pub formatters: Formatters,
 }
 
 // Builder methods
@@ -391,7 +426,13 @@ impl ConfiguredScale {
         color_interpolator: Arc<dyn ColorInterpolator>,
     ) -> ConfiguredScale {
         ConfiguredScale {
-            color_interpolator,
+            config: ScaleConfig {
+                context: ScaleContext {
+                    color_interpolator,
+                    ..self.config.context
+                },
+                ..self.config
+            },
             ..self
         }
     }
@@ -426,6 +467,20 @@ impl ConfiguredScale {
     /// Method that should be used to infer a scale's domain from the data that it will scale
     pub fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         self.scale_impl.infer_domain_from_data_method()
+    }
+
+    pub fn scale(&self, values: &ArrayRef) -> Result<ArrayRef, AvengerScaleError> {
+        self.scale_impl.scale(&self.config, values)
+    }
+
+    pub fn scale_scalar(&self, value: &ScalarValue) -> Result<ScalarValue, AvengerScaleError> {
+        println!("scale_scalar: {:?}", value);
+        println!(
+            "as array: {:?}",
+            ScalarValue::iter_to_array(vec![value.clone()])?
+        );
+        let scaled = self.scale(&ScalarValue::iter_to_array(vec![value.clone()])?)?;
+        Ok(ScalarValue::try_from_array(&scaled, 0)?)
     }
 
     /// Scale to numeric values
@@ -466,16 +521,14 @@ impl ConfiguredScale {
         &self,
         values: &ArrayRef,
     ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
-        self.scale_impl
-            .scale_to_color(&self.config, values, self.color_interpolator.as_ref())
+        self.scale_impl.scale_to_color(&self.config, values)
     }
 
     pub fn scale_scalar_to_color(
         &self,
         value: &ScalarValue,
     ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
-        self.scale_impl
-            .scale_scalar_to_color(&self.config, value, self.color_interpolator.as_ref())
+        self.scale_impl.scale_scalar_to_color(&self.config, value)
     }
 
     /// Scale to string values
@@ -575,11 +628,13 @@ impl ConfiguredScale {
         &self,
         colors: Vec<[f32; 4]>,
         values: &[f32],
-    ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
+    ) -> Result<ArrayRef, AvengerScaleError> {
         let interpolator_config = ColorInterpolatorConfig {
             colors: colors.to_vec(),
         };
-        self.color_interpolator
+        self.config
+            .context
+            .color_interpolator
             .as_ref()
             .interpolate(&interpolator_config, values)
     }
@@ -588,28 +643,34 @@ impl ConfiguredScale {
 /// Formatter pass through methods
 impl ConfiguredScale {
     pub fn format(&self, values: &ArrayRef) -> Result<ScalarOrArray<String>, AvengerScaleError> {
-        self.formatters.format(values)
+        self.config.context.formatters.format(values, None)
     }
 
-    pub fn format_numbers(&self, values: &[f32]) -> ScalarOrArray<String> {
-        ScalarOrArray::new_array(self.formatters.number.format(values))
+    pub fn format_numbers(&self, values: &[Option<f32>]) -> ScalarOrArray<String> {
+        ScalarOrArray::new_array(self.config.context.formatters.number.format(values, None))
     }
 
-    pub fn format_dates(&self, values: &[NaiveDate]) -> ScalarOrArray<String> {
-        ScalarOrArray::new_array(self.formatters.date.format(values))
+    pub fn format_dates(&self, values: &[Option<NaiveDate>]) -> ScalarOrArray<String> {
+        ScalarOrArray::new_array(self.config.context.formatters.date.format(values, None))
     }
 
-    pub fn format_timestamps(&self, values: &[NaiveDateTime]) -> ScalarOrArray<String> {
-        ScalarOrArray::new_array(self.formatters.timestamp.format(values))
+    pub fn format_timestamps(&self, values: &[Option<NaiveDateTime>]) -> ScalarOrArray<String> {
+        ScalarOrArray::new_array(
+            self.config
+                .context
+                .formatters
+                .timestamp
+                .format(values, None),
+        )
     }
 
-    pub fn format_timestamptz(&self, values: &[DateTime<Utc>]) -> ScalarOrArray<String> {
-        ScalarOrArray::new_array(self.formatters.timestamptz.format(values))
+    pub fn format_timestamptz(&self, values: &[Option<DateTime<Utc>>]) -> ScalarOrArray<String> {
+        ScalarOrArray::new_array(
+            self.config
+                .context
+                .formatters
+                .timestamptz
+                .format(values, None),
+        )
     }
-}
-
-/// Make sure the trait object safe by defining a struct
-#[allow(dead_code)]
-struct MakeSureItsObjectSafe {
-    pub scales: Box<dyn ScaleImpl>,
 }

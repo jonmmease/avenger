@@ -9,6 +9,8 @@ use arrow::{
 use avenger_common::value::ScalarOrArray;
 
 use super::point::make_band_config;
+use super::ScaleContext;
+// use super::point::make_band_config;
 use super::{
     ordinal::OrdinalScale, ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleImpl,
 };
@@ -33,9 +35,8 @@ impl BandScale {
                 ]
                 .into_iter()
                 .collect(),
+                context: ScaleContext::default(),
             },
-            color_interpolator: Arc::new(SrgbaColorInterpolator),
-            formatters: Formatters::default(),
         }
     }
 
@@ -44,8 +45,6 @@ impl BandScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
             config: make_band_config(&point_scale.config),
-            color_interpolator: point_scale.color_interpolator.clone(),
-            formatters: point_scale.formatters.clone(),
         }
     }
 }
@@ -55,12 +54,11 @@ impl ScaleImpl for BandScale {
         InferDomainFromDataMethod::Unique
     }
 
-    /// Scale to numeric values
-    fn scale_to_numeric(
+    fn scale(
         &self,
         config: &ScaleConfig,
         values: &ArrayRef,
-    ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+    ) -> Result<ArrayRef, AvengerScaleError> {
         let range_values = build_range_values(config)?;
         let range_array = Arc::new(Float32Array::from(range_values));
         let ordinal_scale = OrdinalScale;
@@ -68,9 +66,10 @@ impl ScaleImpl for BandScale {
             domain: config.domain.clone(),
             range: range_array,
             options: HashMap::new(),
+            context: config.context.clone(),
         };
 
-        ordinal_scale.scale_to_numeric(&ordinal_config, values)
+        ordinal_scale.scale(&ordinal_config, values)
     }
 
     fn invert_range_interval(
@@ -319,6 +318,7 @@ mod tests {
             options: vec![("align".to_string(), 0.5.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         let values = Arc::new(StringArray::from(vec!["a", "b", "b", "c", "f"])) as ArrayRef;
@@ -351,6 +351,7 @@ mod tests {
             ]
             .into_iter()
             .collect(),
+            context: ScaleContext::default(),
         };
 
         let values = Arc::new(StringArray::from(vec!["a", "b", "b", "c", "f"])) as ArrayRef;
@@ -380,6 +381,7 @@ mod tests {
             options: vec![("round".to_string(), true.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
 
         let values = Arc::new(StringArray::from(vec!["a", "b", "b", "c", "f"])) as ArrayRef;
@@ -405,6 +407,7 @@ mod tests {
             domain: Arc::new(StringArray::from(vec!["A", "B", "C"])),
             range: Arc::new(Float32Array::from(vec![0.0, 1.0])),
             options: vec![("band".to_string(), 0.5.into())].into_iter().collect(),
+            context: ScaleContext::default(),
         };
         let values = Arc::new(StringArray::from(vec!["A", "B", "C"])) as ArrayRef;
         let result = scale
@@ -432,6 +435,7 @@ mod tests {
             ]
             .into_iter()
             .collect(),
+            context: ScaleContext::default(),
         };
         let values = Arc::new(StringArray::from(vec!["A", "B", "C"])) as ArrayRef;
         let result = scale
@@ -460,6 +464,7 @@ mod tests {
             ]
             .into_iter()
             .collect(),
+            context: ScaleContext::default(),
         };
 
         // Test exact band positions
@@ -503,6 +508,7 @@ mod tests {
             ]
             .into_iter()
             .collect(),
+            context: ScaleContext::default(),
         };
 
         // Test range covering multiple bands

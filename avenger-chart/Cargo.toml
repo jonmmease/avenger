@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 avenger-common = { path = "../avenger-common" }
-avenger-scales2 = { path = "../avenger-scales2" }
+avenger-scales = { path = "../avenger-scales" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-geometry = { path = "../avenger-geometry" }
 avenger-text = { path = "../avenger-text" }

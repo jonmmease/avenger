@@ -12,7 +12,7 @@ use crate::{
 
 use super::{
     band::BandScale, ordinal::OrdinalScale, ConfiguredScale, InferDomainFromDataMethod,
-    ScaleConfig, ScaleImpl,
+    ScaleConfig, ScaleContext, ScaleImpl,
 };
 
 #[derive(Debug, Clone)]
@@ -33,9 +33,8 @@ impl PointScale {
                 ]
                 .into_iter()
                 .collect(),
+                context: ScaleContext::default(),
             },
-            color_interpolator: Arc::new(SrgbaColorInterpolator),
-            formatters: Formatters::default(),
         }
     }
 }
@@ -43,6 +42,16 @@ impl PointScale {
 impl ScaleImpl for PointScale {
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
+    }
+
+    fn scale(
+        &self,
+        config: &ScaleConfig,
+        values: &ArrayRef,
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        let band_config = make_band_config(config);
+        let band_scale = BandScale;
+        band_scale.scale(&band_config, values)
     }
 
     /// Scale to numeric values
@@ -87,6 +96,7 @@ pub(crate) fn make_band_config(point_config: &ScaleConfig) -> ScaleConfig {
         ]
         .into_iter()
         .collect(),
+        context: point_config.context.clone(),
     }
 }
 
@@ -104,6 +114,7 @@ mod tests {
             domain: Arc::new(StringArray::from(vec!["a", "b", "c"])),
             range: Arc::new(Float32Array::from(vec![0.0, 1.0])),
             options: HashMap::new(),
+            context: ScaleContext::default(),
         };
         let scale = PointScale;
 
@@ -129,6 +140,7 @@ mod tests {
             domain: Arc::new(StringArray::from(vec!["a", "b", "c"])),
             range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
             options: HashMap::new(),
+            context: ScaleContext::default(),
         };
         let scale = PointScale;
 
@@ -151,6 +163,7 @@ mod tests {
             domain: Arc::new(StringArray::from(vec!["a", "b", "c"])),
             range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
             options: HashMap::from([("padding".to_string(), 0.5.into())]),
+            context: ScaleContext::default(),
         };
         let scale = PointScale;
 
@@ -177,6 +190,7 @@ mod tests {
             options: vec![("round".to_string(), true.into())]
                 .into_iter()
                 .collect(),
+            context: ScaleContext::default(),
         };
         let scale = PointScale;
 
@@ -208,6 +222,7 @@ mod tests {
             ]
             .into_iter()
             .collect(),
+            context: ScaleContext::default(),
         };
         let scale = PointScale;
 
@@ -234,6 +249,7 @@ mod tests {
             domain: Arc::new(StringArray::from(vec!["a", "b", "c"])),
             range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
             options: HashMap::new(),
+            context: ScaleContext::default(),
         };
 
         // Test exact point positions
@@ -278,6 +294,7 @@ mod tests {
             domain: Arc::new(StringArray::from(vec!["a", "b", "c"])),
             range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
             options: HashMap::new(),
+            context: ScaleContext::default(),
         };
 
         // Test range covering multiple points
