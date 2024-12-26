@@ -468,6 +468,8 @@ impl ConfiguredScale {
     }
 
     pub fn scale_scalar(&self, value: &ScalarValue) -> Result<ScalarValue, AvengerScaleError> {
+        println!("scale_scalar: {:?}", value);
+        println!("as array: {:?}", ScalarValue::iter_to_array(vec![value.clone()])?);
         let scaled = self.scale(&ScalarValue::iter_to_array(vec![value.clone()])?)?;
         Ok(ScalarValue::try_from_array(&scaled, 0)?)
     }

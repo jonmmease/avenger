@@ -23,7 +23,8 @@ use datafusion::{
     common::{DFSchema, ParamValues},
     error::DataFusionError,
     logical_expr::{
-        ColumnarValue, ExprSchemable, ScalarFunctionImplementation, ScalarUDF, Volatility,
+        ColumnarValue, ExprSchemable, ScalarFunctionImplementation, ScalarUDF, ScalarUDFImpl,
+        Signature, TypeSignature, Volatility,
     },
     prelude::{create_udf, lit, DataFrame, Expr, SessionContext},
     scalar::ScalarValue,
@@ -50,12 +51,9 @@ pub async fn evaluate_scale(
     color_interpolator: Arc<dyn ColorInterpolator>,
 ) -> Result<EvaluatedScale, AvengerChartError> {
     let kind = scale.kind.clone().unwrap_or("linear".to_string());
-    println!("kind: {}", kind);
-    println!("scale_impls: {:?}", scale_impls);
     let scale_impl = scale_impls
         .get(&kind)
         .ok_or_else(|| AvengerChartError::ScaleKindLookupError(kind.to_string()))?;
-    println!("found it");
 
     let method = scale_impl.infer_domain_from_data_method();
 
@@ -323,4 +321,100 @@ pub fn scale_placeholder_udf(name: &str) -> Result<ScalarUDF, AvengerChartError>
         Volatility::Immutable,
         fun,
     ))
+}
+
+// pub fn scale_expr(scale: &Scale) -> Result<Expr, AvengerChartError> {
+//     let name = scale.name.clone();
+//     let placeholder = scale_placeholder_udf(&name)?;
+//     Ok(placeholder)
+// }
+
+#[derive(Debug, Clone)]
+pub struct ScaleUDF {
+    signature: Signature,
+    range_type: DataType,
+    scale_impl: Arc<dyn ScaleImpl>,
+}
+
+impl ScaleUDF {
+    pub fn new(scale_impl: Arc<dyn ScaleImpl>, domain_type: DataType, range_type: DataType) -> Result<Self, AvengerChartError> {
+        let signature = Signature::new(
+            TypeSignature::Exact(vec![
+                domain_type.clone(), // Domain array
+                range_type.clone(),  // Range array
+                domain_type.clone(), // Values to scale
+            ]),
+            Volatility::Immutable,
+        );
+        Ok(Self {
+            signature,
+            range_type,
+            scale_impl,
+        })
+    }
+}
+
+impl ScalarUDFImpl for ScaleUDF {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn name(&self) -> &str {
+        "scale"
+    }
+
+    fn signature(&self) -> &Signature {
+        &self.signature
+    }
+
+    fn return_type(&self, _arg_types: &[DataType]) -> datafusion::error::Result<DataType> {
+        Ok(self.range_type.clone())
+    }
+
+    fn invoke(&self, args: &[ColumnarValue]) -> datafusion::error::Result<ColumnarValue> {
+        // Extract domain array from scalar
+        let ColumnarValue::Scalar(ScalarValue::List(domain_arg)) = &args[0] else {
+            return Err(DataFusionError::Execution("Expected domain scalar".to_string()));
+        };
+        let domain = domain_arg.value(0);
+
+        // Extract range array from scalar
+        let ColumnarValue::Scalar(ScalarValue::List(range_arg)) = &args[1] else {
+            return Err(DataFusionError::Execution("Expected range scalar".to_string()));
+        };        
+        let range = range_arg.value(0);
+
+        let config = ScaleConfig {
+            domain,
+            range,
+            // TODO: propagate options as struct
+            options: HashMap::new(),
+            context: ScaleContext::default(),
+        };
+
+        let scale = ConfiguredScale {
+            scale_impl: self.scale_impl.clone(),
+            config,
+        };
+
+        let scaled = match &args[2] {
+            ColumnarValue::Array(values) => {
+                ColumnarValue::Array(scale.scale(&values).map_err(|e| DataFusionError::Execution(e.to_string()))?)
+            }
+            ColumnarValue::Scalar(values) => {
+                ColumnarValue::Scalar(scale.scale_scalar(&values).map_err(|e| DataFusionError::Execution(e.to_string()))?)
+            }
+        };
+        Ok(scaled)
+    }
+}
+
+fn make_scale_udf(scale: &Scale, values: Expr) -> Result<ScalarUDF, AvengerChartError> {
+    let udf = ScalarUDF::from(ScaleUDF::new(scale.get_scale_impl(), scale.get_domain().unwrap().data_type()?, scale.get_range().unwrap().data_type()?)?);
+
+
+    let 
+    udf.call(values)
+
+    Ok(udf)
 }

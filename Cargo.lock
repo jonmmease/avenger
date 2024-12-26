@@ -647,6 +647,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-chart2"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "async-recursion",
+ "async-trait",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-geometry",
+ "avenger-guides",
+ "avenger-scales2",
+ "avenger-scenegraph",
+ "avenger-text",
+ "avenger-wgpu",
+ "chrono",
+ "chrono-tz",
+ "datafusion",
+ "indexmap",
+ "lazy_static 1.5.0",
+ "ordered-float 4.5.0",
+ "palette",
+ "serde",
+ "thiserror 2.0.3",
+ "tokio",
+]
+
+[[package]]
 name = "avenger-common"
 version = "0.0.8"
 dependencies = [
