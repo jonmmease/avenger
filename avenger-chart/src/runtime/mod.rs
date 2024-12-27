@@ -6,15 +6,16 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     error::AvengerChartError,
+    param::Param,
     types::group::{Group, MarkOrGroup},
     utils::ExprHelpers,
 };
 use async_recursion::async_recursion;
-use avenger_scales2::{
+use avenger_scales::{
     color_interpolator::{ColorInterpolator, SrgbaColorInterpolator},
     scales::{coerce::Coercer, linear::LinearScale, ScaleImpl},
 };
-use avenger_scales2::{
+use avenger_scales::{
     formatter::Formatters,
     scales::{
         coerce::{CastNumericCoercer, ColorCoercer, CssColorCoercer, NumericCoercer},
@@ -38,7 +39,6 @@ use datafusion::{
     scalar::ScalarValue,
 };
 use marks::{ArcMarkCompiler, MarkCompiler};
-use scale::evaluate_scale;
 
 pub struct AvengerRuntime {
     ctx: SessionContext,
@@ -69,63 +69,27 @@ impl AvengerRuntime {
         }
     }
 
+    pub fn ctx(&self) -> &SessionContext {
+        &self.ctx
+    }
+
     #[async_recursion]
     pub async fn compile_group(
         &self,
         group: &Group,
-        override_params: Option<&ParamValues>,
+        params: Vec<Param>,
     ) -> Result<SceneGroup, AvengerChartError> {
-        // Eval params to ScalarValues
-        // treat as already in topological order, consider supporting out-of-order params later
-        let mut query_values: HashMap<String, ScalarValue> = HashMap::new();
-
-        // Add group params after parent params to then take precedence
-        for (key, value) in group.get_params() {
-            let scalar_value = value
-                .eval_to_scalar(&self.ctx, Some(&ParamValues::Map(query_values.clone())))
-                .await?;
-            query_values.insert(key.clone(), scalar_value);
-        }
-
-        // Override with provided params
-        if let Some(ParamValues::Map(params)) = override_params {
-            for (key, value) in params.iter() {
-                query_values.insert(key.clone(), value.clone());
-            }
-        }
-
-        let query_values = ParamValues::Map(query_values);
-
-        // Collect DataFrames with params applied
-        let mut dataframes: HashMap<String, DataFrame> = HashMap::new();
-        for (key, value) in group.get_datasets() {
-            let df = value.clone().with_param_values(query_values.clone())?;
-            dataframes.insert(key.clone(), df);
-        }
-
-        // Collect and evaluate scales
-        let mut evaluated_scales = HashMap::new();
-
-        for (key, value) in group.get_scales() {
-            let evaluated_scale = evaluate_scale(
-                &value,
-                &key,
-                &self.ctx,
-                &query_values,
-                &self.scales,
-                self.interpolator.clone(),
-            )
-            .await?;
-            evaluated_scales.insert(key.clone(), evaluated_scale);
-        }
-
         // Build compilation context
+        let param_values = ParamValues::Map(
+            params
+                .iter()
+                .map(|p| (p.name.clone(), p.default.clone()))
+                .collect(),
+        );
         let context = CompilationContext {
             ctx: self.ctx.clone(),
-            params: query_values.clone(),
-            dataframes,
-            scales: evaluated_scales.clone(),
             coercer: self.coercer.clone(),
+            param_values,
         };
 
         // Collect and compile scene marks
@@ -143,7 +107,7 @@ impl AvengerRuntime {
                 }
                 MarkOrGroup::Group(group) => {
                     // process groups recursively
-                    let group = self.compile_group(group, Some(&query_values)).await?;
+                    let group = self.compile_group(group, params.clone()).await?;
                     scene_marks.push(SceneMark::Group(group));
                 }
             }

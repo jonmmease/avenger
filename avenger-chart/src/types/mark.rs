@@ -1,3 +1,4 @@
+use datafusion::prelude::DataFrame;
 use datafusion::{
     prelude::{lit, Expr},
     scalar::ScalarValue,
@@ -7,13 +8,13 @@ use indexmap::IndexMap;
 #[derive(Debug, Clone)]
 pub struct Mark {
     pub mark_type: String,
-    pub from: Option<String>,
-    pub encodings: IndexMap<String, Encoding>,
+    pub from: Option<DataFrame>,
+    pub encodings: IndexMap<String, Expr>,
 }
 
 macro_rules! encoding_fn {
     ($name:ident) => {
-        pub fn $name<E: Into<Encoding>>(self, value: E) -> Self {
+        pub fn $name<E: Into<Expr>>(self, value: E) -> Self {
             let mut encodings = self.encodings;
             encodings.insert(stringify!($name).to_string(), value.into());
             Self { encodings, ..self }
@@ -39,15 +40,15 @@ impl Mark {
     }
 
     /// Set or overwrite the source dataset for the mark.
-    pub fn from<S: Into<String>>(self, from: S) -> Self {
+    pub fn from(self, from: DataFrame) -> Self {
         Self {
-            from: Some(from.into()),
+            from: Some(from),
             ..self
         }
     }
 
-    pub fn get_from(&self) -> Option<&str> {
-        self.from.as_deref()
+    pub fn get_from(&self) -> Option<&DataFrame> {
+        self.from.as_ref()
     }
 
     pub fn get_mark_type(&self) -> &str {
@@ -67,7 +68,7 @@ impl Mark {
     mark_type_fn!(trail);
 
     /// Set or overwrite an encoding for the mark.
-    pub fn encode<S: Into<String>, E: Into<Encoding>>(self, name: S, expr: E) -> Self {
+    pub fn encode<S: Into<String>, E: Into<Expr>>(self, name: S, expr: E) -> Self {
         let mut encodings = self.encodings;
         encodings.insert(name.into(), expr.into());
         Self { encodings, ..self }
@@ -189,31 +190,5 @@ pub trait EncodingUtils {
 impl EncodingUtils for Expr {
     fn scale(self, name: &str) -> ScaledEncoding {
         ScaledEncoding::new(self, name)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use datafusion::prelude::{col, lit};
-
-    use super::*;
-
-    #[test]
-    fn test_mark() {
-        let calc = (lit(3.0) / col("foo")).scale("xscale").offset(1.0);
-        println!("{:#?}", calc);
-
-        let mark = Mark::line()
-            .from("data_0")
-            .x(col("sepal_width").scale("xscale"))
-            .y(col("sepal_length").scale("yscale"))
-            .width(lit(3.0) / col("foo"))
-            .height(lit(4.0))
-            .fill(lit("red"))
-            .stroke(lit("blue"))
-            .stroke_width(lit(1.0))
-            .stroke_dash_offset(lit(3.0));
-
-        println!("{:#?}", mark);
     }
 }

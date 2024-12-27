@@ -1,10 +1,11 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use arrow::datatypes::{DataType, Field};
+use avenger_scales::scales::ScaleImpl;
 use datafusion::{
     common::{DFSchema, ExprSchema},
     logical_expr::ExprSchemable,
-    prelude::Expr,
+    prelude::{lit, DataFrame, Expr},
     scalar::ScalarValue,
 };
 use palette::{Hsla, Laba, Srgba};
@@ -13,107 +14,93 @@ use crate::error::AvengerChartError;
 
 #[derive(Debug, Clone)]
 pub struct Scale {
-    pub name: String,
-    pub kind: Option<String>,
-    pub domain: Option<ScaleDomain>,
-    pub range: Option<ScaleRange>,
+    pub scale_impl: Arc<dyn ScaleImpl>,
+    pub domain: ScaleDomain,
+    pub range: ScaleRange,
     pub options: HashMap<String, Expr>,
 }
 
 impl Scale {
-    pub fn new<S: Into<String>>(name: S) -> Self {
+    pub fn new<S: ScaleImpl>(scale_impl: S) -> Self {
         Self {
-            name: name.into(),
-            kind: None,
-            domain: None,
-            range: None,
+            scale_impl: Arc::new(scale_impl),
+            domain: ScaleDomain::new_interval(lit(0.0), lit(1.0)),
+            range: ScaleRange::new_interval(lit(0.0), lit(1.0)),
             options: HashMap::new(),
         }
     }
 
-    pub fn kind<S: Into<String>>(self, kind: S) -> Self {
-        Self {
-            kind: Some(kind.into()),
-            ..self
-        }
-    }
-
-    pub fn get_kind(&self) -> Option<&String> {
-        self.kind.as_ref()
+    pub fn get_scale_impl(&self) -> &Arc<dyn ScaleImpl> {
+        &self.scale_impl
     }
 
     // Domain builders
     pub fn domain(self, domain: ScaleDomain) -> Self {
-        Self {
-            domain: Some(domain),
-            ..self
-        }
+        Self { domain, ..self }
     }
 
-    pub fn get_domain(&self) -> Option<&ScaleDomain> {
-        self.domain.as_ref()
+    pub fn get_domain(&self) -> &ScaleDomain {
+        &self.domain
     }
 
     pub fn domain_interval<T: Into<Expr>>(self, start: T, end: T) -> Self {
         Self {
-            domain: Some(ScaleDomain::Interval(start.into(), end.into())),
+            domain: ScaleDomain::Interval(start.into(), end.into()),
             ..self
         }
     }
 
     pub fn domain_discrete<T: Into<Expr>>(self, values: Vec<T>) -> Self {
         Self {
-            domain: Some(ScaleDomain::Discrete(
-                values.into_iter().map(|v| v.into()).collect(),
-            )),
+            domain: ScaleDomain::Discrete(values.into_iter().map(|v| v.into()).collect()),
             ..self
         }
     }
 
-    pub fn domain_data_field(self, dataset: String, field: String) -> Self {
+    pub fn domain_data_field<S: Into<String>>(self, dataframe: Arc<DataFrame>, field: S) -> Self {
         Self {
-            domain: Some(ScaleDomain::DataField(DataField { dataset, field })),
+            domain: ScaleDomain::DataField(DataField {
+                dataframe,
+                field: field.into(),
+            }),
             ..self
         }
     }
 
-    pub fn domain_data_fields<S: Into<String>>(self, fields: Vec<(S, S)>) -> Self {
+    pub fn domain_data_fields<S: Into<String>>(self, fields: Vec<(Arc<DataFrame>, S)>) -> Self {
         Self {
-            domain: Some(ScaleDomain::DataFields(
+            domain: ScaleDomain::DataFields(
                 fields
                     .into_iter()
-                    .map(|(dataset, field)| DataField {
-                        dataset: dataset.into(),
+                    .map(|(dataframe, field)| DataField {
+                        dataframe,
                         field: field.into(),
                     })
                     .collect(),
-            )),
+            ),
             ..self
         }
     }
 
     // Range builders
     pub fn range(self, range: ScaleRange) -> Self {
-        Self {
-            range: Some(range),
-            ..self
-        }
+        Self { range, ..self }
     }
 
-    pub fn get_range(&self) -> Option<&ScaleRange> {
-        self.range.as_ref()
+    pub fn get_range(&self) -> &ScaleRange {
+        &self.range
     }
 
     pub fn range_numeric<F: Into<Expr>>(self, start: F, end: F) -> Self {
         Self {
-            range: Some(ScaleRange::Numeric(start.into(), end.into())),
+            range: ScaleRange::Numeric(start.into(), end.into()),
             ..self
         }
     }
 
     pub fn range_color(self, colors: Vec<Srgba>) -> Self {
         Self {
-            range: Some(ScaleRange::Color(colors)),
+            range: ScaleRange::Color(colors),
             ..self
         }
     }
@@ -146,19 +133,19 @@ impl ScaleDomain {
         Self::Discrete(values)
     }
 
-    pub fn new_data_field<S: Into<String>>(self, dataset: S, field: S) -> Self {
+    pub fn new_data_field<S: Into<String>>(self, dataframe: Arc<DataFrame>, field: S) -> Self {
         Self::DataField(DataField {
-            dataset: dataset.into(),
+            dataframe,
             field: field.into(),
         })
     }
 
-    pub fn new_data_fields<S: Into<String>>(self, fields: Vec<(S, S)>) -> Self {
+    pub fn new_data_fields<S: Into<String>>(self, fields: Vec<(Arc<DataFrame>, S)>) -> Self {
         Self::DataFields(
             fields
                 .into_iter()
-                .map(|(dataset, field)| DataField {
-                    dataset: dataset.into(),
+                .map(|(dataframe, field)| DataField {
+                    dataframe: dataframe,
                     field: field.into(),
                 })
                 .collect(),
@@ -171,15 +158,30 @@ impl ScaleDomain {
             ScaleDomain::Interval(expr, _) => Ok(expr.get_type(&schema)?),
             ScaleDomain::Discrete(exprs) => Ok(exprs[0].get_type(&schema)?),
             // TODO: change these to hold DataFrame references
-            ScaleDomain::DataField(DataField { dataset, field }) => todo!(),
-            ScaleDomain::DataFields(_) => todo!(),
+            ScaleDomain::DataField(DataField { dataframe, field }) => Ok(dataframe
+                .schema()
+                .field_with_name(None, &field)?
+                .data_type()
+                .clone()),
+            ScaleDomain::DataFields(fields) => {
+                let DataField { dataframe, field } = fields.first().ok_or_else(|| {
+                    AvengerChartError::InternalError(
+                        "Domain data fields may not be empty".to_string(),
+                    )
+                })?;
+                Ok(dataframe
+                    .schema()
+                    .field_with_name(None, &field)?
+                    .data_type()
+                    .clone())
+            }
         }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct DataField {
-    pub dataset: String,
+    pub dataframe: Arc<DataFrame>,
     pub field: String,
 }
 
@@ -191,7 +193,7 @@ pub enum ScaleRange {
 }
 
 impl ScaleRange {
-    pub fn new_numeric<E: Into<Expr>>(start: E, end: E) -> Self {
+    pub fn new_interval<E: Into<Expr>, F: Into<Expr>>(start: E, end: F) -> Self {
         Self::Numeric(start.into(), end.into())
     }
 
@@ -203,7 +205,7 @@ impl ScaleRange {
         match self {
             ScaleRange::Numeric(_, _) => Ok(DataType::Float32),
             ScaleRange::Enum(_) => Ok(DataType::Utf8),
-            ScaleRange::Color(_) => Ok(DataType::new_list(DataType::Float32, false)),
+            ScaleRange::Color(_) => Ok(DataType::new_list(DataType::Float32, true)),
         }
     }
 }
