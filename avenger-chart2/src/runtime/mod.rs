@@ -11,11 +11,11 @@ use crate::{
     utils::ExprHelpers,
 };
 use async_recursion::async_recursion;
-use avenger_scales2::{
+use avenger_scales::{
     color_interpolator::{ColorInterpolator, SrgbaColorInterpolator},
     scales::{coerce::Coercer, linear::LinearScale, ScaleImpl},
 };
-use avenger_scales2::{
+use avenger_scales::{
     formatter::Formatters,
     scales::{
         coerce::{CastNumericCoercer, ColorCoercer, CssColorCoercer, NumericCoercer},
