@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use arrow::datatypes::{DataType, Field};
-use avenger_scales2::scales::ScaleImpl;
+use avenger_scales::scales::ScaleImpl;
 use datafusion::{
     common::{DFSchema, ExprSchema},
     logical_expr::ExprSchemable,

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use avenger_scales2::scales::coerce::Coercer;
+use avenger_scales::scales::coerce::Coercer;
 use datafusion::{
     common::ParamValues,
     prelude::{DataFrame, SessionContext},

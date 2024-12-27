@@ -1,5 +1,5 @@
 use arrow::error::ArrowError;
-use avenger_scales2::error::AvengerScaleError;
+use avenger_scales::error::AvengerScaleError;
 use avenger_scenegraph::error::AvengerSceneGraphError;
 use datafusion::error::DataFusionError;
 use thiserror::Error;

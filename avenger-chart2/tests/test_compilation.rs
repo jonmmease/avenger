@@ -18,7 +18,7 @@ use avenger_chart2::{
 };
 use avenger_common::canvas::CanvasDimensions;
 use avenger_geometry::geo_types::Line;
-use avenger_scales2::scales::linear::LinearScale;
+use avenger_scales::scales::linear::LinearScale;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
