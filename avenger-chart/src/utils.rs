@@ -40,16 +40,16 @@ pub fn param<S: Into<String>>(name: S) -> Expr {
 pub trait ExprHelpers {
     fn columns(&self) -> Result<HashSet<Column>, DataFusionError>;
     fn apply_params(self, params: &ParamValues) -> Result<Expr, DataFusionError>;
-    async fn eval_to_scalar(
-        &self,
-        ctx: &SessionContext,
-        params: Option<&ParamValues>,
-    ) -> Result<ScalarValue, DataFusionError>;
-    async fn eval_to_f32(
-        &self,
-        ctx: &SessionContext,
-        params: Option<&ParamValues>,
-    ) -> Result<f32, AvengerChartError>;
+    // async fn eval_to_scalar(
+    //     &self,
+    //     ctx: &SessionContext,
+    //     params: Option<&ParamValues>,
+    // ) -> Result<ScalarValue, DataFusionError>;
+    // async fn eval_to_f32(
+    //     &self,
+    //     ctx: &SessionContext,
+    //     params: Option<&ParamValues>,
+    // ) -> Result<f32, AvengerChartError>;
     fn try_cast_to(
         self,
         cast_to_type: &DataType,
@@ -75,60 +75,60 @@ impl ExprHelpers for Expr {
         Ok(transformed.data)
     }
 
-    async fn eval_to_scalar(
-        &self,
-        ctx: &SessionContext,
-        params: Option<&ParamValues>,
-    ) -> Result<ScalarValue, DataFusionError> {
-        if !self.columns()?.is_empty() {
-            return Err(DataFusionError::Internal(format!(
-                "Cannot eval_to_scalar for Expr with column references: {self:?}"
-            )));
-        }
-        let df = ctx.read_batch(UNIT_RECORD_BATCH.clone())?;
+    // async fn eval_to_scalar(
+    //     &self,
+    //     ctx: &SessionContext,
+    //     params: Option<&ParamValues>,
+    // ) -> Result<ScalarValue, DataFusionError> {
+    //     if !self.columns()?.is_empty() {
+    //         return Err(DataFusionError::Internal(format!(
+    //             "Cannot eval_to_scalar for Expr with column references: {self:?}"
+    //         )));
+    //     }
+    //     let df = ctx.read_batch(UNIT_RECORD_BATCH.clone())?;
 
-        // Normalize params
-        let params = params
-            .cloned()
-            .unwrap_or_else(|| ParamValues::Map(Default::default()));
+    //     // Normalize params
+    //     let params = params
+    //         .cloned()
+    //         .unwrap_or_else(|| ParamValues::Map(Default::default()));
 
-        let res = df
-            .select(vec![self.clone().alias("value")])?
-            .with_param_values(params)?
-            .collect()
-            .await?;
-        let row = res.get(0).unwrap();
-        let col = row.column_by_name("value").unwrap();
-        let scalar = ScalarValue::try_from_array(col, 0)?;
-        Ok(scalar)
-    }
+    //     let res = df
+    //         .select(vec![self.clone().alias("value")])?
+    //         .with_param_values(params)?
+    //         .collect()
+    //         .await?;
+    //     let row = res.get(0).unwrap();
+    //     let col = row.column_by_name("value").unwrap();
+    //     let scalar = ScalarValue::try_from_array(col, 0)?;
+    //     Ok(scalar)
+    // }
 
-    async fn eval_to_f32(
-        &self,
-        ctx: &SessionContext,
-        params: Option<&ParamValues>,
-    ) -> Result<f32, AvengerChartError> {
-        // Must apply params before looking up the schema, or DataFusion errors
-        let expr = if let Some(params) = params {
-            self.clone().apply_params(params)?
-        } else {
-            self.clone()
-        };
+    // async fn eval_to_f32(
+    //     &self,
+    //     ctx: &SessionContext,
+    //     params: Option<&ParamValues>,
+    // ) -> Result<f32, AvengerChartError> {
+    //     // Must apply params before looking up the schema, or DataFusion errors
+    //     let expr = if let Some(params) = params {
+    //         self.clone().apply_params(params)?
+    //     } else {
+    //         self.clone()
+    //     };
 
-        let schema = DFSchema::empty();
+    //     let schema = DFSchema::empty();
 
-        let ScalarValue::Float32(Some(f32_value)) = expr
-            .clone()
-            .cast_to(&DataType::Float32, &schema)?
-            .eval_to_scalar(ctx, None)
-            .await?
-        else {
-            return Err(AvengerChartError::InternalError(
-                "Expected start of interval to have been casted to a float".to_string(),
-            ));
-        };
-        Ok(f32_value)
-    }
+    //     let ScalarValue::Float32(Some(f32_value)) = expr
+    //         .clone()
+    //         .cast_to(&DataType::Float32, &schema)?
+    //         .eval_to_scalar(ctx, None)
+    //         .await?
+    //     else {
+    //         return Err(AvengerChartError::InternalError(
+    //             "Expected start of interval to have been casted to a float".to_string(),
+    //         ));
+    //     };
+    //     Ok(f32_value)
+    // }
 
     fn try_cast_to(
         self,
@@ -177,12 +177,11 @@ pub trait DataFrameChartUtils {
     /// Return single-column DataFrame with all columns in the input DataFrame unioned (concatenated) together
     fn union_all_cols(&self, col_name: Option<&str>) -> Result<DataFrame, AvengerChartError>;
 
-    /// Return DataFrame with single column of unique values across all of the columns in the input DataFrame
-    fn uniques(
-        &self,
-        sort_ascending: Option<bool>,
-        col_name: Option<&str>,
-    ) -> Result<DataFrame, AvengerChartError>;
+    /// Return an a List expression with unique values across all of the columns in the input DataFrame
+    fn unique_values(&self) -> Result<Expr, AvengerChartError>;
+
+    /// Return an a List expression with all values across all of the columns in the input DataFrame
+    fn all_values(&self) -> Result<Expr, AvengerChartError>;
 
     // fn scalar_aggregate(&self, expr: Expr) -> Result<Expr, AvengerChartError>;
 }
@@ -252,26 +251,34 @@ impl DataFrameChartUtils for DataFrame {
         }))
     }
 
-    fn uniques(
-        &self,
-        sort_ascending: Option<bool>,
-        col_name: Option<&str>,
-    ) -> Result<DataFrame, AvengerChartError> {
-        let col_name = col_name.unwrap_or("vals");
+    fn unique_values(&self) -> Result<Expr, AvengerChartError> {
+        let col_name = "vals";
 
         // Collect unique values in array
         let union_df = self.union_all_cols(Some(col_name))?;
-        let uniques_df = union_df.clone().distinct()?;
+        let uniques_df = union_df
+            .clone()
+            .distinct()?
+            .aggregate(vec![], vec![array_agg(ident(col_name))])?;
 
-        if let Some(sort_ascending) = sort_ascending {
-            Ok(uniques_df.sort(vec![SortExpr {
-                expr: ident(col_name),
-                asc: sort_ascending,
-                nulls_first: false,
-            }])?)
-        } else {
-            Ok(uniques_df)
-        }
+        let subquery = Subquery {
+            subquery: Arc::new(uniques_df.logical_plan().clone()),
+            outer_ref_columns: vec![],
+        };
+        Ok(Expr::ScalarSubquery(subquery))
+    }
+
+    fn all_values(&self) -> Result<Expr, AvengerChartError> {
+        let col_name = "vals";
+        let union_df = self.union_all_cols(Some(col_name))?;
+        let all_values_df = union_df
+            .clone()
+            .aggregate(vec![], vec![array_agg(ident(col_name))])?;
+        let subquery = Subquery {
+            subquery: Arc::new(all_values_df.logical_plan().clone()),
+            outer_ref_columns: vec![],
+        };
+        Ok(Expr::ScalarSubquery(subquery))
     }
 
     // fn scalar_aggregate(&self, expr: Expr) -> Result<Expr, AvengerChartError> {

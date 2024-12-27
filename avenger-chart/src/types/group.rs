@@ -66,42 +66,6 @@ impl Group {
         self.y
     }
 
-    /// Add a dataset to the chart.
-    pub fn dataset<S: Into<String>>(self, name: S, dataframe: DataFrame) -> Self {
-        let mut datasets = self.datasets;
-        datasets.insert(name.into(), dataframe);
-        Self { datasets, ..self }
-    }
-
-    /// Get the datasets of the chart.
-    pub fn get_datasets(&self) -> &IndexMap<String, DataFrame> {
-        &self.datasets
-    }
-
-    /// Add a scale to the chart.
-    pub fn scale(self, scale: Scale) -> Self {
-        let mut scales = self.scales;
-        scales.insert(scale.name.clone(), scale);
-        Self { scales, ..self }
-    }
-
-    /// Get the scales of the chart.
-    pub fn get_scales(&self) -> &IndexMap<String, Scale> {
-        &self.scales
-    }
-
-    /// Add a parameter to the chart.
-    pub fn param<S: Into<String>>(self, name: S, expr: Expr) -> Self {
-        let mut params = self.params;
-        params.insert(name.into(), expr);
-        Self { params, ..self }
-    }
-
-    /// Get the parameters of the chart.
-    pub fn get_params(&self) -> &IndexMap<String, Expr> {
-        &self.params
-    }
-
     /// Add an axis to the chart.
     pub fn axis(self, axis: Axis) -> Self {
         let mut axes = self.axes;

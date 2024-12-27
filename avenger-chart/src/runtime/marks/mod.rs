@@ -15,7 +15,7 @@ use arrow::{
 use async_trait::async_trait;
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
-use datafusion::prelude::Expr;
+use datafusion::prelude::{DataFrame, Expr};
 use indexmap::IndexMap;
 
 #[async_trait]
@@ -98,18 +98,13 @@ impl EncodingBatches {
 }
 
 async fn eval_encoding_exprs(
-    from: &Option<String>,
-    encodings: &IndexMap<String, Encoding>,
+    from: &Option<DataFrame>,
+    encodings: &IndexMap<String, Expr>,
     context: &CompilationContext,
 ) -> Result<EncodingBatches, AvengerChartError> {
     // Get the dataset to use for this mark
     let from_df = if let Some(from) = from {
-        // Registered DataFrame from
-        context
-            .dataframes
-            .get(from)
-            .ok_or(AvengerChartError::DatasetLookupError(from.to_string()))?
-            .clone()
+        from.clone()
     } else {
         // Single row DataFrame with no columns
         context.ctx.read_empty()?
@@ -122,33 +117,29 @@ async fn eval_encoding_exprs(
     let mut column_exprs: Vec<Expr> = Vec::new();
 
     for (name, encoding) in encodings.iter() {
-        if encoding.is_scalar() {
-            scalar_exprs.push(
-                encoding
-                    .inner_expr()
-                    .clone()
-                    .apply_params(&context.params)?
-                    .alias(name),
-            );
+        if encoding.column_refs().is_empty() {
+            // scalar_exprs.push(encoding.clone().apply_params(&context.params)?.alias(name));
+            scalar_exprs.push(encoding.clone().alias(name));
         } else {
-            column_exprs.push(
-                encoding
-                    .inner_expr()
-                    .clone()
-                    .apply_params(&context.params)?
-                    .alias(name),
-            );
+            // column_exprs.push(encoding.clone().apply_params(&context.params)?.alias(name));
+            column_exprs.push(encoding.clone().alias(name));
         }
     }
 
     // Get record batch for result of column exprs
-    let column_exprs_df = from_df.select(column_exprs)?;
+    let column_exprs_df = from_df
+        .select(column_exprs)?
+        .with_param_values(context.param_values.clone())?;
     let column_exprs_schema = column_exprs_df.schema().inner().clone();
     let column_exprs_batch =
         concat_batches(&column_exprs_schema, &column_exprs_df.collect().await?)?;
 
     // Get/build DataFrame to evaluate scalar expressions against
-    let scalar_exprs_df = context.ctx.read_empty()?.select(scalar_exprs)?;
+    let scalar_exprs_df = context
+        .ctx
+        .read_empty()?
+        .select(scalar_exprs)?
+        .with_param_values(context.param_values.clone())?;
 
     let scalar_schema = scalar_exprs_df.schema().inner().clone();
     let scalar_exprs_batch = concat_batches(&scalar_schema, &scalar_exprs_df.collect().await?)?;
