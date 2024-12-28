@@ -2,7 +2,7 @@ use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
 use crate::{
     error::AvengerChartError,
-    types::scales::{DataField, Scale, ScaleDomain, ScaleRange},
+    types::scales::{DataField, Scale, ScaleDefaultDomain, ScaleDomain, ScaleRange},
     utils::{DataFrameChartUtils, ExprHelpers},
 };
 use arrow::{
@@ -13,6 +13,8 @@ use arrow::{
 
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 
+use super::context::CompilationContext;
+use arrow::array::Array;
 use avenger_scales::{
     color_interpolator::{ColorInterpolator, SrgbaColorInterpolator},
     formatter::Formatters,
@@ -26,14 +28,12 @@ use datafusion::{
         ColumnarValue, ExprSchemable, ScalarFunctionImplementation, ScalarUDF, ScalarUDFImpl,
         Signature, TypeSignature, Volatility,
     },
-    prelude::{create_udf, lit, make_array, named_struct, DataFrame, Expr, SessionContext},
+    prelude::{create_udf, lit, make_array, named_struct, when, DataFrame, Expr, SessionContext},
     scalar::ScalarValue,
 };
 use ordered_float::OrderedFloat;
 use palette::Srgba;
 use std::fmt::Debug;
-
-use super::context::CompilationContext;
 
 #[derive(Debug, Clone)]
 pub struct EvaluatedScale {
@@ -45,7 +45,6 @@ pub struct EvaluatedScale {
 pub fn scale_expr(scale: &Scale, values: Expr) -> Result<Expr, AvengerChartError> {
     let scale_impl = scale.get_scale_impl().clone();
     let domain = compile_domain(&scale.domain, scale_impl.infer_domain_from_data_method())?;
-    println!("domain: {:?}", domain);
     let range = compile_range(&scale.range)?;
     let options = compile_options(&scale.options)?;
 
@@ -119,6 +118,11 @@ impl ScalarUDFImpl for ScaleUDF {
                 let list_array = array.as_list_opt::<i32>().ok_or_else(|| {
                     DataFusionError::Execution(format!("Expected domain array, got {:?}", array))
                 })?;
+                if list_array.is_empty() {
+                    return Ok(ColumnarValue::Array(
+                        ScalarValue::try_from(&self.range_type)?.to_array_of_size(0)?,
+                    ));
+                }
                 list_array.value(0)
             }
             _ => {
@@ -185,30 +189,37 @@ impl ScalarUDFImpl for ScaleUDF {
 }
 
 /// Helper to build an Expr that evaluates to a ScalarValue::List with the domain of the scale
-fn compile_domain(
+pub fn compile_domain(
     domain: &ScaleDomain,
     method: InferDomainFromDataMethod,
 ) -> Result<Expr, AvengerChartError> {
-    match domain {
-        ScaleDomain::Interval(start_expr, end_expr) => {
+    // Compile raw domain
+    let raw_expr = if let Some(domain_raw) = &domain.raw_domain {
+        domain_raw.clone()
+    } else {
+        lit(ScalarValue::Null)
+    };
+
+    let default_domain_expr = match &domain.default_domain {
+        ScaleDefaultDomain::Interval(start_expr, end_expr) => {
             if method != InferDomainFromDataMethod::Interval {
                 return Err(AvengerChartError::InternalError(format!(
                     "Scale does not support interval domain",
                 )));
             }
-            Ok(make_array(vec![start_expr.clone(), end_expr.clone()]))
+            make_array(vec![start_expr.clone(), end_expr.clone()])
         }
-        ScaleDomain::DataField(DataField { dataframe, field }) => {
+        ScaleDefaultDomain::DataField(DataField { dataframe, field }) => {
             let df_with_field = dataframe.as_ref().clone().select_columns(&[field])?;
 
             match method {
-                InferDomainFromDataMethod::Interval => Ok(df_with_field.span()?),
-                InferDomainFromDataMethod::Unique => Ok(df_with_field.unique_values()?),
-                InferDomainFromDataMethod::All => Ok(df_with_field.all_values()?),
+                InferDomainFromDataMethod::Interval => df_with_field.span()?,
+                InferDomainFromDataMethod::Unique => df_with_field.unique_values()?,
+                InferDomainFromDataMethod::All => df_with_field.all_values()?,
             }
         }
 
-        ScaleDomain::DataFields(data_fields) => {
+        ScaleDefaultDomain::DataFields(data_fields) => {
             let mut single_col_dfs: Vec<DataFrame> = Vec::new();
 
             for DataField { dataframe, field } in data_fields {
@@ -225,13 +236,18 @@ fn compile_domain(
                 });
 
             match method {
-                InferDomainFromDataMethod::Interval => Ok(union_df.span()?),
-                InferDomainFromDataMethod::Unique => Ok(union_df.unique_values()?),
-                InferDomainFromDataMethod::All => Ok(union_df.all_values()?),
+                InferDomainFromDataMethod::Interval => union_df.span()?,
+                InferDomainFromDataMethod::Unique => union_df.unique_values()?,
+                InferDomainFromDataMethod::All => union_df.all_values()?,
             }
         }
-        ScaleDomain::Discrete(values) => Ok(make_array(values.clone())),
-    }
+        ScaleDefaultDomain::Discrete(values) => make_array(values.clone()),
+    };
+
+    // Use raw domain if not null, otherwise use default domain
+    let domain_expr =
+        when(raw_expr.clone().is_not_null(), raw_expr).otherwise(default_domain_expr)?;
+    Ok(domain_expr)
 }
 
 fn compile_range(range: &ScaleRange) -> Result<Expr, AvengerChartError> {
@@ -264,4 +280,55 @@ fn compile_options(options: &HashMap<String, Expr>) -> Result<Expr, AvengerChart
     }
 
     Ok(named_struct(struct_args))
+}
+
+pub async fn eval_scale(
+    scale: &Scale,
+    ctx: &SessionContext,
+    params: Option<&ParamValues>,
+) -> Result<ConfiguredScale, AvengerChartError> {
+    let scale_impl = scale.get_scale_impl().clone();
+
+    // Extract domain as Array
+    let domain_scalar = compile_domain(
+        scale.get_domain(),
+        scale_impl.infer_domain_from_data_method(),
+    )?
+    .eval_to_scalar(ctx, params)
+    .await?;
+
+    let ScalarValue::List(domain_list_array) = domain_scalar else {
+        return Err(AvengerChartError::InternalError(format!(
+            "Unexpected domain value: {:?}",
+            scale.get_domain()
+        )));
+    };
+    let domain_array = domain_list_array.value(0);
+
+    // Extract range as Array
+    let range_scalar = compile_range(scale.get_range())?
+        .eval_to_scalar(ctx, params)
+        .await?;
+    let ScalarValue::List(range_list_array) = range_scalar else {
+        return Err(AvengerChartError::InternalError(
+            "Unexpected range value: {".to_string(),
+        ));
+    };
+    let range_array = range_list_array.value(0);
+
+    // Eval options
+    let mut options = HashMap::new();
+    for (k, v) in scale.get_options().iter() {
+        options.insert(k.to_string(), v.eval_to_scalar(ctx, params).await?);
+    }
+
+    Ok(ConfiguredScale {
+        scale_impl: scale_impl.clone(),
+        config: ScaleConfig {
+            domain: domain_array,
+            range: range_array,
+            options,
+            context: ScaleContext::default(),
+        },
+    })
 }
