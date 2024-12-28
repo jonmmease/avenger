@@ -27,6 +27,13 @@ impl WindowEvent {
             _ => None,
         }
     }
+
+    pub fn skip_if_render_pending(&self) -> bool {
+        match self {
+            Self::MouseInput(_) | Self::KeyboardInput(_) => false,
+            _ => true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

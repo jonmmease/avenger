@@ -38,7 +38,7 @@ use datafusion::{
     prelude::{DataFrame, Expr, SessionContext},
     scalar::ScalarValue,
 };
-use marks::{ArcMarkCompiler, MarkCompiler};
+use marks::{arc::ArcMarkCompiler, symbol::SymbolMarkCompiler, MarkCompiler};
 
 pub struct AvengerRuntime {
     ctx: SessionContext,
@@ -54,6 +54,7 @@ impl AvengerRuntime {
     pub fn new(ctx: SessionContext) -> Self {
         let mut mark_compilers: HashMap<String, Arc<dyn MarkCompiler>> = HashMap::new();
         mark_compilers.insert("arc".to_string(), Arc::new(ArcMarkCompiler));
+        mark_compilers.insert("symbol".to_string(), Arc::new(SymbolMarkCompiler));
 
         let mut scales: HashMap<String, Arc<dyn ScaleImpl>> = HashMap::new();
         scales.insert("linear".to_string(), Arc::new(LinearScale));
@@ -77,19 +78,13 @@ impl AvengerRuntime {
     pub async fn compile_group(
         &self,
         group: &Group,
-        params: Vec<Param>,
+        param_values: ParamValues,
     ) -> Result<SceneGroup, AvengerChartError> {
         // Build compilation context
-        let param_values = ParamValues::Map(
-            params
-                .iter()
-                .map(|p| (p.name.clone(), p.default.clone()))
-                .collect(),
-        );
         let context = CompilationContext {
             ctx: self.ctx.clone(),
             coercer: self.coercer.clone(),
-            param_values,
+            param_values: param_values.clone(),
         };
 
         // Collect and compile scene marks
@@ -107,7 +102,7 @@ impl AvengerRuntime {
                 }
                 MarkOrGroup::Group(group) => {
                     // process groups recursively
-                    let group = self.compile_group(group, params.clone()).await?;
+                    let group = self.compile_group(group, param_values.clone()).await?;
                     scene_marks.push(SceneMark::Group(group));
                 }
             }

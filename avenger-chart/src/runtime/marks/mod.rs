@@ -1,5 +1,6 @@
-mod arc;
-mod encoding;
+pub mod arc;
+pub mod encoding;
+pub mod symbol;
 
 use super::context::CompilationContext;
 use crate::utils::ExprHelpers;
@@ -26,8 +27,6 @@ pub trait MarkCompiler: Send + Sync + 'static {
         context: &CompilationContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
 }
-
-pub struct ArcMarkCompiler;
 
 #[derive(Clone, Debug, PartialEq)]
 struct EncodingBatches {

@@ -125,19 +125,12 @@ where
                 }
                 event => {
                     if let Some(event) = AvengerWindowEvent::from_winit_event(event, self.scale) {
-                        if !self.render_pending {
-                            if let Some(scene_graph) =
-                                self.avenger_app.update(&event, Instant::now())
-                            {
-                                let start_time = Instant::now();
+                        if let Some(scene_graph) = self.avenger_app.update(&event, Instant::now()) {
+                            if !self.render_pending || !event.skip_if_render_pending() {
                                 canvas.set_scene(&scene_graph).unwrap();
-                                let duration = start_time.elapsed();
                                 self.render_pending = true;
                                 canvas.window().request_redraw();
                             }
-                        } else {
-                            // Update the state of the app without rebuilding the scene graph
-                            self.avenger_app.update_state(&event, Instant::now());
                         }
                     }
                 }

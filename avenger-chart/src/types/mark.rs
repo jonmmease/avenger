@@ -87,6 +87,8 @@ impl Mark {
     encoding_fn!(stroke_dash);
     encoding_fn!(stroke_dash_offset);
     encoding_fn!(stroke_opacity);
+    encoding_fn!(size);
+    encoding_fn!(angle);
 
     // Arc mark encodings
     encoding_fn!(start_angle);

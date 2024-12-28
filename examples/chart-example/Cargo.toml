@@ -1,0 +1,47 @@
+[package]
+name = "chart-example"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+avenger-vega = { path = "../../avenger-vega" }
+avenger-wgpu = { path = "../../avenger-wgpu" }
+avenger-scenegraph = { path = "../../avenger-scenegraph" }
+avenger-common = { path = "../../avenger-common" }
+avenger-scales = { path = "../../avenger-scales" }
+avenger-guides = { path = "../../avenger-guides" }
+avenger-geometry = { path = "../../avenger-geometry" }
+avenger-eventstream = { path = "../../avenger-eventstream" }
+avenger-app = { path = "../../avenger-app" }
+avenger-winit-wgpu = { path = "../../avenger-winit-wgpu" }
+avenger-chart = { path = "../../avenger-chart" }
+datafusion = { workspace = true }
+palette = { workspace = true }
+
+cfg-if = "1"
+winit = "0.30.5"
+env_logger = "0.10"
+log = "0.4"
+wgpu = "23.0.1"
+pollster = "0.3"
+tokio = { version="*", features = ["rt"] }
+serde_json = { version = "1.0.111" }
+csv = "1.2"
+rand = "0.8"
+rand_distr = "0.4"
+arrow = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1.6"
+console_log = "1.0"
+wgpu = { version = "0.19.3", features = ["webgl", "webgpu"]}
+wasm-bindgen = "0.2.92"
+wasm-bindgen-futures = "0.4.42"
+web-sys = { version = "0.3.67", features = [
+    "Document",
+    "Window",
+    "Element",
+]}

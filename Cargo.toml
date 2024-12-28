@@ -19,6 +19,7 @@ members = [
     "examples/scatter-panning",
     "examples/wgpu-winit",
     "examples/iris",
+    "examples/chart-example",
 ]
 
 resolver = "2"

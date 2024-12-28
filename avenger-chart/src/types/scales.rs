@@ -1,7 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use arrow::datatypes::{DataType, Field};
-use avenger_scales::scales::ScaleImpl;
+use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
+use datafusion::prelude::SessionContext;
 use datafusion::{
     common::{DFSchema, ExprSchema},
     logical_expr::ExprSchemable,
@@ -11,6 +12,7 @@ use datafusion::{
 use palette::{Hsla, Laba, Srgba};
 
 use crate::error::AvengerChartError;
+use crate::runtime::scale::{compile_domain, EvaluatedScale};
 
 #[derive(Debug, Clone)]
 pub struct Scale {
@@ -45,39 +47,60 @@ impl Scale {
 
     pub fn domain_interval<T: Into<Expr>>(self, start: T, end: T) -> Self {
         Self {
-            domain: ScaleDomain::Interval(start.into(), end.into()),
+            domain: ScaleDomain {
+                default_domain: ScaleDefaultDomain::Interval(start.into(), end.into()),
+                raw_domain: None,
+            },
             ..self
         }
     }
 
     pub fn domain_discrete<T: Into<Expr>>(self, values: Vec<T>) -> Self {
         Self {
-            domain: ScaleDomain::Discrete(values.into_iter().map(|v| v.into()).collect()),
+            domain: ScaleDomain {
+                default_domain: ScaleDefaultDomain::Discrete(
+                    values.into_iter().map(|v| v.into()).collect(),
+                ),
+                raw_domain: None,
+            },
             ..self
         }
     }
 
     pub fn domain_data_field<S: Into<String>>(self, dataframe: Arc<DataFrame>, field: S) -> Self {
         Self {
-            domain: ScaleDomain::DataField(DataField {
-                dataframe,
-                field: field.into(),
-            }),
+            domain: ScaleDomain {
+                default_domain: ScaleDefaultDomain::DataField(DataField {
+                    dataframe,
+                    field: field.into(),
+                }),
+                raw_domain: None,
+            },
             ..self
         }
     }
 
     pub fn domain_data_fields<S: Into<String>>(self, fields: Vec<(Arc<DataFrame>, S)>) -> Self {
         Self {
-            domain: ScaleDomain::DataFields(
-                fields
-                    .into_iter()
-                    .map(|(dataframe, field)| DataField {
-                        dataframe,
-                        field: field.into(),
-                    })
-                    .collect(),
-            ),
+            domain: ScaleDomain {
+                default_domain: ScaleDefaultDomain::DataFields(
+                    fields
+                        .into_iter()
+                        .map(|(dataframe, field)| DataField {
+                            dataframe,
+                            field: field.into(),
+                        })
+                        .collect(),
+                ),
+                raw_domain: None,
+            },
+            ..self
+        }
+    }
+
+    pub fn raw_domain<E: Clone + Into<Expr>>(self, raw_domain: E) -> Self {
+        Self {
+            domain: self.domain.with_raw(raw_domain.into()),
             ..self
         }
     }
@@ -110,10 +133,20 @@ impl Scale {
         self.options.insert(key, value);
         self
     }
+
+    pub fn get_options(&self) -> &HashMap<String, Expr> {
+        &self.options
+    }
 }
 
 #[derive(Debug, Clone)]
-pub enum ScaleDomain {
+pub struct ScaleDomain {
+    pub default_domain: ScaleDefaultDomain,
+    pub raw_domain: Option<Expr>,
+}
+
+#[derive(Debug, Clone)]
+pub enum ScaleDefaultDomain {
     // Intervals
     Interval(Expr, Expr),
     // Discrete values
@@ -126,44 +159,63 @@ pub enum ScaleDomain {
 
 impl ScaleDomain {
     pub fn new_interval<E: Into<Expr>>(start: E, end: E) -> Self {
-        Self::Interval(start.into(), end.into())
+        Self {
+            default_domain: ScaleDefaultDomain::Interval(start.into(), end.into()),
+            raw_domain: None,
+        }
     }
 
     pub fn new_discrete(values: Vec<Expr>) -> Self {
-        Self::Discrete(values)
+        Self {
+            default_domain: ScaleDefaultDomain::Discrete(values),
+            raw_domain: None,
+        }
     }
 
     pub fn new_data_field<S: Into<String>>(self, dataframe: Arc<DataFrame>, field: S) -> Self {
-        Self::DataField(DataField {
-            dataframe,
-            field: field.into(),
-        })
+        Self {
+            default_domain: ScaleDefaultDomain::DataField(DataField {
+                dataframe,
+                field: field.into(),
+            }),
+            raw_domain: None,
+        }
     }
 
     pub fn new_data_fields<S: Into<String>>(self, fields: Vec<(Arc<DataFrame>, S)>) -> Self {
-        Self::DataFields(
-            fields
-                .into_iter()
-                .map(|(dataframe, field)| DataField {
-                    dataframe: dataframe,
-                    field: field.into(),
-                })
-                .collect(),
-        )
+        Self {
+            default_domain: ScaleDefaultDomain::DataFields(
+                fields
+                    .into_iter()
+                    .map(|(dataframe, field)| DataField {
+                        dataframe: dataframe,
+                        field: field.into(),
+                    })
+                    .collect(),
+            ),
+            raw_domain: None,
+        }
+    }
+
+    pub fn with_raw(self, raw_domain: Expr) -> Self {
+        Self {
+            default_domain: self.default_domain,
+            raw_domain: Some(raw_domain),
+        }
     }
 
     pub fn data_type(&self) -> Result<DataType, AvengerChartError> {
         let schema = DFSchema::empty();
-        match self {
-            ScaleDomain::Interval(expr, _) => Ok(expr.get_type(&schema)?),
-            ScaleDomain::Discrete(exprs) => Ok(exprs[0].get_type(&schema)?),
+        match &self.default_domain {
+            ScaleDefaultDomain::Interval(expr, _) => Ok(expr.get_type(&schema)?),
+            ScaleDefaultDomain::Discrete(exprs) => Ok(exprs[0].get_type(&schema)?),
             // TODO: change these to hold DataFrame references
-            ScaleDomain::DataField(DataField { dataframe, field }) => Ok(dataframe
+            ScaleDefaultDomain::DataField(DataField { dataframe, field }) => Ok(dataframe
                 .schema()
                 .field_with_name(None, &field)?
                 .data_type()
                 .clone()),
-            ScaleDomain::DataFields(fields) => {
+            ScaleDefaultDomain::DataFields(fields) => {
                 let DataField { dataframe, field } = fields.first().ok_or_else(|| {
                     AvengerChartError::InternalError(
                         "Domain data fields may not be empty".to_string(),

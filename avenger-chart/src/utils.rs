@@ -40,11 +40,11 @@ pub fn param<S: Into<String>>(name: S) -> Expr {
 pub trait ExprHelpers {
     fn columns(&self) -> Result<HashSet<Column>, DataFusionError>;
     fn apply_params(self, params: &ParamValues) -> Result<Expr, DataFusionError>;
-    // async fn eval_to_scalar(
-    //     &self,
-    //     ctx: &SessionContext,
-    //     params: Option<&ParamValues>,
-    // ) -> Result<ScalarValue, DataFusionError>;
+    async fn eval_to_scalar(
+        &self,
+        ctx: &SessionContext,
+        params: Option<&ParamValues>,
+    ) -> Result<ScalarValue, DataFusionError>;
     // async fn eval_to_f32(
     //     &self,
     //     ctx: &SessionContext,
@@ -75,33 +75,33 @@ impl ExprHelpers for Expr {
         Ok(transformed.data)
     }
 
-    // async fn eval_to_scalar(
-    //     &self,
-    //     ctx: &SessionContext,
-    //     params: Option<&ParamValues>,
-    // ) -> Result<ScalarValue, DataFusionError> {
-    //     if !self.columns()?.is_empty() {
-    //         return Err(DataFusionError::Internal(format!(
-    //             "Cannot eval_to_scalar for Expr with column references: {self:?}"
-    //         )));
-    //     }
-    //     let df = ctx.read_batch(UNIT_RECORD_BATCH.clone())?;
+    async fn eval_to_scalar(
+        &self,
+        ctx: &SessionContext,
+        params: Option<&ParamValues>,
+    ) -> Result<ScalarValue, DataFusionError> {
+        if !self.columns()?.is_empty() {
+            return Err(DataFusionError::Internal(format!(
+                "Cannot eval_to_scalar for Expr with column references: {self:?}"
+            )));
+        }
+        let df = ctx.read_batch(UNIT_RECORD_BATCH.clone())?;
 
-    //     // Normalize params
-    //     let params = params
-    //         .cloned()
-    //         .unwrap_or_else(|| ParamValues::Map(Default::default()));
+        // Normalize params
+        let params = params
+            .cloned()
+            .unwrap_or_else(|| ParamValues::Map(Default::default()));
 
-    //     let res = df
-    //         .select(vec![self.clone().alias("value")])?
-    //         .with_param_values(params)?
-    //         .collect()
-    //         .await?;
-    //     let row = res.get(0).unwrap();
-    //     let col = row.column_by_name("value").unwrap();
-    //     let scalar = ScalarValue::try_from_array(col, 0)?;
-    //     Ok(scalar)
-    // }
+        let res = df
+            .select(vec![self.clone().alias("value")])?
+            .with_param_values(params)?
+            .collect()
+            .await?;
+        let row = res.get(0).unwrap();
+        let col = row.column_by_name("value").unwrap();
+        let scalar = ScalarValue::try_from_array(col, 0)?;
+        Ok(scalar)
+    }
 
     // async fn eval_to_f32(
     //     &self,

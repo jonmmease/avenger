@@ -436,6 +436,16 @@ impl ConfiguredScale {
             ..self
         }
     }
+
+    pub fn get_domain_scalar(&self) -> ScalarValue {
+        let domain_list_array = arrays_into_list_array(vec![self.config.domain.clone()]).unwrap();
+        ScalarValue::List(Arc::new(domain_list_array))
+    }
+
+    pub fn get_range_scalar(&self) -> ScalarValue {
+        let range_list_array = arrays_into_list_array(vec![self.config.range.clone()]).unwrap();
+        ScalarValue::List(Arc::new(range_list_array))
+    }
 }
 
 // Pan / zoom methods
