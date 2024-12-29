@@ -614,9 +614,12 @@ checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 name = "avenger-app"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "avenger-eventstream",
  "avenger-geometry",
  "avenger-scenegraph",
+ "futures",
+ "thiserror 2.0.3",
 ]
 
 [[package]]
@@ -626,6 +629,7 @@ dependencies = [
  "arrow",
  "async-recursion",
  "async-trait",
+ "avenger-app",
  "avenger-common",
  "avenger-eventstream",
  "avenger-geometry",
@@ -659,6 +663,7 @@ dependencies = [
 name = "avenger-eventstream"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "avenger-geometry",
  "avenger-scenegraph",
  "winit",
@@ -876,7 +881,7 @@ dependencies = [
  "avenger-eventstream",
  "avenger-wgpu",
  "log",
- "pollster 0.3.0",
+ "tokio",
  "wgpu 23.0.1",
  "winit",
 ]

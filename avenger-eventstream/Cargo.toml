@@ -11,4 +11,4 @@ winit_support = ["dep:winit"]
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-geometry = { path = "../avenger-geometry" }
 winit = { workspace = true, optional = true }
-
+async-trait = { workspace = true }

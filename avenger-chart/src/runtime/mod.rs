@@ -1,16 +1,27 @@
+pub mod app;
 pub mod context;
+pub mod controller;
 pub mod marks;
 pub mod scale;
 
 use std::{collections::HashMap, sync::Arc};
 
+use crate::runtime::app::AvengerChartState;
 use crate::{
     error::AvengerChartError,
     param::Param,
     types::group::{Group, MarkOrGroup},
+    types::scales::Scale,
     utils::ExprHelpers,
 };
 use async_recursion::async_recursion;
+use async_trait::async_trait;
+use avenger_app::app::{AvengerApp, SceneGraphBuilder};
+use avenger_app::error::AvengerAppError;
+use avenger_eventstream::manager::EventStreamHandler;
+use avenger_eventstream::scene::SceneGraphEvent;
+use avenger_eventstream::stream::UpdateStatus;
+use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scales::{
     color_interpolator::{ColorInterpolator, SrgbaColorInterpolator},
     scales::{coerce::Coercer, linear::LinearScale, ScaleImpl},
@@ -26,7 +37,9 @@ use avenger_scenegraph::marks::{
     group::{Clip, SceneGroup},
     mark::SceneMark,
 };
+use avenger_scenegraph::scene_graph::SceneGraph;
 use context::CompilationContext;
+use controller::param_stream::ParamStream;
 use datafusion::{
     common::{
         tree_node::{Transformed, TreeNode, TreeNodeRewriter},
@@ -40,6 +53,7 @@ use datafusion::{
 };
 use marks::{arc::ArcMarkCompiler, symbol::SymbolMarkCompiler, MarkCompiler};
 
+#[derive(Clone)]
 pub struct AvengerRuntime {
     ctx: SessionContext,
     mark_compilers: HashMap<String, Arc<dyn MarkCompiler>>,
@@ -122,5 +136,95 @@ impl AvengerRuntime {
         };
 
         Ok(scene_group)
+    }
+
+    pub async fn build_app(
+        &self,
+        chart: Group,
+    ) -> Result<AvengerApp<AvengerChartState>, AvengerChartError> {
+        let chart_state = AvengerChartState::new(chart, Arc::new(self.clone()));
+
+        // Build event streams that wrap param streams (need to revisit naming these).
+        let param_streams = chart_state
+            .chart
+            .controllers
+            .iter()
+            .flat_map(|c| c.param_streams())
+            .collect::<Vec<_>>();
+        let mut stream_callbacks = Vec::new();
+        for param_stream in param_streams {
+            let input_param_names = Vec::from(param_stream.input_params());
+            let input_scales = Vec::from(param_stream.input_scales());
+
+            let stream_config = param_stream.stream_config().clone();
+            let stream_callback: Arc<dyn EventStreamHandler<AvengerChartState>> =
+                Arc::new(ParamEventStreamHandler {
+                    input_param_names,
+                    input_scales,
+                    param_stream,
+                });
+
+            stream_callbacks.push((stream_config, stream_callback));
+        }
+
+        let avenger_app = AvengerApp::try_new(
+            chart_state,
+            Arc::new(SceneGraphBuilderImpl),
+            stream_callbacks,
+        )
+        .await?;
+        Ok(avenger_app)
+    }
+}
+
+struct ParamEventStreamHandler {
+    input_param_names: Vec<String>,
+    input_scales: Vec<Scale>,
+    param_stream: Arc<dyn ParamStream>,
+}
+
+#[async_trait]
+impl EventStreamHandler<AvengerChartState> for ParamEventStreamHandler {
+    async fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        state: &mut AvengerChartState,
+        rtree: &SceneGraphRTree,
+    ) -> UpdateStatus {
+        // Build param values to pass to param stream
+        let input_params = self
+            .input_param_names
+            .iter()
+            .map(|name| (name.clone(), state.param_values[name].clone()))
+            .collect::<HashMap<_, _>>();
+
+        // Evaluate scales to pass to param stream
+        let mut scales = Vec::new();
+        for scale in self.input_scales.iter() {
+            scales.push(state.eval_scale(scale).await);
+        }
+
+        // Get group path (where should this come from?)
+        let group_path = vec![0 as usize];
+
+        let (new_params, update_status) =
+            self.param_stream
+                .update(event, &input_params, &scales, &group_path, rtree);
+
+        // Store params
+        for (name, value) in new_params {
+            state.param_values.insert(name, value);
+        }
+
+        update_status
+    }
+}
+
+struct SceneGraphBuilderImpl;
+
+#[async_trait]
+impl SceneGraphBuilder<AvengerChartState> for SceneGraphBuilderImpl {
+    async fn build(&self, state: &AvengerChartState) -> Result<SceneGraph, AvengerAppError> {
+        Ok(state.compile_scene_graph().await?)
     }
 }

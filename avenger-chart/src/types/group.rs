@@ -1,3 +1,7 @@
+use std::sync::Arc;
+
+use crate::runtime::controller::Controller;
+
 use super::axis::Axis;
 use super::legend::Legend;
 use super::mark::Mark;
@@ -5,6 +9,8 @@ use super::scales::Scale;
 
 use datafusion::prelude::{DataFrame, Expr};
 use indexmap::IndexMap;
+use crate::param::Param;
+
 #[derive(Debug, Clone)]
 pub struct Group {
     pub x: f32,
@@ -12,7 +18,8 @@ pub struct Group {
     pub name: Option<String>,
     pub datasets: IndexMap<String, DataFrame>,
     pub scales: IndexMap<String, Scale>,
-    pub params: IndexMap<String, Expr>,
+    pub params: Vec<Param>,
+    pub controllers: Vec<Arc<dyn Controller>>,
 
     pub axes: Vec<Axis>,
     pub legends: Vec<Legend>,
@@ -31,6 +38,7 @@ impl Group {
             datasets: Default::default(),
             scales: Default::default(),
             params: Default::default(),
+            controllers: vec![],
             axes: vec![],
             legends: vec![],
             marks: vec![],
@@ -102,6 +110,24 @@ impl Group {
         let mut marks = self.marks;
         marks.push(MarkOrGroup::Group(group));
         Self { marks, ..self }
+    }
+
+    pub fn controller(self, controller: Arc<dyn Controller>) -> Self {
+        let mut controllers = self.controllers;
+        controllers.push(controller);
+        Self {
+            controllers,
+            ..self
+        }
+    }
+
+    pub fn param(self, param: Param) -> Self {
+        let mut params = self.params;
+        params.push(param);
+        Self {
+            params,
+            ..self
+        }
     }
 
     /// Get the marks of the chart.

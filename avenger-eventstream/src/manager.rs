@@ -5,13 +5,15 @@ use crate::scene::{
 };
 use crate::stream::{EventStream, EventStreamConfig, UpdateStatus};
 use crate::window::{ElementState, Key, MouseButton, NamedKey, WindowEvent, WindowKeyboardInput};
+use async_trait::async_trait;
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::marks::mark::MarkInstance;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+#[async_trait]
 pub trait EventStreamHandler<State: Clone + Send + Sync + 'static> {
-    fn handle(
+    async fn handle(
         &self,
         event: &SceneGraphEvent,
         state: &mut State,
@@ -19,20 +21,20 @@ pub trait EventStreamHandler<State: Clone + Send + Sync + 'static> {
     ) -> UpdateStatus;
 }
 
-impl<State, F> EventStreamHandler<State> for F
-where
-    State: Clone + Send + Sync + 'static,
-    F: Fn(&SceneGraphEvent, &mut State, &SceneGraphRTree) -> UpdateStatus + 'static,
-{
-    fn handle(
-        &self,
-        event: &SceneGraphEvent,
-        state: &mut State,
-        rtree: &SceneGraphRTree,
-    ) -> UpdateStatus {
-        self(event, state, rtree)
-    }
-}
+// impl<State, F> EventStreamHandler<State> for F
+// where
+//     State: Clone + Send + Sync + 'static,
+//     F: Fn(&SceneGraphEvent, &mut State, &SceneGraphRTree) -> UpdateStatus + 'static,
+// {
+//     async fn handle(
+//         &self,
+//         event: &SceneGraphEvent,
+//         state: &mut State,
+//         rtree: &SceneGraphRTree,
+//     ) -> UpdateStatus {
+//         self(event, state, rtree)
+//     }
+// }
 
 pub struct EventStreamManager<State: Clone + Send + Sync + 'static> {
     state: State,
@@ -96,7 +98,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
         }
     }
 
-    pub fn dispatch_event(
+    pub async fn dispatch_event(
         &mut self,
         event: &WindowEvent,
         rtree: &SceneGraphRTree,
@@ -136,24 +138,32 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
                             && self.mousedown_button.as_ref() == Some(&input.button)
                         {
                             if input.button == MouseButton::Left {
-                                update_status = update_status.merge(&self.check_double_click(
-                                    position,
-                                    mark_instance.clone(),
-                                    rtree,
-                                    instant,
-                                ));
+                                update_status = update_status.merge(
+                                    &self
+                                        .check_double_click(
+                                            position,
+                                            mark_instance.clone(),
+                                            rtree,
+                                            instant,
+                                        )
+                                        .await,
+                                );
                             } else {
-                                update_status = update_status.merge(&self.dispatch_single_event(
-                                    &SceneGraphEvent::Click(SceneClickEvent {
-                                        position,
-                                        button: input.button.clone(),
-                                        mark_instance: mark_instance.clone(),
-                                        modifiers: self.modifiers,
-                                    }),
-                                    rtree,
-                                    instant,
-                                    None,
-                                ));
+                                update_status = update_status.merge(
+                                    &self
+                                        .dispatch_single_event(
+                                            &SceneGraphEvent::Click(SceneClickEvent {
+                                                position,
+                                                button: input.button.clone(),
+                                                mark_instance: mark_instance.clone(),
+                                                modifiers: self.modifiers,
+                                            }),
+                                            rtree,
+                                            instant,
+                                            None,
+                                        )
+                                        .await,
+                                );
                             }
                         }
                         self.mousedown_mark = None;
@@ -223,24 +233,26 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
 
         // Process cursor movement for enter/leave events
         if let Some(position) = event.position() {
-            update_status =
-                update_status.merge(&self.handle_mark_mouse_events(position, rtree, instant));
+            update_status = update_status.merge(
+                &self
+                    .handle_mark_mouse_events(position, rtree, instant)
+                    .await,
+            );
         }
 
         // Dispatch the converted event if any
         if let Some(scene_event) = scene_event {
-            update_status = update_status.merge(&self.dispatch_single_event(
-                &scene_event,
-                rtree,
-                instant,
-                None,
-            ));
+            update_status = update_status.merge(
+                &self
+                    .dispatch_single_event(&scene_event, rtree, instant, None)
+                    .await,
+            );
         }
 
         update_status
     }
 
-    fn dispatch_single_event(
+    async fn dispatch_single_event(
         &mut self,
         event: &SceneGraphEvent,
         rtree: &SceneGraphRTree,
@@ -257,8 +269,8 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
                 stream.last_handled_time = Some(instant);
 
                 // Call handler and merge update status
-                update_status =
-                    update_status.merge(&stream.handler.handle(event, &mut self.state, rtree));
+                update_status = update_status
+                    .merge(&stream.handler.handle(event, &mut self.state, rtree).await);
 
                 // Handle consume flag
                 if stream.config.consume {
@@ -288,7 +300,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
         rtree.pick_top_mark_at_point(position).cloned()
     }
 
-    fn handle_mark_mouse_events(
+    async fn handle_mark_mouse_events(
         &mut self,
         position: [f32; 2],
         rtree: &SceneGraphRTree,
@@ -302,53 +314,69 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
             (Some(prev), Some(curr)) if prev != curr => {
                 // Mark changed - generate leave then enter
                 // Use the previous mark instance for leave event
-                update_status = update_status.merge(&self.dispatch_single_event(
-                    &SceneGraphEvent::MouseLeave(SceneMouseLeaveEvent {
-                        position,
-                        mark_instance: prev.clone(),
-                        modifiers: self.modifiers,
-                    }),
-                    rtree,
-                    instant,
-                    Some(prev.clone()),
-                ));
+                update_status = update_status.merge(
+                    &self
+                        .dispatch_single_event(
+                            &SceneGraphEvent::MouseLeave(SceneMouseLeaveEvent {
+                                position,
+                                mark_instance: prev.clone(),
+                                modifiers: self.modifiers,
+                            }),
+                            rtree,
+                            instant,
+                            Some(prev.clone()),
+                        )
+                        .await,
+                );
                 // Use the current mark instance for enter event
-                update_status = update_status.merge(&self.dispatch_single_event(
-                    &SceneGraphEvent::MouseEnter(SceneMouseEnterEvent {
-                        position,
-                        mark_instance: curr.clone(),
-                        modifiers: self.modifiers,
-                    }),
-                    rtree,
-                    instant,
-                    Some(curr.clone()),
-                ));
+                update_status = update_status.merge(
+                    &self
+                        .dispatch_single_event(
+                            &SceneGraphEvent::MouseEnter(SceneMouseEnterEvent {
+                                position,
+                                mark_instance: curr.clone(),
+                                modifiers: self.modifiers,
+                            }),
+                            rtree,
+                            instant,
+                            Some(curr.clone()),
+                        )
+                        .await,
+                );
             }
             (Some(prev), None) => {
                 // Left mark - generate leave
-                update_status = update_status.merge(&self.dispatch_single_event(
-                    &SceneGraphEvent::MouseLeave(SceneMouseLeaveEvent {
-                        position,
-                        mark_instance: prev.clone(),
-                        modifiers: self.modifiers,
-                    }),
-                    rtree,
-                    instant,
-                    Some(prev.clone()),
-                ));
+                update_status = update_status.merge(
+                    &self
+                        .dispatch_single_event(
+                            &SceneGraphEvent::MouseLeave(SceneMouseLeaveEvent {
+                                position,
+                                mark_instance: prev.clone(),
+                                modifiers: self.modifiers,
+                            }),
+                            rtree,
+                            instant,
+                            Some(prev.clone()),
+                        )
+                        .await,
+                );
             }
             (None, Some(curr)) => {
                 // Entered mark - generate enter
-                update_status = update_status.merge(&self.dispatch_single_event(
-                    &SceneGraphEvent::MouseEnter(SceneMouseEnterEvent {
-                        position,
-                        mark_instance: curr.clone(),
-                        modifiers: self.modifiers,
-                    }),
-                    rtree,
-                    instant,
-                    Some(curr.clone()),
-                ));
+                update_status = update_status.merge(
+                    &self
+                        .dispatch_single_event(
+                            &SceneGraphEvent::MouseEnter(SceneMouseEnterEvent {
+                                position,
+                                mark_instance: curr.clone(),
+                                modifiers: self.modifiers,
+                            }),
+                            rtree,
+                            instant,
+                            Some(curr.clone()),
+                        )
+                        .await,
+                );
             }
             _ => {}
         }
@@ -359,7 +387,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
         update_status
     }
 
-    fn check_double_click(
+    async fn check_double_click(
         &mut self,
         position: [f32; 2],
         mark_instance: Option<MarkInstance>,
@@ -375,16 +403,20 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
 
             if time_diff <= self.double_click_threshold && distance <= self.double_click_distance {
                 // Double click detected - dispatch event
-                update_status = update_status.merge(&self.dispatch_single_event(
-                    &SceneGraphEvent::DoubleClick(SceneDoubleClickEvent {
-                        position,
-                        mark_instance,
-                        modifiers: self.modifiers,
-                    }),
-                    rtree,
-                    instant,
-                    None,
-                ));
+                update_status = update_status.merge(
+                    &self
+                        .dispatch_single_event(
+                            &SceneGraphEvent::DoubleClick(SceneDoubleClickEvent {
+                                position,
+                                mark_instance,
+                                modifiers: self.modifiers,
+                            }),
+                            rtree,
+                            instant,
+                            None,
+                        )
+                        .await,
+                );
                 // Reset last click
                 self.last_click = None;
                 return update_status;
@@ -392,17 +424,21 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
         }
 
         // Not a double click, emit single left-click and store for potential future double-click
-        update_status = update_status.merge(&self.dispatch_single_event(
-            &SceneGraphEvent::Click(SceneClickEvent {
-                position,
-                button: MouseButton::Left,
-                mark_instance: mark_instance.clone(),
-                modifiers: self.modifiers,
-            }),
-            rtree,
-            instant,
-            None,
-        ));
+        update_status = update_status.merge(
+            &self
+                .dispatch_single_event(
+                    &SceneGraphEvent::Click(SceneClickEvent {
+                        position,
+                        button: MouseButton::Left,
+                        mark_instance: mark_instance.clone(),
+                        modifiers: self.modifiers,
+                    }),
+                    rtree,
+                    instant,
+                    None,
+                )
+                .await,
+        );
         self.last_click = Some((instant, position));
 
         update_status

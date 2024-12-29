@@ -19,18 +19,24 @@ where
     scale: f32,
     avenger_app: AvengerApp<State>,
     render_pending: bool,
+    tokio_runtime: tokio::runtime::Runtime,
 }
 
 impl<'a, State> WinitWgpuAvengerApp<'a, State>
 where
     State: Clone + Send + Sync + 'static,
 {
-    pub fn new(avenger_app: AvengerApp<State>, scale: f32) -> Self {
+    pub fn new(
+        avenger_app: AvengerApp<State>,
+        scale: f32,
+        tokio_runtime: tokio::runtime::Runtime,
+    ) -> Self {
         Self {
             canvas: None,
             scale,
             avenger_app,
             render_pending: false,
+            tokio_runtime,
         }
     }
 }
@@ -52,9 +58,10 @@ where
             scale: self.scale,
         };
 
-        let mut canvas =
-            pollster::block_on(WindowCanvas::new(window, dimensions, Default::default()))
-                .expect("Failed to create canvas");
+        let mut canvas = self
+            .tokio_runtime
+            .block_on(WindowCanvas::new(window, dimensions, Default::default()))
+            .expect("Failed to create canvas");
 
         // Initial render
         canvas.set_scene(&self.avenger_app.scene_graph()).unwrap();
@@ -125,7 +132,11 @@ where
                 }
                 event => {
                     if let Some(event) = AvengerWindowEvent::from_winit_event(event, self.scale) {
-                        if let Some(scene_graph) = self.avenger_app.update(&event, Instant::now()) {
+                        if let Some(scene_graph) = self
+                            .tokio_runtime
+                            .block_on(self.avenger_app.update(&event, Instant::now()))
+                            .expect("Failed to update app")
+                        {
                             if !self.render_pending || !event.skip_if_render_pending() {
                                 canvas.set_scene(&scene_graph).unwrap();
                                 self.render_pending = true;
