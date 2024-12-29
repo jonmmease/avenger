@@ -354,7 +354,7 @@ pub async fn run() {
         ..Default::default()
     };
 
-    let avenger_app = AvengerApp::new(
+    let avenger_app = AvengerApp::try_new(
         ChartState::new(),
         Arc::new(make_scene_graph),
         vec![

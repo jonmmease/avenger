@@ -1,25 +1,33 @@
+use futures::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 
+use async_trait::async_trait;
 use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager};
 use avenger_eventstream::stream::{EventStreamConfig, UpdateStatus};
 use avenger_eventstream::window::WindowEvent;
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::scene_graph::SceneGraph;
+use futures::future::BoxFuture;
 
+use crate::error::AvengerAppError;
+
+#[async_trait]
 pub trait SceneGraphBuilder<State: Clone + Send + Sync + 'static> {
-    fn build(&self, state: &State) -> SceneGraph;
+    async fn build(&self, state: &State) -> Result<SceneGraph, AvengerAppError>;
 }
 
-impl<State, F> SceneGraphBuilder<State> for F
-where
-    State: Clone + Send + Sync + 'static,
-    F: Fn(&State) -> SceneGraph + 'static,
-{
-    fn build(&self, state: &State) -> SceneGraph {
-        self(state)
-    }
-}
+// #[async_trait]
+// impl<State, F> SceneGraphBuilder<State> for F
+// where
+//     State: Clone + Send + Sync + 'static,
+//     F: Fn(&State) -> Pin<Box<dyn Future<Output = SceneGraph> + Send>> + Send + Sync + 'static,
+// {
+//     async fn build(&self, state: &State) -> Result<SceneGraph, AvengerAppError> {
+//         self(state).await
+//     }
+// }
 
 pub struct AvengerApp<State>
 where
@@ -35,44 +43,55 @@ impl<State> AvengerApp<State>
 where
     State: Clone + Send + Sync + 'static,
 {
-    pub fn new(
+    pub async fn try_new(
         initial_state: State,
         scene_graph_builder: Arc<dyn SceneGraphBuilder<State>>,
         stream_callbacks: Vec<(EventStreamConfig, Arc<dyn EventStreamHandler<State>>)>,
-    ) -> Self {
+    ) -> Result<Self, AvengerAppError> {
         let mut event_stream_manager = EventStreamManager::new(initial_state);
         for (config, handler) in stream_callbacks {
             event_stream_manager.register_handler(config, handler);
         }
         // Build initial scene graph and rtree
-        let scene_graph = Arc::new(scene_graph_builder.build(event_stream_manager.state()));
+        let scene_graph = Arc::new(
+            scene_graph_builder
+                .build(event_stream_manager.state())
+                .await?,
+        );
         let rtree = SceneGraphRTree::from_scene_graph(&scene_graph);
 
-        Self {
+        Ok(Self {
             scene_graph_builder,
             event_stream_manager,
             rtree,
             scene_graph,
-        }
+        })
     }
 
     /// Update the state of the app without rebuilding the scene graph
-    pub fn update_state(&mut self, event: &WindowEvent, instant: Instant) -> UpdateStatus {
+    pub async fn update_state(&mut self, event: &WindowEvent, instant: Instant) -> UpdateStatus {
         self.event_stream_manager
             .dispatch_event(event, &self.rtree, instant)
+            .await
     }
 
     /// Update the state of the app and rebuild the scene graph if needed
-    pub fn update(&mut self, event: &WindowEvent, instant: Instant) -> Option<Arc<SceneGraph>> {
+    pub async fn update(
+        &mut self,
+        event: &WindowEvent,
+        instant: Instant,
+    ) -> Result<Option<Arc<SceneGraph>>, AvengerAppError> {
         let update_status = self
             .event_stream_manager
-            .dispatch_event(event, &self.rtree, instant);
+            .dispatch_event(event, &self.rtree, instant)
+            .await;
 
         // Reconstruct the scene graph if the need to rerender or rebuild geometry
         if update_status.rerender || update_status.rebuild_geometry {
             self.scene_graph = Arc::new(
                 self.scene_graph_builder
-                    .build(self.event_stream_manager.state()),
+                    .build(self.event_stream_manager.state())
+                    .await?,
             );
         }
 
@@ -83,9 +102,9 @@ where
 
         // Return the scene graph if the need to rerender
         if update_status.rerender {
-            Some(self.scene_graph.clone())
+            Ok(Some(self.scene_graph.clone()))
         } else {
-            None
+            Ok(None)
         }
     }
 

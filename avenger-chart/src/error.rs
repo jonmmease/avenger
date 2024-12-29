@@ -1,4 +1,5 @@
 use arrow::error::ArrowError;
+use avenger_app::error::AvengerAppError;
 use avenger_scales::error::AvengerScaleError;
 use avenger_scenegraph::error::AvengerSceneGraphError;
 use datafusion::error::DataFusionError;
@@ -24,6 +25,9 @@ pub enum AvengerChartError {
     #[error("Scale error: `{0}`")]
     ScaleError(#[from] AvengerScaleError),
 
+    #[error("App error: `{0}`")]
+    AppError(#[from] AvengerAppError),
+
     #[error("DataFusion error: `{0}`")]
     DataFusionError(#[from] DataFusionError),
 
@@ -37,6 +41,15 @@ impl From<AvengerChartError> for DataFusionError {
             AvengerChartError::DataFusionError(e) => e,
             AvengerChartError::ArrowError(e) => DataFusionError::ArrowError(e, None),
             e => DataFusionError::Execution(e.to_string()),
+        }
+    }
+}
+
+impl From<AvengerChartError> for AvengerAppError {
+    fn from(value: AvengerChartError) -> Self {
+        match value {
+            AvengerChartError::AppError(e) => e,
+            e => AvengerAppError::InternalError(e.to_string()),
         }
     }
 }

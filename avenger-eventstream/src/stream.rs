@@ -5,6 +5,7 @@ use crate::scene::{
     SceneMouseEnterEvent, SceneMouseLeaveEvent, SceneMouseUpEvent, SceneMouseWheelEvent,
 };
 use crate::window::{ElementState, MouseButton, WindowEvent};
+use async_trait::async_trait;
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::marks::mark::MarkInstance;
 use std::sync::Arc;
@@ -30,7 +31,17 @@ impl DebounceConfig {
     }
 }
 
-#[derive(Clone, Default)]
+/// Wrapper around a filter function that supports Debug formatting
+#[derive(Clone)]
+pub struct EventStreamFilter(pub Arc<dyn Fn(&SceneGraphEvent) -> bool + Send + Sync + 'static>);
+
+impl std::fmt::Debug for EventStreamFilter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("EventStreamFilter")
+    }
+}
+
+#[derive(Clone, Default, Debug)]
 pub struct EventStreamConfig {
     /// Event types to include in the stream
     pub types: Vec<SceneGraphEventType>,
@@ -44,7 +55,7 @@ pub struct EventStreamConfig {
     pub consume: bool,
 
     /// If specified, only events matching all of the filters will be included
-    pub filter: Option<Vec<Arc<dyn Fn(&SceneGraphEvent) -> bool>>>,
+    pub filter: Option<Vec<EventStreamFilter>>,
 
     /// If specified, only events that occur after the start stream has been triggered
     /// and before the end stream has been triggered will be included
@@ -89,8 +100,13 @@ struct BetweenState {
 }
 
 // handler that does nothing
-fn noop_handler(_: &SceneGraphEvent, _: &mut (), _: &SceneGraphRTree) -> UpdateStatus {
-    Default::default()
+struct NoopHandler;
+
+#[async_trait]
+impl EventStreamHandler<()> for NoopHandler {
+    async fn handle(&self, _: &SceneGraphEvent, _: &mut (), _: &SceneGraphRTree) -> UpdateStatus {
+        Default::default()
+    }
 }
 
 impl<State: Clone + Send + Sync + 'static> EventStream<State> {
@@ -106,11 +122,11 @@ impl<State: Clone + Send + Sync + 'static> EventStream<State> {
                 started: false,
                 start_stream: Box::new(EventStream::new(
                     start_cfg.as_ref().clone(),
-                    Arc::new(noop_handler),
+                    Arc::new(NoopHandler),
                 )),
                 end_stream: Box::new(EventStream::new(
                     end_cfg.as_ref().clone(),
-                    Arc::new(noop_handler),
+                    Arc::new(NoopHandler),
                 )),
             });
 
@@ -166,7 +182,7 @@ impl<State: Clone + Send + Sync + 'static> EventStream<State> {
         // Apply filters
         if let Some(filters) = &self.config.filter {
             for filter in filters {
-                if !filter(event) {
+                if !filter.0(event) {
                     return false;
                 }
             }
