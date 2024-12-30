@@ -42,7 +42,7 @@ pub struct EvaluatedScale {
     pub scale: ConfiguredScale,
 }
 
-pub fn scale_expr(scale: &Scale, values: Expr) -> Result<Expr, AvengerChartError> {
+pub fn scale_expr<E: Into<Expr>>(scale: &Scale, values: E) -> Result<Expr, AvengerChartError> {
     let scale_impl = scale.get_scale_impl().clone();
     let domain = compile_domain(&scale.domain, scale_impl.infer_domain_from_data_method())?;
     let range = compile_range(&scale.range)?;
@@ -59,7 +59,7 @@ pub fn scale_expr(scale: &Scale, values: Expr) -> Result<Expr, AvengerChartError
         options_type,
     )?);
 
-    Ok(udf.call(vec![domain, range, options, values]))
+    Ok(udf.call(vec![domain, range, options, values.into()]))
 }
 
 #[derive(Debug, Clone)]
@@ -180,7 +180,7 @@ impl ScalarUDFImpl for ScaleUDF {
             ),
             ColumnarValue::Scalar(values) => ColumnarValue::Scalar(
                 scale
-                    .scale_scalar(&values)
+                    .scale_scalar(values)
                     .map_err(|e| DataFusionError::Execution(e.to_string()))?,
             ),
         };

@@ -1,9 +1,11 @@
 use std::{fmt::Debug, sync::Arc};
 
-use param_stream::ParamStream;
 use crate::param::Param;
+use crate::types::group::MarkOrGroup;
 use crate::types::mark::Mark;
+use param_stream::ParamStream;
 
+pub mod box_select;
 pub mod pan_zoom;
 pub mod param_stream;
 
@@ -17,8 +19,8 @@ pub trait Controller: Debug + Send + Sync + 'static {
     /// params that are updated by param_streams, with default values
     fn params(&self) -> Vec<Param>;
 
-    // /// marks that this controller provides
-    // fn marks(&self) -> &[Mark] {
-    //     &[]
-    // }
+    /// marks that this controller provides
+    fn marks(&self) -> Vec<MarkOrGroup> {
+        Vec::new()
+    }
 }

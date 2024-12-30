@@ -5,7 +5,7 @@ pub mod marks;
 pub mod scale;
 
 use std::{collections::HashMap, sync::Arc};
-
+use arrow::array::RecordBatch;
 use crate::runtime::app::AvengerChartState;
 use crate::{
     error::AvengerChartError,
@@ -51,7 +51,15 @@ use datafusion::{
     prelude::{DataFrame, Expr, SessionContext},
     scalar::ScalarValue,
 };
+use marks::rect::RectMarkCompiler;
+use marks::rule::RuleMarkCompiler;
 use marks::{arc::ArcMarkCompiler, symbol::SymbolMarkCompiler, MarkCompiler};
+use crate::runtime::controller::param_stream::ParamStreamContext;
+
+pub struct CompiledChart {
+    pub scene_group: SceneGroup,
+    pub details: HashMap<Vec<usize>, RecordBatch>,
+}
 
 #[derive(Clone)]
 pub struct AvengerRuntime {
@@ -69,6 +77,8 @@ impl AvengerRuntime {
         let mut mark_compilers: HashMap<String, Arc<dyn MarkCompiler>> = HashMap::new();
         mark_compilers.insert("arc".to_string(), Arc::new(ArcMarkCompiler));
         mark_compilers.insert("symbol".to_string(), Arc::new(SymbolMarkCompiler));
+        mark_compilers.insert("rule".to_string(), Arc::new(RuleMarkCompiler));
+        mark_compilers.insert("rect".to_string(), Arc::new(RectMarkCompiler));
 
         let mut scales: HashMap<String, Arc<dyn ScaleImpl>> = HashMap::new();
         scales.insert("linear".to_string(), Arc::new(LinearScale));
@@ -92,8 +102,11 @@ impl AvengerRuntime {
     pub async fn compile_group(
         &self,
         group: &Group,
+        parent_path: Vec<usize>,
         param_values: ParamValues,
-    ) -> Result<SceneGroup, AvengerChartError> {
+    ) -> Result<CompiledChart, AvengerChartError> {
+        let mut details: HashMap<Vec<usize>, RecordBatch> = HashMap::new();
+
         // Build compilation context
         let context = CompilationContext {
             ctx: self.ctx.clone(),
@@ -103,7 +116,18 @@ impl AvengerRuntime {
 
         // Collect and compile scene marks
         let mut scene_marks: Vec<SceneMark> = Vec::new();
-        for mark_or_group in group.get_marks_and_groups() {
+        let mut marks_and_groups = group.get_marks_and_groups().clone();
+
+        // Add controller marks
+        for controller in group.controllers.iter() {
+            marks_and_groups.extend(controller.marks());
+        }
+
+        // Compile scene marks
+        for (idx, mark_or_group) in marks_and_groups.iter().enumerate() {
+            let mut mark_path = parent_path.clone();
+            mark_path.push(idx);
+
             match mark_or_group {
                 MarkOrGroup::Mark(mark) => {
                     let mark_type = mark.get_mark_type();
@@ -111,13 +135,23 @@ impl AvengerRuntime {
                         AvengerChartError::MarkTypeLookupError(mark_type.to_string()),
                     )?;
 
-                    let new_marks = mark_compiler.compile(mark, &context).await?;
-                    scene_marks.extend(new_marks);
+                    let compiled_mark = mark_compiler.compile(mark, &context).await?;
+                    scene_marks.extend(compiled_mark.scene_marks);
+
+                    // Perpend mark path and merge details
+                    for (child_path, batch) in compiled_mark.details {
+                        let mut path = mark_path.clone();
+                        path.extend(child_path);
+                        details.insert(path, batch);
+                    }
                 }
                 MarkOrGroup::Group(group) => {
                     // process groups recursively
-                    let group = self.compile_group(group, param_values.clone()).await?;
-                    scene_marks.push(SceneMark::Group(group));
+                    let compiled_group = self.compile_group(group, mark_path, param_values.clone()).await?;
+                    scene_marks.push(SceneMark::Group(compiled_group.scene_group));
+
+                    // Merge details
+                    details.extend(compiled_group.details);
                 }
             }
         }
@@ -135,7 +169,10 @@ impl AvengerRuntime {
             zindex: None,
         };
 
-        Ok(scene_group)
+        Ok(CompiledChart{
+            scene_group,
+            details: Default::default(),
+        })
     }
 
     pub async fn build_app(
@@ -145,12 +182,20 @@ impl AvengerRuntime {
         let chart_state = AvengerChartState::new(chart, Arc::new(self.clone()));
 
         // Build event streams that wrap param streams (need to revisit naming these).
-        let param_streams = chart_state
+        let mut param_streams = chart_state
             .chart
             .controllers
             .iter()
             .flat_map(|c| c.param_streams())
             .collect::<Vec<_>>();
+
+        // Collect param streams from params
+        for param in &chart_state.chart.params {
+            if let Some(stream) = &param.stream {
+                param_streams.push(stream.clone());
+            }
+        }
+
         let mut stream_callbacks = Vec::new();
         for param_stream in param_streams {
             let input_param_names = Vec::from(param_stream.input_params());
@@ -207,9 +252,18 @@ impl EventStreamHandler<AvengerChartState> for ParamEventStreamHandler {
         // Get group path (where should this come from?)
         let group_path = vec![0 as usize];
 
+        let context = ParamStreamContext {
+            event,
+            params: &input_params,
+            scales: &scales,
+            group_path: &group_path,
+            rtree,
+            details: &state.details
+        };
+
         let (new_params, update_status) =
             self.param_stream
-                .update(event, &input_params, &scales, &group_path, rtree);
+                .update(context);
 
         // Store params
         for (name, value) in new_params {
@@ -224,7 +278,7 @@ struct SceneGraphBuilderImpl;
 
 #[async_trait]
 impl SceneGraphBuilder<AvengerChartState> for SceneGraphBuilderImpl {
-    async fn build(&self, state: &AvengerChartState) -> Result<SceneGraph, AvengerAppError> {
+    async fn build(&self, state: &mut AvengerChartState) -> Result<SceneGraph, AvengerAppError> {
         Ok(state.compile_scene_graph().await?)
     }
 }

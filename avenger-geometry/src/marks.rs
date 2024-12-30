@@ -41,6 +41,7 @@ impl MarkGeometryUtils for SceneArcMark {
         mark_path: Vec<usize>,
         origin: [f32; 2],
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
+        let name = self.name.clone();
         Box::new(
             izip!(
                 self.indices_iter(),
@@ -53,6 +54,7 @@ impl MarkGeometryUtils for SceneArcMark {
                 let geometry = path.as_geo_type(half_stroke_width, true);
                 GeometryInstance {
                     mark_instance: MarkInstance {
+                        name: name.clone(),
                         mark_path: mark_path.clone(),
                         instance_index: Some(id),
                     },
@@ -73,8 +75,10 @@ impl MarkGeometryUtils for SceneAreaMark {
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let path = self.transformed_path(origin);
         let half_stroke_width = self.stroke_width / 2.0;
+        let name = self.name.clone();
         Box::new(once(GeometryInstance {
             mark_instance: MarkInstance {
+                name: name.clone(),
                 mark_path: mark_path.clone(),
                 instance_index: None,
             },
@@ -91,6 +95,7 @@ impl MarkGeometryUtils for SceneImageMark {
         mark_path: Vec<usize>,
         origin: [f32; 2],
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
+        let name = self.name.clone();
         Box::new(
             izip!(self.indices_iter(), self.transformed_path_iter(origin))
                 .enumerate()
@@ -105,6 +110,7 @@ impl MarkGeometryUtils for SceneImageMark {
 
                     GeometryInstance {
                         mark_instance: MarkInstance {
+                            name: name.clone(),
                             mark_path: mark_path.clone(),
                             instance_index: Some(id),
                         },
@@ -125,8 +131,10 @@ impl MarkGeometryUtils for SceneLineMark {
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let path = self.transformed_path(origin);
         let half_stroke_width = self.stroke_width / 2.0;
+        let name = self.name.clone();
         Box::new(once(GeometryInstance {
             mark_instance: MarkInstance {
+                name: name.clone(),
                 mark_path: mark_path.clone(),
                 instance_index: None,
             },
@@ -144,6 +152,7 @@ impl MarkGeometryUtils for ScenePathMark {
         origin: [f32; 2],
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let half_stroke_width = self.stroke_width.unwrap_or(0.0) / 2.0;
+        let name = self.name.clone();
         Box::new(
             izip!(self.indices_iter(), self.transformed_path_iter(origin))
                 .enumerate()
@@ -151,6 +160,7 @@ impl MarkGeometryUtils for ScenePathMark {
                     let geometry = path.as_geo_type(0.1, true);
                     GeometryInstance {
                         mark_instance: MarkInstance {
+                            name: name.clone(),
                             mark_path: mark_path.clone(),
                             instance_index: Some(id),
                         },
@@ -169,6 +179,7 @@ impl MarkGeometryUtils for SceneRectMark {
         mark_path: Vec<usize>,
         origin: [f32; 2],
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
+        let name = self.name.clone();
         if self.corner_radius.equals_scalar(0.0) {
             // Simple case where we don't need to build lyon paths first
             Box::new(
@@ -194,6 +205,7 @@ impl MarkGeometryUtils for SceneRectMark {
                     ));
                     GeometryInstance {
                         mark_instance: MarkInstance {
+                            name: name.clone(),
                             mark_path: mark_path.clone(),
                             instance_index: Some(id),
                         },
@@ -217,6 +229,7 @@ impl MarkGeometryUtils for SceneRectMark {
                     let geometry = path.as_geo_type(0.1, true);
                     GeometryInstance {
                         mark_instance: MarkInstance {
+                            name: name.clone(),
                             mark_path: mark_path.clone(),
                             instance_index: Some(id),
                         },
@@ -236,6 +249,7 @@ impl MarkGeometryUtils for SceneRuleMark {
         mark_path: Vec<usize>,
         origin: [f32; 2],
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
+        let name = self.name.clone();
         Box::new(
             izip!(
                 self.indices_iter(),
@@ -248,6 +262,7 @@ impl MarkGeometryUtils for SceneRuleMark {
                 let geometry = path.as_geo_type(0.1, false);
                 GeometryInstance {
                     mark_instance: MarkInstance {
+                        name: name.clone(),
                         mark_path: mark_path.clone(),
                         instance_index: Some(id),
                     },
@@ -266,6 +281,7 @@ impl MarkGeometryUtils for SceneSymbolMark {
         mark_path: Vec<usize>,
         origin: [f32; 2],
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
+        let name = self.name.clone();
         let symbol_geometries: Vec<_> = self
             .shapes
             .iter()
@@ -292,6 +308,7 @@ impl MarkGeometryUtils for SceneSymbolMark {
 
                     GeometryInstance {
                         mark_instance: MarkInstance {
+                            name: name.clone(),
                             mark_path: mark_path.clone(),
                             instance_index: Some(instance_idx),
                         },
@@ -315,6 +332,7 @@ impl MarkGeometryUtils for SceneTrailMark {
         let geometry = path.trail_as_geo_type(0.1, 0);
         Box::new(once(GeometryInstance {
             mark_instance: MarkInstance {
+                name: self.name.clone(),
                 mark_path: mark_path.clone(),
                 instance_index: None,
             },
@@ -332,6 +350,7 @@ impl MarkGeometryUtils for SceneTextMark {
         origin: [f32; 2],
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let measurer = default_text_measurer();
+        let name = self.name.clone();
         Box::new(
             izip!(
                 self.indices_iter(),
@@ -462,6 +481,7 @@ impl MarkGeometryUtils for SceneTextMark {
 
                     GeometryInstance {
                         mark_instance: MarkInstance {
+                            name: name.clone(),
                             mark_path: mark_path.clone(),
                             instance_index: Some(id),
                         },

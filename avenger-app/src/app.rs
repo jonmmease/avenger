@@ -15,7 +15,7 @@ use crate::error::AvengerAppError;
 
 #[async_trait]
 pub trait SceneGraphBuilder<State: Clone + Send + Sync + 'static> {
-    async fn build(&self, state: &State) -> Result<SceneGraph, AvengerAppError>;
+    async fn build(&self, state: &mut State) -> Result<SceneGraph, AvengerAppError>;
 }
 
 // #[async_trait]
@@ -55,7 +55,7 @@ where
         // Build initial scene graph and rtree
         let scene_graph = Arc::new(
             scene_graph_builder
-                .build(event_stream_manager.state())
+                .build(event_stream_manager.state_mut())
                 .await?,
         );
         let rtree = SceneGraphRTree::from_scene_graph(&scene_graph);
@@ -90,7 +90,7 @@ where
         if update_status.rerender || update_status.rebuild_geometry {
             self.scene_graph = Arc::new(
                 self.scene_graph_builder
-                    .build(self.event_stream_manager.state())
+                    .build(self.event_stream_manager.state_mut())
                     .await?,
             );
         }

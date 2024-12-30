@@ -9,6 +9,16 @@ use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scales::scales::ConfiguredScale;
 use datafusion::scalar::ScalarValue;
 use std::fmt::Debug;
+use arrow::array::RecordBatch;
+
+pub struct ParamStreamContext<'a> {
+    pub event: &'a SceneGraphEvent,
+    pub params: &'a HashMap<String, ScalarValue>,
+    pub scales: &'a [ConfiguredScale],
+    pub group_path: &'a [usize],
+    pub rtree: &'a SceneGraphRTree,
+    pub details: &'a HashMap<Vec<usize>, RecordBatch>
+}
 
 pub trait ParamStream: Debug + Send + Sync + 'static {
     fn stream_config(&self) -> &EventStreamConfig;
@@ -19,10 +29,6 @@ pub trait ParamStream: Debug + Send + Sync + 'static {
 
     fn update(
         &self,
-        event: &SceneGraphEvent,
-        params: &HashMap<String, ScalarValue>,
-        scales: &[ConfiguredScale],
-        group_path: &[usize],
-        rtree: &SceneGraphRTree,
+        context: ParamStreamContext
     ) -> (HashMap<String, ScalarValue>, UpdateStatus);
 }

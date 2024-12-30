@@ -93,7 +93,7 @@ pub(crate) struct EventStream<State: Clone + Send + Sync + 'static> {
 }
 
 #[derive(Clone)]
-struct BetweenState {
+pub(crate) struct BetweenState {
     started: bool,
     start_stream: Box<EventStream<()>>,
     end_stream: Box<EventStream<()>>,

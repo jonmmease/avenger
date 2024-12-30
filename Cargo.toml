@@ -20,6 +20,7 @@ members = [
     "examples/wgpu-winit",
     "examples/iris",
     "examples/chart-example",
+    "examples/chart-example2",
 ]
 
 resolver = "2"

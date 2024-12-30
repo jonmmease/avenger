@@ -9,12 +9,14 @@ use datafusion::common::{ParamValues, ScalarValue};
 use datafusion::prelude::SessionContext;
 use std::collections::HashMap;
 use std::sync::Arc;
+use arrow::array::RecordBatch;
 
 #[derive(Clone)]
 pub struct AvengerChartState {
     pub runtime: Arc<AvengerRuntime>,
     pub chart: Group,
     pub param_values: HashMap<String, ScalarValue>,
+    pub details: HashMap<Vec<usize>, RecordBatch>,
 }
 
 impl AvengerChartState {
@@ -40,6 +42,7 @@ impl AvengerChartState {
             runtime,
             chart,
             param_values,
+            details: HashMap::new(),
         }
     }
 
@@ -54,15 +57,18 @@ impl AvengerChartState {
             .unwrap()
     }
 
-    pub async fn compile_scene_graph(&self) -> Result<SceneGraph, AvengerChartError> {
-        println!("compile_scene_graph");
-        let scene_group = self
+    pub async fn compile_scene_graph(&mut self) -> Result<SceneGraph, AvengerChartError> {
+        // println!("compile_scene_graph");
+        let compiled_scene_group = self
             .runtime
-            .compile_group(&self.chart, self.param_values())
+            .compile_group(&self.chart, vec![], self.param_values())
             .await?;
 
+        // Update details
+        self.details = compiled_scene_group.details;
+
         let scene_graph = SceneGraph {
-            marks: vec![scene_group.into()],
+            marks: vec![compiled_scene_group.scene_group.into()],
             width: 440.0,
             height: 440.0,
             origin: [20.0, 20.0],

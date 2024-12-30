@@ -20,7 +20,7 @@ use crate::{
     param::Param,
     types::scales::{Scale, ScaleRange},
 };
-
+use crate::runtime::controller::param_stream::ParamStreamContext;
 use super::{param_stream::ParamStream, Controller};
 
 #[derive(Debug, Clone)]
@@ -64,12 +64,14 @@ impl ParamStream for PanMouseDownParamStream {
 
     fn update(
         &self,
-        event: &SceneGraphEvent,
-        _params: &HashMap<String, ScalarValue>,
-        scales: &[ConfiguredScale],
-        group_path: &[usize],
-        rtree: &SceneGraphRTree,
+        context: ParamStreamContext
     ) -> (HashMap<String, ScalarValue>, UpdateStatus) {
+
+        let event = context.event;
+        let scales= context.scales;
+        let group_path = context.group_path;
+        let rtree = context.rtree;
+
         // Compute position in group coordinates
         let event_position = event.position().unwrap();
         let plot_origin = rtree.group_origin(group_path).unwrap();
@@ -166,7 +168,7 @@ impl PanMouseMoveParamStream {
                 Box::new(left_mouse_down_config.clone()),
                 Box::new(left_mouse_up_config.clone()),
             )),
-            throttle: Some(8), // Don't update faster than 60fps
+            throttle: Some(20), // Don't update faster than 60fps
             ..Default::default()
         };
 
@@ -197,12 +199,14 @@ impl ParamStream for PanMouseMoveParamStream {
 
     fn update(
         &self,
-        event: &SceneGraphEvent,
-        params: &HashMap<String, ScalarValue>,
-        scales: &[ConfiguredScale],
-        group_path: &[usize],
-        rtree: &SceneGraphRTree,
+        context: ParamStreamContext
     ) -> (HashMap<String, ScalarValue>, UpdateStatus) {
+        let event = context.event;
+        let params = context.params;
+        let scales= context.scales;
+        let group_path = context.group_path;
+        let rtree = context.rtree;
+
         // Extract stored anchor position
         let Some(ScalarValue::List(range_position)) = params.get("anchor_range_position") else {
             // Don't update params or rerender
@@ -324,11 +328,7 @@ impl ParamStream for PanMouseUpParamStream {
 
     fn update(
         &self,
-        _event: &SceneGraphEvent,
-        _params: &HashMap<String, ScalarValue>,
-        _scales: &[ConfiguredScale],
-        _group_path: &[usize],
-        _rtree: &SceneGraphRTree,
+        _context: ParamStreamContext
     ) -> (HashMap<String, ScalarValue>, UpdateStatus) {
         // Clear anchor params
         let new_params = vec![
@@ -390,11 +390,7 @@ impl ParamStream for PanDoubleClickParamStream {
 
     fn update(
         &self,
-        _event: &SceneGraphEvent,
-        _params: &HashMap<String, ScalarValue>,
-        _scales: &[ConfiguredScale],
-        _group_path: &[usize],
-        _rtree: &SceneGraphRTree,
+        _context: ParamStreamContext
     ) -> (HashMap<String, ScalarValue>, UpdateStatus) {
         // Clear anchor params
         // Null raw domains so we fall back to default
@@ -511,6 +507,11 @@ impl Controller for PanZoomController {
     }
 
     fn params(&self) -> Vec<Param> {
-        vec![self.x_domain_raw.clone(), self.y_domain_raw.clone(), self.width.clone(), self.height.clone()]
+        vec![
+            self.x_domain_raw.clone(),
+            self.y_domain_raw.clone(),
+            self.width.clone(),
+            self.height.clone(),
+        ]
     }
 }

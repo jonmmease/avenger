@@ -8,7 +8,9 @@ use indexmap::IndexMap;
 #[derive(Debug, Clone)]
 pub struct Mark {
     pub mark_type: String,
+    pub name: Option<String>,
     pub from: Option<DataFrame>,
+    pub details: Option<Vec<String>>,
     pub encodings: IndexMap<String, Expr>,
 }
 
@@ -34,8 +36,10 @@ impl Mark {
     pub fn new<S: Into<String>>(mark_type: S) -> Self {
         Self {
             mark_type: mark_type.into(),
+            name: None,
             from: None,
             encodings: Default::default(),
+            details: None,
         }
     }
 
@@ -49,6 +53,17 @@ impl Mark {
 
     pub fn get_from(&self) -> Option<&DataFrame> {
         self.from.as_ref()
+    }
+
+    pub fn details<S: Into<String>>(self, details: Vec<S>) -> Self {
+        Self {
+            details: Some(details.into_iter().map(|s| s.into()).collect()),
+            ..self
+        }
+    }
+
+    pub fn get_details(&self) -> &Option<Vec<String>> {
+        &self.details
     }
 
     pub fn get_mark_type(&self) -> &str {
@@ -66,6 +81,13 @@ impl Mark {
     mark_type_fn!(symbol);
     mark_type_fn!(text);
     mark_type_fn!(trail);
+
+    pub fn name<S: Into<String>>(self, name: S) -> Self {
+        Self {
+            name: Some(name.into()),
+            ..self
+        }
+    }
 
     /// Set or overwrite an encoding for the mark.
     pub fn encode<S: Into<String>, E: Into<Expr>>(self, name: S, expr: E) -> Self {
