@@ -220,6 +220,14 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
         ))
     }
 
+    fn invert_scalar(&self, config: &ScaleConfig, value: f32) -> Result<f32, AvengerScaleError> {
+        let value_array = self.invert_from_numeric(
+            config,
+            &(Arc::new(Float32Array::from(vec![value])) as ArrayRef),
+        )?;
+        Ok(value_array.as_vec(1, None)[0])
+    }
+
     /// Invert a range interval to a subset of the domain
     fn invert_range_interval(
         &self,
@@ -483,13 +491,11 @@ impl ConfiguredScale {
         self.scale_impl.scale(&self.config, values)
     }
 
-    pub fn scale_scalar(&self, value: &ScalarValue) -> Result<ScalarValue, AvengerScaleError> {
-        println!("scale_scalar: {:?}", value);
-        println!(
-            "as array: {:?}",
-            ScalarValue::iter_to_array(vec![value.clone()])?
-        );
-        let scaled = self.scale(&ScalarValue::iter_to_array(vec![value.clone()])?)?;
+    pub fn scale_scalar<S: Into<ScalarValue> + Clone>(
+        &self,
+        value: &S,
+    ) -> Result<ScalarValue, AvengerScaleError> {
+        let scaled = self.scale(&ScalarValue::iter_to_array(vec![value.clone().into()])?)?;
         Ok(ScalarValue::try_from_array(&scaled, 0)?)
     }
 
@@ -513,6 +519,10 @@ impl ConfiguredScale {
         values: &ArrayRef,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
         self.scale_impl.invert_from_numeric(&self.config, values)
+    }
+
+    pub fn invert_scalar(&self, value: f32) -> Result<f32, AvengerScaleError> {
+        self.scale_impl.invert_scalar(&self.config, value)
     }
 
     /// Invert a range interval to a subset of the domain

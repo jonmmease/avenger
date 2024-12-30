@@ -107,6 +107,8 @@ where
 
                     canvas.update();
 
+                    println!("render");
+
                     match canvas.render() {
                         Ok(_) => {
                             self.render_pending = false;
@@ -138,6 +140,8 @@ where
                             .expect("Failed to update app")
                         {
                             if !self.render_pending || !event.skip_if_render_pending() {
+                                // if true {
+                                println!("update scene graph");
                                 canvas.set_scene(&scene_graph).unwrap();
                                 self.render_pending = true;
                                 canvas.window().request_redraw();

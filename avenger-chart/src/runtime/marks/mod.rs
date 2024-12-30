@@ -1,7 +1,10 @@
 pub mod arc;
 pub mod encoding;
+pub mod rect;
+pub mod rule;
 pub mod symbol;
 
+use std::collections::HashMap;
 use super::context::CompilationContext;
 use crate::utils::ExprHelpers;
 use crate::{
@@ -19,26 +22,33 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::prelude::{DataFrame, Expr};
 use indexmap::IndexMap;
 
+pub struct CompiledMark {
+    pub scene_marks: Vec<SceneMark>,
+    pub details: HashMap<Vec<usize>, RecordBatch>
+}
+
 #[async_trait]
 pub trait MarkCompiler: Send + Sync + 'static {
     async fn compile(
         &self,
         mark: &Mark,
         context: &CompilationContext,
-    ) -> Result<Vec<SceneMark>, AvengerChartError>;
+    ) -> Result<CompiledMark, AvengerChartError>;
 }
 
 #[derive(Clone, Debug, PartialEq)]
 struct EncodingBatches {
     scalar_batch: RecordBatch,
     column_batch: RecordBatch,
+    details_batch: Option<RecordBatch>,
 }
 
 impl EncodingBatches {
-    pub fn new(scalar_batch: RecordBatch, column_batch: RecordBatch) -> Self {
+    pub fn new(scalar_batch: RecordBatch, column_batch: RecordBatch, details_batch: Option<RecordBatch>) -> Self {
         Self {
             scalar_batch,
             column_batch,
+            details_batch,
         }
     }
 
@@ -99,6 +109,7 @@ impl EncodingBatches {
 async fn eval_encoding_exprs(
     from: &Option<DataFrame>,
     encodings: &IndexMap<String, Expr>,
+    details: &Option<Vec<String>>,
     context: &CompilationContext,
 ) -> Result<EncodingBatches, AvengerChartError> {
     // Get the dataset to use for this mark
@@ -127,6 +138,7 @@ async fn eval_encoding_exprs(
 
     // Get record batch for result of column exprs
     let column_exprs_df = from_df
+        .clone()
         .select(column_exprs)?
         .with_param_values(context.param_values.clone())?;
     let column_exprs_schema = column_exprs_df.schema().inner().clone();
@@ -143,5 +155,18 @@ async fn eval_encoding_exprs(
     let scalar_schema = scalar_exprs_df.schema().inner().clone();
     let scalar_exprs_batch = concat_batches(&scalar_schema, &scalar_exprs_df.collect().await?)?;
 
-    Ok(EncodingBatches::new(scalar_exprs_batch, column_exprs_batch))
+    // Collect details columns
+    let details_exprs_batch = if let Some(details) = details {
+        let detail_exprs_df = from_df
+            .select_columns(
+                &details.iter().map(|s| s.as_str()).collect::<Vec<_>>()
+            )?
+            .with_param_values(context.param_values.clone())?;
+        let details_exprs_schema = detail_exprs_df.schema().inner().clone();
+        Some(concat_batches(&details_exprs_schema, &detail_exprs_df.collect().await?)?)
+    } else {
+        None
+    };
+
+    Ok(EncodingBatches::new(scalar_exprs_batch, column_exprs_batch, details_exprs_batch))
 }

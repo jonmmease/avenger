@@ -82,6 +82,10 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
         &self.state
     }
 
+    pub fn state_mut(&mut self) -> &mut State {
+        &mut self.state
+    }
+
     fn update_modifiers(&mut self, input: &WindowKeyboardInput) {
         match (input.key, input.state) {
             (Key::Named(NamedKey::Shift), ElementState::Pressed) => self.modifiers.shift = true,

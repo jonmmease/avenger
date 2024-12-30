@@ -101,6 +101,8 @@ pub enum SceneMarkType {
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct MarkInstance {
+    pub name: String,
     pub mark_path: Vec<usize>,
     pub instance_index: Option<usize>,
 }
+
