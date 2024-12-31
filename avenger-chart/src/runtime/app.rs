@@ -61,7 +61,7 @@ impl AvengerChartState {
         // println!("compile_scene_graph");
         let compiled_scene_group = self
             .runtime
-            .compile_group(&self.chart, vec![], self.param_values())
+            .compile_group(&self.chart, vec![0], self.param_values())
             .await?;
 
         // Update details

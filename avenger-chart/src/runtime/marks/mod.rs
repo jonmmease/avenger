@@ -3,6 +3,7 @@ pub mod encoding;
 pub mod rect;
 pub mod rule;
 pub mod symbol;
+pub mod text;
 
 use std::collections::HashMap;
 use super::context::CompilationContext;
