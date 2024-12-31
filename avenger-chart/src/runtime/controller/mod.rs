@@ -8,6 +8,7 @@ use param_stream::ParamStream;
 pub mod box_select;
 pub mod pan_zoom;
 pub mod param_stream;
+pub mod tooltip;
 
 pub trait Controller: Debug + Send + Sync + 'static {
     /// controller name that's unique in the group

@@ -1369,6 +1369,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "chart-example3"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "avenger-app",
+ "avenger-chart",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-geometry",
+ "avenger-guides",
+ "avenger-scales",
+ "avenger-scenegraph",
+ "avenger-vega",
+ "avenger-wgpu",
+ "avenger-winit-wgpu",
+ "cfg-if",
+ "console_error_panic_hook",
+ "console_log",
+ "csv",
+ "datafusion",
+ "env_logger",
+ "log",
+ "palette",
+ "pollster 0.3.0",
+ "rand",
+ "rand_distr",
+ "serde_json",
+ "tokio",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "wgpu 0.19.4",
+ "wgpu 23.0.1",
+ "winit",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"

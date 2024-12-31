@@ -21,6 +21,7 @@ members = [
     "examples/iris",
     "examples/chart-example",
     "examples/chart-example2",
+    "examples/chart-example3",
 ]
 
 resolver = "2"

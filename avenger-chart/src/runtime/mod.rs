@@ -55,6 +55,7 @@ use marks::rect::RectMarkCompiler;
 use marks::rule::RuleMarkCompiler;
 use marks::{arc::ArcMarkCompiler, symbol::SymbolMarkCompiler, MarkCompiler};
 use crate::runtime::controller::param_stream::ParamStreamContext;
+use crate::runtime::marks::text::TextMarkCompiler;
 
 pub struct CompiledChart {
     pub scene_group: SceneGroup,
@@ -79,6 +80,7 @@ impl AvengerRuntime {
         mark_compilers.insert("symbol".to_string(), Arc::new(SymbolMarkCompiler));
         mark_compilers.insert("rule".to_string(), Arc::new(RuleMarkCompiler));
         mark_compilers.insert("rect".to_string(), Arc::new(RectMarkCompiler));
+        mark_compilers.insert("text".to_string(), Arc::new(TextMarkCompiler));
 
         let mut scales: HashMap<String, Arc<dyn ScaleImpl>> = HashMap::new();
         scales.insert("linear".to_string(), Arc::new(LinearScale));
@@ -171,7 +173,7 @@ impl AvengerRuntime {
 
         Ok(CompiledChart{
             scene_group,
-            details: Default::default(),
+            details,
         })
     }
 
