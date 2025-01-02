@@ -124,10 +124,10 @@ pub async fn make_app() -> Result<AvengerApp<AvengerChartState>, AvengerChartErr
         )
         .mark(
             Mark::rule()
-                .encode("x0", &cursor_x)
-                .encode("x1", lit(100.0))
-                .encode("y0", &cursor_y)
-                .encode("y1", lit(100.0))
+                .x(&cursor_x)
+                .x2(lit(100.0))
+                .y(&cursor_y)
+                .y2(lit(100.0))
                 .stroke(&stroke_color)
                 .stroke_width(lit(3.0)),
         )

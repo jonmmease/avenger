@@ -14,10 +14,10 @@ pub struct SceneRuleMark {
     pub len: u32,
     pub gradients: Vec<Gradient>,
     pub stroke_dash: Option<ScalarOrArray<Vec<f32>>>,
-    pub x0: ScalarOrArray<f32>,
-    pub y0: ScalarOrArray<f32>,
-    pub x1: ScalarOrArray<f32>,
-    pub y1: ScalarOrArray<f32>,
+    pub x: ScalarOrArray<f32>,
+    pub y: ScalarOrArray<f32>,
+    pub x2: ScalarOrArray<f32>,
+    pub y2: ScalarOrArray<f32>,
     pub stroke: ScalarOrArray<ColorOrGradient>,
     pub stroke_width: ScalarOrArray<f32>,
     pub stroke_cap: ScalarOrArray<StrokeCap>,
@@ -26,17 +26,17 @@ pub struct SceneRuleMark {
 }
 
 impl SceneRuleMark {
-    pub fn x0_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.x0.as_iter(self.len as usize, self.indices.as_ref())
+    pub fn x_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
+        self.x.as_iter(self.len as usize, self.indices.as_ref())
     }
-    pub fn y0_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.y0.as_iter(self.len as usize, self.indices.as_ref())
+    pub fn y_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
+        self.y.as_iter(self.len as usize, self.indices.as_ref())
     }
-    pub fn x1_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.x1.as_iter(self.len as usize, self.indices.as_ref())
+    pub fn x2_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
+        self.x2.as_iter(self.len as usize, self.indices.as_ref())
     }
-    pub fn y1_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.y1.as_iter(self.len as usize, self.indices.as_ref())
+    pub fn y2_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
+        self.y2.as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn stroke_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
         self.stroke
@@ -70,10 +70,10 @@ impl SceneRuleMark {
         if let Some(stroke_dash_iter) = self.stroke_dash_iter() {
             Box::new(
                 izip!(
-                    self.x0_iter(),
-                    self.y0_iter(),
-                    self.x1_iter(),
-                    self.y1_iter(),
+                    self.x_iter(),
+                    self.y_iter(),
+                    self.x2_iter(),
+                    self.y2_iter(),
                     stroke_dash_iter
                 )
                 .map(move |(x0, y0, x1, y1, stroke_dash)| {
@@ -133,18 +133,14 @@ impl SceneRuleMark {
             )
         } else {
             Box::new(
-                izip!(
-                    self.x0_iter(),
-                    self.y0_iter(),
-                    self.x1_iter(),
-                    self.y1_iter(),
-                )
-                .map(move |(x0, y0, x1, y1)| {
-                    let mut path_builder = Path::builder().with_svg();
-                    path_builder.move_to(Point::new(*x0 + origin[0], *y0 + origin[1]));
-                    path_builder.line_to(Point::new(*x1 + origin[0], *y1 + origin[1]));
-                    path_builder.build()
-                }),
+                izip!(self.x_iter(), self.y_iter(), self.x2_iter(), self.y2_iter(),).map(
+                    move |(x0, y0, x1, y1)| {
+                        let mut path_builder = Path::builder().with_svg();
+                        path_builder.move_to(Point::new(*x0 + origin[0], *y0 + origin[1]));
+                        path_builder.line_to(Point::new(*x1 + origin[0], *y1 + origin[1]));
+                        path_builder.build()
+                    },
+                ),
             )
         }
     }
@@ -158,10 +154,10 @@ impl Default for SceneRuleMark {
             len: 1,
             gradients: vec![],
             stroke_dash: None,
-            x0: ScalarOrArray::new_scalar(0.0),
-            y0: ScalarOrArray::new_scalar(0.0),
-            x1: ScalarOrArray::new_scalar(0.0),
-            y1: ScalarOrArray::new_scalar(0.0),
+            x: ScalarOrArray::new_scalar(0.0),
+            y: ScalarOrArray::new_scalar(0.0),
+            x2: ScalarOrArray::new_scalar(0.0),
+            y2: ScalarOrArray::new_scalar(0.0),
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
             stroke_width: ScalarOrArray::new_scalar(1.0),
             stroke_cap: ScalarOrArray::new_scalar(StrokeCap::Butt),

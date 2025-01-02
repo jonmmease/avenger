@@ -38,10 +38,10 @@ impl RuleMark {
     }
 
     pub fn set_xy(&mut self, x0: Vec<f32>, y0: Vec<f32>, x1: Vec<f32>, y1: Vec<f32>) {
-        self.inner.x0 = ScalarOrArray::Array(x0);
-        self.inner.y0 = ScalarOrArray::Array(y0);
-        self.inner.x1 = ScalarOrArray::Array(x1);
-        self.inner.y1 = ScalarOrArray::Array(y1);
+        self.inner.x = ScalarOrArray::Array(x0);
+        self.inner.y = ScalarOrArray::Array(y0);
+        self.inner.x2 = ScalarOrArray::Array(x1);
+        self.inner.y2 = ScalarOrArray::Array(y1);
     }
 
     pub fn set_stroke_width(&mut self, width: Vec<f32>) {

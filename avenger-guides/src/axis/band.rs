@@ -98,10 +98,10 @@ fn make_axis_line(start: f32, end: f32, is_vertical: bool, offset: f32) -> Scene
     };
 
     SceneRuleMark {
-        x0: x0.into(),
-        x1: x1.into(),
-        y0: y0.into(),
-        y1: y1.into(),
+        x: x0.into(),
+        x2: x1.into(),
+        y: y0.into(),
+        y2: y1.into(),
         stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
         stroke_width: 1.0.into(),
         ..Default::default()
@@ -145,10 +145,10 @@ fn make_tick_marks(
     Ok(SceneRuleMark {
         len: scale.domain().len() as u32,
         clip: false,
-        x0,
-        x1,
-        y0,
-        y1,
+        x: x0,
+        x2: x1,
+        y: y0,
+        y2: y1,
         stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
         stroke_width: 1.0.into(),
         ..Default::default()
@@ -180,10 +180,10 @@ fn make_tick_grid_marks(
     Ok(SceneRuleMark {
         len: scale.domain().len() as u32,
         clip: false,
-        x0,
-        x1,
-        y0,
-        y1,
+        x: x0,
+        x2: x1,
+        y: y0,
+        y2: y1,
         stroke: ColorOrGradient::Color([8.0, 8.0, 8.0, 0.2]).into(),
         stroke_width: 0.1.into(),
         ..Default::default()
