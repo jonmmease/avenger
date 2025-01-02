@@ -16,7 +16,8 @@ impl MarkCompiler for RuleMarkCompiler {
         mark: &Mark,
         context: &CompilationContext,
     ) -> Result<CompiledMark, AvengerChartError> {
-        let encoding_batches = eval_encoding_exprs(&mark.from, &mark.encodings, &mark.details, &context).await?;
+        let encoding_batches =
+            eval_encoding_exprs(&mark.from, &mark.encodings, &mark.details, &context).await?;
         // Create a new default SceneArcMark
         let mut scene_mark = SceneRuleMark::default();
         scene_mark.len = encoding_batches.len() as u32;
@@ -42,9 +43,14 @@ impl MarkCompiler for RuleMarkCompiler {
                 .to_scalar_if_len_one();
         }
 
-        Ok(CompiledMark{
+        // Stroke Dash
+        if let Some(value) = encoding_batches.array_for_field("stroke_dash") {
+            scene_mark.stroke_dash = Some(context.coercer.to_numeric_vec(&value)?);
+        }
+
+        Ok(CompiledMark {
             scene_marks: vec![SceneMark::Rule(scene_mark)],
-            details: Default::default()
+            details: Default::default(),
         })
     }
 }
