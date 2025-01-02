@@ -38,6 +38,8 @@ pub trait NumericCoercer: Debug + Send + Sync + 'static {
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError>;
 
     fn coerce_usize(&self, value: &ArrayRef) -> Result<ScalarOrArray<usize>, AvengerScaleError>;
+
+    fn coerce_vec(&self, value: &ArrayRef) -> Result<ScalarOrArray<Vec<f32>>, AvengerScaleError>;
 }
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -73,6 +75,19 @@ impl NumericCoercer for CastNumericCoercer {
                 .map(|el| *el as usize)
                 .collect(),
         ))
+    }
+
+    fn coerce_vec(&self, value: &ArrayRef) -> Result<ScalarOrArray<Vec<f32>>, AvengerScaleError> {
+        let cast_array = cast(value, &DataType::new_list(DataType::Float32, false))?;
+        let list_array = cast_array.as_list::<i32>();
+        let mut result = Vec::new();
+        for i in 0..list_array.len() {
+            let values = list_array.value(i);
+            let values = values.as_primitive::<Float32Type>().values().to_vec();
+            result.push(values);
+        }
+
+        Ok(ScalarOrArray::new_array(result))
     }
 }
 
@@ -210,6 +225,13 @@ impl Coercer {
         default_value: Option<&str>,
     ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
         self.formatters.format(values, default_value)
+    }
+
+    pub fn to_numeric_vec(
+        &self,
+        values: &ArrayRef,
+    ) -> Result<ScalarOrArray<Vec<f32>>, AvengerScaleError> {
+        self.number_coercer.coerce_vec(values)
     }
 
     define_enum_coercer!(StrokeCap);
