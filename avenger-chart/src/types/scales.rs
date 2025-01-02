@@ -240,7 +240,7 @@ pub struct DataField {
 #[derive(Debug, Clone)]
 pub enum ScaleRange {
     Numeric(Expr, Expr),
-    Enum(Vec<String>),
+    Enum(Vec<ScalarValue>),
     Color(Vec<Srgba>),
 }
 
@@ -253,10 +253,20 @@ impl ScaleRange {
         Self::Color(colors)
     }
 
+    pub fn new_enum<T: Into<ScalarValue>>(values: Vec<T>) -> Self {
+        Self::Enum(values.into_iter().map(|v| v.into()).collect())
+    }
+
     pub fn data_type(&self) -> Result<DataType, AvengerChartError> {
         match self {
             ScaleRange::Numeric(_, _) => Ok(DataType::Float32),
-            ScaleRange::Enum(_) => Ok(DataType::Utf8),
+            ScaleRange::Enum(vals) => {
+                vals.get(0)
+                    .map(|v| v.data_type().clone())
+                    .ok_or(AvengerChartError::InternalError(
+                        "Enum range may not be empty".to_string(),
+                    ))
+            }
             ScaleRange::Color(_) => Ok(DataType::new_list(DataType::Float32, true)),
         }
     }

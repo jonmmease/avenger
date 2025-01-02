@@ -363,6 +363,14 @@ impl SymbolShape {
     }
 }
 
+impl TryInto<SymbolShape> for &str {
+    type Error = AvengerSceneGraphError;
+
+    fn try_into(self) -> Result<SymbolShape, Self::Error> {
+        SymbolShape::from_vega_str(self)
+    }
+}
+
 pub fn parse_svg_path(path: &str) -> Result<Path, AvengerSceneGraphError> {
     let mut source = Source::new(path.chars());
     let mut parser = lyon_extra::parser::PathParser::new();

@@ -1,5 +1,7 @@
 // mod util;
 
+use arrow::array::{Float32Array, ListArray};
+use arrow::datatypes::DataType;
 use avenger_app::app::AvengerApp;
 use avenger_chart::error::AvengerChartError;
 use avenger_chart::param::Param;
@@ -13,15 +15,15 @@ use avenger_chart::types::scales::{Scale, ScaleRange};
 use avenger_eventstream::scene::SceneGraphEventType;
 use avenger_eventstream::stream::EventStreamConfig;
 use avenger_scales::scales::linear::LinearScale;
+use avenger_scales::scales::ordinal::OrdinalScale;
+use avenger_scenegraph::marks::symbol::SymbolShape;
 use avenger_winit_wgpu::WinitWgpuAvengerApp;
+use datafusion::common::utils::array_into_list_array;
 use datafusion::logical_expr::{ident, lit};
 use datafusion::prelude::{array_element, CsvReadOptions, SessionContext};
 use datafusion::scalar::ScalarValue;
 use palette::Srgba;
 use std::sync::Arc;
-use arrow::array::{Float32Array, ListArray};
-use arrow::datatypes::DataType;
-use datafusion::common::utils::array_into_list_array;
 use winit::event_loop::EventLoop;
 
 pub async fn make_app() -> Result<AvengerApp<AvengerChartState>, AvengerChartError> {
@@ -55,6 +57,14 @@ pub async fn make_app() -> Result<AvengerApp<AvengerChartState>, AvengerChartErr
             Srgba::new(0.0, 1.0, 0.0, 1.0),
         ]));
 
+    // Shape scale
+    let shape_scale = Scale::new(OrdinalScale)
+        .domain_discrete(vec![
+            lit("Iris-setosa"),
+            lit("Iris-versicolor"),
+            lit("Iris-virginica"),
+        ])
+        .range(ScaleRange::new_enum(vec![0, 1, 2]));
     // Params
     let stroke_color = Param::new("stroke_color", "cyan");
     let size = Param::new("size", 60);
@@ -99,12 +109,18 @@ pub async fn make_app() -> Result<AvengerApp<AvengerChartState>, AvengerChartErr
         .mark(
             Mark::symbol()
                 .from(df)
+                .shapes(vec![
+                    SymbolShape::from_vega_str("triangle-up")?,
+                    SymbolShape::from_vega_str("square")?,
+                    SymbolShape::from_vega_str("circle")?,
+                ])
                 .x(scale_expr(&x_scale, ident("SepalLengthCm"))?)
                 .y(scale_expr(&y_scale, ident("SepalWidthCm"))?)
                 .fill(scale_expr(&color_scale, ident("PetalWidthCm"))?)
+                .shape_index(scale_expr(&shape_scale, ident("Species"))?)
                 .size(&size)
                 .stroke(&stroke_color)
-                .stroke_width(lit(3.0)),
+                .stroke_width(lit(1.0)),
         )
         .mark(
             Mark::rule()
