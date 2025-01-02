@@ -92,16 +92,16 @@ impl VegaMarkContainer<VegaRuleItem> {
         mark.len = len as u32;
 
         if x0.len() == len {
-            mark.x0 = ScalarOrArray::new_array(x0);
+            mark.x = ScalarOrArray::new_array(x0);
         }
         if y0.len() == len {
-            mark.y0 = ScalarOrArray::new_array(y0);
+            mark.y = ScalarOrArray::new_array(y0);
         }
         if x1.len() == len {
-            mark.x1 = ScalarOrArray::new_array(x1);
+            mark.x2 = ScalarOrArray::new_array(x1);
         }
         if y1.len() == len {
-            mark.y1 = ScalarOrArray::new_array(y1);
+            mark.y2 = ScalarOrArray::new_array(y1);
         }
         if stroke.len() == len {
             mark.stroke = ScalarOrArray::new_array(stroke);

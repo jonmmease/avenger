@@ -26,10 +26,10 @@ impl MarkCompiler for RuleMarkCompiler {
         }
 
         // Apply numeric encodings
-        apply_numeric_encoding!(mark, context, encoding_batches, scene_mark, x0);
-        apply_numeric_encoding!(mark, context, encoding_batches, scene_mark, y0);
-        apply_numeric_encoding!(mark, context, encoding_batches, scene_mark, x1);
-        apply_numeric_encoding!(mark, context, encoding_batches, scene_mark, y1);
+        apply_numeric_encoding!(mark, context, encoding_batches, scene_mark, x);
+        apply_numeric_encoding!(mark, context, encoding_batches, scene_mark, y);
+        apply_numeric_encoding!(mark, context, encoding_batches, scene_mark, x2);
+        apply_numeric_encoding!(mark, context, encoding_batches, scene_mark, y2);
         apply_numeric_encoding!(mark, context, encoding_batches, scene_mark, stroke_width);
 
         // Apply color encoding
