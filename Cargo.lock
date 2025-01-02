@@ -749,6 +749,7 @@ name = "avenger-scenegraph"
 version = "0.0.8"
 dependencies = [
  "avenger-common",
+ "avenger-geometry",
  "avenger-text",
  "float-cmp 0.10.0",
  "geo",

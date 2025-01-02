@@ -56,3 +56,6 @@ geo-svg = { workspace = true }
 path = "../avenger-text"
 default-features = false
 features = ["cosmic-text"]
+
+[dev-dependencies.avenger-geometry]
+path = "../avenger-geometry"
