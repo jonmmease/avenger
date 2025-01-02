@@ -7,7 +7,7 @@ use crate::utils::ScalarValueUtils;
 use arrow::array::{Array, AsArray, Float32Array, StringArray};
 use arrow::compute::kernels::zip::zip;
 use arrow::compute::{is_not_null, is_null};
-use arrow::datatypes::Float32Type;
+use arrow::datatypes::{Float32Type, UInt32Type};
 use arrow::{
     array::ArrayRef,
     compute::kernels::cast,
@@ -36,6 +36,8 @@ pub trait NumericCoercer: Debug + Send + Sync + 'static {
         value: &ArrayRef,
         default_value: Option<f32>,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError>;
+
+    fn coerce_usize(&self, value: &ArrayRef) -> Result<ScalarOrArray<usize>, AvengerScaleError>;
 }
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -59,6 +61,18 @@ impl NumericCoercer for CastNumericCoercer {
         } else {
             Ok(ScalarOrArray::new_array(result.values().to_vec()))
         }
+    }
+
+    fn coerce_usize(&self, value: &ArrayRef) -> Result<ScalarOrArray<usize>, AvengerScaleError> {
+        let cast_array = cast(value, &DataType::UInt32)?;
+        Ok(ScalarOrArray::new_array(
+            cast_array
+                .as_primitive::<UInt32Type>()
+                .values()
+                .iter()
+                .map(|el| *el as usize)
+                .collect(),
+        ))
     }
 }
 
@@ -176,6 +190,10 @@ impl Coercer {
         default_value: Option<f32>,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
         self.number_coercer.coerce(values, default_value)
+    }
+
+    pub fn to_usize(&self, values: &ArrayRef) -> Result<ScalarOrArray<usize>, AvengerScaleError> {
+        self.number_coercer.coerce_usize(values)
     }
 
     pub fn to_color(

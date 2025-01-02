@@ -263,6 +263,9 @@ fn compile_range(range: &ScaleRange) -> Result<Expr, AvengerChartError> {
 
             Ok(make_array(colors))
         }
+        ScaleRange::Enum(values) => Ok(make_array(
+            values.iter().map(|v| lit(v.clone())).collect::<Vec<_>>(),
+        )),
         _ => {
             todo!("evaluate range")
         }

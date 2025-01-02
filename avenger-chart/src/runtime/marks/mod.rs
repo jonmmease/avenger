@@ -5,13 +5,14 @@ pub mod rule;
 pub mod symbol;
 pub mod text;
 
-use std::collections::HashMap;
 use super::context::CompilationContext;
 use crate::utils::ExprHelpers;
 use crate::{
     error::AvengerChartError,
     types::mark::{Encoding, Mark},
 };
+use arrow::array::AsArray;
+use arrow::datatypes::Float32Type;
 use arrow::{
     array::{ArrayRef, Float32Array, RecordBatch},
     compute::{cast, concat_batches},
@@ -22,10 +23,11 @@ use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::prelude::{DataFrame, Expr};
 use indexmap::IndexMap;
+use std::collections::HashMap;
 
 pub struct CompiledMark {
     pub scene_marks: Vec<SceneMark>,
-    pub details: HashMap<Vec<usize>, RecordBatch>
+    pub details: HashMap<Vec<usize>, RecordBatch>,
 }
 
 #[async_trait]
@@ -45,7 +47,11 @@ struct EncodingBatches {
 }
 
 impl EncodingBatches {
-    pub fn new(scalar_batch: RecordBatch, column_batch: RecordBatch, details_batch: Option<RecordBatch>) -> Self {
+    pub fn new(
+        scalar_batch: RecordBatch,
+        column_batch: RecordBatch,
+        details_batch: Option<RecordBatch>,
+    ) -> Self {
         Self {
             scalar_batch,
             column_batch,
@@ -75,6 +81,23 @@ impl EncodingBatches {
         };
 
         Some(array.clone())
+    }
+
+    pub fn f32_scalar_for_field(&self, field: &str) -> Result<Option<f32>, AvengerChartError> {
+        // Error if column is found but not a scalar
+        if let Some(array) = self.column_batch.column_by_name(field) {
+            return Err(AvengerChartError::InternalError(format!(
+                "Column {field} is not a scalar",
+            )));
+        }
+
+        // Return scalar value if found
+        let Some(array) = self.scalar_batch.column_by_name(field) else {
+            return Ok(None);
+        };
+        let array = cast(array, &DataType::Float32)?;
+        let array = array.as_primitive::<Float32Type>();
+        Ok(Some(array.value(0)))
     }
 
     pub fn f32_scalar_or_array_for_field(
@@ -159,15 +182,20 @@ async fn eval_encoding_exprs(
     // Collect details columns
     let details_exprs_batch = if let Some(details) = details {
         let detail_exprs_df = from_df
-            .select_columns(
-                &details.iter().map(|s| s.as_str()).collect::<Vec<_>>()
-            )?
+            .select_columns(&details.iter().map(|s| s.as_str()).collect::<Vec<_>>())?
             .with_param_values(context.param_values.clone())?;
         let details_exprs_schema = detail_exprs_df.schema().inner().clone();
-        Some(concat_batches(&details_exprs_schema, &detail_exprs_df.collect().await?)?)
+        Some(concat_batches(
+            &details_exprs_schema,
+            &detail_exprs_df.collect().await?,
+        )?)
     } else {
         None
     };
 
-    Ok(EncodingBatches::new(scalar_exprs_batch, column_exprs_batch, details_exprs_batch))
+    Ok(EncodingBatches::new(
+        scalar_exprs_batch,
+        column_exprs_batch,
+        details_exprs_batch,
+    ))
 }

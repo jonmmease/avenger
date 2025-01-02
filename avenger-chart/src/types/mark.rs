@@ -5,6 +5,8 @@ use datafusion::{
 };
 use indexmap::IndexMap;
 
+use avenger_scenegraph::marks::symbol::SymbolShape;
+
 #[derive(Debug, Clone)]
 pub struct Mark {
     pub mark_type: String,
@@ -12,6 +14,7 @@ pub struct Mark {
     pub from: Option<DataFrame>,
     pub details: Option<Vec<String>>,
     pub encodings: IndexMap<String, Expr>,
+    pub shapes: Option<Vec<SymbolShape>>,
 }
 
 macro_rules! encoding_fn {
@@ -40,6 +43,7 @@ impl Mark {
             from: None,
             encodings: Default::default(),
             details: None,
+            shapes: None,
         }
     }
 
@@ -68,6 +72,17 @@ impl Mark {
 
     pub fn get_mark_type(&self) -> &str {
         &self.mark_type
+    }
+
+    pub fn shapes(self, shapes: Vec<SymbolShape>) -> Self {
+        Self {
+            shapes: Some(shapes),
+            ..self
+        }
+    }
+
+    pub fn get_shapes(&self) -> &Option<Vec<SymbolShape>> {
+        &self.shapes
     }
 
     // Constructor helpers for primitive mark types
@@ -104,6 +119,7 @@ impl Mark {
     encoding_fn!(width);
     encoding_fn!(height);
     encoding_fn!(fill);
+    encoding_fn!(shape_index);
     encoding_fn!(stroke);
     encoding_fn!(stroke_width);
     encoding_fn!(stroke_dash);
