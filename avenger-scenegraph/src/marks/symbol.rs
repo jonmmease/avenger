@@ -1,7 +1,6 @@
 use super::mark::SceneMark;
 use crate::error::AvengerSceneGraphError;
-use crate::marks::path::PathTransform;
-use avenger_common::types::{ColorOrGradient, Gradient, LinearScaleAdjustment};
+use avenger_common::types::{ColorOrGradient, Gradient, LinearScaleAdjustment, PathTransform};
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use itertools::izip;
 use lyon_extra::euclid::{UnknownUnit, Vector2D};

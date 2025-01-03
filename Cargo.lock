@@ -655,6 +655,7 @@ dependencies = [
 name = "avenger-common"
 version = "0.0.8"
 dependencies = [
+ "lyon_extra",
  "ordered-float 4.5.0",
  "serde",
  "strum 0.26.3",
@@ -754,6 +755,8 @@ dependencies = [
  "datafusion-common",
  "float-cmp 0.10.0",
  "indexmap",
+ "lyon_extra",
+ "lyon_path",
  "numfmt",
  "ordered-float 4.5.0",
  "palette",
@@ -761,6 +764,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strum 0.26.3",
+ "svgtypes",
  "thiserror 2.0.3",
 ]
 

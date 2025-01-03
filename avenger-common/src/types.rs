@@ -1,4 +1,5 @@
 use crate::impl_hash_for_scalar_or_array;
+use lyon_extra::euclid::{Transform2D, UnknownUnit};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
@@ -185,3 +186,5 @@ impl Hash for LinearScaleAdjustment {
             .for_each(|v| OrderedFloat::from(*v).hash(state));
     }
 }
+
+pub type PathTransform = Transform2D<f32, UnknownUnit, UnknownUnit>;

@@ -45,6 +45,12 @@ pub enum AvengerScaleError {
     #[error("Invalid timezone: {0}")]
     InvalidTimezone(String),
 
+    #[error("Invalid SVG transform string: {0}")]
+    InvalidSvgTransformString(#[from] svgtypes::Error),
+
+    #[error("Invalid SVG path string: {0}")]
+    InvalidSvgPathString(#[from] lyon_extra::parser::ParseError),
+
     #[error("Expected scalar value of type {expected_type}, got {scalar:?}")]
     InvalidScaleConfigScalarValue {
         expected_type: String,

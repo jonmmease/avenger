@@ -1,11 +1,13 @@
 pub mod arc;
+pub mod area;
 pub mod encoding;
+pub mod image;
+pub mod line;
+pub mod path;
 pub mod rect;
 pub mod rule;
 pub mod symbol;
 pub mod text;
-pub mod area;
-pub mod image;
 
 use super::context::CompilationContext;
 use crate::utils::ExprHelpers;
@@ -21,17 +23,19 @@ use arrow::{
     datatypes::DataType,
 };
 use async_trait::async_trait;
+use avenger_common::types::{
+    AreaOrientation, ColorOrGradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin,
+};
 use avenger_common::value::ScalarOrArray;
-use avenger_scenegraph::marks::mark::SceneMark;
-use datafusion::prelude::{DataFrame, Expr};
-use indexmap::IndexMap;
-use std::collections::HashMap;
-use datafusion::common::ScalarValue;
-use avenger_common::types::{AreaOrientation, ColorOrGradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin};
 use avenger_scales::scales::coerce::Coercer;
 use avenger_scales::utils::ScalarValueUtils;
-use paste::paste;
+use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
+use datafusion::common::ScalarValue;
+use datafusion::prelude::{DataFrame, Expr};
+use indexmap::IndexMap;
+use paste::paste;
+use std::collections::HashMap;
 
 macro_rules! define_enum_extract_scalar {
     ($enum_type:ty) => {
@@ -59,7 +63,6 @@ macro_rules! define_enum_extract_scalar {
         }
     };
 }
-
 
 pub struct CompiledMark {
     pub scene_marks: Vec<SceneMark>,
