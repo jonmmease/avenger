@@ -4,8 +4,7 @@ use std::time::Instant;
 use crate::error::AvengerWgpuError;
 use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
 use avenger_common::canvas::CanvasDimensions;
-use avenger_common::types::LinearScaleAdjustment;
-use avenger_scenegraph::marks::path::PathTransform;
+use avenger_common::types::{LinearScaleAdjustment, PathTransform};
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use itertools::izip;
 use lyon::lyon_tessellation::{

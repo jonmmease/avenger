@@ -19,6 +19,8 @@ use datafusion::{
     scalar::ScalarValue,
 };
 
+use super::{param_stream::ParamStream, Controller};
+use crate::runtime::controller::param_stream::ParamStreamContext;
 use crate::{
     error::AvengerChartError,
     param::Param,
@@ -29,8 +31,6 @@ use crate::{
         scales::{Scale, ScaleRange},
     },
 };
-use crate::runtime::controller::param_stream::ParamStreamContext;
-use super::{param_stream::ParamStream, Controller};
 
 const BOX_SELECT_MARK_NAME: &str = "box-select-rect";
 
@@ -118,10 +118,7 @@ impl ParamStream for BoxSelectInitParamStream {
         &self.scales
     }
 
-    fn update(
-        &self,
-        context: ParamStreamContext
-    ) -> (HashMap<String, ScalarValue>, UpdateStatus) {
+    fn update(&self, context: ParamStreamContext) -> (HashMap<String, ScalarValue>, UpdateStatus) {
         let event = context.event;
         let scales = context.scales;
         let group_path = context.group_path;
@@ -212,10 +209,7 @@ impl ParamStream for BoxSelectInitMoveParamStream {
         &self.scales
     }
 
-    fn update(
-        &self,
-        context: ParamStreamContext
-    ) -> (HashMap<String, ScalarValue>, UpdateStatus) {
+    fn update(&self, context: ParamStreamContext) -> (HashMap<String, ScalarValue>, UpdateStatus) {
         let event = context.event;
         let params = context.params;
         let scales = context.scales;
@@ -284,7 +278,6 @@ impl BoxSelectDragExpandParamStream {
                 Box::new(box_create_init_config()),
                 Box::new(mouse_up_config()),
             )),
-            throttle: Some(20), // Don't update faster than 60fps
             ..Default::default()
         };
 
@@ -309,10 +302,7 @@ impl ParamStream for BoxSelectDragExpandParamStream {
         &self.scales
     }
 
-    fn update(
-        &self,
-        context: ParamStreamContext
-    ) -> (HashMap<String, ScalarValue>, UpdateStatus) {
+    fn update(&self, context: ParamStreamContext) -> (HashMap<String, ScalarValue>, UpdateStatus) {
         let event = context.event;
         let params = context.params;
         let scales = context.scales;
@@ -379,7 +369,6 @@ impl BoxSelectDragMoveParamStream {
                 Box::new(box_move_init_config()),
                 Box::new(mouse_up_config()),
             )),
-            throttle: Some(20), // Don't update faster than 60fps
             ..Default::default()
         };
 
@@ -411,10 +400,7 @@ impl ParamStream for BoxSelectDragMoveParamStream {
         &self.scales
     }
 
-    fn update(
-        &self,
-        context: ParamStreamContext
-    ) -> (HashMap<String, ScalarValue>, UpdateStatus) {
+    fn update(&self, context: ParamStreamContext) -> (HashMap<String, ScalarValue>, UpdateStatus) {
         let event = context.event;
         let params = context.params;
         let scales = context.scales;
@@ -533,10 +519,7 @@ impl ParamStream for MouseUpParamStream {
         &self.scales
     }
 
-    fn update(
-        &self,
-        _context: ParamStreamContext
-    ) -> (HashMap<String, ScalarValue>, UpdateStatus) {
+    fn update(&self, _context: ParamStreamContext) -> (HashMap<String, ScalarValue>, UpdateStatus) {
         // Clear anchor params
         let new_params = vec![
             ("box_x".to_string(), ScalarValue::from(0.0f32)),

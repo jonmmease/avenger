@@ -1,5 +1,6 @@
 use arrow::error::ArrowError;
 use avenger_app::error::AvengerAppError;
+use avenger_guides::error::AvengerGuidesError;
 use avenger_scales::error::AvengerScaleError;
 use avenger_scenegraph::error::AvengerSceneGraphError;
 use datafusion::error::DataFusionError;
@@ -27,6 +28,9 @@ pub enum AvengerChartError {
 
     #[error("App error: `{0}`")]
     AppError(#[from] AvengerAppError),
+
+    #[error("Guide error: `{0}`")]
+    GuideError(#[from] AvengerGuidesError),
 
     #[error("DataFusion error: `{0}`")]
     DataFusionError(#[from] DataFusionError),

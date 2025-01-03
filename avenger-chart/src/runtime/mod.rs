@@ -14,6 +14,7 @@ use crate::marks::trail::TrailMarkCompiler;
 use crate::marks::{arc::ArcMarkCompiler, symbol::SymbolMarkCompiler, MarkCompiler};
 use crate::runtime::app::AvengerChartState;
 use crate::runtime::controller::param_stream::ParamStreamContext;
+use crate::types::guide::GuideCompilationContext;
 use crate::{
     error::AvengerChartError,
     param::Param,
@@ -59,6 +60,7 @@ use datafusion::{
     prelude::{DataFrame, Expr, SessionContext},
     scalar::ScalarValue,
 };
+use scale::eval_scale;
 use std::{collections::HashMap, sync::Arc};
 
 pub struct CompiledChart {
@@ -169,7 +171,8 @@ impl AvengerRuntime {
             }
         }
 
-        let scene_group = SceneGroup {
+        // Build initial group with all of the non-guide marks
+        let mut scene_group = SceneGroup {
             name: group.get_name().cloned().unwrap_or_default(),
             origin: [group.get_x(), group.get_y()],
             clip: Clip::default(),
@@ -181,6 +184,28 @@ impl AvengerRuntime {
             stroke_offset: None,
             zindex: None,
         };
+
+        // Add guide marks
+        for guide in group.get_guides() {
+            // Evaluate scales
+            let mut configured_scales = Vec::new();
+            for scale in guide.scales() {
+                configured_scales.push(
+                    eval_scale(scale, &context.ctx, Some(&context.param_values))
+                        .await
+                        .unwrap(),
+                );
+            }
+
+            let guide_context = GuideCompilationContext {
+                size: group.get_size(),
+                origin: [group.get_x(), group.get_y()],
+                group: &scene_group,
+                scales: &configured_scales,
+            };
+            let compiled_guide = guide.compile(&guide_context)?;
+            scene_group.marks.extend(compiled_guide);
+        }
 
         Ok(CompiledChart {
             scene_group,
