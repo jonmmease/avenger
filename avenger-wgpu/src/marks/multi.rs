@@ -4,11 +4,11 @@ use crate::error::AvengerWgpuError;
 use crate::marks::gradient::{to_color_or_gradient_coord, GradientAtlasBuilder};
 use crate::marks::image::ImageAtlasBuilder;
 use avenger_common::canvas::CanvasDimensions;
-use avenger_common::types::{ColorOrGradient, StrokeCap, StrokeJoin};
+use avenger_common::types::{ColorOrGradient, PathTransform, StrokeCap, StrokeJoin};
 use avenger_scenegraph::marks::area::SceneAreaMark;
 use avenger_scenegraph::marks::image::SceneImageMark;
 use avenger_scenegraph::marks::line::SceneLineMark;
-use avenger_scenegraph::marks::path::{PathTransform, ScenePathMark};
+use avenger_scenegraph::marks::path::ScenePathMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::marks::rule::SceneRuleMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
@@ -1471,14 +1471,17 @@ impl MultiMarkRenderer {
                         render_pass.set_stencil_reference(stencil_index);
                         render_pass.set_pipeline(&stencil_pipeline);
                         render_pass.set_vertex_buffer(0, clip_vertex_buffer.slice(..));
-                        render_pass
-                            .set_index_buffer(clip_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                        render_pass.set_index_buffer(
+                            clip_index_buffer.slice(..),
+                            wgpu::IndexFormat::Uint32,
+                        );
                         render_pass.draw_indexed(clip_inds_range.clone(), 0, 0..1);
 
                         // Restore buffers
                         render_pass.set_pipeline(&render_pipeline);
                         render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                        render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                        render_pass
+                            .set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
                         // increment stencil index for next draw
                         stencil_index += 1;
@@ -1530,7 +1533,11 @@ impl MultiMarkRenderer {
                     // Update bind groups
                     if let Some(grad_ind) = batch.gradient_atlas_index {
                         if grad_ind != last_grad_ind {
-                            render_pass.set_bind_group(1, &gradient_texture_bind_groups[grad_ind], &[]);
+                            render_pass.set_bind_group(
+                                1,
+                                &gradient_texture_bind_groups[grad_ind],
+                                &[],
+                            );
                             last_grad_ind = grad_ind;
                         }
                     }

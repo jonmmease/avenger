@@ -9,16 +9,19 @@ use avenger_chart::runtime::app::AvengerChartState;
 use avenger_chart::runtime::controller::pan_zoom::PanZoomController;
 use avenger_chart::runtime::scale::scale_expr;
 use avenger_chart::runtime::AvengerRuntime;
+use avenger_chart::types::axis::Axis;
 use avenger_chart::types::group::Group;
 use avenger_chart::types::mark::Mark;
 use avenger_chart::types::scales::{Scale, ScaleRange};
 use avenger_eventstream::scene::SceneGraphEventType;
 use avenger_eventstream::stream::EventStreamConfig;
+use avenger_guides::axis::opts::AxisOrientation;
 use avenger_scales::scales::linear::LinearScale;
 use avenger_scales::scales::ordinal::OrdinalScale;
 use avenger_scenegraph::marks::symbol::SymbolShape;
 use avenger_winit_wgpu::WinitWgpuAvengerApp;
 use datafusion::common::utils::array_into_list_array;
+use datafusion::datasource::MemTable;
 use datafusion::logical_expr::{ident, lit};
 use datafusion::prelude::{array_element, CsvReadOptions, SessionContext};
 use datafusion::scalar::ScalarValue;
@@ -38,6 +41,12 @@ pub async fn make_app() -> Result<AvengerApp<AvengerChartState>, AvengerChartErr
         .read_csv(data_path, CsvReadOptions::default())
         .await?;
 
+    // Load data into memory so we don't read from disk every frame
+    let schema = df.schema().clone();
+    let batches = df.collect().await?;
+    let table = MemTable::try_new(schema.inner().clone(), vec![batches])?;
+    let df = runtime.ctx().read_table(Arc::new(table))?;
+
     // Create x/y scales with the pan/zoom controller
     let pan_zoom_controller = PanZoomController::with_auto_range(
         df.clone(),
@@ -46,8 +55,8 @@ pub async fn make_app() -> Result<AvengerApp<AvengerChartState>, AvengerChartErr
         400.0,
         400.0,
     );
-    let x_scale = pan_zoom_controller.x_scale();
-    let y_scale = pan_zoom_controller.y_scale();
+    let x_scale = pan_zoom_controller.x_scale().clone();
+    let y_scale = pan_zoom_controller.y_scale().clone();
 
     // Custom color scale
     let color_scale = Scale::new(LinearScale)
@@ -106,6 +115,7 @@ pub async fn make_app() -> Result<AvengerApp<AvengerChartState>, AvengerChartErr
     let chart = Group::new()
         .x(0.0)
         .y(0.0)
+        .size(400.0, 400.0)
         .mark(
             Mark::symbol()
                 .from(df)
@@ -133,6 +143,8 @@ pub async fn make_app() -> Result<AvengerApp<AvengerChartState>, AvengerChartErr
                 .stroke_dash(lit("8 4")),
         )
         .controller(Arc::new(pan_zoom_controller))
+        .axis(Axis::new(&x_scale).orientation(AxisOrientation::Bottom))
+        .axis(Axis::new(&y_scale).orientation(AxisOrientation::Left))
         .param(stroke_color)
         .param(cursor_x)
         .param(cursor_y)

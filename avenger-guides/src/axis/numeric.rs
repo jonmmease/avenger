@@ -8,7 +8,7 @@ use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
-use avenger_text::types::{FontWeightNameSpec, FontWeight, TextAlign, TextBaseline};
+use avenger_text::types::{FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
 use rstar::AABB;
 
 use crate::error::AvengerGuidesError;
@@ -28,6 +28,9 @@ pub fn make_numeric_axis_marks(
     origin: [f32; 2],
     config: &AxisConfig,
 ) -> Result<SceneGroup, AvengerGuidesError> {
+    // For scales with a band option, make sure ticks end up centered in the band
+    let scale = scale.clone().with_option("band", 0.5);
+
     let mut group = SceneGroup {
         origin,
         ..Default::default()
@@ -38,6 +41,7 @@ pub fn make_numeric_axis_marks(
 
     // Get range bounds considering orientation
     let range = scale.numeric_interval_range()?;
+    
     let (start, end) = match config.orientation {
         AxisOrientation::Left | AxisOrientation::Right => {
             let upper = f32::min(range.1, range.0) - PIXEL_OFFSET;
@@ -65,7 +69,7 @@ pub fn make_numeric_axis_marks(
     // Add tick grid
     if config.grid {
         group.marks.push(
-            make_tick_grid_marks(&ticks, scale, &config.orientation, &config.dimensions)?.into(),
+            make_tick_grid_marks(&ticks, &scale, &config.orientation, &config.dimensions)?.into(),
         );
     }
 
@@ -77,17 +81,17 @@ pub fn make_numeric_axis_marks(
     // Add tick marks
     group
         .marks
-        .push(make_tick_marks(&ticks, scale, &config.orientation, &config.dimensions)?.into());
+        .push(make_tick_marks(&ticks, &scale, &config.orientation, &config.dimensions)?.into());
 
     // Add tick labels
     group
         .marks
-        .push(make_tick_labels(&ticks, scale, &config.orientation, &config.dimensions)?.into());
+        .push(make_tick_labels(&ticks, &scale, &config.orientation, &config.dimensions)?.into());
 
     // Add title
     group
         .marks
-        .push(make_title(title, scale, &group.bounding_box(), &config.orientation)?.into());
+        .push(make_title(title, &scale, &group.bounding_box(), &config.orientation)?.into());
 
     Ok(group)
 }

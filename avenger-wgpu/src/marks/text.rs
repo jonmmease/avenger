@@ -1,7 +1,7 @@
 use crate::error::AvengerWgpuError;
 use crate::marks::multi::{MultiVertex, TEXT_TEXTURE_CODE};
 use avenger_common::canvas::CanvasDimensions;
-use avenger_scenegraph::marks::path::PathTransform;
+use avenger_common::types::PathTransform;
 use avenger_text::rasterization::{GlyphBBox, TextRasterizationConfig, TextRasterizer};
 use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use etagere::euclid::{Angle, Point2D, Vector2D};

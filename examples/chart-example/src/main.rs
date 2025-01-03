@@ -4,22 +4,25 @@ use arrow::array::{Float32Array, ListArray};
 use arrow::datatypes::DataType;
 use avenger_app::app::AvengerApp;
 use avenger_chart::error::AvengerChartError;
+use avenger_chart::marks::encoding::css_color;
 use avenger_chart::param::Param;
 use avenger_chart::runtime::app::AvengerChartState;
 use avenger_chart::runtime::controller::box_select::BoxSelectController;
 use avenger_chart::runtime::controller::pan_zoom::PanZoomController;
-use avenger_chart::runtime::marks::encoding::css_color;
 use avenger_chart::runtime::scale::scale_expr;
 use avenger_chart::runtime::AvengerRuntime;
+use avenger_chart::types::axis::Axis;
 use avenger_chart::types::group::Group;
 use avenger_chart::types::mark::Mark;
 use avenger_chart::types::scales::{Scale, ScaleRange};
 use avenger_eventstream::scene::SceneGraphEventType;
 use avenger_eventstream::stream::EventStreamConfig;
+use avenger_guides::axis::opts::AxisOrientation;
 use avenger_scales::scales::linear::LinearScale;
 use avenger_scales::utils::ScalarValueUtils;
 use avenger_winit_wgpu::WinitWgpuAvengerApp;
 use datafusion::common::utils::array_into_list_array;
+use datafusion::datasource::MemTable;
 use datafusion::logical_expr::{ident, lit};
 use datafusion::prelude::{array_element, when, CsvReadOptions, SessionContext};
 use datafusion::scalar::ScalarValue;
@@ -39,13 +42,19 @@ pub async fn make_app() -> Result<AvengerApp<AvengerChartState>, AvengerChartErr
         .read_csv(data_path, CsvReadOptions::default())
         .await?;
 
+    // Load data into memory so we don't read from disk every frame
+    let schema = df.schema().clone();
+    let batches = df.collect().await?;
+    let table = MemTable::try_new(schema.inner().clone(), vec![batches])?;
+    let df = runtime.ctx().read_table(Arc::new(table))?;
+
     // Build scales
     let x_scale = Scale::new(LinearScale)
         .domain_data_field(Arc::new(df.clone()), "SepalLengthCm")
         .range(ScaleRange::new_interval(lit(0.0), lit(400.0)));
     let y_scale = Scale::new(LinearScale)
         .domain_data_field(Arc::new(df.clone()), "SepalWidthCm")
-        .range(ScaleRange::new_interval(lit(0.0), lit(400.0)));
+        .range(ScaleRange::new_interval(lit(400.0), lit(0.0)));
 
     // Build controller
     let box_select = BoxSelectController::new(
@@ -70,10 +79,17 @@ pub async fn make_app() -> Result<AvengerApp<AvengerChartState>, AvengerChartErr
     let chart = Group::new()
         .x(0.0)
         .y(0.0)
+        .size(400.0, 400.0)
         .mark(
             Mark::symbol()
                 .from(df)
-                .details(vec!["SepalLengthCm", "SepalWidthCm", "PetalLengthCm", "PetalWidthCm", "Species"])
+                .details(vec![
+                    "SepalLengthCm",
+                    "SepalWidthCm",
+                    "PetalLengthCm",
+                    "PetalWidthCm",
+                    "Species",
+                ])
                 .x(scale_expr(&x_scale, ident("SepalLengthCm"))?)
                 .y(scale_expr(&y_scale, ident("SepalWidthCm"))?)
                 .fill(
@@ -85,6 +101,8 @@ pub async fn make_app() -> Result<AvengerApp<AvengerChartState>, AvengerChartErr
                 )
                 .size(&size),
         )
+        .axis(Axis::new(&x_scale).orientation(AxisOrientation::Bottom))
+        .axis(Axis::new(&y_scale).orientation(AxisOrientation::Left))
         .controller(Arc::new(box_select))
         .param(size);
 

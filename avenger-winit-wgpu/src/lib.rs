@@ -130,21 +130,23 @@ where
                     }
 
                     let duration = start_time.elapsed(); // Calculate elapsed time
-                    println!("Render time: {:?}", duration); // Print the duration
+                                                         // println!("Render time: {:?}", duration); // Print the duration
                 }
                 event => {
                     if let Some(event) = AvengerWindowEvent::from_winit_event(event, self.scale) {
-                        if let Some(scene_graph) = self
-                            .tokio_runtime
-                            .block_on(self.avenger_app.update(&event, Instant::now()))
-                            .expect("Failed to update app")
-                        {
-                            if !self.render_pending || !event.skip_if_render_pending() {
+                        if !self.render_pending || !event.skip_if_render_pending() {
+                            if let Some(scene_graph) = self
+                                .tokio_runtime
+                                .block_on(self.avenger_app.update(&event, Instant::now()))
+                                .expect("Failed to update app")
+                            {
                                 // println!("update scene graph");
                                 canvas.set_scene(&scene_graph).unwrap();
                                 self.render_pending = true;
                                 canvas.window().request_redraw();
                             }
+                        } else {
+                            // println!("skip update scene graph");
                         }
                     }
                 }

@@ -98,7 +98,9 @@ impl ExprHelpers for Expr {
             .collect()
             .await?;
         let row = res.get(0).unwrap();
+        // println!("{self:?}\nrow: {:?}", row);
         let col = row.column_by_name("value").unwrap();
+
         let scalar = ScalarValue::try_from_array(col, 0)?;
         Ok(scalar)
     }

@@ -16,12 +16,12 @@ use datafusion::{
     scalar::ScalarValue,
 };
 
+use super::{param_stream::ParamStream, Controller};
+use crate::runtime::controller::param_stream::ParamStreamContext;
 use crate::{
     param::Param,
     types::scales::{Scale, ScaleRange},
 };
-use crate::runtime::controller::param_stream::ParamStreamContext;
-use super::{param_stream::ParamStream, Controller};
 
 #[derive(Debug, Clone)]
 pub struct PanMouseDownParamStream {
@@ -62,13 +62,9 @@ impl ParamStream for PanMouseDownParamStream {
         &self.scales
     }
 
-    fn update(
-        &self,
-        context: ParamStreamContext
-    ) -> (HashMap<String, ScalarValue>, UpdateStatus) {
-
+    fn update(&self, context: ParamStreamContext) -> (HashMap<String, ScalarValue>, UpdateStatus) {
         let event = context.event;
-        let scales= context.scales;
+        let scales = context.scales;
         let group_path = context.group_path;
         let rtree = context.rtree;
 
@@ -168,7 +164,6 @@ impl PanMouseMoveParamStream {
                 Box::new(left_mouse_down_config.clone()),
                 Box::new(left_mouse_up_config.clone()),
             )),
-            throttle: Some(20), // Don't update faster than 60fps
             ..Default::default()
         };
 
@@ -197,13 +192,10 @@ impl ParamStream for PanMouseMoveParamStream {
         &self.scales
     }
 
-    fn update(
-        &self,
-        context: ParamStreamContext
-    ) -> (HashMap<String, ScalarValue>, UpdateStatus) {
+    fn update(&self, context: ParamStreamContext) -> (HashMap<String, ScalarValue>, UpdateStatus) {
         let event = context.event;
         let params = context.params;
-        let scales= context.scales;
+        let scales = context.scales;
         let group_path = context.group_path;
         let rtree = context.rtree;
 
@@ -326,10 +318,7 @@ impl ParamStream for PanMouseUpParamStream {
         &self.scales
     }
 
-    fn update(
-        &self,
-        _context: ParamStreamContext
-    ) -> (HashMap<String, ScalarValue>, UpdateStatus) {
+    fn update(&self, _context: ParamStreamContext) -> (HashMap<String, ScalarValue>, UpdateStatus) {
         // Clear anchor params
         let new_params = vec![
             ("anchor_range_position".to_string(), ScalarValue::Null),
@@ -388,10 +377,7 @@ impl ParamStream for PanDoubleClickParamStream {
         &self.scales
     }
 
-    fn update(
-        &self,
-        _context: ParamStreamContext
-    ) -> (HashMap<String, ScalarValue>, UpdateStatus) {
+    fn update(&self, _context: ParamStreamContext) -> (HashMap<String, ScalarValue>, UpdateStatus) {
         // Clear anchor params
         // Null raw domains so we fall back to default
         let new_params = vec![

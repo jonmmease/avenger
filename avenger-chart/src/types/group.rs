@@ -7,22 +7,24 @@ use super::legend::Legend;
 use super::mark::Mark;
 use super::scales::Scale;
 
+use crate::param::Param;
+use crate::types::guide::Guide;
 use datafusion::prelude::{DataFrame, Expr};
 use indexmap::IndexMap;
-use crate::param::Param;
 
 #[derive(Debug, Clone)]
 pub struct Group {
     pub x: f32,
     pub y: f32,
+    pub size: [f32; 2],
     pub name: Option<String>,
     pub datasets: IndexMap<String, DataFrame>,
     pub scales: IndexMap<String, Scale>,
     pub params: Vec<Param>,
     pub controllers: Vec<Arc<dyn Controller>>,
 
-    pub axes: Vec<Axis>,
-    pub legends: Vec<Legend>,
+    pub guides: Vec<Arc<dyn Guide>>,
+
     pub marks: Vec<MarkOrGroup>,
 
     pub title: Option<String>,
@@ -34,13 +36,13 @@ impl Group {
         Self {
             x: 0.0,
             y: 0.0,
+            size: [200.0, 200.0],
             name: None,
             datasets: Default::default(),
             scales: Default::default(),
             params: Default::default(),
             controllers: vec![],
-            axes: vec![],
-            legends: vec![],
+            guides: vec![],
             marks: vec![],
             title: None,
             subtitle: None,
@@ -74,28 +76,40 @@ impl Group {
         self.y
     }
 
-    /// Add an axis to the chart.
-    pub fn axis(self, axis: Axis) -> Self {
-        let mut axes = self.axes;
-        axes.push(axis);
-        Self { axes, ..self }
+    pub fn size(self, width: f32, height: f32) -> Self {
+        Self {
+            size: [width, height],
+            ..self
+        }
     }
 
-    /// Get the axes of the chart.
-    pub fn get_axes(&self) -> &Vec<Axis> {
-        &self.axes
+    pub fn get_size(&self) -> [f32; 2] {
+        self.size
+    }
+
+    pub fn guide<G: Guide>(self, guide: G) -> Self {
+        let mut guides = self.guides;
+        guides.push(Arc::new(guide));
+        Self { guides, ..self }
+    }
+
+    pub fn get_guides(&self) -> &Vec<Arc<dyn Guide>> {
+        &self.guides
+    }
+
+    /// Add an axis to the chart.
+    pub fn axis(self, axis: Axis) -> Self {
+        let mut guides = self.guides;
+        guides.push(Arc::new(axis));
+        Self { guides, ..self }
     }
 
     /// Add a legend to the chart.
     pub fn legend(self, legend: Legend) -> Self {
-        let mut legends = self.legends;
-        legends.push(legend);
-        Self { legends, ..self }
-    }
-
-    /// Get the legends of the chart.
-    pub fn get_legends(&self) -> &Vec<Legend> {
-        &self.legends
+        todo!()
+        // let mut legends = self.legends;
+        // legends.push(legend);
+        // Self { legends, ..self }
     }
 
     /// Add a mark to the chart.
@@ -124,10 +138,7 @@ impl Group {
     pub fn param(self, param: Param) -> Self {
         let mut params = self.params;
         params.push(param);
-        Self {
-            params,
-            ..self
-        }
+        Self { params, ..self }
     }
 
     /// Get the marks of the chart.
