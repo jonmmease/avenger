@@ -13,7 +13,11 @@ chrono = { workspace = true }
 chrono-tz = { workspace = true }
 indexmap = { workspace = true }
 ordered-float = { workspace = true }
+lyon_path = { workspace = true }
+lyon_extra = { workspace = true }
+
 float-cmp = "0.10.0"
+svgtypes = "0.15.1"
 
 arrow = { workspace = true }
 datafusion-common = { workspace = true }

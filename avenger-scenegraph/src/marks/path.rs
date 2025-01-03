@@ -1,16 +1,11 @@
 use super::mark::SceneMark;
-use avenger_common::types::{ColorOrGradient, Gradient, StrokeCap, StrokeJoin};
+use avenger_common::types::{ColorOrGradient, Gradient, PathTransform, StrokeCap, StrokeJoin};
 use avenger_common::value::ScalarOrArray;
 use itertools::izip;
 use lyon_extra::euclid::Vector2D;
-use lyon_path::{
-    geom::euclid::{Transform2D, UnknownUnit},
-    Path,
-};
+use lyon_path::Path;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-
-pub type PathTransform = Transform2D<f32, UnknownUnit, UnknownUnit>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]

@@ -4,9 +4,10 @@ pub mod controller;
 pub mod marks;
 pub mod scale;
 
-use std::{collections::HashMap, sync::Arc};
-use arrow::array::RecordBatch;
 use crate::runtime::app::AvengerChartState;
+use crate::runtime::controller::param_stream::ParamStreamContext;
+use crate::runtime::marks::area::AreaMarkCompiler;
+use crate::runtime::marks::text::TextMarkCompiler;
 use crate::{
     error::AvengerChartError,
     param::Param,
@@ -14,6 +15,7 @@ use crate::{
     types::scales::Scale,
     utils::ExprHelpers,
 };
+use arrow::array::RecordBatch;
 use async_recursion::async_recursion;
 use async_trait::async_trait;
 use avenger_app::app::{AvengerApp, SceneGraphBuilder};
@@ -51,12 +53,12 @@ use datafusion::{
     prelude::{DataFrame, Expr, SessionContext},
     scalar::ScalarValue,
 };
+use marks::image::ImageMarkCompiler;
+use marks::line::LineMarkCompiler;
 use marks::rect::RectMarkCompiler;
 use marks::rule::RuleMarkCompiler;
 use marks::{arc::ArcMarkCompiler, symbol::SymbolMarkCompiler, MarkCompiler};
-use crate::runtime::controller::param_stream::ParamStreamContext;
-use crate::runtime::marks::area::AreaMarkCompiler;
-use crate::runtime::marks::text::TextMarkCompiler;
+use std::{collections::HashMap, sync::Arc};
 
 pub struct CompiledChart {
     pub scene_group: SceneGroup,
@@ -79,6 +81,8 @@ impl AvengerRuntime {
         let mut mark_compilers: HashMap<String, Arc<dyn MarkCompiler>> = HashMap::new();
         mark_compilers.insert("arc".to_string(), Arc::new(ArcMarkCompiler));
         mark_compilers.insert("area".to_string(), Arc::new(AreaMarkCompiler));
+        mark_compilers.insert("image".to_string(), Arc::new(ImageMarkCompiler));
+        mark_compilers.insert("line".to_string(), Arc::new(LineMarkCompiler));
         mark_compilers.insert("symbol".to_string(), Arc::new(SymbolMarkCompiler));
         mark_compilers.insert("rule".to_string(), Arc::new(RuleMarkCompiler));
         mark_compilers.insert("rect".to_string(), Arc::new(RectMarkCompiler));
@@ -151,7 +155,9 @@ impl AvengerRuntime {
                 }
                 MarkOrGroup::Group(group) => {
                     // process groups recursively
-                    let compiled_group = self.compile_group(group, mark_path, param_values.clone()).await?;
+                    let compiled_group = self
+                        .compile_group(group, mark_path, param_values.clone())
+                        .await?;
                     scene_marks.push(SceneMark::Group(compiled_group.scene_group));
 
                     // Merge details
@@ -173,7 +179,7 @@ impl AvengerRuntime {
             zindex: None,
         };
 
-        Ok(CompiledChart{
+        Ok(CompiledChart {
             scene_group,
             details,
         })
@@ -262,12 +268,10 @@ impl EventStreamHandler<AvengerChartState> for ParamEventStreamHandler {
             scales: &scales,
             group_path: &group_path,
             rtree,
-            details: &state.details
+            details: &state.details,
         };
 
-        let (new_params, update_status) =
-            self.param_stream
-                .update(context);
+        let (new_params, update_status) = self.param_stream.update(context);
 
         // Store params
         for (name, value) in new_params {

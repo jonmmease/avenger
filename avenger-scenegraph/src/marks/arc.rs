@@ -1,4 +1,4 @@
-use avenger_common::types::{ColorOrGradient, Gradient};
+use avenger_common::types::{ColorOrGradient, Gradient, PathTransform};
 use avenger_common::value::ScalarOrArray;
 use itertools::izip;
 use lyon_path::{
@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::ops::{Mul, Neg};
 use std::sync::Arc;
 
-use super::{mark::SceneMark, path::PathTransform};
+use super::mark::SceneMark;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]

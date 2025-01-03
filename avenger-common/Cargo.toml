@@ -11,3 +11,4 @@ default = ["serde"]
 serde = { workspace = true, optional = true, features = ["rc"] }
 ordered-float = { workspace = true}
 strum = { workspace = true }
+lyon_extra = { workspace = true }
