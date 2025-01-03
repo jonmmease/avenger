@@ -1,10 +1,9 @@
-use crate::error::AvengerVegaError;
-use crate::image::ImageFetcher;
+use crate::{error::AvengerImageError, fetcher::ImageFetcher};
 use image::DynamicImage;
 use reqwest::blocking::{Client, ClientBuilder};
 
 #[cfg(feature = "svg")]
-use crate::image::svg::svg_to_png;
+use crate::svg::svg_to_png;
 
 pub struct ReqwestImageFetcher {
     client: Client,
@@ -30,14 +29,14 @@ impl ReqwestImageFetcher {
 }
 
 impl ImageFetcher for ReqwestImageFetcher {
-    fn fetch_image(&self, url: &str) -> Result<DynamicImage, AvengerVegaError> {
+    fn fetch_image(&self, url: &str) -> Result<DynamicImage, AvengerImageError> {
         let img_data = if url.ends_with(".svg") {
             cfg_if::cfg_if! {
                 if #[cfg(feature = "svg")] {
                     let svg_str = self.client.get(url).send()?.text()?;
                     svg_to_png(&svg_str, 2.0)?
                 } else {
-                    return Err(AvengerVegaError::SvgSupportDisabled(
+                    return Err(AvengerImageError::SvgSupportDisabled(
                         "Fetching SVG images requires the svg feature flag".to_string()
                     ))
                 }

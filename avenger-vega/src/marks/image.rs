@@ -3,10 +3,10 @@ use std::sync::Arc;
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 
-use crate::image::make_image_fetcher;
 use avenger_common::types::{ImageAlign, ImageBaseline};
 use avenger_common::value::ScalarOrArray;
-use avenger_scenegraph::marks::image::{RgbaImage, SceneImageMark};
+use avenger_image::{make_image_fetcher, RgbaImage};
+use avenger_scenegraph::marks::image::SceneImageMark;
 use avenger_scenegraph::marks::mark::SceneMark;
 use serde::{Deserialize, Serialize};
 

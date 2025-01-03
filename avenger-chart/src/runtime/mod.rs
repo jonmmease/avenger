@@ -55,6 +55,7 @@ use marks::rect::RectMarkCompiler;
 use marks::rule::RuleMarkCompiler;
 use marks::{arc::ArcMarkCompiler, symbol::SymbolMarkCompiler, MarkCompiler};
 use crate::runtime::controller::param_stream::ParamStreamContext;
+use crate::runtime::marks::area::AreaMarkCompiler;
 use crate::runtime::marks::text::TextMarkCompiler;
 
 pub struct CompiledChart {
@@ -77,6 +78,7 @@ impl AvengerRuntime {
     pub fn new(ctx: SessionContext) -> Self {
         let mut mark_compilers: HashMap<String, Arc<dyn MarkCompiler>> = HashMap::new();
         mark_compilers.insert("arc".to_string(), Arc::new(ArcMarkCompiler));
+        mark_compilers.insert("area".to_string(), Arc::new(AreaMarkCompiler));
         mark_compilers.insert("symbol".to_string(), Arc::new(SymbolMarkCompiler));
         mark_compilers.insert("rule".to_string(), Arc::new(RuleMarkCompiler));
         mark_compilers.insert("rect".to_string(), Arc::new(RectMarkCompiler));

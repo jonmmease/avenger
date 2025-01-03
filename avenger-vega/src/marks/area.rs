@@ -102,16 +102,16 @@ impl VegaMarkContainer<VegaAreaItem> {
         mark.len = len as u32;
 
         if x.len() == len {
-            mark.x0 = ScalarOrArray::new_array(x);
+            mark.x = ScalarOrArray::new_array(x);
         }
         if y.len() == len {
-            mark.y0 = ScalarOrArray::new_array(y);
+            mark.y = ScalarOrArray::new_array(y);
         }
         if x2.len() == len {
-            mark.x1 = ScalarOrArray::new_array(x2);
+            mark.x2 = ScalarOrArray::new_array(x2);
         }
         if y2.len() == len {
-            mark.y1 = ScalarOrArray::new_array(y2);
+            mark.y2 = ScalarOrArray::new_array(y2);
         }
         if defined.len() == len {
             mark.defined = ScalarOrArray::new_array(defined);

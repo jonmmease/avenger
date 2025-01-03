@@ -645,6 +645,7 @@ dependencies = [
  "lazy_static 1.5.0",
  "ordered-float 4.5.0",
  "palette",
+ "paste",
  "serde",
  "thiserror 2.0.3",
  "tokio",
@@ -706,6 +707,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-image"
+version = "0.1.0"
+dependencies = [
+ "cfg-if",
+ "image 0.25.5",
+ "lazy_static 1.5.0",
+ "reqwest 0.12.9",
+ "resvg 0.44.0",
+ "serde",
+ "thiserror 2.0.3",
+ "tiny-skia",
+ "usvg 0.44.0",
+]
+
+[[package]]
 name = "avenger-python"
 version = "0.0.8"
 dependencies = [
@@ -751,6 +767,7 @@ version = "0.0.8"
 dependencies = [
  "avenger-common",
  "avenger-geometry",
+ "avenger-image",
  "avenger-text",
  "float-cmp 0.10.0",
  "geo",
@@ -789,6 +806,7 @@ name = "avenger-vega"
 version = "0.0.8"
 dependencies = [
  "avenger-common",
+ "avenger-image",
  "avenger-scenegraph",
  "avenger-text",
  "cfg-if",

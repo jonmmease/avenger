@@ -19,15 +19,6 @@ macro_rules! apply_numeric_encoding {
 }
 
 #[macro_export]
-macro_rules! apply_usize_encoding {
-    ($mark:expr, $context:expr, $encoding_batches:expr, $scene_mark:expr, $field:ident) => {
-        if let Some(value) = $encoding_batches.array_for_field(stringify!($field)) {
-            $scene_mark.$field = $context.coercer.to_usize(&value)?.to_scalar_if_len_one();
-        }
-    };
-}
-
-#[macro_export]
 macro_rules! apply_numeric_encoding_optional {
     ($mark:expr, $context:expr, $encoding_batches:expr, $scene_mark:expr, $field:ident) => {
         if let Some(value) = $encoding_batches.array_for_field(stringify!($field)) {
@@ -37,6 +28,24 @@ macro_rules! apply_numeric_encoding_optional {
                     .to_numeric(&value, None)?
                     .to_scalar_if_len_one(),
             );
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! apply_usize_encoding {
+    ($mark:expr, $context:expr, $encoding_batches:expr, $scene_mark:expr, $field:ident) => {
+        if let Some(value) = $encoding_batches.array_for_field(stringify!($field)) {
+            $scene_mark.$field = $context.coercer.to_usize(&value)?.to_scalar_if_len_one();
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! apply_boolean_encoding {
+    ($mark:expr, $context:expr, $encoding_batches:expr, $scene_mark:expr, $field:ident) => {
+        if let Some(value) = $encoding_batches.array_for_field(stringify!($field)) {
+            $scene_mark.$field = $context.coercer.to_boolean(&value)?.to_scalar_if_len_one();
         }
     };
 }
