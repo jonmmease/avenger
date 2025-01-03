@@ -21,6 +21,7 @@ use std::f32::NAN;
 use std::fmt::Debug;
 use std::sync::Arc;
 use strum::VariantNames;
+use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 
 pub trait ColorCoercer: Debug + Send + Sync + 'static {
     fn coerce(
@@ -217,6 +218,10 @@ impl Coercer {
     define_enum_coercer!(ImageAlign);
     define_enum_coercer!(ImageBaseline);
     define_enum_coercer!(AreaOrientation);
+    define_enum_coercer!(TextAlign);
+    define_enum_coercer!(TextBaseline);
+    define_enum_coercer!(FontWeight);
+    define_enum_coercer!(FontStyle);
 
     pub fn to_stroke_dash(&self, value: &ArrayRef) -> Result<ScalarOrArray<Vec<f32>>, AvengerScaleError> {
         let dtype = value.data_type();

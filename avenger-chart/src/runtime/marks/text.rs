@@ -38,8 +38,22 @@ impl MarkCompiler for TextMarkCompiler {
         // text
         apply_string_encoding!(mark, context, encoding_batches, scene_mark, text);
 
-        // // Apply color encoding
-        // apply_color_encoding!(mark, context, encoding_batches, scene_mark, color);
+        // Apply color encoding
+        apply_color_encoding!(mark, context, encoding_batches, scene_mark, color);
+
+        // Enums
+        if let Some(value) = encoding_batches.array_for_field("align") {
+            scene_mark.align = context.coercer.to_text_align(&value)?;
+        }
+        if let Some(value) = encoding_batches.array_for_field("baseline") {
+            scene_mark.baseline = context.coercer.to_text_baseline(&value)?;
+        }
+        if let Some(value) = encoding_batches.array_for_field("font_weight") {
+            scene_mark.font_weight = context.coercer.to_font_weight(&value)?;
+        }
+        if let Some(value) = encoding_batches.array_for_field("font_style") {
+            scene_mark.font_style = context.coercer.to_font_style(&value)?;
+        }
 
         let details = if let Some(details_batch) = encoding_batches.details_batch {
             Some([(Vec::<usize>::new(), details_batch)].into_iter().collect::<HashMap<_, _>>())

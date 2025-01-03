@@ -1,10 +1,12 @@
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use strum::VariantNames;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, VariantNames)]
 #[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
-pub enum TextAlignSpec {
+#[strum(serialize_all = "snake_case")]
+pub enum TextAlign {
     #[default]
     Left,
     Center,
@@ -12,9 +14,10 @@ pub enum TextAlignSpec {
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, VariantNames)]
 #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
-pub enum TextBaselineSpec {
+#[strum(serialize_all = "snake_case")]
+pub enum TextBaseline {
     Alphabetic,
     Top,
     Middle,
@@ -25,22 +28,24 @@ pub enum TextBaselineSpec {
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, VariantNames)]
 #[cfg_attr(feature = "serde", serde(untagged))]
-pub enum FontWeightSpec {
+#[strum(serialize_all = "snake_case")]
+pub enum FontWeight {
     Name(FontWeightNameSpec),
     Number(f32),
 }
 
-impl Default for FontWeightSpec {
+impl Default for FontWeight {
     fn default() -> Self {
         Self::Name(FontWeightNameSpec::Normal)
     }
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, VariantNames)]
 #[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
+#[strum(serialize_all = "snake_case")]
 pub enum FontWeightNameSpec {
     #[default]
     Normal,
@@ -48,9 +53,10 @@ pub enum FontWeightNameSpec {
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, VariantNames)]
 #[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
-pub enum FontStyleSpec {
+#[strum(serialize_all = "snake_case")]
+pub enum FontStyle {
     #[default]
     Normal,
     Italic,

@@ -3,7 +3,7 @@ use crate::marks::multi::{MultiVertex, TEXT_TEXTURE_CODE};
 use avenger_common::canvas::CanvasDimensions;
 use avenger_scenegraph::marks::path::PathTransform;
 use avenger_text::rasterization::{GlyphBBox, TextRasterizationConfig, TextRasterizer};
-use avenger_text::types::{FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
+use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use etagere::euclid::{Angle, Point2D, Vector2D};
 use image::DynamicImage;
 use std::collections::HashMap;
@@ -360,12 +360,12 @@ pub struct TextInstance<'a> {
     pub position: [f32; 2],
     pub text: &'a String,
     pub color: &'a [f32; 4],
-    pub align: &'a TextAlignSpec,
+    pub align: &'a TextAlign,
     pub angle: f32,
-    pub baseline: &'a TextBaselineSpec,
+    pub baseline: &'a TextBaseline,
     pub font: &'a String,
     pub font_size: f32,
-    pub font_weight: &'a FontWeightSpec,
-    pub font_style: &'a FontStyleSpec,
+    pub font_weight: &'a FontWeight,
+    pub font_style: &'a FontStyle,
     pub limit: f32,
 }

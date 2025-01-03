@@ -1,7 +1,7 @@
 use super::{TextBounds, TextMeasurementConfig, TextMeasurer};
 use crate::measurement::CanvasDimensions;
 use crate::rasterization::GlyphData;
-use crate::types::{FontStyleSpec, FontWeightNameSpec, FontWeightSpec};
+use crate::types::{FontStyle, FontWeightNameSpec, FontWeight};
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -17,14 +17,14 @@ lazy_static! {
 /// Helper function to create a canvas font string
 pub(crate) fn create_font_string(config: &TextMeasurementConfig, scale: f32) -> String {
     let weight = match &config.font_weight {
-        FontWeightSpec::Name(FontWeightNameSpec::Bold) => "bold".to_string(),
-        FontWeightSpec::Name(FontWeightNameSpec::Normal) => "normal".to_string(),
-        FontWeightSpec::Number(w) => (*w as u32).to_string(),
+        FontWeight::Name(FontWeightNameSpec::Bold) => "bold".to_string(),
+        FontWeight::Name(FontWeightNameSpec::Normal) => "normal".to_string(),
+        FontWeight::Number(w) => (*w as u32).to_string(),
     };
 
     let style = match &config.font_style {
-        FontStyleSpec::Normal => "normal",
-        FontStyleSpec::Italic => "italic",
+        FontStyle::Normal => "normal",
+        FontStyle::Italic => "italic",
     };
 
     format!(

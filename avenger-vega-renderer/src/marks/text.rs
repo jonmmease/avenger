@@ -1,7 +1,7 @@
 use crate::marks::util::zindex_to_indices;
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::text::SceneTextMark as RsTextMark;
-use avenger_text::types::{FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
+use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use gloo_utils::format::JsValueSerdeExt;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};
@@ -88,7 +88,7 @@ impl TextMark {
     /// @param {Uint32Array} indices
     #[wasm_bindgen(skip_jsdoc)]
     pub fn set_align(&mut self, align_values: JsValue, indices: Vec<usize>) -> Result<(), JsError> {
-        let align_values: Vec<TextAlignSpec> = align_values.into_serde()?;
+        let align_values: Vec<TextAlign> = align_values.into_serde()?;
         let values = indices
             .iter()
             .map(|ind| align_values[*ind].clone())
@@ -107,7 +107,7 @@ impl TextMark {
         baseline_values: JsValue,
         indices: Vec<usize>,
     ) -> Result<(), JsError> {
-        let baseline_values: Vec<TextBaselineSpec> = baseline_values.into_serde()?;
+        let baseline_values: Vec<TextBaseline> = baseline_values.into_serde()?;
         let values = indices
             .iter()
             .map(|ind| baseline_values[*ind].clone())
@@ -126,7 +126,7 @@ impl TextMark {
         weight_values: JsValue,
         indices: Vec<usize>,
     ) -> Result<(), JsError> {
-        let weight_values: Vec<FontWeightSpec> = weight_values.into_serde()?;
+        let weight_values: Vec<FontWeight> = weight_values.into_serde()?;
         let values = indices
             .iter()
             .map(|ind| weight_values[*ind].clone())
@@ -145,7 +145,7 @@ impl TextMark {
         style_values: JsValue,
         indices: Vec<usize>,
     ) -> Result<(), JsError> {
-        let style_values: Vec<FontStyleSpec> = style_values.into_serde()?;
+        let style_values: Vec<FontStyle> = style_values.into_serde()?;
         let values = indices
             .iter()
             .map(|ind| style_values[*ind].clone())

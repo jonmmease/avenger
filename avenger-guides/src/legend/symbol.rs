@@ -9,7 +9,7 @@ use avenger_scenegraph::marks::{
     symbol::{SceneSymbolMark, SymbolShape},
     text::SceneTextMark,
 };
-use avenger_text::types::{TextAlignSpec, TextBaselineSpec};
+use avenger_text::types::{TextAlign, TextBaseline};
 
 use crate::{error::AvengerGuidesError, legend::compute_encoding_length};
 
@@ -144,8 +144,8 @@ fn make_symbol_group(
         text: text.to_string().into(),
         x: (max_width + text_padding).into(),
         y: single_symbol_mark.y.clone(),
-        align: TextAlignSpec::Left.into(),
-        baseline: TextBaselineSpec::Middle.into(),
+        align: TextAlign::Left.into(),
+        baseline: TextBaseline::Middle.into(),
         font_size: 10.0.into(),
         ..Default::default()
     };
