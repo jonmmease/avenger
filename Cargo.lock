@@ -728,6 +728,7 @@ version = "0.1.0"
 dependencies = [
  "arrow",
  "avenger-common",
+ "avenger-text",
  "chrono",
  "chrono-tz",
  "css-color-parser",
@@ -776,6 +777,7 @@ dependencies = [
  "lazy_static 1.5.0",
  "lyon_path",
  "serde",
+ "strum 0.26.3",
  "thiserror 2.0.3",
  "unicode-segmentation",
  "wasm-bindgen",

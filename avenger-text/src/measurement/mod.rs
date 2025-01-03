@@ -1,4 +1,4 @@
-use crate::types::{FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
+use crate::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 
 #[cfg(feature = "cosmic-text")]
 extern crate lazy_static;
@@ -25,9 +25,9 @@ pub struct TextMeasurementConfig<'a> {
     /// Font size in pixels
     pub font_size: f32,
     /// Font weight (normal, bold, or numeric)
-    pub font_weight: &'a FontWeightSpec,
+    pub font_weight: &'a FontWeight,
     /// Font style (normal or italic)
-    pub font_style: &'a FontStyleSpec,
+    pub font_style: &'a FontStyle,
 }
 
 /// Results from text measurement
@@ -50,22 +50,22 @@ impl TextBounds {
     pub fn calculate_origin(
         &self,
         position: [f32; 2],
-        align: &TextAlignSpec,
-        baseline: &TextBaselineSpec,
+        align: &TextAlign,
+        baseline: &TextBaseline,
     ) -> [f32; 2] {
         let x = match align {
-            TextAlignSpec::Left => position[0],
-            TextAlignSpec::Center => position[0] - self.width / 2.0,
-            TextAlignSpec::Right => position[0] - self.width,
+            TextAlign::Left => position[0],
+            TextAlign::Center => position[0] - self.width / 2.0,
+            TextAlign::Right => position[0] - self.width,
         };
 
         let y = match baseline {
-            TextBaselineSpec::Alphabetic => position[1] - self.ascent,
-            TextBaselineSpec::Top => position[1],
-            TextBaselineSpec::Middle => position[1] - self.height / 2.0,
-            TextBaselineSpec::Bottom => position[1] - self.height,
-            TextBaselineSpec::LineTop => position[1],
-            TextBaselineSpec::LineBottom => position[1] - self.line_height,
+            TextBaseline::Alphabetic => position[1] - self.ascent,
+            TextBaseline::Top => position[1],
+            TextBaseline::Middle => position[1] - self.height / 2.0,
+            TextBaseline::Bottom => position[1] - self.height,
+            TextBaseline::LineTop => position[1],
+            TextBaseline::LineBottom => position[1] - self.line_height,
         };
 
         [x, y]
@@ -98,30 +98,30 @@ mod tests {
 
         // Test left alignment
         let origin =
-            bounds.calculate_origin([10.0, 10.0], &TextAlignSpec::Left, &TextBaselineSpec::Top);
+            bounds.calculate_origin([10.0, 10.0], &TextAlign::Left, &TextBaseline::Top);
         assert_eq!(origin, [10.0, 10.0]);
 
         // Test center alignment
         let origin = bounds.calculate_origin(
             [10.0, 10.0],
-            &TextAlignSpec::Center,
-            &TextBaselineSpec::Middle,
+            &TextAlign::Center,
+            &TextBaseline::Middle,
         );
         assert_eq!(origin, [-40.0, 0.0]);
 
         // Test right alignment
         let origin = bounds.calculate_origin(
             [10.0, 10.0],
-            &TextAlignSpec::Right,
-            &TextBaselineSpec::Bottom,
+            &TextAlign::Right,
+            &TextBaseline::Bottom,
         );
         assert_eq!(origin, [-90.0, -10.0]);
 
         // Test alphabetic baseline
         let origin = bounds.calculate_origin(
             [10.0, 10.0],
-            &TextAlignSpec::Left,
-            &TextBaselineSpec::Alphabetic,
+            &TextAlign::Left,
+            &TextBaseline::Alphabetic,
         );
         assert_eq!(origin, [10.0, 15.0]);
     }

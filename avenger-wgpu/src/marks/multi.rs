@@ -1080,7 +1080,7 @@ impl MultiMarkRenderer {
                 let instance = TextInstance {
                     text,
                     position: [*x + origin[0], *y + origin[1]],
-                    color,
+                    color: &color.color_or_transparent(),
                     align,
                     angle: *angle,
                     baseline,

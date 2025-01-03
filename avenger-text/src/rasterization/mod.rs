@@ -9,7 +9,7 @@ pub mod html_canvas;
 use crate::{
     error::AvengerTextError,
     measurement::{TextBounds, TextMeasurementConfig},
-    types::{FontStyleSpec, FontWeightSpec},
+    types::{FontStyle, FontWeight},
 };
 
 // Position of glyph in text buffer
@@ -52,8 +52,8 @@ pub struct TextRasterizationConfig<'a> {
     pub color: &'a [f32; 4],
     pub font: &'a String,
     pub font_size: f32,
-    pub font_weight: &'a FontWeightSpec,
-    pub font_style: &'a FontStyleSpec,
+    pub font_weight: &'a FontWeight,
+    pub font_style: &'a FontStyle,
     pub limit: f32,
 }
 

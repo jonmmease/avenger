@@ -2,7 +2,7 @@ use cosmic_text::{fontdb::Database, Attrs, Buffer, Family, FontSystem, Metrics, 
 use std::{collections::HashSet, sync::Mutex};
 
 use super::{TextBounds, TextMeasurementConfig, TextMeasurer};
-use crate::types::{FontStyleSpec, FontWeightNameSpec, FontWeightSpec};
+use crate::types::{FontStyle, FontWeightNameSpec, FontWeight};
 
 use lazy_static::lazy_static;
 
@@ -151,15 +151,15 @@ pub fn make_cosmic_text_buffer(
 
     // Set font weight
     attrs.weight = match config.font_weight {
-        FontWeightSpec::Name(FontWeightNameSpec::Bold) => cosmic_text::Weight::BOLD,
-        FontWeightSpec::Name(FontWeightNameSpec::Normal) => cosmic_text::Weight::NORMAL,
-        FontWeightSpec::Number(w) => cosmic_text::Weight(*w as u16),
+        FontWeight::Name(FontWeightNameSpec::Bold) => cosmic_text::Weight::BOLD,
+        FontWeight::Name(FontWeightNameSpec::Normal) => cosmic_text::Weight::NORMAL,
+        FontWeight::Number(w) => cosmic_text::Weight(*w as u16),
     };
 
     // Set font style
     attrs.style = match config.font_style {
-        FontStyleSpec::Normal => cosmic_text::Style::Normal,
-        FontStyleSpec::Italic => cosmic_text::Style::Italic,
+        FontStyle::Normal => cosmic_text::Style::Normal,
+        FontStyle::Italic => cosmic_text::Style::Italic,
     };
 
     // Create metrics (using size from config)
@@ -193,7 +193,7 @@ pub fn register_font_directory(dir: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{FontStyleSpec, FontWeightSpec};
+    use crate::types::{FontStyle, FontWeight};
 
     #[test]
     fn test_cosmic_text_measurer() {
@@ -203,8 +203,8 @@ mod tests {
             text: "Hello, World!",
             font: "serif",
             font_size: 16.0,
-            font_weight: &FontWeightSpec::Name(FontWeightNameSpec::Normal),
-            font_style: &FontStyleSpec::Normal,
+            font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
+            font_style: &FontStyle::Normal,
         };
 
         let bounds = measurer.measure_text_bounds(&config);

@@ -6,7 +6,7 @@ use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scenegraph::marks::line::SceneLineMark;
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark, text::SceneTextMark};
-use avenger_text::types::{TextAlignSpec, TextBaselineSpec};
+use avenger_text::types::{TextAlign, TextBaseline};
 
 /// Symbol legends
 pub struct LineLegendConfig {
@@ -151,8 +151,8 @@ fn make_line_group(
         text: text.to_string().into(),
         x: text_x.into(),
         y: center_y.into(),
-        align: TextAlignSpec::Left.into(),
-        baseline: TextBaselineSpec::Middle.into(),
+        align: TextAlign::Left.into(),
+        baseline: TextBaseline::Middle.into(),
         font_size: 10.0.into(),
         ..Default::default()
     };

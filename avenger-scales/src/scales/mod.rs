@@ -28,7 +28,7 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use chrono_tz::Tz as ChronoTz;
 use coerce::{CastNumericCoercer, Coercer, NumericCoercer};
 use datafusion_common::{utils::arrays_into_list_array, ScalarValue};
-
+use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use crate::{
     color_interpolator::ColorInterpolator, error::AvengerScaleError, utils::ScalarValueUtils,
 };
@@ -333,6 +333,11 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
     declare_enum_scale_method!(ImageAlign);
     declare_enum_scale_method!(ImageBaseline);
     declare_enum_scale_method!(AreaOrientation);
+    declare_enum_scale_method!(TextAlign);
+    declare_enum_scale_method!(TextBaseline);
+    declare_enum_scale_method!(FontWeight);
+    declare_enum_scale_method!(FontStyle);
+
 }
 
 /// Macro to generate scale_to_X trait methods that return a default error implementation
@@ -572,6 +577,10 @@ impl ConfiguredScale {
     declare_enum_configured_scale_method!(ImageAlign);
     declare_enum_configured_scale_method!(ImageBaseline);
     declare_enum_configured_scale_method!(AreaOrientation);
+    declare_enum_configured_scale_method!(TextAlign);
+    declare_enum_configured_scale_method!(TextBaseline);
+    declare_enum_configured_scale_method!(FontWeight);
+    declare_enum_configured_scale_method!(FontStyle);
 }
 
 // ScaleConfig pass through methods

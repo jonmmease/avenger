@@ -4,10 +4,11 @@ use crate::marks::values::MissingNullOrValue;
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::text::SceneTextMark;
-use avenger_text::types::{FontStyleSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
+use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 use std::sync::Arc;
+use avenger_common::types::ColorOrGradient;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -19,9 +20,9 @@ pub struct VegaTextItem {
     // Optional
     pub radius: Option<f32>,
     pub theta: Option<f32>,
-    pub align: Option<TextAlignSpec>,
+    pub align: Option<TextAlign>,
     pub angle: Option<f32>,
-    pub baseline: Option<TextBaselineSpec>,
+    pub baseline: Option<TextBaseline>,
     pub dx: Option<f32>,
     pub dy: Option<f32>,
     pub fill: MissingNullOrValue<String>,
@@ -29,8 +30,8 @@ pub struct VegaTextItem {
     pub fill_opacity: Option<f32>,
     pub font: Option<String>,
     pub font_size: Option<f32>,
-    pub font_weight: Option<FontWeightSpec>,
-    pub font_style: Option<FontStyleSpec>,
+    pub font_weight: Option<FontWeight>,
+    pub font_style: Option<FontStyle>,
     pub limit: Option<f32>,
     pub zindex: Option<i32>,
 }
@@ -53,16 +54,16 @@ impl VegaMarkContainer<VegaTextItem> {
         let mut text = Vec::<String>::new();
         let mut x = Vec::<f32>::new();
         let mut y = Vec::<f32>::new();
-        let mut align = Vec::<TextAlignSpec>::new();
-        let mut baseline = Vec::<TextBaselineSpec>::new();
+        let mut align = Vec::<TextAlign>::new();
+        let mut baseline = Vec::<TextBaseline>::new();
         let mut angle = Vec::<f32>::new();
-        let mut color = Vec::<[f32; 4]>::new();
+        let mut color = Vec::<ColorOrGradient>::new();
         let mut dx = Vec::<f32>::new();
         let mut dy = Vec::<f32>::new();
         let mut font = Vec::<String>::new();
         let mut font_size = Vec::<f32>::new();
-        let mut font_weight = Vec::<FontWeightSpec>::new();
-        let mut font_style = Vec::<FontStyleSpec>::new();
+        let mut font_weight = Vec::<FontWeight>::new();
+        let mut font_style = Vec::<FontStyle>::new();
         let mut limit = Vec::<f32>::new();
         let mut zindex = Vec::<i32>::new();
 
@@ -77,7 +78,7 @@ impl VegaMarkContainer<VegaTextItem> {
                 let c = csscolorparser::parse(v)?;
                 let opacity =
                     c.a as f32 * item.fill_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
-                color.push([c.r as f32, c.g as f32, c.b as f32, opacity])
+                color.push(ColorOrGradient::Color([c.r as f32, c.g as f32, c.b as f32, opacity]))
             }
 
             // Compute x and y

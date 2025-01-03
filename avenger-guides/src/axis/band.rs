@@ -3,7 +3,7 @@ use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_scales::{error::AvengerScaleError, scales::ConfiguredScale};
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
 
-use avenger_text::types::{FontWeightNameSpec, FontWeightSpec, TextAlignSpec, TextBaselineSpec};
+use avenger_text::types::{FontWeightNameSpec, FontWeight, TextAlign, TextBaseline};
 use rstar::AABB;
 
 use crate::error::AvengerGuidesError;
@@ -201,29 +201,29 @@ fn make_tick_labels(
         AxisOrientation::Left => (
             ScalarOrArray::new_scalar(-TICK_LENGTH - TEXT_MARGIN),
             scaled_values,
-            TextAlignSpec::Right,
-            TextBaselineSpec::Middle,
+            TextAlign::Right,
+            TextBaseline::Middle,
             0.0,
         ),
         AxisOrientation::Right => (
             ScalarOrArray::new_scalar(dimensions[0] + TICK_LENGTH + TEXT_MARGIN),
             scaled_values,
-            TextAlignSpec::Left,
-            TextBaselineSpec::Middle,
+            TextAlign::Left,
+            TextBaseline::Middle,
             0.0,
         ),
         AxisOrientation::Top => (
             scaled_values,
             ScalarOrArray::new_scalar(-TICK_LENGTH - TEXT_MARGIN + PIXEL_OFFSET),
-            TextAlignSpec::Center,
-            TextBaselineSpec::Bottom,
+            TextAlign::Center,
+            TextBaseline::Bottom,
             0.0,
         ),
         AxisOrientation::Bottom => (
             scaled_values,
             ScalarOrArray::new_scalar(dimensions[1] + PIXEL_OFFSET + TICK_LENGTH + TEXT_MARGIN),
-            TextAlignSpec::Center,
-            TextBaselineSpec::Top,
+            TextAlign::Center,
+            TextBaseline::Top,
             0.0,
         ),
     };
@@ -236,7 +236,7 @@ fn make_tick_labels(
         align: align.into(),
         baseline: baseline.into(),
         angle: angle.into(),
-        color: [0.0, 0.0, 0.0, 1.0].into(),
+        color: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
         font_size: TICK_FONT_SIZE.into(),
         ..Default::default()
     })
@@ -255,29 +255,29 @@ fn make_title(
         AxisOrientation::Left => (
             (envelope.lower()[0] - TITLE_MARGIN).into(),
             mid.into(),
-            TextAlignSpec::Center,
-            TextBaselineSpec::LineBottom,
+            TextAlign::Center,
+            TextBaseline::LineBottom,
             -90.0,
         ),
         AxisOrientation::Right => (
             (envelope.upper()[0] + TITLE_MARGIN).into(),
             mid.into(),
-            TextAlignSpec::Center,
-            TextBaselineSpec::LineBottom,
+            TextAlign::Center,
+            TextBaseline::LineBottom,
             90.0,
         ),
         AxisOrientation::Top => (
             mid.into(),
             (envelope.lower()[1] - TITLE_MARGIN).into(),
-            TextAlignSpec::Center,
-            TextBaselineSpec::Bottom,
+            TextAlign::Center,
+            TextBaseline::Bottom,
             0.0,
         ),
         AxisOrientation::Bottom => (
             mid.into(),
             (envelope.upper()[1] + TITLE_MARGIN).into(),
-            TextAlignSpec::Center,
-            TextBaselineSpec::Top,
+            TextAlign::Center,
+            TextBaseline::Top,
             0.0,
         ),
     };
@@ -290,9 +290,9 @@ fn make_title(
         align: align.into(),
         baseline: baseline.into(),
         angle: angle.into(),
-        color: [0.0, 0.0, 0.0, 1.0].into(),
+        color: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
         font_size: TITLE_FONT_SIZE.into(),
-        font_weight: FontWeightSpec::Name(FontWeightNameSpec::Bold).into(),
+        font_weight: FontWeight::Name(FontWeightNameSpec::Bold).into(),
         ..Default::default()
     })
 }
