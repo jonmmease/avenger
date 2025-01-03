@@ -7,7 +7,7 @@ use crate::utils::ScalarValueUtils;
 use arrow::array::{Array, AsArray, Float32Array, StringArray};
 use arrow::compute::kernels::zip::zip;
 use arrow::compute::{is_not_null, is_null};
-use arrow::datatypes::{Float32Type, UInt32Type};
+use arrow::datatypes::{Float32Type, UInt32Type, UInt8Type};
 use arrow::{
     array::ArrayRef,
     compute::kernels::cast,
@@ -15,13 +15,14 @@ use arrow::{
 };
 use avenger_common::types::{AreaOrientation, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin};
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
+use avenger_image::{make_image_fetcher, RgbaImage};
+use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use css_color_parser::Color;
 use paste::paste;
 use std::f32::NAN;
 use std::fmt::Debug;
 use std::sync::Arc;
 use strum::VariantNames;
-use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 
 pub trait ColorCoercer: Debug + Send + Sync + 'static {
     fn coerce(
@@ -39,6 +40,7 @@ pub trait NumericCoercer: Debug + Send + Sync + 'static {
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError>;
 
     fn coerce_usize(&self, value: &ArrayRef) -> Result<ScalarOrArray<usize>, AvengerScaleError>;
+    fn coerce_boolean(&self, value: &ArrayRef) -> Result<ScalarOrArray<bool>, AvengerScaleError>;
 }
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -72,6 +74,18 @@ impl NumericCoercer for CastNumericCoercer {
                 .values()
                 .iter()
                 .map(|el| *el as usize)
+                .collect(),
+        ))
+    }
+
+    fn coerce_boolean(&self, value: &ArrayRef) -> Result<ScalarOrArray<bool>, AvengerScaleError> {
+        let cast_array = cast(value, &DataType::UInt8)?;
+        Ok(ScalarOrArray::new_array(
+            cast_array
+                .as_primitive::<UInt8Type>()
+                .values()
+                .iter()
+                .map(|el| *el != 0)
                 .collect(),
         ))
     }
@@ -151,7 +165,6 @@ impl ColorCoercer for CssColorCoercer {
     }
 }
 
-// Define the macro using paste
 macro_rules! define_enum_coercer {
     ($enum_type:ty) => {
         paste! {
@@ -197,6 +210,10 @@ impl Coercer {
         self.number_coercer.coerce_usize(values)
     }
 
+    pub fn to_boolean(&self, values: &ArrayRef) -> Result<ScalarOrArray<bool>, AvengerScaleError> {
+        self.number_coercer.coerce_boolean(values)
+    }
+
     pub fn to_color(
         &self,
         values: &ArrayRef,
@@ -223,7 +240,91 @@ impl Coercer {
     define_enum_coercer!(FontWeight);
     define_enum_coercer!(FontStyle);
 
-    pub fn to_stroke_dash(&self, value: &ArrayRef) -> Result<ScalarOrArray<Vec<f32>>, AvengerScaleError> {
+    pub fn to_image(
+        &self,
+        values: &ArrayRef,
+    ) -> Result<ScalarOrArray<RgbaImage>, AvengerScaleError> {
+        let dtype = values.data_type();
+        let mut result = Vec::new();
+        match dtype {
+            // Handle strings
+            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
+                let fetcher = make_image_fetcher()?;
+                let cast_array = cast(values, &DataType::Utf8)?;
+                let string_array = cast_array.as_string::<i32>();
+                for s in string_array.iter() {
+                    if let Some(s) = s {
+                        let img = RgbaImage::from_str(s, Some(fetcher.clone()))?;
+                        result.push(img);
+                    }
+                }
+            }
+            // Handle raw rgba image data
+            DataType::Struct(fields) => {
+                let mut field_names = fields.iter().map(|f| f.name().as_str()).collect::<Vec<_>>();
+
+                let msg = format!(
+                    "Unsupported struct data type for coercing to image: {:?}\n
+Expected struct with fields [width(UInt32), height(UInt32), data(List[UInt8])]",
+                    field_names
+                );
+
+                // Check field names and order
+                if field_names != ["width", "height", "data"] {
+                    return Err(AvengerScaleError::InternalError(msg));
+                }
+
+                // Check field types
+                let width = fields.get(0).unwrap();
+                let height = fields.get(1).unwrap();
+                let data = fields.get(2).unwrap();
+
+                let expected_data_type = DataType::new_list(DataType::UInt8, false);
+                if data.data_type() != &expected_data_type
+                    || height.data_type() != &DataType::UInt32
+                    || width.data_type() != &DataType::UInt32
+                {
+                    return Err(AvengerScaleError::InternalError(msg));
+                }
+
+                // Cast to struct
+                let struct_array = values.as_struct();
+                let width = struct_array.column(0);
+                let height = struct_array.column(1);
+                let data = struct_array.column(2);
+
+                let width = width.as_primitive::<UInt32Type>();
+                let height = height.as_primitive::<UInt32Type>();
+                let data = data.as_list::<i32>();
+
+                for i in 0..values.len() {
+                    let width = width.value(i);
+                    let height = height.value(i);
+                    let data = data.value(i);
+                    let data = data.as_primitive::<UInt8Type>();
+                    let data = data.values().to_vec();
+                    let img = RgbaImage {
+                        width,
+                        height,
+                        data,
+                    };
+                    result.push(img);
+                }
+            }
+            _ => {
+                return Err(AvengerScaleError::InternalError(format!(
+                    "Unsupported data type for coercing to image: {:?}",
+                    dtype
+                )))
+            }
+        }
+        Ok(ScalarOrArray::new_array(result))
+    }
+
+    pub fn to_stroke_dash(
+        &self,
+        value: &ArrayRef,
+    ) -> Result<ScalarOrArray<Vec<f32>>, AvengerScaleError> {
         let dtype = value.data_type();
         let mut result = Vec::new();
 
@@ -235,9 +336,11 @@ impl Coercer {
                 for s in cast_array.iter() {
                     if let Some(s) = s {
                         let s = s.replace(",", "");
-                        let v = s.split(" ").into_iter().filter_map(
-                            |p| p.parse::<f32>().ok()
-                        ).collect::<Vec<_>>();
+                        let v = s
+                            .split(" ")
+                            .into_iter()
+                            .filter_map(|p| p.parse::<f32>().ok())
+                            .collect::<Vec<_>>();
                         result.push(v);
                     } else {
                         result.push(Vec::new());
@@ -248,7 +351,9 @@ impl Coercer {
             | DataType::ListView(field)
             | DataType::FixedSizeList(field, _)
             | DataType::LargeList(field)
-            | DataType::LargeListView(field) if field.data_type().is_numeric() => {
+            | DataType::LargeListView(field)
+                if field.data_type().is_numeric() =>
+            {
                 // Convert list of numbers
                 let cast_array = cast(value, &DataType::new_list(DataType::Float32, false))?;
                 let list_array = cast_array.as_list::<i32>();

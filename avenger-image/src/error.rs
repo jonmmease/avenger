@@ -1,3 +1,5 @@
+use std::string::FromUtf8Error;
+
 #[derive(Debug, thiserror::Error)]
 pub enum AvengerImageError {
     #[error("Internal error: {0}")]
@@ -11,6 +13,12 @@ pub enum AvengerImageError {
 
     #[error("image error")]
     ImageError(#[from] image::ImageError),
+
+    #[error("base64 decode error")]
+    Base64DecodeError(#[from] base64::DecodeError),
+
+    #[error("string decode error")]
+    FromUtf8Error(#[from] FromUtf8Error),
 
     #[cfg(feature = "image-request")]
     #[error("css color parse error")]

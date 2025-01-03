@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 avenger-common = { path = "../avenger-common" }
 avenger-text = { path = "../avenger-text" }
+avenger-image = { path = "../avenger-image" }
 thiserror = { workspace = true }
 palette = { workspace = true }
 chrono = { workspace = true }

@@ -1,4 +1,5 @@
 use arrow::error::ArrowError;
+use avenger_image::error::AvengerImageError;
 use datafusion_common::{DataFusionError, ScalarValue};
 
 #[derive(Debug, thiserror::Error)]
@@ -55,6 +56,9 @@ pub enum AvengerScaleError {
         format_str: String,
         data_type: String,
     },
+
+    #[error("Avenger image error: {0}")]
+    AvengerImageError(#[from] AvengerImageError),
 
     #[error("Arrow error: {0}")]
     ArrowError(#[from] ArrowError),
