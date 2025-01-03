@@ -1,18 +1,17 @@
 use crate::error::AvengerChartError;
+use crate::marks::{eval_encoding_exprs, CompiledMark, MarkCompiler};
 use crate::runtime::context::CompilationContext;
-use crate::runtime::marks::{eval_encoding_exprs, CompiledMark, MarkCompiler};
 use crate::types::mark::Mark;
-use crate::{apply_color_encoding, apply_numeric_encoding, apply_usize_encoding};
+use crate::{apply_boolean_encoding, apply_numeric_encoding};
 use async_trait::async_trait;
-use avenger_scenegraph::marks::arc::SceneArcMark;
 use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::symbol::SceneSymbolMark;
+use avenger_scenegraph::marks::trail::SceneTrailMark;
 use std::collections::HashMap;
 
-pub struct SymbolMarkCompiler;
+pub struct TrailMarkCompiler;
 
 #[async_trait]
-impl MarkCompiler for SymbolMarkCompiler {
+impl MarkCompiler for TrailMarkCompiler {
     async fn compile(
         &self,
         mark: &Mark,
@@ -22,7 +21,7 @@ impl MarkCompiler for SymbolMarkCompiler {
             eval_encoding_exprs(&mark.from, &mark.encodings, &mark.details, &context).await?;
 
         // Create a new default SceneArcMark
-        let mut scene_mark = SceneSymbolMark::default();
+        let mut scene_mark = SceneTrailMark::default();
         scene_mark.len = encoding_batches.len() as u32;
 
         // name
@@ -37,23 +36,13 @@ impl MarkCompiler for SymbolMarkCompiler {
         apply_numeric_encoding!(mark, context, encoding_batches, scene_mark, x);
         apply_numeric_encoding!(mark, context, encoding_batches, scene_mark, y);
         apply_numeric_encoding!(mark, context, encoding_batches, scene_mark, size);
-        apply_numeric_encoding!(mark, context, encoding_batches, scene_mark, angle);
 
-        // Apply usize encodings
-        apply_usize_encoding!(mark, context, encoding_batches, scene_mark, shape_index);
+        // boolean encoding
+        apply_boolean_encoding!(mark, context, encoding_batches, scene_mark, defined);
 
-        // Apply color encoding
-        apply_color_encoding!(mark, context, encoding_batches, scene_mark, fill);
-        apply_color_encoding!(mark, context, encoding_batches, scene_mark, stroke);
-
-        // Apply scalars
-        if let Some(stroke_width) = encoding_batches.numeric_scalar("stroke_width")? {
-            scene_mark.stroke_width = Some(stroke_width);
-        }
-
-        // Apply shapes
-        if let Some(shapes) = mark.get_shapes() {
-            scene_mark.shapes = shapes.clone();
+        // stroke
+        if let Some(color) = encoding_batches.color_scalar("stroke")? {
+            scene_mark.stroke = color;
         }
 
         let details = if let Some(details_batch) = encoding_batches.details_batch {
@@ -66,7 +55,7 @@ impl MarkCompiler for SymbolMarkCompiler {
             None
         };
         Ok(CompiledMark {
-            scene_marks: vec![SceneMark::Symbol(scene_mark)],
+            scene_marks: vec![SceneMark::Trail(scene_mark)],
             details: details.unwrap_or_default(),
         })
     }

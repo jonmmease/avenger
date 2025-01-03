@@ -1,8 +1,6 @@
-use std::collections::HashMap;
-use std::sync::Arc;
 use crate::error::AvengerChartError;
+use crate::marks::{eval_encoding_exprs, CompiledMark, MarkCompiler};
 use crate::runtime::context::CompilationContext;
-use crate::runtime::marks::{eval_encoding_exprs, CompiledMark, MarkCompiler};
 use crate::types::mark::Mark;
 use crate::{apply_color_encoding, apply_numeric_encoding, apply_string_encoding};
 use async_trait::async_trait;
@@ -10,6 +8,8 @@ use avenger_scenegraph::marks::arc::SceneArcMark;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use avenger_scenegraph::marks::text::SceneTextMark;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 pub struct TextMarkCompiler;
 
@@ -20,7 +20,8 @@ impl MarkCompiler for TextMarkCompiler {
         mark: &Mark,
         context: &CompilationContext,
     ) -> Result<CompiledMark, AvengerChartError> {
-        let encoding_batches = eval_encoding_exprs(&mark.from, &mark.encodings, &mark.details, &context).await?;
+        let encoding_batches =
+            eval_encoding_exprs(&mark.from, &mark.encodings, &mark.details, &context).await?;
 
         // Create a new default SceneArcMark
         let mut scene_mark = SceneTextMark::default();
@@ -61,11 +62,15 @@ impl MarkCompiler for TextMarkCompiler {
         }
 
         let details = if let Some(details_batch) = encoding_batches.details_batch {
-            Some([(Vec::<usize>::new(), details_batch)].into_iter().collect::<HashMap<_, _>>())
+            Some(
+                [(Vec::<usize>::new(), details_batch)]
+                    .into_iter()
+                    .collect::<HashMap<_, _>>(),
+            )
         } else {
             None
         };
-        Ok(CompiledMark{
+        Ok(CompiledMark {
             scene_marks: vec![SceneMark::Text(Arc::new(scene_mark))],
             details: details.unwrap_or_default(),
         })
