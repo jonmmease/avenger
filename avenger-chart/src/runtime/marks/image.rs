@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::error::AvengerChartError;
 use crate::runtime::context::CompilationContext;
 use crate::runtime::marks::{eval_encoding_exprs, CompiledMark, MarkCompiler};
@@ -6,7 +8,6 @@ use crate::{apply_color_encoding, apply_numeric_encoding, apply_numeric_encoding
 use async_trait::async_trait;
 use avenger_scenegraph::marks::image::SceneImageMark;
 use avenger_scenegraph::marks::mark::SceneMark;
-
 
 pub struct ImageMarkCompiler;
 
@@ -39,12 +40,8 @@ impl MarkCompiler for ImageMarkCompiler {
 
         // image encoding
         if let Some(value) = encoding_batches.array_for_field("image") {
-            scene_mark.image = context
-                .coercer
-                .to_image(&value)?
-                .to_scalar_if_len_one();
+            scene_mark.image = context.coercer.to_image(&value)?.to_scalar_if_len_one();
         }
-
 
         // enum encodings
         if let Some(value) = encoding_batches.array_for_field("align") {
@@ -60,12 +57,8 @@ impl MarkCompiler for ImageMarkCompiler {
                 .to_scalar_if_len_one();
         }
 
-
-        apply_color_encoding!(mark, context, encoding_batches, scene_mark, stroke);
-        apply_color_encoding!(mark, context, encoding_batches, scene_mark, fill);
-
         Ok(CompiledMark {
-            scene_marks: vec![SceneMark::Image(scene_mark)],
+            scene_marks: vec![SceneMark::Image(Arc::new(scene_mark))],
             details: Default::default(),
         })
     }
