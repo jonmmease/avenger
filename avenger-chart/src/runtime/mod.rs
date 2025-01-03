@@ -1,13 +1,19 @@
 pub mod app;
 pub mod context;
 pub mod controller;
-pub mod marks;
 pub mod scale;
 
+use crate::marks::area::AreaMarkCompiler;
+use crate::marks::image::ImageMarkCompiler;
+use crate::marks::line::LineMarkCompiler;
+use crate::marks::path::PathMarkCompiler;
+use crate::marks::rect::RectMarkCompiler;
+use crate::marks::rule::RuleMarkCompiler;
+use crate::marks::text::TextMarkCompiler;
+use crate::marks::trail::TrailMarkCompiler;
+use crate::marks::{arc::ArcMarkCompiler, symbol::SymbolMarkCompiler, MarkCompiler};
 use crate::runtime::app::AvengerChartState;
 use crate::runtime::controller::param_stream::ParamStreamContext;
-use crate::runtime::marks::area::AreaMarkCompiler;
-use crate::runtime::marks::text::TextMarkCompiler;
 use crate::{
     error::AvengerChartError,
     param::Param,
@@ -53,13 +59,6 @@ use datafusion::{
     prelude::{DataFrame, Expr, SessionContext},
     scalar::ScalarValue,
 };
-use marks::image::ImageMarkCompiler;
-use marks::line::LineMarkCompiler;
-use marks::path::PathMarkCompiler;
-use marks::rect::RectMarkCompiler;
-use marks::rule::RuleMarkCompiler;
-use marks::trail::TrailMarkCompiler;
-use marks::{arc::ArcMarkCompiler, symbol::SymbolMarkCompiler, MarkCompiler};
 use std::{collections::HashMap, sync::Arc};
 
 pub struct CompiledChart {

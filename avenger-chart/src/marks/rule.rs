@@ -1,6 +1,6 @@
 use crate::error::AvengerChartError;
+use crate::marks::{eval_encoding_exprs, CompiledMark, MarkCompiler};
 use crate::runtime::context::CompilationContext;
-use crate::runtime::marks::{eval_encoding_exprs, CompiledMark, MarkCompiler};
 use crate::types::mark::Mark;
 use crate::{apply_color_encoding, apply_numeric_encoding};
 use async_trait::async_trait;

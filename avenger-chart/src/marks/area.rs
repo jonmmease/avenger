@@ -1,6 +1,6 @@
 use crate::error::AvengerChartError;
+use crate::marks::{eval_encoding_exprs, CompiledMark, MarkCompiler};
 use crate::runtime::context::CompilationContext;
-use crate::runtime::marks::{eval_encoding_exprs, CompiledMark, MarkCompiler};
 use crate::types::mark::Mark;
 use crate::{apply_boolean_encoding, apply_color_encoding, apply_numeric_encoding};
 use async_trait::async_trait;
@@ -17,7 +17,8 @@ impl MarkCompiler for AreaMarkCompiler {
         mark: &Mark,
         context: &CompilationContext,
     ) -> Result<CompiledMark, AvengerChartError> {
-        let encoding_batches = eval_encoding_exprs(&mark.from, &mark.encodings, &mark.details, &context).await?;
+        let encoding_batches =
+            eval_encoding_exprs(&mark.from, &mark.encodings, &mark.details, &context).await?;
 
         // Create a new default SceneAreaMark
         let mut scene_mark = SceneAreaMark::default();
@@ -60,9 +61,9 @@ impl MarkCompiler for AreaMarkCompiler {
             scene_mark.stroke_dash = Some(value);
         }
 
-        Ok(CompiledMark{
+        Ok(CompiledMark {
             scene_marks: vec![SceneMark::Area(scene_mark)],
-            details: Default::default()
+            details: Default::default(),
         })
     }
 }

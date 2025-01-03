@@ -10,7 +10,7 @@ pub mod symbol;
 pub mod text;
 pub mod trail;
 
-use super::context::CompilationContext;
+use crate::runtime::context::CompilationContext;
 use crate::utils::ExprHelpers;
 use crate::{
     error::AvengerChartError,
