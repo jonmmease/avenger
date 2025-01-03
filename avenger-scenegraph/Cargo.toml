@@ -42,6 +42,10 @@ workspace = true
 [dependencies.avenger-common]
 path = "../avenger-common"
 
+[dependencies.avenger-image]
+path = "../avenger-image"
+default-features = false
+
 [dependencies.avenger-text]
 path = "../avenger-text"
 default-features = false

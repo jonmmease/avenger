@@ -4,6 +4,8 @@ pub mod rect;
 pub mod rule;
 pub mod symbol;
 pub mod text;
+pub mod area;
+pub mod image;
 
 use super::context::CompilationContext;
 use crate::utils::ExprHelpers;
@@ -24,6 +26,40 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::prelude::{DataFrame, Expr};
 use indexmap::IndexMap;
 use std::collections::HashMap;
+use datafusion::common::ScalarValue;
+use avenger_common::types::{AreaOrientation, ColorOrGradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin};
+use avenger_scales::scales::coerce::Coercer;
+use avenger_scales::utils::ScalarValueUtils;
+use paste::paste;
+use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
+
+macro_rules! define_enum_extract_scalar {
+    ($enum_type:ty) => {
+        paste! {
+            pub fn [<$enum_type:snake _scalar>](&self, field: &str) -> Result<Option<$enum_type>, AvengerChartError> {
+                // Error if column is found but not a scalar
+                if self.column_batch.column_by_name(field).is_some() {
+                    return Err(AvengerChartError::InternalError(format!(
+                        "Column {field} is not a scalar",
+                    )));
+                }
+
+                // Return scalar value if found
+                let Some(array) = self.scalar_batch.column_by_name(field) else {
+                    return Ok(None);
+                };
+
+                let coercer = Coercer::default();
+                let value =  coercer.[<to_ $enum_type:snake>](array)?;
+                let Some(c) = value.first() else {
+                    return Ok(None);
+                };
+                Ok(Some(c.clone()))
+            }
+        }
+    };
+}
+
 
 pub struct CompiledMark {
     pub scene_marks: Vec<SceneMark>,
@@ -83,9 +119,9 @@ impl EncodingBatches {
         Some(array.clone())
     }
 
-    pub fn f32_scalar_for_field(&self, field: &str) -> Result<Option<f32>, AvengerChartError> {
+    pub fn numeric_scalar(&self, field: &str) -> Result<Option<f32>, AvengerChartError> {
         // Error if column is found but not a scalar
-        if let Some(array) = self.column_batch.column_by_name(field) {
+        if self.column_batch.column_by_name(field).is_some() {
             return Err(AvengerChartError::InternalError(format!(
                 "Column {field} is not a scalar",
             )));
@@ -100,34 +136,57 @@ impl EncodingBatches {
         Ok(Some(array.value(0)))
     }
 
-    pub fn f32_scalar_or_array_for_field(
-        &self,
-        field: &str,
-    ) -> Result<Option<ScalarOrArray<f32>>, AvengerChartError> {
-        // Loop in each batch for the named field
-        let (array, is_scalar) = if let Some(array) = self.column_batch.column_by_name(field) {
-            (array, false)
-        } else if let Some(array) = self.scalar_batch.column_by_name(field) {
-            (array, true)
-        } else {
-            // Not found in either batch
+    pub fn color_scalar(&self, field: &str) -> Result<Option<ColorOrGradient>, AvengerChartError> {
+        // Error if column is found but not a scalar
+        if self.column_batch.column_by_name(field).is_some() {
+            return Err(AvengerChartError::InternalError(format!(
+                "Column {field} is not a scalar",
+            )));
+        }
+
+        // Return scalar value if found
+        let Some(array) = self.scalar_batch.column_by_name(field) else {
             return Ok(None);
         };
 
-        // Cast to f32 then downcast to f32 array
-        let array = cast(array, &DataType::Float32)?;
-        let array = array.as_any().downcast_ref::<Float32Array>().ok_or(
-            AvengerChartError::InternalError(format!(
-                "Failed to downcast {field} to Float32Array: {array:?}",
-            )),
-        )?;
-
-        if is_scalar {
-            Ok(Some(ScalarOrArray::new_scalar(array.value(0))))
-        } else {
-            Ok(Some(ScalarOrArray::new_array(array.values().to_vec())))
-        }
+        let coercer = Coercer::default();
+        let colors = coercer.to_color(array, None)?;
+        let Some(c) = colors.first() else {
+            return Ok(None);
+        };
+        Ok(Some(c.clone()))
     }
+
+    pub fn stroke_dash_scalar(&self, field: &str) -> Result<Option<Vec<f32>>, AvengerChartError> {
+        // Error if column is found but not a scalar
+        if self.column_batch.column_by_name(field).is_some() {
+            return Err(AvengerChartError::InternalError(format!(
+                "Column {field} is not a scalar",
+            )));
+        }
+
+        // Return scalar value if found
+        let Some(array) = self.scalar_batch.column_by_name(field) else {
+            return Ok(None);
+        };
+
+        let coercer = Coercer::default();
+        let colors = coercer.to_stroke_dash(array)?;
+        let Some(c) = colors.first() else {
+            return Ok(None);
+        };
+        Ok(Some(c.clone()))
+    }
+
+    define_enum_extract_scalar!(StrokeCap);
+    define_enum_extract_scalar!(StrokeJoin);
+    define_enum_extract_scalar!(ImageAlign);
+    define_enum_extract_scalar!(ImageBaseline);
+    define_enum_extract_scalar!(AreaOrientation);
+    define_enum_extract_scalar!(TextAlign);
+    define_enum_extract_scalar!(TextBaseline);
+    define_enum_extract_scalar!(FontWeight);
+    define_enum_extract_scalar!(FontStyle);
 }
 
 async fn eval_encoding_exprs(

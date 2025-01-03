@@ -79,6 +79,19 @@ impl<T: Sync + Clone> ScalarOrArray<T> {
         }
     }
 
+    pub fn first(&self) -> Option<&T> {
+        match &self.value {
+            ScalarOrArrayValue::Scalar(v) => { Some(v) }
+            ScalarOrArrayValue::Array(arr) => {
+                if arr.is_empty() {
+                    None
+                } else {
+                    Some(&arr[0])
+                }
+            }
+        }
+    }
+
     pub fn as_vec(&self, scalar_len: usize, indices: Option<&Arc<Vec<usize>>>) -> Vec<T> {
         self.as_iter(scalar_len, indices)
             .cloned()

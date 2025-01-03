@@ -6,6 +6,7 @@ description = "Utilities for importing Vega scenegraphs into Avenger"
 license = "BSD-3-Clause"
 
 [features]
+default = [ "image-request", "svg",]
 image-request = [ "reqwest",]
 svg = [ "resvg", "usvg", "tiny-skia",]
 
@@ -14,15 +15,15 @@ cfg-if = "1"
 csscolorparser = "0.7.0"
 
 [dependencies.resvg]
-version = "0.44.0"
+workspace = true
 optional = true
 
 [dependencies.usvg]
-version = "0.44.0"
+workspace = true
 optional = true
 
 [dependencies.tiny-skia]
-version = "0.11.3"
+workspace = true
 optional = true
 
 [dependencies.lazy_static]
@@ -43,6 +44,9 @@ version = "0.0.8"
 path = "../avenger-text"
 default-features = false
 version = "0.0.8"
+
+[dependencies.avenger-image]
+path = "../avenger-image"
 
 [dependencies.thiserror]
 workspace = true
@@ -66,7 +70,7 @@ default-features = false
 features = [ "png",]
 
 [dependencies.reqwest]
-version = "0.12.9"
+workspace = true
 features = [ "blocking", "rustls-tls",]
 optional = true
 

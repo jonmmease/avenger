@@ -24,9 +24,14 @@ impl MarkCompiler for SymbolMarkCompiler {
         // Create a new default SceneArcMark
         let mut scene_mark = SceneSymbolMark::default();
         scene_mark.len = encoding_batches.len() as u32;
+
+        // name
         if let Some(name) = mark.name.clone() {
             scene_mark.name = name;
         }
+
+        // z-index
+        scene_mark.zindex = mark.zindex;
 
         // Apply numeric encodings
         apply_numeric_encoding!(mark, context, encoding_batches, scene_mark, x);
@@ -42,7 +47,7 @@ impl MarkCompiler for SymbolMarkCompiler {
         apply_color_encoding!(mark, context, encoding_batches, scene_mark, stroke);
 
         // Apply scalars
-        if let Some(stroke_width) = encoding_batches.f32_scalar_for_field("stroke_width")? {
+        if let Some(stroke_width) = encoding_batches.numeric_scalar("stroke_width")? {
             scene_mark.stroke_width = Some(stroke_width);
         }
 

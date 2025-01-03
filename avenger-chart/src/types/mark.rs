@@ -14,6 +14,7 @@ pub struct Mark {
     pub from: Option<DataFrame>,
     pub details: Option<Vec<String>>,
     pub encodings: IndexMap<String, Expr>,
+    pub zindex: Option<i32>,
     pub shapes: Option<Vec<SymbolShape>>,
 }
 
@@ -42,6 +43,7 @@ impl Mark {
             name: None,
             from: None,
             encodings: Default::default(),
+            zindex: None,
             details: None,
             shapes: None,
         }
@@ -83,6 +85,14 @@ impl Mark {
 
     pub fn get_shapes(&self) -> &Option<Vec<SymbolShape>> {
         &self.shapes
+    }
+
+    pub fn zindex(self, zindex: i32) -> Self {
+        Self { zindex: Some(zindex), ..self }
+    }
+
+    pub fn get_zindex(&self) -> Option<i32> {
+        self.zindex
     }
 
     // Constructor helpers for primitive mark types

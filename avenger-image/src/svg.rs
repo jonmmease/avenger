@@ -1,9 +1,11 @@
+use lazy_static::lazy_static;
 use resvg::render;
 use std::panic;
 use std::sync::{Arc, Mutex};
 use usvg::fontdb::Database;
 
-use crate::error::AvengerVegaError;
+use crate::error::AvengerImageError;
+
 lazy_static! {
     pub static ref FONT_DB: Mutex<usvg::fontdb::Database> = Mutex::new(init_font_db());
 }
@@ -14,7 +16,7 @@ fn init_font_db() -> usvg::fontdb::Database {
     font_database
 }
 
-pub fn svg_to_png(svg: &str, scale: f32) -> Result<Vec<u8>, AvengerVegaError> {
+pub fn svg_to_png(svg: &str, scale: f32) -> Result<Vec<u8>, AvengerImageError> {
     // default ppi to 72
     let font_database = FONT_DB.lock().expect("Failed to acquire fontdb lock");
 

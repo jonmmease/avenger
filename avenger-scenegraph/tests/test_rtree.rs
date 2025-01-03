@@ -174,17 +174,17 @@ fn test_stacked_area_rtree() {
     let mut upper_mark = SceneAreaMark::default();
     upper_mark.len = 3;
     upper_mark.stroke_width = 0.0;
-    upper_mark.x0 = vec![0.0, 2.0, 4.0].into();
-    upper_mark.y0 = vec![0.0, 0.0, 0.0].into();
-    upper_mark.y1 = vec![1.0, 2.0, 1.0].into();
+    upper_mark.x = vec![0.0, 2.0, 4.0].into();
+    upper_mark.y = vec![0.0, 0.0, 0.0].into();
+    upper_mark.y2 = vec![1.0, 2.0, 1.0].into();
     upper_mark.orientation = AreaOrientation::Vertical;
 
     let mut lower_mark = upper_mark.clone();
     lower_mark.len = 3;
     lower_mark.stroke_width = 0.0;
-    lower_mark.x0 = vec![0.0, 2.0, 4.0].into();
-    lower_mark.y0 = vec![1.0, 2.0, 1.0].into();
-    lower_mark.y1 = vec![2.0, 3.0, 2.0].into();
+    lower_mark.x = vec![0.0, 2.0, 4.0].into();
+    lower_mark.y = vec![1.0, 2.0, 1.0].into();
+    lower_mark.y2 = vec![2.0, 3.0, 2.0].into();
     lower_mark.orientation = AreaOrientation::Vertical;
 
     // Create the rtree

@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use avenger_common::types::{ImageAlign, ImageBaseline};
 use avenger_common::value::ScalarOrArray;
+use avenger_image::RgbaImage;
 use itertools::izip;
 use lyon_path::Path;
 use serde::{Deserialize, Serialize};
@@ -142,27 +143,6 @@ impl Default for SceneImageMark {
             baseline: ScalarOrArray::new_scalar(Default::default()),
             image: ScalarOrArray::new_scalar(Default::default()),
             zindex: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct RgbaImage {
-    pub width: u32,
-    pub height: u32,
-    pub data: Vec<u8>,
-}
-
-impl RgbaImage {
-    pub fn to_image(&self) -> Option<image::RgbaImage> {
-        image::RgbaImage::from_raw(self.width, self.height, self.data.clone())
-    }
-
-    pub fn from_image(img: &image::RgbaImage) -> Self {
-        Self {
-            width: img.width(),
-            height: img.height(),
-            data: img.to_vec(),
         }
     }
 }

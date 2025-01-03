@@ -20,9 +20,14 @@ impl MarkCompiler for ArcMarkCompiler {
         // Create a new default SceneArcMark
         let mut scene_mark = SceneArcMark::default();
         scene_mark.len = encoding_batches.len() as u32;
+
+        // name
         if let Some(name) = mark.name.clone() {
             scene_mark.name = name;
         }
+
+        // z-index
+        scene_mark.zindex = mark.zindex;
 
         // Apply numeric encodings
         apply_numeric_encoding!(mark, context, encoding_batches, scene_mark, x);

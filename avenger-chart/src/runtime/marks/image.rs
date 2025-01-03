@@ -4,13 +4,14 @@ use crate::runtime::marks::{eval_encoding_exprs, CompiledMark, MarkCompiler};
 use crate::types::mark::Mark;
 use crate::{apply_color_encoding, apply_numeric_encoding, apply_numeric_encoding_optional};
 use async_trait::async_trait;
+use avenger_scenegraph::marks::image::SceneImageMark;
 use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::rect::SceneRectMark;
 
-pub struct RectMarkCompiler;
+
+pub struct ImageMarkCompiler;
 
 #[async_trait]
-impl MarkCompiler for RectMarkCompiler {
+impl MarkCompiler for ImageMarkCompiler {
     async fn compile(
         &self,
         mark: &Mark,
@@ -19,7 +20,7 @@ impl MarkCompiler for RectMarkCompiler {
         let encoding_batches =
             eval_encoding_exprs(&mark.from, &mark.encodings, &mark.details, &context).await?;
         // Create a new default SceneArcMark
-        let mut scene_mark = SceneRectMark::default();
+        let mut scene_mark = SceneImageMark::default();
         scene_mark.len = encoding_batches.len() as u32;
 
         // name
@@ -33,19 +34,38 @@ impl MarkCompiler for RectMarkCompiler {
         // Apply numeric encodings
         apply_numeric_encoding!(mark, context, encoding_batches, scene_mark, x);
         apply_numeric_encoding!(mark, context, encoding_batches, scene_mark, y);
-        apply_numeric_encoding_optional!(mark, context, encoding_batches, scene_mark, x2);
-        apply_numeric_encoding_optional!(mark, context, encoding_batches, scene_mark, y2);
-        apply_numeric_encoding_optional!(mark, context, encoding_batches, scene_mark, width);
-        apply_numeric_encoding_optional!(mark, context, encoding_batches, scene_mark, height);
-        apply_numeric_encoding!(mark, context, encoding_batches, scene_mark, stroke_width);
-        apply_numeric_encoding!(mark, context, encoding_batches, scene_mark, corner_radius);
+        apply_numeric_encoding!(mark, context, encoding_batches, scene_mark, width);
+        apply_numeric_encoding!(mark, context, encoding_batches, scene_mark, height);
 
-        // Apply color encoding
+        // image encoding
+        if let Some(value) = encoding_batches.array_for_field("image") {
+            scene_mark.image = context
+                .coercer
+                .to_image(&value)?
+                .to_scalar_if_len_one();
+        }
+
+
+        // enum encodings
+        if let Some(value) = encoding_batches.array_for_field("align") {
+            scene_mark.align = context
+                .coercer
+                .to_image_align(&value)?
+                .to_scalar_if_len_one();
+        }
+        if let Some(value) = encoding_batches.array_for_field("baseline") {
+            scene_mark.baseline = context
+                .coercer
+                .to_image_baseline(&value)?
+                .to_scalar_if_len_one();
+        }
+
+
         apply_color_encoding!(mark, context, encoding_batches, scene_mark, stroke);
         apply_color_encoding!(mark, context, encoding_batches, scene_mark, fill);
 
         Ok(CompiledMark {
-            scene_marks: vec![SceneMark::Rect(scene_mark)],
+            scene_marks: vec![SceneMark::Image(scene_mark)],
             details: Default::default(),
         })
     }

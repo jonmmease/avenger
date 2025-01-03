@@ -27,6 +27,9 @@ pub enum AvengerVegaError {
     #[error("SVG image support is not enabled: {0}")]
     SvgSupportDisabled(String),
 
+    #[error("Image error: {0}")]
+    AvengerImageError(#[from] avenger_image::error::AvengerImageError),
+
     #[cfg(feature = "image-request")]
     #[error("css color parse error")]
     ReqwestError(#[from] reqwest::Error),
