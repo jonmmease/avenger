@@ -55,8 +55,10 @@ use datafusion::{
 };
 use marks::image::ImageMarkCompiler;
 use marks::line::LineMarkCompiler;
+use marks::path::PathMarkCompiler;
 use marks::rect::RectMarkCompiler;
 use marks::rule::RuleMarkCompiler;
+use marks::trail::TrailMarkCompiler;
 use marks::{arc::ArcMarkCompiler, symbol::SymbolMarkCompiler, MarkCompiler};
 use std::{collections::HashMap, sync::Arc};
 
@@ -83,10 +85,12 @@ impl AvengerRuntime {
         mark_compilers.insert("area".to_string(), Arc::new(AreaMarkCompiler));
         mark_compilers.insert("image".to_string(), Arc::new(ImageMarkCompiler));
         mark_compilers.insert("line".to_string(), Arc::new(LineMarkCompiler));
-        mark_compilers.insert("symbol".to_string(), Arc::new(SymbolMarkCompiler));
-        mark_compilers.insert("rule".to_string(), Arc::new(RuleMarkCompiler));
+        mark_compilers.insert("path".to_string(), Arc::new(PathMarkCompiler));
         mark_compilers.insert("rect".to_string(), Arc::new(RectMarkCompiler));
+        mark_compilers.insert("rule".to_string(), Arc::new(RuleMarkCompiler));
+        mark_compilers.insert("symbol".to_string(), Arc::new(SymbolMarkCompiler));
         mark_compilers.insert("text".to_string(), Arc::new(TextMarkCompiler));
+        mark_compilers.insert("trail".to_string(), Arc::new(TrailMarkCompiler));
 
         let mut scales: HashMap<String, Arc<dyn ScaleImpl>> = HashMap::new();
         scales.insert("linear".to_string(), Arc::new(LinearScale));
