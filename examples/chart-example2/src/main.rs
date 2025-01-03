@@ -129,7 +129,8 @@ pub async fn make_app() -> Result<AvengerApp<AvengerChartState>, AvengerChartErr
                 .y(&cursor_y)
                 .y2(lit(100.0))
                 .stroke(&stroke_color)
-                .stroke_width(lit(3.0)),
+                .stroke_width(lit(3.0))
+                .stroke_dash(lit("8 4")),
         )
         .controller(Arc::new(pan_zoom_controller))
         .param(stroke_color)

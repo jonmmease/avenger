@@ -38,8 +38,6 @@ pub trait NumericCoercer: Debug + Send + Sync + 'static {
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError>;
 
     fn coerce_usize(&self, value: &ArrayRef) -> Result<ScalarOrArray<usize>, AvengerScaleError>;
-
-    fn coerce_vec(&self, value: &ArrayRef) -> Result<ScalarOrArray<Vec<f32>>, AvengerScaleError>;
 }
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -75,19 +73,6 @@ impl NumericCoercer for CastNumericCoercer {
                 .map(|el| *el as usize)
                 .collect(),
         ))
-    }
-
-    fn coerce_vec(&self, value: &ArrayRef) -> Result<ScalarOrArray<Vec<f32>>, AvengerScaleError> {
-        let cast_array = cast(value, &DataType::new_list(DataType::Float32, false))?;
-        let list_array = cast_array.as_list::<i32>();
-        let mut result = Vec::new();
-        for i in 0..list_array.len() {
-            let values = list_array.value(i);
-            let values = values.as_primitive::<Float32Type>().values().to_vec();
-            result.push(values);
-        }
-
-        Ok(ScalarOrArray::new_array(result))
     }
 }
 
@@ -227,16 +212,54 @@ impl Coercer {
         self.formatters.format(values, default_value)
     }
 
-    pub fn to_numeric_vec(
-        &self,
-        values: &ArrayRef,
-    ) -> Result<ScalarOrArray<Vec<f32>>, AvengerScaleError> {
-        self.number_coercer.coerce_vec(values)
-    }
-
     define_enum_coercer!(StrokeCap);
     define_enum_coercer!(StrokeJoin);
     define_enum_coercer!(ImageAlign);
     define_enum_coercer!(ImageBaseline);
     define_enum_coercer!(AreaOrientation);
+
+    pub fn to_stroke_dash(&self, value: &ArrayRef) -> Result<ScalarOrArray<Vec<f32>>, AvengerScaleError> {
+        let dtype = value.data_type();
+        let mut result = Vec::new();
+
+        match dtype {
+            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
+                // Convert strings to stroke dash vectors
+                let cast_array = cast(value, &DataType::Utf8)?;
+                let cast_array = cast_array.as_string::<i32>();
+                for s in cast_array.iter() {
+                    if let Some(s) = s {
+                        let s = s.replace(",", "");
+                        let v = s.split(" ").into_iter().filter_map(
+                            |p| p.parse::<f32>().ok()
+                        ).collect::<Vec<_>>();
+                        result.push(v);
+                    } else {
+                        result.push(Vec::new());
+                    }
+                }
+            }
+            DataType::List(field)
+            | DataType::ListView(field)
+            | DataType::FixedSizeList(field, _)
+            | DataType::LargeList(field)
+            | DataType::LargeListView(field) if field.data_type().is_numeric() => {
+                // Convert list of numbers
+                let cast_array = cast(value, &DataType::new_list(DataType::Float32, false))?;
+                let list_array = cast_array.as_list::<i32>();
+                for i in 0..list_array.len() {
+                    let values = list_array.value(i);
+                    let values = values.as_primitive::<Float32Type>().values().to_vec();
+                    result.push(values);
+                }
+            }
+            _ => {
+                return Err(AvengerScaleError::InternalError(format!(
+                    "Unsupported data type for coercing to color: {:?}",
+                    dtype
+                )))
+            }
+        }
+        Ok(ScalarOrArray::new_array(result))
+    }
 }

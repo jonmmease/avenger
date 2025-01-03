@@ -45,7 +45,7 @@ impl MarkCompiler for RuleMarkCompiler {
 
         // Stroke Dash
         if let Some(value) = encoding_batches.array_for_field("stroke_dash") {
-            scene_mark.stroke_dash = Some(context.coercer.to_numeric_vec(&value)?);
+            scene_mark.stroke_dash = Some(context.coercer.to_stroke_dash(&value)?);
         }
 
         Ok(CompiledMark {
