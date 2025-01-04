@@ -129,8 +129,8 @@ impl Scale {
     }
 
     // Other builder methods
-    pub fn option(mut self, key: String, value: Expr) -> Self {
-        self.options.insert(key, value);
+    pub fn option<K: Into<String>, V: Into<Expr>>(mut self, key: K, value: V) -> Self {
+        self.options.insert(key.into(), value.into());
         self
     }
 
