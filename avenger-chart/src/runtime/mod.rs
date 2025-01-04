@@ -3,6 +3,7 @@ pub mod context;
 pub mod controller;
 pub mod scale;
 
+use crate::guides::GuideCompilationContext;
 use crate::marks::area::AreaMarkCompiler;
 use crate::marks::image::ImageMarkCompiler;
 use crate::marks::line::LineMarkCompiler;
@@ -14,7 +15,6 @@ use crate::marks::trail::TrailMarkCompiler;
 use crate::marks::{arc::ArcMarkCompiler, symbol::SymbolMarkCompiler, MarkCompiler};
 use crate::runtime::app::AvengerChartState;
 use crate::runtime::controller::param_stream::ParamStreamContext;
-use crate::types::guide::GuideCompilationContext;
 use crate::{
     error::AvengerChartError,
     param::Param,
@@ -188,10 +188,11 @@ impl AvengerRuntime {
         // Add guide marks
         for guide in group.get_guides() {
             // Evaluate scales
-            let mut configured_scales = Vec::new();
-            for scale in guide.scales() {
-                configured_scales.push(
-                    eval_scale(scale, &context.ctx, Some(&context.param_values))
+            let mut configured_scales = HashMap::new();
+            for (name, scale) in guide.scales() {
+                configured_scales.insert(
+                    name.clone(),
+                    eval_scale(&scale, &context.ctx, Some(&context.param_values))
                         .await
                         .unwrap(),
                 );
