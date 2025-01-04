@@ -14,6 +14,7 @@ use avenger_text::types::{TextAlign, TextBaseline};
 use crate::{error::AvengerGuidesError, legend::compute_encoding_length};
 
 /// Symbol legends
+#[derive(Debug, Clone)]
 pub struct SymbolLegendConfig {
     pub title: Option<String>,
     pub text: ScalarOrArray<String>,

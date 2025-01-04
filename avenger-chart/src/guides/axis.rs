@@ -1,19 +1,19 @@
+use std::collections::HashMap;
+
 use avenger_guides::axis::{
     numeric::make_numeric_axis_marks,
     opts::{AxisConfig, AxisOrientation},
 };
+
 use avenger_scenegraph::marks::mark::SceneMark;
 
 use crate::error::AvengerChartError;
+use crate::types::scales::Scale;
 
-use super::{
-    guide::{Guide, GuideCompilationContext},
-    scales::Scale,
-};
-
+use super::{Guide, GuideCompilationContext};
 #[derive(Debug, Clone)]
 pub struct Axis {
-    pub scale: Vec<Scale>,
+    pub scale: Scale,
     pub orientation: AxisOrientation,
     pub title: String,
     pub ticks: Option<bool>,
@@ -23,7 +23,7 @@ pub struct Axis {
 impl Axis {
     pub fn new(scale: &Scale) -> Self {
         Self {
-            scale: vec![scale.clone()],
+            scale: scale.clone(),
             orientation: AxisOrientation::Left,
             title: "".to_string(),
             ticks: None,
@@ -74,15 +74,17 @@ impl Axis {
 }
 
 impl Guide for Axis {
-    fn scales(&self) -> &[Scale] {
-        &self.scale
+    fn scales(&self) -> HashMap<String, Scale> {
+        vec![("scale".to_string(), self.scale.clone())]
+            .into_iter()
+            .collect()
     }
 
     fn compile(
         &self,
         context: &GuideCompilationContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        let configured_scale = context.scales.get(0).unwrap();
+        let configured_scale = context.scales.get("scale").unwrap();
 
         let axis_config = AxisConfig {
             orientation: self.orientation,

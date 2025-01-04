@@ -1,14 +1,12 @@
 use std::sync::Arc;
 
-use crate::runtime::controller::Controller;
+use crate::{guides::axis::Axis, runtime::controller::Controller};
 
-use super::axis::Axis;
-use super::legend::Legend;
 use super::mark::Mark;
 use super::scales::Scale;
 
+use crate::guides::Guide;
 use crate::param::Param;
-use crate::types::guide::Guide;
 use datafusion::prelude::{DataFrame, Expr};
 use indexmap::IndexMap;
 
@@ -104,13 +102,13 @@ impl Group {
         Self { guides, ..self }
     }
 
-    /// Add a legend to the chart.
-    pub fn legend(self, legend: Legend) -> Self {
-        todo!()
-        // let mut legends = self.legends;
-        // legends.push(legend);
-        // Self { legends, ..self }
-    }
+    // /// Add a legend to the chart.
+    // pub fn legend(self, legend: Legend) -> Self {
+    //     todo!()
+    //     // let mut legends = self.legends;
+    //     // legends.push(legend);
+    //     // Self { legends, ..self }
+    // }
 
     /// Add a mark to the chart.
     pub fn mark(self, mark: Mark) -> Self {

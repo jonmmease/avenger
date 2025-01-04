@@ -1,9 +1,14 @@
-use crate::error::AvengerChartError;
 use avenger_scales::scales::ConfiguredScale;
-use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
+use avenger_scenegraph::marks::group::SceneGroup;
+use avenger_scenegraph::marks::mark::SceneMark;
+use std::collections::HashMap;
 use std::fmt::Debug;
 
-use super::scales::Scale;
+use crate::error::AvengerChartError;
+use crate::types::scales::Scale;
+
+pub mod axis;
+pub mod legend;
 
 pub struct GuideCompilationContext<'a> {
     /// The size of the plot area
@@ -16,12 +21,12 @@ pub struct GuideCompilationContext<'a> {
     pub group: &'a SceneGroup,
 
     /// The scales that the guide will use
-    pub scales: &'a [ConfiguredScale],
+    pub scales: &'a HashMap<String, ConfiguredScale>,
 }
 
 pub trait Guide: Debug + Send + Sync + 'static {
-    fn scales(&self) -> &[Scale] {
-        &[]
+    fn scales(&self) -> HashMap<String, Scale> {
+        Default::default()
     }
 
     fn compile(

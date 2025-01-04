@@ -62,6 +62,15 @@ pub fn scale_expr<E: Into<Expr>>(scale: &Scale, values: E) -> Result<Expr, Aveng
     Ok(udf.call(vec![domain, range, options, values.into()]))
 }
 
+///  Make a DataFrame from the domain and range of a scale
+pub fn scale_df(scale: &Scale) -> Result<DataFrame, AvengerChartError> {
+    todo!()
+
+    // let values = df.select_columns(&[scale.get_domain().data_field()])?;
+    // let scaled = scale_expr(scale, values)?;
+    // Ok(df.with_column(scaled))
+}
+
 #[derive(Debug, Clone)]
 pub struct ScaleUDF {
     signature: Signature,
