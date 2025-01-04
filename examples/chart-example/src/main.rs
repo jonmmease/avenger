@@ -51,10 +51,12 @@ pub async fn make_app() -> Result<AvengerApp<AvengerChartState>, AvengerChartErr
     // Build scales
     let x_scale = Scale::new(LinearScale)
         .domain_data_field(Arc::new(df.clone()), "SepalLengthCm")
-        .range(ScaleRange::new_interval(lit(0.0), lit(400.0)));
+        .range(ScaleRange::new_interval(lit(0.0), lit(400.0)))
+        .option("nice", lit(true));
     let y_scale = Scale::new(LinearScale)
         .domain_data_field(Arc::new(df.clone()), "SepalWidthCm")
-        .range(ScaleRange::new_interval(lit(400.0), lit(0.0)));
+        .range(ScaleRange::new_interval(lit(400.0), lit(0.0)))
+        .option("nice", lit(true));
 
     // Build controller
     let box_select = BoxSelectController::new(
