@@ -85,7 +85,7 @@ impl ExprHelpers for Expr {
                 "Cannot eval_to_scalar for Expr with column references: {self:?}"
             )));
         }
-        let df = ctx.read_batch(UNIT_RECORD_BATCH.clone())?;
+        let df = ctx.read_empty()?;
 
         // Normalize params
         let params = params
@@ -212,7 +212,7 @@ impl DataFrameChartUtils for DataFrame {
         }
 
         // Union all the DataFrames
-        let union_df = union_dfs.iter().fold(union_dfs[0].clone(), |acc, df| {
+        let union_df = union_dfs.iter().skip(1).fold(union_dfs[0].clone(), |acc, df| {
             acc.union(df.clone()).unwrap()
         });
 

@@ -4,12 +4,12 @@ use arrow::array::{Float32Array, ListArray};
 use arrow::datatypes::DataType;
 use avenger_app::app::AvengerApp;
 use avenger_chart::error::AvengerChartError;
+use avenger_chart::guides::axis::Axis;
 use avenger_chart::param::Param;
 use avenger_chart::runtime::app::AvengerChartState;
 use avenger_chart::runtime::controller::pan_zoom::PanZoomController;
 use avenger_chart::runtime::scale::scale_expr;
 use avenger_chart::runtime::AvengerRuntime;
-use avenger_chart::types::axis::Axis;
 use avenger_chart::types::group::Group;
 use avenger_chart::types::mark::Mark;
 use avenger_chart::types::scales::{Scale, ScaleRange};
@@ -154,7 +154,7 @@ pub async fn make_app() -> Result<AvengerApp<AvengerChartState>, AvengerChartErr
 }
 
 fn main() -> Result<(), AvengerChartError> {
-    let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+    let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
         .build()
         .unwrap();
     let avenger_app = tokio_runtime.block_on(make_app())?;

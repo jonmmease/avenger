@@ -8,7 +8,7 @@ use avenger_chart::param::Param;
 use avenger_chart::runtime::app::AvengerChartState;
 use avenger_chart::runtime::controller::box_select::BoxSelectController;
 use avenger_chart::runtime::controller::pan_zoom::PanZoomController;
-use avenger_chart::runtime::marks::encoding::css_color;
+use avenger_chart::runtime::controller::tooltip::TooltipController;
 use avenger_chart::runtime::scale::scale_expr;
 use avenger_chart::runtime::AvengerRuntime;
 use avenger_chart::types::group::Group;
@@ -26,7 +26,6 @@ use datafusion::scalar::ScalarValue;
 use palette::Srgba;
 use std::sync::Arc;
 use winit::event_loop::EventLoop;
-use avenger_chart::runtime::controller::tooltip::TooltipController;
 
 pub async fn make_app() -> Result<AvengerApp<AvengerChartState>, AvengerChartError> {
     // Build Avenger runtime
@@ -82,7 +81,7 @@ pub async fn make_app() -> Result<AvengerApp<AvengerChartState>, AvengerChartErr
 }
 
 fn main() -> Result<(), AvengerChartError> {
-    let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+    let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
         .build()
         .unwrap();
     let avenger_app = tokio_runtime.block_on(make_app())?;
