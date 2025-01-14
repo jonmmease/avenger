@@ -24,7 +24,7 @@ env_logger = "0.10"
 log = "0.4"
 wgpu = "23.0.1"
 pollster = "0.3"
-tokio = { version="*", features = ["rt"] }
+tokio = { version="*", features = ["rt", "rt-multi-thread"] }
 serde_json = { version = "1.0.111" }
 csv = "1.2"
 rand = "0.8"

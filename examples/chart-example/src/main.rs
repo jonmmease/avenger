@@ -112,9 +112,7 @@ pub async fn make_app() -> Result<AvengerApp<AvengerChartState>, AvengerChartErr
 }
 
 fn main() -> Result<(), AvengerChartError> {
-    let tokio_runtime = tokio::runtime::Builder::new_current_thread()
-        .build()
-        .unwrap();
+    let tokio_runtime = tokio::runtime::Builder::new_multi_thread().build().unwrap();
     let avenger_app = tokio_runtime.block_on(make_app())?;
     let mut app = WinitWgpuAvengerApp::new(avenger_app, 2.0, tokio_runtime);
     let event_loop = EventLoop::new().expect("Failed to build event loop");
