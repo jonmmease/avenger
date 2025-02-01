@@ -220,8 +220,15 @@ impl AvengerRuntime {
         &self,
         chart: Group,
         scale: f32,
+        param_values: Vec<(&str, ScalarValue)>,
     ) -> Result<image::RgbaImage, AvengerChartError> {
         let mut chart_state = AvengerChartState::new(chart, Arc::new(self.clone()));
+
+        // Set param values
+        for (name, value) in param_values {
+            chart_state.param_values.insert(name.to_string(), value);
+        }
+
         let scene_graph = chart_state.compile_scene_graph().await?;
 
         let mut canvas = PngCanvas::new(

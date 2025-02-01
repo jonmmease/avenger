@@ -1,6 +1,7 @@
 use avenger_chart::error::AvengerChartError;
 use avenger_chart::runtime::AvengerRuntime;
 use avenger_chart::types::group::Group;
+use datafusion::scalar::ScalarValue;
 use image::RgbaImage;
 use pixelmatch;
 use std::path::Path;
@@ -10,9 +11,11 @@ pub async fn assert_runtime_image_equal(
     runtime: &AvengerRuntime,
     chart: Group,
     name: &str,
+    save_baseline: bool,
+    param_values: Vec<(&str, ScalarValue)>,
 ) -> Result<(), AvengerChartError> {
-    let generated_image = runtime.to_image(chart, 2.0).await?;
-    let generated_buffer = image_to_png(&generated_image, name, false)?;
+    let generated_image = runtime.to_image(chart, 2.0, param_values).await?;
+    let generated_buffer = image_to_png(&generated_image, name, save_baseline)?;
     let (baseline_image, baseline_buffer) = load_baseline_image(name)?;
     assert_images_equal(
         &generated_image,
