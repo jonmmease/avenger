@@ -27,6 +27,7 @@ use async_recursion::async_recursion;
 use async_trait::async_trait;
 use avenger_app::app::{AvengerApp, SceneGraphBuilder};
 use avenger_app::error::AvengerAppError;
+use avenger_common::canvas::CanvasDimensions;
 use avenger_eventstream::manager::EventStreamHandler;
 use avenger_eventstream::scene::SceneGraphEvent;
 use avenger_eventstream::stream::UpdateStatus;
@@ -47,6 +48,7 @@ use avenger_scenegraph::marks::{
     mark::SceneMark,
 };
 use avenger_scenegraph::scene_graph::SceneGraph;
+use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use context::CompilationContext;
 use controller::param_stream::ParamStream;
 use datafusion::{
@@ -212,6 +214,27 @@ impl AvengerRuntime {
             scene_group,
             details,
         })
+    }
+
+    pub async fn to_image(
+        &self,
+        chart: Group,
+        scale: f32,
+    ) -> Result<image::RgbaImage, AvengerChartError> {
+        let mut chart_state = AvengerChartState::new(chart, Arc::new(self.clone()));
+        let scene_graph = chart_state.compile_scene_graph().await?;
+
+        let mut canvas = PngCanvas::new(
+            CanvasDimensions {
+                size: [scene_graph.width, scene_graph.height],
+                scale,
+            },
+            CanvasConfig::default(),
+        )
+        .await?;
+
+        canvas.set_scene(&scene_graph)?;
+        Ok(canvas.render().await?)
     }
 
     pub async fn build_app(

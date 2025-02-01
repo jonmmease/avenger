@@ -26,6 +26,8 @@ async-recursion = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 ordered-float = { workspace = true }
+image = { workspace = true }
+avenger-wgpu = { path = "../avenger-wgpu" }
 
 [dev-dependencies]
-avenger-wgpu = { path = "../avenger-wgpu" }
+pixelmatch = "0.1"
