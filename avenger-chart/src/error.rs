@@ -3,6 +3,7 @@ use avenger_app::error::AvengerAppError;
 use avenger_guides::error::AvengerGuidesError;
 use avenger_scales::error::AvengerScaleError;
 use avenger_scenegraph::error::AvengerSceneGraphError;
+use avenger_wgpu::error::AvengerWgpuError;
 use datafusion::error::DataFusionError;
 use thiserror::Error;
 
@@ -37,6 +38,12 @@ pub enum AvengerChartError {
 
     #[error("Arrow error: `{0}`")]
     ArrowError(#[from] ArrowError),
+
+    #[error("Image error: `{0}`")]
+    ImageError(#[from] image::ImageError),
+
+    #[error("Wgpu error: `{0}`")]
+    WgpuError(#[from] AvengerWgpuError),
 }
 
 impl From<AvengerChartError> for DataFusionError {
