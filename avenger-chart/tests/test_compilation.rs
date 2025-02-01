@@ -7,6 +7,7 @@ use arrow::array::{ArrayRef, Float32Array, RecordBatch};
 use arrow::datatypes::{DataType, Field, Schema};
 
 mod utils;
+use datafusion::scalar::ScalarValue;
 use utils::assert_runtime_image_equal;
 
 use avenger_chart::prelude::*;
@@ -62,7 +63,18 @@ async fn test_arcs() -> Result<(), AvengerChartError> {
         .param(width)
         .param(stroke_color);
 
-    assert_runtime_image_equal(&runtime, chart, "arcs").await?;
+    // Default
+    assert_runtime_image_equal(&runtime, chart.clone(), "arcs", false, Vec::new()).await?;
+
+    // With stroke_color
+    assert_runtime_image_equal(
+        &runtime,
+        chart.clone(),
+        "arcs_pink",
+        true,
+        vec![("stroke_color", ScalarValue::from("pink"))],
+    )
+    .await?;
 
     Ok(())
 }
