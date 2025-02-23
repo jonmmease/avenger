@@ -17,6 +17,9 @@ pub struct AvengerChartState {
     pub chart: Group,
     pub param_values: HashMap<String, ScalarValue>,
     pub details: HashMap<Vec<usize>, RecordBatch>,
+    pub width: f32,
+    pub height: f32,
+    pub origin: [f32; 2],
 }
 
 impl AvengerChartState {
@@ -43,6 +46,9 @@ impl AvengerChartState {
             chart,
             param_values,
             details: HashMap::new(),
+            width: 440.0,
+            height: 440.0,
+            origin: [20.0, 20.0],
         }
     }
 
@@ -69,9 +75,9 @@ impl AvengerChartState {
 
         let scene_graph = SceneGraph {
             marks: vec![compiled_scene_group.scene_group.into()],
-            width: 440.0,
-            height: 440.0,
-            origin: [20.0, 20.0],
+            width: self.width,
+            height: self.height,
+            origin: self.origin,
         };
 
         Ok(scene_graph)
