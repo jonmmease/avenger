@@ -1,24 +1,19 @@
 use std::{collections::HashMap, sync::Arc};
 
 use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};
-use crate::{
-    color_interpolator::{ColorInterpolator, SrgbaColorInterpolator},
-    error::AvengerScaleError,
-    formatter::Formatters,
-    utils::ScalarValueUtils,
-};
+use crate::{error::AvengerScaleError, utils::ScalarValueUtils};
 
 use arrow::{
-    array::{ArrayRef, AsArray, DictionaryArray, Float32Array, UInt32Array},
+    array::{ArrayRef, AsArray, Float32Array, UInt32Array},
     compute::kernels::{cast, take},
-    datatypes::{DataType, Float32Type, UInt32Type, Utf8Type},
+    datatypes::{DataType, Float32Type, UInt32Type},
 };
 use avenger_common::{
     types::{AreaOrientation, ColorOrGradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin},
     value::ScalarOrArray,
 };
 use datafusion_common::{DataFusionError, ScalarValue};
-use serde::{de::DeserializeOwned, Deserialize};
+use serde::de::DeserializeOwned;
 
 /// Macro to generate scale_to_X trait methods for ordinal enum scaling
 #[macro_export]
@@ -236,7 +231,7 @@ pub(crate) fn prep_discrete_enum_range<R: Sync + Clone + DeserializeOwned + Defa
     for s in range.as_string::<i32>().iter() {
         match s {
             Some(s) => {
-                let v: R = serde_json::from_value(serde_json::Value::String((s.to_string())))
+                let v: R = serde_json::from_value(serde_json::Value::String(s.to_string()))
                     .unwrap_or(default_value.clone());
                 range_vec.push(v);
             }

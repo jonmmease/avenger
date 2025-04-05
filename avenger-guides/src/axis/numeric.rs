@@ -1,9 +1,4 @@
-use std::sync::Arc;
-
-use arrow::{
-    array::{ArrayRef, AsArray, Float32Array},
-    datatypes::Float32Type,
-};
+use arrow::array::ArrayRef;
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_scales::scales::ConfiguredScale;
@@ -41,7 +36,7 @@ pub fn make_numeric_axis_marks(
 
     // Get range bounds considering orientation
     let range = scale.numeric_interval_range()?;
-    
+
     let (start, end) = match config.orientation {
         AxisOrientation::Left | AxisOrientation::Right => {
             let upper = f32::min(range.1, range.0) - PIXEL_OFFSET;

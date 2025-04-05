@@ -1,8 +1,5 @@
 mod winit;
 
-#[cfg(feature = "winit_support")]
-pub use self::winit::*;
-
 /// Native window events, in logical coordinates
 #[derive(Debug, Clone, PartialEq)]
 pub enum WindowEvent {

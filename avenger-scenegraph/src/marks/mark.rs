@@ -105,4 +105,3 @@ pub struct MarkInstance {
     pub mark_path: Vec<usize>,
     pub instance_index: Option<usize>,
 }
-

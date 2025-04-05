@@ -1,12 +1,11 @@
-use crate::color_interpolator::ColorInterpolator;
 use crate::error::AvengerScaleError;
 use crate::formatter::Formatters;
 use crate::scales::ordinal::OrdinalScale;
-use crate::scales::{InferDomainFromDataMethod, ScaleConfig, ScaleImpl};
+use crate::scales::ScaleImpl;
 use crate::utils::ScalarValueUtils;
-use arrow::array::{Array, AsArray, Float32Array, ListArray, StringArray, StructArray, UInt8Array};
+use arrow::array::{Array, AsArray, Float32Array, StringArray, StructArray};
+use arrow::compute::is_not_null;
 use arrow::compute::kernels::zip::zip;
-use arrow::compute::{is_not_null, is_null};
 use arrow::datatypes::{Float32Type, UInt32Type, UInt8Type};
 use arrow::{
     array::ArrayRef,
@@ -267,7 +266,7 @@ impl Coercer {
             }
             // Handle raw rgba image data
             DataType::Struct(fields) => {
-                let mut field_names = fields.iter().map(|f| f.name().as_str()).collect::<Vec<_>>();
+                let field_names = fields.iter().map(|f| f.name().as_str()).collect::<Vec<_>>();
 
                 let msg = format!(
                     "Unsupported struct data type for coercing to image: {:?}\n
@@ -408,7 +407,7 @@ Expected struct with fields [width(UInt32), height(UInt32), data(List[UInt8])]",
             }
             // Handle struct with fields for each transform component
             DataType::Struct(fields) => {
-                let mut field_names = fields.iter().map(|f| f.name().as_str()).collect::<Vec<_>>();
+                let field_names = fields.iter().map(|f| f.name().as_str()).collect::<Vec<_>>();
 
                 let msg = format!(
                     "Unsupported struct data type for coercing to path transform: {:?}\n
@@ -491,7 +490,7 @@ Expected struct with fields [a(Float32), b(Float32), c(Float32), d(Float32), e(F
             }
             // Handle struct with fields for path verbs and points
             DataType::Struct(fields) => {
-                let mut field_names = fields.iter().map(|f| f.name().as_str()).collect::<Vec<_>>();
+                let field_names = fields.iter().map(|f| f.name().as_str()).collect::<Vec<_>>();
                 let msg = format!(
                     "Unsupported struct data type for coercing to path: {:?}\n
 Expected struct with fields [verbs(List[UInt8]), points(List[Float32])]",

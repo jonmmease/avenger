@@ -2,7 +2,7 @@ use cosmic_text::{fontdb::Database, Attrs, Buffer, Family, FontSystem, Metrics, 
 use std::{collections::HashSet, sync::Mutex};
 
 use super::{TextBounds, TextMeasurementConfig, TextMeasurer};
-use crate::types::{FontStyle, FontWeightNameSpec, FontWeight};
+use crate::types::{FontStyle, FontWeight, FontWeightNameSpec};
 
 use lazy_static::lazy_static;
 

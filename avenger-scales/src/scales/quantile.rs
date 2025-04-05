@@ -4,30 +4,14 @@ use arrow::{
     array::{ArrayRef, AsArray, Float32Array, UInt32Array},
     compute::{
         kernels::{cast, sort, take},
-        unary, SortOptions,
+        SortOptions,
     },
     datatypes::{DataType, Float32Type},
 };
-use avenger_common::{
-    types::{AreaOrientation, ColorOrGradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin},
-    value::ScalarOrArray,
-};
-use datafusion_common::ScalarValue;
 
-use crate::{
-    color_interpolator::{ColorInterpolator, SrgbaColorInterpolator},
-    error::AvengerScaleError,
-    formatter::Formatters,
-};
+use crate::error::AvengerScaleError;
 
-use super::{
-    linear::LinearScale,
-    ordinal::{
-        prep_discrete_color_range, prep_discrete_enum_range, prep_discrete_numeric_range,
-        prep_discrete_string_range,
-    },
-    ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl,
-};
+use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};
 
 #[derive(Debug, Clone)]
 pub struct QuantileScale;

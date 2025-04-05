@@ -1,12 +1,10 @@
 use std::sync::Arc;
 
 use super::mark::SceneMark;
-use avenger_common::value::ScalarOrArray;
-use avenger_text::types::{
-    FontStyle, FontWeightNameSpec, FontWeight, TextAlign, TextBaseline,
-};
-use serde::{Deserialize, Serialize};
 use avenger_common::types::ColorOrGradient;
+use avenger_common::value::ScalarOrArray;
+use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -96,9 +94,7 @@ impl Default for SceneTextMark {
             color: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
             font: ScalarOrArray::new_scalar("sans serif".to_string()),
             font_size: ScalarOrArray::new_scalar(10.0),
-            font_weight: ScalarOrArray::new_scalar(FontWeight::Name(
-                FontWeightNameSpec::Normal,
-            )),
+            font_weight: ScalarOrArray::new_scalar(FontWeight::Name(FontWeightNameSpec::Normal)),
             font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
             limit: ScalarOrArray::new_scalar(0.0),
             indices: None,

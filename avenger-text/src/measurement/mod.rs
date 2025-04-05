@@ -97,32 +97,22 @@ mod tests {
         };
 
         // Test left alignment
-        let origin =
-            bounds.calculate_origin([10.0, 10.0], &TextAlign::Left, &TextBaseline::Top);
+        let origin = bounds.calculate_origin([10.0, 10.0], &TextAlign::Left, &TextBaseline::Top);
         assert_eq!(origin, [10.0, 10.0]);
 
         // Test center alignment
-        let origin = bounds.calculate_origin(
-            [10.0, 10.0],
-            &TextAlign::Center,
-            &TextBaseline::Middle,
-        );
+        let origin =
+            bounds.calculate_origin([10.0, 10.0], &TextAlign::Center, &TextBaseline::Middle);
         assert_eq!(origin, [-40.0, 0.0]);
 
         // Test right alignment
-        let origin = bounds.calculate_origin(
-            [10.0, 10.0],
-            &TextAlign::Right,
-            &TextBaseline::Bottom,
-        );
+        let origin =
+            bounds.calculate_origin([10.0, 10.0], &TextAlign::Right, &TextBaseline::Bottom);
         assert_eq!(origin, [-90.0, -10.0]);
 
         // Test alphabetic baseline
-        let origin = bounds.calculate_origin(
-            [10.0, 10.0],
-            &TextAlign::Left,
-            &TextBaseline::Alphabetic,
-        );
+        let origin =
+            bounds.calculate_origin([10.0, 10.0], &TextAlign::Left, &TextBaseline::Alphabetic);
         assert_eq!(origin, [10.0, 15.0]);
     }
 }

@@ -4,7 +4,6 @@ use crate::marks::values::{CssColorOrGradient, StrokeDashSpec};
 use avenger_common::types::{AreaOrientation, ColorOrGradient, Gradient, StrokeCap, StrokeJoin};
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::area::SceneAreaMark;
-use std::sync::Arc;
 
 use avenger_scenegraph::marks::mark::SceneMark;
 use serde::{Deserialize, Serialize};

@@ -39,9 +39,7 @@ impl<T: Sync + Clone> ScalarOrArray<T> {
 
     pub fn to_scalar_if_len_one(self) -> Self {
         if self.len() == 1 {
-            ScalarOrArray::new_scalar(
-                self.as_vec(1, None)[0].clone()
-            )
+            ScalarOrArray::new_scalar(self.as_vec(1, None)[0].clone())
         } else {
             self
         }
@@ -81,7 +79,7 @@ impl<T: Sync + Clone> ScalarOrArray<T> {
 
     pub fn first(&self) -> Option<&T> {
         match &self.value {
-            ScalarOrArrayValue::Scalar(v) => { Some(v) }
+            ScalarOrArrayValue::Scalar(v) => Some(v),
             ScalarOrArrayValue::Array(arr) => {
                 if arr.is_empty() {
                     None

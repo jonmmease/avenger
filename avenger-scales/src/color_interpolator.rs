@@ -1,16 +1,11 @@
 use crate::{
     error::AvengerScaleError,
-    formatter::Formatters,
-    scales::{ScaleConfig, ScaleContext, ScaleImpl},
+    scales::{ScaleConfig, ScaleImpl},
 };
 use arrow::{
     array::{ArrayRef, AsArray, Float32Array, ListArray},
     buffer::OffsetBuffer,
     datatypes::{DataType, Field, Float32Type},
-};
-use avenger_common::{
-    types::ColorOrGradient,
-    value::{ScalarOrArray, ScalarOrArrayValue},
 };
 use palette::{Hsla, IntoColor, Laba, Mix, Srgba};
 use std::{fmt::Debug, sync::Arc};

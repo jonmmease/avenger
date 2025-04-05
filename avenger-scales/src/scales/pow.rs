@@ -8,13 +8,7 @@ use arrow::{
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 use datafusion_common::ScalarValue;
 
-use crate::{
-    array,
-    color_interpolator::{scale_numeric_to_color2, ColorInterpolator, SrgbaColorInterpolator},
-    error::AvengerScaleError,
-    formatter::Formatters,
-    utils::ScalarValueUtils,
-};
+use crate::{array, color_interpolator::scale_numeric_to_color2, error::AvengerScaleError};
 
 use super::{
     linear::LinearScale, ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext,
