@@ -46,7 +46,7 @@ impl IntoGeoType for Path {
                                 // In filled mode, force close any path with 3 or more points
                                 let mut closed_line = line;
                                 if closed_line.first() != closed_line.last() {
-                                    closed_line.push(closed_line[0].clone());
+                                    closed_line.push(closed_line[0]);
                                 }
                                 polygons.push(Polygon::new(
                                     LineString::new(closed_line),
@@ -57,18 +57,12 @@ impl IntoGeoType for Path {
                             lines.push(LineString::new(line));
                         }
                     }
-                    let coord = Coord {
-                        x: at.x as f32,
-                        y: at.y as f32,
-                    };
-                    current_start = Some(coord.clone());
+                    let coord = Coord { x: at.x, y: at.y };
+                    current_start = Some(coord);
                     current_line.push(coord);
                 }
                 PathEvent::Line { to, .. } => {
-                    current_line.push(Coord {
-                        x: to.x as f32,
-                        y: to.y as f32,
-                    });
+                    current_line.push(Coord { x: to.x, y: to.y });
                 }
                 PathEvent::End {
                     close: _, first: _, ..
@@ -78,7 +72,7 @@ impl IntoGeoType for Path {
                             if current_line.len() >= 3 {
                                 // In filled mode, force close any path with 3 or more points
                                 if current_line.first() != current_line.last() {
-                                    if let Some(start) = current_start.clone() {
+                                    if let Some(start) = current_start {
                                         current_line.push(start);
                                     }
                                 }
@@ -100,11 +94,9 @@ impl IntoGeoType for Path {
         // Handle the final path segment if any
         if !current_line.is_empty() {
             if filled {
-                if current_line.len() >= 3 {
-                    if current_line.first() != current_line.last() {
-                        if let Some(start) = current_start {
-                            current_line.push(start);
-                        }
+                if current_line.len() >= 3 && current_line.first() != current_line.last() {
+                    if let Some(start) = current_start {
+                        current_line.push(start);
                     }
                 }
                 polygons.push(Polygon::new(LineString::new(current_line), vec![]));
@@ -171,21 +163,21 @@ impl IntoGeoType for Path {
                 if triangle.len() == 3 {
                     let coords = vec![
                         Coord {
-                            x: vertices[triangle[0] as usize].x as f32,
-                            y: vertices[triangle[0] as usize].y as f32,
+                            x: vertices[triangle[0] as usize].x,
+                            y: vertices[triangle[0] as usize].y,
                         },
                         Coord {
-                            x: vertices[triangle[1] as usize].x as f32,
-                            y: vertices[triangle[1] as usize].y as f32,
+                            x: vertices[triangle[1] as usize].x,
+                            y: vertices[triangle[1] as usize].y,
                         },
                         Coord {
-                            x: vertices[triangle[2] as usize].x as f32,
-                            y: vertices[triangle[2] as usize].y as f32,
+                            x: vertices[triangle[2] as usize].x,
+                            y: vertices[triangle[2] as usize].y,
                         },
                         // Close the polygon by repeating first point
                         Coord {
-                            x: vertices[triangle[0] as usize].x as f32,
-                            y: vertices[triangle[0] as usize].y as f32,
+                            x: vertices[triangle[0] as usize].x,
+                            y: vertices[triangle[0] as usize].y,
                         },
                     ];
 
@@ -250,9 +242,9 @@ mod tests {
             Geometry::LineString(line) => {
                 let coords: Vec<_> = line.coords().collect();
                 assert_eq!(coords.len(), 3);
-                assert_coords_eq(&coords[0], &Coord::<f32> { x: 0.0, y: 0.0 });
-                assert_coords_eq(&coords[1], &Coord::<f32> { x: 1.0, y: 0.0 });
-                assert_coords_eq(&coords[2], &Coord::<f32> { x: 1.0, y: 1.0 });
+                assert_coords_eq(coords[0], &Coord::<f32> { x: 0.0, y: 0.0 });
+                assert_coords_eq(coords[1], &Coord::<f32> { x: 1.0, y: 0.0 });
+                assert_coords_eq(coords[2], &Coord::<f32> { x: 1.0, y: 1.0 });
             }
             _ => panic!("Expected LineString"),
         }
@@ -275,11 +267,11 @@ mod tests {
             Geometry::Polygon(polygon) => {
                 let coords: Vec<_> = polygon.exterior().coords().collect();
                 assert_eq!(coords.len(), 5); // 4 unique points + closing point
-                assert_coords_eq(&coords[0], &Coord { x: 0.0, y: 0.0 });
-                assert_coords_eq(&coords[1], &Coord { x: 1.0, y: 0.0 });
-                assert_coords_eq(&coords[2], &Coord { x: 1.0, y: 1.0 });
-                assert_coords_eq(&coords[3], &Coord { x: 0.0, y: 1.0 });
-                assert_coords_eq(&coords[4], &coords[0]); // Should close the polygon
+                assert_coords_eq(coords[0], &Coord { x: 0.0, y: 0.0 });
+                assert_coords_eq(coords[1], &Coord { x: 1.0, y: 0.0 });
+                assert_coords_eq(coords[2], &Coord { x: 1.0, y: 1.0 });
+                assert_coords_eq(coords[3], &Coord { x: 0.0, y: 1.0 });
+                assert_coords_eq(coords[4], coords[0]); // Should close the polygon
             }
             _ => panic!("Expected Polygon"),
         }
@@ -290,10 +282,10 @@ mod tests {
             Geometry::LineString(line) => {
                 let coords: Vec<_> = line.coords().collect();
                 assert_eq!(coords.len(), 4); // 4 unique points + closing point
-                assert_coords_eq(&coords[0], &Coord { x: 0.0, y: 0.0 });
-                assert_coords_eq(&coords[1], &Coord { x: 1.0, y: 0.0 });
-                assert_coords_eq(&coords[2], &Coord { x: 1.0, y: 1.0 });
-                assert_coords_eq(&coords[3], &Coord { x: 0.0, y: 1.0 });
+                assert_coords_eq(coords[0], &Coord { x: 0.0, y: 0.0 });
+                assert_coords_eq(coords[1], &Coord { x: 1.0, y: 0.0 });
+                assert_coords_eq(coords[2], &Coord { x: 1.0, y: 1.0 });
+                assert_coords_eq(coords[3], &Coord { x: 0.0, y: 1.0 });
             }
             _ => panic!("Expected LineString"),
         }
@@ -320,13 +312,13 @@ mod tests {
 
                 let first_line: Vec<_> = multi_line.0[0].coords().collect();
                 assert_eq!(first_line.len(), 2);
-                assert_coords_eq(&first_line[0], &Coord { x: 0.0, y: 0.0 });
-                assert_coords_eq(&first_line[1], &Coord { x: 1.0, y: 0.0 });
+                assert_coords_eq(first_line[0], &Coord { x: 0.0, y: 0.0 });
+                assert_coords_eq(first_line[1], &Coord { x: 1.0, y: 0.0 });
 
                 let second_line: Vec<_> = multi_line.0[1].coords().collect();
                 assert_eq!(second_line.len(), 2);
-                assert_coords_eq(&second_line[0], &Coord { x: 0.0, y: 1.0 });
-                assert_coords_eq(&second_line[1], &Coord { x: 1.0, y: 1.0 });
+                assert_coords_eq(second_line[0], &Coord { x: 0.0, y: 1.0 });
+                assert_coords_eq(second_line[1], &Coord { x: 1.0, y: 1.0 });
             }
             _ => panic!("Expected MultiLineString"),
         }
@@ -359,14 +351,14 @@ mod tests {
                 // Check first polygon
                 let first_poly: Vec<_> = multi_polygon.0[0].exterior().coords().collect();
                 assert_eq!(first_poly.len(), 5);
-                assert_coords_eq(&first_poly[0], &Coord { x: 0.0, y: 0.0 });
-                assert_coords_eq(&first_poly[4], &first_poly[0]); // Should close
+                assert_coords_eq(first_poly[0], &Coord { x: 0.0, y: 0.0 });
+                assert_coords_eq(first_poly[4], first_poly[0]); // Should close
 
                 // Check second polygon
                 let second_poly: Vec<_> = multi_polygon.0[1].exterior().coords().collect();
                 assert_eq!(second_poly.len(), 5);
-                assert_coords_eq(&second_poly[0], &Coord { x: 2.0, y: 0.0 });
-                assert_coords_eq(&second_poly[4], &second_poly[0]); // Should close
+                assert_coords_eq(second_poly[0], &Coord { x: 2.0, y: 0.0 });
+                assert_coords_eq(second_poly[4], second_poly[0]); // Should close
             }
             _ => panic!("Expected MultiPolygon"),
         }
@@ -380,14 +372,14 @@ mod tests {
                 // Check first linestring
                 let first_line: Vec<_> = multi_line.0[0].coords().collect();
                 assert_eq!(first_line.len(), 4);
-                assert_coords_eq(&first_line[0], &Coord { x: 0.0, y: 0.0 });
-                assert_coords_eq(&first_line[3], &Coord { x: 0.0, y: 1.0 }); // Should close
+                assert_coords_eq(first_line[0], &Coord { x: 0.0, y: 0.0 });
+                assert_coords_eq(first_line[3], &Coord { x: 0.0, y: 1.0 }); // Should close
 
                 // Check second linestring
                 let second_line: Vec<_> = multi_line.0[1].coords().collect();
                 assert_eq!(second_line.len(), 4);
-                assert_coords_eq(&second_line[0], &Coord { x: 2.0, y: 0.0 });
-                assert_coords_eq(&second_line[3], &Coord { x: 2.0, y: 1.0 }); // Should close
+                assert_coords_eq(second_line[0], &Coord { x: 2.0, y: 0.0 });
+                assert_coords_eq(second_line[3], &Coord { x: 2.0, y: 1.0 }); // Should close
             }
             _ => panic!("Expected MultiLineString"),
         }
@@ -410,7 +402,7 @@ mod tests {
                     coords.len() > 2,
                     "Curve should be flattened into multiple points"
                 );
-                assert_coords_eq(&coords[0], &Coord { x: 0.0, y: 0.0 });
+                assert_coords_eq(coords[0], &Coord { x: 0.0, y: 0.0 });
                 assert_coords_eq(coords.last().unwrap(), &Coord { x: 1.0, y: 1.0 });
             }
             _ => panic!("Expected LineString"),
@@ -430,7 +422,7 @@ mod tests {
             Geometry::LineString(line) => {
                 let coords: Vec<_> = line.coords().collect();
                 assert_eq!(coords.len(), 1);
-                assert_coords_eq(&coords[0], &Coord { x: 0.0, y: 0.0 });
+                assert_coords_eq(coords[0], &Coord { x: 0.0, y: 0.0 });
             }
             _ => panic!("Expected LineString"),
         }
@@ -450,7 +442,7 @@ mod tests {
             Geometry::LineString(line) => {
                 let coords: Vec<_> = line.coords().collect();
                 assert_eq!(coords.len(), 1);
-                assert_coords_eq(&coords[0], &Coord { x: 1.0, y: 2.0 });
+                assert_coords_eq(coords[0], &Coord { x: 1.0, y: 2.0 });
             }
             _ => panic!("Expected LineString"),
         }
@@ -461,7 +453,7 @@ mod tests {
             Geometry::LineString(line) => {
                 let coords: Vec<_> = line.coords().collect();
                 assert_eq!(coords.len(), 1);
-                assert_coords_eq(&coords[0], &Coord { x: 1.0, y: 2.0 });
+                assert_coords_eq(coords[0], &Coord { x: 1.0, y: 2.0 });
             }
             _ => panic!("Expected LineString"),
         }
@@ -482,8 +474,8 @@ mod tests {
             Geometry::LineString(line) => {
                 let coords: Vec<_> = line.coords().collect();
                 assert_eq!(coords.len(), 2);
-                assert_coords_eq(&coords[0], &Coord { x: 1.0, y: 1.0 });
-                assert_coords_eq(&coords[1], &Coord { x: 2.0, y: 2.0 });
+                assert_coords_eq(coords[0], &Coord { x: 1.0, y: 1.0 });
+                assert_coords_eq(coords[1], &Coord { x: 2.0, y: 2.0 });
             }
             _ => panic!("Expected LineString"),
         }
@@ -505,7 +497,7 @@ mod tests {
             Geometry::Polygon(polygon) => {
                 let coords: Vec<_> = polygon.exterior().coords().collect();
                 assert_eq!(coords.len(), 4); // 3 points + closing point
-                assert_coords_eq(&coords[0], &coords[3]); // Should be closed
+                assert_coords_eq(coords[0], coords[3]); // Should be closed
             }
             _ => panic!("Expected Polygon"),
         }
@@ -516,8 +508,8 @@ mod tests {
             Geometry::LineString(line) => {
                 let coords: Vec<_> = line.coords().collect();
                 assert_eq!(coords.len(), 3); // Should remain open
-                assert_coords_eq(&coords[0], &Coord { x: 0.0, y: 0.0 });
-                assert_coords_eq(&coords[2], &Coord { x: 0.5, y: 1.0 });
+                assert_coords_eq(coords[0], &Coord { x: 0.0, y: 0.0 });
+                assert_coords_eq(coords[2], &Coord { x: 0.5, y: 1.0 });
             }
             _ => panic!("Expected LineString"),
         }

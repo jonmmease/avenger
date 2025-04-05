@@ -264,7 +264,7 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
             .and_then(|v| Some(ColorOrGradient::Color(v.as_rgba().ok()?)))
             .unwrap_or(ColorOrGradient::transparent());
 
-        Ok(coercer.coerce(&scaled, Some(default))?)
+        coercer.coerce(&scaled, Some(default))
     }
 
     fn scale_scalar_to_color(

@@ -403,8 +403,7 @@ impl InstancedMarkRenderer {
             }
         }
 
-        let command_buffer = mark_encoder.finish();
-        command_buffer
+        mark_encoder.finish()
     }
 }
 

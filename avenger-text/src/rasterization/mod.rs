@@ -114,7 +114,7 @@ pub trait TextRasterizer: 'static {
 
 #[cfg(feature = "cosmic-text")]
 pub fn default_rasterizer() -> impl TextRasterizer<CacheValue = ()> {
-    return crate::rasterization::cosmic::CosmicTextRasterizer::new();
+    crate::rasterization::cosmic::CosmicTextRasterizer::new()
 }
 
 #[cfg(target_arch = "wasm32")]

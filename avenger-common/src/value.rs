@@ -51,9 +51,7 @@ impl<T: Sync + Clone> ScalarOrArray<T> {
         indices: Option<&'a Arc<Vec<usize>>>,
     ) -> Box<dyn Iterator<Item = &T> + '_> {
         match &self.value {
-            ScalarOrArrayValue::Scalar(value) => {
-                Box::new(std::iter::repeat(value).take(scalar_len))
-            }
+            ScalarOrArrayValue::Scalar(value) => Box::new(std::iter::repeat_n(value, scalar_len)),
             ScalarOrArrayValue::Array(values) => match indices {
                 None => Box::new(values.iter()),
                 Some(indices) => Box::new(indices.iter().map(|i| &values[*i])),
@@ -68,7 +66,7 @@ impl<T: Sync + Clone> ScalarOrArray<T> {
     ) -> Box<dyn Iterator<Item = T> + '_> {
         match &self.value {
             ScalarOrArrayValue::Scalar(value) => {
-                Box::new(std::iter::repeat(value.clone()).take(scalar_len))
+                Box::new(std::iter::repeat_n(value.clone(), scalar_len))
             }
             ScalarOrArrayValue::Array(values) => match indices {
                 None => Box::new(values.iter().cloned()),
@@ -206,7 +204,7 @@ impl<'a, T: Sync + Clone> From<&'a T> for ScalarOrArrayRef<'a, T> {
     }
 }
 
-impl<'a, T: Sync + Clone> From<T> for ScalarOrArrayRef<'a, T> {
+impl<T: Sync + Clone> From<T> for ScalarOrArrayRef<'_, T> {
     fn from(value: T) -> Self {
         ScalarOrArrayRef::Scalar(value)
     }
@@ -242,12 +240,12 @@ impl Hash for ScalarOrArray<f32> {
 #[macro_export]
 macro_rules! impl_hash_for_scalar_or_array {
     ($t:ty) => {
-        impl Hash for crate::value::ScalarOrArray<$t> {
+        impl Hash for $crate::value::ScalarOrArray<$t> {
             fn hash<H: Hasher>(&self, state: &mut H) {
                 let mut hash_cache = self.hash_cache.lock().unwrap();
 
                 match &self.value {
-                    crate::value::ScalarOrArrayValue::Scalar(value) => {
+                    $crate::value::ScalarOrArrayValue::Scalar(value) => {
                         let hash_value = hash_cache.get_or_insert_with(|| {
                             let mut inner_hasher = std::hash::DefaultHasher::new();
                             value.hash(&mut inner_hasher);

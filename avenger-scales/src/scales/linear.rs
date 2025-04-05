@@ -90,7 +90,7 @@ impl LinearScale {
         let mut max_iter = 10;
 
         while max_iter > 0 {
-            let step = array::tick_increment(start as f32, stop as f32, count as f32);
+            let step = array::tick_increment(start, stop, count);
 
             if step == prestep {
                 if domain_start <= domain_end {

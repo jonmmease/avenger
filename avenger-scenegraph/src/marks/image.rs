@@ -57,7 +57,7 @@ impl SceneImageMark {
         if let Some(indices) = self.indices.as_ref() {
             Box::new(indices.iter().cloned())
         } else {
-            Box::new((0..self.len as usize).into_iter())
+            Box::new((0..self.len as usize))
         }
     }
 

@@ -160,12 +160,10 @@ impl ColorCoercer for CssColorCoercer {
                     .collect::<Vec<_>>();
                 Ok(ScalarOrArray::new_array(result))
             }
-            _ => {
-                return Err(AvengerScaleError::InternalError(format!(
-                    "Unsupported data type for coercing to color: {:?}",
-                    dtype
-                )))
-            }
+            _ => Err(AvengerScaleError::InternalError(format!(
+                "Unsupported data type for coercing to color: {:?}",
+                dtype
+            ))),
         }
     }
 }
@@ -280,7 +278,7 @@ Expected struct with fields [width(UInt32), height(UInt32), data(List[UInt8])]",
                 }
 
                 // Check field types
-                let width = fields.get(0).unwrap();
+                let width = fields.first().unwrap();
                 let height = fields.get(1).unwrap();
                 let data = fields.get(2).unwrap();
 
@@ -343,7 +341,6 @@ Expected struct with fields [width(UInt32), height(UInt32), data(List[UInt8])]",
                         let s = s.replace(",", "");
                         let v = s
                             .split(" ")
-                            .into_iter()
                             .filter_map(|p| p.parse::<f32>().ok())
                             .collect::<Vec<_>>();
                         result.push(v);
@@ -421,7 +418,7 @@ Expected struct with fields [a(Float32), b(Float32), c(Float32), d(Float32), e(F
                 }
 
                 // Check field types
-                let a_type = fields.get(0).unwrap();
+                let a_type = fields.first().unwrap();
                 let b_type = fields.get(1).unwrap();
                 let c_type = fields.get(2).unwrap();
                 let d_type = fields.get(3).unwrap();
@@ -503,7 +500,7 @@ Expected struct with fields [verbs(List[UInt8]), points(List[Float32])]",
                 }
 
                 // Check field types
-                let verbs_type = fields.get(0).unwrap();
+                let verbs_type = fields.first().unwrap();
                 let points_type = fields.get(1).unwrap();
 
                 if !(verbs_type.data_type() == &DataType::new_list(DataType::UInt8, false)

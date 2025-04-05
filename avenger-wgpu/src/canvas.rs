@@ -308,7 +308,7 @@ pub trait Canvas {
 
         // Sort groups by zindex
         let groups = scene_graph.groups();
-        let zindex = groups.iter().map(|g| (*g).zindex).collect::<Vec<_>>();
+        let zindex = groups.iter().map(|g| g.zindex).collect::<Vec<_>>();
         let mut indices: Vec<usize> = (0..zindex.len()).collect();
         indices.sort_by_key(|i| zindex[*i].unwrap_or(0));
 
@@ -458,7 +458,7 @@ pub struct WindowCanvas<'window> {
     window: Arc<Window>,
 }
 
-impl<'window> WindowCanvas<'window> {
+impl WindowCanvas<'_> {
     pub async fn new(
         window: Window,
         dimensions: CanvasDimensions,
@@ -635,7 +635,7 @@ impl<'window> WindowCanvas<'window> {
     }
 }
 
-impl<'window> Canvas for WindowCanvas<'window> {
+impl Canvas for WindowCanvas<'_> {
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
         if self.multi_renderer.is_none() {
             self.multi_renderer = Some(MultiMarkRenderer::new(

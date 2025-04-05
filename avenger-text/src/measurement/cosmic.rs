@@ -68,6 +68,12 @@ fn setup_default_fonts(fontdb: &mut Database) {
 
 pub struct CosmicTextMeasurer {}
 
+impl Default for CosmicTextMeasurer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CosmicTextMeasurer {
     pub fn new() -> Self {
         Self {}
@@ -144,7 +150,7 @@ pub fn make_cosmic_text_buffer(
         "cursive" => Family::Cursive,
         "fantasy" => Family::Fantasy,
         "monospace" => Family::Monospace,
-        _ => Family::Name(&config.font),
+        _ => Family::Name(config.font),
     };
 
     attrs.family = family;

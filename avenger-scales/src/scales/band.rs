@@ -153,21 +153,21 @@ fn build_range_values(config: &ScaleConfig) -> Result<Vec<f32>, AvengerScaleErro
     let range_offset = config.option_f32("range_offset", 0.0);
     let (range_start, range_stop) = config.numeric_interval_range()?;
 
-    if align < 0.0 || align > 1.0 || !align.is_finite() {
+    if !(0.0..=1.0).contains(&align) || !align.is_finite() {
         return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
             "align is {} but must be between 0 and 1",
             align
         )));
     }
 
-    if band < 0.0 || band > 1.0 || !band.is_finite() {
+    if !(0.0..=1.0).contains(&band) || !band.is_finite() {
         return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
             "band is {} but must be between 0 and 1",
             band
         )));
     }
 
-    if padding_inner < 0.0 || padding_inner > 1.0 || !padding_inner.is_finite() {
+    if !(0.0..=1.0).contains(&padding_inner) || !padding_inner.is_finite() {
         return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
             "padding_inner is {} but must be between 0 and 1",
             padding_inner
