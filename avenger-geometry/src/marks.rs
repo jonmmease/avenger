@@ -384,11 +384,11 @@ impl MarkGeometryUtils for SceneTextMark {
                     ),
                 )| {
                     let config = TextMeasurementConfig {
-                        text: text,
-                        font: font,
+                        text,
+                        font,
                         font_size: *font_size,
-                        font_weight: font_weight,
-                        font_style: font_style,
+                        font_weight,
+                        font_style,
                     };
 
                     let text_bounds = measurer.measure_text_bounds(&config);

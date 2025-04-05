@@ -39,26 +39,24 @@ pub fn ticks(start: f32, stop: f32, count: f32) -> Vec<f32> {
     if reverse {
         if inc < 0.0 {
             for i in 0..n {
-                let val = ((i2 - i as f32) / -inc) as f32;
+                let val = (i2 - i as f32) / -inc;
                 ticks.push(val);
             }
         } else {
             for i in 0..n {
-                let val = ((i2 - i as f32) * inc) as f32;
+                let val = (i2 - i as f32) * inc;
                 ticks.push(val);
             }
         }
+    } else if inc < 0.0 {
+        for i in 0..n {
+            let val = (i1 + i as f32) / -inc;
+            ticks.push(val);
+        }
     } else {
-        if inc < 0.0 {
-            for i in 0..n {
-                let val = ((i1 + i as f32) / -inc) as f32;
-                ticks.push(val);
-            }
-        } else {
-            for i in 0..n {
-                let val = ((i1 + i as f32) * inc) as f32;
-                ticks.push(val);
-            }
+        for i in 0..n {
+            let val = (i1 + i as f32) * inc;
+            ticks.push(val);
         }
     }
 
@@ -78,13 +76,13 @@ fn tick_spec(start: f32, stop: f32, count: f32) -> (f32, f32, f32) {
     let error = step / 10.0_f32.powf(power);
 
     // JS: const factor = error >= e10 ? 10 : error >= e5 ? 5 : error >= e2 ? 2 : 1
-    let factor = if error >= 7.071067811865476 {
+    let factor = if error >= 7.071_068 {
         // e10 = Math.sqrt(50)
         10.0
-    } else if error >= 3.162277660168379 {
+    } else if error >= 3.162_277_7 {
         // e5 = Math.sqrt(10)
         5.0
-    } else if error >= 1.4142135623730951 {
+    } else if error >= 1.414_213_5 {
         // e2 = Math.sqrt(2)
         2.0
     } else {
@@ -118,7 +116,7 @@ fn tick_spec(start: f32, stop: f32, count: f32) -> (f32, f32, f32) {
     }
 
     // JS: if (i2 < i1 && 0.5 <= count && count < 2) return tickSpec(start, stop, count * 2);
-    if i2 < i1 && 0.5 <= count && count < 2.0 {
+    if i2 < i1 && (0.5..2.0).contains(&count) {
         return tick_spec(start, stop, count * 2.0);
     }
 
@@ -145,11 +143,11 @@ pub fn tick_increment(start: f32, stop: f32, count: f32) -> f32 {
 
     let power = step.log10().floor();
     let error = step / 10.0_f32.powf(power);
-    let factor = if error >= 7.071067811865476 {
+    let factor = if error >= 7.071_068 {
         10.0
-    } else if error >= 3.162277660168379 {
+    } else if error >= 3.162_277_7 {
         5.0
-    } else if error >= 1.4142135623730951 {
+    } else if error >= 1.414_213_5 {
         2.0
     } else {
         1.0

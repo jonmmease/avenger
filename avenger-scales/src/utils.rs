@@ -48,7 +48,7 @@ impl ScalarValueUtils for ScalarValue {
     fn as_i32(&self) -> Result<i32, AvengerScaleError> {
         match self {
             ScalarValue::Int16(Some(val)) => Ok(*val as i32),
-            ScalarValue::Int32(Some(val)) => Ok(*val as i32),
+            ScalarValue::Int32(Some(val)) => Ok(*val),
             ScalarValue::Int64(Some(val)) => Ok(*val as i32),
             _ => Err(AvengerScaleError::InternalError(format!(
                 "ScalarValue is not convertable to i32: {:?}",

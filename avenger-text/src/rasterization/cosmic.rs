@@ -22,6 +22,12 @@ pub struct CosmicTextRasterizer<CacheValue> {
     _phantom: PhantomData<CacheValue>,
 }
 
+impl<CacheValue> Default for CosmicTextRasterizer<CacheValue> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<CacheValue> CosmicTextRasterizer<CacheValue> {
     pub fn new() -> Self {
         Self {
@@ -179,14 +185,9 @@ where
 
                         // Get path
                         // We need to rasterize glyph and write it to next_atlas
-                        let path = if let Some(outline_commands) =
-                            cache.get_outline_commands(&mut font_system, physical_glyph.cache_key)
-                        {
-                            Some(import_path_commands(&outline_commands))
-                        } else {
-                            // Path data not available, leave as None
-                            None
-                        };
+                        let path = cache
+                            .get_outline_commands(&mut font_system, physical_glyph.cache_key)
+                            .map(import_path_commands);
 
                         // Create new glyph image
                         let glyph_data = GlyphData {

@@ -57,7 +57,7 @@ impl QuantizeScale {
         count: Option<&ScalarValue>,
     ) -> Result<(f32, f32), AvengerScaleError> {
         // Use nice method from linear scale
-        return LinearScale::apply_nice(domain, count);
+        LinearScale::apply_nice(domain, count)
     }
 }
 

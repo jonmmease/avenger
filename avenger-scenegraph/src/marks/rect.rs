@@ -59,7 +59,7 @@ impl SceneRectMark {
             )
         } else {
             // Default to width 1
-            Box::new(std::iter::repeat(1.0).take(self.len as usize))
+            Box::new(std::iter::repeat_n(1.0, self.len as usize))
         }
     }
 
@@ -80,7 +80,7 @@ impl SceneRectMark {
             )
         } else {
             // Default to height 1
-            Box::new(std::iter::repeat(1.0).take(self.len as usize))
+            Box::new(std::iter::repeat_n(1.0, self.len as usize))
         }
     }
 
@@ -171,7 +171,7 @@ impl SceneRectMark {
         if let Some(indices) = self.indices.as_ref() {
             Box::new(indices.iter().cloned())
         } else {
-            Box::new((0..self.len as usize).into_iter())
+            Box::new((0..self.len as usize))
         }
     }
 

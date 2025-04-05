@@ -82,6 +82,11 @@ impl TextBounds {
     }
 }
 
+#[cfg(feature = "cosmic-text")]
+pub fn default_text_measurer() -> impl TextMeasurer {
+    crate::measurement::cosmic::CosmicTextMeasurer::new()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -115,11 +120,6 @@ mod tests {
             bounds.calculate_origin([10.0, 10.0], &TextAlign::Left, &TextBaseline::Alphabetic);
         assert_eq!(origin, [10.0, 15.0]);
     }
-}
-
-#[cfg(feature = "cosmic-text")]
-pub fn default_text_measurer() -> impl TextMeasurer {
-    return crate::measurement::cosmic::CosmicTextMeasurer::new();
 }
 
 #[cfg(target_arch = "wasm32")]

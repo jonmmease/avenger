@@ -81,7 +81,7 @@ impl SceneArcMark {
         if let Some(indices) = self.indices.as_ref() {
             Box::new(indices.iter().cloned())
         } else {
-            Box::new((0..self.len as usize).into_iter())
+            Box::new((0..self.len as usize))
         }
     }
 
@@ -146,12 +146,11 @@ impl SceneArcMark {
                     path_builder.close();
 
                     // Transform path to account for start angle and position
-                    let path = path_builder.build().transformed(
+
+                    path_builder.build().transformed(
                         &PathTransform::rotation(Angle::radians(*start_angle))
                             .then_translate(Vector2D::new(*x + origin[0], *y + origin[1])),
-                    );
-
-                    path
+                    )
                 },
             ),
         )

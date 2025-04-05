@@ -74,9 +74,9 @@ impl LogScale {
         // Handle degenerate non-zero domain by expanding to nearest log boundaries
         if domain_start == domain_end && domain_start != 0.0 {
             let value = domain_start;
-            let log_val = log_fun.log(value.abs() as f32);
-            domain_start = log_fun.pow(log_val.floor()) as f32;
-            domain_end = log_fun.pow(log_val.ceil()) as f32;
+            let log_val = log_fun.log(value.abs());
+            domain_start = log_fun.pow(log_val.floor());
+            domain_end = log_fun.pow(log_val.ceil());
             return Ok((domain_start, domain_end));
         }
 
@@ -91,8 +91,8 @@ impl LogScale {
             let nstart = -stop;
             let nstop = -start;
 
-            let nstart = log_fun.pow(log_fun.log(nstart as f32).floor());
-            let nstop = log_fun.pow(log_fun.log(nstop as f32).ceil());
+            let nstart = log_fun.pow(log_fun.log(nstart).floor());
+            let nstop = log_fun.pow(log_fun.log(nstop).ceil());
 
             if reverse {
                 domain_start = -nstart;
@@ -102,8 +102,8 @@ impl LogScale {
                 domain_end = -nstart;
             }
         } else {
-            let nstart = log_fun.pow(log_fun.log(start as f32).floor());
-            let nstop = log_fun.pow(log_fun.log(stop as f32).ceil());
+            let nstart = log_fun.pow(log_fun.log(start).floor());
+            let nstop = log_fun.pow(log_fun.log(stop).ceil());
 
             if reverse {
                 domain_start = nstop;
@@ -442,15 +442,13 @@ impl ScaleImpl for LogScale {
             return Ok(Arc::new(Float32Array::from(Vec::<f32>::new())));
         }
 
-        let d = [domain_start as f32, domain_end as f32];
+        let d = [domain_start, domain_end];
         let mut u = d[0];
         let mut v = d[1];
         let r = v < u;
 
         if r {
-            let temp = u;
-            u = v;
-            v = temp;
+            std::mem::swap(&mut u, &mut v);
         }
 
         let mut i = log_fun.log(u);

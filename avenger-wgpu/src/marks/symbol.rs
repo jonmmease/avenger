@@ -292,9 +292,7 @@ impl InstancedMarkFingerprint for SceneSymbolMark {
         self.len.hash(&mut hasher);
         self.gradients.hash(&mut hasher);
         self.shapes.hash(&mut hasher);
-        self.stroke_width
-            .map(|width| OrderedFloat::from(width))
-            .hash(&mut hasher);
+        self.stroke_width.map(OrderedFloat::from).hash(&mut hasher);
         self.shape_index.hash(&mut hasher);
         self.x.hash(&mut hasher);
         self.y.hash(&mut hasher);
