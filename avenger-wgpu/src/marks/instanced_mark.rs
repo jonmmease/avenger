@@ -1,7 +1,7 @@
 use avenger_common::types::LinearScaleAdjustment;
 use avenger_scenegraph::marks::group::Clip;
 use std::ops::Range;
-use std::time::Instant;
+
 use wgpu::util::DeviceExt;
 use wgpu::{CommandBuffer, Device, Extent3d, ImageDataLayout, TextureFormat, TextureView};
 

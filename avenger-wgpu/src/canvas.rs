@@ -3,7 +3,7 @@ use avenger_common::types::LinearScaleAdjustment;
 use image::imageops::crop_imm;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
+
 use wgpu::{
     Adapter, Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandBuffer,
     CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, ImageCopyBuffer,
