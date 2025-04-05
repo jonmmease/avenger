@@ -15,14 +15,9 @@ members = [
     "avenger-eventstream",
     "avenger-app",
     "avenger-winit-wgpu",
-    "avenger-chart",
     "examples/wgpu-scales",
-    "examples/scatter-panning",
     "examples/wgpu-winit",
     "examples/iris",
-    "examples/chart-example",
-    "examples/chart-example2",
-    "examples/chart-example3",
 ]
 
 resolver = "2"

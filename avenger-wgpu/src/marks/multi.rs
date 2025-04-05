@@ -648,7 +648,7 @@ impl MultiMarkRenderer {
                     mark.angle_iter(),
                     mark.shape_index_iter(),
                 ).map(|(x, y, fill, size, stroke, angle, shape_index)| -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                    build_verts_inds(x, y, fill, size, stroke, angle, shape_index)
+                    build_verts_inds(&x, &y, fill, size, stroke, angle, shape_index)
                 }).collect::<Result<Vec<_>, AvengerWgpuError>>()?;
             }
         };
