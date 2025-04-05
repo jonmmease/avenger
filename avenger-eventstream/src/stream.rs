@@ -1,10 +1,5 @@
 use crate::manager::EventStreamHandler;
-use crate::scene::{
-    SceneClickEvent, SceneCursorMovedEvent, SceneDoubleClickEvent, SceneGraphEvent,
-    SceneGraphEventType, SceneKeyPressEvent, SceneKeyReleaseEvent, SceneMouseDownEvent,
-    SceneMouseEnterEvent, SceneMouseLeaveEvent, SceneMouseUpEvent, SceneMouseWheelEvent,
-};
-use crate::window::{ElementState, MouseButton, WindowEvent};
+use crate::scene::{SceneGraphEvent, SceneGraphEventType};
 use async_trait::async_trait;
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::marks::mark::MarkInstance;

@@ -1,6 +1,7 @@
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::MissingNullOrValue;
+use avenger_common::types::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::text::SceneTextMark;
@@ -8,7 +9,6 @@ use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 use std::sync::Arc;
-use avenger_common::types::ColorOrGradient;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -78,7 +78,9 @@ impl VegaMarkContainer<VegaTextItem> {
                 let c = csscolorparser::parse(v)?;
                 let opacity =
                     c.a as f32 * item.fill_opacity.unwrap_or(1.0) * item.opacity.unwrap_or(1.0);
-                color.push(ColorOrGradient::Color([c.r as f32, c.g as f32, c.b as f32, opacity]))
+                color.push(ColorOrGradient::Color([
+                    c.r as f32, c.g as f32, c.b as f32, opacity,
+                ]))
             }
 
             // Compute x and y

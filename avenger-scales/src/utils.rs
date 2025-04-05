@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::error::AvengerScaleError;
 use arrow::{
-    array::{Array, ArrayRef, AsArray, Float32Array, ListArray},
+    array::{Array, AsArray, ListArray},
     compute::kernels::cast,
     datatypes::{DataType, Float32Type},
 };

@@ -5,16 +5,12 @@ use arrow::{
     compute::{kernels::cast, unary},
     datatypes::{DataType, Float32Type},
 };
-use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
+use avenger_common::value::ScalarOrArray;
 use datafusion_common::ScalarValue;
 
 use crate::{
-    array,
-    color_interpolator::{scale_numeric_to_color2, ColorInterpolator, SrgbaColorInterpolator},
-    error::AvengerScaleError,
-    formatter::Formatters,
-    scales::linear::LinearScale,
-    utils::ScalarValueUtils,
+    color_interpolator::scale_numeric_to_color2, error::AvengerScaleError,
+    scales::linear::LinearScale, utils::ScalarValueUtils,
 };
 
 use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};

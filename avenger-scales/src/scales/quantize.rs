@@ -5,25 +5,13 @@ use arrow::{
     compute::kernels::take,
     datatypes::Float32Type,
 };
-use avenger_common::{
-    types::{AreaOrientation, ColorOrGradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin},
-    value::ScalarOrArray,
-};
 use datafusion_common::ScalarValue;
 
-use crate::{
-    color_interpolator::{ColorInterpolator, SrgbaColorInterpolator},
-    error::AvengerScaleError,
-    formatter::Formatters,
-};
+use crate::error::AvengerScaleError;
 
 use super::{
-    linear::LinearScale,
-    ordinal::{
-        prep_discrete_color_range, prep_discrete_enum_range, prep_discrete_numeric_range,
-        prep_discrete_string_range,
-    },
-    ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl,
+    linear::LinearScale, ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext,
+    ScaleImpl,
 };
 
 /// Macro to generate scale_to_X trait methods for threshold enum scaling

@@ -1,18 +1,13 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
-use arrow::{
-    array::{ArrayRef, Float32Array, UInt32Array},
-    compute::kernels::take,
-};
+use arrow::array::{ArrayRef, Float32Array};
 use avenger_common::value::ScalarOrArray;
 
-use crate::{
-    color_interpolator::SrgbaColorInterpolator, error::AvengerScaleError, formatter::Formatters,
-};
+use crate::error::AvengerScaleError;
 
 use super::{
-    band::BandScale, ordinal::OrdinalScale, ConfiguredScale, InferDomainFromDataMethod,
-    ScaleConfig, ScaleContext, ScaleImpl,
+    band::BandScale, ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext,
+    ScaleImpl,
 };
 
 #[derive(Debug, Clone)]

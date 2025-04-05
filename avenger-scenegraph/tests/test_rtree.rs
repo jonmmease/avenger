@@ -1,22 +1,17 @@
-use std::sync::Arc;
-
-use avenger_common::{
-    types::AreaOrientation,
-    canvas::CanvasDimensions
-};
+use avenger_common::{canvas::CanvasDimensions, types::AreaOrientation};
+use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::marks::{
-    area::{SceneAreaMark},
+    area::SceneAreaMark,
     symbol::{SceneSymbolMark, SymbolShape},
     text::SceneTextMark,
 };
-use avenger_text::rasterization::{cosmic::CosmicTextRasterizer, TextRasterizer};
+use avenger_scenegraph::scene_graph::SceneGraph;
+use avenger_text::rasterization::cosmic::CosmicTextRasterizer;
 use float_cmp::assert_approx_eq;
 use geo::BoundingRect;
 use geo_svg::ToSvg;
 use rstar::{PointDistance, AABB};
-use avenger_geometry::marks::MarkGeometryUtils;
-use avenger_scenegraph::scene_graph::SceneGraph;
 
 #[test]
 fn test_symbol_rtree_single() {
@@ -221,9 +216,7 @@ fn test_text_rtree() {
         scale: 1.0,
     };
 
-    let geometries: Vec<_> = mark
-        .geometry_iter(vec![0], [0.0, 0.0])
-        .collect();
+    let geometries: Vec<_> = mark.geometry_iter(vec![0], [0.0, 0.0]).collect();
     // let rtree = MarkRTree::new(geometries);
 
     println!("{}", geometries[0].geometry.to_svg().svg_str())

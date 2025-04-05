@@ -20,6 +20,8 @@ use avenger_scenegraph::marks::symbol::{SceneSymbolMark, SymbolShape};
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_winit_wgpu::WinitWgpuAvengerApp;
 
+use avenger_app::error::AvengerAppError;
+use avenger_eventstream::manager::EventStreamHandler;
 use csv::Reader;
 use rand_distr::Distribution;
 use std::fs::File;
@@ -27,8 +29,6 @@ use std::io::BufReader;
 use std::sync::Arc;
 use std::time::Instant;
 use winit::event_loop::EventLoop;
-use avenger_app::error::AvengerAppError;
-use avenger_eventstream::manager::EventStreamHandler;
 
 #[derive(Clone)]
 pub struct PanAnchor {
@@ -204,7 +204,6 @@ impl ChartState {
     }
 }
 
-
 #[derive(Clone, Debug)]
 struct IrisSceneGraphBuilder;
 
@@ -372,10 +371,7 @@ pub async fn run() {
         Arc::new(IrisSceneGraphBuilder),
         vec![
             // Panning (record click anchor)
-            (
-                left_mouse_down_config.clone(),
-                Arc::new(PanningClick),
-            ),
+            (left_mouse_down_config.clone(), Arc::new(PanningClick)),
             // Panning (dragging)
             (
                 EventStreamConfig {
@@ -390,10 +386,7 @@ pub async fn run() {
                 Arc::new(PanningDrag),
             ),
             // Panning (release)
-            (
-                left_mouse_up_config,
-                Arc::new(PanningRelease),
-            ),
+            (left_mouse_up_config, Arc::new(PanningRelease)),
             // wheel zoom
             (
                 EventStreamConfig {
@@ -404,8 +397,9 @@ pub async fn run() {
                 Arc::new(WheelZoom),
             ),
         ],
-    ).await.expect("Failed to create AvengerApp");
-
+    )
+    .await
+    .expect("Failed to create AvengerApp");
 
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
         .build()
@@ -419,14 +413,17 @@ pub async fn run() {
         .expect("Failed to run event loop");
 }
 
-
-
 // Panning (record click anchor)
 struct PanningClick;
 
 #[async_trait::async_trait]
 impl EventStreamHandler<ChartState> for PanningClick {
-    async fn handle(&self, event: &SceneGraphEvent, state: &mut ChartState, rtree: &SceneGraphRTree) -> UpdateStatus {
+    async fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        state: &mut ChartState,
+        rtree: &SceneGraphRTree,
+    ) -> UpdateStatus {
         let event_position = event.position().unwrap();
         let plot_origin = rtree.named_group_origin(&state.plot_group_name).unwrap();
         let plot_x = event_position[0] - plot_origin[0];
@@ -441,11 +438,7 @@ impl EventStreamHandler<ChartState> for PanningClick {
         let normalized_x = (plot_x - range_start) / (range_end - range_start);
         let (range_start, range_end) = y_scale.numeric_interval_range().unwrap();
         let normalized_y = (plot_y - range_start) / (range_end - range_start);
-        if normalized_x < 0.0
-            || normalized_x > 1.0
-            || normalized_y < 0.0
-            || normalized_y > 1.0
-        {
+        if normalized_x < 0.0 || normalized_x > 1.0 || normalized_y < 0.0 || normalized_y > 1.0 {
             return UpdateStatus {
                 rerender: false,
                 rebuild_geometry: false,
@@ -465,13 +458,17 @@ impl EventStreamHandler<ChartState> for PanningClick {
     }
 }
 
-
 // Panning (dragging)
 struct PanningDrag;
 
 #[async_trait::async_trait]
 impl EventStreamHandler<ChartState> for PanningDrag {
-    async fn handle(&self, event: &SceneGraphEvent, state: &mut ChartState, rtree: &SceneGraphRTree) -> UpdateStatus {
+    async fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        state: &mut ChartState,
+        rtree: &SceneGraphRTree,
+    ) -> UpdateStatus {
         let Some(pan_anchor) = &state.pan_anchor else {
             return UpdateStatus {
                 rerender: false,
@@ -489,12 +486,10 @@ impl EventStreamHandler<ChartState> for PanningDrag {
         let y_scale = state.y_scale().with_domain_interval(pan_anchor.y_domain);
 
         let (range_start, range_end) = x_scale.numeric_interval_range().unwrap();
-        let x_delta =
-            (plot_x - pan_anchor.range_position[0]) / (range_end - range_start);
+        let x_delta = (plot_x - pan_anchor.range_position[0]) / (range_end - range_start);
 
         let (range_start, range_end) = y_scale.numeric_interval_range().unwrap();
-        let y_delta =
-            (plot_y - pan_anchor.range_position[1]) / (range_end - range_start);
+        let y_delta = (plot_y - pan_anchor.range_position[1]) / (range_end - range_start);
 
         // Update domains
         state.domain_sepal_length = x_scale
@@ -518,10 +513,14 @@ impl EventStreamHandler<ChartState> for PanningDrag {
 // Panning (release)
 struct PanningRelease;
 
-
 #[async_trait::async_trait]
 impl EventStreamHandler<ChartState> for PanningRelease {
-    async fn handle(&self, _event: &SceneGraphEvent, state: &mut ChartState, _rtree: &SceneGraphRTree) -> UpdateStatus {
+    async fn handle(
+        &self,
+        _event: &SceneGraphEvent,
+        state: &mut ChartState,
+        _rtree: &SceneGraphRTree,
+    ) -> UpdateStatus {
         state.pan_anchor = None;
         UpdateStatus {
             rerender: true,
@@ -530,13 +529,17 @@ impl EventStreamHandler<ChartState> for PanningRelease {
     }
 }
 
-
 // wheel zoom
 struct WheelZoom;
 
 #[async_trait::async_trait]
 impl EventStreamHandler<ChartState> for WheelZoom {
-    async fn handle(&self, event: &SceneGraphEvent, state: &mut ChartState, rtree: &SceneGraphRTree) -> UpdateStatus {
+    async fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        state: &mut ChartState,
+        rtree: &SceneGraphRTree,
+    ) -> UpdateStatus {
         let SceneGraphEvent::MouseWheel(event) = event else {
             return UpdateStatus {
                 rerender: false,
@@ -560,11 +563,7 @@ impl EventStreamHandler<ChartState> for WheelZoom {
         let normalized_y = (plot_y - range_start) / (range_end - range_start);
 
         // Check if cursor is over the plot area
-        if normalized_x < 0.0
-            || normalized_x > 1.0
-            || normalized_y < 0.0
-            || normalized_y > 1.0
-        {
+        if normalized_x < 0.0 || normalized_x > 1.0 || normalized_y < 0.0 || normalized_y > 1.0 {
             return UpdateStatus {
                 rerender: false,
                 rebuild_geometry: false,
@@ -577,10 +576,7 @@ impl EventStreamHandler<ChartState> for WheelZoom {
                 -(x_line_delta + y_line_delta) * 0.005 + 1.0
             }
             MouseScrollDelta::PixelDelta(x_pixel_delta, y_pixel_delta) => {
-                -((x_pixel_delta + y_pixel_delta) as f32
-                    / (range_end - range_start))
-                    * 0.01
-                    + 1.0
+                -((x_pixel_delta + y_pixel_delta) as f32 / (range_end - range_start)) * 0.01 + 1.0
             }
         };
 

@@ -1,12 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::error::AvengerScaleError;
-use crate::{color_interpolator::SrgbaColorInterpolator, formatter::Formatters};
 use arrow::{
-    array::{ArrayRef, Float32Array, StringArray, UInt32Array},
+    array::{ArrayRef, Float32Array, UInt32Array},
     compute::kernels::take,
 };
-use avenger_common::value::ScalarOrArray;
 
 use super::point::make_band_config;
 use super::ScaleContext;
@@ -301,11 +299,7 @@ pub fn bandspace(count: usize, padding_inner: Option<f32>, padding_outer: Option
 }
 
 mod tests {
-    use arrow::array::{AsArray, StringArray};
-    use float_cmp::{assert_approx_eq, F32Margin};
-    use std::collections::HashMap;
 
-    use super::*;
     // use float_cmp::{assert_approx_eq, F32Margin};
 
     #[test]

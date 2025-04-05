@@ -3,13 +3,12 @@ use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_scales::{error::AvengerScaleError, scales::ConfiguredScale};
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
 
-use avenger_text::types::{FontWeightNameSpec, FontWeight, TextAlign, TextBaseline};
+use avenger_text::types::{FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
 use rstar::AABB;
 
 use crate::error::AvengerGuidesError;
 
 use super::opts::{AxisConfig, AxisOrientation};
-use std::{fmt::Debug, hash::Hash};
 
 const TICK_LENGTH: f32 = 5.0;
 const TEXT_MARGIN: f32 = 3.0;

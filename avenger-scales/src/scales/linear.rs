@@ -5,10 +5,7 @@ use arrow::{
     compute::{kernels::cast, unary},
     datatypes::{DataType, Float32Type},
 };
-use avenger_common::{
-    types::{ColorOrGradient, LinearScaleAdjustment},
-    value::ScalarOrArray,
-};
+use avenger_common::{types::LinearScaleAdjustment, value::ScalarOrArray};
 use datafusion_common::ScalarValue;
 
 use crate::{

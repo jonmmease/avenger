@@ -10,25 +10,8 @@ pub mod quantize;
 pub mod symlog;
 pub mod threshold;
 
-use std::{collections::HashMap, fmt::Debug, str::FromStr, sync::Arc};
+use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
-use arrow::{
-    array::{timezone::Tz, ArrayRef, AsArray, Float32Array, ListArray},
-    compute::cast,
-    datatypes::{DataType, Date32Type, Float32Type, TimeUnit, TimestampMillisecondType},
-};
-use avenger_common::{
-    types::{
-        AreaOrientation, ColorOrGradient, GradientStop, ImageAlign, ImageBaseline,
-        LinearScaleAdjustment, StrokeCap, StrokeJoin,
-    },
-    value::ScalarOrArray,
-};
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
-use chrono_tz::Tz as ChronoTz;
-use coerce::{CastNumericCoercer, Coercer, NumericCoercer};
-use datafusion_common::{utils::arrays_into_list_array, ScalarValue};
-use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use crate::{
     color_interpolator::ColorInterpolator, error::AvengerScaleError, utils::ScalarValueUtils,
 };
@@ -37,6 +20,22 @@ use crate::{
     color_interpolator::SrgbaColorInterpolator,
     scales::coerce::{ColorCoercer, CssColorCoercer},
 };
+use arrow::{
+    array::{ArrayRef, AsArray, Float32Array},
+    compute::cast,
+    datatypes::{DataType, Float32Type},
+};
+use avenger_common::{
+    types::{
+        AreaOrientation, ColorOrGradient, GradientStop, ImageAlign, ImageBaseline,
+        LinearScaleAdjustment, StrokeCap, StrokeJoin,
+    },
+    value::ScalarOrArray,
+};
+use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use coerce::{CastNumericCoercer, Coercer, NumericCoercer};
+use datafusion_common::{utils::arrays_into_list_array, ScalarValue};
 
 /// Macro to generate scale_to_X trait methods that return a default error implementation
 #[macro_export]
@@ -337,7 +336,6 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
     declare_enum_scale_method!(TextBaseline);
     declare_enum_scale_method!(FontWeight);
     declare_enum_scale_method!(FontStyle);
-
 }
 
 /// Macro to generate scale_to_X trait methods that return a default error implementation
