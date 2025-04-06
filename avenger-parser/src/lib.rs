@@ -64,11 +64,19 @@ impl Value {
         
         // Attempt to parse
         let statements = SqlParser::parse_sql(&dialect, &expr_sql)
-            .map_err(|e| ParserError::SqlSyntaxError(e.to_string()))?;
+            .map_err(|e| {
+                // Format SQL syntax errors to be consistent with pest errors
+                let msg = e.to_string();
+                if msg.contains("Expected identifier") {
+                    ParserError::SqlSyntaxError(format!("SQL syntax error at beginning of expression: {}", text))
+                } else {
+                    ParserError::SqlSyntaxError(format!("SQL syntax error in '{}': {}", text, msg))
+                }
+            })?;
         
         if statements.len() != 1 {
             return Err(ParserError::SqlSyntaxError(
-                format!("Expected single SQL statement, found {}", statements.len())
+                format!("Expected single SQL statement, found {} statements", statements.len())
             ));
         }
         
@@ -83,7 +91,10 @@ impl Value {
             }
         }
         
-        Err(ParserError::SqlSyntaxError("Failed to extract SQL expression".to_string()))
+        Err(ParserError::SqlSyntaxError(format!(
+            "Failed to extract SQL expression from '{}'. If this is a query, wrap it in parentheses to make it a scalar subquery", 
+            text
+        )))
     }
 }
 
@@ -1551,5 +1562,21 @@ mod tests {
         let result = Value::try_new("Hello World".to_string());
         assert!(result.is_err());
     }
-}
 
+    #[test]
+    fn test_sql_error_message_format() {
+        // Test full query without scalar subquery parentheses
+        let result = Value::try_new("1 @ 2".to_string());
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            ParserError::SqlSyntaxError(msg) => {
+                assert!(msg.contains("SQL syntax error in '1 @ 2'"), 
+                       "Expected formatted syntax error message with expression, got: {}", msg);
+
+                assert!(msg.contains("No infix parser for token AtSign"), 
+                       "Expected detailed error message, got: {}", msg);
+            },
+            err => panic!("Expected SqlSyntaxError, got: {:?}", err),
+        }
+    }
+}
