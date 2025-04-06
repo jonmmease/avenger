@@ -1,0 +1,142 @@
+// Example demonstrating conditional logic in Avenger
+
+Chart {
+    width: 500;
+    height: 300;
+    
+    // Simple if statement
+    if showtitle {
+        Text {
+            x: 250;
+            y: 20;
+            text: "Chart Title";
+            font: "Arial";
+            fontSize: 16;
+            fontWeight: "bold";
+            textAnchor: "middle";
+        }
+    }
+    
+    // If with negation
+    if not hideaxis {
+        Axis {
+            orient: "bottom";
+            scale: "x";
+        }
+        
+        Axis {
+            orient: "left";
+            scale: "y";
+        }
+    }
+    
+    // Nested if-else
+    if hasdata {
+        // Mark for the visualization
+        mark := Bar {
+            x: "category";
+            y: "value";
+            fill: "steelblue";
+        }
+    } else {
+        // Show a message when no data is available
+        Text {
+            x: 250;
+            y: 150;
+            text: "No data available";
+            font: "Arial";
+            fontSize: 14;
+            textAnchor: "middle";
+        }
+    }
+    
+    // Match statement for different chart types
+    match charttype {
+        'bar' => {
+            Bar {
+                x: "category";
+                y: "value";
+                fill: "steelblue";
+            }
+        }
+        'line' => {
+            Line {
+                x: "category";
+                y: "value";
+                stroke: "red";
+                strokeWidth: 2;
+            }
+        }
+        'area' => {
+            Area {
+                x: "category";
+                y: "value";
+                fill: "lightblue";
+            }
+        }
+        '_' => {
+            // Default case
+            Text {
+                x: 250;
+                y: 150;
+                text: "Unknown chart type";
+                font: "Arial";
+                fontSize: 14;
+                textAnchor: "middle";
+            }
+        }
+    }
+    
+    // Match inside if
+    if interactive {
+        match interactiontype {
+            'tooltip' => {
+                Tooltip {
+                    field: "value";
+                    format: ".2f";
+                }
+            }
+            'highlight' => {
+                Highlight {
+                    field: "category";
+                    color: "orange";
+                }
+            }
+            '_' => {
+                // Default interaction
+                Tooltip {
+                    field: "value";
+                }
+            }
+        }
+    }
+    
+    // If inside match
+    match theme {
+        'light' => {
+            if showborder {
+                Border {
+                    stroke: "black";
+                    strokeWidth: 1;
+                }
+            }
+        }
+        'dark' => {
+            if showborder {
+                Border {
+                    stroke: "white";
+                    strokeWidth: 1;
+                }
+            }
+        }
+        '_' => {
+            // Default theme with conditional border
+            if showborder {
+                Border {
+                    stroke: "gray";
+                    strokeWidth: 1;
+                }
+            }
+        }
+    }
+} 
