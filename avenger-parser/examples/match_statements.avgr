@@ -6,7 +6,7 @@ Chart {
     height: 600;
     
     // Basic match statement
-    match charttype {
+    match (charttype) {
         'bar' => {
             BarChart {
                 data: 'data.csv';
@@ -45,7 +45,7 @@ Chart {
     }
     
     // Match with private parameter
-    match theme {
+    match (theme) {
         'light' => {
             param<String> bgcolor: 'white';
             param<String> textcolor: 'black';
@@ -86,7 +86,7 @@ Chart {
         x: 10;
         y: 10;
         
-        match status {
+        match (status) {
             'loading' => {
                 Spinner {
                     size: 24;
@@ -112,7 +112,7 @@ Chart {
                 }
                 
                 // Nested match for success details
-                match datasize {
+                match (datasize) {
                     'small' => {
                         Text {
                             x: 30;
@@ -150,7 +150,7 @@ export component StatusIndicator {
     status: 'pending';
     size: 16;
     
-    match status {
+    match (status) {
         'pending' => {
             Circle {
                 cx: 0;
