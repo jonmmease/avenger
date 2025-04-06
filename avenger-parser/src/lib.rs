@@ -1,13 +1,90 @@
 use pest::Parser;
 use pest_derive::Parser;
+use sqlparser::dialect::GenericDialect;
+use sqlparser::parser::Parser as SqlParser;
+use sqlparser::ast::{Statement as SqlStatement, Expr as SqlExpr, SelectItem};
+use thiserror::Error;
 
 #[derive(Parser)]
 #[grammar = "avenger.pest"]
 pub struct AvengerParser;
 
+#[derive(Error, Debug)]
+pub enum ParserError {
+    #[error("Parse error: {0}")]
+    ParseError(String),
+    
+    #[error("SQL syntax error: {0}")]
+    SqlSyntaxError(String),
+    
+    #[error("Invalid component structure: {0}")]
+    InvalidComponentError(String),
+    
+    #[error("Validation error at {path}: {message}")]
+    ValidationError {
+        path: String,
+        message: String,
+    }
+}
+
+impl From<pest::error::Error<Rule>> for ParserError {
+    fn from(err: pest::error::Error<Rule>) -> Self {
+        ParserError::ParseError(err.to_string())
+    }
+}
+
+impl From<sqlparser::parser::ParserError> for ParserError {
+    fn from(err: sqlparser::parser::ParserError) -> Self {
+        ParserError::SqlSyntaxError(err.to_string())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Value {
     pub raw_text: String,
+    pub sql_expr: SqlExpr,
+}
+
+impl Value {
+    pub fn try_new(raw_text: String) -> Result<Self, ParserError> {
+        // Try to parse as SQL expression immediately
+        let sql_expr = Self::parse_sql_expr(&raw_text)?;
+        
+        Ok(Self {
+            raw_text,
+            sql_expr,
+        })
+    }
+    
+    // Parse a string as a SQL expression
+    fn parse_sql_expr(text: &str) -> Result<SqlExpr, ParserError> {
+        // Wrap in SELECT statement to parse as expression
+        let expr_sql = format!("SELECT {};", text);
+        let dialect = GenericDialect {};
+        
+        // Attempt to parse
+        let statements = SqlParser::parse_sql(&dialect, &expr_sql)
+            .map_err(|e| ParserError::SqlSyntaxError(e.to_string()))?;
+        
+        if statements.len() != 1 {
+            return Err(ParserError::SqlSyntaxError(
+                format!("Expected single SQL statement, found {}", statements.len())
+            ));
+        }
+        
+        if let SqlStatement::Query(query) = &statements[0] {
+            // Get the first projection item
+            if let sqlparser::ast::SetExpr::Select(select) = query.body.as_ref() {
+                if let Some(select_item) = select.projection.first() {
+                    if let SelectItem::UnnamedExpr(expr) = select_item {
+                        return Ok(expr.clone());
+                    }
+                }
+            }
+        }
+        
+        Err(ParserError::SqlSyntaxError("Failed to extract SQL expression".to_string()))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -89,9 +166,8 @@ pub struct AvengerFile {
     pub components: Vec<ComponentDeclaration>,
 }
 
-pub fn parse(source: &str) -> Result<AvengerFile, String> {
-    let pairs = AvengerParser::parse(Rule::file, source)
-        .map_err(|e| format!("Parse error: {}", e))?;
+pub fn parse(source: &str) -> Result<AvengerFile, ParserError> {
+    let pairs = AvengerParser::parse(Rule::file, source)?;
     
     let mut imports = Vec::new();
     let mut enums = Vec::new();
@@ -111,7 +187,7 @@ pub fn parse(source: &str) -> Result<AvengerFile, String> {
                             enums.push(parse_enum_definition(inner_pair));
                         }
                         Rule::component_declaration => {
-                            components.push(parse_component_declaration(inner_pair));
+                            components.push(parse_component_declaration(inner_pair)?);
                         }
                         Rule::EOI => {}
                         _ => {}
@@ -201,7 +277,7 @@ fn parse_import(pair: pest::iterators::Pair<Rule>) -> Import {
     Import { components, path }
 }
 
-fn parse_if_statement(pair: pest::iterators::Pair<Rule>) -> IfStatement {
+fn parse_if_statement(pair: pest::iterators::Pair<Rule>) -> Result<IfStatement, ParserError> {
     let mut pairs = pair.into_inner();
     
     // Check for negation
@@ -218,14 +294,14 @@ fn parse_if_statement(pair: pest::iterators::Pair<Rule>) -> IfStatement {
     
     // Next should be the if content
     let if_content_pair = pairs.next().unwrap();
-    let if_items = parse_if_content(if_content_pair);
+    let if_items = parse_if_content(if_content_pair)?;
     
     // Check for optional else branch
     let else_items = if let Some(else_branch) = pairs.next() {
         if else_branch.as_rule() == Rule::else_branch {
             // Parse the content of the else branch
             let else_content = else_branch.into_inner().next().unwrap();
-            Some(parse_if_content(else_content))
+            Some(parse_if_content(else_content)?)
         } else {
             None
         }
@@ -233,15 +309,15 @@ fn parse_if_statement(pair: pest::iterators::Pair<Rule>) -> IfStatement {
         None
     };
     
-    IfStatement {
+    Ok(IfStatement {
         property_name,
         negated,
         items: if_items,
         else_items,
-    }
+    })
 }
 
-fn parse_match_statement(pair: pest::iterators::Pair<Rule>) -> MatchStatement {
+fn parse_match_statement(pair: pest::iterators::Pair<Rule>) -> Result<MatchStatement, ParserError> {
     let mut pairs = pair.into_inner();
     
     // Get property name
@@ -267,7 +343,7 @@ fn parse_match_statement(pair: pest::iterators::Pair<Rule>) -> MatchStatement {
             
             // Parse the case content
             let content_pair = case_pairs.next().unwrap();
-            let items = parse_if_content(content_pair);
+            let items = parse_if_content(content_pair)?;
             
             cases.push(MatchCase {
                 pattern,
@@ -277,46 +353,101 @@ fn parse_match_statement(pair: pest::iterators::Pair<Rule>) -> MatchStatement {
         }
     }
     
-    MatchStatement {
+    Ok(MatchStatement {
         property_name,
         cases,
-    }
+    })
 }
 
-fn parse_if_content(pair: pest::iterators::Pair<Rule>) -> Vec<ComponentItem> {
+fn parse_if_content(pair: pest::iterators::Pair<Rule>) -> Result<Vec<ComponentItem>, ParserError> {
     let mut content_items = Vec::new();
     
     for item_pair in pair.into_inner() {
         match item_pair.as_rule() {
             Rule::property => {
-                content_items.push(ComponentItem::Property(parse_property(item_pair)));
+                content_items.push(ComponentItem::Property(parse_property(item_pair)?));
             }
             Rule::private_parameter => {
-                content_items.push(ComponentItem::Parameter(parse_private_parameter(item_pair)));
+                content_items.push(ComponentItem::Parameter(parse_private_parameter(item_pair)?));
             }
             Rule::component_instance => {
-                content_items.push(ComponentItem::ComponentInstance(Box::new(parse_component_instance(item_pair))));
+                content_items.push(ComponentItem::ComponentInstance(Box::new(parse_component_instance(item_pair)?)));
             }
             Rule::component_binding => {
                 let mut binding_pairs = item_pair.into_inner();
                 let binding_name = binding_pairs.next().unwrap().as_str().to_string();
-                let instance = parse_component_instance(binding_pairs.next().unwrap());
+                let instance = parse_component_instance(binding_pairs.next().unwrap())?;
                 content_items.push(ComponentItem::ComponentBinding(binding_name, Box::new(instance)));
             }
             Rule::if_statement => {
-                content_items.push(ComponentItem::IfStatement(Box::new(parse_if_statement(item_pair))));
+                content_items.push(ComponentItem::IfStatement(Box::new(parse_if_statement(item_pair)?)));
             }
             Rule::match_statement => {
-                content_items.push(ComponentItem::MatchStatement(Box::new(parse_match_statement(item_pair))));
+                content_items.push(ComponentItem::MatchStatement(Box::new(parse_match_statement(item_pair)?)));
             }
             _ => {}
         }
     }
     
-    content_items
+    Ok(content_items)
 }
 
-fn parse_private_parameter(pair: pest::iterators::Pair<Rule>) -> Parameter {
+fn parse_property(pair: pest::iterators::Pair<Rule>) -> Result<Property, ParserError> {
+    let mut inner = pair.into_inner();
+    let name = inner.next().unwrap().as_str().to_string();
+    let value_text = inner.next().unwrap().as_str().trim().to_string();
+    
+    let value = Value::try_new(value_text)?;
+    
+    Ok(Property { name, value })
+}
+
+fn parse_parameter(pair: pest::iterators::Pair<Rule>) -> Result<Parameter, ParserError> {
+    let mut inner = pair.into_inner();
+    let mut next = inner.next().unwrap();
+    
+    let mut qualifier = None;
+    if next.as_rule() == Rule::param_qualifier {
+        qualifier = Some(next.as_str().to_string());
+        next = inner.next().unwrap(); // Skip to "param" keyword
+    }
+    
+    if next.as_str() == "param" {
+        next = inner.next().unwrap(); // Skip to param_type
+    }
+    
+    // Next is param_type
+    let param_type = next.into_inner().next().unwrap().as_str().to_string();
+    
+    // Next is parameter name
+    let name = inner.next().unwrap().as_str().to_string();
+    
+    // Next is value
+    let value_text = inner.next().unwrap().as_str().trim().to_string();
+    let value = Value::try_new(value_text)?;
+    
+    // Check for optional default value
+    let default = if let Some(default_pair) = inner.next() {
+        if default_pair.as_rule() == Rule::param_default {
+            let default_text = default_pair.into_inner().next().unwrap().as_str().trim().to_string();
+            Some(Value::try_new(default_text)?)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    
+    Ok(Parameter {
+        qualifier,
+        param_type,
+        name,
+        value,
+        default,
+    })
+}
+
+fn parse_private_parameter(pair: pest::iterators::Pair<Rule>) -> Result<Parameter, ParserError> {
     let mut inner = pair.into_inner();
     
     // Skip "param" keyword
@@ -330,13 +461,13 @@ fn parse_private_parameter(pair: pest::iterators::Pair<Rule>) -> Parameter {
     
     // Next is value
     let value_text = inner.next().unwrap().as_str().trim().to_string();
-    let value = Value { raw_text: value_text };
+    let value = Value::try_new(value_text)?;
     
     // Check for optional default value
     let default = if let Some(default_pair) = inner.next() {
         if default_pair.as_rule() == Rule::param_default {
             let default_text = default_pair.into_inner().next().unwrap().as_str().trim().to_string();
-            Some(Value { raw_text: default_text })
+            Some(Value::try_new(default_text)?)
         } else {
             None
         }
@@ -345,16 +476,16 @@ fn parse_private_parameter(pair: pest::iterators::Pair<Rule>) -> Parameter {
     };
     
     // Return parameter with no qualifier
-    Parameter {
+    Ok(Parameter {
         qualifier: None,
         param_type,
         name,
         value,
         default,
-    }
+    })
 }
 
-fn parse_component_declaration(pair: pest::iterators::Pair<Rule>) -> ComponentDeclaration {
+fn parse_component_declaration(pair: pest::iterators::Pair<Rule>) -> Result<ComponentDeclaration, ParserError> {
     let mut pairs = pair.into_inner();
     
     // Check for export keyword
@@ -389,97 +520,41 @@ fn parse_component_declaration(pair: pest::iterators::Pair<Rule>) -> ComponentDe
     for inner_pair in pairs {
         match inner_pair.as_rule() {
             Rule::property => {
-                component_items.push(ComponentItem::Property(parse_property(inner_pair)));
+                component_items.push(ComponentItem::Property(parse_property(inner_pair)?));
             }
             Rule::parameter => {
-                component_items.push(ComponentItem::Parameter(parse_parameter(inner_pair)));
+                component_items.push(ComponentItem::Parameter(parse_parameter(inner_pair)?));
             }
             Rule::component_instance => {
-                component_items.push(ComponentItem::ComponentInstance(Box::new(parse_component_instance(inner_pair))));
+                component_items.push(ComponentItem::ComponentInstance(Box::new(parse_component_instance(inner_pair)?)));
             }
             Rule::component_binding => {
                 let mut binding_pairs = inner_pair.into_inner();
                 let binding_name = binding_pairs.next().unwrap().as_str().to_string();
-                let instance = parse_component_instance(binding_pairs.next().unwrap());
+                let instance = parse_component_instance(binding_pairs.next().unwrap())?;
                 component_items.push(ComponentItem::ComponentBinding(binding_name, Box::new(instance)));
             }
             Rule::if_statement => {
-                component_items.push(ComponentItem::IfStatement(Box::new(parse_if_statement(inner_pair))));
+                component_items.push(ComponentItem::IfStatement(Box::new(parse_if_statement(inner_pair)?)));
             }
             Rule::match_statement => {
-                component_items.push(ComponentItem::MatchStatement(Box::new(parse_match_statement(inner_pair))));
+                component_items.push(ComponentItem::MatchStatement(Box::new(parse_match_statement(inner_pair)?)));
             }
             _ => {}
         }
     }
     
-    ComponentDeclaration {
+    Ok(ComponentDeclaration {
         exported,
         component: ComponentInstance {
             name: component_name.to_string(),
             parent: None,
             items: component_items,
         },
-    }
+    })
 }
 
-fn parse_property(pair: pest::iterators::Pair<Rule>) -> Property {
-    let mut inner = pair.into_inner();
-    let name = inner.next().unwrap().as_str().to_string();
-    let value_text = inner.next().unwrap().as_str().trim().to_string();
-    
-    Property { 
-        name, 
-        value: Value { raw_text: value_text } 
-    }
-}
-
-fn parse_parameter(pair: pest::iterators::Pair<Rule>) -> Parameter {
-    let mut inner = pair.into_inner();
-    let mut next = inner.next().unwrap();
-    
-    let mut qualifier = None;
-    if next.as_rule() == Rule::param_qualifier {
-        qualifier = Some(next.as_str().to_string());
-        next = inner.next().unwrap(); // Skip to "param" keyword
-    }
-    
-    if next.as_str() == "param" {
-        next = inner.next().unwrap(); // Skip to param_type
-    }
-    
-    // Next is param_type
-    let param_type = next.into_inner().next().unwrap().as_str().to_string();
-    
-    // Next is parameter name
-    let name = inner.next().unwrap().as_str().to_string();
-    
-    // Next is value
-    let value_text = inner.next().unwrap().as_str().trim().to_string();
-    let value = Value { raw_text: value_text };
-    
-    // Check for optional default value
-    let default = if let Some(default_pair) = inner.next() {
-        if default_pair.as_rule() == Rule::param_default {
-            let default_text = default_pair.into_inner().next().unwrap().as_str().trim().to_string();
-            Some(Value { raw_text: default_text })
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-    
-    Parameter {
-        qualifier,
-        param_type,
-        name,
-        value,
-        default,
-    }
-}
-
-fn parse_component_instance(pair: pest::iterators::Pair<Rule>) -> ComponentInstance {
+fn parse_component_instance(pair: pest::iterators::Pair<Rule>) -> Result<ComponentInstance, ParserError> {
     let mut inner = pair.into_inner();
     let component_name = inner.next().unwrap().as_str().to_string();
     
@@ -491,28 +566,28 @@ fn parse_component_instance(pair: pest::iterators::Pair<Rule>) -> ComponentInsta
         if item_pair.as_rule() == Rule::component_identifier {
             parent = Some(item_pair.as_str().to_string());
         } else if item_pair.as_rule() == Rule::property {
-            component_items.push(ComponentItem::Property(parse_property(item_pair)));
+            component_items.push(ComponentItem::Property(parse_property(item_pair)?));
         } else if item_pair.as_rule() == Rule::parameter {
-            component_items.push(ComponentItem::Parameter(parse_parameter(item_pair)));
+            component_items.push(ComponentItem::Parameter(parse_parameter(item_pair)?));
         } else if item_pair.as_rule() == Rule::component_instance {
-            component_items.push(ComponentItem::ComponentInstance(Box::new(parse_component_instance(item_pair))));
+            component_items.push(ComponentItem::ComponentInstance(Box::new(parse_component_instance(item_pair)?)));
         } else if item_pair.as_rule() == Rule::component_binding {
             let mut binding_pairs = item_pair.into_inner();
             let binding_name = binding_pairs.next().unwrap().as_str().to_string();
-            let instance = parse_component_instance(binding_pairs.next().unwrap());
+            let instance = parse_component_instance(binding_pairs.next().unwrap())?;
             component_items.push(ComponentItem::ComponentBinding(binding_name, Box::new(instance)));
         } else if item_pair.as_rule() == Rule::if_statement {
-            component_items.push(ComponentItem::IfStatement(Box::new(parse_if_statement(item_pair))));
+            component_items.push(ComponentItem::IfStatement(Box::new(parse_if_statement(item_pair)?)));
         } else if item_pair.as_rule() == Rule::match_statement {
-            component_items.push(ComponentItem::MatchStatement(Box::new(parse_match_statement(item_pair))));
+            component_items.push(ComponentItem::MatchStatement(Box::new(parse_match_statement(item_pair)?)));
         }
     }
     
-    ComponentInstance {
+    Ok(ComponentInstance {
         name: component_name,
         parent,
         items: component_items,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -1449,4 +1524,32 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_sql_parsing() {
+        // Valid SQL expressions should succeed
+        let value = Value::try_new("1 + 2".to_string()).unwrap();
+        assert_eq!(value.raw_text, "1 + 2");
+        
+        // Valid SQL expression with column reference
+        let value = Value::try_new("id > 21".to_string()).unwrap();
+        assert_eq!(value.raw_text, "id > 21");
+        
+        // Scalar subquery should work
+        let value = Value::try_new("(SELECT min(colA) FROM users)".to_string()).unwrap();
+        assert_eq!(value.raw_text, "(SELECT min(colA) FROM users)");
+        
+        // Full SQL query should fail
+        let result = Value::try_new("SELECT SUM(value) FROM sales;".to_string());
+        assert!(result.is_err());
+        
+        // Full SQL query with multiple columns should fail
+        let result = Value::try_new("SELECT id, name FROM users".to_string());
+        assert!(result.is_err());
+        
+        // Non-SQL expression should fail
+        let result = Value::try_new("Hello World".to_string());
+        assert!(result.is_err());
+    }
 }
+

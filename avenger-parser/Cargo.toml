@@ -6,3 +6,5 @@ edition = "2024"
 [dependencies]
 pest = "2.7"
 pest_derive = "2.7"
+sqlparser = "0.55.0"
+thiserror = "1.0"
