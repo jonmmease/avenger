@@ -14,7 +14,7 @@ Chart {
     }
     
     // If not statement
-    if not hide_legend {
+    if (NOT hide_legend) {
         Legend {
             title: 'Categories';
             symbolType: 'circle';
@@ -52,7 +52,7 @@ Chart {
             }
             
             // If not inside an if statement
-            if not hide_details {
+            if (NOT hide_details) {
                 Circle {
                     cx: 25;
                     cy: 25;

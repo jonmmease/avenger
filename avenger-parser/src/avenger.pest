@@ -26,6 +26,16 @@ raw_value = @{
     (string_literal_double | string_literal_single | (!(";" | "{" | "}") ~ ANY))*
 }
 
+// Expression that can be used in if/match statements, surrounded by parentheses
+conditional_expr = @{
+    "(" ~ (string_literal_double | string_literal_single | balanced_parentheses | (!(")" | "{" | "}") ~ ANY))* ~ ")"
+}
+
+// Helper rule for balanced parentheses within expressions
+balanced_parentheses = @{
+    "(" ~ (string_literal_double | string_literal_single | balanced_parentheses | (!("(" | ")") ~ ANY))* ~ ")"
+}
+
 // Imports
 import_item      = { component_identifier }
 import_list      = { "{" ~ import_item ~ ("," ~ import_item)* ~ "}" }
@@ -53,15 +63,13 @@ component_binding = { identifier ~ ":=" ~ component_instance }
 // If statement content allows only simplified parameters
 if_content = { (property | private_parameter | component_binding | component_instance | if_statement | match_statement)* }
 
-// If negation
-if_negation = { "not" }
-
 // Else branch
 else_branch = { "else" ~ "{" ~ if_content ~ "}" }
 
 // If statement with optional else branch
+// Now supports either identifier or conditional expression
 if_statement = {
-    "if" ~ if_negation? ~ identifier ~ "{" ~ if_content ~ "}" ~ else_branch?
+    "if" ~ (identifier | conditional_expr) ~ "{" ~ if_content ~ "}" ~ else_branch?
 }
 
 // Match case pattern - either a quoted string or underscore for default
@@ -70,9 +78,9 @@ match_pattern = { string_literal_single | "_" }
 // Match case branch
 match_case = { match_pattern ~ "=>" ~ "{" ~ if_content ~ "}" }
 
-// Match statement
+// Match statement - now requires parentheses around expression
 match_statement = {
-    "match" ~ identifier ~ "{" ~ match_case+ ~ "}"
+    "match" ~ conditional_expr ~ "{" ~ match_case+ ~ "}"
 }
 
 // Enum identifier must be title case (component_identifier)

@@ -20,7 +20,7 @@ Chart {
     out param<Boolean> interactive: true;
     
     // Conditional logic with if statement
-    if interactive {
+    if (interactive) {
         Legend {
             orientation: "horizontal";
             title: "Chart Legend";
@@ -28,7 +28,7 @@ Chart {
     }
     
     // Match statement for different chart types
-    match charttype {
+    match (charttype) {
         'bar' => {
             Bar {
                 x: "category";

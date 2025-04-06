@@ -13,7 +13,7 @@ Chart {
     height: 600;
     
     // Match statement that could use an enum value
-    match suit {
+    match (suit) {
         'hearts' => {
             Icon {
                 type: 'heart';
@@ -67,7 +67,7 @@ export component Card {
         }
         
         // Match statements that could use enum values
-        match suit {
+        match (suit) {
             'hearts' => {
                 Text {
                     x: 10;

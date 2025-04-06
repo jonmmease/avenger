@@ -31,7 +31,7 @@ Chart {
         y: value / 2;
         
         // Conditional component based on property
-        if high_value {
+        if (high_value) {
             Circle {
                 radius: 5;
                 fill: 'red';
@@ -44,7 +44,7 @@ Chart {
         }
         
         // Matching on property value
-        match value_category {
+        match (value_category) {
             'high' => {
                 TextMark {
                     text: name || ' (★★★)';

@@ -18,7 +18,7 @@ Chart {
     }
     
     // If with negation
-    if not hideaxis {
+    if (NOT hideaxis) {
         Axis {
             orient: "bottom";
             scale: "x";
@@ -51,7 +51,7 @@ Chart {
     }
     
     // Match statement for different chart types
-    match charttype {
+    match (charttype) {
         'bar' => {
             Bar {
                 x: "category";
@@ -89,7 +89,7 @@ Chart {
     
     // Match inside if
     if interactive {
-        match interactiontype {
+        match (interactiontype) {
             'tooltip' => {
                 Tooltip {
                     field: "value";
@@ -112,7 +112,7 @@ Chart {
     }
     
     // If inside match
-    match theme {
+    match (theme) {
         'light' => {
             if showborder {
                 Border {

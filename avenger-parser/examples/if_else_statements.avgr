@@ -21,7 +21,7 @@ Chart {
     }
     
     // If-not with else
-    if not hide_legend {
+    if (NOT hide_legend) {
         Legend {
             title: 'Categories';
             symbolType: 'circle';
