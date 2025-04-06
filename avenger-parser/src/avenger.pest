@@ -1,0 +1,107 @@
+// Avenger language grammar
+
+WHITESPACE    = _{ " " | "\t" | "\r" | "\n" }
+COMMENT       = _{ block_comment | line_comment }
+block_comment = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
+line_comment  = _{ "//" ~ (!"\n" ~ ANY)* }
+
+// Basic tokens
+identifier           = @{ (ASCII_ALPHA_LOWER | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
+component_identifier = @{ ASCII_ALPHA_UPPER ~ (ASCII_ALPHA | ASCII_DIGIT)* }
+type_name            = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+parameter_identifier = @{ ASCII_ALPHA_LOWER ~ (ASCII_ALPHA_LOWER | ASCII_DIGIT | "_")* }
+
+// Export qualifier
+export_qualifier = { "export" }
+
+// Import path string
+import_path = @{ string_literal_double | string_literal_single }
+
+// Literals only used for processing strings in values
+string_literal_double = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
+string_literal_single = @{ "'" ~ (!"\'" ~ ANY)* ~ "'" }
+
+// Raw value that collects everything up to semicolon, handling quoted strings properly
+raw_value = @{
+    (string_literal_double | string_literal_single | (!(";" | "{" | "}") ~ ANY))*
+}
+
+// Imports
+import_item      = { component_identifier }
+import_list      = { "{" ~ import_item ~ ("," ~ import_item)* ~ "}" }
+import_statement = { "import" ~ import_list ~ "from" ~ import_path ~ ";" }
+
+// Properties
+property = { identifier ~ ":" ~ raw_value ~ ";" }
+
+// Parameter types
+param_qualifier = { "in" | "out" }
+param_type      = { "<" ~ type_name ~ ">" }
+param_default   = { "=" ~ raw_value }
+parameter       = {
+    param_qualifier? ~ "param" ~ param_type ~ parameter_identifier ~ ":" ~ raw_value ~ param_default? ~ ";"
+}
+
+// Simplified parameter without in/out qualifiers for use in if statements
+private_parameter = {
+    "param" ~ param_type ~ parameter_identifier ~ ":" ~ raw_value ~ param_default? ~ ";"
+}
+
+// Component binding
+component_binding = { identifier ~ ":=" ~ component_instance }
+
+// If statement content allows only simplified parameters
+if_content = { (property | private_parameter | component_binding | component_instance | if_statement | match_statement)* }
+
+// If negation
+if_negation = { "not" }
+
+// Else branch
+else_branch = { "else" ~ "{" ~ if_content ~ "}" }
+
+// If statement with optional else branch
+if_statement = {
+    "if" ~ if_negation? ~ identifier ~ "{" ~ if_content ~ "}" ~ else_branch?
+}
+
+// Match case pattern - either a quoted string or underscore for default
+match_pattern = { string_literal_single | "_" }
+
+// Match case branch
+match_case = { match_pattern ~ "=>" ~ "{" ~ if_content ~ "}" }
+
+// Match statement
+match_statement = {
+    "match" ~ identifier ~ "{" ~ match_case+ ~ "}"
+}
+
+// Enum identifier must be title case (component_identifier)
+enum_identifier = { component_identifier }
+
+// Enum value is a single-quoted string
+enum_value = { string_literal_single }
+
+// Enum values list
+enum_values = { enum_value ~ ("," ~ enum_value)* ~ ","? }
+
+// Enum definition
+enum_definition = {
+    export_qualifier? ~ "enum" ~ enum_identifier ~ "{" ~ enum_values ~ "}"
+}
+
+// Component instance
+component_instance = {
+    component_identifier ~ (":" ~ component_identifier)? ~ "{" ~ component_content ~ "}"
+}
+
+component_content = _{ (property | parameter | component_binding | component_instance | if_statement | match_statement)* }
+
+// Top-level component declaration
+component_declaration = {
+    export_qualifier? ~ "component"? ~ component_identifier ~ "{" ~ component_content ~ "}"
+}
+
+// File is now import statements followed by enum definitions and component declarations
+file = {
+    SOI ~ import_statement* ~ (enum_definition | component_declaration)* ~ EOI
+}

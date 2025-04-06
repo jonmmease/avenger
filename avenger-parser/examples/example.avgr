@@ -1,0 +1,41 @@
+/*
+    A sample Avenger file with different component types.
+*/
+Chart {
+    // Simple parameters
+    width: 100;
+    height: 100;
+
+    // Parameters with types
+    param<Number> scale: 1.5;
+    in param<String> title: "Chart Title" = "Default Title";
+    out param<Boolean> interactive: true;
+
+    // Nested component
+    Rule {
+        x: 10;
+        y: 10;
+        x2: 20;
+        y2: 20;
+        stroke: 'red';
+
+        // Nested text component with string values
+        Text {
+            x: 10 + 23;
+            text: 'Hello; world!';
+            other_text: "Hello; world!";
+        }
+    }
+
+    // Component binding
+    bound := Another {
+        x_y_z: 10;
+    }
+}
+
+// Exported component
+export component OtherComponent {
+    x: 10;
+    y: 20;
+    stroke: 'blue';
+} 
