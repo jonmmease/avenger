@@ -113,8 +113,13 @@ Chart {
                     .filter(|item| matches!(item, avenger_parser::ComponentItem::MatchStatement(_)))
                     .count();
                 
-                println!("  Contains: {} properties, {} parameters, {} nested components, {} bindings, {} if statements, {} match statements",
-                    properties, parameters, nested, bindings, if_statements, match_statements);
+                // Count datasets in the component items
+                let datasets_count = comp.component.items.iter()
+                    .filter(|item| matches!(item, avenger_parser::ComponentItem::Dataset(_)))
+                    .count();
+                
+                println!("  Contains: {} properties, {} parameters, {} nested components, {} bindings, {} if statements, {} match statements, {} datasets",
+                    properties, parameters, nested, bindings, if_statements, match_statements, datasets_count);
             }
         }
         Err(e) => {
