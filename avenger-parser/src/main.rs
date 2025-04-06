@@ -44,11 +44,11 @@ Chart {
     }
     
     // Parse the provided file
-    let filename = &args[1];
-    let source = match fs::read_to_string(filename) {
+    let filepath = &args[1];
+    let source = match fs::read_to_string(filepath) {
         Ok(content) => content,
         Err(e) => {
-            eprintln!("Error reading file {}: {}", filename, e);
+            eprintln!("Error reading file {}: {}", filepath, e);
             process::exit(1);
         }
     };
@@ -57,27 +57,29 @@ Chart {
     match parse(&source) {
         Ok(file) => {
             println!("Successfully parsed {} with {} component(s) and {} enum(s)", 
-                filename, file.components.len(), file.enums.len());
+                filepath, file.components.len(), file.enums.len());
             
             // Display import information
             if !file.imports.is_empty() {
                 println!("Imports:");
                 for import in &file.imports {
-                    let components = import.components.join(", ");
-                    println!("  {} from '{}'", components, import.path);
+                    let components_str = import.components.join(", ");
+                    println!("  {} from '{}'", components_str, import.path);
                 }
-                println!("");
+                println!();
             }
             
-            // Display enum definitions
+            // Display enum information
             if !file.enums.is_empty() {
                 println!("Enums:");
                 for enum_def in &file.enums {
-                    let export_prefix = if enum_def.exported { "export " } else { "" };
-                    let values_str = enum_def.values.join("', '");
-                    println!("  {}{}: [ '{}' ]", export_prefix, enum_def.name, values_str);
+                    println!("  {}{} with {} values: {}", 
+                        if enum_def.exported { "export " } else { "" },
+                        enum_def.name,
+                        enum_def.values.len(),
+                        enum_def.values.join(", "));
                 }
-                println!("");
+                println!();
             }
             
             // Display the component names
@@ -116,7 +118,7 @@ Chart {
             }
         }
         Err(e) => {
-            eprintln!("Parse error: {}", e);
+            eprintln!("Error: {}", e);
             process::exit(1);
         }
     }

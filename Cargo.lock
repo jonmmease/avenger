@@ -684,6 +684,8 @@ version = "0.1.0"
 dependencies = [
  "pest",
  "pest_derive",
+ "sqlparser 0.55.0",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -1726,7 +1728,7 @@ dependencies = [
  "libc",
  "num_cpus",
  "paste",
- "sqlparser",
+ "sqlparser 0.51.0",
  "tokio",
 ]
 
@@ -6834,6 +6836,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "recursive"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0786a43debb760f491b1bc0269fe5e84155353c67482b9e60d0cfb596054b43e"
+dependencies = [
+ "recursive-proc-macro-impl",
+ "stacker",
+]
+
+[[package]]
+name = "recursive-proc-macro-impl"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76009fbe0614077fc1a2ce255e3a1881a2e3a3527097d5dc6d8212c585e7e38b"
+dependencies = [
+ "quote",
+ "syn 2.0.89",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7972,6 +7994,16 @@ checksum = "5fe11944a61da0da3f592e19a45ebe5ab92dc14a779907ff1f08fbb797bfefc7"
 dependencies = [
  "log",
  "sqlparser_derive",
+]
+
+[[package]]
+name = "sqlparser"
+version = "0.55.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4521174166bac1ff04fe16ef4524c70144cd29682a45978978ca3d7f4e0be11"
+dependencies = [
+ "log",
+ "recursive",
 ]
 
 [[package]]
