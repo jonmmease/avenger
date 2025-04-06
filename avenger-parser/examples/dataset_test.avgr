@@ -1,0 +1,3 @@
+Chart {
+    dataset ds1: SELECT * FROM foo;
+} 

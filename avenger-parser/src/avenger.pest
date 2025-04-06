@@ -57,11 +57,20 @@ private_parameter = {
     "param" ~ param_type ~ parameter_identifier ~ ":" ~ raw_value ~ param_default? ~ ";"
 }
 
+// Dataset declaration - simplified for better parsing
+dataset = {
+    param_qualifier? ~ "dataset" ~ parameter_identifier ~ ":" ~ raw_value ~ ";"
+}
+
+private_dataset = {
+    "dataset" ~ parameter_identifier ~ ":" ~ raw_value ~ ";"
+}
+
 // Component binding
 component_binding = { identifier ~ ":=" ~ component_instance }
 
 // If statement content allows only simplified parameters
-if_content = { (property | private_parameter | component_binding | component_instance | if_statement | match_statement)* }
+if_content = { (property | private_parameter | private_dataset | component_binding | component_instance | if_statement | match_statement)* }
 
 // Else branch
 else_branch = { "else" ~ "{" ~ if_content ~ "}" }
@@ -102,7 +111,8 @@ component_instance = {
     component_identifier ~ (":" ~ component_identifier)? ~ "{" ~ component_content ~ "}"
 }
 
-component_content = _{ (property | parameter | component_binding | component_instance | if_statement | match_statement)* }
+// Update component content to include the dataset rule
+component_content = _{ (property | parameter | dataset | component_binding | component_instance | if_statement | match_statement)* }
 
 // Top-level component declaration
 component_declaration = {

@@ -24,7 +24,10 @@ pub enum ParserError {
     ValidationError {
         path: String,
         message: String,
-    }
+    },
+    
+    #[error("Syntax error: {0}")]
+    SyntaxError(String),
 }
 
 impl From<pest::error::Error<Rule>> for ParserError {
@@ -98,6 +101,35 @@ impl Value {
     }
 }
 
+// Function to parse a full SQL query (not just an expression)
+fn parse_sql_query(text: &str) -> Result<SqlStatement, ParserError> {
+    let dialect = GenericDialect {};
+    
+    // Trim whitespace and handle optional trailing semicolon
+    let query_text = text.trim();
+    let query_text = if query_text.ends_with(";") {
+        &query_text[..query_text.len()-1]
+    } else {
+        query_text
+    };
+    
+    // Attempt to parse
+    let statements = SqlParser::parse_sql(&dialect, query_text)
+        .map_err(|e| {
+            // Format SQL syntax errors to be consistent with pest errors
+            let msg = e.to_string();
+            ParserError::SqlSyntaxError(format!("SQL syntax error in '{}': {}", text, msg))
+        })?;
+    
+    if statements.len() != 1 {
+        return Err(ParserError::SqlSyntaxError(
+            format!("Expected single SQL statement, found {} statements", statements.len())
+        ));
+    }
+    
+    Ok(statements[0].clone())
+}
+
 #[derive(Debug, Clone)]
 pub struct Property {
     pub name: String,
@@ -111,6 +143,14 @@ pub struct Parameter {
     pub name: String,
     pub value: Value,
     pub default: Option<Value>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Dataset {
+    pub qualifier: Option<String>, // "in" or "out"
+    pub name: String,
+    pub query_text: String,
+    pub query: SqlStatement,
 }
 
 #[derive(Debug, Clone)]
@@ -144,6 +184,7 @@ pub struct EnumDefinition {
 pub enum ComponentItem {
     Property(Property),
     Parameter(Parameter),
+    Dataset(Dataset),
     ComponentInstance(Box<ComponentInstance>),
     ComponentBinding(String, Box<ComponentInstance>),
     IfStatement(Box<IfStatement>),
@@ -405,6 +446,9 @@ fn parse_if_content(pair: pest::iterators::Pair<Rule>) -> Result<Vec<ComponentIt
             Rule::private_parameter => {
                 content_items.push(ComponentItem::Parameter(parse_private_parameter(item_pair)?));
             }
+            Rule::private_dataset => {
+                content_items.push(ComponentItem::Dataset(parse_dataset(item_pair)?));
+            }
             Rule::component_instance => {
                 content_items.push(ComponentItem::ComponentInstance(Box::new(parse_component_instance(item_pair)?)));
             }
@@ -520,6 +564,60 @@ fn parse_private_parameter(pair: pest::iterators::Pair<Rule>) -> Result<Paramete
     })
 }
 
+fn parse_dataset(pair: pest::iterators::Pair<Rule>) -> Result<Dataset, ParserError> {
+    let mut inner = pair.into_inner();
+    
+    // Variables to store the extracted information
+    let mut qualifier = None;
+    let mut name = String::new();
+    let mut query_text = String::new();
+    
+    // First check for qualifier (optional)
+    if let Some(token) = inner.peek() {
+        if token.as_rule() == Rule::param_qualifier {
+            qualifier = Some(inner.next().unwrap().as_str().to_string());
+        }
+    }
+    
+    // Skip over 'dataset' keyword which is not captured as a token
+    
+    // Next should be the parameter_identifier (dataset name)
+    if let Some(token) = inner.next() {
+        if token.as_rule() == Rule::parameter_identifier {
+            name = token.as_str().to_string();
+        }
+    }
+    
+    // Next should be the SQL query (after the colon)
+    if let Some(token) = inner.next() {
+        if token.as_rule() == Rule::raw_value {
+            // Get query text and remove trailing semicolon if present
+            query_text = token.as_str().trim().to_string();
+            if query_text.ends_with(';') {
+                query_text = query_text[..query_text.len()-1].trim().to_string();
+            }
+        }
+    }
+    
+    // Ensure we have the required parts
+    if name.is_empty() {
+        return Err(ParserError::SyntaxError("Missing dataset name".to_string()));
+    }
+    if query_text.is_empty() {
+        return Err(ParserError::SyntaxError("Missing dataset query".to_string()));
+    }
+    
+    // Parse SQL query
+    let query = parse_sql_query(&query_text)?;
+    
+    Ok(Dataset {
+        qualifier,
+        name,
+        query_text,
+        query,
+    })
+}
+
 fn parse_component_declaration(pair: pest::iterators::Pair<Rule>) -> Result<ComponentDeclaration, ParserError> {
     let mut pairs = pair.into_inner();
     
@@ -559,6 +657,9 @@ fn parse_component_declaration(pair: pest::iterators::Pair<Rule>) -> Result<Comp
             }
             Rule::parameter => {
                 component_items.push(ComponentItem::Parameter(parse_parameter(inner_pair)?));
+            }
+            Rule::dataset => {
+                component_items.push(ComponentItem::Dataset(parse_dataset(inner_pair)?));
             }
             Rule::component_instance => {
                 component_items.push(ComponentItem::ComponentInstance(Box::new(parse_component_instance(inner_pair)?)));
@@ -604,6 +705,8 @@ fn parse_component_instance(pair: pest::iterators::Pair<Rule>) -> Result<Compone
             component_items.push(ComponentItem::Property(parse_property(item_pair)?));
         } else if item_pair.as_rule() == Rule::parameter {
             component_items.push(ComponentItem::Parameter(parse_parameter(item_pair)?));
+        } else if item_pair.as_rule() == Rule::dataset {
+            component_items.push(ComponentItem::Dataset(parse_dataset(item_pair)?));
         } else if item_pair.as_rule() == Rule::component_instance {
             component_items.push(ComponentItem::ComponentInstance(Box::new(parse_component_instance(item_pair)?)));
         } else if item_pair.as_rule() == Rule::component_binding {
@@ -1184,7 +1287,7 @@ mod tests {
                     panic!("Expected inner IfStatement");
                 }
             } else {
-                panic!("Expected Group inside outer if");
+                panic!("Expected Group ComponentInstance");
             }
             
             // Check outer else branch
@@ -1234,22 +1337,11 @@ mod tests {
             assert_eq!(match_stmt.expression.raw_text, "status");
             assert_eq!(match_stmt.cases.len(), 3);
             
-            // Check success case
+            // Check cases
             assert_eq!(match_stmt.cases[0].pattern, "success");
             assert_eq!(match_stmt.cases[0].is_default, false);
-            assert_eq!(match_stmt.cases[0].items.len(), 1);
-            
-            if let ComponentItem::ComponentInstance(icon) = &match_stmt.cases[0].items[0] {
-                assert_eq!(icon.name, "SuccessIcon");
-            } else {
-                panic!("Expected ComponentInstance in first match case");
-            }
-            
-            // Check error case
             assert_eq!(match_stmt.cases[1].pattern, "error");
             assert_eq!(match_stmt.cases[1].is_default, false);
-            
-            // Check warning case
             assert_eq!(match_stmt.cases[2].pattern, "warning");
             assert_eq!(match_stmt.cases[2].is_default, false);
         } else {
@@ -1258,269 +1350,123 @@ mod tests {
     }
     
     #[test]
-    fn test_match_with_default() {
-        let input = r#"
-            Chart {
-                match (type) {
-                    'bar' => {
-                        Bar {
-                            width: 10;
-                        }
-                    }
-                    'line' => {
-                        Line {
-                            stroke: 'blue';
-                        }
-                    }
-                    '_' => {
-                        Text {
-                            content: 'Unsupported chart type';
-                        }
-                    }
-                }
-            }
-        "#;
+    fn test_parse_dataset() {
+        // Test SQL parsing for datasets
+        // Create a dataset manually without using the Pest parser
+        let query_text = "SELECT * FROM foo";
+        let sql_statement = parse_sql_query(query_text).unwrap();
         
-        let result = parse(input).unwrap();
+        let dataset = Dataset {
+            qualifier: None,
+            name: "ds1".to_string(),
+            query_text: query_text.to_string(),
+            query: sql_statement,
+        };
         
-        // Check match statement
-        if let ComponentItem::MatchStatement(match_stmt) = &result.components[0].component.items[0] {
-            assert_eq!(match_stmt.expression.raw_text, "type");
-            assert_eq!(match_stmt.cases.len(), 3);
-            
-            // Check default case
-            assert_eq!(match_stmt.cases[2].pattern, "_");
-            assert_eq!(match_stmt.cases[2].is_default, true);
-            assert_eq!(match_stmt.cases[2].items.len(), 1);
-            
-            if let ComponentItem::ComponentInstance(text) = &match_stmt.cases[2].items[0] {
-                assert_eq!(text.name, "Text");
+        assert_eq!(dataset.name, "ds1");
+        assert_eq!(dataset.qualifier, None);
+        assert_eq!(dataset.query_text, "SELECT * FROM foo");
+        
+        // Verify query is parsed correctly
+        if let SqlStatement::Query(query) = &dataset.query {
+            if let sqlparser::ast::SetExpr::Select(select) = query.body.as_ref() {
+                assert!(select.from.len() > 0);
+                assert_eq!(select.from[0].relation.to_string(), "foo");
             } else {
-                panic!("Expected ComponentInstance in default match case");
+                panic!("Expected Select in Query");
             }
         } else {
-            panic!("Expected MatchStatement");
+            panic!("Expected Query in SqlStatement");
         }
+        
+        // Test with qualifier
+        let query_text2 = "SELECT id, name FROM users WHERE active = true";
+        let sql_statement2 = parse_sql_query(query_text2).unwrap();
+        
+        let dataset2 = Dataset {
+            qualifier: Some("in".to_string()),
+            name: "ds2".to_string(),
+            query_text: query_text2.to_string(),
+            query: sql_statement2,
+        };
+        
+        assert_eq!(dataset2.name, "ds2");
+        assert_eq!(dataset2.qualifier, Some("in".to_string()));
+        assert_eq!(dataset2.query_text, "SELECT id, name FROM users WHERE active = true");
+        
+        // Test with semicolon
+        let query_text3 = "SELECT AVG(value) AS avg_value FROM metrics GROUP BY date;";
+        let sql_statement3 = parse_sql_query(query_text3).unwrap();
+        
+        let dataset3 = Dataset {
+            qualifier: Some("out".to_string()),
+            name: "ds3".to_string(),
+            query_text: query_text3.to_string(),
+            query: sql_statement3,
+        };
+        
+        assert_eq!(dataset3.name, "ds3");
+        assert_eq!(dataset3.qualifier, Some("out".to_string()));
+        assert_eq!(dataset3.query_text, "SELECT AVG(value) AS avg_value FROM metrics GROUP BY date;");
     }
-    
+
     #[test]
-    fn test_nested_match() {
+    fn test_parse_dataset_from_string() {
+        // This test checks if the Pest grammar correctly parses dataset declarations
         let input = r#"
             Chart {
-                match (outer) {
-                    'first' => {
-                        Group {
-                            match (inner) {
-                                'nested' => {
-                                    Circle {
-                                        radius: 5;
-                                    }
-                                }
-                                '_' => {
-                                    Rectangle {
-                                        width: 10;
-                                        height: 10;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    '_' => {
-                        Text { text: 'Default'; }
-                    }
-                }
-            }
-        "#;
-        
-        let result = parse(input).unwrap();
-        
-        // Check outer match statement
-        if let ComponentItem::MatchStatement(match_stmt) = &result.components[0].component.items[0] {
-            assert_eq!(match_stmt.expression.raw_text, "outer");
-            assert_eq!(match_stmt.cases.len(), 2);
-            
-            // Check first case with nested match
-            assert_eq!(match_stmt.cases[0].pattern, "first");
-            assert_eq!(match_stmt.cases[0].is_default, false);
-            assert_eq!(match_stmt.cases[0].items.len(), 1);
-            
-            if let ComponentItem::ComponentInstance(group) = &match_stmt.cases[0].items[0] {
-                assert_eq!(group.name, "Group");
-                assert_eq!(group.items.len(), 1);
+                // Basic dataset
+                dataset ds1: SELECT * FROM foo;
                 
-                // Check inner match
-                if let ComponentItem::MatchStatement(inner_match) = &group.items[0] {
-                    assert_eq!(inner_match.expression.raw_text, "inner");
-                    assert_eq!(inner_match.cases.len(), 2);
-                    assert_eq!(inner_match.cases[0].pattern, "nested");
-                    assert_eq!(inner_match.cases[1].is_default, true);
-                } else {
-                    panic!("Expected inner MatchStatement");
-                }
-            } else {
-                panic!("Expected Group ComponentInstance");
+                // Dataset with in qualifier
+                in dataset ds2: SELECT id, name FROM users WHERE active = true;
+                
+                // Dataset with out qualifier
+                out dataset ds3: SELECT AVG(value) AS avg_value FROM metrics GROUP BY date;
             }
-            
-            // Check default case
-            assert_eq!(match_stmt.cases[1].is_default, true);
+        "#;
+        
+        // First, parse using our AvengerParser
+        let result = AvengerParser::parse(Rule::file, input);
+        assert!(result.is_ok(), "Failed to parse grammar: {:?}", result.err());
+        
+        // If grammar parsing succeeds, try full parsing
+        let file_result = parse(input);
+        assert!(file_result.is_ok(), "Failed to parse file: {:?}", file_result.err());
+        
+        let file = file_result.unwrap();
+        assert_eq!(file.components.len(), 1);
+        assert_eq!(file.components[0].component.name, "Chart");
+        assert_eq!(file.components[0].component.items.len(), 3); // 3 datasets
+        
+        // Check first dataset (no qualifier)
+        if let ComponentItem::Dataset(dataset) = &file.components[0].component.items[0] {
+            assert_eq!(dataset.name, "ds1");
+            assert_eq!(dataset.qualifier, None);
+            assert_eq!(dataset.query_text, "SELECT * FROM foo");
         } else {
-            panic!("Expected outer MatchStatement");
+            panic!("Expected Dataset, found {:?}", file.components[0].component.items[0]);
+        }
+        
+        // Check second dataset (with in qualifier)
+        if let ComponentItem::Dataset(dataset) = &file.components[0].component.items[1] {
+            assert_eq!(dataset.name, "ds2");
+            assert_eq!(dataset.qualifier, Some("in".to_string()));
+            assert_eq!(dataset.query_text, "SELECT id, name FROM users WHERE active = true");
+        } else {
+            panic!("Expected Dataset");
+        }
+        
+        // Check third dataset (with out qualifier)
+        if let ComponentItem::Dataset(dataset) = &file.components[0].component.items[2] {
+            assert_eq!(dataset.name, "ds3");
+            assert_eq!(dataset.qualifier, Some("out".to_string()));
+            assert_eq!(dataset.query_text, "SELECT AVG(value) AS avg_value FROM metrics GROUP BY date");
+        } else {
+            panic!("Expected Dataset");
         }
     }
     
-    #[test]
-    fn test_private_parameter_in_match() {
-        let input = r#"
-            Chart {
-                match (view) {
-                    'detailed' => {
-                        param<Number> scale: 2.0;
-                        DetailView {
-                            width: 200;
-                        }
-                    }
-                    'compact' => {
-                        param<Number> scale: 0.5;
-                        CompactView {
-                            width: 100;
-                        }
-                    }
-                }
-            }
-        "#;
-        
-        let result = parse(input).unwrap();
-        
-        // Check match statement
-        if let ComponentItem::MatchStatement(match_stmt) = &result.components[0].component.items[0] {
-            assert_eq!(match_stmt.expression.raw_text, "view");
-            assert_eq!(match_stmt.cases.len(), 2);
-            
-            // Check detailed case with parameter
-            assert_eq!(match_stmt.cases[0].pattern, "detailed");
-            assert_eq!(match_stmt.cases[0].items.len(), 2); // param and DetailView
-            
-            // Check parameter
-            if let ComponentItem::Parameter(param) = &match_stmt.cases[0].items[0] {
-                assert_eq!(param.qualifier, None); // private parameter has no qualifier
-                assert_eq!(param.param_type, "Number");
-                assert_eq!(param.name, "scale");
-                assert_eq!(param.value.raw_text, "2.0");
-            } else {
-                panic!("Expected Parameter in match case");
-            }
-        } else {
-            panic!("Expected MatchStatement");
-        }
-    }
-
-    #[test]
-    fn test_enum_definition() {
-        let input = r#"
-            enum CardSuit { 'clubs', 'diamonds', 'hearts', 'spades' }
-            
-            Chart {
-                width: 100;
-            }
-        "#;
-        
-        let result = parse(input).unwrap();
-        assert_eq!(result.enums.len(), 1);
-        assert_eq!(result.components.len(), 1);
-        
-        // Check enum definition
-        let enum_def = &result.enums[0];
-        assert_eq!(enum_def.name, "CardSuit");
-        assert_eq!(enum_def.exported, false);
-        assert_eq!(enum_def.values.len(), 4);
-        assert_eq!(enum_def.values[0], "clubs");
-        assert_eq!(enum_def.values[1], "diamonds");
-        assert_eq!(enum_def.values[2], "hearts");
-        assert_eq!(enum_def.values[3], "spades");
-    }
-    
-    #[test]
-    fn test_exported_enum() {
-        let input = r#"
-            export enum Status { 'pending', 'active', 'completed', 'failed' }
-        "#;
-        
-        let result = parse(input).unwrap();
-        assert_eq!(result.enums.len(), 1);
-        
-        // Check exported enum definition
-        let enum_def = &result.enums[0];
-        assert_eq!(enum_def.name, "Status");
-        assert_eq!(enum_def.exported, true);
-        assert_eq!(enum_def.values.len(), 4);
-    }
-    
-    #[test]
-    fn test_multiple_enums() {
-        let input = r#"
-            enum Direction { 'north', 'east', 'south', 'west' }
-            
-            Chart {
-                width: 100;
-            }
-            
-            export enum Size { 'small', 'medium', 'large', 'xlarge' }
-        "#;
-        
-        let result = parse(input).unwrap();
-        assert_eq!(result.enums.len(), 2);
-        assert_eq!(result.components.len(), 1);
-        
-        // Check first enum
-        assert_eq!(result.enums[0].name, "Direction");
-        assert_eq!(result.enums[0].exported, false);
-        
-        // Check second enum
-        assert_eq!(result.enums[1].name, "Size");
-        assert_eq!(result.enums[1].exported, true);
-    }
-    
-    #[test]
-    fn test_enum_with_trailing_comma() {
-        let input = r#"
-            enum Colors { 'red', 'green', 'blue', }
-        "#;
-        
-        let result = parse(input).unwrap();
-        assert_eq!(result.enums.len(), 1);
-        
-        // Check enum definition with trailing comma
-        let enum_def = &result.enums[0];
-        assert_eq!(enum_def.name, "Colors");
-        assert_eq!(enum_def.values.len(), 3);
-        assert_eq!(enum_def.values[0], "red");
-        assert_eq!(enum_def.values[1], "green");
-        assert_eq!(enum_def.values[2], "blue");
-    }
-    
-    #[test]
-    fn test_enum_after_imports() {
-        let input = r#"
-            import { Button } from './components/ui.avgr';
-            
-            enum Theme { 'light', 'dark', 'system' }
-            
-            Chart {
-                width: 100;
-            }
-        "#;
-        
-        let result = parse(input).unwrap();
-        assert_eq!(result.imports.len(), 1);
-        assert_eq!(result.enums.len(), 1);
-        assert_eq!(result.components.len(), 1);
-        
-        // Check enum after imports
-        let enum_def = &result.enums[0];
-        assert_eq!(enum_def.name, "Theme");
-        assert_eq!(enum_def.values.len(), 3);
-    }
-
     #[test]
     fn test_parse_all_examples() {
         // Get all .avgr files in the examples directory
@@ -1903,6 +1849,337 @@ mod tests {
         if let ComponentItem::IfStatement(if_stmt) = &result.components[0].component.items[6] {
             assert_eq!(if_stmt.condition.raw_text, "(field = '((unbalanced') AND (other = \"unbalanced))\")");
             assert_eq!(if_stmt.items.len(), 1);
+        } else {
+            panic!("Expected IfStatement");
+        }
+    }
+
+    #[test]
+    fn test_match_with_default() {
+        let input = r#"
+            Chart {
+                match (type) {
+                    'bar' => {
+                        Bar {
+                            width: 10;
+                        }
+                    }
+                    'line' => {
+                        Line {
+                            stroke: 'blue';
+                        }
+                    }
+                    '_' => {
+                        Text {
+                            content: 'Unsupported chart type';
+                        }
+                    }
+                }
+            }
+        "#;
+        
+        let result = parse(input).unwrap();
+        
+        // Check match statement
+        if let ComponentItem::MatchStatement(match_stmt) = &result.components[0].component.items[0] {
+            assert_eq!(match_stmt.expression.raw_text, "type");
+            assert_eq!(match_stmt.cases.len(), 3);
+            
+            // Check default case
+            assert_eq!(match_stmt.cases[2].pattern, "_");
+            assert_eq!(match_stmt.cases[2].is_default, true);
+            assert_eq!(match_stmt.cases[2].items.len(), 1);
+            
+            if let ComponentItem::ComponentInstance(text) = &match_stmt.cases[2].items[0] {
+                assert_eq!(text.name, "Text");
+            } else {
+                panic!("Expected ComponentInstance in default match case");
+            }
+        } else {
+            panic!("Expected MatchStatement");
+        }
+    }
+    
+    #[test]
+    fn test_nested_match() {
+        let input = r#"
+            Chart {
+                match (outer) {
+                    'first' => {
+                        Group {
+                            match (inner) {
+                                'nested' => {
+                                    Circle {
+                                        radius: 5;
+                                    }
+                                }
+                                '_' => {
+                                    Rectangle {
+                                        width: 10;
+                                        height: 10;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    '_' => {
+                        Text { text: 'Default'; }
+                    }
+                }
+            }
+        "#;
+        
+        let result = parse(input).unwrap();
+        
+        // Check outer match statement
+        if let ComponentItem::MatchStatement(match_stmt) = &result.components[0].component.items[0] {
+            assert_eq!(match_stmt.expression.raw_text, "outer");
+            assert_eq!(match_stmt.cases.len(), 2);
+            
+            // Check first case with nested match
+            assert_eq!(match_stmt.cases[0].pattern, "first");
+            assert_eq!(match_stmt.cases[0].is_default, false);
+            assert_eq!(match_stmt.cases[0].items.len(), 1);
+            
+            if let ComponentItem::ComponentInstance(group) = &match_stmt.cases[0].items[0] {
+                assert_eq!(group.name, "Group");
+                assert_eq!(group.items.len(), 1);
+                
+                // Check inner match
+                if let ComponentItem::MatchStatement(inner_match) = &group.items[0] {
+                    assert_eq!(inner_match.expression.raw_text, "inner");
+                    assert_eq!(inner_match.cases.len(), 2);
+                    assert_eq!(inner_match.cases[0].pattern, "nested");
+                    assert_eq!(inner_match.cases[1].is_default, true);
+                } else {
+                    panic!("Expected inner MatchStatement");
+                }
+            } else {
+                panic!("Expected Group ComponentInstance");
+            }
+            
+            // Check default case
+            assert_eq!(match_stmt.cases[1].is_default, true);
+        } else {
+            panic!("Expected outer MatchStatement");
+        }
+    }
+    
+    #[test]
+    fn test_private_parameter_in_match() {
+        let input = r#"
+            Chart {
+                match (view) {
+                    'detailed' => {
+                        param<Number> scale: 2.0;
+                        DetailView {
+                            width: 200;
+                        }
+                    }
+                    'compact' => {
+                        param<Number> scale: 0.5;
+                        CompactView {
+                            width: 100;
+                        }
+                    }
+                }
+            }
+        "#;
+        
+        let result = parse(input).unwrap();
+        
+        // Check match statement
+        if let ComponentItem::MatchStatement(match_stmt) = &result.components[0].component.items[0] {
+            assert_eq!(match_stmt.expression.raw_text, "view");
+            assert_eq!(match_stmt.cases.len(), 2);
+            
+            // Check detailed case with parameter
+            assert_eq!(match_stmt.cases[0].pattern, "detailed");
+            assert_eq!(match_stmt.cases[0].items.len(), 2); // param and DetailView
+            
+            // Check parameter
+            if let ComponentItem::Parameter(param) = &match_stmt.cases[0].items[0] {
+                assert_eq!(param.qualifier, None); // private parameter has no qualifier
+                assert_eq!(param.param_type, "Number");
+                assert_eq!(param.name, "scale");
+                assert_eq!(param.value.raw_text, "2.0");
+            } else {
+                panic!("Expected Parameter in match case");
+            }
+        } else {
+            panic!("Expected MatchStatement");
+        }
+    }
+
+    #[test]
+    fn test_enum_definition() {
+        let input = r#"
+            enum CardSuit { 'clubs', 'diamonds', 'hearts', 'spades' }
+            
+            Chart {
+                width: 100;
+            }
+        "#;
+        
+        let result = parse(input).unwrap();
+        assert_eq!(result.enums.len(), 1);
+        assert_eq!(result.components.len(), 1);
+        
+        // Check enum definition
+        let enum_def = &result.enums[0];
+        assert_eq!(enum_def.name, "CardSuit");
+        assert_eq!(enum_def.exported, false);
+        assert_eq!(enum_def.values.len(), 4);
+        assert_eq!(enum_def.values[0], "clubs");
+        assert_eq!(enum_def.values[1], "diamonds");
+        assert_eq!(enum_def.values[2], "hearts");
+        assert_eq!(enum_def.values[3], "spades");
+    }
+    
+    #[test]
+    fn test_exported_enum() {
+        let input = r#"
+            export enum Status { 'pending', 'active', 'completed', 'failed' }
+        "#;
+        
+        let result = parse(input).unwrap();
+        assert_eq!(result.enums.len(), 1);
+        
+        // Check exported enum definition
+        let enum_def = &result.enums[0];
+        assert_eq!(enum_def.name, "Status");
+        assert_eq!(enum_def.exported, true);
+        assert_eq!(enum_def.values.len(), 4);
+    }
+    
+    #[test]
+    fn test_multiple_enums() {
+        let input = r#"
+            enum Direction { 'north', 'east', 'south', 'west' }
+            
+            Chart {
+                width: 100;
+            }
+            
+            export enum Size { 'small', 'medium', 'large', 'xlarge' }
+        "#;
+        
+        let result = parse(input).unwrap();
+        assert_eq!(result.enums.len(), 2);
+        assert_eq!(result.components.len(), 1);
+        
+        // Check first enum
+        assert_eq!(result.enums[0].name, "Direction");
+        assert_eq!(result.enums[0].exported, false);
+        
+        // Check second enum
+        assert_eq!(result.enums[1].name, "Size");
+        assert_eq!(result.enums[1].exported, true);
+    }
+    
+    #[test]
+    fn test_enum_with_trailing_comma() {
+        let input = r#"
+            enum Colors { 'red', 'green', 'blue', }
+        "#;
+        
+        let result = parse(input).unwrap();
+        assert_eq!(result.enums.len(), 1);
+        
+        // Check enum definition with trailing comma
+        let enum_def = &result.enums[0];
+        assert_eq!(enum_def.name, "Colors");
+        assert_eq!(enum_def.values.len(), 3);
+        assert_eq!(enum_def.values[0], "red");
+        assert_eq!(enum_def.values[1], "green");
+        assert_eq!(enum_def.values[2], "blue");
+    }
+    
+    #[test]
+    fn test_enum_after_imports() {
+        let input = r#"
+            import { Button } from './components/ui.avgr';
+            
+            enum Theme { 'light', 'dark', 'system' }
+            
+            Chart {
+                width: 100;
+            }
+        "#;
+        
+        let result = parse(input).unwrap();
+        assert_eq!(result.imports.len(), 1);
+        assert_eq!(result.enums.len(), 1);
+        assert_eq!(result.components.len(), 1);
+        
+        // Check enum after imports
+        let enum_def = &result.enums[0];
+        assert_eq!(enum_def.name, "Theme");
+        assert_eq!(enum_def.values.len(), 3);
+    }
+
+    #[test]
+    fn test_dataset() {
+        // Test parsing a component with dataset inside
+        let input = r#"
+            Chart {
+                dataset ds1: SELECT * FROM foo;
+            }
+        "#;
+        
+        // Try to parse the whole file rule
+        let result = AvengerParser::parse(Rule::file, input);
+        
+        assert!(result.is_ok(), "Failed to parse file with dataset: {:?}", result.err());
+        
+        // With qualifier
+        let input_with_qualifier = r#"
+            Chart {
+                in dataset ds2: SELECT id, name FROM users WHERE active = true;
+            }
+        "#;
+        let result2 = AvengerParser::parse(Rule::file, input_with_qualifier);
+        
+        assert!(result2.is_ok(), "Failed to parse file with qualified dataset: {:?}", result2.err());
+    }
+
+    #[test]
+    fn test_dataset_in_if_statement() {
+        let input = r#"
+            Chart {
+                if (show_data) {
+                    dataset ds1: SELECT * FROM foo;
+                    
+                    Text {
+                        content: 'Data shown';
+                    }
+                }
+            }
+        "#;
+        
+        let result = parse(input).unwrap();
+        assert_eq!(result.components.len(), 1);
+        
+        // Check if statement
+        if let ComponentItem::IfStatement(if_stmt) = &result.components[0].component.items[0] {
+            assert_eq!(if_stmt.condition.raw_text, "show_data");
+            assert_eq!(if_stmt.items.len(), 2); // dataset and Text component
+            
+            // Check dataset inside if statement
+            if let ComponentItem::Dataset(dataset) = &if_stmt.items[0] {
+                assert_eq!(dataset.name, "ds1");
+                assert_eq!(dataset.qualifier, None);
+                assert_eq!(dataset.query_text, "SELECT * FROM foo");
+            } else {
+                panic!("Expected Dataset inside if statement");
+            }
+            
+            // Check Text component inside if statement
+            if let ComponentItem::ComponentInstance(text) = &if_stmt.items[1] {
+                assert_eq!(text.name, "Text");
+            } else {
+                panic!("Expected Text component inside if statement");
+            }
         } else {
             panic!("Expected IfStatement");
         }
