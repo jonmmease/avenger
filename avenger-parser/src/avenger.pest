@@ -10,6 +10,7 @@ identifier           = @{ (ASCII_ALPHA_LOWER | "_") ~ (ASCII_ALPHANUMERIC | "_")
 component_identifier = @{ ASCII_ALPHA_UPPER ~ (ASCII_ALPHA | ASCII_DIGIT)* }
 type_name            = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
 parameter_identifier = @{ ASCII_ALPHA_LOWER ~ (ASCII_ALPHA_LOWER | ASCII_DIGIT | "_")* }
+function_identifier  = @{ (ASCII_ALPHA_LOWER | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
 
 // Export qualifier
 export_qualifier = { "export" }
@@ -111,6 +112,27 @@ enum_definition = {
     export_qualifier? ~ "enum" ~ enum_identifier ~ "{" ~ enum_values ~ "}"
 }
 
+// Function parameter types
+function_param_type  = { "dataset" | "param" | "expr" }
+function_return_type = { "dataset" | "param" | "expr" }
+
+// Function parameter definition
+function_param = { function_param_type ~ parameter_identifier ~ (":" ~ raw_value)? ~ ";" }
+
+// Function parameters list
+function_params = { "(" ~ function_param* ~ ")" }
+
+// SQL query used directly in function content
+function_sql = { sql_query ~ ";" }
+
+// Function content allows private parameters, expr, datasets, if and match statements, and function_sql
+function_content = { (private_parameter | private_expr | private_dataset | if_statement | match_statement | function_sql)* }
+
+// Function definition
+function_definition = {
+    export_qualifier? ~ "function" ~ function_identifier ~ function_params ~ "->" ~ function_return_type ~ "{" ~ function_content ~ "}"
+}
+
 // Component instance
 component_instance = {
     component_identifier ~ (":" ~ component_identifier)? ~ "{" ~ component_content ~ "}"
@@ -124,7 +146,7 @@ component_declaration = {
     export_qualifier? ~ "component"? ~ component_identifier ~ "{" ~ component_content ~ "}"
 }
 
-// File is now import statements followed by enum definitions and component declarations
+// File is now import statements followed by enum definitions, function definitions and component declarations
 file = {
-    SOI ~ import_statement* ~ (enum_definition | component_declaration)* ~ EOI
+    SOI ~ import_statement* ~ (enum_definition | function_definition | component_declaration)* ~ EOI
 }
