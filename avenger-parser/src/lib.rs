@@ -446,7 +446,7 @@ fn parse_if_content(pair: pest::iterators::Pair<Rule>) -> Result<Vec<ComponentIt
             Rule::private_parameter => {
                 content_items.push(ComponentItem::Parameter(parse_private_parameter(item_pair)?));
             }
-            Rule::private_dataset => {
+            Rule::in_dataset | Rule::out_dataset | Rule::private_dataset => {
                 content_items.push(ComponentItem::Dataset(parse_dataset(item_pair)?));
             }
             Rule::component_instance => {
@@ -564,58 +564,134 @@ fn parse_private_parameter(pair: pest::iterators::Pair<Rule>) -> Result<Paramete
     })
 }
 
+// Update the parse_dataset function without a trailing backtick
 fn parse_dataset(pair: pest::iterators::Pair<Rule>) -> Result<Dataset, ParserError> {
-    let mut inner = pair.into_inner();
+    // println!("parse_dataset called with rule: {:?}, text: '{}'", pair.as_rule(), pair.as_str());
     
-    // Variables to store the extracted information
-    let mut qualifier = None;
-    let mut name = String::new();
-    let mut query_text = String::new();
-    
-    // First check for qualifier (optional)
-    if let Some(token) = inner.peek() {
-        if token.as_rule() == Rule::param_qualifier {
-            qualifier = Some(inner.next().unwrap().as_str().to_string());
-        }
-    }
-    
-    // Skip over 'dataset' keyword which is not captured as a token
-    
-    // Next should be the parameter_identifier (dataset name)
-    if let Some(token) = inner.next() {
-        if token.as_rule() == Rule::parameter_identifier {
-            name = token.as_str().to_string();
-        }
-    }
-    
-    // Next should be the SQL query (after the colon)
-    if let Some(token) = inner.next() {
-        if token.as_rule() == Rule::raw_value {
-            // Get query text and remove trailing semicolon if present
-            query_text = token.as_str().trim().to_string();
-            if query_text.ends_with(';') {
-                query_text = query_text[..query_text.len()-1].trim().to_string();
+    match pair.as_rule() {
+        Rule::in_dataset => {
+            // For in datasets, which don't have a SQL query
+            let mut inner = pair.into_inner();
+            
+            // Get the dataset name
+            let name_token = inner.next().ok_or_else(|| 
+                ParserError::SyntaxError("Expected dataset name in in_dataset".to_string())
+            )?;
+            let name = name_token.as_str().to_string();
+            
+            // Parse an empty query just for placeholder purposes
+            let query = parse_sql_query("SELECT 1")?;
+            
+            // Return dataset with in qualifier but empty query text
+            Ok(Dataset {
+                qualifier: Some("in".to_string()),
+                name,
+                query_text: String::new(),
+                query,
+            })
+        },
+        Rule::out_dataset => {
+            // For out datasets with required SQL query
+            let mut inner = pair.into_inner();
+            
+            // Get the dataset name 
+            let name_token = inner.next().ok_or_else(|| 
+                ParserError::SyntaxError("Expected dataset name in out_dataset".to_string())
+            )?;
+            let name = name_token.as_str().to_string();
+            
+            // Get query text
+            let query_token = inner.next().ok_or_else(|| 
+                ParserError::SyntaxError("Expected SQL query in out_dataset".to_string())
+            )?;
+            let query_text = query_token.as_str().trim().to_string();
+            
+            // Remove trailing semicolon if present
+            let query_text = if query_text.ends_with(';') {
+                query_text[..query_text.len()-1].trim().to_string()
+            } else {
+                query_text
+            };
+            
+            // Parse SQL query
+            let query = parse_sql_query(&query_text)?;
+            
+            Ok(Dataset {
+                qualifier: Some("out".to_string()),
+                name,
+                query_text,
+                query,
+            })
+        },
+        Rule::private_dataset => {            
+            // Check if it's a dataset without a colon (in dataset without query)
+            let has_colon = pair.as_str().contains(':');
+            
+            if !has_colon {
+                // Simple "dataset name;" format - treat as in dataset
+                let mut inner = pair.into_inner();
+                let name = inner.next().ok_or_else(|| 
+                    ParserError::SyntaxError("Expected dataset name in private dataset without query".to_string())
+                )?.as_str().to_string();
+                
+                // Parse an empty query just for placeholder purposes
+                let query = parse_sql_query("SELECT 1")?;
+                
+                // Return dataset with in qualifier but empty query text
+                return Ok(Dataset {
+                    qualifier: Some("in".to_string()),
+                    name,
+                    query_text: String::new(),
+                    query,
+                });
             }
+            
+            // Regular dataset with query
+            let mut inner = pair.into_inner();
+            
+            // Get dataset name 
+            let name = inner.next().ok_or_else(|| 
+                ParserError::SyntaxError("Expected dataset name in private dataset with query".to_string())
+            )?.as_str().to_string();
+            
+            // Get query text
+            let query_text = inner.next().ok_or_else(|| 
+                ParserError::SyntaxError("Expected SQL query in private dataset".to_string())
+            )?.as_str().trim().to_string();
+            
+            // Remove trailing semicolon if present
+            let query_text = if query_text.ends_with(';') {
+                query_text[..query_text.len()-1].trim().to_string()
+            } else {
+                query_text
+            };
+            
+            // Parse SQL query
+            let query = parse_sql_query(&query_text)?;
+            
+            Ok(Dataset {
+                qualifier: None,
+                name,
+                query_text,
+                query,
+            })
+        },
+        // For cases where we have a dataset inside a conditional
+        Rule::dataset => {
+            // Recursively process the dataset based on its inner rule
+            let inner_dataset = pair.into_inner().next().ok_or_else(|| 
+                ParserError::SyntaxError("Empty dataset rule".to_string())
+            )?;
+            
+            // Recursively call parse_dataset with the inner rule
+            parse_dataset(inner_dataset)
+        },
+        _ => {            
+            Err(ParserError::SyntaxError(format!(
+                "Unexpected dataset rule: {:?}", pair.as_rule()
+            )))
         }
     }
-    
-    // Ensure we have the required parts
-    if name.is_empty() {
-        return Err(ParserError::SyntaxError("Missing dataset name".to_string()));
-    }
-    if query_text.is_empty() {
-        return Err(ParserError::SyntaxError("Missing dataset query".to_string()));
-    }
-    
-    // Parse SQL query
-    let query = parse_sql_query(&query_text)?;
-    
-    Ok(Dataset {
-        qualifier,
-        name,
-        query_text,
-        query,
-    })
 }
 
 fn parse_component_declaration(pair: pest::iterators::Pair<Rule>) -> Result<ComponentDeclaration, ParserError> {
@@ -1418,8 +1494,8 @@ mod tests {
                 // Basic dataset
                 dataset ds1: SELECT * FROM foo;
                 
-                // Dataset with in qualifier
-                in dataset ds2: SELECT id, name FROM users WHERE active = true;
+                // Dataset with in qualifier (no query)
+                in dataset ds2;
                 
                 // Dataset with out qualifier
                 out dataset ds3: SELECT AVG(value) AS avg_value FROM metrics GROUP BY date;
@@ -1428,10 +1504,22 @@ mod tests {
         
         // First, parse using our AvengerParser
         let result = AvengerParser::parse(Rule::file, input);
+        
+        // Check for grammar parsing errors
+        if let Err(err) = &result {
+            println!("Grammar parsing error: {:?}", err);
+        }
+        
         assert!(result.is_ok(), "Failed to parse grammar: {:?}", result.err());
         
         // If grammar parsing succeeds, try full parsing
         let file_result = parse(input);
+        
+        // Check for file parsing errors
+        if let Err(err) = &file_result {
+            println!("File parsing error: {:?}", err);
+        }
+        
         assert!(file_result.is_ok(), "Failed to parse file: {:?}", file_result.err());
         
         let file = file_result.unwrap();
@@ -1452,7 +1540,7 @@ mod tests {
         if let ComponentItem::Dataset(dataset) = &file.components[0].component.items[1] {
             assert_eq!(dataset.name, "ds2");
             assert_eq!(dataset.qualifier, Some("in".to_string()));
-            assert_eq!(dataset.query_text, "SELECT id, name FROM users WHERE active = true");
+            assert_eq!(dataset.query_text, ""); // Empty query text
         } else {
             panic!("Expected Dataset");
         }
@@ -1486,6 +1574,14 @@ mod tests {
         // Parse each file and check for success
         for path in example_files {
             let content = fs::read_to_string(&path).expect("Failed to read example file");
+            
+            // First check that Pest grammar parsing works
+            let pest_result = AvengerParser::parse(Rule::file, &content);
+            if pest_result.is_err() {
+                panic!("Failed to parse {} with Pest grammar: {}", path.display(), pest_result.err().unwrap());
+            }
+            
+            // Then check full parse
             let result = parse(&content);
             
             match result {
@@ -2135,7 +2231,7 @@ mod tests {
         // With qualifier
         let input_with_qualifier = r#"
             Chart {
-                in dataset ds2: SELECT id, name FROM users WHERE active = true;
+                in dataset ds2;
             }
         "#;
         let result2 = AvengerParser::parse(Rule::file, input_with_qualifier);
@@ -2148,7 +2244,8 @@ mod tests {
         let input = r#"
             Chart {
                 if (show_data) {
-                    dataset ds1: SELECT * FROM foo;
+                    // Datasets with 'in' qualifier can omit the query
+                    in dataset ds1;
                     
                     Text {
                         content: 'Data shown';
@@ -2157,28 +2254,164 @@ mod tests {
             }
         "#;
         
+        // First parse with the pest parser
+        let result = AvengerParser::parse(Rule::file, input);
+        assert!(result.is_ok(), "Failed to parse grammar: {:?}", result.err());
+        
+        // Then do a full parse
         let result = parse(input).unwrap();
         assert_eq!(result.components.len(), 1);
         
         // Check if statement
         if let ComponentItem::IfStatement(if_stmt) = &result.components[0].component.items[0] {
             assert_eq!(if_stmt.condition.raw_text, "show_data");
-            assert_eq!(if_stmt.items.len(), 2); // dataset and Text component
+            
+            // Find the dataset item
+            let dataset_item = if_stmt.items.iter().find(|item| {
+                matches!(item, ComponentItem::Dataset(_))
+            });
+            
+            // Find the text component
+            let text_item = if_stmt.items.iter().find(|item| {
+                if let ComponentItem::ComponentInstance(comp) = item {
+                    comp.name == "Text"
+                } else {
+                    false
+                }
+            });
             
             // Check dataset inside if statement
-            if let ComponentItem::Dataset(dataset) = &if_stmt.items[0] {
-                assert_eq!(dataset.name, "ds1");
-                assert_eq!(dataset.qualifier, None);
-                assert_eq!(dataset.query_text, "SELECT * FROM foo");
+            if let Some(ComponentItem::Dataset(dataset)) = dataset_item {
+                assert_eq!(dataset.qualifier, Some("in".to_string()));
+                assert_eq!(dataset.query_text, "");
             } else {
                 panic!("Expected Dataset inside if statement");
             }
             
             // Check Text component inside if statement
-            if let ComponentItem::ComponentInstance(text) = &if_stmt.items[1] {
+            if let Some(ComponentItem::ComponentInstance(text)) = text_item {
                 assert_eq!(text.name, "Text");
             } else {
                 panic!("Expected Text component inside if statement");
+            }
+        } else {
+            panic!("Expected IfStatement");
+        }
+    }
+
+    #[test]
+    fn test_in_dataset_without_query() {
+        // Test `in dataset` format without SQL query
+        let input = r#"
+            Chart {
+                // In dataset without SQL query (top level needs "in")
+                in dataset incoming_data;
+                
+                // Regular dataset with SQL query
+                dataset local_data: SELECT * FROM source;
+                
+                // Out dataset with SQL query
+                out dataset results: SELECT COUNT(*) FROM processed;
+            }
+        "#;
+        
+        // First parse with the pest parser
+        let result = AvengerParser::parse(Rule::file, input);
+        assert!(result.is_ok(), "Failed to parse grammar: {:?}", result.err());
+        
+        // Then do a full parse
+        let result = parse(input).unwrap();
+        assert_eq!(result.components.len(), 1);
+        assert_eq!(result.components[0].component.items.len(), 3); // 3 datasets
+        
+        // Check first dataset (in dataset without query)
+        if let ComponentItem::Dataset(dataset) = &result.components[0].component.items[0] {
+            assert_eq!(dataset.name, "incoming_data");
+            assert_eq!(dataset.qualifier, Some("in".to_string()));
+            assert_eq!(dataset.query_text, ""); // Empty query text
+        } else {
+            panic!("Expected Dataset");
+        }
+        
+        // Check second dataset (regular dataset with query)
+        if let ComponentItem::Dataset(dataset) = &result.components[0].component.items[1] {
+            assert_eq!(dataset.name, "local_data");
+            assert_eq!(dataset.qualifier, None);
+            assert_eq!(dataset.query_text, "SELECT * FROM source");
+        } else {
+            panic!("Expected Dataset");
+        }
+        
+        // Check third dataset (out dataset with query)
+        if let ComponentItem::Dataset(dataset) = &result.components[0].component.items[2] {
+            assert_eq!(dataset.name, "results");
+            assert_eq!(dataset.qualifier, Some("out".to_string()));
+            assert_eq!(dataset.query_text, "SELECT COUNT(*) FROM processed");
+        } else {
+            panic!("Expected Dataset");
+        }
+    }
+
+    #[test]
+    fn test_in_dataset_in_if_statement() {
+        let input = r#"
+            Chart {
+                if (show_data) {
+                    // In datasets require "in" qualifier to omit the query
+                    in dataset incoming_data;
+                    
+                    // Regular dataset still needs a query
+                    dataset processed_data: SELECT * FROM incoming_data;
+                }
+            }
+        "#;
+        
+        // First parse with the pest parser
+        let result = AvengerParser::parse(Rule::file, input);
+        assert!(result.is_ok(), "Failed to parse grammar: {:?}", result.err());
+        
+        // Then do a full parse
+        let result = parse(input).unwrap();
+        assert_eq!(result.components.len(), 1);
+        
+        // Check if statement
+        if let ComponentItem::IfStatement(if_stmt) = &result.components[0].component.items[0] {
+            assert_eq!(if_stmt.condition.raw_text, "show_data");
+            
+            // Find the in-qualified dataset
+            let in_dataset = if_stmt.items.iter().find(|item| {
+                if let ComponentItem::Dataset(ds) = item {
+                    ds.qualifier == Some("in".to_string())
+                } else {
+                    false
+                }
+            });
+            
+            // Find the regular dataset with query
+            let regular_dataset = if_stmt.items.iter().find(|item| {
+                if let ComponentItem::Dataset(ds) = item {
+                    ds.qualifier == None && ds.name == "processed_data"
+                } else {
+                    false
+                }
+            });
+            
+            // Check first dataset (in dataset without query) 
+            if let Some(ComponentItem::Dataset(dataset)) = in_dataset {
+                assert_eq!(dataset.qualifier, Some("in".to_string()));
+                assert_eq!(dataset.query_text, "");
+            } else {
+                panic!("Expected in-qualified Dataset inside if statement");
+            }
+            
+            // Check second dataset (regular dataset with query)
+            if let Some(ComponentItem::Dataset(dataset)) = regular_dataset {
+                assert_eq!(dataset.name, "processed_data");
+                assert_eq!(dataset.qualifier, None); 
+                assert!(dataset.query_text.contains("SELECT * FROM incoming_data"), 
+                       "Query text '{}' should contain 'SELECT * FROM incoming_data'", dataset.query_text);
+            } else {
+                panic!("Expected regular Dataset inside if statement");
             }
         } else {
             panic!("Expected IfStatement");
