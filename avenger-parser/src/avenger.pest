@@ -50,17 +50,14 @@ import_statement = { "import" ~ import_list ~ "from" ~ import_path ~ ";" }
 property = { identifier ~ ":" ~ raw_value ~ ";" }
 
 // Parameter types
-param_qualifier = { "in" | "out" }
-param_type      = { "<" ~ type_name ~ ">" }
-param_default   = { "=" ~ raw_value }
-parameter       = {
-    param_qualifier? ~ "param" ~ param_type ~ parameter_identifier ~ ":" ~ raw_value ~ param_default? ~ ";"
-}
+param_type    = { "<" ~ type_name ~ ">" }
+param_default = { "=" ~ raw_value }
 
-// Simplified parameter without in/out qualifiers for use in if statements
-private_parameter = {
-    "param" ~ param_type ~ parameter_identifier ~ ":" ~ raw_value ~ param_default? ~ ";"
-}
+// Parameter declaration - with different formats for in vs. other qualifiers
+in_parameter      = { "in" ~ "param" ~ param_type ~ parameter_identifier ~ ";" }
+out_parameter     = { "out" ~ "param" ~ param_type ~ parameter_identifier ~ ":" ~ raw_value ~ param_default? ~ ";" }
+private_parameter = { "param" ~ param_type ~ parameter_identifier ~ ":" ~ raw_value ~ param_default? ~ ";" }
+parameter         = { in_parameter | out_parameter | private_parameter }
 
 // Dataset declaration - now with different formats for in vs. other qualifiers
 in_dataset      = { "in" ~ "dataset" ~ parameter_identifier ~ ";" }
@@ -71,8 +68,8 @@ dataset         = { in_dataset | out_dataset | private_dataset }
 // Component binding
 component_binding = { identifier ~ ":=" ~ component_instance }
 
-// If statement content needs explicit includes for all dataset types
-if_content = { (property | private_parameter | in_dataset | out_dataset | private_dataset | component_binding | component_instance | if_statement | match_statement)* }
+// If statement content only allows private parameters and private datasets (no in/out qualifiers)
+if_content = { (property | private_parameter | private_dataset | component_binding | component_instance | if_statement | match_statement)* }
 
 // Else branch
 else_branch = { "else" ~ "{" ~ if_content ~ "}" }
