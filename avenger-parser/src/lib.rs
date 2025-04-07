@@ -139,7 +139,7 @@ pub struct Property {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Parameter {
     pub qualifier: Option<String>,  // in, out, or None for private
-    pub param_type: String,         // Type specified in <typename>
+    pub param_type: Option<String>, // Type specified in <typename>, now optional
     pub name: String,              // Name of the parameter
     pub value: Value,              // Value expression
     pub default: Option<Value>,    // Optional default value
@@ -222,7 +222,7 @@ pub struct AvengerFile {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Expr {
     pub qualifier: Option<String>,  // in, out, or None for private
-    pub param_type: String,         // Type specified in <typename>
+    pub expr_type: Option<String>,  // Type specified in <typename>, now optional
     pub name: String,              // Name of the parameter
     pub value: Value,              // Value expression
     pub default: Option<Value>,    // Optional default value
@@ -500,14 +500,21 @@ fn parse_parameter(pair: pest::iterators::Pair<Rule>) -> Result<Parameter, Parse
         Rule::in_parameter => {
             let mut inner = pair.into_inner();
             
-            // Skip "in" and "param" keywords
-            let type_pair = inner.next().unwrap();
-            let param_type = type_pair.into_inner().next().unwrap().as_str().to_string();
+            // Skip "in" and "param" keywords, check for param_type
+            let next = inner.next().unwrap();
+            let (param_type, ident_pair) = if next.as_rule() == Rule::param_type {
+                // Type is specified
+                let type_name = next.into_inner().next().unwrap().as_str().to_string();
+                (Some(type_name), inner.next().unwrap())
+            } else {
+                // No type specified, next is the identifier
+                (None, next)
+            };
             
             // Get parameter name
-            let name = inner.next().unwrap().as_str().to_string();
+            let name = ident_pair.as_str().to_string();
             
-            // For in parameter, we don't have a value expression
+            // For in parameters, we don't have a value expression
             // Create a dummy value that will be overwritten at runtime
             let value = Value::try_new("NULL".to_string())?;
             
@@ -522,12 +529,19 @@ fn parse_parameter(pair: pest::iterators::Pair<Rule>) -> Result<Parameter, Parse
         Rule::out_parameter => {
             let mut inner = pair.into_inner();
             
-            // Skip "out" and "param" keywords
-            let type_pair = inner.next().unwrap();
-            let param_type = type_pair.into_inner().next().unwrap().as_str().to_string();
+            // Skip "out" and "param" keywords, check for param_type
+            let next = inner.next().unwrap();
+            let (param_type, ident_pair) = if next.as_rule() == Rule::param_type {
+                // Type is specified
+                let type_name = next.into_inner().next().unwrap().as_str().to_string();
+                (Some(type_name), inner.next().unwrap())
+            } else {
+                // No type specified, next is the identifier
+                (None, next)
+            };
             
             // Get parameter name
-            let name = inner.next().unwrap().as_str().to_string();
+            let name = ident_pair.as_str().to_string();
             
             // Get value expression
             let value_text = inner.next().unwrap().as_str().trim().to_string();
@@ -556,12 +570,19 @@ fn parse_parameter(pair: pest::iterators::Pair<Rule>) -> Result<Parameter, Parse
         Rule::private_parameter => {
             let mut inner = pair.into_inner();
             
-            // Skip "param" keyword
-            let type_pair = inner.next().unwrap();
-            let param_type = type_pair.into_inner().next().unwrap().as_str().to_string();
+            // Skip "param" keyword, check for param_type
+            let next = inner.next().unwrap();
+            let (param_type, ident_pair) = if next.as_rule() == Rule::param_type {
+                // Type is specified
+                let type_name = next.into_inner().next().unwrap().as_str().to_string();
+                (Some(type_name), inner.next().unwrap())
+            } else {
+                // No type specified, next is the identifier
+                (None, next)
+            };
             
             // Get parameter name
-            let name = inner.next().unwrap().as_str().to_string();
+            let name = ident_pair.as_str().to_string();
             
             // Get value expression
             let raw_value_text = inner.next().unwrap().as_str().trim().to_string();
@@ -597,7 +618,6 @@ fn parse_parameter(pair: pest::iterators::Pair<Rule>) -> Result<Parameter, Parse
                 default,
             })
         },
-        // For cases where we have a parameter inside a conditional or match
         Rule::parameter => {
             // Recursively process the parameter based on its inner rule
             let inner_param = pair.into_inner().next().ok_or_else(|| 
@@ -607,7 +627,7 @@ fn parse_parameter(pair: pest::iterators::Pair<Rule>) -> Result<Parameter, Parse
             // Recursively call parse_parameter with the inner rule
             parse_parameter(inner_param)
         },
-        _ => {            
+        _ => {
             Err(ParserError::SyntaxError(format!(
                 "Unexpected parameter rule: {:?}", pair.as_rule()
             )))
@@ -868,12 +888,19 @@ fn parse_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, ParserError> {
         Rule::in_expr => {
             let mut inner = pair.into_inner();
             
-            // Skip "in" and "expr" keywords
-            let type_pair = inner.next().unwrap();
-            let param_type = type_pair.into_inner().next().unwrap().as_str().to_string();
+            // Skip "in" and "expr" keywords, check for param_type
+            let next = inner.next().unwrap();
+            let (expr_type, ident_pair) = if next.as_rule() == Rule::param_type {
+                // Type is specified
+                let type_name = next.into_inner().next().unwrap().as_str().to_string();
+                (Some(type_name), inner.next().unwrap())
+            } else {
+                // No type specified, next is the identifier
+                (None, next)
+            };
             
             // Get parameter name
-            let name = inner.next().unwrap().as_str().to_string();
+            let name = ident_pair.as_str().to_string();
             
             // For in expr, we don't have a value expression
             // Create a dummy value that will be overwritten at runtime
@@ -881,7 +908,7 @@ fn parse_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, ParserError> {
             
             Ok(Expr {
                 qualifier: Some("in".to_string()),
-                param_type,
+                expr_type,
                 name,
                 value,
                 default: None,
@@ -890,12 +917,19 @@ fn parse_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, ParserError> {
         Rule::out_expr => {
             let mut inner = pair.into_inner();
             
-            // Skip "out" and "expr" keywords
-            let type_pair = inner.next().unwrap();
-            let param_type = type_pair.into_inner().next().unwrap().as_str().to_string();
+            // Skip "out" and "expr" keywords, check for param_type
+            let next = inner.next().unwrap();
+            let (expr_type, ident_pair) = if next.as_rule() == Rule::param_type {
+                // Type is specified
+                let type_name = next.into_inner().next().unwrap().as_str().to_string();
+                (Some(type_name), inner.next().unwrap())
+            } else {
+                // No type specified, next is the identifier
+                (None, next)
+            };
             
             // Get parameter name
-            let name = inner.next().unwrap().as_str().to_string();
+            let name = ident_pair.as_str().to_string();
             
             // Get value expression
             let value_text = inner.next().unwrap().as_str().trim().to_string();
@@ -915,7 +949,7 @@ fn parse_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, ParserError> {
             
             Ok(Expr {
                 qualifier: Some("out".to_string()),
-                param_type,
+                expr_type,
                 name,
                 value,
                 default,
@@ -924,12 +958,19 @@ fn parse_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, ParserError> {
         Rule::private_expr => {
             let mut inner = pair.into_inner();
             
-            // Skip "expr" keyword
-            let type_pair = inner.next().unwrap();
-            let param_type = type_pair.into_inner().next().unwrap().as_str().to_string();
+            // Skip "expr" keyword, check for param_type
+            let next = inner.next().unwrap();
+            let (expr_type, ident_pair) = if next.as_rule() == Rule::param_type {
+                // Type is specified
+                let type_name = next.into_inner().next().unwrap().as_str().to_string();
+                (Some(type_name), inner.next().unwrap())
+            } else {
+                // No type specified, next is the identifier
+                (None, next)
+            };
             
             // Get parameter name
-            let name = inner.next().unwrap().as_str().to_string();
+            let name = ident_pair.as_str().to_string();
             
             // Get value expression
             let raw_value_text = inner.next().unwrap().as_str().trim().to_string();
@@ -959,7 +1000,7 @@ fn parse_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, ParserError> {
             
             Ok(Expr {
                 qualifier: None,
-                param_type,
+                expr_type,
                 name,
                 value,
                 default,
@@ -1039,7 +1080,7 @@ mod tests {
         assert_eq!(result.components.len(), 1);
         
         if let ComponentItem::Parameter(param) = &result.components[0].component.items[0] {
-            assert_eq!(param.param_type, "SomeType");
+            assert_eq!(param.param_type, Some("SomeType".to_string()));
             assert_eq!(param.name, "some_param");
             assert_eq!(param.value.raw_text, "\"SomeValue\"");
         } else {
@@ -1048,7 +1089,7 @@ mod tests {
         
         if let ComponentItem::Parameter(param) = &result.components[0].component.items[1] {
             assert_eq!(param.qualifier, Some("in".to_string()));
-            assert_eq!(param.param_type, "OtherType");
+            assert_eq!(param.param_type, Some("OtherType".to_string()));
             assert_eq!(param.name, "other_param");
             assert_eq!(param.value.raw_text, "NULL"); // Dummy value for in parameters
         } else {
@@ -1478,7 +1519,7 @@ mod tests {
             // Check parameter has no qualifier
             if let ComponentItem::Parameter(param) = &if_stmt.items[0] {
                 assert_eq!(param.qualifier, None);
-                assert_eq!(param.param_type, "Number");
+                assert_eq!(param.param_type, Some("Number".to_string()));
                 assert_eq!(param.name, "scale");
                 assert_eq!(param.value.raw_text, "1.5");
             } else {
@@ -2290,7 +2331,7 @@ mod tests {
             // Check parameter
             if let ComponentItem::Parameter(param) = &match_stmt.cases[0].items[0] {
                 assert_eq!(param.qualifier, None); // private parameter has no qualifier
-                assert_eq!(param.param_type, "Number");
+                assert_eq!(param.param_type, Some("Number".to_string()));
                 assert_eq!(param.name, "scale");
                 assert_eq!(param.value.raw_text, "2.0");
             } else {
@@ -2708,50 +2749,50 @@ mod tests {
         // Then do a full parse
         let result = parse(input).unwrap();
         assert_eq!(result.components.len(), 1);
-        assert_eq!(result.components[0].component.items.len(), 4); // 4 parameters
+        assert_eq!(result.components[0].component.items.len(), 4); // 4 parameter declarations
         
-        // Check first parameter (in parameter without value expression)
+        // Check first parameter (in param without value expression)
         if let ComponentItem::Parameter(param) = &result.components[0].component.items[0] {
             assert_eq!(param.name, "title");
             assert_eq!(param.qualifier, Some("in".to_string()));
-            assert_eq!(param.param_type, "String");
+            assert_eq!(param.param_type, Some("String".to_string()));
             assert_eq!(param.value.raw_text, "NULL"); // Dummy value
             assert!(param.default.is_none());
         } else {
             panic!("Expected Parameter");
         }
         
-        // Check second parameter (out parameter with value expression)
+        // Check second parameter (out param with value expression)
         if let ComponentItem::Parameter(param) = &result.components[0].component.items[1] {
             assert_eq!(param.name, "width");
             assert_eq!(param.qualifier, Some("out".to_string()));
-            assert_eq!(param.param_type, "Number");
+            assert_eq!(param.param_type, Some("Number".to_string()));
             assert_eq!(param.value.raw_text, "100");
             assert!(param.default.is_none());
         } else {
             panic!("Expected Parameter");
         }
         
-        // Check third parameter (private parameter with value expression)
+        // Check third parameter (private param with value expression)
         if let ComponentItem::Parameter(param) = &result.components[0].component.items[2] {
             assert_eq!(param.name, "interactive");
             assert_eq!(param.qualifier, None);
-            assert_eq!(param.param_type, "Boolean");
+            assert_eq!(param.param_type, Some("Boolean".to_string()));
             assert_eq!(param.value.raw_text, "true");
             assert!(param.default.is_none());
         } else {
             panic!("Expected Parameter");
         }
         
-        // Check fourth parameter (parameter with default value)
+        // Check fourth parameter (param with default value)
         if let ComponentItem::Parameter(param) = &result.components[0].component.items[3] {
             assert_eq!(param.name, "theme");
             assert_eq!(param.qualifier, None);
-            assert_eq!(param.param_type, "String");
-            
-            // Debug output to see what we got
-            println!("Theme parameter value: '{}'", param.value.raw_text);
-            
+            assert_eq!(param.param_type, Some("String".to_string()));
+            assert_eq!(param.value.raw_text, "\"light\"");
+            assert_eq!(param.default.clone().unwrap().raw_text, "\"system\"");
+        } else {
+            panic!("Expected Parameter");
         }
     }
 
@@ -2787,7 +2828,7 @@ mod tests {
         if let ComponentItem::Expr(expr) = &result.components[0].component.items[0] {
             assert_eq!(expr.name, "title");
             assert_eq!(expr.qualifier, Some("in".to_string()));
-            assert_eq!(expr.param_type, "String");
+            assert_eq!(expr.expr_type, Some("String".to_string()));
             assert_eq!(expr.value.raw_text, "NULL"); // Dummy value
             assert!(expr.default.is_none());
         } else {
@@ -2798,7 +2839,7 @@ mod tests {
         if let ComponentItem::Expr(expr) = &result.components[0].component.items[1] {
             assert_eq!(expr.name, "width");
             assert_eq!(expr.qualifier, Some("out".to_string()));
-            assert_eq!(expr.param_type, "Number");
+            assert_eq!(expr.expr_type, Some("Number".to_string()));
             assert_eq!(expr.value.raw_text, "100");
             assert!(expr.default.is_none());
         } else {
@@ -2809,7 +2850,7 @@ mod tests {
         if let ComponentItem::Expr(expr) = &result.components[0].component.items[2] {
             assert_eq!(expr.name, "interactive");
             assert_eq!(expr.qualifier, None);
-            assert_eq!(expr.param_type, "Boolean");
+            assert_eq!(expr.expr_type, Some("Boolean".to_string()));
             assert_eq!(expr.value.raw_text, "true");
             assert!(expr.default.is_none());
         } else {
@@ -2820,11 +2861,219 @@ mod tests {
         if let ComponentItem::Expr(expr) = &result.components[0].component.items[3] {
             assert_eq!(expr.name, "theme");
             assert_eq!(expr.qualifier, None);
-            assert_eq!(expr.param_type, "String");
+            assert_eq!(expr.expr_type, Some("String".to_string()));
             assert_eq!(expr.value.raw_text, "\"light\"");
             assert_eq!(expr.default.clone().unwrap().raw_text, "\"system\"");
         } else {
             panic!("Expected Expr");
         }
+    }
+
+    #[test]
+    fn test_optional_types() {
+        // Test for parameters and expressions without type definitions
+        let input = r#"
+            Chart {
+                // Parameters without type
+                param title: "Chart Title";
+                in param width;
+                out param height: 300;
+                
+                // Expressions without type
+                expr theme: "light";
+                in expr color;
+                out expr size: 20;
+                
+                // Parameters with type
+                param<String> description: "A sample chart";
+                param<Number> spacing: 10;
+                
+                // Expressions with type
+                expr<Boolean> interactive: true;
+                expr<Object> config: "{}";
+            }
+        "#;
+        
+        // First parse with the pest parser
+        let result = AvengerParser::parse(Rule::file, input);
+        assert!(result.is_ok(), "Failed to parse grammar: {:?}", result.err());
+        
+        // Then do a full parse
+        let result = parse(input).unwrap();
+        assert_eq!(result.components.len(), 1);
+        
+        // Print the items for debugging
+        println!("Number of items: {}", result.components[0].component.items.len());
+        for (i, item) in result.components[0].component.items.iter().enumerate() {
+            match item {
+                ComponentItem::Parameter(p) => println!("Item {}: Parameter {}", i, p.name),
+                ComponentItem::Expr(e) => println!("Item {}: Expr {}", i, e.name),
+                _ => println!("Item {}: Other type", i),
+            }
+        }
+        
+        // Since order may vary, let's find items by name instead of index
+        
+        // Check parameters without type
+        let param_title = result.components[0].component.items.iter().find_map(|item| {
+            if let ComponentItem::Parameter(param) = item {
+                if param.name == "title" {
+                    Some(param)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }).expect("Parameter 'title' not found");
+        
+        assert_eq!(param_title.qualifier, None);
+        assert_eq!(param_title.param_type, None); // No type specified
+        assert_eq!(param_title.value.raw_text, "\"Chart Title\"");
+        
+        let param_width = result.components[0].component.items.iter().find_map(|item| {
+            if let ComponentItem::Parameter(param) = item {
+                if param.name == "width" {
+                    Some(param)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }).expect("Parameter 'width' not found");
+        
+        assert_eq!(param_width.qualifier, Some("in".to_string()));
+        assert_eq!(param_width.param_type, None); // No type specified
+        
+        let param_height = result.components[0].component.items.iter().find_map(|item| {
+            if let ComponentItem::Parameter(param) = item {
+                if param.name == "height" {
+                    Some(param)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }).expect("Parameter 'height' not found");
+        
+        assert_eq!(param_height.qualifier, Some("out".to_string()));
+        assert_eq!(param_height.param_type, None); // No type specified
+        assert_eq!(param_height.value.raw_text, "300");
+        
+        // Check expressions without type
+        let expr_theme = result.components[0].component.items.iter().find_map(|item| {
+            if let ComponentItem::Expr(expr) = item {
+                if expr.name == "theme" {
+                    Some(expr)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }).expect("Expr 'theme' not found");
+        
+        assert_eq!(expr_theme.qualifier, None);
+        assert_eq!(expr_theme.expr_type, None); // No type specified
+        assert_eq!(expr_theme.value.raw_text, "\"light\"");
+        
+        let expr_color = result.components[0].component.items.iter().find_map(|item| {
+            if let ComponentItem::Expr(expr) = item {
+                if expr.name == "color" {
+                    Some(expr)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }).expect("Expr 'color' not found");
+        
+        assert_eq!(expr_color.qualifier, Some("in".to_string()));
+        assert_eq!(expr_color.expr_type, None); // No type specified
+        
+        let expr_size = result.components[0].component.items.iter().find_map(|item| {
+            if let ComponentItem::Expr(expr) = item {
+                if expr.name == "size" {
+                    Some(expr)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }).expect("Expr 'size' not found");
+        
+        assert_eq!(expr_size.qualifier, Some("out".to_string()));
+        assert_eq!(expr_size.expr_type, None); // No type specified
+        assert_eq!(expr_size.value.raw_text, "20");
+        
+        // Check parameters with type
+        let param_description = result.components[0].component.items.iter().find_map(|item| {
+            if let ComponentItem::Parameter(param) = item {
+                if param.name == "description" {
+                    Some(param)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }).expect("Parameter 'description' not found");
+        
+        assert_eq!(param_description.qualifier, None);
+        assert_eq!(param_description.param_type, Some("String".to_string())); // Specified type
+        assert_eq!(param_description.value.raw_text, "\"A sample chart\"");
+        
+        let param_spacing = result.components[0].component.items.iter().find_map(|item| {
+            if let ComponentItem::Parameter(param) = item {
+                if param.name == "spacing" {
+                    Some(param)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }).expect("Parameter 'spacing' not found");
+        
+        assert_eq!(param_spacing.qualifier, None);
+        assert_eq!(param_spacing.param_type, Some("Number".to_string())); // Specified type
+        assert_eq!(param_spacing.value.raw_text, "10");
+        
+        // Check expressions with type
+        let expr_interactive = result.components[0].component.items.iter().find_map(|item| {
+            if let ComponentItem::Expr(expr) = item {
+                if expr.name == "interactive" {
+                    Some(expr)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }).expect("Expr 'interactive' not found");
+        
+        assert_eq!(expr_interactive.qualifier, None);
+        assert_eq!(expr_interactive.expr_type, Some("Boolean".to_string())); // Specified type
+        assert_eq!(expr_interactive.value.raw_text, "true");
+        
+        let expr_config = result.components[0].component.items.iter().find_map(|item| {
+            if let ComponentItem::Expr(expr) = item {
+                if expr.name == "config" {
+                    Some(expr)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }).expect("Expr 'config' not found");
+        
+        assert_eq!(expr_config.qualifier, None);
+        assert_eq!(expr_config.expr_type, Some("Object".to_string())); // Specified type
+        assert_eq!(expr_config.value.raw_text, "\"{}\"");
     }
 }
