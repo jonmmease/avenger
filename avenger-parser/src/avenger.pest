@@ -128,9 +128,18 @@ function_sql = { sql_query ~ ";" }
 // Function content allows private parameters, expr, datasets, if and match statements, and function_sql
 function_content = { (private_parameter | private_expr | private_dataset | if_statement | match_statement | function_sql)* }
 
-// Function definition
+// Function definition - use 'fn' instead of 'function'
 function_definition = {
-    export_qualifier? ~ "function" ~ function_identifier ~ function_params ~ "->" ~ function_return_type ~ "{" ~ function_content ~ "}"
+    export_qualifier? ~ "fn" ~ function_identifier ~ function_params ~ "->" ~ function_return_type ~ "{" ~ function_content ~ "}"
+}
+
+// Component function with mandatory self parameter and optional out qualifier
+component_function_self   = { "self" }
+component_function_params = { "(" ~ component_function_self ~ (";" ~ function_param)* ~ ")" }
+
+// Component function can have optional out qualifier
+component_function = {
+    "out"? ~ "fn" ~ function_identifier ~ component_function_params ~ "->" ~ function_return_type ~ "{" ~ function_content ~ "}"
 }
 
 // Component instance
@@ -138,8 +147,8 @@ component_instance = {
     component_identifier ~ (":" ~ component_identifier)? ~ "{" ~ component_content ~ "}"
 }
 
-// Update component content to include the dataset rule
-component_content = _{ (property | parameter | expr | dataset | component_binding | component_instance | if_statement | match_statement)* }
+// Update component content to include component functions
+component_content = _{ (property | parameter | expr | dataset | component_binding | component_instance | if_statement | match_statement | component_function)* }
 
 // Top-level component declaration
 component_declaration = {

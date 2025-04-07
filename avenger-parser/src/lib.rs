@@ -190,6 +190,7 @@ pub enum ComponentItem {
     ComponentBinding(String, Box<ComponentInstance>),
     IfStatement(Box<IfStatement>),
     MatchStatement(Box<MatchStatement>),
+    ComponentFunction(ComponentFunction),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -226,6 +227,14 @@ pub struct Expr {
     pub name: String,              // Name of the parameter
     pub value: Value,              // Value expression
     pub default: Option<Value>,    // Optional default value
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ComponentFunction {
+    pub name: String,
+    pub return_type: String,
+    pub out_qualifier: bool,
+    pub parameters: Vec<Parameter>,
 }
 
 pub fn parse(source: &str) -> Result<AvengerFile, ParserError> {
@@ -477,6 +486,9 @@ fn parse_if_content(pair: pest::iterators::Pair<Rule>) -> Result<Vec<ComponentIt
             }
             Rule::match_statement => {
                 content_items.push(ComponentItem::MatchStatement(Box::new(parse_match_statement(item_pair)?)));
+            }
+            Rule::component_function => {
+                content_items.push(ComponentItem::ComponentFunction(parse_component_function(item_pair)?));
             }
             _ => {}
         }
@@ -826,6 +838,9 @@ fn parse_component_declaration(pair: pest::iterators::Pair<Rule>) -> Result<Comp
             Rule::match_statement => {
                 component_items.push(ComponentItem::MatchStatement(Box::new(parse_match_statement(inner_pair)?)));
             }
+            Rule::component_function => {
+                component_items.push(ComponentItem::ComponentFunction(parse_component_function(inner_pair)?));
+            }
             _ => {}
         }
     }
@@ -1021,6 +1036,43 @@ fn parse_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, ParserError> {
             )))
         }
     }
+}
+
+fn parse_component_function(pair: pest::iterators::Pair<Rule>) -> Result<ComponentFunction, ParserError> {
+    let mut out_qualifier = false;
+    let mut name = String::new();
+    let mut return_type = String::new();
+    let parameters = Vec::new();
+    
+    // Process all tokens in the function
+    for token in pair.into_inner() {
+        match token.as_rule() {
+            Rule::identifier => {
+                if token.as_str() == "out" {
+                    out_qualifier = true;
+                } else if token.as_str() == "fn" {
+                    // Skip fn keyword
+                } else {
+                    // This must be the function name
+                    name = token.as_str().to_string();
+                }
+            }
+            Rule::function_identifier => {
+                name = token.as_str().to_string();
+            }
+            Rule::function_return_type => {
+                return_type = token.as_str().to_string();
+            }
+            _ => { /* Ignore other tokens */ }
+        }
+    }
+    
+    Ok(ComponentFunction {
+        name,
+        return_type,
+        out_qualifier,
+        parameters,
+    })
 }
 
 #[cfg(test)]
@@ -3075,5 +3127,37 @@ mod tests {
         assert_eq!(expr_config.qualifier, None);
         assert_eq!(expr_config.expr_type, Some("Object".to_string())); // Specified type
         assert_eq!(expr_config.value.raw_text, "\"{}\"");
+    }
+
+    #[test]
+    fn test_simple_component_function() {
+        let source = r#"
+        component Test {
+            width: 100;
+            fn simple(self) -> param {
+                SELECT 1;
+            }
+        }
+        "#;
+        
+        let result = parse(source).unwrap();
+        assert_eq!(result.components.len(), 1);
+        
+        let component = &result.components[0].component;
+        assert_eq!(component.name, "Test");
+        
+        // Check that we have one component function
+        let mut found_function = false;
+        for item in &component.items {
+            if let ComponentItem::ComponentFunction(func) = item {
+                found_function = true;
+                assert_eq!(func.name, "simple");
+                assert_eq!(func.return_type, "param");
+                assert!(!func.out_qualifier);
+                assert_eq!(func.parameters.len(), 0); // self is not included in parameters
+            }
+        }
+        
+        assert!(found_function, "Component function not found");
     }
 }
