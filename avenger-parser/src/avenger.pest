@@ -59,6 +59,12 @@ out_parameter     = { "out" ~ "param" ~ param_type ~ parameter_identifier ~ ":" 
 private_parameter = { "param" ~ param_type ~ parameter_identifier ~ ":" ~ raw_value ~ param_default? ~ ";" }
 parameter         = { in_parameter | out_parameter | private_parameter }
 
+// Expression declaration - with identical formats as parameters
+in_expr      = { "in" ~ "expr" ~ param_type ~ parameter_identifier ~ ";" }
+out_expr     = { "out" ~ "expr" ~ param_type ~ parameter_identifier ~ ":" ~ raw_value ~ param_default? ~ ";" }
+private_expr = { "expr" ~ param_type ~ parameter_identifier ~ ":" ~ raw_value ~ param_default? ~ ";" }
+expr         = { in_expr | out_expr | private_expr }
+
 // Dataset declaration - now with different formats for in vs. other qualifiers
 in_dataset      = { "in" ~ "dataset" ~ parameter_identifier ~ ";" }
 out_dataset     = { "out" ~ "dataset" ~ parameter_identifier ~ ":" ~ sql_query ~ ";" }
@@ -69,7 +75,7 @@ dataset         = { in_dataset | out_dataset | private_dataset }
 component_binding = { identifier ~ ":=" ~ component_instance }
 
 // If statement content only allows private parameters and private datasets (no in/out qualifiers)
-if_content = { (property | private_parameter | private_dataset | component_binding | component_instance | if_statement | match_statement)* }
+if_content = { (property | private_parameter | private_expr | private_dataset | component_binding | component_instance | if_statement | match_statement)* }
 
 // Else branch
 else_branch = { "else" ~ "{" ~ if_content ~ "}" }
@@ -111,7 +117,7 @@ component_instance = {
 }
 
 // Update component content to include the dataset rule
-component_content = _{ (property | parameter | dataset | component_binding | component_instance | if_statement | match_statement)* }
+component_content = _{ (property | parameter | expr | dataset | component_binding | component_instance | if_statement | match_statement)* }
 
 // Top-level component declaration
 component_declaration = {

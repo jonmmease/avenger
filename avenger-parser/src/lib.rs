@@ -42,7 +42,7 @@ impl From<sqlparser::parser::ParserError> for ParserError {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Value {
     pub raw_text: String,
     pub sql_expr: SqlExpr,
@@ -130,60 +130,61 @@ fn parse_sql_query(text: &str) -> Result<SqlStatement, ParserError> {
     Ok(statements[0].clone())
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Property {
     pub name: String,
     pub value: Value,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Parameter {
-    pub qualifier: Option<String>, // "in" or "out"
-    pub param_type: String,
-    pub name: String,
-    pub value: Value,
-    pub default: Option<Value>,
+    pub qualifier: Option<String>,  // in, out, or None for private
+    pub param_type: String,         // Type specified in <typename>
+    pub name: String,              // Name of the parameter
+    pub value: Value,              // Value expression
+    pub default: Option<Value>,    // Optional default value
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Dataset {
-    pub qualifier: Option<String>, // "in" or "out"
+    pub qualifier: Option<String>,  // in, out, or None for private
     pub name: String,
     pub query_text: String,
     pub query: SqlStatement,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct IfStatement {
-    pub condition: Value,  // SQL expression that will be evaluated
+    pub condition: Value,
     pub items: Vec<ComponentItem>,
     pub else_items: Option<Vec<ComponentItem>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MatchCase {
     pub pattern: String,
     pub is_default: bool,
     pub items: Vec<ComponentItem>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MatchStatement {
     pub expression: Value,
     pub cases: Vec<MatchCase>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct EnumDefinition {
     pub name: String,
     pub values: Vec<String>,
     pub exported: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ComponentItem {
     Property(Property),
     Parameter(Parameter),
+    Expr(Expr),
     Dataset(Dataset),
     ComponentInstance(Box<ComponentInstance>),
     ComponentBinding(String, Box<ComponentInstance>),
@@ -191,30 +192,40 @@ pub enum ComponentItem {
     MatchStatement(Box<MatchStatement>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ComponentInstance {
     pub name: String,
     pub parent: Option<String>,
     pub items: Vec<ComponentItem>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ComponentDeclaration {
     pub exported: bool,
     pub component: ComponentInstance,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Import {
     pub components: Vec<String>,
     pub path: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AvengerFile {
     pub imports: Vec<Import>,
     pub enums: Vec<EnumDefinition>,
     pub components: Vec<ComponentDeclaration>,
+}
+
+// Add Expr struct (identical to Parameter)
+#[derive(Debug, Clone, PartialEq)]
+pub struct Expr {
+    pub qualifier: Option<String>,  // in, out, or None for private
+    pub param_type: String,         // Type specified in <typename>
+    pub name: String,              // Name of the parameter
+    pub value: Value,              // Value expression
+    pub default: Option<Value>,    // Optional default value
 }
 
 pub fn parse(source: &str) -> Result<AvengerFile, ParserError> {
@@ -445,6 +456,9 @@ fn parse_if_content(pair: pest::iterators::Pair<Rule>) -> Result<Vec<ComponentIt
             }
             Rule::private_parameter | Rule::in_parameter | Rule::out_parameter => {
                 content_items.push(ComponentItem::Parameter(parse_parameter(item_pair)?));
+            }
+            Rule::private_expr | Rule::in_expr | Rule::out_expr => {
+                content_items.push(ComponentItem::Expr(parse_expr(item_pair)?));
             }
             Rule::in_dataset | Rule::out_dataset | Rule::private_dataset => {
                 content_items.push(ComponentItem::Dataset(parse_dataset(item_pair)?));
@@ -771,6 +785,9 @@ fn parse_component_declaration(pair: pest::iterators::Pair<Rule>) -> Result<Comp
             Rule::parameter | Rule::in_parameter | Rule::out_parameter | Rule::private_parameter => {
                 component_items.push(ComponentItem::Parameter(parse_parameter(inner_pair)?));
             }
+            Rule::expr | Rule::in_expr | Rule::out_expr | Rule::private_expr => {
+                component_items.push(ComponentItem::Expr(parse_expr(inner_pair)?));
+            }
             Rule::dataset => {
                 component_items.push(ComponentItem::Dataset(parse_dataset(inner_pair)?));
             }
@@ -819,6 +836,9 @@ fn parse_component_instance(pair: pest::iterators::Pair<Rule>) -> Result<Compone
         } else if item_pair.as_rule() == Rule::parameter || item_pair.as_rule() == Rule::in_parameter || 
                   item_pair.as_rule() == Rule::out_parameter || item_pair.as_rule() == Rule::private_parameter {
             component_items.push(ComponentItem::Parameter(parse_parameter(item_pair)?));
+        } else if item_pair.as_rule() == Rule::expr || item_pair.as_rule() == Rule::in_expr || 
+                  item_pair.as_rule() == Rule::out_expr || item_pair.as_rule() == Rule::private_expr {
+            component_items.push(ComponentItem::Expr(parse_expr(item_pair)?));
         } else if item_pair.as_rule() == Rule::dataset {
             component_items.push(ComponentItem::Dataset(parse_dataset(item_pair)?));
         } else if item_pair.as_rule() == Rule::component_instance {
@@ -840,6 +860,126 @@ fn parse_component_instance(pair: pest::iterators::Pair<Rule>) -> Result<Compone
         parent,
         items: component_items,
     })
+}
+
+// Add parse_expr function (similar to parse_parameter)
+fn parse_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, ParserError> {
+    match pair.as_rule() {
+        Rule::in_expr => {
+            let mut inner = pair.into_inner();
+            
+            // Skip "in" and "expr" keywords
+            let type_pair = inner.next().unwrap();
+            let param_type = type_pair.into_inner().next().unwrap().as_str().to_string();
+            
+            // Get parameter name
+            let name = inner.next().unwrap().as_str().to_string();
+            
+            // For in expr, we don't have a value expression
+            // Create a dummy value that will be overwritten at runtime
+            let value = Value::try_new("NULL".to_string())?;
+            
+            Ok(Expr {
+                qualifier: Some("in".to_string()),
+                param_type,
+                name,
+                value,
+                default: None,
+            })
+        },
+        Rule::out_expr => {
+            let mut inner = pair.into_inner();
+            
+            // Skip "out" and "expr" keywords
+            let type_pair = inner.next().unwrap();
+            let param_type = type_pair.into_inner().next().unwrap().as_str().to_string();
+            
+            // Get parameter name
+            let name = inner.next().unwrap().as_str().to_string();
+            
+            // Get value expression
+            let value_text = inner.next().unwrap().as_str().trim().to_string();
+            let value = Value::try_new(value_text)?;
+            
+            // Check for optional default value
+            let default = if let Some(default_pair) = inner.next() {
+                if default_pair.as_rule() == Rule::param_default {
+                    let default_text = default_pair.into_inner().next().unwrap().as_str().trim().to_string();
+                    Some(Value::try_new(default_text)?)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            
+            Ok(Expr {
+                qualifier: Some("out".to_string()),
+                param_type,
+                name,
+                value,
+                default,
+            })
+        },
+        Rule::private_expr => {
+            let mut inner = pair.into_inner();
+            
+            // Skip "expr" keyword
+            let type_pair = inner.next().unwrap();
+            let param_type = type_pair.into_inner().next().unwrap().as_str().to_string();
+            
+            // Get parameter name
+            let name = inner.next().unwrap().as_str().to_string();
+            
+            // Get value expression
+            let raw_value_text = inner.next().unwrap().as_str().trim().to_string();
+            
+            // Check if the raw value contains a default value (format: "value = default")
+            let parts: Vec<&str> = raw_value_text.split('=').collect();
+            let (value_text, default) = if parts.len() > 1 {
+                // We have a default value in the raw text
+                let value_part = parts[0].trim().to_string();
+                let default_part = parts[1].trim().to_string();
+                
+                (value_part, Some(Value::try_new(default_part)?))
+            } else {
+                // Look ahead for a separate default value parameter
+                let has_default = inner.clone().next().map_or(false, |p| p.as_rule() == Rule::param_default);
+                
+                if has_default {
+                    let default_pair = inner.next().unwrap();
+                    let default_text = default_pair.into_inner().next().unwrap().as_str().trim().to_string();
+                    (raw_value_text, Some(Value::try_new(default_text)?))
+                } else {
+                    (raw_value_text, None)
+                }
+            };
+            
+            let value = Value::try_new(value_text)?;
+            
+            Ok(Expr {
+                qualifier: None,
+                param_type,
+                name,
+                value,
+                default,
+            })
+        },
+        Rule::expr => {
+            // Recursively process the expr based on its inner rule
+            let inner_expr = pair.into_inner().next().ok_or_else(|| 
+                ParserError::SyntaxError("Empty expr rule".to_string())
+            )?;
+            
+            // Recursively call parse_expr with the inner rule
+            parse_expr(inner_expr)
+        },
+        _ => {            
+            Err(ParserError::SyntaxError(format!(
+                "Unexpected expr rule: {:?}", pair.as_rule()
+            )))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2612,6 +2752,79 @@ mod tests {
             // Debug output to see what we got
             println!("Theme parameter value: '{}'", param.value.raw_text);
             
+        }
+    }
+
+    #[test]
+    fn test_expr_types() {
+        // Test for in expr without value expression
+        let input = r#"
+            Chart {
+                // In expr without value expression
+                in expr<String> title;
+                
+                // Out expr with value expression
+                out expr<Number> width: 100;
+                
+                // Private expr with value expression
+                expr<Boolean> interactive: true;
+                
+                // expr with default value
+                expr<String> theme: "light" = "system";
+            }
+        "#;
+        
+        // First parse with the pest parser
+        let result = AvengerParser::parse(Rule::file, input);
+        assert!(result.is_ok(), "Failed to parse grammar: {:?}", result.err());
+        
+        // Then do a full parse
+        let result = parse(input).unwrap();
+        assert_eq!(result.components.len(), 1);
+        assert_eq!(result.components[0].component.items.len(), 4); // 4 expr declarations
+        
+        // Check first expr (in expr without value expression)
+        if let ComponentItem::Expr(expr) = &result.components[0].component.items[0] {
+            assert_eq!(expr.name, "title");
+            assert_eq!(expr.qualifier, Some("in".to_string()));
+            assert_eq!(expr.param_type, "String");
+            assert_eq!(expr.value.raw_text, "NULL"); // Dummy value
+            assert!(expr.default.is_none());
+        } else {
+            panic!("Expected Expr");
+        }
+        
+        // Check second expr (out expr with value expression)
+        if let ComponentItem::Expr(expr) = &result.components[0].component.items[1] {
+            assert_eq!(expr.name, "width");
+            assert_eq!(expr.qualifier, Some("out".to_string()));
+            assert_eq!(expr.param_type, "Number");
+            assert_eq!(expr.value.raw_text, "100");
+            assert!(expr.default.is_none());
+        } else {
+            panic!("Expected Expr");
+        }
+        
+        // Check third expr (private expr with value expression)
+        if let ComponentItem::Expr(expr) = &result.components[0].component.items[2] {
+            assert_eq!(expr.name, "interactive");
+            assert_eq!(expr.qualifier, None);
+            assert_eq!(expr.param_type, "Boolean");
+            assert_eq!(expr.value.raw_text, "true");
+            assert!(expr.default.is_none());
+        } else {
+            panic!("Expected Expr");
+        }
+        
+        // Check fourth expr (expr with default value)
+        if let ComponentItem::Expr(expr) = &result.components[0].component.items[3] {
+            assert_eq!(expr.name, "theme");
+            assert_eq!(expr.qualifier, None);
+            assert_eq!(expr.param_type, "String");
+            assert_eq!(expr.value.raw_text, "\"light\"");
+            assert_eq!(expr.default.clone().unwrap().raw_text, "\"system\"");
+        } else {
+            panic!("Expected Expr");
         }
     }
 }
