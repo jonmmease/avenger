@@ -26,6 +26,11 @@ raw_value = @{
     (string_literal_double | string_literal_single | (!(";" | "{" | "}") ~ ANY))*
 }
 
+// SQL query is similar to raw_value but specifically for SQL content
+sql_query = @{
+    (string_literal_double | string_literal_single | (!(";" | "{" | "}") ~ ANY))*
+}
+
 // Expression that can be used in if/match statements, surrounded by parentheses
 conditional_expr = @{
     "(" ~ (string_literal_double | string_literal_single | balanced_parentheses | (!(")" | "{" | "}") ~ ANY))* ~ ")"
@@ -57,20 +62,17 @@ private_parameter = {
     "param" ~ param_type ~ parameter_identifier ~ ":" ~ raw_value ~ param_default? ~ ";"
 }
 
-// Dataset declaration - simplified for better parsing
-dataset = {
-    param_qualifier? ~ "dataset" ~ parameter_identifier ~ ":" ~ raw_value ~ ";"
-}
-
-private_dataset = {
-    "dataset" ~ parameter_identifier ~ ":" ~ raw_value ~ ";"
-}
+// Dataset declaration - now with different formats for in vs. other qualifiers
+in_dataset      = { "in" ~ "dataset" ~ parameter_identifier ~ ";" }
+out_dataset     = { "out" ~ "dataset" ~ parameter_identifier ~ ":" ~ sql_query ~ ";" }
+private_dataset = { "dataset" ~ parameter_identifier ~ ":" ~ sql_query ~ ";" }
+dataset         = { in_dataset | out_dataset | private_dataset }
 
 // Component binding
 component_binding = { identifier ~ ":=" ~ component_instance }
 
-// If statement content allows only simplified parameters
-if_content = { (property | private_parameter | private_dataset | component_binding | component_instance | if_statement | match_statement)* }
+// If statement content needs explicit includes for all dataset types
+if_content = { (property | private_parameter | in_dataset | out_dataset | private_dataset | component_binding | component_instance | if_statement | match_statement)* }
 
 // Else branch
 else_branch = { "else" ~ "{" ~ if_content ~ "}" }

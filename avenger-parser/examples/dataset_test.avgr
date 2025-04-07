@@ -1,3 +1,7 @@
 Chart {
+    // Regular dataset with query
     dataset ds1: SELECT * FROM foo;
+    
+    // In dataset with no query
+    in dataset ds2;
 } 

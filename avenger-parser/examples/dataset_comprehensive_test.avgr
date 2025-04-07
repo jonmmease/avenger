@@ -1,0 +1,35 @@
+Chart {
+    // Regular dataset with query
+    dataset ds1: SELECT * FROM table1;
+    
+    // In dataset with no query
+    in dataset ds2;
+    
+    // Out dataset with query
+    out dataset ds3: SELECT count(*) FROM table2;
+    
+    // Test datasets in if statements
+    if (condition1) {
+        // In dataset with no query in if statement
+        in dataset ds4;
+        
+        // Regular dataset with query in if statement
+        dataset ds5: SELECT * FROM table3;
+    }
+    
+    // Test datasets in match statements
+    match (valueType) {
+        'numeric' => {
+            // In dataset in match case
+            in dataset ds6;
+        }
+        'categorical' => {
+            // Regular dataset in match case
+            dataset ds7: SELECT category, count FROM table4;
+        }
+        '_' => {
+            // Out dataset in match case
+            out dataset ds8: SELECT * FROM table5;
+        }
+    }
+} 
