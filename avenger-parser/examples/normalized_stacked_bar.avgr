@@ -35,7 +35,8 @@ component Chart {
 
             x_scale := BandScale {
                 range: [0, @width];
-                domain: (SELECT array_agg(distinct "Creative Genre" order by "Creative Genre" asc) FROM @movies);
+                domain: SELECT distinct "Creative Genre" FROM @movies order by "Creative Genre" asc;
+                // domain: (SELECT array_agg(distinct "Creative Genre" order by "Creative Genre" asc) FROM @movies);
                 padding: 0.1;
             }
 
