@@ -1,12 +1,12 @@
 // This is a test file for if-else statements
 import { Button } from './components/button.avgr';
 
-Chart {
+component Chart {
     width: 600;
     height: 400;
     
     // Simple if-else statement
-    if show_axis {
+    if (show_axis) {
         Axis {
             orient: 'bottom';
             scale: 'x';
@@ -37,7 +37,7 @@ Chart {
         x: 10;
         y: 10;
         
-        if has_data {
+        if (has_data) {
             // Simple parameter without qualifier (allowed in if)
             param<Number> scale: 1.5;
             
@@ -48,7 +48,7 @@ Chart {
             }
             
             // Nested if-else in parent if
-            if show_labels {
+            if (show_labels) {
                 Text {
                     x: 25;
                     y: 25;
@@ -71,7 +71,7 @@ Chart {
             }
             
             // Nested if in else branch
-            if show_help_text {
+            if (show_help_text) {
                 HelpText {
                     text: 'Please upload data to see visualization';
                 }
@@ -85,7 +85,7 @@ export component Tooltip {
     x: 0;
     y: 0;
     
-    if visible {
+    if (visible) {
         Rect {
             width: 100;
             height: 50;

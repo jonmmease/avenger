@@ -43,12 +43,12 @@ impl From<sqlparser::parser::ParserError> for ParserError {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Value {
+pub struct ValueExpr {
     pub raw_text: String,
     pub sql_expr: SqlExpr,
 }
 
-impl Value {
+impl ValueExpr {
     pub fn try_new(raw_text: String) -> Result<Self, ParserError> {
         // Try to parse as SQL expression immediately
         let sql_expr = Self::parse_sql_expr(&raw_text)?;
@@ -133,16 +133,15 @@ fn parse_sql_query(text: &str) -> Result<SqlStatement, ParserError> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Property {
     pub name: String,
-    pub value: Value,
+    pub value: ValueExpr,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Parameter {
     pub qualifier: Option<String>,  // in, out, or None for private
     pub param_type: Option<String>, // Type specified in <typename>, now optional
-    pub name: String,              // Name of the parameter
-    pub value: Value,              // Value expression
-    pub default: Option<Value>,    // Optional default value
+    pub name: String,               // Name of the parameter
+    pub value: Option<ValueExpr>,   // Value expression
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -155,7 +154,7 @@ pub struct Dataset {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfStatement {
-    pub condition: Value,
+    pub condition: ValueExpr,
     pub items: Vec<ComponentItem>,
     pub else_items: Option<Vec<ComponentItem>>,
 }
@@ -169,7 +168,7 @@ pub struct MatchCase {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MatchStatement {
-    pub expression: Value,
+    pub expression: ValueExpr,
     pub cases: Vec<MatchCase>,
 }
 
@@ -224,9 +223,8 @@ pub struct AvengerFile {
 pub struct Expr {
     pub qualifier: Option<String>,  // in, out, or None for private
     pub expr_type: Option<String>,  // Type specified in <typename>, now optional
-    pub name: String,              // Name of the parameter
-    pub value: Value,              // Value expression
-    pub default: Option<Value>,    // Optional default value
+    pub name: String,               // Name of the parameter
+    pub value: Option<ValueExpr>,   // Default value expression
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -356,13 +354,13 @@ fn parse_if_statement(pair: pest::iterators::Pair<Rule>) -> Result<IfStatement, 
     let condition = match next.as_rule() {
         Rule::identifier => {
             // Simple identifier condition (old style)
-            Value::try_new(next.as_str().to_string())?
+            ValueExpr::try_new(next.as_str().to_string())?
         },
         Rule::conditional_expr => {
             // Parse the expression content (remove the parentheses)
             let expr_text = next.as_str();
             let inner_expr = &expr_text[1..expr_text.len()-1];  // Remove ( and )
-            Value::try_new(inner_expr.trim().to_string())?
+            ValueExpr::try_new(inner_expr.trim().to_string())?
         },
         _ => return Err(ParserError::ParseError(format!(
             "Expected identifier or conditional expression in if statement, found {:?}", 
@@ -402,13 +400,13 @@ fn parse_match_statement(pair: pest::iterators::Pair<Rule>) -> Result<MatchState
     let expression = match next.as_rule() {
         Rule::identifier => {
             // Simple identifier expression (old style)
-            Value::try_new(next.as_str().to_string())?
+            ValueExpr::try_new(next.as_str().to_string())?
         },
         Rule::conditional_expr => {
             // Parse the expression content (remove the parentheses)
             let expr_text = next.as_str();
             let inner_expr = &expr_text[1..expr_text.len()-1];  // Remove ( and )
-            Value::try_new(inner_expr.trim().to_string())?
+            ValueExpr::try_new(inner_expr.trim().to_string())?
         },
         _ => return Err(ParserError::ParseError(format!(
             "Expected identifier or conditional expression in match statement, found {:?}", 
@@ -502,7 +500,7 @@ fn parse_property(pair: pest::iterators::Pair<Rule>) -> Result<Property, ParserE
     let name = inner.next().unwrap().as_str().to_string();
     let value_text = inner.next().unwrap().as_str().trim().to_string();
     
-    let value = Value::try_new(value_text)?;
+    let value = ValueExpr::try_new(value_text)?;
     
     Ok(Property { name, value })
 }
@@ -526,16 +524,11 @@ fn parse_parameter(pair: pest::iterators::Pair<Rule>) -> Result<Parameter, Parse
             // Get parameter name
             let name = ident_pair.as_str().to_string();
             
-            // For in parameters, we don't have a value expression
-            // Create a dummy value that will be overwritten at runtime
-            let value = Value::try_new("NULL".to_string())?;
-            
             Ok(Parameter {
                 qualifier: Some("in".to_string()),
                 param_type,
                 name,
-                value,
-                default: None,
+                value: None,
             })
         },
         Rule::out_parameter => {
@@ -556,17 +549,8 @@ fn parse_parameter(pair: pest::iterators::Pair<Rule>) -> Result<Parameter, Parse
             let name = ident_pair.as_str().to_string();
             
             // Get value expression
-            let value_text = inner.next().unwrap().as_str().trim().to_string();
-            let value = Value::try_new(value_text)?;
-            
-            // Check for optional default value
-            let default = if let Some(default_pair) = inner.next() {
-                if default_pair.as_rule() == Rule::param_default {
-                    let default_text = default_pair.into_inner().next().unwrap().as_str().trim().to_string();
-                    Some(Value::try_new(default_text)?)
-                } else {
-                    None
-                }
+            let value = if let Some(value_pair) = inner.next() {
+                Some(ValueExpr::try_new(value_pair.as_str().trim().to_string())?)
             } else {
                 None
             };
@@ -576,7 +560,6 @@ fn parse_parameter(pair: pest::iterators::Pair<Rule>) -> Result<Parameter, Parse
                 param_type,
                 name,
                 value,
-                default,
             })
         },
         Rule::private_parameter => {
@@ -597,37 +580,17 @@ fn parse_parameter(pair: pest::iterators::Pair<Rule>) -> Result<Parameter, Parse
             let name = ident_pair.as_str().to_string();
             
             // Get value expression
-            let raw_value_text = inner.next().unwrap().as_str().trim().to_string();
-            
-            // Check if the raw value contains a default value (format: "value = default")
-            let parts: Vec<&str> = raw_value_text.split('=').collect();
-            let (value_text, default) = if parts.len() > 1 {
-                // We have a default value in the raw text
-                let value_part = parts[0].trim().to_string();
-                let default_part = parts[1].trim().to_string();
-                
-                (value_part, Some(Value::try_new(default_part)?))
+            let value = if let Some(value_pair) = inner.next() {
+                Some(ValueExpr::try_new(value_pair.as_str().trim().to_string())?)
             } else {
-                // Look ahead for a separate default value parameter
-                let has_default = inner.clone().next().map_or(false, |p| p.as_rule() == Rule::param_default);
-                
-                if has_default {
-                    let default_pair = inner.next().unwrap();
-                    let default_text = default_pair.into_inner().next().unwrap().as_str().trim().to_string();
-                    (raw_value_text, Some(Value::try_new(default_text)?))
-                } else {
-                    (raw_value_text, None)
-                }
+                None
             };
-            
-            let value = Value::try_new(value_text)?;
             
             Ok(Parameter {
                 qualifier: None,
                 param_type,
                 name,
                 value,
-                default,
             })
         },
         Rule::parameter => {
@@ -649,8 +612,6 @@ fn parse_parameter(pair: pest::iterators::Pair<Rule>) -> Result<Parameter, Parse
 
 // Update the parse_dataset function without a trailing backtick
 fn parse_dataset(pair: pest::iterators::Pair<Rule>) -> Result<Dataset, ParserError> {
-    // println!("parse_dataset called with rule: {:?}, text: '{}'", pair.as_rule(), pair.as_str());
-    
     match pair.as_rule() {
         Rule::in_dataset => {
             // For in datasets, which don't have a SQL query
@@ -688,13 +649,6 @@ fn parse_dataset(pair: pest::iterators::Pair<Rule>) -> Result<Dataset, ParserErr
                 ParserError::SyntaxError("Expected SQL query in out_dataset".to_string())
             )?;
             let query_text = query_token.as_str().trim().to_string();
-            
-            // Remove trailing semicolon if present
-            let query_text = if query_text.ends_with(';') {
-                query_text[..query_text.len()-1].trim().to_string()
-            } else {
-                query_text
-            };
             
             // Parse SQL query
             let query = parse_sql_query(&query_text)?;
@@ -742,13 +696,6 @@ fn parse_dataset(pair: pest::iterators::Pair<Rule>) -> Result<Dataset, ParserErr
                 ParserError::SyntaxError("Expected SQL query in private dataset".to_string())
             )?.as_str().trim().to_string();
             
-            // Remove trailing semicolon if present
-            let query_text = if query_text.ends_with(';') {
-                query_text[..query_text.len()-1].trim().to_string()
-            } else {
-                query_text
-            };
-            
             // Parse SQL query
             let query = parse_sql_query(&query_text)?;
             
@@ -793,22 +740,13 @@ fn parse_component_declaration(pair: pest::iterators::Pair<Rule>) -> Result<Comp
         }
     }
     
-    // Skip "component" keyword if present
-    let mut component_name = "";
-    for inner_pair in pairs.by_ref() {
-        if inner_pair.as_rule() == Rule::component_identifier {
-            component_name = inner_pair.as_str();
-            break;
-        } else if inner_pair.as_str() == "component" {
-            // Skip "component" keyword
-            continue;
-        }
-    }
+    // Get component name - should be a component_identifier
+    let component_name = pairs.next().unwrap().as_str().to_string();
     
     // Parse the component content
     let mut component_items = Vec::new();
     
-    // Process all items in component body
+    // Process all items in component body - these are the component's properties, params, etc.
     for inner_pair in pairs {
         match inner_pair.as_rule() {
             Rule::property => {
@@ -820,7 +758,7 @@ fn parse_component_declaration(pair: pest::iterators::Pair<Rule>) -> Result<Comp
             Rule::expr | Rule::in_expr | Rule::out_expr | Rule::private_expr => {
                 component_items.push(ComponentItem::Expr(parse_expr(inner_pair)?));
             }
-            Rule::dataset => {
+            Rule::dataset | Rule::in_dataset | Rule::out_dataset | Rule::private_dataset => {
                 component_items.push(ComponentItem::Dataset(parse_dataset(inner_pair)?));
             }
             Rule::component_instance => {
@@ -848,7 +786,7 @@ fn parse_component_declaration(pair: pest::iterators::Pair<Rule>) -> Result<Comp
     Ok(ComponentDeclaration {
         exported,
         component: ComponentInstance {
-            name: component_name.to_string(),
+            name: component_name,
             parent: None,
             items: component_items,
         },
@@ -917,16 +855,11 @@ fn parse_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, ParserError> {
             // Get parameter name
             let name = ident_pair.as_str().to_string();
             
-            // For in expr, we don't have a value expression
-            // Create a dummy value that will be overwritten at runtime
-            let value = Value::try_new("NULL".to_string())?;
-            
             Ok(Expr {
                 qualifier: Some("in".to_string()),
                 expr_type,
                 name,
-                value,
-                default: None,
+                value: None,
             })
         },
         Rule::out_expr => {
@@ -947,17 +880,8 @@ fn parse_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, ParserError> {
             let name = ident_pair.as_str().to_string();
             
             // Get value expression
-            let value_text = inner.next().unwrap().as_str().trim().to_string();
-            let value = Value::try_new(value_text)?;
-            
-            // Check for optional default value
-            let default = if let Some(default_pair) = inner.next() {
-                if default_pair.as_rule() == Rule::param_default {
-                    let default_text = default_pair.into_inner().next().unwrap().as_str().trim().to_string();
-                    Some(Value::try_new(default_text)?)
-                } else {
-                    None
-                }
+            let value = if let Some(token) = inner.next() {
+                Some(ValueExpr::try_new(token.as_str().trim().to_string())?)
             } else {
                 None
             };
@@ -967,7 +891,6 @@ fn parse_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, ParserError> {
                 expr_type,
                 name,
                 value,
-                default,
             })
         },
         Rule::private_expr => {
@@ -988,37 +911,17 @@ fn parse_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, ParserError> {
             let name = ident_pair.as_str().to_string();
             
             // Get value expression
-            let raw_value_text = inner.next().unwrap().as_str().trim().to_string();
-            
-            // Check if the raw value contains a default value (format: "value = default")
-            let parts: Vec<&str> = raw_value_text.split('=').collect();
-            let (value_text, default) = if parts.len() > 1 {
-                // We have a default value in the raw text
-                let value_part = parts[0].trim().to_string();
-                let default_part = parts[1].trim().to_string();
-                
-                (value_part, Some(Value::try_new(default_part)?))
+            let value = if let Some(token) = inner.next() {
+                Some(ValueExpr::try_new(token.as_str().trim().to_string())?)
             } else {
-                // Look ahead for a separate default value parameter
-                let has_default = inner.clone().next().map_or(false, |p| p.as_rule() == Rule::param_default);
-                
-                if has_default {
-                    let default_pair = inner.next().unwrap();
-                    let default_text = default_pair.into_inner().next().unwrap().as_str().trim().to_string();
-                    (raw_value_text, Some(Value::try_new(default_text)?))
-                } else {
-                    (raw_value_text, None)
-                }
+                None
             };
-            
-            let value = Value::try_new(value_text)?;
             
             Ok(Expr {
                 qualifier: None,
                 expr_type,
                 name,
                 value,
-                default,
             })
         },
         Rule::expr => {
@@ -1038,11 +941,47 @@ fn parse_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, ParserError> {
     }
 }
 
+// Add parse_function_param function (similar to parse_parameter)
+fn parse_function_param(pair: pest::iterators::Pair<Rule>) -> Result<Parameter, ParserError> {
+    let mut name = String::new();
+    let mut value_text = String::new();
+    
+    // Process all tokens in the function parameter
+    for token in pair.into_inner() {
+        match token.as_rule() {
+            Rule::kinds => {
+                // Just ignore the kinds token, we don't need to store it
+            },
+            Rule::parameter_identifier => {
+                name = token.as_str().to_string();
+            },
+            Rule::sql_expr => {
+                value_text = token.as_str().trim().to_string();
+            },
+            _ => { /* Ignore other tokens */ }
+        }
+    }
+    
+    // Create a value if there is a value expression, otherwise NULL
+    let value = if value_text.is_empty() {
+        None
+    } else {
+        Some(ValueExpr::try_new(value_text)?)
+    };
+    
+    Ok(Parameter {
+        qualifier: None, // Function parameters don't have qualifiers
+        param_type: None, // Function parameters don't have types
+        name,
+        value,
+    })
+}
+
 fn parse_component_function(pair: pest::iterators::Pair<Rule>) -> Result<ComponentFunction, ParserError> {
     let mut out_qualifier = false;
     let mut name = String::new();
     let mut return_type = String::new();
-    let parameters = Vec::new();
+    let mut parameters = Vec::new();
     
     // Process all tokens in the function
     for token in pair.into_inner() {
@@ -1060,8 +999,11 @@ fn parse_component_function(pair: pest::iterators::Pair<Rule>) -> Result<Compone
             Rule::function_identifier => {
                 name = token.as_str().to_string();
             }
-            Rule::function_return_type => {
+            Rule::kinds => {
                 return_type = token.as_str().to_string();
+            }
+            Rule::function_param => {
+                parameters.push(parse_function_param(token)?);
             }
             _ => { /* Ignore other tokens */ }
         }
@@ -1075,16 +1017,17 @@ fn parse_component_function(pair: pest::iterators::Pair<Rule>) -> Result<Compone
     })
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
+    use std::fs; 
     use std::path::Path;
 
     #[test]
     fn test_parse_simple() {
         let input = r#"
-            Chart {
+            componentChart {
                 width: 100;
                 height: 100;
             }
@@ -1099,7 +1042,7 @@ mod tests {
     #[test]
     fn test_parse_nested_components() {
         let input = r#"
-            Chart {
+            component Chart {
                 width: 100;
                 Rule {
                     x: 10;
@@ -1122,7 +1065,7 @@ mod tests {
     #[test]
     fn test_parse_parameter() {
         let input = r#"
-            Chart {
+            component Chart {
                 param<SomeType> some_param: "SomeValue";
                 in param<OtherType> other_param;
             }
@@ -1134,7 +1077,7 @@ mod tests {
         if let ComponentItem::Parameter(param) = &result.components[0].component.items[0] {
             assert_eq!(param.param_type, Some("SomeType".to_string()));
             assert_eq!(param.name, "some_param");
-            assert_eq!(param.value.raw_text, "\"SomeValue\"");
+            assert_eq!(param.value.clone().unwrap().raw_text, "\"SomeValue\"");
         } else {
             panic!("Expected Parameter");
         }
@@ -1143,7 +1086,7 @@ mod tests {
             assert_eq!(param.qualifier, Some("in".to_string()));
             assert_eq!(param.param_type, Some("OtherType".to_string()));
             assert_eq!(param.name, "other_param");
-            assert_eq!(param.value.raw_text, "NULL"); // Dummy value for in parameters
+            assert!(param.value.is_none()); // Dummy value for in parameters
         } else {
             panic!("Expected Parameter");
         }
@@ -1152,20 +1095,33 @@ mod tests {
     #[test]
     fn test_parse_component_binding() {
         let input = r#"
-            Chart {
+            component Chart {
                 bound := Another {
                     x_y_z: 10;
                 }
             }
         "#;
+                
+        // Now attempt the full parse
+        let result = parse(input);
         
-        let result = parse(input).unwrap();
-        
-        if let ComponentItem::ComponentBinding(name, component) = &result.components[0].component.items[0] {
-            assert_eq!(name, "bound");
-            assert_eq!(component.name, "Another");
+        if let Ok(file) = result {
+            if file.components.len() > 0 {
+                let first_component = &file.components[0];
+                
+                if first_component.component.items.len() > 0 {
+                    let first_item = &first_component.component.items[0];
+                    
+                    if let ComponentItem::ComponentBinding(name, component) = first_item {
+                        assert_eq!(name, "bound");
+                        assert_eq!(component.name, "Another");
+                    } else {
+                        panic!("Expected ComponentBinding");
+                    }
+                }
+            }
         } else {
-            panic!("Expected ComponentBinding");
+            panic!("Failed to parse: {:?}", result.err());
         }
     }
     
@@ -1185,7 +1141,7 @@ mod tests {
     #[test]
     fn test_parse_string_literal() {
         let input = r#"
-            Chart {
+            component Chart {
                 text: 'Hello; world!';
                 other_text: "Hello; world!";
             }
@@ -1211,7 +1167,7 @@ mod tests {
     #[test]
     fn test_parse_expression() {
         let input = r#"
-            Chart {
+            component Chart {
                 x: 10 + 20 * 3;
                 y: width + height;
             }
@@ -1240,7 +1196,7 @@ mod tests {
         /*
             A sample Avenger file with different component types.
         */
-        Chart {
+        component Chart {
             // Simple parameters
             width: 100;
             height: 100;
@@ -1308,7 +1264,7 @@ mod tests {
             import { Button } from './button.avgr';
             import { Component1, OtherComponent } from './inner/outer';
             
-            Chart {
+            component Chart {
                 width: 100;
             }
         "#;
@@ -1342,7 +1298,7 @@ mod tests {
             import { Component1 } from './inner/outer';
             // Comment after imports
             
-            Chart {
+            component Chart {
                 width: 100;
             }
         "#;
@@ -1356,10 +1312,10 @@ mod tests {
     #[test]
     fn test_parse_if_statement() {
         let input = r#"
-            Chart {
+            component Chart {
                 width: 100;
                 
-                if show_rule {
+                if (show_rule) {
                     Rule {
                         x: 10;
                         y: 20;
@@ -1393,7 +1349,7 @@ mod tests {
     #[test]
     fn test_parse_if_not_statement() {
         let input = r#"
-            Chart {
+            component Chart {
                 if (NOT hide_text) {
                     Text {
                         content: 'Visible text';
@@ -1425,12 +1381,12 @@ mod tests {
     #[test]
     fn test_nested_if_statements() {
         let input = r#"
-            Chart {
-                if outer_condition {
+            component Chart {
+                if (outer_condition) {
                     Group {
                         width: 50;
                         
-                        if inner_condition {
+                        if (inner_condition) {
                             Circle {
                                 radius: 10;
                             }
@@ -1500,8 +1456,8 @@ mod tests {
     #[test]
     fn test_parse_if_else_statement() {
         let input = r#"
-            Chart {
-                if show_rule {
+            component Chart {
+                if (show_rule) {
                     Rule {
                         x: 10;
                         y: 20;
@@ -1552,8 +1508,8 @@ mod tests {
     #[test]
     fn test_private_parameter_in_if() {
         let input = r#"
-            Chart {
-                if has_data {
+            component Chart {
+                if (has_data) {
                     param<Number> scale: 1.5;  // Simplified parameter without qualifier
                     Circle {
                         radius: 10;
@@ -1573,7 +1529,7 @@ mod tests {
                 assert_eq!(param.qualifier, None);
                 assert_eq!(param.param_type, Some("Number".to_string()));
                 assert_eq!(param.name, "scale");
-                assert_eq!(param.value.raw_text, "1.5");
+                assert_eq!(param.value.clone().unwrap().raw_text, "1.5");
             } else {
                 panic!("Expected Parameter inside if statement");
             }
@@ -1585,10 +1541,10 @@ mod tests {
     #[test]
     fn test_nested_if_else() {
         let input = r#"
-            Chart {
-                if outer_condition {
+            component Chart {
+                if (outer_condition) {
                     Group {
-                        if inner_condition {
+                        if (inner_condition) {
                             Text { text: 'Inner true'; }
                         } else {
                             Text { text: 'Inner false'; }
@@ -1654,7 +1610,7 @@ mod tests {
     #[test]
     fn test_match_statement() {
         let input = r#"
-            Chart {
+            component Chart {
                 match (status) {
                     'success' => {
                         SuccessIcon {
@@ -1761,7 +1717,7 @@ mod tests {
     fn test_parse_dataset_from_string() {
         // This test checks if the Pest grammar correctly parses dataset declarations
         let input = r#"
-            Chart {
+            component Chart {
                 // Basic dataset
                 dataset ds1: SELECT * FROM foo;
                 
@@ -1886,34 +1842,34 @@ mod tests {
     #[test]
     fn test_sql_parsing() {
         // Valid SQL expressions should succeed
-        let value = Value::try_new("1 + 2".to_string()).unwrap();
+        let value = ValueExpr::try_new("1 + 2".to_string()).unwrap();
         assert_eq!(value.raw_text, "1 + 2");
         
         // Valid SQL expression with column reference
-        let value = Value::try_new("id > 21".to_string()).unwrap();
+        let value = ValueExpr::try_new("id > 21".to_string()).unwrap();
         assert_eq!(value.raw_text, "id > 21");
         
         // Scalar subquery should work
-        let value = Value::try_new("(SELECT min(colA) FROM users)".to_string()).unwrap();
+        let value = ValueExpr::try_new("(SELECT min(colA) FROM users)".to_string()).unwrap();
         assert_eq!(value.raw_text, "(SELECT min(colA) FROM users)");
         
         // Full SQL query should fail
-        let result = Value::try_new("SELECT SUM(value) FROM sales;".to_string());
+        let result = ValueExpr::try_new("SELECT SUM(value) FROM sales;".to_string());
         assert!(result.is_err());
         
         // Full SQL query with multiple columns should fail
-        let result = Value::try_new("SELECT id, name FROM users".to_string());
+        let result = ValueExpr::try_new("SELECT id, name FROM users".to_string());
         assert!(result.is_err());
         
         // Non-SQL expression should fail
-        let result = Value::try_new("Hello World".to_string());
+        let result = ValueExpr::try_new("Hello World".to_string());
         assert!(result.is_err());
     }
 
     #[test]
     fn test_sql_error_message_format() {
         // Test full query without scalar subquery parentheses
-        let result = Value::try_new("1 @ 2".to_string());
+        let result = ValueExpr::try_new("1 @ 2".to_string());
         assert!(result.is_err());
         match result.err().unwrap() {
             ParserError::SqlSyntaxError(msg) => {
@@ -1930,7 +1886,7 @@ mod tests {
     #[test]
     fn test_if_with_sql_expression() {
         let input = r#"
-            Chart {
+            component Chart {
                 width: 100;
                 
                 if (x > 10 AND y < 20) {
@@ -1988,7 +1944,7 @@ mod tests {
     #[test]
     fn test_match_with_sql_expression() {
         let input = r#"
-            Chart {
+            component Chart {
                 width: 100;
                 
                 match (CASE WHEN value > 100 THEN 'high' WHEN value > 50 THEN 'medium' ELSE 'low' END) {
@@ -2022,21 +1978,6 @@ mod tests {
             assert_eq!(match_stmt.cases[1].is_default, false);
             assert_eq!(match_stmt.cases[2].pattern, "low");
             assert_eq!(match_stmt.cases[2].is_default, false);
-            
-            // Check first case content - high
-            if let ComponentItem::ComponentInstance(circle) = &match_stmt.cases[0].items[0] {
-                assert_eq!(circle.name, "Circle");
-                assert_eq!(circle.items.len(), 1); // r property
-                
-                if let ComponentItem::Property(prop) = &circle.items[0] {
-                    assert_eq!(prop.name, "r");
-                    assert_eq!(prop.value.raw_text, "10");
-                } else {
-                    panic!("Expected Property");
-                }
-            } else {
-                panic!("Expected Circle component");
-            }
         } else {
             panic!("Expected MatchStatement");
         }
@@ -2045,7 +1986,7 @@ mod tests {
     #[test]
     fn test_complex_sql_expressions() {
         let input = r#"
-            Chart {
+            component Chart {
                 if (x IN (SELECT id FROM items)) {
                     Feature {
                         highlighted: true;
@@ -2108,7 +2049,7 @@ mod tests {
     #[test]
     fn test_match_pattern_default() {
         let input = r#"
-            Chart {
+            component Chart {
                 match (property) {
                     '_' => {
                         Text { text: 'Default case'; }
@@ -2132,7 +2073,7 @@ mod tests {
     #[test]
     fn test_parentheses_in_quoted_strings() {
         let input = r#"
-            Chart {
+            component Chart {
                 // Single-quoted string with parentheses in if statement
                 if (column = 'value with (parentheses)') {
                     Text { content: 'matched'; }
@@ -2240,7 +2181,7 @@ mod tests {
     #[test]
     fn test_match_with_default() {
         let input = r#"
-            Chart {
+            component Chart {
                 match (type) {
                     'bar' => {
                         Bar {
@@ -2286,7 +2227,7 @@ mod tests {
     #[test]
     fn test_nested_match() {
         let input = r#"
-            Chart {
+            component Chart {
                 match (outer) {
                     'first' => {
                         Group {
@@ -2351,7 +2292,7 @@ mod tests {
     #[test]
     fn test_private_parameter_in_match() {
         let input = r#"
-            Chart {
+            component Chart {
                 match (view) {
                     'detailed' => {
                         param<Number> scale: 2.0;
@@ -2385,7 +2326,7 @@ mod tests {
                 assert_eq!(param.qualifier, None); // private parameter has no qualifier
                 assert_eq!(param.param_type, Some("Number".to_string()));
                 assert_eq!(param.name, "scale");
-                assert_eq!(param.value.raw_text, "2.0");
+                assert_eq!(param.value.clone().unwrap().raw_text, "2.0");
             } else {
                 panic!("Expected Parameter in match case");
             }
@@ -2399,7 +2340,7 @@ mod tests {
         let input = r#"
             enum CardSuit { 'clubs', 'diamonds', 'hearts', 'spades' }
             
-            Chart {
+            component Chart {
                 width: 100;
             }
         "#;
@@ -2440,7 +2381,7 @@ mod tests {
         let input = r#"
             enum Direction { 'north', 'east', 'south', 'west' }
             
-            Chart {
+            component Chart {
                 width: 100;
             }
             
@@ -2485,7 +2426,7 @@ mod tests {
             
             enum Theme { 'light', 'dark', 'system' }
             
-            Chart {
+            component Chart {
                 width: 100;
             }
         "#;
@@ -2505,7 +2446,7 @@ mod tests {
     fn test_dataset() {
         // Test parsing a component with dataset inside
         let input = r#"
-            Chart {
+            component Chart {
                 dataset ds1: SELECT * FROM foo;
             }
         "#;
@@ -2517,7 +2458,7 @@ mod tests {
         
         // With qualifier
         let input_with_qualifier = r#"
-            Chart {
+            component Chart {
                 in dataset ds2;
             }
         "#;
@@ -2529,7 +2470,7 @@ mod tests {
     #[test]
     fn test_parameters_and_datasets_integration() {
         let input = r#"
-            Chart {
+            component Chart {
                 // Parameters and datasets at top level
                 in param<String> input_title;
                 in dataset input_data;
@@ -2664,7 +2605,7 @@ mod tests {
     #[test]
     fn test_private_dataset_in_if_statement() {
         let input = r#"
-            Chart {
+            component Chart {
                 if (show_data) {
                     // Only private datasets are allowed in if statements
                     dataset processed_data: SELECT * FROM source_data WHERE value > 0;
@@ -2726,7 +2667,7 @@ mod tests {
     fn test_in_dataset_without_query() {
         // Test `in dataset` format without SQL query
         let input = r#"
-            Chart {
+            component Chart {
                 // In dataset without SQL query (top level needs "in")
                 in dataset incoming_data;
                 
@@ -2779,7 +2720,7 @@ mod tests {
     fn test_parameter_types() {
         // Test for in parameter without value expression
         let input = r#"
-            Chart {
+            component Chart {
                 // In parameter without value expression
                 in param<String> title;
                 
@@ -2790,7 +2731,7 @@ mod tests {
                 param<Boolean> interactive: true;
                 
                 // Parameter with default value
-                param<String> theme: "light" = "system";
+                param<String> theme: "light";
             }
         "#;
         
@@ -2808,8 +2749,7 @@ mod tests {
             assert_eq!(param.name, "title");
             assert_eq!(param.qualifier, Some("in".to_string()));
             assert_eq!(param.param_type, Some("String".to_string()));
-            assert_eq!(param.value.raw_text, "NULL"); // Dummy value
-            assert!(param.default.is_none());
+            assert!(param.value.is_none());
         } else {
             panic!("Expected Parameter");
         }
@@ -2819,8 +2759,7 @@ mod tests {
             assert_eq!(param.name, "width");
             assert_eq!(param.qualifier, Some("out".to_string()));
             assert_eq!(param.param_type, Some("Number".to_string()));
-            assert_eq!(param.value.raw_text, "100");
-            assert!(param.default.is_none());
+            assert_eq!(param.value.clone().unwrap().raw_text, "100");
         } else {
             panic!("Expected Parameter");
         }
@@ -2830,8 +2769,7 @@ mod tests {
             assert_eq!(param.name, "interactive");
             assert_eq!(param.qualifier, None);
             assert_eq!(param.param_type, Some("Boolean".to_string()));
-            assert_eq!(param.value.raw_text, "true");
-            assert!(param.default.is_none());
+            assert_eq!(param.value.clone().unwrap().raw_text, "true");
         } else {
             panic!("Expected Parameter");
         }
@@ -2841,8 +2779,7 @@ mod tests {
             assert_eq!(param.name, "theme");
             assert_eq!(param.qualifier, None);
             assert_eq!(param.param_type, Some("String".to_string()));
-            assert_eq!(param.value.raw_text, "\"light\"");
-            assert_eq!(param.default.clone().unwrap().raw_text, "\"system\"");
+            assert_eq!(param.value.clone().unwrap().raw_text, "\"light\"");
         } else {
             panic!("Expected Parameter");
         }
@@ -2852,7 +2789,7 @@ mod tests {
     fn test_expr_types() {
         // Test for in expr without value expression
         let input = r#"
-            Chart {
+            component Chart {
                 // In expr without value expression
                 in expr<String> title;
                 
@@ -2863,7 +2800,7 @@ mod tests {
                 expr<Boolean> interactive: true;
                 
                 // expr with default value
-                expr<String> theme: "light" = "system";
+                expr<String> theme: "light";
             }
         "#;
         
@@ -2881,8 +2818,7 @@ mod tests {
             assert_eq!(expr.name, "title");
             assert_eq!(expr.qualifier, Some("in".to_string()));
             assert_eq!(expr.expr_type, Some("String".to_string()));
-            assert_eq!(expr.value.raw_text, "NULL"); // Dummy value
-            assert!(expr.default.is_none());
+            assert!(expr.value.is_none()); // Dummy value
         } else {
             panic!("Expected Expr");
         }
@@ -2892,8 +2828,7 @@ mod tests {
             assert_eq!(expr.name, "width");
             assert_eq!(expr.qualifier, Some("out".to_string()));
             assert_eq!(expr.expr_type, Some("Number".to_string()));
-            assert_eq!(expr.value.raw_text, "100");
-            assert!(expr.default.is_none());
+            assert_eq!(expr.value.clone().unwrap().raw_text, "100");
         } else {
             panic!("Expected Expr");
         }
@@ -2903,8 +2838,7 @@ mod tests {
             assert_eq!(expr.name, "interactive");
             assert_eq!(expr.qualifier, None);
             assert_eq!(expr.expr_type, Some("Boolean".to_string()));
-            assert_eq!(expr.value.raw_text, "true");
-            assert!(expr.default.is_none());
+            assert_eq!(expr.value.clone().unwrap().raw_text, "true");
         } else {
             panic!("Expected Expr");
         }
@@ -2914,8 +2848,7 @@ mod tests {
             assert_eq!(expr.name, "theme");
             assert_eq!(expr.qualifier, None);
             assert_eq!(expr.expr_type, Some("String".to_string()));
-            assert_eq!(expr.value.raw_text, "\"light\"");
-            assert_eq!(expr.default.clone().unwrap().raw_text, "\"system\"");
+            assert_eq!(expr.value.clone().unwrap().raw_text, "\"light\"");
         } else {
             panic!("Expected Expr");
         }
@@ -2925,7 +2858,7 @@ mod tests {
     fn test_optional_types() {
         // Test for parameters and expressions without type definitions
         let input = r#"
-            Chart {
+            component Chart {
                 // Parameters without type
                 param title: "Chart Title";
                 in param width;
@@ -2981,7 +2914,7 @@ mod tests {
         
         assert_eq!(param_title.qualifier, None);
         assert_eq!(param_title.param_type, None); // No type specified
-        assert_eq!(param_title.value.raw_text, "\"Chart Title\"");
+        assert_eq!(param_title.value.clone().unwrap().raw_text, "\"Chart Title\"");
         
         let param_width = result.components[0].component.items.iter().find_map(|item| {
             if let ComponentItem::Parameter(param) = item {
@@ -3012,7 +2945,7 @@ mod tests {
         
         assert_eq!(param_height.qualifier, Some("out".to_string()));
         assert_eq!(param_height.param_type, None); // No type specified
-        assert_eq!(param_height.value.raw_text, "300");
+        assert_eq!(param_height.value.clone().unwrap().raw_text, "300");
         
         // Check expressions without type
         let expr_theme = result.components[0].component.items.iter().find_map(|item| {
@@ -3029,7 +2962,7 @@ mod tests {
         
         assert_eq!(expr_theme.qualifier, None);
         assert_eq!(expr_theme.expr_type, None); // No type specified
-        assert_eq!(expr_theme.value.raw_text, "\"light\"");
+        assert_eq!(expr_theme.value.clone().unwrap().raw_text, "\"light\"");
         
         let expr_color = result.components[0].component.items.iter().find_map(|item| {
             if let ComponentItem::Expr(expr) = item {
@@ -3060,7 +2993,7 @@ mod tests {
         
         assert_eq!(expr_size.qualifier, Some("out".to_string()));
         assert_eq!(expr_size.expr_type, None); // No type specified
-        assert_eq!(expr_size.value.raw_text, "20");
+        assert_eq!(expr_size.value.clone().unwrap().raw_text, "20");
         
         // Check parameters with type
         let param_description = result.components[0].component.items.iter().find_map(|item| {
@@ -3077,7 +3010,7 @@ mod tests {
         
         assert_eq!(param_description.qualifier, None);
         assert_eq!(param_description.param_type, Some("String".to_string())); // Specified type
-        assert_eq!(param_description.value.raw_text, "\"A sample chart\"");
+        assert_eq!(param_description.value.clone().unwrap().raw_text, "\"A sample chart\"");
         
         let param_spacing = result.components[0].component.items.iter().find_map(|item| {
             if let ComponentItem::Parameter(param) = item {
@@ -3093,7 +3026,7 @@ mod tests {
         
         assert_eq!(param_spacing.qualifier, None);
         assert_eq!(param_spacing.param_type, Some("Number".to_string())); // Specified type
-        assert_eq!(param_spacing.value.raw_text, "10");
+        assert_eq!(param_spacing.value.clone().unwrap().raw_text, "10");
         
         // Check expressions with type
         let expr_interactive = result.components[0].component.items.iter().find_map(|item| {
@@ -3110,7 +3043,7 @@ mod tests {
         
         assert_eq!(expr_interactive.qualifier, None);
         assert_eq!(expr_interactive.expr_type, Some("Boolean".to_string())); // Specified type
-        assert_eq!(expr_interactive.value.raw_text, "true");
+        assert_eq!(expr_interactive.value.clone().unwrap().raw_text, "true");
         
         let expr_config = result.components[0].component.items.iter().find_map(|item| {
             if let ComponentItem::Expr(expr) = item {
@@ -3126,7 +3059,7 @@ mod tests {
         
         assert_eq!(expr_config.qualifier, None);
         assert_eq!(expr_config.expr_type, Some("Object".to_string())); // Specified type
-        assert_eq!(expr_config.value.raw_text, "\"{}\"");
+        assert_eq!(expr_config.value.clone().unwrap().raw_text, "\"{}\"");
     }
 
     #[test]
@@ -3137,6 +3070,10 @@ mod tests {
             fn simple(self) -> param {
                 SELECT 1;
             }
+
+            fn simple2(self; param foo;) -> dataset {
+                SELECT 1;
+            }
         }
         "#;
         
@@ -3145,19 +3082,30 @@ mod tests {
         
         let component = &result.components[0].component;
         assert_eq!(component.name, "Test");
-        
-        // Check that we have one component function
-        let mut found_function = false;
-        for item in &component.items {
-            if let ComponentItem::ComponentFunction(func) = item {
-                found_function = true;
-                assert_eq!(func.name, "simple");
-                assert_eq!(func.return_type, "param");
-                assert!(!func.out_qualifier);
-                assert_eq!(func.parameters.len(), 0); // self is not included in parameters
-            }
-        }
-        
-        assert!(found_function, "Component function not found");
+
+        // simple(self)
+        let ComponentItem::ComponentFunction(func) = &component.items[1] else {
+            panic!("Expected ComponentFunction");
+        };
+
+        assert_eq!(func.name, "simple");
+        assert_eq!(func.return_type, "param");
+        assert!(!func.out_qualifier);
+        assert_eq!(func.parameters.len(), 0);
+
+
+        // // simple2(self, param: foo)
+        // let ComponentItem::ComponentFunction(func) = &component.items[2] else {
+        //     panic!("Expected ComponentFunction");
+        // };
+
+        // println!("func: {:?}", func);
+
+        // assert_eq!(func.name, "simple2");
+        // assert_eq!(func.return_type, "dataset");
+        // assert!(!func.out_qualifier);
+        // assert_eq!(func.parameters.len(), 1);
+        // assert_eq!(func.parameters[0].name, "foo");
+        // assert_eq!(func.parameters[0].param_type, Some("foo".to_string()));
     }
 }

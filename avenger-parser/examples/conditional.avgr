@@ -1,11 +1,11 @@
 // Example demonstrating conditional logic in Avenger
 
-Chart {
+component Chart {
     width: 500;
     height: 300;
     
     // Simple if statement
-    if showtitle {
+    if (showtitle) {
         Text {
             x: 250;
             y: 20;
@@ -31,7 +31,7 @@ Chart {
     }
     
     // Nested if-else
-    if hasdata {
+    if (hasdata) {
         // Mark for the visualization
         mark := Bar {
             x: "category";
@@ -74,7 +74,7 @@ Chart {
                 fill: "lightblue";
             }
         }
-        '_' => {
+        _ => {
             // Default case
             Text {
                 x: 250;
@@ -88,7 +88,7 @@ Chart {
     }
     
     // Match inside if
-    if interactive {
+    if (interactive) {
         match (interactiontype) {
             'tooltip' => {
                 Tooltip {
@@ -102,7 +102,7 @@ Chart {
                     color: "orange";
                 }
             }
-            '_' => {
+            _ => {
                 // Default interaction
                 Tooltip {
                     field: "value";
@@ -114,7 +114,7 @@ Chart {
     // If inside match
     match (theme) {
         'light' => {
-            if showborder {
+            if (showborder) {
                 Border {
                     stroke: "black";
                     strokeWidth: 1;
@@ -122,16 +122,16 @@ Chart {
             }
         }
         'dark' => {
-            if showborder {
+            if (showborder) {
                 Border {
                     stroke: "white";
                     strokeWidth: 1;
                 }
             }
         }
-        '_' => {
+        _ => {
             // Default theme with conditional border
-            if showborder {
+            if (showborder) {
                 Border {
                     stroke: "gray";
                     strokeWidth: 1;

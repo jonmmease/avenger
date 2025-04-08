@@ -8,7 +8,7 @@ enum CardSuit { 'clubs', 'diamonds', 'hearts', 'spades' }
 enum CardRank { 'ace', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'jack', 'queen', 'king' }
 
 // Example component that could use these enums
-Chart {
+component Chart {
     width: 800;
     height: 600;
     

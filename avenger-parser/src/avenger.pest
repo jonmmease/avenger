@@ -22,19 +22,9 @@ import_path = @{ string_literal_double | string_literal_single }
 string_literal_double = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
 string_literal_single = @{ "'" ~ (!"\'" ~ ANY)* ~ "'" }
 
-// Raw value that collects everything up to semicolon, handling quoted strings properly
-raw_value = @{
-    (string_literal_double | string_literal_single | (!(";" | "{" | "}") ~ ANY))*
-}
-
-// SQL query is similar to raw_value but specifically for SQL content
-sql_query = @{
-    (string_literal_double | string_literal_single | (!(";" | "{" | "}") ~ ANY))*
-}
-
-// Expression that can be used in if/match statements, surrounded by parentheses
-conditional_expr = @{
-    "(" ~ (string_literal_double | string_literal_single | balanced_parentheses | (!(")" | "{" | "}") ~ ANY))* ~ ")"
+// SQL query with proper handling of balanced parentheses and termination on unbalanced closing parenthesis or semicolon
+sql_expr = @{
+    (string_literal_double | string_literal_single | balanced_parentheses | (!(";" | ")") ~ ANY))*
 }
 
 // Helper rule for balanced parentheses within expressions
@@ -42,34 +32,41 @@ balanced_parentheses = @{
     "(" ~ (string_literal_double | string_literal_single | balanced_parentheses | (!("(" | ")") ~ ANY))* ~ ")"
 }
 
+// Expression that can be used in if/match statements, surrounded by parentheses
+conditional_expr = @{
+    "(" ~ sql_expr ~ ")"
+}
+
+// SQL query used directly in function content
+sql_statement = { sql_expr ~ ";" }
+
 // Imports
 import_item      = { component_identifier }
 import_list      = { "{" ~ import_item ~ ("," ~ import_item)* ~ "}" }
 import_statement = { "import" ~ import_list ~ "from" ~ import_path ~ ";" }
 
 // Properties
-property = { identifier ~ ":" ~ raw_value ~ ";" }
+property = { identifier ~ ":" ~ sql_expr ~ ";" }
 
 // Parameter types
-param_type    = { "<" ~ type_name ~ ">" }
-param_default = { "=" ~ raw_value }
+param_type = { "<" ~ type_name ~ ">" }
 
 // Parameter declaration - with different formats for in vs. other qualifiers
 in_parameter      = { "in" ~ "param" ~ param_type? ~ parameter_identifier ~ ";" }
-out_parameter     = { "out" ~ "param" ~ param_type? ~ parameter_identifier ~ ":" ~ raw_value ~ param_default? ~ ";" }
-private_parameter = { "param" ~ param_type? ~ parameter_identifier ~ ":" ~ raw_value ~ param_default? ~ ";" }
+out_parameter     = { "out" ~ "param" ~ param_type? ~ parameter_identifier ~ ":" ~ sql_expr ~ ";" }
+private_parameter = { "param" ~ param_type? ~ parameter_identifier ~ ":" ~ sql_expr ~ ";" }
 parameter         = { in_parameter | out_parameter | private_parameter }
 
 // Expression declaration - with identical formats as parameters
 in_expr      = { "in" ~ "expr" ~ param_type? ~ parameter_identifier ~ ";" }
-out_expr     = { "out" ~ "expr" ~ param_type? ~ parameter_identifier ~ ":" ~ raw_value ~ param_default? ~ ";" }
-private_expr = { "expr" ~ param_type? ~ parameter_identifier ~ ":" ~ raw_value ~ param_default? ~ ";" }
+out_expr     = { "out" ~ "expr" ~ param_type? ~ parameter_identifier ~ ":" ~ sql_expr ~ ";" }
+private_expr = { "expr" ~ param_type? ~ parameter_identifier ~ ":" ~ sql_expr ~ ";" }
 expr         = { in_expr | out_expr | private_expr }
 
 // Dataset declaration - now with different formats for in vs. other qualifiers
 in_dataset      = { "in" ~ "dataset" ~ parameter_identifier ~ ";" }
-out_dataset     = { "out" ~ "dataset" ~ parameter_identifier ~ ":" ~ sql_query ~ ";" }
-private_dataset = { "dataset" ~ parameter_identifier ~ ":" ~ sql_query ~ ";" }
+out_dataset     = { "out" ~ "dataset" ~ parameter_identifier ~ ":" ~ sql_expr ~ ";" }
+private_dataset = { "dataset" ~ parameter_identifier ~ ":" ~ sql_expr ~ ";" }
 dataset         = { in_dataset | out_dataset | private_dataset }
 
 // Component binding
@@ -82,9 +79,9 @@ if_content = { (property | private_parameter | private_expr | private_dataset | 
 else_branch = { "else" ~ "{" ~ if_content ~ "}" }
 
 // If statement with optional else branch
-// Now supports either identifier or conditional expression
+// Now supports both identifier directly or a conditional expression
 if_statement = {
-    "if" ~ (identifier | conditional_expr) ~ "{" ~ if_content ~ "}" ~ else_branch?
+    "if" ~ (conditional_expr) ~ "{" ~ if_content ~ "}" ~ else_branch?
 }
 
 // Match case pattern - either a quoted string or underscore for default
@@ -113,24 +110,20 @@ enum_definition = {
 }
 
 // Function parameter types
-function_param_type  = { "dataset" | "param" | "expr" }
-function_return_type = { "dataset" | "param" | "expr" }
+kinds = { "dataset" | "param" | "expr" }
 
 // Function parameter definition
-function_param = { function_param_type ~ parameter_identifier ~ (":" ~ raw_value)? ~ ";" }
+function_param = { kinds ~ parameter_identifier ~ (":" ~ sql_expr)? ~ (";" | ")") }
 
 // Function parameters list
 function_params = { "(" ~ function_param* ~ ")" }
 
-// SQL query used directly in function content
-function_sql = { sql_query ~ ";" }
-
 // Function content allows private parameters, expr, datasets, if and match statements, and function_sql
-function_content = { (private_parameter | private_expr | private_dataset | if_statement | match_statement | function_sql)* }
+function_content = { (private_parameter | private_expr | private_dataset | if_statement | match_statement | sql_statement)* }
 
 // Function definition - use 'fn' instead of 'function'
 function_definition = {
-    export_qualifier? ~ "fn" ~ function_identifier ~ function_params ~ "->" ~ function_return_type ~ "{" ~ function_content ~ "}"
+    export_qualifier? ~ "fn" ~ function_identifier ~ function_params ~ "->" ~ kinds ~ "{" ~ function_content ~ "}"
 }
 
 // Component function with mandatory self parameter and optional out qualifier
@@ -139,20 +132,20 @@ component_function_params = { "(" ~ component_function_self ~ (";" ~ function_pa
 
 // Component function can have optional out qualifier
 component_function = {
-    "out"? ~ "fn" ~ function_identifier ~ component_function_params ~ "->" ~ function_return_type ~ "{" ~ function_content ~ "}"
+    "out"? ~ "fn" ~ function_identifier ~ component_function_params ~ "->" ~ kinds ~ "{" ~ function_content ~ "}"
 }
 
 // Component instance
 component_instance = {
-    component_identifier ~ (":" ~ component_identifier)? ~ "{" ~ component_content ~ "}"
+    component_identifier ~ "{" ~ component_content ~ "}"
 }
 
 // Update component content to include component functions
-component_content = _{ (property | parameter | expr | dataset | component_binding | component_instance | if_statement | match_statement | component_function)* }
+component_content = _{ (component_binding | property | parameter | expr | dataset | component_instance | if_statement | match_statement | component_function)* }
 
-// Top-level component declaration
+// Top-level component declaration with explicit component keyword
 component_declaration = {
-    export_qualifier? ~ "component"? ~ component_identifier ~ "{" ~ component_content ~ "}"
+    export_qualifier? ~ "component" ~ component_identifier ~ "{" ~ component_content ~ "}"
 }
 
 // File is now import statements followed by enum definitions, function definitions and component declarations
