@@ -112,11 +112,16 @@ enum_definition = {
 // Function parameter types
 kinds = { "dataset" | "param" | "expr" }
 
-// Function parameter definition
-function_param = { kinds ~ parameter_identifier ~ (":" ~ sql_expr)? ~ (";" | ")") }
+// Regular function parameter without terminator
+function_param_inner = { kinds ~ parameter_identifier ~ (":" ~ sql_expr)? }
+
+// Component function parameters
+component_function_params = {
+    "(" ~ component_function_self ~ (";" ~ function_param_inner)* ~ ";"? ~ ")"
+}
 
 // Function parameters list
-function_params = { "(" ~ function_param* ~ ")" }
+function_params = { "(" ~ function_param_inner* ~ ")" }
 
 // Function content allows private parameters, expr, datasets, if and match statements, and function_sql
 function_content = { (private_parameter | private_expr | private_dataset | if_statement | match_statement | sql_statement)* }
@@ -126,9 +131,8 @@ function_definition = {
     export_qualifier? ~ "fn" ~ function_identifier ~ function_params ~ "->" ~ kinds ~ "{" ~ function_content ~ "}"
 }
 
-// Component function with mandatory self parameter and optional out qualifier
-component_function_self   = { "self" }
-component_function_params = { "(" ~ component_function_self ~ (";" ~ function_param)* ~ ")" }
+// Self parameter (no terminator included)
+component_function_self = { "self" }
 
 // Component function can have optional out qualifier
 component_function = {

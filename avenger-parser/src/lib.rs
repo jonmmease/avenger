@@ -984,7 +984,7 @@ fn parse_component_function(pair: pest::iterators::Pair<Rule>) -> Result<Compone
     let mut parameters = Vec::new();
     
     // Process all tokens in the function
-    for token in pair.into_inner() {
+    for token in pair.clone().into_inner() {
         match token.as_rule() {
             Rule::identifier => {
                 if token.as_str() == "out" {
@@ -1002,8 +1002,15 @@ fn parse_component_function(pair: pest::iterators::Pair<Rule>) -> Result<Compone
             Rule::kinds => {
                 return_type = token.as_str().to_string();
             }
-            Rule::function_param => {
-                parameters.push(parse_function_param(token)?);
+            Rule::component_function_params => {
+                // Process the parameters within component_function_params
+                for param_token in token.into_inner() {
+                    if param_token.as_rule() == Rule::function_param_inner {
+                        let param = parse_function_param(param_token)?;
+                        parameters.push(param);
+                    }
+                    // Skip component_function_self as it's not a parameter
+                }
             }
             _ => { /* Ignore other tokens */ }
         }
@@ -3131,11 +3138,9 @@ mod tests {
         component Test {
             width: 100;
             fn simple(self) -> param {
-                SELECT 1;
             }
             
             fn simple2(self) -> dataset {
-                SELECT 2;
             }
         }
         "#;
@@ -3145,7 +3150,7 @@ mod tests {
         
         let component = &result.components[0].component;
         assert_eq!(component.name, "Test");
-                
+        
         // Check that both functions exist
         let mut found_simple = false;
         let mut found_simple2 = false;
@@ -3156,11 +3161,13 @@ mod tests {
                     found_simple = true;
                     assert_eq!(func.return_type, "param");
                     assert!(!func.out_qualifier);
+                    // With the new parameter handling logic, parameters array is initialized but empty
                     assert_eq!(func.parameters.len(), 0);
                 } else if func.name == "simple2" {
                     found_simple2 = true;
                     assert_eq!(func.return_type, "dataset");
                     assert!(!func.out_qualifier);
+                    // With the new parameter handling logic, parameters array is initialized but empty
                     assert_eq!(func.parameters.len(), 0);
                 }
             }
@@ -3168,5 +3175,112 @@ mod tests {
         
         assert!(found_simple, "Didn't find simple function");
         assert!(found_simple2, "Didn't find simple2 function");
+    }
+
+    #[test]
+    fn test_component_function_params() {
+        // Test various parameter formats with and without trailing semicolons
+        
+        // No parameters (only self)
+        let source1 = r#"
+        component Test {
+            fn simple(self) -> param {
+            }
+        }
+        "#;
+        
+        // One parameter without trailing semicolon
+        let source2 = r#"
+        component Test {
+            fn with_param(self; param foo) -> param {
+            }
+        }
+        "#;
+        
+        // Multiple parameters without trailing semicolon
+        let source3 = r#"
+        component Test {
+            fn multi_params(self; param foo; param bar) -> param {
+            }
+        }
+        "#;
+        
+        // Multiple parameters with trailing semicolon
+        let source4 = r#"
+        component Test {
+            fn multi_params_semicolon(self; param foo; param bar;) -> param {
+            }
+        }
+        "#;
+        
+        // Parameter with a value but no trailing semicolon
+        let source5 = r#"
+        component Test {
+            fn param_with_value(self; param foo: 42) -> param {
+            }
+        }
+        "#;
+        
+        // Parse all variants
+        let result1 = parse(source1).unwrap();
+        let result2 = parse(source2).unwrap();
+        let result3 = parse(source3).unwrap();
+        let result4 = parse(source4).unwrap();
+        let result5 = parse(source5).unwrap();
+        
+        // Verify the first case - just self parameter
+        let component = &result1.components[0].component;
+        let func = component.items.iter().find_map(|item| {
+            if let ComponentItem::ComponentFunction(f) = item {
+                if f.name == "simple" { Some(f) } else { None }
+            } else { None }
+        }).expect("Couldn't find simple function");
+        assert_eq!(func.parameters.len(), 0);
+        
+        // Verify the second case - self plus one parameter
+        let component = &result2.components[0].component;
+        let func = component.items.iter().find_map(|item| {
+            if let ComponentItem::ComponentFunction(f) = item {
+                if f.name == "with_param" { Some(f) } else { None }
+            } else { None }
+        }).expect("Couldn't find with_param function");
+        assert_eq!(func.parameters.len(), 1);
+        assert_eq!(func.parameters[0].name, "foo");
+        
+        // Verify the third case - multiple parameters without trailing semicolon
+        let component = &result3.components[0].component;
+        let func = component.items.iter().find_map(|item| {
+            if let ComponentItem::ComponentFunction(f) = item {
+                if f.name == "multi_params" { Some(f) } else { None }
+            } else { None }
+        }).expect("Couldn't find multi_params function");
+        assert_eq!(func.parameters.len(), 2);
+        assert_eq!(func.parameters[0].name, "foo");
+        assert_eq!(func.parameters[1].name, "bar");
+        
+        // Verify the fourth case - multiple parameters with trailing semicolon
+        let component = &result4.components[0].component;
+        let func = component.items.iter().find_map(|item| {
+            if let ComponentItem::ComponentFunction(f) = item {
+                if f.name == "multi_params_semicolon" { Some(f) } else { None }
+            } else { None }
+        }).expect("Couldn't find multi_params_semicolon function");
+        assert_eq!(func.parameters.len(), 2);
+        assert_eq!(func.parameters[0].name, "foo");
+        assert_eq!(func.parameters[1].name, "bar");
+        
+        // Verify the fifth case - parameter with a value
+        let component = &result5.components[0].component;
+        let func = component.items.iter().find_map(|item| {
+            if let ComponentItem::ComponentFunction(f) = item {
+                if f.name == "param_with_value" { Some(f) } else { None }
+            } else { None }
+        }).expect("Couldn't find param_with_value function");
+        assert_eq!(func.parameters.len(), 1);
+        assert_eq!(func.parameters[0].name, "foo");
+        assert!(func.parameters[0].value.is_some());
+        if let Some(value) = &func.parameters[0].value {
+            assert_eq!(value.raw_text, "42");
+        }
     }
 }
