@@ -4,7 +4,7 @@
 
 import { TextMark } from './components/text.avgr';
 
-Chart {
+component Chart {
     // SQL query for data source
     data: (SELECT id, name, value FROM sales WHERE region = 'Northeast');
     width: 600;

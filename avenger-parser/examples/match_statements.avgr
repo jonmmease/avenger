@@ -1,7 +1,7 @@
 // This is a test file for match statements
 import { Button, Icon } from './components/ui.avgr';
 
-Chart {
+component Chart {
     width: 800;
     height: 600;
     

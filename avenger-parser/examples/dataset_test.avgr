@@ -1,4 +1,4 @@
-Chart {
+component Chart {
     // Regular dataset with query
     dataset ds1: SELECT * FROM foo;
     
