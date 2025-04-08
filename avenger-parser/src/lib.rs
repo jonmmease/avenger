@@ -524,11 +524,18 @@ fn parse_parameter(pair: pest::iterators::Pair<Rule>) -> Result<Parameter, Parse
             // Get parameter name
             let name = ident_pair.as_str().to_string();
             
+            // Get value expression if present
+            let value = if let Some(value_pair) = inner.next() {
+                Some(ValueExpr::try_new(value_pair.as_str().trim().to_string())?)
+            } else {
+                None
+            };
+            
             Ok(Parameter {
                 qualifier: Some("in".to_string()),
                 param_type,
                 name,
-                value: None,
+                value,
             })
         },
         Rule::out_parameter => {
@@ -855,11 +862,18 @@ fn parse_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, ParserError> {
             // Get parameter name
             let name = ident_pair.as_str().to_string();
             
+            // Get value expression if present
+            let value = if let Some(token) = inner.next() {
+                Some(ValueExpr::try_new(token.as_str().trim().to_string())?)
+            } else {
+                None
+            };
+            
             Ok(Expr {
                 qualifier: Some("in".to_string()),
                 expr_type,
                 name,
-                value: None,
+                value,
             })
         },
         Rule::out_expr => {
