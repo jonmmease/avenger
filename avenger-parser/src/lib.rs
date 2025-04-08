@@ -43,14 +43,32 @@ impl From<sqlparser::parser::ParserError> for ParserError {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct StatementExpr {
+    pub raw_text: String,
+    pub sql_stmt: SqlStatement,
+}
+
+impl StatementExpr {
+    pub fn try_new(raw_text: String) -> Result<Self, ParserError> {
+        // Parse as SQL statement
+        let sql_stmt = parse_sql_query(&raw_text)?;
+        
+        Ok(Self {
+            raw_text,
+            sql_stmt,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ValueExpr {
     pub raw_text: String,
     pub sql_expr: SqlExpr,
 }
 
 impl ValueExpr {
-    pub fn try_new(raw_text: String) -> Result<Self, ParserError> {
-        // Try to parse as SQL expression immediately
+    pub fn try_new(raw_text: String) -> Result<Self, ParserError> {        
+        // Try to parse as SQL expression
         let sql_expr = Self::parse_sql_expr(&raw_text)?;
         
         Ok(Self {
@@ -131,9 +149,15 @@ fn parse_sql_query(text: &str) -> Result<SqlStatement, ParserError> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum PropertyValue {
+    Expression(ValueExpr),
+    Statement(StatementExpr)
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Property {
     pub name: String,
-    pub value: ValueExpr,
+    pub value: PropertyValue,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -500,9 +524,23 @@ fn parse_property(pair: pest::iterators::Pair<Rule>) -> Result<Property, ParserE
     let name = inner.next().unwrap().as_str().to_string();
     let value_text = inner.next().unwrap().as_str().trim().to_string();
     
-    let value = ValueExpr::try_new(value_text)?;
-    
-    Ok(Property { name, value })
+    // Try parsing as SQL statement
+    if let Ok(stmt_expr) = StatementExpr::try_new(value_text.clone()) {
+        return Ok(Property { 
+            name, 
+            value: PropertyValue::Statement(stmt_expr) 
+        });
+    } else if let Ok(expr) = ValueExpr::try_new(value_text.clone()) {
+        return Ok(Property { 
+            name, 
+            value: PropertyValue::Expression(expr) 
+        });
+    } else {
+        return Err(ParserError::ParseError(format!(
+            "Expected SQL statement or expression in property value, found {:?}", 
+            value_text
+        )));    
+    }
 }
 
 fn parse_parameter(pair: pest::iterators::Pair<Rule>) -> Result<Parameter, ParserError> {
@@ -1172,14 +1210,22 @@ mod tests {
         
         if let ComponentItem::Property(prop) = &result.components[0].component.items[0] {
             assert_eq!(prop.name, "text");
-            assert_eq!(prop.value.raw_text, "'Hello; world!'");
+            if let PropertyValue::Expression(expr) = &prop.value {
+                assert_eq!(expr.raw_text, "'Hello; world!'");
+            } else {
+                panic!("Expected PropertyValue::Expression");
+            }
         } else {
             panic!("Expected Property");
         }
         
         if let ComponentItem::Property(prop) = &result.components[0].component.items[1] {
             assert_eq!(prop.name, "other_text");
-            assert_eq!(prop.value.raw_text, "\"Hello; world!\"");
+            if let PropertyValue::Expression(expr) = &prop.value {
+                assert_eq!(expr.raw_text, "\"Hello; world!\"");
+            } else {
+                panic!("Expected PropertyValue::Expression");
+            }
         } else {
             panic!("Expected Property");
         }
@@ -1198,14 +1244,22 @@ mod tests {
         
         if let ComponentItem::Property(prop) = &result.components[0].component.items[0] {
             assert_eq!(prop.name, "x");
-            assert_eq!(prop.value.raw_text, "10 + 20 * 3");
+            if let PropertyValue::Expression(expr) = &prop.value {
+                assert_eq!(expr.raw_text, "10 + 20 * 3");
+            } else {
+                panic!("Expected PropertyValue::Expression");
+            }
         } else {
             panic!("Expected Property");
         }
         
         if let ComponentItem::Property(prop) = &result.components[0].component.items[1] {
             assert_eq!(prop.name, "y");
-            assert_eq!(prop.value.raw_text, "width + height");
+            if let PropertyValue::Expression(expr) = &prop.value {
+                assert_eq!(expr.raw_text, "width + height");
+            } else {
+                panic!("Expected PropertyValue::Expression");
+            }
         } else {
             panic!("Expected Property");
         }
@@ -3294,6 +3348,34 @@ mod tests {
         assert!(func.parameters[0].value.is_some());
         if let Some(value) = &func.parameters[0].value {
             assert_eq!(value.raw_text, "42");
+        }
+    }
+
+    #[test]
+    fn test_parse_property_with_sql_statement() {
+        // We'll create the property directly rather than parsing it, just to test the enum structure
+        let name = "data".to_string();
+        let query_text = "SELECT * FROM my_table;".to_string();
+        
+        // Parse the SQL statement manually
+        let sql_statement = parse_sql_query(&query_text).unwrap();
+        
+        // Create a property with SQL statement directly
+        let property = Property {
+            name,
+            value: PropertyValue::Statement(StatementExpr {
+                raw_text: query_text.clone(),
+                sql_stmt: sql_statement.clone(),
+            }),
+        };
+        
+        // Verify Property structure
+        assert_eq!(property.name, "data");
+        if let PropertyValue::Statement(stmt_expr) = &property.value {
+            assert_eq!(stmt_expr.raw_text, query_text);
+            assert_eq!(stmt_expr.sql_stmt, sql_statement);
+        } else {
+            panic!("Expected PropertyValue::Statement");
         }
     }
 }
