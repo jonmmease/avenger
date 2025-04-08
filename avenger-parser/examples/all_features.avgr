@@ -16,7 +16,7 @@ component Chart {
     
     // Parameters
     param<Number> scale: 1.5;
-    in param<String> title: "Chart Title" = "Default Title";
+    in param<String> title;
     out param<Boolean> interactive: true;
 
     // Dataset declarations
@@ -67,16 +67,16 @@ enum SortDirection { 'ascending', 'descending' }
 
 
 // Functions that return a dataset are used as table functions
-function stack (
+fn stack (
     dataset ds;
     expr field;
     expr groupby: null;
     param<StackOffset> offset: 'zero';
-    param<[Sort]> sortby: null;
+    param sortby: null;
     expr as_value: 'yheight';
-    expr as_end: 'y2';
+    expr as_end: 'y2'
 ) -> dataset {
-    match offset {
+    match(offset) {
         'normalize' => {
             SELECT *,
                 sum(@field) over (
@@ -98,7 +98,7 @@ function stack (
                 FROM @ds;
         }
         'center' => {
-            ...
+            // ...
         }
     }
 }

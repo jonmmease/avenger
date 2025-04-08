@@ -73,7 +73,7 @@ dataset         = { in_dataset | out_dataset | private_dataset }
 component_binding = { identifier ~ ":=" ~ component_instance }
 
 // If statement content only allows private parameters and private datasets (no in/out qualifiers)
-if_content = { (component_binding | property | private_parameter | private_expr | private_dataset | component_instance | if_statement | match_statement)* }
+if_content = { (component_binding | property | private_parameter | private_expr | private_dataset | component_instance | if_statement | match_statement | sql_statement)* }
 
 // Else branch
 else_branch = { "else" ~ "{" ~ if_content ~ "}" }
@@ -113,7 +113,7 @@ enum_definition = {
 kinds = { "dataset" | "param" | "expr" }
 
 // Regular function parameter without terminator
-function_param_inner = { kinds ~ parameter_identifier ~ (":" ~ sql_expr)? }
+function_param_inner = { kinds ~ param_type? ~ parameter_identifier ~ (":" ~ sql_expr)? }
 
 // Component function parameters
 component_function_params = {
@@ -121,7 +121,7 @@ component_function_params = {
 }
 
 // Function parameters list
-function_params = { "(" ~ function_param_inner* ~ ")" }
+function_params = { "(" ~ function_param_inner ~ (";" ~ function_param_inner)* ~ ";"? ~ ")" }
 
 // Function content allows private parameters, expr, datasets, if and match statements, and function_sql
 function_content = { (private_parameter | private_expr | private_dataset | if_statement | match_statement | sql_statement)* }
