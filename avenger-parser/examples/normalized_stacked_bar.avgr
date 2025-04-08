@@ -63,7 +63,7 @@ component Chart {
             }
 
             Bar {
-                data: movies;
+                data: @movies;
                 // the scale method is defined inside the scale component
                 x: @x_scale.scale("Creative Genre");
                 x2: @x_scale.scale("Creative Genre") + @x_scale.bandwidth;
