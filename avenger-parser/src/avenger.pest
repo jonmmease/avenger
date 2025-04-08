@@ -73,7 +73,7 @@ dataset         = { in_dataset | out_dataset | private_dataset }
 component_binding = { identifier ~ ":=" ~ component_instance }
 
 // If statement content only allows private parameters and private datasets (no in/out qualifiers)
-if_content = { (property | private_parameter | private_expr | private_dataset | component_binding | component_instance | if_statement | match_statement)* }
+if_content = { (component_binding | property | private_parameter | private_expr | private_dataset | component_instance | if_statement | match_statement)* }
 
 // Else branch
 else_branch = { "else" ~ "{" ~ if_content ~ "}" }
