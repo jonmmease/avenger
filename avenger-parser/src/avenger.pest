@@ -123,6 +123,15 @@ component_function_params = {
 // Function parameters list
 function_params = { "(" ~ function_param_inner ~ (";" ~ function_param_inner)* ~ ";"? ~ ")" }
 
+// Callback parameters list (same as function parameters)
+callback_params = { "(" ~ function_param_inner ~ (";" ~ function_param_inner)* ~ ";"? ~ ")" }
+
+// Empty callback parameters
+empty_callback_params = { "(" ~ ")" }
+
+// Callback declaration
+callback_declaration = { "callback" ~ function_identifier ~ (callback_params | empty_callback_params) ~ ";" }
+
 // Function content allows private parameters, expr, datasets, if and match statements, and function_sql
 function_content = { (private_parameter | private_expr | private_dataset | if_statement | match_statement | sql_statement)* }
 
@@ -145,7 +154,7 @@ component_instance = {
 }
 
 // Update component content to include component functions
-component_content = _{ (component_binding | property | parameter | expr | dataset | component_instance | if_statement | match_statement | component_function)* }
+component_content = _{ (component_binding | property | parameter | expr | dataset | component_instance | if_statement | match_statement | component_function | callback_declaration)* }
 
 // Top-level component declaration with explicit component keyword
 component_declaration = {
