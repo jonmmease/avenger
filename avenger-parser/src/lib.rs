@@ -1874,7 +1874,6 @@ mod tests {
                 // or in-parameters/datasets inside if statements (which are no longer allowed)
                 let filename = path.file_name().unwrap().to_string_lossy().to_string();
                 if filename == "example.avgr" || 
-                   filename == "all_features.avgr" || 
                    filename == "dataset_comprehensive_test.avgr" {
                     println!("Skipping {} (contains old parameter/dataset format)", path.display());
                     continue;
