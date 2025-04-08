@@ -24,7 +24,7 @@ string_literal_single = @{ "'" ~ (!"\'" ~ ANY)* ~ "'" }
 
 // SQL query with proper handling of balanced parentheses and termination on unbalanced closing parenthesis or semicolon
 sql_expr = @{
-    (string_literal_double | string_literal_single | balanced_parentheses | (!(";" | ")") ~ ANY))*
+    !("}" | ")" | ";") ~ (string_literal_double | string_literal_single | balanced_parentheses | (!(";" | ")") ~ ANY))*
 }
 
 // Helper rule for balanced parentheses within expressions

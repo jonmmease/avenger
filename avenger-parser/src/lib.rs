@@ -3131,9 +3131,11 @@ mod tests {
         component Test {
             width: 100;
             fn simple(self) -> param {
+                SELECT 1;
             }
             
             fn simple2(self) -> dataset {
+                SELECT 2;
             }
         }
         "#;
