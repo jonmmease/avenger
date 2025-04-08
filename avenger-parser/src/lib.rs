@@ -1505,6 +1505,68 @@ mod tests {
         }
     }
     
+
+    #[test]
+    fn test_parse_if_binding_else_statement() {
+        // Use component binding in the if statement
+        let input = r#"
+            component Chart {
+                if (show_rule) {
+                    mark := Rule {
+                        x: 10;
+                        y: 20;
+                    }
+                } else {
+                    alt_mark := Text {
+                        content: 'No rule to display';
+                    }
+                }
+            }
+        "#;
+        
+        // Parse the input
+        let result = parse(input).unwrap();
+        assert_eq!(result.components.len(), 1);
+        
+        // Check if statement exists (with else)
+        if let Some(ComponentItem::IfStatement(if_stmt)) = result.components[0].component.items.get(0) {
+            assert_eq!(if_stmt.condition.raw_text, "show_rule");
+            
+            // Check for component binding inside if branch
+            if if_stmt.items.len() > 0 {
+                match &if_stmt.items[0] {
+                    ComponentItem::ComponentBinding(name, instance) => {
+                        assert_eq!(name, "mark");
+                        assert_eq!(instance.name, "Rule");
+                        assert_eq!(instance.items.len(), 2); // x, y properties
+                    },
+                    _ => panic!("Expected ComponentBinding inside if branch, got {:?}", if_stmt.items[0])
+                }
+            } else {
+                panic!("If statement has no items");
+            }
+            
+            // Check else branch exists
+            assert!(if_stmt.else_items.is_some());
+            
+            // Check component binding inside else branch
+            if let Some(else_items) = &if_stmt.else_items {
+                assert_eq!(else_items.len(), 1);
+                match &else_items[0] {
+                    ComponentItem::ComponentBinding(name, instance) => {
+                        assert_eq!(name, "alt_mark");
+                        assert_eq!(instance.name, "Text");
+                        assert_eq!(instance.items.len(), 1); // content property
+                    },
+                    _ => panic!("Expected ComponentBinding inside else branch, got {:?}", else_items[0])
+                }
+            }
+        } else {
+            panic!("Expected IfStatement");
+        }
+    }
+
+
     #[test]
     fn test_private_parameter_in_if() {
         let input = r#"
