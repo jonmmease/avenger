@@ -16,9 +16,15 @@ component Chart {
     
     // Parameters
     param<Number> scale: 1.5;
-    in param<String> title;
+    in param<String> title: "Default Chart Title";
     out param<Boolean> interactive: true;
-
+    
+    // Add a simple expression without in/out qualifiers
+    expr<Number> width: 100;
+    
+    // Add an in expr with default value
+    in expr<Boolean> show_axis: true;
+    
     // Dataset declarations
     dataset ds1: SELECT * FROM @stack(foo, field:="count", groupby:=["@foo"], sort_by:=[{field: "@c1", direction: 'desc'}]);
     
