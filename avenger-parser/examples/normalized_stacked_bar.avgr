@@ -1,4 +1,4 @@
-import { Dropdown, HorizontalLayout, VerticalLayout,Group, Chart } from 'avenger-components';
+import { Dropdown, HorizontalLayout, VerticalLayout, Group, Chart, Legend } from 'avenger-components';
 
 component Chart {
     title: 'Stacked Bar Chart';
@@ -14,8 +14,9 @@ component Chart {
             FROM load_json('https://raw.githubusercontent.com/vega/vega-datasets/master/data/movies.json')
             GROUP BY 1, 2
         )
-        SELECT * FROM @stack(
-            t1, 
+        -- stack is the function defined below
+        SELECT * FROM @stack(  
+            t1,
             field:="count", 
             groupby:=["Creative Genre"], 
             sort_by:=[{field: "MPAA Rating", direction: 'asc'}],
@@ -63,6 +64,7 @@ component Chart {
 
             Bar {
                 data: movies;
+                // the scale method is defined inside the scale component
                 x: @x_scale.scale("Creative Genre");
                 x2: @x_scale.scale("Creative Genre") + @x_scale.bandwidth;
                 y: @y_scale.scale("bar_end" - "bar_height");
@@ -144,7 +146,9 @@ component LinearScale {
     in param range;
 
     out fn scale(self; param value) -> param {
-        @range[0] + (@range[1] - @range[0]) * (@value - @domain[0]) / (@domain[1] - @domain[0]);
+        @self.range[0] 
+            + (@self.range[1] - @self.range[0]) 
+            * (@value - @self.domain[0]) / (@self.domain[1] - @self.domain[0]);
     }
 }
 
