@@ -14,6 +14,10 @@ component Chart {
     width: 100;
     height: 100;
     
+    // Callback
+    callback hello();
+    callback goodbye(param<int> a; expr<string> b: '123');
+
     // Parameters
     param<Number> scale: 1.5;
     in param<String> title: "Default Chart Title";
@@ -52,7 +56,7 @@ component Chart {
                 stroke: "red";
             }
         }
-        '_' => {
+        _ => {
             Text {
                 text: "Unsupported chart type";
                 x: 50;

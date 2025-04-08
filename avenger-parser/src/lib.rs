@@ -214,6 +214,7 @@ pub enum ComponentItem {
     IfStatement(Box<IfStatement>),
     MatchStatement(Box<MatchStatement>),
     ComponentFunction(ComponentFunction),
+    Callback(Callback),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -256,6 +257,12 @@ pub struct ComponentFunction {
     pub name: String,
     pub return_type: String,
     pub out_qualifier: bool,
+    pub parameters: Vec<Parameter>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Callback {
+    pub name: String,
     pub parameters: Vec<Parameter>,
 }
 
@@ -511,6 +518,9 @@ fn parse_if_content(pair: pest::iterators::Pair<Rule>) -> Result<Vec<ComponentIt
             }
             Rule::component_function => {
                 content_items.push(ComponentItem::ComponentFunction(parse_component_function(item_pair)?));
+            }
+            Rule::callback_declaration => {
+                content_items.push(ComponentItem::Callback(parse_callback(item_pair)?));
             }
             _ => {}
         }
@@ -824,6 +834,9 @@ fn parse_component_declaration(pair: pest::iterators::Pair<Rule>) -> Result<Comp
             Rule::component_function => {
                 component_items.push(ComponentItem::ComponentFunction(parse_component_function(inner_pair)?));
             }
+            Rule::callback_declaration => {
+                component_items.push(ComponentItem::Callback(parse_callback(inner_pair)?));
+            }
             _ => {}
         }
     }
@@ -870,6 +883,10 @@ fn parse_component_instance(pair: pest::iterators::Pair<Rule>) -> Result<Compone
             component_items.push(ComponentItem::IfStatement(Box::new(parse_if_statement(item_pair)?)));
         } else if item_pair.as_rule() == Rule::match_statement {
             component_items.push(ComponentItem::MatchStatement(Box::new(parse_match_statement(item_pair)?)));
+        } else if item_pair.as_rule() == Rule::component_function {
+            component_items.push(ComponentItem::ComponentFunction(parse_component_function(item_pair)?));
+        } else if item_pair.as_rule() == Rule::callback_declaration {
+            component_items.push(ComponentItem::Callback(parse_callback(item_pair)?));
         }
     }
     
@@ -997,12 +1014,18 @@ fn parse_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, ParserError> {
 fn parse_function_param(pair: pest::iterators::Pair<Rule>) -> Result<Parameter, ParserError> {
     let mut name = String::new();
     let mut value_text = String::new();
+    let mut param_type = None;
     
     // Process all tokens in the function parameter
     for token in pair.into_inner() {
         match token.as_rule() {
             Rule::kinds => {
-                // Just ignore the kinds token, we don't need to store it
+                // Just noting the parameter kind (param/expr/dataset), not storing it
+            },
+            Rule::param_type => {
+                // Extract the type name from the param_type
+                let type_name = token.into_inner().next().unwrap().as_str().to_string();
+                param_type = Some(type_name);
             },
             Rule::parameter_identifier => {
                 name = token.as_str().to_string();
@@ -1023,7 +1046,7 @@ fn parse_function_param(pair: pest::iterators::Pair<Rule>) -> Result<Parameter, 
     
     Ok(Parameter {
         qualifier: None, // Function parameters don't have qualifiers
-        param_type: None, // Function parameters don't have types
+        param_type,
         name,
         value,
     })
@@ -1076,6 +1099,37 @@ fn parse_component_function(pair: pest::iterators::Pair<Rule>) -> Result<Compone
     })
 }
 
+fn parse_callback(pair: pest::iterators::Pair<Rule>) -> Result<Callback, ParserError> {
+    let mut name = String::new();
+    let mut parameters = Vec::new();
+    
+    // Process all tokens in the callback
+    for token in pair.into_inner() {
+        match token.as_rule() {
+            Rule::function_identifier => {
+                name = token.as_str().to_string();
+            },
+            Rule::callback_params => {
+                // Process the parameters within callback_params
+                for param_token in token.into_inner() {
+                    if param_token.as_rule() == Rule::function_param_inner {
+                        let param = parse_function_param(param_token)?;
+                        parameters.push(param);
+                    }
+                }
+            },
+            Rule::empty_callback_params => {
+                // No parameters to process
+            },
+            _ => { /* Ignore other tokens */ }
+        }
+    }
+    
+    Ok(Callback {
+        name,
+        parameters,
+    })
+}
 
 #[cfg(test)]
 mod tests {
@@ -3376,6 +3430,43 @@ mod tests {
             assert_eq!(stmt_expr.sql_stmt, sql_statement);
         } else {
             panic!("Expected PropertyValue::Statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_callback() {
+        let input = r#"
+            component Chart {
+                callback hello();
+                callback goodbye(param<int> a; expr<string> b: '123');
+            }
+        "#;
+        
+        let result = parse(input).unwrap();
+        assert_eq!(result.components.len(), 1);
+        assert_eq!(result.components[0].component.items.len(), 2);
+        
+        if let ComponentItem::Callback(callback) = &result.components[0].component.items[0] {
+            assert_eq!(callback.name, "hello");
+            assert_eq!(callback.parameters.len(), 0);
+        } else {
+            panic!("Expected Callback");
+        }
+        
+        if let ComponentItem::Callback(callback) = &result.components[0].component.items[1] {
+            assert_eq!(callback.name, "goodbye");
+            assert_eq!(callback.parameters.len(), 2);
+            
+            // Check first parameter
+            assert_eq!(callback.parameters[0].name, "a");
+            assert_eq!(callback.parameters[0].param_type, Some("int".to_string()));
+            
+            // Check second parameter
+            assert_eq!(callback.parameters[1].name, "b");
+            assert_eq!(callback.parameters[1].param_type, Some("string".to_string()));
+            assert_eq!(callback.parameters[1].value.as_ref().unwrap().raw_text, "'123'");
+        } else {
+            panic!("Expected Callback");
         }
     }
 }
