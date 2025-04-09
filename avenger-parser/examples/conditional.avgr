@@ -33,7 +33,7 @@ component Chart {
     // Nested if-else
     if (hasdata) {
         // Mark for the visualization
-        mark := Bar {
+        mark: Bar {
             x: "category";
             y: "value";
             fill: "steelblue";

@@ -3,7 +3,7 @@ import { Dropdown, HorizontalLayout, VerticalLayout, Group, Chart, Legend } from
 component Chart {
     title: 'Stacked Bar Chart';
 
-    dropdown := Dropdown {
+    dropdown: Dropdown {
         options: ['normalize', 'zero'];
         value: 'normalize';
     }
@@ -33,20 +33,20 @@ component Chart {
             // Let chart area stretch to fill the available space
             horizontal_stretch: 1;
 
-            x_scale := BandScale {
+            x_scale: BandScale {
                 range: [0, @width];
                 domain: SELECT distinct "Creative Genre" FROM @movies order by "Creative Genre" asc;
                 // domain: (SELECT array_agg(distinct "Creative Genre" order by "Creative Genre" asc) FROM @movies);
                 padding: 0.1;
             }
 
-            y_scale := LinearScale {
+            y_scale: LinearScale {
                 // parent is the Group component, height is an `out` parameter on the Group
                 range: [@parent.height, 0];
                 domain: [0, (SELECT max(bar_end) FROM @movies)];
             }
 
-            fill_scale := OrdinalScale {
+            fill_scale: OrdinalScale {
                 domain: 
                     (SELECT array_agg(
                         distinct "MPAA Rating" 
@@ -191,7 +191,7 @@ component Axis {
                 y: @height;
                 y2: @height + @tick_length;
             }
-            tick_labels := Text {
+            tick_labels: Text {
                 data: @scale.ticks_data;
                 x: "value";
                 y: @height + @tick_length;
