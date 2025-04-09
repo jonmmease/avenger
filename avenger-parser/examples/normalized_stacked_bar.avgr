@@ -33,20 +33,20 @@ component Chart {
             // Let chart area stretch to fill the available space
             horizontal_stretch: 1;
 
-            x_scale: BandScale {
+            comp x_scale: BandScale {
                 range: [0, @width];
                 domain: SELECT distinct "Creative Genre" FROM @movies order by "Creative Genre" asc;
                 // domain: (SELECT array_agg(distinct "Creative Genre" order by "Creative Genre" asc) FROM @movies);
                 padding: 0.1;
             }
 
-            y_scale: LinearScale {
+            comp y_scale: LinearScale {
                 // parent is the Group component, height is an `out` parameter on the Group
                 range: [@parent.height, 0];
                 domain: [0, (SELECT max(bar_end) FROM @movies)];
             }
 
-            fill_scale: OrdinalScale {
+            comp fill_scale: OrdinalScale {
                 domain: 
                     (SELECT array_agg(
                         distinct "MPAA Rating" 
@@ -73,9 +73,10 @@ component Chart {
                 fill: @fill_scale.scale("MPAA Rating");
             }
 
-            Axis {
+            // Component can be bound to variable then displayed later
+            comp y_axis: Axis {
                 orient: left;
-                scale: y_scale;
+                scale: @y_scale;
                 width: @parent.width;
                 height: @parent.height;
                 title: 'Proportion of Movie Counts';
@@ -88,6 +89,8 @@ component Chart {
                 height: @parent.height;
                 title: 'Creative Genre';
             }
+
+            y_axis;
         }
         VerticalLayout {
             // Legend doesn't stretch to fill the available space horizontally
@@ -165,7 +168,7 @@ component BandScale {
 component Axis {
     // Required in params
     in param orient;
-    in param scale;
+    in comp<Scale> scale;
     in param width;
     in param height;
     
