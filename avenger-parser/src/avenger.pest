@@ -46,7 +46,8 @@ import_list      = { "{" ~ import_item ~ ("," ~ import_item)* ~ "}" }
 import_statement = { "import" ~ import_list ~ "from" ~ import_path ~ ";" }
 
 // Properties
-property = { identifier ~ ":" ~ sql_expr ~ ";" }
+property_target = { component_instance | (sql_expr ~ ";") }
+property        = { identifier ~ ":" ~ property_target }
 
 // Parameter types
 param_type = { "<" ~ type_name ~ ">" }
@@ -69,11 +70,8 @@ out_dataset     = { "out" ~ "dataset" ~ parameter_identifier ~ ":" ~ sql_expr ~ 
 private_dataset = { "dataset" ~ parameter_identifier ~ ":" ~ sql_expr ~ ";" }
 dataset         = { in_dataset | out_dataset | private_dataset }
 
-// Component binding
-component_binding = { identifier ~ ":=" ~ component_instance }
-
 // If statement content only allows private parameters and private datasets (no in/out qualifiers)
-if_content = { (component_binding | property | private_parameter | private_expr | private_dataset | component_instance | if_statement | match_statement | sql_statement)* }
+if_content = { (property | private_parameter | private_expr | private_dataset | component_instance | if_statement | match_statement | sql_statement)* }
 
 // Else branch
 else_branch = { "else" ~ "{" ~ if_content ~ "}" }
@@ -177,7 +175,7 @@ component_instance = {
 }
 
 // Update component content to include component functions
-component_content = _{ (component_binding | property | parameter | expr | dataset | component_instance | if_statement | match_statement | component_function | callback_declaration | callback_definition)* }
+component_content = _{ (property | parameter | expr | dataset | component_instance | if_statement | match_statement | component_function | callback_declaration | callback_definition)* }
 
 // Top-level component declaration with explicit component keyword
 component_declaration = {

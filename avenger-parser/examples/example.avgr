@@ -28,7 +28,7 @@ component Chart {
     }
 
     // Component binding
-    bound := Another {
+    bound: Another {
         x_y_z: 10;
     }
 }

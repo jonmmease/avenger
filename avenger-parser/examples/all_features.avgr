@@ -18,6 +18,12 @@ component Chart {
     callback hello();
     callback goodbye(param<int> a; expr<string> b: '123');
 
+    // Out component
+    legend: Legend {
+        orientation: "horizontal";
+        title: "Chart Legend";
+    }
+
     // Parameters
     param<Number> scale: 1.5;
     in param<String> title: "Default Chart Title";
@@ -84,7 +90,7 @@ component Chart {
     }
     
     // Component binding
-    legend := Legend {
+    legend: Legend {
         orientation: "vertical";
         title: "Side Legend";
     }
