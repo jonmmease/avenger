@@ -234,6 +234,9 @@ pub enum CallbackItem {
     Assignment(CallbackAssignment),
     IfStatement(Box<CallbackIfStatement>),
     MatchStatement(Box<CallbackMatchStatement>),
+    Parameter(Parameter),
+    Expr(Expr),
+    Dataset(Dataset),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1220,6 +1223,18 @@ fn parse_callback_definition(pair: pest::iterators::Pair<Rule>) -> Result<Callba
                             let match_stmt = parse_callback_match_statement(body_token)?;
                             items.push(CallbackItem::MatchStatement(Box::new(match_stmt)));
                         },
+                        Rule::private_parameter => {
+                            let param = parse_parameter(body_token)?;
+                            items.push(CallbackItem::Parameter(param));
+                        },
+                        Rule::private_expr => {
+                            let expr = parse_expr(body_token)?;
+                            items.push(CallbackItem::Expr(expr));
+                        },
+                        Rule::private_dataset => {
+                            let dataset = parse_dataset(body_token)?;
+                            items.push(CallbackItem::Dataset(dataset));
+                        },
                         _ => { /* Ignore other tokens */ }
                     }
                 }
@@ -1359,6 +1374,18 @@ fn parse_callback_if_content(pair: pest::iterators::Pair<Rule>) -> Result<Vec<Ca
             Rule::callback_match_statement => {
                 let match_stmt = parse_callback_match_statement(token)?;
                 items.push(CallbackItem::MatchStatement(Box::new(match_stmt)));
+            },
+            Rule::private_parameter => {
+                let param = parse_parameter(token)?;
+                items.push(CallbackItem::Parameter(param));
+            },
+            Rule::private_expr => {
+                let expr = parse_expr(token)?;
+                items.push(CallbackItem::Expr(expr));
+            },
+            Rule::private_dataset => {
+                let dataset = parse_dataset(token)?;
+                items.push(CallbackItem::Dataset(dataset));
             },
             _ => { /* Ignore other tokens */ }
         }
@@ -3770,12 +3797,17 @@ mod tests {
                 on_click(self; param<event> e) => {
                     self.blue = 32;
                     self.green = 22;
+                    param<int> counter: 0;
+                    expr<string> message: "clicked";
+                    dataset click_data: SELECT * FROM events WHERE type = 'click';
                     match (e.button) {
                         'left' => {
                             self.green = 22;
+                            param<float> intensity: 0.5;
                         }
                         'right' => {
                             self.red = 32;
+                            dataset right_clicks: SELECT COUNT(*) FROM events WHERE button = 'right';
                         }
                     }
                 }
@@ -3783,18 +3815,22 @@ mod tests {
                 on_hover(self) => {
                     if (self.red > 0) {
                         self.red = 32;
+                        expr<bool> is_active: true;
                     }
                 }
                 
                 handle_drag(self; param d) => {
                     self.position_x = 100;
                     self.position_y = 200;
+                    param<vector> drag_vector: [d.delta_x, d.delta_y];
                     if (d.delta_x > 0) {
                         self.position_x = 150;
+                        dataset movement: SELECT * FROM events WHERE type = 'drag';
                         if (d.delta_y > 0) {
                             self.position_y = 250;
                         } else {
                             self.position_y = 150;
+                            param<int> direction: -1;
                         }
                     }
                 }
@@ -3811,7 +3847,7 @@ mod tests {
             assert_eq!(callback_def.parameters.len(), 1);
             assert_eq!(callback_def.parameters[0].name, "e");
             assert_eq!(callback_def.parameters[0].param_type, Some("event".to_string()));
-            assert_eq!(callback_def.items.len(), 3);
+            assert_eq!(callback_def.items.len(), 6); // 2 assignments + param + expr + dataset + match
             
             // Check assignments
             if let CallbackItem::Assignment(assignment) = &callback_def.items[0] {
@@ -3827,16 +3863,42 @@ mod tests {
             } else {
                 panic!("Expected Assignment");
             }
+
+            // Check private parameter
+            if let CallbackItem::Parameter(param) = &callback_def.items[2] {
+                assert_eq!(param.name, "counter");
+                assert_eq!(param.param_type, Some("int".to_string()));
+                assert_eq!(param.value.as_ref().unwrap().raw_text, "0");
+            } else {
+                panic!("Expected Parameter");
+            }
+
+            // Check private expression
+            if let CallbackItem::Expr(expr) = &callback_def.items[3] {
+                assert_eq!(expr.name, "message");
+                assert_eq!(expr.expr_type, Some("string".to_string()));
+                assert_eq!(expr.value.as_ref().unwrap().raw_text, "\"clicked\"");
+            } else {
+                panic!("Expected Expr");
+            }
+
+            // Check private dataset
+            if let CallbackItem::Dataset(dataset) = &callback_def.items[4] {
+                assert_eq!(dataset.name, "click_data");
+                assert!(dataset.query_text.contains("SELECT * FROM events"));
+            } else {
+                panic!("Expected Dataset");
+            }
             
             // Check match statement
-            if let CallbackItem::MatchStatement(match_stmt) = &callback_def.items[2] {
+            if let CallbackItem::MatchStatement(match_stmt) = &callback_def.items[5] {
                 assert_eq!(match_stmt.expression.raw_text, "e.button");
                 assert_eq!(match_stmt.cases.len(), 2);
                 
                 // Check first case
                 assert_eq!(match_stmt.cases[0].pattern, "left");
                 assert_eq!(match_stmt.cases[0].is_default, false);
-                assert_eq!(match_stmt.cases[0].items.len(), 1);
+                assert_eq!(match_stmt.cases[0].items.len(), 2); // Assignment + private parameter
                 
                 if let CallbackItem::Assignment(assignment) = &match_stmt.cases[0].items[0] {
                     assert_eq!(assignment.property, "green");
@@ -3844,17 +3906,34 @@ mod tests {
                 } else {
                     panic!("Expected Assignment in match case");
                 }
+
+                // Check private parameter inside match case
+                if let CallbackItem::Parameter(param) = &match_stmt.cases[0].items[1] {
+                    assert_eq!(param.name, "intensity");
+                    assert_eq!(param.param_type, Some("float".to_string()));
+                    assert_eq!(param.value.as_ref().unwrap().raw_text, "0.5");
+                } else {
+                    panic!("Expected Parameter in match case");
+                }
                 
                 // Check second case
                 assert_eq!(match_stmt.cases[1].pattern, "right");
                 assert_eq!(match_stmt.cases[1].is_default, false);
-                assert_eq!(match_stmt.cases[1].items.len(), 1);
+                assert_eq!(match_stmt.cases[1].items.len(), 2); // Assignment + dataset
                 
                 if let CallbackItem::Assignment(assignment) = &match_stmt.cases[1].items[0] {
                     assert_eq!(assignment.property, "red");
                     assert_eq!(assignment.value.raw_text, "32");
                 } else {
                     panic!("Expected Assignment in match case");
+                }
+
+                // Check dataset inside match case
+                if let CallbackItem::Dataset(dataset) = &match_stmt.cases[1].items[1] {
+                    assert_eq!(dataset.name, "right_clicks");
+                    assert!(dataset.query_text.contains("SELECT COUNT(*)"));
+                } else {
+                    panic!("Expected Dataset in match case");
                 }
             } else {
                 panic!("Expected MatchStatement");
@@ -3872,7 +3951,7 @@ mod tests {
             // Check if statement
             if let CallbackItem::IfStatement(if_stmt) = &callback_def.items[0] {
                 assert_eq!(if_stmt.condition.raw_text, "self.red > 0");
-                assert_eq!(if_stmt.items.len(), 1);
+                assert_eq!(if_stmt.items.len(), 2); // Assignment + expression
                 assert_eq!(if_stmt.else_items, None);
                 
                 if let CallbackItem::Assignment(assignment) = &if_stmt.items[0] {
@@ -3880,6 +3959,15 @@ mod tests {
                     assert_eq!(assignment.value.raw_text, "32");
                 } else {
                     panic!("Expected Assignment in if statement");
+                }
+
+                // Check expression inside if
+                if let CallbackItem::Expr(expr) = &if_stmt.items[1] {
+                    assert_eq!(expr.name, "is_active");
+                    assert_eq!(expr.expr_type, Some("bool".to_string()));
+                    assert_eq!(expr.value.as_ref().unwrap().raw_text, "true");
+                } else {
+                    panic!("Expected Expr in if statement");
                 }
             } else {
                 panic!("Expected IfStatement");
@@ -3894,7 +3982,7 @@ mod tests {
             assert_eq!(callback_def.parameters.len(), 1);
             assert_eq!(callback_def.parameters[0].name, "d");
             assert_eq!(callback_def.parameters[0].param_type, None); // No type specified
-            assert_eq!(callback_def.items.len(), 3);
+            assert_eq!(callback_def.items.len(), 4); // 2 assignments + parameter + if statement
             
             // Check assignments
             if let CallbackItem::Assignment(assignment) = &callback_def.items[0] {
@@ -3910,11 +3998,20 @@ mod tests {
             } else {
                 panic!("Expected Assignment");
             }
+
+            // Check parameter
+            if let CallbackItem::Parameter(param) = &callback_def.items[2] {
+                assert_eq!(param.name, "drag_vector");
+                assert_eq!(param.param_type, Some("vector".to_string()));
+                assert!(param.value.as_ref().unwrap().raw_text.contains("[d.delta_x, d.delta_y]"));
+            } else {
+                panic!("Expected Parameter");
+            }
             
             // Check outer if statement
-            if let CallbackItem::IfStatement(if_stmt) = &callback_def.items[2] {
+            if let CallbackItem::IfStatement(if_stmt) = &callback_def.items[3] {
                 assert_eq!(if_stmt.condition.raw_text, "d.delta_x > 0");
-                assert_eq!(if_stmt.items.len(), 2);
+                assert_eq!(if_stmt.items.len(), 3); // Assignment + dataset + nested if
                 
                 // Check assignment in outer if
                 if let CallbackItem::Assignment(assignment) = &if_stmt.items[0] {
@@ -3923,33 +4020,46 @@ mod tests {
                 } else {
                     panic!("Expected Assignment in outer if statement");
                 }
+
+                // Check dataset in if statement
+                if let CallbackItem::Dataset(dataset) = &if_stmt.items[1] {
+                    assert_eq!(dataset.name, "movement");
+                    assert!(dataset.query_text.contains("FROM events WHERE type = 'drag'"));
+                } else {
+                    panic!("Expected Dataset in if statement");
+                }
                 
                 // Check nested if statement
-                if let CallbackItem::IfStatement(nested_if) = &if_stmt.items[1] {
+                if let CallbackItem::IfStatement(nested_if) = &if_stmt.items[2] {
                     assert_eq!(nested_if.condition.raw_text, "d.delta_y > 0");
                     assert_eq!(nested_if.items.len(), 1);
                     assert!(nested_if.else_items.is_some());
                     
-                    // Check assignment in nested if
                     if let CallbackItem::Assignment(assignment) = &nested_if.items[0] {
                         assert_eq!(assignment.property, "position_y");
                         assert_eq!(assignment.value.raw_text, "250");
                     } else {
-                        panic!("Expected Assignment in nested if statement");
+                        panic!("Expected Assignment in nested if");
                     }
                     
                     // Check else branch
-                    if let Some(else_items) = &nested_if.else_items {
-                        assert_eq!(else_items.len(), 1);
-                        
-                        if let CallbackItem::Assignment(assignment) = &else_items[0] {
-                            assert_eq!(assignment.property, "position_y");
-                            assert_eq!(assignment.value.raw_text, "150");
-                        } else {
-                            panic!("Expected Assignment in else branch");
-                        }
+                    let else_items = nested_if.else_items.as_ref().unwrap();
+                    assert_eq!(else_items.len(), 2); // Assignment + parameter
+                    
+                    if let CallbackItem::Assignment(assignment) = &else_items[0] {
+                        assert_eq!(assignment.property, "position_y");
+                        assert_eq!(assignment.value.raw_text, "150");
                     } else {
-                        panic!("Expected else branch in nested if statement");
+                        panic!("Expected Assignment in else branch");
+                    }
+
+                    // Check parameter in else branch
+                    if let CallbackItem::Parameter(param) = &else_items[1] {
+                        assert_eq!(param.name, "direction");
+                        assert_eq!(param.param_type, Some("int".to_string()));
+                        assert_eq!(param.value.as_ref().unwrap().raw_text, "-1");
+                    } else {
+                        panic!("Expected Parameter in else branch");
                     }
                 } else {
                     panic!("Expected nested IfStatement");
