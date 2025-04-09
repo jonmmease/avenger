@@ -53,10 +53,10 @@ property        = { identifier ~ ":" ~ property_target }
 param_type = { "<" ~ type_name ~ ">" }
 
 // Parameter declaration - with different formats for in vs. other qualifiers
-in_parameter      = { "in" ~ "param" ~ param_type? ~ parameter_identifier ~ (":" ~ sql_expr)? ~ ";" }
-out_parameter     = { "out" ~ "param" ~ param_type? ~ parameter_identifier ~ ":" ~ sql_expr ~ ";" }
-private_parameter = { "param" ~ param_type? ~ parameter_identifier ~ ":" ~ sql_expr ~ ";" }
-parameter         = { in_parameter | out_parameter | private_parameter }
+in_param      = { "in" ~ "param" ~ param_type? ~ parameter_identifier ~ (":" ~ sql_expr)? ~ ";" }
+out_param     = { "out" ~ "param" ~ param_type? ~ parameter_identifier ~ ":" ~ sql_expr ~ ";" }
+private_param = { "param" ~ param_type? ~ parameter_identifier ~ ":" ~ sql_expr ~ ";" }
+param         = { in_param | out_param | private_param }
 
 // Expression declaration - with identical formats as parameters
 in_expr      = { "in" ~ "expr" ~ param_type? ~ parameter_identifier ~ (":" ~ sql_expr)? ~ ";" }
@@ -64,14 +64,29 @@ out_expr     = { "out" ~ "expr" ~ param_type? ~ parameter_identifier ~ ":" ~ sql
 private_expr = { "expr" ~ param_type? ~ parameter_identifier ~ ":" ~ sql_expr ~ ";" }
 expr         = { in_expr | out_expr | private_expr }
 
+// Component declaration - similar to expr declarations but using "cvar" to avoid ambiguity
+in_comp      = {
+    "in" ~ "comp" ~ param_type? ~ parameter_identifier ~ ";"
+  | "in" ~ "comp" ~ param_type? ~ parameter_identifier ~ ":" ~ component_instance
+}
+out_comp     = {
+    "out" ~ "comp" ~ param_type? ~ parameter_identifier ~ ";"
+  | "out" ~ "comp" ~ param_type? ~ parameter_identifier ~ ":" ~ component_instance
+}
+private_comp = {
+    "comp" ~ param_type? ~ parameter_identifier ~ ";"
+  | "comp" ~ param_type? ~ parameter_identifier ~ ":" ~ component_instance
+}
+comp         = { in_comp | out_comp | private_comp }
+
 // Dataset declaration - now with different formats for in vs. other qualifiers
 in_dataset      = { "in" ~ "dataset" ~ parameter_identifier ~ ";" }
 out_dataset     = { "out" ~ "dataset" ~ parameter_identifier ~ ":" ~ sql_expr ~ ";" }
 private_dataset = { "dataset" ~ parameter_identifier ~ ":" ~ sql_expr ~ ";" }
 dataset         = { in_dataset | out_dataset | private_dataset }
 
-// If statement content only allows private parameters and private datasets (no in/out qualifiers)
-if_content = { (property | private_parameter | private_expr | private_dataset | component_instance | if_statement | match_statement | sql_statement)* }
+// If statement content only allows private parameters, exprs, cvars and datasets (no in/out qualifiers)
+if_content = { (property | private_param | private_expr | private_comp | private_dataset | component_instance | if_statement | match_statement | sql_statement)* }
 
 // Else branch
 else_branch = { "else" ~ "{" ~ if_content ~ "}" }
@@ -132,7 +147,7 @@ empty_callback_params = { "(" ~ ")" }
 callback_declaration = { "callback" ~ function_identifier ~ (callback_params | empty_callback_params | "(" ~ function_param_inner ~ (";" ~ function_param_inner)* ~ ";"? ~ ")" | "(" ~ ")") ~ ";" }
 
 // Function content allows private parameters, expr, datasets, if and match statements, and function_sql
-function_content = { (private_parameter | private_expr | private_dataset | if_statement | match_statement | sql_statement)* }
+function_content = { (private_param | private_expr | private_dataset | private_comp | if_statement | match_statement | sql_statement)* }
 
 // Function definition - use 'fn' instead of 'function'
 function_definition = {
@@ -147,7 +162,7 @@ assignment_target   = { "self" | "parent" | "root" }
 callback_assignment = { assignment_target ~ "." ~ identifier ~ "=" ~ sql_expr ~ ";" }
 
 // Callback blocks can contain assignments, if statements, and match statements
-callback_if_content   = { (callback_assignment | callback_if_statement | callback_match_statement | private_parameter | private_expr | private_dataset)* }
+callback_if_content   = { (callback_assignment | callback_if_statement | callback_match_statement | private_param | private_expr | private_dataset | private_comp)* }
 callback_if_statement = { "if" ~ conditional_expr ~ "{" ~ callback_if_content ~ "}" ~ callback_else_branch? }
 callback_else_branch  = { "else" ~ "{" ~ callback_if_content ~ "}" }
 
@@ -155,7 +170,7 @@ callback_else_branch  = { "else" ~ "{" ~ callback_if_content ~ "}" }
 callback_match_case      = { match_pattern ~ "=>" ~ "{" ~ callback_if_content ~ "}" }
 callback_match_statement = { "match" ~ conditional_expr ~ "{" ~ callback_match_case+ ~ "}" }
 
-callback_body = { "{" ~ (callback_assignment | callback_if_statement | callback_match_statement | private_parameter | private_expr | private_dataset)* ~ "}" }
+callback_body = { "{" ~ (callback_assignment | callback_if_statement | callback_match_statement | private_param | private_expr | private_dataset | private_comp)* ~ "}" }
 
 // Callback parameters list for definitions
 callback_def_inner  = { "param" ~ param_type? ~ parameter_identifier ~ (":" ~ sql_expr)? | "expr" ~ param_type? ~ parameter_identifier ~ (":" ~ sql_expr)? | "dataset" ~ parameter_identifier ~ (":" ~ sql_expr)? }
@@ -174,8 +189,8 @@ component_instance = {
     component_identifier ~ "{" ~ component_content ~ "}"
 }
 
-// Update component content to include component functions
-component_content = _{ (property | parameter | expr | dataset | component_instance | if_statement | match_statement | component_function | callback_declaration | callback_definition)* }
+// Update component content to include component functions and test cvar directly
+component_content = _{ (property | param | expr | comp | dataset | component_instance | if_statement | match_statement | component_function | callback_declaration | callback_definition)* }
 
 // Top-level component declaration with explicit component keyword
 component_declaration = {
