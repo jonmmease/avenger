@@ -210,10 +210,37 @@ pub struct CallbackAssignment {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct CallbackIfStatement {
+    pub condition: ValueExpr,
+    pub items: Vec<CallbackItem>,
+    pub else_items: Option<Vec<CallbackItem>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CallbackMatchCase {
+    pub pattern: String,
+    pub is_default: bool,
+    pub items: Vec<CallbackItem>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CallbackMatchStatement {
+    pub expression: ValueExpr,
+    pub cases: Vec<CallbackMatchCase>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CallbackItem {
+    Assignment(CallbackAssignment),
+    IfStatement(Box<CallbackIfStatement>),
+    MatchStatement(Box<CallbackMatchStatement>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct CallbackDefinition {
     pub name: String,
     pub parameters: Vec<Parameter>,
-    pub assignments: Vec<CallbackAssignment>,
+    pub items: Vec<CallbackItem>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1159,7 +1186,7 @@ fn parse_callback(pair: pest::iterators::Pair<Rule>) -> Result<Callback, ParserE
 fn parse_callback_definition(pair: pest::iterators::Pair<Rule>) -> Result<CallbackDefinition, ParserError> {
     let mut name = String::new();
     let mut parameters = Vec::new();
-    let mut assignments = Vec::new();
+    let mut items = Vec::new();
     
     // Process all tokens in the callback definition
     for token in pair.into_inner() {
@@ -1178,11 +1205,22 @@ fn parse_callback_definition(pair: pest::iterators::Pair<Rule>) -> Result<Callba
                 }
             },
             Rule::callback_body => {
-                // Process the assignments in the callback body
-                for assignment_token in token.into_inner() {
-                    if assignment_token.as_rule() == Rule::callback_assignment {
-                        let assignment = parse_callback_assignment(assignment_token)?;
-                        assignments.push(assignment);
+                // Process the items in the callback body
+                for body_token in token.into_inner() {
+                    match body_token.as_rule() {
+                        Rule::callback_assignment => {
+                            let assignment = parse_callback_assignment(body_token)?;
+                            items.push(CallbackItem::Assignment(assignment));
+                        },
+                        Rule::callback_if_statement => {
+                            let if_stmt = parse_callback_if_statement(body_token)?;
+                            items.push(CallbackItem::IfStatement(Box::new(if_stmt)));
+                        },
+                        Rule::callback_match_statement => {
+                            let match_stmt = parse_callback_match_statement(body_token)?;
+                            items.push(CallbackItem::MatchStatement(Box::new(match_stmt)));
+                        },
+                        _ => { /* Ignore other tokens */ }
                     }
                 }
             },
@@ -1193,7 +1231,7 @@ fn parse_callback_definition(pair: pest::iterators::Pair<Rule>) -> Result<Callba
     Ok(CallbackDefinition {
         name,
         parameters,
-        assignments,
+        items,
     })
 }
 
@@ -1260,6 +1298,129 @@ fn parse_callback_assignment(pair: pest::iterators::Pair<Rule>) -> Result<Callba
     Ok(CallbackAssignment {
         property,
         value,
+    })
+}
+
+fn parse_callback_if_statement(pair: pest::iterators::Pair<Rule>) -> Result<CallbackIfStatement, ParserError> {
+    let mut pairs = pair.into_inner();
+    
+    // Get condition
+    let next = pairs.next().unwrap();
+    let condition = match next.as_rule() {
+        Rule::conditional_expr => {
+            // Parse the expression content (remove the parentheses)
+            let expr_text = next.as_str();
+            let inner_expr = &expr_text[1..expr_text.len()-1];  // Remove ( and )
+            ValueExpr::try_new(inner_expr.trim().to_string())?
+        },
+        _ => return Err(ParserError::ParseError(format!(
+            "Expected conditional expression in callback if statement, found {:?}", 
+            next.as_rule()
+        ))),
+    };
+    
+    // Next should be the if content
+    let if_content_pair = pairs.next().unwrap();
+    let if_items = parse_callback_if_content(if_content_pair)?;
+    
+    // Check for optional else branch
+    let else_items = if let Some(else_branch) = pairs.next() {
+        if else_branch.as_rule() == Rule::callback_else_branch {
+            // Parse the content of the else branch
+            let else_content = else_branch.into_inner().next().unwrap();
+            Some(parse_callback_if_content(else_content)?)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    
+    Ok(CallbackIfStatement {
+        condition,
+        items: if_items,
+        else_items,
+    })
+}
+
+fn parse_callback_if_content(pair: pest::iterators::Pair<Rule>) -> Result<Vec<CallbackItem>, ParserError> {
+    let mut items = Vec::new();
+    
+    for token in pair.into_inner() {
+        match token.as_rule() {
+            Rule::callback_assignment => {
+                let assignment = parse_callback_assignment(token)?;
+                items.push(CallbackItem::Assignment(assignment));
+            },
+            Rule::callback_if_statement => {
+                let if_stmt = parse_callback_if_statement(token)?;
+                items.push(CallbackItem::IfStatement(Box::new(if_stmt)));
+            },
+            Rule::callback_match_statement => {
+                let match_stmt = parse_callback_match_statement(token)?;
+                items.push(CallbackItem::MatchStatement(Box::new(match_stmt)));
+            },
+            _ => { /* Ignore other tokens */ }
+        }
+    }
+    
+    Ok(items)
+}
+
+fn parse_callback_match_statement(pair: pest::iterators::Pair<Rule>) -> Result<CallbackMatchStatement, ParserError> {
+    let mut pairs = pair.into_inner();
+    
+    // Get the expression to match on
+    let next = pairs.next().unwrap();
+    let expression = match next.as_rule() {
+        Rule::conditional_expr => {
+            // Parse the expression content (remove the parentheses)
+            let expr_text = next.as_str();
+            let inner_expr = &expr_text[1..expr_text.len()-1];  // Remove ( and )
+            ValueExpr::try_new(inner_expr.trim().to_string())?
+        },
+        _ => return Err(ParserError::ParseError(format!(
+            "Expected conditional expression in callback match statement, found {:?}", 
+            next.as_rule()
+        ))),
+    };
+    
+    // Parse all match cases
+    let mut cases = Vec::new();
+    
+    for case_pair in pairs {
+        if case_pair.as_rule() == Rule::callback_match_case {
+            let mut case_pairs = case_pair.into_inner();
+            let pattern_pair = case_pairs.next().unwrap();
+            
+            // Extract pattern text
+            let pattern_text = pattern_pair.as_str();
+            
+            // For string literals, remove the quotes
+            let pattern = if pattern_text.starts_with("'") && pattern_text.ends_with("'") {
+                pattern_text[1..pattern_text.len()-1].to_string()
+            } else {
+                pattern_text.to_string()
+            };
+            
+            // Check if it's a default case (the pattern is "_")
+            let is_default = pattern == "_";
+            
+            // Parse the case content
+            let content_pair = case_pairs.next().unwrap();
+            let items = parse_callback_if_content(content_pair)?;
+            
+            cases.push(CallbackMatchCase {
+                pattern,
+                is_default,
+                items,
+            });
+        }
+    }
+    
+    Ok(CallbackMatchStatement {
+        expression,
+        cases,
     })
 }
 
@@ -3609,15 +3770,33 @@ mod tests {
                 on_click(self; param<event> e) => {
                     self.blue = 32;
                     self.green = 22;
+                    match (e.button) {
+                        'left' => {
+                            self.green = 22;
+                        }
+                        'right' => {
+                            self.red = 32;
+                        }
+                    }
                 }
                 
                 on_hover(self) => {
-                    self.red = 32;
+                    if (self.red > 0) {
+                        self.red = 32;
+                    }
                 }
                 
                 handle_drag(self; param d) => {
                     self.position_x = 100;
                     self.position_y = 200;
+                    if (d.delta_x > 0) {
+                        self.position_x = 150;
+                        if (d.delta_y > 0) {
+                            self.position_y = 250;
+                        } else {
+                            self.position_y = 150;
+                        }
+                    }
                 }
             }
         "#;
@@ -3626,51 +3805,158 @@ mod tests {
         assert_eq!(result.components.len(), 1);
         assert_eq!(result.components[0].component.items.len(), 3);
         
-        // Check first callback definition (with typed parameter)
+        // Check first callback definition (with match statement)
         if let ComponentItem::CallbackDefinition(callback_def) = &result.components[0].component.items[0] {
             assert_eq!(callback_def.name, "on_click");
             assert_eq!(callback_def.parameters.len(), 1);
             assert_eq!(callback_def.parameters[0].name, "e");
             assert_eq!(callback_def.parameters[0].param_type, Some("event".to_string()));
-            assert_eq!(callback_def.assignments.len(), 2);
+            assert_eq!(callback_def.items.len(), 3);
             
-            // Check first assignment
-            assert_eq!(callback_def.assignments[0].property, "blue");
-            assert_eq!(callback_def.assignments[0].value.raw_text, "32");
+            // Check assignments
+            if let CallbackItem::Assignment(assignment) = &callback_def.items[0] {
+                assert_eq!(assignment.property, "blue");
+                assert_eq!(assignment.value.raw_text, "32");
+            } else {
+                panic!("Expected Assignment");
+            }
             
-            // Check second assignment
-            assert_eq!(callback_def.assignments[1].property, "green");
-            assert_eq!(callback_def.assignments[1].value.raw_text, "22");
+            if let CallbackItem::Assignment(assignment) = &callback_def.items[1] {
+                assert_eq!(assignment.property, "green");
+                assert_eq!(assignment.value.raw_text, "22");
+            } else {
+                panic!("Expected Assignment");
+            }
+            
+            // Check match statement
+            if let CallbackItem::MatchStatement(match_stmt) = &callback_def.items[2] {
+                assert_eq!(match_stmt.expression.raw_text, "e.button");
+                assert_eq!(match_stmt.cases.len(), 2);
+                
+                // Check first case
+                assert_eq!(match_stmt.cases[0].pattern, "left");
+                assert_eq!(match_stmt.cases[0].is_default, false);
+                assert_eq!(match_stmt.cases[0].items.len(), 1);
+                
+                if let CallbackItem::Assignment(assignment) = &match_stmt.cases[0].items[0] {
+                    assert_eq!(assignment.property, "green");
+                    assert_eq!(assignment.value.raw_text, "22");
+                } else {
+                    panic!("Expected Assignment in match case");
+                }
+                
+                // Check second case
+                assert_eq!(match_stmt.cases[1].pattern, "right");
+                assert_eq!(match_stmt.cases[1].is_default, false);
+                assert_eq!(match_stmt.cases[1].items.len(), 1);
+                
+                if let CallbackItem::Assignment(assignment) = &match_stmt.cases[1].items[0] {
+                    assert_eq!(assignment.property, "red");
+                    assert_eq!(assignment.value.raw_text, "32");
+                } else {
+                    panic!("Expected Assignment in match case");
+                }
+            } else {
+                panic!("Expected MatchStatement");
+            }
         } else {
             panic!("Expected CallbackDefinition");
         }
         
-        // Check second callback definition (without parameters)
+        // Check second callback definition (with if statement)
         if let ComponentItem::CallbackDefinition(callback_def) = &result.components[0].component.items[1] {
             assert_eq!(callback_def.name, "on_hover");
             assert_eq!(callback_def.parameters.len(), 0);
-            assert_eq!(callback_def.assignments.len(), 1);
+            assert_eq!(callback_def.items.len(), 1);
             
-            // Check assignment
-            assert_eq!(callback_def.assignments[0].property, "red");
-            assert_eq!(callback_def.assignments[0].value.raw_text, "32");
+            // Check if statement
+            if let CallbackItem::IfStatement(if_stmt) = &callback_def.items[0] {
+                assert_eq!(if_stmt.condition.raw_text, "self.red > 0");
+                assert_eq!(if_stmt.items.len(), 1);
+                assert_eq!(if_stmt.else_items, None);
+                
+                if let CallbackItem::Assignment(assignment) = &if_stmt.items[0] {
+                    assert_eq!(assignment.property, "red");
+                    assert_eq!(assignment.value.raw_text, "32");
+                } else {
+                    panic!("Expected Assignment in if statement");
+                }
+            } else {
+                panic!("Expected IfStatement");
+            }
         } else {
             panic!("Expected CallbackDefinition");
         }
         
-        // Check third callback definition with param without type
+        // Check third callback definition (with nested if statements)
         if let ComponentItem::CallbackDefinition(callback_def) = &result.components[0].component.items[2] {
             assert_eq!(callback_def.name, "handle_drag");
             assert_eq!(callback_def.parameters.len(), 1);
             assert_eq!(callback_def.parameters[0].name, "d");
             assert_eq!(callback_def.parameters[0].param_type, None); // No type specified
-            assert_eq!(callback_def.assignments.len(), 2);
+            assert_eq!(callback_def.items.len(), 3);
             
             // Check assignments
-            assert_eq!(callback_def.assignments[0].property, "position_x");
-            assert_eq!(callback_def.assignments[0].value.raw_text, "100");
-            assert_eq!(callback_def.assignments[1].property, "position_y");
-            assert_eq!(callback_def.assignments[1].value.raw_text, "200");
+            if let CallbackItem::Assignment(assignment) = &callback_def.items[0] {
+                assert_eq!(assignment.property, "position_x");
+                assert_eq!(assignment.value.raw_text, "100");
+            } else {
+                panic!("Expected Assignment");
+            }
+            
+            if let CallbackItem::Assignment(assignment) = &callback_def.items[1] {
+                assert_eq!(assignment.property, "position_y");
+                assert_eq!(assignment.value.raw_text, "200");
+            } else {
+                panic!("Expected Assignment");
+            }
+            
+            // Check outer if statement
+            if let CallbackItem::IfStatement(if_stmt) = &callback_def.items[2] {
+                assert_eq!(if_stmt.condition.raw_text, "d.delta_x > 0");
+                assert_eq!(if_stmt.items.len(), 2);
+                
+                // Check assignment in outer if
+                if let CallbackItem::Assignment(assignment) = &if_stmt.items[0] {
+                    assert_eq!(assignment.property, "position_x");
+                    assert_eq!(assignment.value.raw_text, "150");
+                } else {
+                    panic!("Expected Assignment in outer if statement");
+                }
+                
+                // Check nested if statement
+                if let CallbackItem::IfStatement(nested_if) = &if_stmt.items[1] {
+                    assert_eq!(nested_if.condition.raw_text, "d.delta_y > 0");
+                    assert_eq!(nested_if.items.len(), 1);
+                    assert!(nested_if.else_items.is_some());
+                    
+                    // Check assignment in nested if
+                    if let CallbackItem::Assignment(assignment) = &nested_if.items[0] {
+                        assert_eq!(assignment.property, "position_y");
+                        assert_eq!(assignment.value.raw_text, "250");
+                    } else {
+                        panic!("Expected Assignment in nested if statement");
+                    }
+                    
+                    // Check else branch
+                    if let Some(else_items) = &nested_if.else_items {
+                        assert_eq!(else_items.len(), 1);
+                        
+                        if let CallbackItem::Assignment(assignment) = &else_items[0] {
+                            assert_eq!(assignment.property, "position_y");
+                            assert_eq!(assignment.value.raw_text, "150");
+                        } else {
+                            panic!("Expected Assignment in else branch");
+                        }
+                    } else {
+                        panic!("Expected else branch in nested if statement");
+                    }
+                } else {
+                    panic!("Expected nested IfStatement");
+                }
+            } else {
+                panic!("Expected IfStatement");
+            }
         } else {
             panic!("Expected CallbackDefinition");
         }
