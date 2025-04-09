@@ -47,6 +47,15 @@ component Chart {
                 x: "category";
                 y: "value";
                 fill: "blue";
+
+                on_click(self; param event) => {
+                    self.blue = 32;
+                    self.green = 22;
+                }
+
+                on_hover(self) => {
+                    self.red = 32;
+                }
             }
         }
         'line' => {

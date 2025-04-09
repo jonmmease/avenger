@@ -204,6 +204,19 @@ pub struct EnumDefinition {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct CallbackAssignment {
+    pub property: String,
+    pub value: ValueExpr,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CallbackDefinition {
+    pub name: String,
+    pub parameters: Vec<Parameter>,
+    pub assignments: Vec<CallbackAssignment>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum ComponentItem {
     Property(Property),
     Parameter(Parameter),
@@ -215,6 +228,7 @@ pub enum ComponentItem {
     MatchStatement(Box<MatchStatement>),
     ComponentFunction(ComponentFunction),
     Callback(Callback),
+    CallbackDefinition(CallbackDefinition),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -521,7 +535,10 @@ fn parse_if_content(pair: pest::iterators::Pair<Rule>) -> Result<Vec<ComponentIt
             }
             Rule::callback_declaration => {
                 content_items.push(ComponentItem::Callback(parse_callback(item_pair)?));
-            }
+            },
+            Rule::callback_definition => {
+                content_items.push(ComponentItem::CallbackDefinition(parse_callback_definition(item_pair)?));
+            },
             _ => {}
         }
     }
@@ -836,7 +853,10 @@ fn parse_component_declaration(pair: pest::iterators::Pair<Rule>) -> Result<Comp
             }
             Rule::callback_declaration => {
                 component_items.push(ComponentItem::Callback(parse_callback(inner_pair)?));
-            }
+            },
+            Rule::callback_definition => {
+                component_items.push(ComponentItem::CallbackDefinition(parse_callback_definition(inner_pair)?));
+            },
             _ => {}
         }
     }
@@ -887,6 +907,8 @@ fn parse_component_instance(pair: pest::iterators::Pair<Rule>) -> Result<Compone
             component_items.push(ComponentItem::ComponentFunction(parse_component_function(item_pair)?));
         } else if item_pair.as_rule() == Rule::callback_declaration {
             component_items.push(ComponentItem::Callback(parse_callback(item_pair)?));
+        } else if item_pair.as_rule() == Rule::callback_definition {
+            component_items.push(ComponentItem::CallbackDefinition(parse_callback_definition(item_pair)?));
         }
     }
     
@@ -1104,22 +1126,25 @@ fn parse_callback(pair: pest::iterators::Pair<Rule>) -> Result<Callback, ParserE
     let mut parameters = Vec::new();
     
     // Process all tokens in the callback
-    for token in pair.into_inner() {
+    for token in pair.clone().into_inner() {
         match token.as_rule() {
             Rule::function_identifier => {
                 name = token.as_str().to_string();
             },
-            Rule::callback_params => {
+            Rule::callback_params | Rule::empty_callback_params => {
                 // Process the parameters within callback_params
                 for param_token in token.into_inner() {
                     if param_token.as_rule() == Rule::function_param_inner {
                         let param = parse_function_param(param_token)?;
                         parameters.push(param);
                     }
+                    // Skip "self" as it's not a parameter
                 }
             },
-            Rule::empty_callback_params => {
-                // No parameters to process
+            // Handle legacy parameter format (direct function_param_inner)
+            Rule::function_param_inner => {
+                let param = parse_function_param(token)?;
+                parameters.push(param);
             },
             _ => { /* Ignore other tokens */ }
         }
@@ -1128,6 +1153,113 @@ fn parse_callback(pair: pest::iterators::Pair<Rule>) -> Result<Callback, ParserE
     Ok(Callback {
         name,
         parameters,
+    })
+}
+
+fn parse_callback_definition(pair: pest::iterators::Pair<Rule>) -> Result<CallbackDefinition, ParserError> {
+    let mut name = String::new();
+    let mut parameters = Vec::new();
+    let mut assignments = Vec::new();
+    
+    // Process all tokens in the callback definition
+    for token in pair.into_inner() {
+        match token.as_rule() {
+            Rule::function_identifier => {
+                name = token.as_str().to_string();
+            },
+            Rule::callback_params | Rule::empty_callback_params => {
+                // Process the parameters within callback_params
+                for param_token in token.into_inner() {
+                    if param_token.as_rule() == Rule::callback_params_inner || param_token.as_rule() == Rule::function_param_inner {
+                        let param = parse_callback_param(param_token)?;
+                        parameters.push(param);
+                    }
+                    // Skip "self" as it's tracked separately
+                }
+            },
+            Rule::callback_body => {
+                // Process the assignments in the callback body
+                for assignment_token in token.into_inner() {
+                    if assignment_token.as_rule() == Rule::callback_assignment {
+                        let assignment = parse_callback_assignment(assignment_token)?;
+                        assignments.push(assignment);
+                    }
+                }
+            },
+            _ => { /* Ignore other tokens */ }
+        }
+    }
+    
+    Ok(CallbackDefinition {
+        name,
+        parameters,
+        assignments,
+    })
+}
+
+fn parse_callback_param(pair: pest::iterators::Pair<Rule>) -> Result<Parameter, ParserError> {
+    let mut name = String::new();
+    let mut param_type = None;
+    let mut value_text = String::new();
+    
+    // Process all tokens in the callback parameter
+    for token in pair.into_inner() {
+        match token.as_rule() {
+            Rule::kinds | Rule::identifier => {
+                // Just noting the parameter kind (param/expr/dataset), not storing it
+            },
+            Rule::param_type => {
+                // Extract the type name from the param_type
+                let type_name = token.into_inner().next().unwrap().as_str().to_string();
+                param_type = Some(type_name);
+            },
+            Rule::parameter_identifier => {
+                name = token.as_str().to_string();
+            },
+            Rule::sql_expr => {
+                value_text = token.as_str().trim().to_string();
+            },
+            _ => { /* Ignore other tokens */ }
+        }
+    }
+    
+    // Create a value if there is a value expression, otherwise NULL
+    let value = if value_text.is_empty() {
+        None
+    } else {
+        Some(ValueExpr::try_new(value_text)?)
+    };
+    
+    Ok(Parameter {
+        qualifier: None,
+        param_type,
+        name,
+        value,
+    })
+}
+
+fn parse_callback_assignment(pair: pest::iterators::Pair<Rule>) -> Result<CallbackAssignment, ParserError> {
+    let mut property = String::new();
+    let mut value_text = String::new();
+    
+    // Process all tokens in the callback assignment
+    for token in pair.into_inner() {
+        match token.as_rule() {
+            Rule::identifier => {
+                property = token.as_str().to_string();
+            },
+            Rule::sql_expr => {
+                value_text = token.as_str().trim().to_string();
+            },
+            _ => { /* Ignore other tokens */ }
+        }
+    }
+    
+    let value = ValueExpr::try_new(value_text)?;
+    
+    Ok(CallbackAssignment {
+        property,
+        value,
     })
 }
 
@@ -3467,6 +3599,80 @@ mod tests {
             assert_eq!(callback.parameters[1].value.as_ref().unwrap().raw_text, "'123'");
         } else {
             panic!("Expected Callback");
+        }
+    }
+
+    #[test]
+    fn test_parse_callback_definition() {
+        let input = r#"
+            component Chart {
+                on_click(self; param<event> e) => {
+                    self.blue = 32;
+                    self.green = 22;
+                }
+                
+                on_hover(self) => {
+                    self.red = 32;
+                }
+                
+                handle_drag(self; param d) => {
+                    self.position_x = 100;
+                    self.position_y = 200;
+                }
+            }
+        "#;
+        
+        let result = parse(input).unwrap();
+        assert_eq!(result.components.len(), 1);
+        assert_eq!(result.components[0].component.items.len(), 3);
+        
+        // Check first callback definition (with typed parameter)
+        if let ComponentItem::CallbackDefinition(callback_def) = &result.components[0].component.items[0] {
+            assert_eq!(callback_def.name, "on_click");
+            assert_eq!(callback_def.parameters.len(), 1);
+            assert_eq!(callback_def.parameters[0].name, "e");
+            assert_eq!(callback_def.parameters[0].param_type, Some("event".to_string()));
+            assert_eq!(callback_def.assignments.len(), 2);
+            
+            // Check first assignment
+            assert_eq!(callback_def.assignments[0].property, "blue");
+            assert_eq!(callback_def.assignments[0].value.raw_text, "32");
+            
+            // Check second assignment
+            assert_eq!(callback_def.assignments[1].property, "green");
+            assert_eq!(callback_def.assignments[1].value.raw_text, "22");
+        } else {
+            panic!("Expected CallbackDefinition");
+        }
+        
+        // Check second callback definition (without parameters)
+        if let ComponentItem::CallbackDefinition(callback_def) = &result.components[0].component.items[1] {
+            assert_eq!(callback_def.name, "on_hover");
+            assert_eq!(callback_def.parameters.len(), 0);
+            assert_eq!(callback_def.assignments.len(), 1);
+            
+            // Check assignment
+            assert_eq!(callback_def.assignments[0].property, "red");
+            assert_eq!(callback_def.assignments[0].value.raw_text, "32");
+        } else {
+            panic!("Expected CallbackDefinition");
+        }
+        
+        // Check third callback definition with param without type
+        if let ComponentItem::CallbackDefinition(callback_def) = &result.components[0].component.items[2] {
+            assert_eq!(callback_def.name, "handle_drag");
+            assert_eq!(callback_def.parameters.len(), 1);
+            assert_eq!(callback_def.parameters[0].name, "d");
+            assert_eq!(callback_def.parameters[0].param_type, None); // No type specified
+            assert_eq!(callback_def.assignments.len(), 2);
+            
+            // Check assignments
+            assert_eq!(callback_def.assignments[0].property, "position_x");
+            assert_eq!(callback_def.assignments[0].value.raw_text, "100");
+            assert_eq!(callback_def.assignments[1].property, "position_y");
+            assert_eq!(callback_def.assignments[1].value.raw_text, "200");
+        } else {
+            panic!("Expected CallbackDefinition");
         }
     }
 }

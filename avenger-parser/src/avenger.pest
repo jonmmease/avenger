@@ -124,13 +124,14 @@ component_function_params = {
 function_params = { "(" ~ function_param_inner ~ (";" ~ function_param_inner)* ~ ";"? ~ ")" }
 
 // Callback parameters list (same as function parameters)
-callback_params = { "(" ~ function_param_inner ~ (";" ~ function_param_inner)* ~ ";"? ~ ")" }
+callback_params_inner = { "param" ~ param_type? ~ parameter_identifier ~ (":" ~ sql_expr)? | "expr" ~ param_type? ~ parameter_identifier ~ (":" ~ sql_expr)? | "dataset" ~ parameter_identifier ~ (":" ~ sql_expr)? }
+callback_params       = { "(" ~ "self" ~ (";" ~ callback_params_inner)* ~ ";"? ~ ")" }
 
 // Empty callback parameters
-empty_callback_params = { "(" ~ ")" }
+empty_callback_params = { "(" ~ "self" ~ ")" }
 
 // Callback declaration
-callback_declaration = { "callback" ~ function_identifier ~ (callback_params | empty_callback_params) ~ ";" }
+callback_declaration = { "callback" ~ function_identifier ~ (callback_params | empty_callback_params | "(" ~ function_param_inner ~ (";" ~ function_param_inner)* ~ ";"? ~ ")" | "(" ~ ")") ~ ";" }
 
 // Function content allows private parameters, expr, datasets, if and match statements, and function_sql
 function_content = { (private_parameter | private_expr | private_dataset | if_statement | match_statement | sql_statement)* }
@@ -143,6 +144,11 @@ function_definition = {
 // Self parameter (no terminator included)
 component_function_self = { "self" }
 
+// Callback event handlers
+callback_assignment = { "self" ~ "." ~ identifier ~ "=" ~ sql_expr ~ ";" }
+callback_body       = { "{" ~ callback_assignment* ~ "}" }
+callback_definition = { function_identifier ~ (callback_params | empty_callback_params) ~ "=>" ~ callback_body }
+
 // Component function can have optional out qualifier
 component_function = {
     "out"? ~ "fn" ~ function_identifier ~ component_function_params ~ "->" ~ kinds ~ "{" ~ function_content ~ "}"
@@ -154,7 +160,7 @@ component_instance = {
 }
 
 // Update component content to include component functions
-component_content = _{ (component_binding | property | parameter | expr | dataset | component_instance | if_statement | match_statement | component_function | callback_declaration)* }
+component_content = _{ (component_binding | property | parameter | expr | dataset | component_instance | if_statement | match_statement | component_function | callback_declaration | callback_definition)* }
 
 // Top-level component declaration with explicit component keyword
 component_declaration = {
