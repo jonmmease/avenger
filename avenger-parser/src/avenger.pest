@@ -146,7 +146,17 @@ component_function_self = { "self" }
 
 // Callback event handlers
 callback_assignment = { "self" ~ "." ~ identifier ~ "=" ~ sql_expr ~ ";" }
-callback_body       = { "{" ~ callback_assignment* ~ "}" }
+
+// Callback blocks can contain assignments, if statements, and match statements
+callback_if_content   = { (callback_assignment | callback_if_statement | callback_match_statement)* }
+callback_if_statement = { "if" ~ conditional_expr ~ "{" ~ callback_if_content ~ "}" ~ callback_else_branch? }
+callback_else_branch  = { "else" ~ "{" ~ callback_if_content ~ "}" }
+
+// Match statements inside callbacks
+callback_match_case      = { match_pattern ~ "=>" ~ "{" ~ callback_if_content ~ "}" }
+callback_match_statement = { "match" ~ conditional_expr ~ "{" ~ callback_match_case+ ~ "}" }
+
+callback_body       = { "{" ~ (callback_assignment | callback_if_statement | callback_match_statement)* ~ "}" }
 callback_definition = { function_identifier ~ (callback_params | empty_callback_params) ~ "=>" ~ callback_body }
 
 // Component function can have optional out qualifier
