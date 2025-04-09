@@ -263,6 +263,7 @@ pub enum ComponentItem {
     Callback(Callback),
     CallbackDefinition(CallbackDefinition),
     ComponentVar(ComponentVar),  // Add new ComponentVar item type
+    ComponentReference(String),  // Add component reference item type
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -356,6 +357,15 @@ pub fn parse(source: &str) -> Result<AvengerFile, ParserError> {
     }
     
     Ok(AvengerFile { imports, enums, components })
+}
+
+fn parse_component_reference(pair: pest::iterators::Pair<Rule>) -> String {
+    let identifier = pair.as_str().to_string();
+    if identifier.ends_with(";") {
+        identifier[..identifier.len()-1].to_string()
+    } else {
+        identifier
+    }
 }
 
 fn parse_enum_definition(pair: pest::iterators::Pair<Rule>) -> EnumDefinition {
@@ -586,6 +596,10 @@ fn parse_if_content(pair: pest::iterators::Pair<Rule>) -> Result<Vec<ComponentIt
             Rule::callback_definition => {
                 content_items.push(ComponentItem::CallbackDefinition(parse_callback_definition(item_pair)?));
             },
+            Rule::component_var_reference => {
+                let identifier = parse_component_reference(item_pair.clone());
+                content_items.push(ComponentItem::ComponentReference(identifier));
+            },
             _ => {}
         }
     }
@@ -620,7 +634,6 @@ fn parse_property(pair: pest::iterators::Pair<Rule>) -> Result<Property, ParserE
                 // Try to parse as SQL expression
                 let expr_text = first_token.as_str().trim().to_string();
                 
-                // Remove trailing semicolon for test compatibility
                 let expr_text = if expr_text.ends_with(";") {
                     expr_text[..expr_text.len()-1].to_string()
                 } else {
@@ -650,7 +663,6 @@ fn parse_property(pair: pest::iterators::Pair<Rule>) -> Result<Property, ParserE
         // Direct SQL expression
         let expr_text = target.as_str().trim().to_string();
         
-        // Remove trailing semicolon for test compatibility
         let expr_text = if expr_text.ends_with(";") {
             expr_text[..expr_text.len()-1].to_string()
         } else {
@@ -969,6 +981,9 @@ fn parse_component_declaration(pair: pest::iterators::Pair<Rule>) -> Result<Comp
             Rule::callback_definition => {
                 component_items.push(ComponentItem::CallbackDefinition(parse_callback_definition(inner_pair)?));
             },
+            Rule::component_var_reference => {
+                component_items.push(ComponentItem::ComponentReference(parse_component_reference(inner_pair)));
+            },
             _ => {}
         }
     }
@@ -1091,6 +1106,9 @@ fn parse_component_instance(pair: pest::iterators::Pair<Rule>) -> Result<Compone
             }
             
             component_items.push(ComponentItem::CallbackDefinition(callback_def));
+        } else if item_pair.as_rule() == Rule::component_var_reference {
+            let identifier = parse_component_reference(item_pair.clone());
+            component_items.push(ComponentItem::ComponentReference(identifier));
         }
     }
     
@@ -1101,27 +1119,6 @@ fn parse_component_instance(pair: pest::iterators::Pair<Rule>) -> Result<Compone
     })
 }
 
-fn parse_binding(pair: pest::iterators::Pair<Rule>) -> Result<(String, ComponentInstance), ParserError> {
-    let mut binding_name = String::new();
-    let mut component = None;
-    
-    for token in pair.into_inner() {
-        match token.as_rule() {
-            Rule::identifier => {
-                binding_name = token.as_str().to_string();
-            },
-            Rule::component_instance => {
-                component = Some(parse_component_instance(token)?);
-            },
-            _ => { /* Ignore other tokens */ }
-        }
-    }
-    
-    match component {
-        Some(c) => Ok((binding_name, c)),
-        None => Err(ParserError::ParseError(format!("Missing component instance in binding"))),
-    }
-}
 
 // Add parse_expr function (similar to parse_parameter)
 fn parse_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, ParserError> {
@@ -1886,7 +1883,6 @@ mod tests {
         let result = parse(input);
         
         if let Ok(file) = result {
-            println!("file: {:?}", file);
             if file.components.len() > 0 {
                 let first_component = &file.components[0];
                 
@@ -4538,5 +4534,32 @@ mod tests {
             }
         });
         assert!(param.is_some());
+    }
+
+    #[test]
+    fn test_simple_component_reference() {
+        let input = r#"
+            component Test {
+                // Define a variable
+                comp x: X {}
+                
+                // Direct reference
+                x;
+            }
+        "#;
+        
+        let result = parse(input).unwrap();
+        
+        // Check for component reference
+        let references = result.components[0].component.items.iter().filter_map(|item| {
+            if let ComponentItem::ComponentReference(name) = item {
+                Some(name.as_str())
+            } else {
+                None
+            }
+        }).collect::<Vec<_>>();
+        
+        assert_eq!(references.len(), 1);
+        assert_eq!(references[0], "x");
     }
 }

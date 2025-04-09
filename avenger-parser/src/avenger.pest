@@ -86,7 +86,7 @@ private_dataset = { "dataset" ~ parameter_identifier ~ ":" ~ sql_expr ~ ";" }
 dataset         = { in_dataset | out_dataset | private_dataset }
 
 // If statement content only allows private parameters, exprs, cvars and datasets (no in/out qualifiers)
-if_content = { (property | private_param | private_expr | private_comp | private_dataset | component_instance | if_statement | match_statement | sql_statement)* }
+if_content = { (property | private_param | private_expr | private_comp | private_dataset | component_instance | if_statement | match_statement | sql_statement | component_var_reference)* }
 
 // Else branch
 else_branch = { "else" ~ "{" ~ if_content ~ "}" }
@@ -189,8 +189,13 @@ component_instance = {
     component_identifier ~ "{" ~ component_content ~ "}"
 }
 
+// Component variable reference (just an identifier followed by semicolon)
+component_var_reference = @{
+    parameter_identifier ~ ";"
+}
+
 // Update component content to include component functions and test cvar directly
-component_content = _{ (property | param | expr | comp | dataset | component_instance | if_statement | match_statement | component_function | callback_declaration | callback_definition)* }
+component_content = _{ (property | param | expr | comp | dataset | component_instance | if_statement | match_statement | component_function | callback_declaration | callback_definition | component_var_reference)* }
 
 // Top-level component declaration with explicit component keyword
 component_declaration = {
