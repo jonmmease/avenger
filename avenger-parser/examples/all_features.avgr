@@ -48,21 +48,21 @@ component Chart {
                 y: "value";
                 fill: "blue";
 
-                on_click(self; param event) => {
+                on_click(param event) => {
                     self.blue = 32;
                     match (event.button) {
                         'left' => {
                             self.green = 22;
                         }
                         'right' => {
-                            self.red = 32;
+                            parent.red = 32;
                         }
                     }
                 }
 
-                on_hover(self) => {
+                on_hover() => {
                     if (self.red > 0) {
-                        self.red = 32;
+                        root.red = 32;
                     }
                 }
             }

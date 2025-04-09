@@ -205,6 +205,7 @@ pub struct EnumDefinition {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CallbackAssignment {
+    pub target: String,
     pub property: String,
     pub value: ValueExpr,
 }
@@ -909,36 +910,94 @@ fn parse_component_instance(pair: pest::iterators::Pair<Rule>) -> Result<Compone
     let mut component_items = Vec::new();
     
     // Process all inner items - first check for parent component
-    for item_pair in inner {
+    let item_pairs: Vec<_> = inner.collect();
+    for item_pair in item_pairs.iter() {
         if item_pair.as_rule() == Rule::component_identifier {
             parent = Some(item_pair.as_str().to_string());
         } else if item_pair.as_rule() == Rule::property {
-            component_items.push(ComponentItem::Property(parse_property(item_pair)?));
+            component_items.push(ComponentItem::Property(parse_property(item_pair.clone())?));
         } else if item_pair.as_rule() == Rule::parameter || item_pair.as_rule() == Rule::in_parameter || 
                   item_pair.as_rule() == Rule::out_parameter || item_pair.as_rule() == Rule::private_parameter {
-            component_items.push(ComponentItem::Parameter(parse_parameter(item_pair)?));
+            component_items.push(ComponentItem::Parameter(parse_parameter(item_pair.clone())?));
         } else if item_pair.as_rule() == Rule::expr || item_pair.as_rule() == Rule::in_expr || 
                   item_pair.as_rule() == Rule::out_expr || item_pair.as_rule() == Rule::private_expr {
-            component_items.push(ComponentItem::Expr(parse_expr(item_pair)?));
+            component_items.push(ComponentItem::Expr(parse_expr(item_pair.clone())?));
         } else if item_pair.as_rule() == Rule::dataset {
-            component_items.push(ComponentItem::Dataset(parse_dataset(item_pair)?));
+            component_items.push(ComponentItem::Dataset(parse_dataset(item_pair.clone())?));
         } else if item_pair.as_rule() == Rule::component_instance {
-            component_items.push(ComponentItem::ComponentInstance(Box::new(parse_component_instance(item_pair)?)));
+            component_items.push(ComponentItem::ComponentInstance(Box::new(parse_component_instance(item_pair.clone())?)));
         } else if item_pair.as_rule() == Rule::component_binding {
-            let mut binding_pairs = item_pair.into_inner();
-            let binding_name = binding_pairs.next().unwrap().as_str().to_string();
-            let instance = parse_component_instance(binding_pairs.next().unwrap())?;
+            let (binding_name, instance) = parse_binding(item_pair.clone())?;
             component_items.push(ComponentItem::ComponentBinding(binding_name, Box::new(instance)));
         } else if item_pair.as_rule() == Rule::if_statement {
-            component_items.push(ComponentItem::IfStatement(Box::new(parse_if_statement(item_pair)?)));
+            component_items.push(ComponentItem::IfStatement(Box::new(parse_if_statement(item_pair.clone())?)));
         } else if item_pair.as_rule() == Rule::match_statement {
-            component_items.push(ComponentItem::MatchStatement(Box::new(parse_match_statement(item_pair)?)));
+            component_items.push(ComponentItem::MatchStatement(Box::new(parse_match_statement(item_pair.clone())?)));
         } else if item_pair.as_rule() == Rule::component_function {
-            component_items.push(ComponentItem::ComponentFunction(parse_component_function(item_pair)?));
+            component_items.push(ComponentItem::ComponentFunction(parse_component_function(item_pair.clone())?));
         } else if item_pair.as_rule() == Rule::callback_declaration {
-            component_items.push(ComponentItem::Callback(parse_callback(item_pair)?));
-        } else if item_pair.as_rule() == Rule::callback_definition {
-            component_items.push(ComponentItem::CallbackDefinition(parse_callback_definition(item_pair)?));
+            component_items.push(ComponentItem::Callback(parse_callback(item_pair.clone())?));
+        } else if item_pair.as_rule() == Rule::function_identifier {
+            // This must be the start of a callback definition in the component content
+            let mut callback_def = CallbackDefinition {
+                name: item_pair.as_str().to_string(),
+                parameters: Vec::new(),
+                items: Vec::new(),
+            };
+            
+            // Find the index of this function_identifier
+            let current_index = item_pairs.iter().position(|p| p.as_str() == item_pair.as_str() 
+                                                  && p.as_rule() == Rule::function_identifier).unwrap();
+            
+            // Get the next tokens for parameters and body
+            if current_index + 2 < item_pairs.len() {
+                // Next should be callback_def_params
+                if item_pairs[current_index + 1].as_rule() == Rule::callback_def_params {
+                    for param_token in item_pairs[current_index + 1].clone().into_inner() {
+                        if param_token.as_rule() == Rule::callback_def_inner {
+                            let param = parse_callback_param(param_token)?;
+                            callback_def.parameters.push(param);
+                        }
+                    }
+                }
+                
+                // Next should be =>
+                
+                // Next should be callback_body
+                if current_index + 3 < item_pairs.len() && item_pairs[current_index + 3].as_rule() == Rule::callback_body {
+                    for body_item in item_pairs[current_index + 3].clone().into_inner() {
+                        match body_item.as_rule() {
+                            Rule::callback_assignment => {
+                                let assignment = parse_callback_assignment(body_item)?;
+                                callback_def.items.push(CallbackItem::Assignment(assignment));
+                            },
+                            Rule::callback_if_statement => {
+                                let if_stmt = parse_callback_if_statement(body_item)?;
+                                callback_def.items.push(CallbackItem::IfStatement(Box::new(if_stmt)));
+                            },
+                            Rule::callback_match_statement => {
+                                let match_stmt = parse_callback_match_statement(body_item)?;
+                                callback_def.items.push(CallbackItem::MatchStatement(Box::new(match_stmt)));
+                            },
+                            Rule::private_parameter => {
+                                let param = parse_parameter(body_item)?;
+                                callback_def.items.push(CallbackItem::Parameter(param));
+                            },
+                            Rule::private_expr => {
+                                let expr = parse_expr(body_item)?;
+                                callback_def.items.push(CallbackItem::Expr(expr));
+                            },
+                            Rule::private_dataset => {
+                                let dataset = parse_dataset(body_item)?;
+                                callback_def.items.push(CallbackItem::Dataset(dataset));
+                            },
+                            _ => { /* Ignore other tokens */ }
+                        }
+                    }
+                }
+            }
+            
+            component_items.push(ComponentItem::CallbackDefinition(callback_def));
         }
     }
     
@@ -947,6 +1006,28 @@ fn parse_component_instance(pair: pest::iterators::Pair<Rule>) -> Result<Compone
         parent,
         items: component_items,
     })
+}
+
+fn parse_binding(pair: pest::iterators::Pair<Rule>) -> Result<(String, ComponentInstance), ParserError> {
+    let mut binding_name = String::new();
+    let mut component = None;
+    
+    for token in pair.into_inner() {
+        match token.as_rule() {
+            Rule::identifier => {
+                binding_name = token.as_str().to_string();
+            },
+            Rule::component_instance => {
+                component = Some(parse_component_instance(token)?);
+            },
+            _ => { /* Ignore other tokens */ }
+        }
+    }
+    
+    match component {
+        Some(c) => Ok((binding_name, c)),
+        None => Err(ParserError::ParseError(format!("Missing component instance in binding"))),
+    }
 }
 
 // Add parse_expr function (similar to parse_parameter)
@@ -1168,7 +1249,6 @@ fn parse_callback(pair: pest::iterators::Pair<Rule>) -> Result<Callback, ParserE
                         let param = parse_function_param(param_token)?;
                         parameters.push(param);
                     }
-                    // Skip "self" as it's not a parameter
                 }
             },
             // Handle legacy parameter format (direct function_param_inner)
@@ -1197,14 +1277,13 @@ fn parse_callback_definition(pair: pest::iterators::Pair<Rule>) -> Result<Callba
             Rule::function_identifier => {
                 name = token.as_str().to_string();
             },
-            Rule::callback_params | Rule::empty_callback_params => {
-                // Process the parameters within callback_params
+            Rule::callback_def_params => {
+                // Process the parameters within callback_def_params
                 for param_token in token.into_inner() {
-                    if param_token.as_rule() == Rule::callback_params_inner || param_token.as_rule() == Rule::function_param_inner {
+                    if param_token.as_rule() == Rule::callback_def_inner {
                         let param = parse_callback_param(param_token)?;
                         parameters.push(param);
                     }
-                    // Skip "self" as it's tracked separately
                 }
             },
             Rule::callback_body => {
@@ -1292,6 +1371,7 @@ fn parse_callback_param(pair: pest::iterators::Pair<Rule>) -> Result<Parameter, 
 }
 
 fn parse_callback_assignment(pair: pest::iterators::Pair<Rule>) -> Result<CallbackAssignment, ParserError> {
+    let mut target = String::new();
     let mut property = String::new();
     let mut value_text = String::new();
     
@@ -1304,13 +1384,20 @@ fn parse_callback_assignment(pair: pest::iterators::Pair<Rule>) -> Result<Callba
             Rule::sql_expr => {
                 value_text = token.as_str().trim().to_string();
             },
-            _ => { /* Ignore other tokens */ }
+            Rule::assignment_target => {
+                target = token.as_str().to_string();
+            },
+            _ => {
+                panic!("Unexpected token in callback assignment: {:?}", token.as_str());
+            }
         }
     }
     
     let value = ValueExpr::try_new(value_text)?;
     
+    
     Ok(CallbackAssignment {
+        target,
         property,
         value,
     })
@@ -1647,8 +1734,8 @@ mod tests {
         */
         component Chart {
             // Simple parameters
-            width: 100;
-            height: 100;
+                width: 100;
+                height: 100;
 
             // Parameters with types
             param<Number> scale: 1.5;
@@ -1682,9 +1769,9 @@ mod tests {
             x: 10;
             y: 20;
             stroke: 'blue';
-        }
+            }
         "#;
-
+        
         let result = parse(input).unwrap();
         assert_eq!(result.components.len(), 2);
         
@@ -3794,9 +3881,9 @@ mod tests {
     fn test_parse_callback_definition() {
         let input = r#"
             component Chart {
-                on_click(self; param<event> e) => {
+                on_click(param<event> e) => {
                     self.blue = 32;
-                    self.green = 22;
+                    parent.green = 22;
                     param<int> counter: 0;
                     expr<string> message: "clicked";
                     dataset click_data: SELECT * FROM events WHERE type = 'click';
@@ -3806,28 +3893,28 @@ mod tests {
                             param<float> intensity: 0.5;
                         }
                         'right' => {
-                            self.red = 32;
+                            root.red = 32;
                             dataset right_clicks: SELECT COUNT(*) FROM events WHERE button = 'right';
                         }
                     }
                 }
                 
-                on_hover(self) => {
+                on_hover() => {
                     if (self.red > 0) {
-                        self.red = 32;
+                        parent.red = 32;
                         expr<bool> is_active: true;
                     }
                 }
                 
-                handle_drag(self; param d) => {
+                handle_drag(param d) => {
                     self.position_x = 100;
-                    self.position_y = 200;
+                    root.position_y = 200;
                     param<vector> drag_vector: [d.delta_x, d.delta_y];
                     if (d.delta_x > 0) {
-                        self.position_x = 150;
+                        parent.position_x = 150;
                         dataset movement: SELECT * FROM events WHERE type = 'drag';
                         if (d.delta_y > 0) {
-                            self.position_y = 250;
+                            root.position_y = 250;
                         } else {
                             self.position_y = 150;
                             param<int> direction: -1;
@@ -3851,6 +3938,7 @@ mod tests {
             
             // Check assignments
             if let CallbackItem::Assignment(assignment) = &callback_def.items[0] {
+                assert_eq!(assignment.target, "self");
                 assert_eq!(assignment.property, "blue");
                 assert_eq!(assignment.value.raw_text, "32");
             } else {
@@ -3858,6 +3946,7 @@ mod tests {
             }
             
             if let CallbackItem::Assignment(assignment) = &callback_def.items[1] {
+                assert_eq!(assignment.target, "parent");
                 assert_eq!(assignment.property, "green");
                 assert_eq!(assignment.value.raw_text, "22");
             } else {
@@ -3901,6 +3990,7 @@ mod tests {
                 assert_eq!(match_stmt.cases[0].items.len(), 2); // Assignment + private parameter
                 
                 if let CallbackItem::Assignment(assignment) = &match_stmt.cases[0].items[0] {
+                    assert_eq!(assignment.target, "self");
                     assert_eq!(assignment.property, "green");
                     assert_eq!(assignment.value.raw_text, "22");
                 } else {
@@ -3922,6 +4012,7 @@ mod tests {
                 assert_eq!(match_stmt.cases[1].items.len(), 2); // Assignment + dataset
                 
                 if let CallbackItem::Assignment(assignment) = &match_stmt.cases[1].items[0] {
+                    assert_eq!(assignment.target, "root");
                     assert_eq!(assignment.property, "red");
                     assert_eq!(assignment.value.raw_text, "32");
                 } else {
@@ -3955,6 +4046,7 @@ mod tests {
                 assert_eq!(if_stmt.else_items, None);
                 
                 if let CallbackItem::Assignment(assignment) = &if_stmt.items[0] {
+                    assert_eq!(assignment.target, "parent");
                     assert_eq!(assignment.property, "red");
                     assert_eq!(assignment.value.raw_text, "32");
                 } else {
@@ -3986,6 +4078,7 @@ mod tests {
             
             // Check assignments
             if let CallbackItem::Assignment(assignment) = &callback_def.items[0] {
+                assert_eq!(assignment.target, "self");
                 assert_eq!(assignment.property, "position_x");
                 assert_eq!(assignment.value.raw_text, "100");
             } else {
@@ -3993,6 +4086,7 @@ mod tests {
             }
             
             if let CallbackItem::Assignment(assignment) = &callback_def.items[1] {
+                assert_eq!(assignment.target, "root");
                 assert_eq!(assignment.property, "position_y");
                 assert_eq!(assignment.value.raw_text, "200");
             } else {
@@ -4015,6 +4109,7 @@ mod tests {
                 
                 // Check assignment in outer if
                 if let CallbackItem::Assignment(assignment) = &if_stmt.items[0] {
+                    assert_eq!(assignment.target, "parent");
                     assert_eq!(assignment.property, "position_x");
                     assert_eq!(assignment.value.raw_text, "150");
                 } else {
@@ -4036,6 +4131,7 @@ mod tests {
                     assert!(nested_if.else_items.is_some());
                     
                     if let CallbackItem::Assignment(assignment) = &nested_if.items[0] {
+                        assert_eq!(assignment.target, "root");
                         assert_eq!(assignment.property, "position_y");
                         assert_eq!(assignment.value.raw_text, "250");
                     } else {
@@ -4047,6 +4143,7 @@ mod tests {
                     assert_eq!(else_items.len(), 2); // Assignment + parameter
                     
                     if let CallbackItem::Assignment(assignment) = &else_items[0] {
+                        assert_eq!(assignment.target, "self");
                         assert_eq!(assignment.property, "position_y");
                         assert_eq!(assignment.value.raw_text, "150");
                     } else {
