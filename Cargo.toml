@@ -57,6 +57,7 @@ tokio = { version = "*" }
 async-trait = "0.1"
 async-recursion = "1.1.1"
 arrow = { version = "*" }
+arrow-schema = { version = "*" }
 css-color-parser = "0.1.2"
 paste = "1.0"
 strum = { version="0.26", features = ["derive"] }
@@ -69,7 +70,7 @@ tiny-skia = { version = "0.11.3" }
 base64 = "0.22.1"
 urlencoding = "2.1"
 
-sqlparser = "0.55.0"
+sqlparser = "0.54.0"
 datafusion = { version = "46.0.0" }
 datafusion-common = { version = "46.0.0" }
 datafusion-sql = { version = "46.0.0" }
