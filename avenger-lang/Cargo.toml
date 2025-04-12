@@ -1,0 +1,14 @@
+[package]
+name = "avenger-lang"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+thiserror = { workspace = true }
+
+sqlparser = { workspace = true }
+datafusion = { workspace = true }
+datafusion-common = { workspace = true }
+datafusion-sql = { workspace = true }
+
+lazy_static = { workspace = true }
