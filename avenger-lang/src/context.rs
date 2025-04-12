@@ -1,9 +1,10 @@
-use std::{collections::HashMap, sync::{Arc, Mutex}};
+use std::{collections::HashMap, ops::ControlFlow, sync::{Arc, Mutex}};
 
-use datafusion::{prelude::{DataFrame, Expr, SessionContext}, variable::{VarProvider, VarType}};
-use datafusion_common::{DataFusionError, ScalarValue};
-
-use crate::error::AvengerLangError;
+use datafusion::{arrow::array::record_batch, logical_expr::{ColumnarValue, LogicalPlan}, prelude::{DataFrame, Expr, SessionContext}, variable::{VarProvider, VarType}};
+use datafusion_common::{DFSchema, DataFusionError, ScalarValue};
+use datafusion_sql::unparser::expr_to_sql;
+use sqlparser::ast::{Expr as SqlExpr, Query as SqlQuery, VisitMut, VisitorMut};
+use crate::{error::AvengerLangError, value::{TaskValue, Variable, VariableKind}};
 
 
 const MANGLED_PREFIX: &str = "_at_";
@@ -63,6 +64,22 @@ impl EvaluationContext {
         }
     }
 
+    /// Register values corresponding to variables in the context
+    pub async fn register_values(&self, variables: &[Variable], values: &[TaskValue]) -> Result<(), AvengerLangError> {
+        for (variable, value) in variables.iter().zip(values.iter()) {
+            match (&variable.kind, value) {
+                (VariableKind::Val, TaskValue::Val(val)) => self.register_val(&variable.name, val.clone())?,
+                (VariableKind::ValOrExpr, TaskValue::Val(val)) => self.register_val(&variable.name, val.clone())?,
+                (VariableKind::ValOrExpr, TaskValue::Expr(expr)) => self.register_expr(&variable.name, expr.clone())?,
+                (VariableKind::Dataset, TaskValue::Dataset(plan)) => self.register_dataset(&variable.name, plan.clone()).await?,
+                _ => return Err(
+                    AvengerLangError::InternalError(format!("Invalid variable kind and value type: {:?} {:?}", variable.kind, value))
+                ),
+            };
+        }
+        Ok(())
+    }
+
     /// Get the underlying DataFusion SessionContext
     pub fn session_ctx(&self) -> &SessionContext {
         &self.session_ctx
@@ -72,10 +89,11 @@ impl EvaluationContext {
     /// 
     /// Maybe add an evaluation option in the future to control whether it's stored as a view
     /// or evaluated and registered as in-memory table
-    pub fn register_dataset(&self, name: &str, df: DataFrame) -> Result<(), AvengerLangError> {
+    pub async fn register_dataset(&self, name: &str, plan: LogicalPlan) -> Result<(), AvengerLangError> {
         if !name.starts_with("@") {
             return Err(AvengerLangError::InternalError(format!("Dataset name should start with @ prefix: {}", name)));
         }
+        let df = self.session_ctx.execute_logical_plan(plan).await?;
         self.session_ctx.register_table(name, df.into_view())?;
         Ok(())
     }
@@ -93,37 +111,31 @@ impl EvaluationContext {
 
     /// Register a value in the context
     pub fn register_val(&self, name: &str, val: ScalarValue) -> Result<(), AvengerLangError> {
-        if !name.starts_with("@") {
-            return Err(AvengerLangError::InternalError(format!("Val name should start with @ prefix: {}", name)));
-        }
-        self.val_provider.insert(name.to_string(), val);
+        self.val_provider.insert(format!("@{}", name), val);
         Ok(())
     }
 
     /// Get a value from the context
     pub fn get_val(&self, name: &str) -> Result<ScalarValue, AvengerLangError> {
-        let val = self.val_provider.get_value(vec![name.to_string()])?;
+        let val = self.val_provider.get_value(vec![format!("@{}", name)])?;
         Ok(val)
     }
 
     /// Check if a value is registered in the context
     pub fn has_val(&self, name: &str) -> bool {
-        self.val_provider.get_type(&[name.to_string()]).is_some()
+        self.val_provider.get_type(&[format!("@{}", name)]).is_some()
     }
 
     /// Add an expression to the context
-    pub fn register_expr(&self, name: String, expr: Expr) -> Result<(), AvengerLangError> {
-        if !name.starts_with("@") {
-            return Err(AvengerLangError::InternalError(format!("Expr name should start with @ prefix: {}", name)));
-        }
-        self.exprs.lock().unwrap().insert(name, expr);
+    pub fn register_expr(&self, name: &str, expr: Expr) -> Result<(), AvengerLangError> {
+        self.exprs.lock().unwrap().insert(format!("@{}", name), expr);
         Ok(())
     }
 
     /// Get an expression from the context
     pub fn get_expr(&self, name: &str) -> Result<Expr, AvengerLangError> {
         let locked = self.exprs.lock().unwrap();
-        let expr = locked.get(name).ok_or(
+        let expr = locked.get(&format!("@{}", name)).ok_or(
             AvengerLangError::ExpressionNotFound(format!("Expression {} not found", name))
         )?;
         Ok(expr.clone())
@@ -131,8 +143,55 @@ impl EvaluationContext {
 
     /// Check if an expression is stored in the context
     pub fn has_expr(&self, name: &str) -> bool {
-        self.exprs.lock().unwrap().contains_key(name)
+        self.exprs.lock().unwrap().contains_key(&format!("@{}", name))
     }
+
+    /// Compile a SQL query to a logical plan, expanding sql with referenced expressions
+    pub async fn compile_query(&self, query: &SqlQuery) -> Result<LogicalPlan, AvengerLangError> {
+        // Visit the query and validate references
+        let mut query = query.clone();
+        let mut visitor = CompilationVisitor::new(&self);
+        if let ControlFlow::Break(Result::Err(err)) = query.visit(&mut visitor) {
+            return Err(err);
+        }
+        let plan = self.session_ctx.state().create_logical_plan(&query.to_string()).await?;
+        Ok(plan)
+    }
+
+    /// Compile a SQL expression to a logical expression, expanding sql with referenced expressions
+    pub fn compile_expr(&self, expr: &SqlExpr) -> Result<Expr, AvengerLangError> {
+        // Visit the query and validate references
+        let mut expr = expr.clone();
+        let mut visitor = CompilationVisitor::new(&self);
+        if let ControlFlow::Break(Result::Err(err)) = expr.visit(&mut visitor) {
+            return Err(err);
+        }
+
+        let expr = self.session_ctx.parse_sql_expr(&expr.to_string(), &DFSchema::empty())?;
+        Ok(expr)
+    }
+
+    pub async fn evaluate_expr(&self, expr: &SqlExpr) -> Result<ScalarValue, AvengerLangError> {
+        let expr = self.compile_expr(expr)?;
+        let val = self.session_ctx.create_physical_expr(expr, &DFSchema::empty())?;
+        let col_val = val.evaluate(
+            &record_batch!(
+                ("_dummy", Int32, [1])
+            ).unwrap()
+        )?;
+        match col_val {
+            ColumnarValue::Scalar(scalar_value) => Ok(scalar_value),
+            ColumnarValue::Array(array) => {
+                if array.len() != 1 {
+                    return Err(AvengerLangError::InternalError("Array value not expected".to_string()));
+                }
+                // Handle single element array
+                let val = ScalarValue::try_from_array(array.as_ref(), 0)?;
+                Ok(val)
+            }
+        }
+    }
+
 }
 
 
@@ -165,3 +224,61 @@ impl VarProvider for EvaluationValProvider {
         Some(val.data_type())
     }
 }
+
+
+pub struct CompilationVisitor<'a> {
+    ctx: &'a EvaluationContext,
+}
+
+impl<'a> CompilationVisitor<'a> {
+    pub fn new(ctx: &'a EvaluationContext) -> Self {
+        Self { ctx }
+    }
+}
+
+impl<'a> VisitorMut for CompilationVisitor<'a> {
+    type Break = Result<(), AvengerLangError>;
+
+    /// Replace tables of the form @table_name with the true mangled table name
+    fn pre_visit_relation(&mut self, relation: &mut datafusion_sql::sqlparser::ast::ObjectName) -> ControlFlow<Self::Break> {
+        let table_name = relation.to_string();
+
+        // Validate dataset reference exists. Ignore relations that don't start with @
+        if table_name.starts_with("@") && !self.ctx.has_dataset(&table_name) {
+            return ControlFlow::Break(Err(AvengerLangError::InternalError(format!("Dataset {} not found", table_name))));
+        }
+
+        ControlFlow::Continue(())
+    }
+
+    fn pre_visit_expr(&mut self, expr: &mut SqlExpr) -> ControlFlow<Self::Break> {
+        if let SqlExpr::Identifier(ident) = expr.clone() {
+            if ident.value.starts_with("@") {
+                // Check if this is a reference to an expression
+                if let Ok(registered_expr) = self.ctx.get_expr(&ident.value) {
+                    println!("Registered expr: {:#?}", registered_expr);
+                    match expr_to_sql(&registered_expr) {
+                        Ok(sql_expr) => {
+                            *expr = sql_expr;
+                            return ControlFlow::Continue(());
+                        }
+                        Err(err) => {
+                            return ControlFlow::Break(
+                                Err(AvengerLangError::InternalError(format!("Failed to unparse expression {}\n{:?}", ident.value, err)))
+                            );
+                        }
+                    }
+                }
+                
+                // Otherwise it must be a reference to a value
+                if !self.ctx.has_val(&ident.value) {
+                    return ControlFlow::Break(Err(AvengerLangError::InternalError(format!("Val or Expr {} not found", ident.value))));
+                }
+            }
+        }
+        ControlFlow::Continue(())
+    }
+}
+
+
+

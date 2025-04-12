@@ -14,3 +14,10 @@ datafusion-sql = { workspace = true }
 lazy_static = { workspace = true }
 arrow-schema = { workspace = true }
 tokio = { workspace = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "context_bench"
+harness = false
