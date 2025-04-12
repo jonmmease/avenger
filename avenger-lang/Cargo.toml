@@ -5,10 +5,12 @@ edition = "2024"
 
 [dependencies]
 thiserror = { workspace = true }
-
-sqlparser = { workspace = true }
+async-trait = { workspace = true }
+sqlparser = { workspace = true, features = ["visitor"] }
 datafusion = { workspace = true }
 datafusion-common = { workspace = true }
 datafusion-sql = { workspace = true }
 
 lazy_static = { workspace = true }
+arrow-schema = { workspace = true }
+tokio = { workspace = true }

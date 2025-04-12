@@ -511,12 +511,15 @@ dependencies = [
 name = "avenger-lang"
 version = "0.1.0"
 dependencies = [
+ "arrow-schema",
+ "async-trait",
  "datafusion",
  "datafusion-common",
  "datafusion-sql",
  "lazy_static 1.5.0",
- "sqlparser 0.55.0",
+ "sqlparser 0.54.0",
  "thiserror 2.0.3",
+ "tokio",
 ]
 
 [[package]]
