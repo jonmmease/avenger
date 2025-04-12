@@ -1,6 +1,8 @@
-mod ast;
-mod parser;
-mod error;
-mod compiler;
-mod tasks;
-mod context;
+pub mod ast;
+pub mod parser;
+pub mod error;
+pub mod compiler;
+pub mod tasks;
+pub mod context;
+pub mod runtime;
+pub mod value;

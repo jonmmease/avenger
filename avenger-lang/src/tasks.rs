@@ -1,103 +1,96 @@
-use datafusion::prelude::{DataFrame, Expr, SessionContext};
-use datafusion_common::ScalarValue;
-use sqlparser::ast::{Query as SqlQuery, Expr as SqlExpr};
+use std::ops::ControlFlow;
+
+use sqlparser::ast::{Expr as SqlExpr, ObjectName, Query as SqlQuery, Visit, Visitor};
 use async_trait::async_trait;
 
-use crate::{compiler::{compile_expr, evaluate_val_expr}, context::EvaluationContext, error::AvengerLangError};
+use crate::{context::EvaluationContext, error::AvengerLangError, value::{TaskValue, Variable, VariableKind}};
 
-
-
-/// The value of a task
-pub enum TaskValue {
-    Val(ScalarValue),
-    Expr(Expr),
-    Dataset(DataFrame),
-}
-
-impl TaskValue {
-    pub fn as_val(&self) -> Result<&ScalarValue, AvengerLangError> {
-        match self {
-            TaskValue::Val(val) => Ok(val),
-            _ => Err(AvengerLangError::InternalError("Expected a value".to_string())),
-        }
-    }
-
-    pub fn as_expr(&self) -> Result<&Expr, AvengerLangError> {
-        match self {
-            TaskValue::Expr(expr) => Ok(expr),
-            _ => Err(AvengerLangError::InternalError("Expected an expression".to_string())),
-        }
-    }
-
-    pub fn as_dataset(&self) -> Result<&DataFrame, AvengerLangError> {
-        match self {
-            TaskValue::Dataset(df) => Ok(df),
-            _ => Err(AvengerLangError::InternalError("Expected a dataset".to_string())),
-        }
-    }
-}
-
-
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum VariableKind {
-    Val,
-    // Val is accepted as an expression everywhere
-    ValOrExpr,
-    Dataset,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Variable {
-    pub name: String,
-    pub kind: VariableKind,
-}
 
 #[async_trait]
 pub trait Task {
     /// Get the dependencies of the task
-    fn dependencies(&self) -> Result<Vec<Variable>, AvengerLangError>;
+    fn input_variables(&self) -> Result<Vec<Variable>, AvengerLangError> {
+        Ok(vec![])
+    }
+
+    fn output_variables(&self) -> Result<Vec<Variable>, AvengerLangError> {
+        Ok(vec![])
+    }
 
     /// Evaluate the task in a session context with the given dependencies
     async fn evaluate(
         &self,
-        ctx: &EvaluationContext,
-        dependencies: &[TaskValue],
-    ) -> Result<TaskValue, AvengerLangError>;
+        input_values: &[TaskValue],
+    ) -> Result<(TaskValue, Vec<TaskValue>), AvengerLangError>;
 }
 
 
 /// A task that evaluates to a scalarvalue
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ValTask {
+pub struct ValDeclTask {
     pub name: String,
     pub value: SqlExpr,
 }
 
-#[async_trait]
-impl Task for ValTask {
-    fn dependencies(&self) -> Result<Vec<Variable>, AvengerLangError> {
-        Ok(vec![])
-    }
-    
-    async fn evaluate(
-        &self,
-        ctx: &EvaluationContext,
-        dependencies: &[TaskValue],
-    ) -> Result<TaskValue, AvengerLangError> {
-        let expr = compile_expr(&self.value, ctx).await?;
-        let val = evaluate_val_expr(expr, ctx).await?;
-        Ok(TaskValue::Val(val))
+impl ValDeclTask {
+    pub fn new(name: String, value: SqlExpr) -> Self {
+        Self { name, value }
     }
 }
 
+#[async_trait]
+impl Task for ValDeclTask {    
+    fn input_variables(&self) -> Result<Vec<Variable>, AvengerLangError> {
+        let mut visitor = CollectDependenciesVisitor::new();
+        if let ControlFlow::Break(Result::Err(err)) = self.value.visit(&mut visitor) {
+            return Err(err);
+        }
+        Ok(visitor.deps)
+    }
 
+    async fn evaluate(
+        &self,
+        input_values: &[TaskValue],
+    ) -> Result<(TaskValue, Vec<TaskValue>), AvengerLangError> {
+        let ctx = EvaluationContext::new();
+        ctx.register_values(&self.input_variables()?, &input_values).await?;
+        let val = ctx.evaluate_expr(&self.value).await?;
+        Ok((TaskValue::Val(val), vec![]))
+    }
+}
 
 /// A task that evaluates to an expression
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ExprTask {
     pub name: String,
     pub expr: SqlExpr,
+}
+
+impl ExprTask {
+    pub fn new(name: String, expr: SqlExpr) -> Self {
+        Self { name, expr }
+    }
+}
+
+#[async_trait]
+impl Task for ExprTask {
+    fn input_variables(&self) -> Result<Vec<Variable>, AvengerLangError> {
+        let mut visitor = CollectDependenciesVisitor::new();
+        if let ControlFlow::Break(Result::Err(err)) = self.expr.visit(&mut visitor) {
+            return Err(err);
+        }
+        Ok(visitor.deps)
+    }
+
+    async fn evaluate(
+        &self,
+        input_values: &[TaskValue],
+    ) -> Result<(TaskValue, Vec<TaskValue>), AvengerLangError> {
+        let ctx = EvaluationContext::new();
+        ctx.register_values(&self.input_variables()?, &input_values).await?;
+        let expr = ctx.compile_expr(&self.expr)?;
+        Ok((TaskValue::Expr(expr), vec![]))
+    }
 }
 
 /// A task that evaluates to a dataset
@@ -107,3 +100,72 @@ pub struct DatasetTask {
     pub query: SqlQuery,
 }
 
+impl DatasetTask {
+    pub fn new(name: String, query: SqlQuery) -> Self {
+        Self { name, query }
+    }
+}
+
+#[async_trait]
+impl Task for DatasetTask {
+    fn input_variables(&self) -> Result<Vec<Variable>, AvengerLangError> {
+        let mut visitor = CollectDependenciesVisitor::new();
+        if let ControlFlow::Break(Result::Err(err)) = self.query.visit(&mut visitor) {
+            return Err(err);
+        }
+        Ok(visitor.deps)
+    }
+
+    async fn evaluate(
+        &self,
+        input_values: &[TaskValue],
+    ) -> Result<(TaskValue, Vec<TaskValue>), AvengerLangError> {
+        let ctx = EvaluationContext::new();
+        ctx.register_values(&self.input_variables()?, &input_values).await?;
+        let plan = ctx.compile_query(&self.query).await?;
+        Ok((TaskValue::Dataset(plan), vec![]))
+    }
+}
+
+
+pub struct CollectDependenciesVisitor {
+    /// The variables that are dependencies of the task, without leading @
+    deps: Vec<Variable>,
+}
+
+impl CollectDependenciesVisitor {
+    pub fn new() -> Self {
+        Self { deps: vec![] }
+    }
+}
+
+impl Visitor for CollectDependenciesVisitor {
+    type Break = Result<(), AvengerLangError>;
+
+    /// Replace tables of the form @table_name with the true mangled table name
+    fn pre_visit_relation(&mut self, relation: &ObjectName) -> ControlFlow<Self::Break> {
+        let table_name = relation.to_string();
+
+        // 
+        if table_name.starts_with("@") {
+            self.deps.push(Variable::new(table_name[1..].to_string(), VariableKind::Dataset));
+        }
+
+        ControlFlow::Continue(())
+    }
+
+    fn pre_visit_expr(&mut self, expr: &SqlExpr) -> ControlFlow<Self::Break> {
+        if let SqlExpr::Identifier(ident) = expr.clone() {
+            if ident.value.starts_with("@") {
+                self.deps.push(Variable::new(
+                    ident.value[1..].to_string(), VariableKind::ValOrExpr)
+                );
+            }
+        }
+        ControlFlow::Continue(())
+    }
+}
+
+
+
+// Eventually a Callback task that will output variables
