@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use lru::LruCache;
-use crate::value::{TaskValue, Variable, VariableKind};
+use crate::task_graph::value::{TaskValue, Variable, VariableKind};
 use crate::error::AvengerLangError;
 use datafusion_common::ScalarValue;
 
