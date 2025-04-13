@@ -29,4 +29,7 @@ pub enum AvengerLangError {
 
     #[error("Unexpected token: `{0}`")]
     UnexpectedToken(String),
+
+    #[error("Dependency cycle detected in task graph")]
+    DependencyCycle(String),
 }
