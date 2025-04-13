@@ -9,7 +9,7 @@ use petgraph::graph::DiGraph;
 use petgraph::Direction;
 use async_trait::async_trait;
 
-use crate::{tasks::Task, value::{Variable, VariableKind, TaskValue}, error::AvengerLangError};
+use crate::{task_graph::tasks::Task, task_graph::value::{Variable, VariableKind, TaskValue}, error::AvengerLangError};
 
 
 #[derive(Clone, Debug)]

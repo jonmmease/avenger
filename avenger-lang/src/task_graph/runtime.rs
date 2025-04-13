@@ -3,10 +3,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use futures::future::{join_all, BoxFuture, FutureExt};
 use async_recursion::async_recursion;
-use crate::cache::{TaskCache, RuntimeStats};
+use crate::task_graph::cache::{TaskCache, RuntimeStats};
 use crate::error::AvengerLangError;
-use crate::task_graph::{TaskGraph};
-use crate::value::{TaskValue, Variable};
+use crate::task_graph::task_graph::TaskGraph;
+use crate::task_graph::value::{TaskValue, Variable};
 
 
 // Threshold for spawning tasks (in milliseconds)
@@ -175,8 +175,8 @@ impl Clone for TaskGraphRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tasks::Task;
-    use crate::value::VariableKind;
+    use crate::task_graph::tasks::Task;
+    use crate::task_graph::value::VariableKind;
     use async_trait::async_trait;
     use datafusion_common::ScalarValue;
     use std::sync::atomic::{AtomicU32, Ordering};
