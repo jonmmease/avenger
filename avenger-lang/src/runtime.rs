@@ -1,32 +1,16 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use futures::future::{join_all, BoxFuture, FutureExt};
 use async_recursion::async_recursion;
-use crate::cache::TaskCache;
+use crate::cache::{TaskCache, RuntimeStats};
 use crate::error::AvengerLangError;
 use crate::task_graph::{TaskGraph};
 use crate::value::{TaskValue, Variable};
-use crate::tasks::Task;
 
-/// Controls whether a task should be spawned as a separate Tokio task
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SpawnPolicy {
-    /// Always spawn a separate Tokio task
-    Always,
-    /// Never spawn a separate task, run inline with parent
-    Never,
-}
 
-/// Extension trait to add spawn policy functionality to Task
-pub trait TaskSpawnPolicy {
-    /// Determines if this task should be spawned as a separate Tokio task
-    fn spawn_policy(&self) -> SpawnPolicy {
-        SpawnPolicy::Always
-    }
-}
-
-// Implement for any type that implements Task
-impl<T: Task + ?Sized> TaskSpawnPolicy for T {}
+// Threshold for spawning tasks (in milliseconds)
+const SPAWN_THRESHOLD_MS: u64 = 50;
 
 pub struct TaskGraphRuntime {
     cache: Arc<TaskCache>,
@@ -68,6 +52,9 @@ impl TaskGraphRuntime {
         graph: Arc<TaskGraph>,
         variable: Variable,
     ) -> Result<TaskValue, AvengerLangError> {
+        // Start timing this variable's evaluation
+        let start_time = Instant::now();
+        
         // Lookup the node for this variable
         let node = graph.tasks().get(&variable).ok_or_else(|| {
             AvengerLangError::VariableNotFound(format!("Variable not found: {:?}", variable))
@@ -75,46 +62,61 @@ impl TaskGraphRuntime {
         
         // Check if the value is already cached
         if let Some(cached_value) = self.cache.get(node.fingerprint).await {
+            // Even for cached values, store that this variable was accessed
+            if let Some(stats) = self.cache.get_variable_stats(&variable).await {
+                self.cache.store_variable_stats(variable, stats).await;
+            }
             return Ok(cached_value);
         }
         
         // We need to evaluate this node - first evaluate its dependencies
         let mut dependency_futures = vec![];
+        let mut dependency_spawn_status = HashMap::new();
         
         for edge in &node.inputs {
             let dep_var = edge.source.clone();
-            let dep_node = graph.tasks().get(&dep_var).ok_or_else(|| {
+            let _dep_node = graph.tasks().get(&dep_var).ok_or_else(|| {
                 AvengerLangError::VariableNotFound(format!("Dependency variable not found: {:?}", dep_var))
             })?;
             let graph_clone = graph.clone();
             let runtime_clone = self.clone();
             
-            // Use the spawn policy to determine whether to spawn a new task
-            match dep_node.task.spawn_policy() {
-                SpawnPolicy::Always => {
-                    // Spawn a new Tokio task for this dependency
-                    let spawned = tokio::spawn(async move {
-                        runtime_clone.evaluate_variable(graph_clone, dep_var).await
-                    });
-                    
-                    // Convert JoinHandle<Result<T, E>> to Future<Output=Result<T, E>>
-                    let mapped = async move {
-                        match spawned.await {
-                            Ok(result) => result,
-                            Err(err) => Err(AvengerLangError::TokioJoinError(err)),
-                        }
-                    }.boxed();
-                    
-                    dependency_futures.push(mapped);
-                },
-                SpawnPolicy::Never => {
-                    // Run directly without spawning
-                    let future = async move {
-                        runtime_clone.evaluate_variable(graph_clone, dep_var).await
-                    }.boxed();
-                    
-                    dependency_futures.push(future);
-                },
+            // Check if we've seen this variable before and how long it took
+            let previous_stats = runtime_clone.cache.get_variable_stats(&dep_var).await;
+            
+            // Determine if we should spawn based on runtime history
+            let should_spawn = match previous_stats {
+                // For variables we've seen before, spawn if they took > SPAWN_THRESHOLD_MS
+                Some(stats) => stats.duration.as_millis() > SPAWN_THRESHOLD_MS as u128,
+                // For variables we haven't seen before, spawn by default
+                None => true,
+            };
+
+            // Store the spawn decision for later use
+            dependency_spawn_status.insert(dep_var.clone(), should_spawn);
+            
+            if should_spawn {
+                // Spawn a new Tokio task for this dependency
+                let spawned = tokio::spawn(async move {
+                    runtime_clone.evaluate_variable(graph_clone, dep_var).await
+                });
+                
+                // Convert JoinHandle<Result<T, E>> to Future<Output=Result<T, E>>
+                let mapped = async move {
+                    match spawned.await {
+                        Ok(result) => result,
+                        Err(err) => Err(AvengerLangError::TokioJoinError(err)),
+                    }
+                }.boxed();
+                
+                dependency_futures.push(mapped);
+            } else {
+                // Run directly without spawning
+                let future = async move {
+                    runtime_clone.evaluate_variable(graph_clone, dep_var).await
+                }.boxed();
+                
+                dependency_futures.push(future);
             }
         }
         
@@ -129,8 +131,34 @@ impl TaskGraphRuntime {
         // Now evaluate this task
         let value = node.task.evaluate(&input_values).await?;
         
-        // Cache the result
-        self.cache.insert(node.fingerprint, value.clone()).await;
+        // Calculate runtime for this task
+        let runtime = start_time.elapsed();
+        
+        // Cache the result with runtime information
+        self.cache.insert(node.fingerprint, value.clone(), runtime).await;
+        
+        // Store runtime specifically for this variable, along with whether it was spawned
+        // Note: The top-level variable is never "spawned" in our definition since it's directly evaluated
+        self.cache.store_variable_stats(
+            variable.clone(), 
+            RuntimeStats { 
+                duration: runtime,
+                was_spawned: false // Top-level variable is not spawned
+            }
+        ).await;
+        
+        // Also store spawn stats for all dependencies that we processed
+        for (dep_var, was_spawned) in dependency_spawn_status.into_iter() {
+            if let Some(stats) = self.cache.get_variable_stats(&dep_var).await {
+                self.cache.store_variable_stats(
+                    dep_var, 
+                    RuntimeStats { 
+                        duration: stats.duration,
+                        was_spawned
+                    }
+                ).await;
+            }
+        }
         
         Ok(value)
     }
@@ -151,6 +179,8 @@ mod tests {
     use async_trait::async_trait;
     use datafusion_common::ScalarValue;
     use std::sync::atomic::{AtomicU32, Ordering};
+    use std::time::Duration;
+    use tokio::time::sleep;
     
     // Re-implement MockTask for testing since it's only in the test module of tasks.rs
     #[derive(Debug, Clone)]
@@ -180,6 +210,47 @@ mod tests {
             &self,
             _input_values: &[TaskValue],
         ) -> Result<TaskValue, AvengerLangError> {
+            Ok(self.return_value.clone())
+        }
+    }
+    
+    // A task with configurable artificial delay
+    #[derive(Debug, Clone)]
+    struct DelayedTask {
+        name: String,
+        dependencies: Vec<Variable>,
+        delay: Duration,
+        return_value: TaskValue,
+    }
+    
+    impl DelayedTask {
+        fn new(
+            name: &str, 
+            dependencies: Vec<Variable>, 
+            delay_ms: u64,
+            return_value: TaskValue,
+        ) -> Self {
+            Self {
+                name: name.to_string(),
+                dependencies,
+                delay: Duration::from_millis(delay_ms),
+                return_value,
+            }
+        }
+    }
+    
+    #[async_trait]
+    impl Task for DelayedTask {
+        fn input_variables(&self) -> Result<Vec<Variable>, AvengerLangError> {
+            Ok(self.dependencies.clone())
+        }
+        
+        async fn evaluate(
+            &self,
+            _input_values: &[TaskValue],
+        ) -> Result<TaskValue, AvengerLangError> {
+            // Simulate work by sleeping
+            sleep(self.delay).await;
             Ok(self.return_value.clone())
         }
     }
@@ -498,6 +569,194 @@ mod tests {
         // Both tasks should be evaluated once
         assert_eq!(counter1.load(Ordering::SeqCst), 1);
         assert_eq!(counter2.load(Ordering::SeqCst), 1);
+        
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_task_runtimes() -> Result<(), AvengerLangError> {
+        // Create a task graph with tasks of different runtime characteristics
+        let mut tasks = HashMap::new();
+        
+        // Define variables
+        let var_a = Variable::new("A".to_string(), VariableKind::ValOrExpr);
+        let var_b = Variable::new("B".to_string(), VariableKind::ValOrExpr);
+        let var_c = Variable::new("C".to_string(), VariableKind::ValOrExpr);
+        let var_d = Variable::new("D".to_string(), VariableKind::ValOrExpr);
+        
+        // Task A: Fast and independent (25ms, below threshold)
+        let task_a = DelayedTask::new(
+            "task_a",
+            vec![],
+            25,
+            TaskValue::Val(ScalarValue::Int32(Some(1))),
+        );
+        
+        // Task B: Medium speed, depends on A (60ms, above threshold)
+        let task_b = DelayedTask::new(
+            "task_b",
+            vec![var_a.clone()],
+            60,
+            TaskValue::Val(ScalarValue::Int32(Some(2))),
+        );
+        
+        // Task C: Slow, depends on A (200ms, above threshold)
+        let task_c = DelayedTask::new(
+            "task_c",
+            vec![var_a.clone()],
+            200,
+            TaskValue::Val(ScalarValue::Int32(Some(3))),
+        );
+        
+        // Task D: Very slow, depends on B and C (will be run in parallel)
+        let task_d = DelayedTask::new(
+            "task_d",
+            vec![var_b.clone(), var_c.clone()],
+            150,
+            TaskValue::Val(ScalarValue::Int32(Some(4))),
+        );
+        
+        tasks.insert(var_a.clone(), Arc::new(task_a) as Arc<dyn Task>);
+        tasks.insert(var_b.clone(), Arc::new(task_b) as Arc<dyn Task>);
+        tasks.insert(var_c.clone(), Arc::new(task_c) as Arc<dyn Task>);
+        tasks.insert(var_d.clone(), Arc::new(task_d) as Arc<dyn Task>);
+        
+        let graph = Arc::new(TaskGraph::try_new(tasks)?);
+        let runtime = TaskGraphRuntime::new();
+        
+        // First run - everything should spawn because we have no runtime history
+        let start = Instant::now();
+        let _results = runtime.evaluate_variables(graph.clone(), &[var_d.clone()]).await?;
+        let total_time = start.elapsed();
+        
+        // Get the cached runtimes and spawn status
+        let a_stats = runtime.cache.get_variable_stats(&var_a).await.unwrap();
+        let b_stats = runtime.cache.get_variable_stats(&var_b).await.unwrap();
+        let c_stats = runtime.cache.get_variable_stats(&var_c).await.unwrap();
+        let d_stats = runtime.cache.get_variable_stats(&var_d).await.unwrap();
+        
+        println!("Task A runtime: {:?}, spawned: {}", a_stats.duration, a_stats.was_spawned);
+        println!("Task B runtime: {:?}, spawned: {}", b_stats.duration, b_stats.was_spawned);
+        println!("Task C runtime: {:?}, spawned: {}", c_stats.duration, c_stats.was_spawned);
+        println!("Task D runtime: {:?}, spawned: {}", d_stats.duration, d_stats.was_spawned);
+        println!("Total measured time: {:?}", total_time);
+        
+        // In the first run, all tasks should be spawned except D (the top-level task)
+        assert!(a_stats.was_spawned, "Task A should be spawned in first run");
+        assert!(b_stats.was_spawned, "Task B should be spawned in first run");
+        assert!(c_stats.was_spawned, "Task C should be spawned in first run");
+        assert!(!d_stats.was_spawned, "Task D should not be spawned (it's the top-level task)");
+        
+        // Verify runtime constraints
+        assert!(a_stats.duration.as_millis() >= 20, "Task A should take at least 20ms");
+        assert!(b_stats.duration.as_millis() >= 55, "Task B should take at least 55ms");
+        assert!(c_stats.duration.as_millis() >= 195, "Task C should take at least 195ms");
+        assert!(d_stats.duration.as_millis() >= 145, "Task D should take at least 145ms");
+        
+        // Second run - now we have runtime history:
+        // A should NOT be spawned (under threshold)
+        // B and C should be spawned (over threshold)
+        let mut tasks2 = HashMap::new();
+        
+        // Define variables for the second test
+        let var_a2 = Variable::new("A2".to_string(), VariableKind::ValOrExpr);
+        let var_b2 = Variable::new("B2".to_string(), VariableKind::ValOrExpr);
+        let var_c2 = Variable::new("C2".to_string(), VariableKind::ValOrExpr);
+        let var_d2 = Variable::new("D2".to_string(), VariableKind::ValOrExpr);
+        
+        // Same task types as before, different variables
+        let task_a2 = DelayedTask::new(
+            "task_a2",
+            vec![],
+            25,
+            TaskValue::Val(ScalarValue::Int32(Some(1))),
+        );
+        
+        let task_b2 = DelayedTask::new(
+            "task_b2",
+            vec![var_a2.clone()],
+            60,
+            TaskValue::Val(ScalarValue::Int32(Some(2))),
+        );
+        
+        let task_c2 = DelayedTask::new(
+            "task_c2",
+            vec![var_a2.clone()],
+            200, 
+            TaskValue::Val(ScalarValue::Int32(Some(3))),
+        );
+        
+        let task_d2 = DelayedTask::new(
+            "task_d2",
+            vec![var_b2.clone(), var_c2.clone()],
+            150,
+            TaskValue::Val(ScalarValue::Int32(Some(4))),
+        );
+        
+        tasks2.insert(var_a2.clone(), Arc::new(task_a2) as Arc<dyn Task>);
+        tasks2.insert(var_b2.clone(), Arc::new(task_b2) as Arc<dyn Task>);
+        tasks2.insert(var_c2.clone(), Arc::new(task_c2) as Arc<dyn Task>);
+        tasks2.insert(var_d2.clone(), Arc::new(task_d2) as Arc<dyn Task>);
+        
+        let graph2 = Arc::new(TaskGraph::try_new(tasks2)?);
+        
+        // Pre-populate the runtime cache with the values from the first run
+        // This simulates already having runtime history for similar variables
+        runtime.cache.store_variable_stats(
+            var_a2.clone(), 
+            RuntimeStats { 
+                duration: a_stats.duration,
+                was_spawned: false // Will be updated during execution
+            }
+        ).await;
+        
+        runtime.cache.store_variable_stats(
+            var_b2.clone(), 
+            RuntimeStats { 
+                duration: b_stats.duration,
+                was_spawned: false // Will be updated during execution
+            }
+        ).await;
+        
+        runtime.cache.store_variable_stats(
+            var_c2.clone(), 
+            RuntimeStats { 
+                duration: c_stats.duration,
+                was_spawned: false // Will be updated during execution
+            }
+        ).await;
+        
+        runtime.cache.store_variable_stats(
+            var_d2.clone(), 
+            RuntimeStats { 
+                duration: d_stats.duration,
+                was_spawned: false // Will be updated during execution
+            }
+        ).await;
+        
+        // Run the second evaluation
+        let start2 = Instant::now();
+        let _results2 = runtime.evaluate_variables(graph2.clone(), &[var_d2.clone()]).await?;
+        let total_time2 = start2.elapsed();
+        
+        // Get the updated runtimes and spawn status
+        let a2_stats = runtime.cache.get_variable_stats(&var_a2).await.unwrap();
+        let b2_stats = runtime.cache.get_variable_stats(&var_b2).await.unwrap();
+        let c2_stats = runtime.cache.get_variable_stats(&var_c2).await.unwrap();
+        let d2_stats = runtime.cache.get_variable_stats(&var_d2).await.unwrap();
+        
+        println!("Second run:");
+        println!("Task A2 runtime: {:?}, spawned: {}", a2_stats.duration, a2_stats.was_spawned);
+        println!("Task B2 runtime: {:?}, spawned: {}", b2_stats.duration, b2_stats.was_spawned);
+        println!("Task C2 runtime: {:?}, spawned: {}", c2_stats.duration, c2_stats.was_spawned);
+        println!("Task D2 runtime: {:?}, spawned: {}", d2_stats.duration, d2_stats.was_spawned);
+        println!("Total measured time: {:?}", total_time2);
+        
+        // Verify spawn decisions based on runtime history
+        assert!(!a2_stats.was_spawned, "Task A2 should NOT be spawned (under 50ms threshold)");
+        assert!(b2_stats.was_spawned, "Task B2 should be spawned (over 50ms threshold)");
+        assert!(c2_stats.was_spawned, "Task C2 should be spawned (over 50ms threshold)");
+        assert!(!d2_stats.was_spawned, "Task D2 should not be spawned (it's the top-level task)");
         
         Ok(())
     }
