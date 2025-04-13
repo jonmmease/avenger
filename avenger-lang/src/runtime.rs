@@ -175,6 +175,7 @@ impl Clone for TaskGraphRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tasks::Task;
     use crate::value::VariableKind;
     use async_trait::async_trait;
     use datafusion_common::ScalarValue;
