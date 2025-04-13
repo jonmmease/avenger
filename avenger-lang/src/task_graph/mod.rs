@@ -4,3 +4,4 @@ pub mod cache;
 pub mod tasks;
 pub mod value;
 pub mod variable;
+pub mod memory;
