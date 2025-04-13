@@ -49,7 +49,7 @@ itertools = "0.13.0"
 rstar = { git = "https://github.com/georust/rstar.git", branch = "master" }
 cosmic-text = "0.12.1"
 geo-svg = "0.7.0"
-indexmap = "2.7.0"
+indexmap = "2.9.0"
 pollster = "0.3"
 log = "0.4"
 ordered-float = "4.5.0"
@@ -67,6 +67,7 @@ cfg-if = { version = "1" }
 resvg = { version = "0.44.0" }
 usvg = { version = "0.44.0" }
 tiny-skia = { version = "0.11.3" }
+
 base64 = "0.22.1"
 urlencoding = "2.1"
 
