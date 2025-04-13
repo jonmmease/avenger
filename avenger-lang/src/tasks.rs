@@ -13,15 +13,11 @@ pub trait Task {
         Ok(vec![])
     }
 
-    fn output_variables(&self) -> Result<Vec<Variable>, AvengerLangError> {
-        Ok(vec![])
-    }
-
     /// Evaluate the task in a session context with the given dependencies
     async fn evaluate(
         &self,
         input_values: &[TaskValue],
-    ) -> Result<(TaskValue, Vec<TaskValue>), AvengerLangError>;
+    ) -> Result<TaskValue, AvengerLangError>;
 }
 
 
@@ -51,11 +47,11 @@ impl Task for ValDeclTask {
     async fn evaluate(
         &self,
         input_values: &[TaskValue],
-    ) -> Result<(TaskValue, Vec<TaskValue>), AvengerLangError> {
+    ) -> Result<TaskValue, AvengerLangError> {
         let ctx = EvaluationContext::new();
         ctx.register_values(&self.input_variables()?, &input_values).await?;
         let val = ctx.evaluate_expr(&self.value).await?;
-        Ok((TaskValue::Val(val), vec![]))
+        Ok(TaskValue::Val(val))
     }
 }
 
@@ -85,11 +81,11 @@ impl Task for ExprTask {
     async fn evaluate(
         &self,
         input_values: &[TaskValue],
-    ) -> Result<(TaskValue, Vec<TaskValue>), AvengerLangError> {
+    ) -> Result<TaskValue, AvengerLangError> {
         let ctx = EvaluationContext::new();
         ctx.register_values(&self.input_variables()?, &input_values).await?;
         let expr = ctx.compile_expr(&self.expr)?;
-        Ok((TaskValue::Expr(expr), vec![]))
+        Ok(TaskValue::Expr(expr))
     }
 }
 
@@ -119,11 +115,11 @@ impl Task for DatasetTask {
     async fn evaluate(
         &self,
         input_values: &[TaskValue],
-    ) -> Result<(TaskValue, Vec<TaskValue>), AvengerLangError> {
+    ) -> Result<TaskValue, AvengerLangError> {
         let ctx = EvaluationContext::new();
         ctx.register_values(&self.input_variables()?, &input_values).await?;
         let plan = ctx.compile_query(&self.query).await?;
-        Ok((TaskValue::Dataset(plan), vec![]))
+        Ok(TaskValue::Dataset(plan))
     }
 }
 

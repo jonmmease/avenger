@@ -5,16 +5,14 @@ use std::collections::hash_map::DefaultHasher;
 use indexmap::IndexMap;
 use petgraph::algo::toposort;
 use petgraph::graph::DiGraph;
-use petgraph::stable_graph::NodeIndex;
 use petgraph::Direction;
 use async_trait::async_trait;
 
-use crate::{tasks::Task, value::{TaskValue, Variable, VariableKind}, error::AvengerLangError};
+use crate::{tasks::Task, value::{Variable, VariableKind, TaskValue}, error::AvengerLangError};
 
 
 pub struct IncomingEdge {
     pub source: Variable,
-    pub output_variable: Option<Variable>,
 }
 
 pub struct OutgoingEdge {
@@ -46,20 +44,7 @@ impl TaskGraph {
             node_indices.insert(variable.clone(), idx);
         }
         
-        // Track which task produces each output variable
-        let mut output_var_producers: HashMap<Variable, Variable> = HashMap::new();
-        
-        // Collect output variables from each task
-        for (variable, task) in &tasks {
-            let output_variables = task.output_variables()?;
-
-            // Record that this task produces these output variables
-            for output_var in output_variables {
-                output_var_producers.insert(output_var.clone(), variable.clone());
-            }
-        }
-        
-        // Then, add edges based on task dependencies
+        // Add edges based on task dependencies
         for (variable, task) in &tasks {
             let target_idx = node_indices[variable];
             
@@ -68,17 +53,9 @@ impl TaskGraph {
             
             // Add edges from each input dependency to this task
             for input_var in input_variables {
-                // If the input variable is a direct output of another task
                 if let Some(source_idx) = node_indices.get(&input_var) {
                     // Add edge from input to the current task
                     graph.add_edge(*source_idx, target_idx, ());
-                } 
-                // If the input variable is an output variable of another task
-                else if let Some(producer_var) = output_var_producers.get(&input_var) {
-                    if let Some(source_idx) = node_indices.get(producer_var) {
-                        // Add edge from the producing task to the current task
-                        graph.add_edge(*source_idx, target_idx, ());
-                    }
                 }
             }
         }
@@ -97,13 +74,6 @@ impl TaskGraph {
         // Build task nodes and collect them in topological order
         let mut sorted_tasks = IndexMap::new();
         
-        // Create a cache to store the output variables for each task
-        let mut task_outputs: HashMap<Variable, Vec<Variable>> = HashMap::new();
-        for (variable, task) in &tasks {
-            let outputs = task.output_variables()?;
-            task_outputs.insert(variable.clone(), outputs);
-        }
-        
         // Create a map to store the fingerprints of tasks as they are computed
         let mut fingerprints: HashMap<Variable, u64> = HashMap::new();
         
@@ -119,42 +89,18 @@ impl TaskGraph {
             // Build inputs (incoming edges)
             let mut inputs: Vec<IncomingEdge> = Vec::new();
             
-            // Keep track of which input variables we've already processed to avoid duplicates
-            let mut processed_input_vars = std::collections::HashSet::new();
-            
-            // Collect parent variables for fingerprinting
+            // Track parent variables for fingerprinting
             let mut parent_variables = Vec::new();
             
             // Get all incoming neighbors in the graph
             for neighbor_idx in graph.neighbors_directed(idx, Direction::Incoming) {
                 let source = graph[neighbor_idx].clone();
                 parent_variables.push(source.clone());
-                let source_outputs = task_outputs.get(&source).cloned().unwrap_or_default();
                 
-                // Check if this source directly provides any input variables
-                let mut found_relevant_output = false;
-                
-                // Create a separate edge for each relevant output
-                for input_var in &input_vars {
-                    // Only create an edge if we haven't processed this input variable yet
-                    if source_outputs.contains(input_var) && processed_input_vars.insert(input_var.clone()) {
-                        // This is an output variable from the source task
-                        inputs.push(IncomingEdge {
-                            source: source.clone(),
-                            output_variable: Some(input_var.clone()),
-                        });
-                        found_relevant_output = true;
-                    }
-                }
-                
-                // If this is a direct dependency (not via an output variable)
-                // add an edge without an output variable
-                if !found_relevant_output && input_vars.contains(&source) {
-                    inputs.push(IncomingEdge {
-                        source: source.clone(),
-                        output_variable: None,
-                    });
-                }
+                // Create an edge for this input
+                inputs.push(IncomingEdge {
+                    source: source.clone(),
+                });
             }
             
             // Build outputs (outgoing edges)
@@ -174,13 +120,6 @@ impl TaskGraph {
             // Hash the task's input variables
             for input_var in &input_vars {
                 input_var.hash(&mut hasher);
-            }
-            
-            // Hash the task's output variables
-            if let Ok(output_vars) = task.output_variables() {
-                for output_var in &output_vars {
-                    output_var.hash(&mut hasher);
-                }
             }
             
             // Get the content hash
@@ -240,7 +179,6 @@ mod tests {
     struct MockTask {
         name: String,
         input_vars: Vec<Variable>,
-        output_vars: Vec<Variable>,
     }
 
     impl MockTask {
@@ -248,15 +186,6 @@ mod tests {
             Self {
                 name: name.to_string(),
                 input_vars,
-                output_vars: vec![],
-            }
-        }
-
-        fn with_outputs(name: &str, input_vars: Vec<Variable>, output_vars: Vec<Variable>) -> Self {
-            Self {
-                name: name.to_string(),
-                input_vars,
-                output_vars,
             }
         }
     }
@@ -267,16 +196,12 @@ mod tests {
             Ok(self.input_vars.clone())
         }
 
-        fn output_variables(&self) -> Result<Vec<Variable>, AvengerLangError> {
-            Ok(self.output_vars.clone())
-        }
-
         async fn evaluate(
             &self,
             _input_values: &[TaskValue],
-        ) -> Result<(TaskValue, Vec<TaskValue>), AvengerLangError> {
+        ) -> Result<TaskValue, AvengerLangError> {
             // For testing, just return a dummy value
-            Ok((TaskValue::Val(ScalarValue::Int32(Some(42))), vec![]))
+            Ok(TaskValue::Val(ScalarValue::Int32(Some(42))))
         }
     }
 
@@ -388,32 +313,27 @@ mod tests {
     }
 
     #[test]
-    fn test_task_with_output_variables() -> Result<(), AvengerLangError> {
-        // Create a graph where one task produces output variables:
+    fn test_task_with_output_variables() -> Result<(), AvengerLangError> {        
+        // Create a graph where one task depends on another:
         //
-        //   A (produces B, C)
+        //   A
         //    \
-        //     D (depends on B, C)
-        //
-        // Task A produces variables B and C
-        // Task D depends on variables B and C
+        //     D (depends on A)
         
         let mut tasks = HashMap::new();
         let a_var = create_var("A");
-        let b_var = create_var("B");
-        let c_var = create_var("C");
         let d_var = create_var("D");
         
-        // Task A produces outputs B and C
+        // Task A has no dependencies
         tasks.insert(
             a_var.clone(), 
-            Box::new(MockTask::with_outputs("A", vec![], vec![b_var.clone(), c_var.clone()])) as Box<dyn Task>
+            Box::new(MockTask::new("A", vec![])) as Box<dyn Task>
         );
         
-        // Task D depends on outputs B and C from Task A
+        // Task D depends on A
         tasks.insert(
             d_var.clone(), 
-            Box::new(MockTask::new("D", vec![b_var.clone(), c_var.clone()])) as Box<dyn Task>
+            Box::new(MockTask::new("D", vec![a_var.clone()])) as Box<dyn Task>
         );
 
         let graph = TaskGraph::try_new(tasks)?;
@@ -424,26 +344,14 @@ mod tests {
         // Print more detailed information to debug the test
         println!("D inputs: {}", d_node.inputs.len());
         for (i, input) in d_node.inputs.iter().enumerate() {
-            println!("Input {}: source = {:?}, output_variable = {:?}", i, input.source, input.output_variable);
+            println!("Input {}: source = {:?}", i, input.source);
         }
         
-        // We should now have two separate input edges from A, one for B and one for C
-        assert_eq!(d_node.inputs.len(), 2, "Expected D to have 2 input edges from A, one for each output variable");
+        // We should have one input edge from A to D
+        assert_eq!(d_node.inputs.len(), 1, "Expected D to have 1 input edge from A");
         
-        // Check that both inputs are from A
+        // Check that the input is from A
         assert_eq!(d_node.inputs[0].source, a_var);
-        assert_eq!(d_node.inputs[1].source, a_var);
-        
-        // Check that both B and C are represented in the output variables
-        let has_b = d_node.inputs.iter().any(|edge| 
-            edge.output_variable.as_ref().map_or(false, |v| v == &b_var)
-        );
-        let has_c = d_node.inputs.iter().any(|edge| 
-            edge.output_variable.as_ref().map_or(false, |v| v == &c_var)
-        );
-        
-        assert!(has_b, "Expected an edge with B as output variable");
-        assert!(has_c, "Expected an edge with C as output variable");
         
         Ok(())
     }
@@ -512,20 +420,19 @@ mod tests {
         let mut tasks6 = HashMap::new();
         let f2_var = create_var("F2");
         
-        // Create similar chain but with different output for the first task
-        tasks6.insert(
-            d_var.clone(), 
-            Box::new(MockTask::with_outputs("Task D", vec![], vec![create_var("output")])) as Box<dyn Task>
-        );
-        tasks6.insert(e_var.clone(), Box::new(MockTask::new("Task E", vec![d_var.clone()])) as Box<dyn Task>);
+        // Create similar chain but with a different implementation for the first task
+        let d_modified_var = create_var("D");
+        // Use a different input variable to simulate a different task implementation
+        tasks6.insert(d_modified_var.clone(), Box::new(MockTask::new("Task D", vec![create_var("dummy_input")])) as Box<dyn Task>);
+        tasks6.insert(e_var.clone(), Box::new(MockTask::new("Task E", vec![d_modified_var.clone()])) as Box<dyn Task>);
         tasks6.insert(f2_var.clone(), Box::new(MockTask::new("Task F2", vec![e_var.clone()])) as Box<dyn Task>);
         
         let graph6 = TaskGraph::try_new(tasks6)?;
         
-        // First task should have different fingerprints due to different outputs
+        // First task should have different fingerprints due to different inputs
         let d1_fingerprint = graph5.tasks().get(&d_var).unwrap().fingerprint;
-        let d2_fingerprint = graph6.tasks().get(&d_var).unwrap().fingerprint;
-        assert_ne!(d1_fingerprint, d2_fingerprint, "Tasks with different outputs should have different fingerprints");
+        let d2_fingerprint = graph6.tasks().get(&d_modified_var).unwrap().fingerprint;
+        assert_ne!(d1_fingerprint, d2_fingerprint, "Tasks with different implementations should have different fingerprints");
         
         // Second task should also be different as its parent changed
         let e1_fingerprint = graph5.tasks().get(&e_var).unwrap().fingerprint;
