@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
+use std::sync::Arc;
 
 use indexmap::IndexMap;
 use petgraph::algo::toposort;
@@ -11,29 +12,32 @@ use async_trait::async_trait;
 use crate::{tasks::Task, value::{Variable, VariableKind, TaskValue}, error::AvengerLangError};
 
 
+#[derive(Clone, Debug)]
 pub struct IncomingEdge {
     pub source: Variable,
 }
 
+#[derive(Clone, Debug)]
 pub struct OutgoingEdge {
     pub target: Variable,
 }
 
+#[derive(Clone)]
 pub struct TaskNode {
     pub variable: Variable,
-    pub task: Box<dyn Task>,
+    pub task: Arc<dyn Task>,
     pub inputs: Vec<IncomingEdge>,
     pub outputs: Vec<OutgoingEdge>,
     pub fingerprint: u64,
 }
 
-
+#[derive(Clone)]
 pub struct TaskGraph {
     tasks: IndexMap<Variable, TaskNode>,
 }
 
 impl TaskGraph {
-    pub fn try_new(mut tasks: HashMap<Variable, Box<dyn Task>>) -> Result<Self, AvengerLangError> {
+    pub fn try_new(mut tasks: HashMap<Variable, Arc<dyn Task>>) -> Result<Self, AvengerLangError> {
         // Build a directed graph for topological sorting
         let mut graph = DiGraph::<Variable, ()>::new();
         let mut node_indices = HashMap::new();
@@ -209,9 +213,9 @@ mod tests {
     fn test_topological_sort_no_dependencies() -> Result<(), AvengerLangError> {
         // Create tasks with no dependencies
         let mut tasks = HashMap::new();
-        tasks.insert(create_var("task1"), Box::new(MockTask::new("Task 1", vec![])) as Box<dyn Task>);
-        tasks.insert(create_var("task2"), Box::new(MockTask::new("Task 2", vec![])) as Box<dyn Task>);
-        tasks.insert(create_var("task3"), Box::new(MockTask::new("Task 3", vec![])) as Box<dyn Task>);
+        tasks.insert(create_var("task1"), Arc::new(MockTask::new("Task 1", vec![])) as Arc<dyn Task>);
+        tasks.insert(create_var("task2"), Arc::new(MockTask::new("Task 2", vec![])) as Arc<dyn Task>);
+        tasks.insert(create_var("task3"), Arc::new(MockTask::new("Task 3", vec![])) as Arc<dyn Task>);
 
         let graph = TaskGraph::try_new(tasks)?;
         
@@ -229,9 +233,9 @@ mod tests {
         let task2_var = create_var("task2");
         let task3_var = create_var("task3");
         
-        tasks.insert(task1_var.clone(), Box::new(MockTask::new("Task 1", vec![])) as Box<dyn Task>);
-        tasks.insert(task2_var.clone(), Box::new(MockTask::new("Task 2", vec![task1_var.clone()])) as Box<dyn Task>);
-        tasks.insert(task3_var.clone(), Box::new(MockTask::new("Task 3", vec![task2_var.clone()])) as Box<dyn Task>);
+        tasks.insert(task1_var.clone(), Arc::new(MockTask::new("Task 1", vec![])) as Arc<dyn Task>);
+        tasks.insert(task2_var.clone(), Arc::new(MockTask::new("Task 2", vec![task1_var.clone()])) as Arc<dyn Task>);
+        tasks.insert(task3_var.clone(), Arc::new(MockTask::new("Task 3", vec![task2_var.clone()])) as Arc<dyn Task>);
 
         let graph = TaskGraph::try_new(tasks)?;
         
@@ -257,9 +261,9 @@ mod tests {
         let task2_var = create_var("task2");
         let task3_var = create_var("task3");
         
-        tasks.insert(task1_var.clone(), Box::new(MockTask::new("Task 1", vec![task3_var.clone()])) as Box<dyn Task>);
-        tasks.insert(task2_var.clone(), Box::new(MockTask::new("Task 2", vec![task1_var.clone()])) as Box<dyn Task>);
-        tasks.insert(task3_var.clone(), Box::new(MockTask::new("Task 3", vec![task2_var.clone()])) as Box<dyn Task>);
+        tasks.insert(task1_var.clone(), Arc::new(MockTask::new("Task 1", vec![task3_var.clone()])) as Arc<dyn Task>);
+        tasks.insert(task2_var.clone(), Arc::new(MockTask::new("Task 2", vec![task1_var.clone()])) as Arc<dyn Task>);
+        tasks.insert(task3_var.clone(), Arc::new(MockTask::new("Task 3", vec![task2_var.clone()])) as Arc<dyn Task>);
 
         // This should panic due to the cycle
         if let Err(e) = TaskGraph::try_new(tasks) {
@@ -285,11 +289,11 @@ mod tests {
         let d_var = create_var("D");
         let e_var = create_var("E");
         
-        tasks.insert(a_var.clone(), Box::new(MockTask::new("A", vec![])) as Box<dyn Task>);
-        tasks.insert(b_var.clone(), Box::new(MockTask::new("B", vec![a_var.clone()])) as Box<dyn Task>);
-        tasks.insert(c_var.clone(), Box::new(MockTask::new("C", vec![a_var.clone()])) as Box<dyn Task>);
-        tasks.insert(d_var.clone(), Box::new(MockTask::new("D", vec![b_var.clone()])) as Box<dyn Task>);
-        tasks.insert(e_var.clone(), Box::new(MockTask::new("E", vec![b_var.clone(), c_var.clone()])) as Box<dyn Task>);
+        tasks.insert(a_var.clone(), Arc::new(MockTask::new("A", vec![])) as Arc<dyn Task>);
+        tasks.insert(b_var.clone(), Arc::new(MockTask::new("B", vec![a_var.clone()])) as Arc<dyn Task>);
+        tasks.insert(c_var.clone(), Arc::new(MockTask::new("C", vec![a_var.clone()])) as Arc<dyn Task>);
+        tasks.insert(d_var.clone(), Arc::new(MockTask::new("D", vec![b_var.clone()])) as Arc<dyn Task>);
+        tasks.insert(e_var.clone(), Arc::new(MockTask::new("E", vec![b_var.clone(), c_var.clone()])) as Arc<dyn Task>);
 
         let graph = TaskGraph::try_new(tasks)?;
         
@@ -327,13 +331,13 @@ mod tests {
         // Task A has no dependencies
         tasks.insert(
             a_var.clone(), 
-            Box::new(MockTask::new("A", vec![])) as Box<dyn Task>
+            Arc::new(MockTask::new("A", vec![])) as Arc<dyn Task>
         );
         
         // Task D depends on A
         tasks.insert(
             d_var.clone(), 
-            Box::new(MockTask::new("D", vec![a_var.clone()])) as Box<dyn Task>
+            Arc::new(MockTask::new("D", vec![a_var.clone()])) as Arc<dyn Task>
         );
 
         let graph = TaskGraph::try_new(tasks)?;
@@ -366,8 +370,8 @@ mod tests {
         let a2_var = create_var("A2");
         
         // Create two identical tasks with different names
-        tasks1.insert(a1_var.clone(), Box::new(MockTask::new("Task A1", vec![])) as Box<dyn Task>);
-        tasks2.insert(a2_var.clone(), Box::new(MockTask::new("Task A2", vec![])) as Box<dyn Task>);
+        tasks1.insert(a1_var.clone(), Arc::new(MockTask::new("Task A1", vec![])) as Arc<dyn Task>);
+        tasks2.insert(a2_var.clone(), Arc::new(MockTask::new("Task A2", vec![])) as Arc<dyn Task>);
         
         let graph1 = TaskGraph::try_new(tasks1)?;
         let graph2 = TaskGraph::try_new(tasks2)?;
@@ -386,14 +390,14 @@ mod tests {
         let c2_var = create_var("C2");
         
         // Create base task B
-        tasks3.insert(b_var.clone(), Box::new(MockTask::new("Task B", vec![])) as Box<dyn Task>);
+        tasks3.insert(b_var.clone(), Arc::new(MockTask::new("Task B", vec![])) as Arc<dyn Task>);
         // Create task C1 that depends on B
-        tasks3.insert(c1_var.clone(), Box::new(MockTask::new("Task C1", vec![b_var.clone()])) as Box<dyn Task>);
+        tasks3.insert(c1_var.clone(), Arc::new(MockTask::new("Task C1", vec![b_var.clone()])) as Arc<dyn Task>);
         
         // Create the same tasks for the second graph
-        tasks4.insert(b_var.clone(), Box::new(MockTask::new("Task B", vec![])) as Box<dyn Task>);
+        tasks4.insert(b_var.clone(), Arc::new(MockTask::new("Task B", vec![])) as Arc<dyn Task>);
         // But C2 has no dependencies
-        tasks4.insert(c2_var.clone(), Box::new(MockTask::new("Task C2", vec![])) as Box<dyn Task>);
+        tasks4.insert(c2_var.clone(), Arc::new(MockTask::new("Task C2", vec![])) as Arc<dyn Task>);
         
         let graph3 = TaskGraph::try_new(tasks3)?;
         let graph4 = TaskGraph::try_new(tasks4)?;
@@ -411,9 +415,9 @@ mod tests {
         let f1_var = create_var("F1");
         
         // Create tasks with a dependency chain: D -> E -> F1
-        tasks5.insert(d_var.clone(), Box::new(MockTask::new("Task D", vec![])) as Box<dyn Task>);
-        tasks5.insert(e_var.clone(), Box::new(MockTask::new("Task E", vec![d_var.clone()])) as Box<dyn Task>);
-        tasks5.insert(f1_var.clone(), Box::new(MockTask::new("Task F1", vec![e_var.clone()])) as Box<dyn Task>);
+        tasks5.insert(d_var.clone(), Arc::new(MockTask::new("Task D", vec![])) as Arc<dyn Task>);
+        tasks5.insert(e_var.clone(), Arc::new(MockTask::new("Task E", vec![d_var.clone()])) as Arc<dyn Task>);
+        tasks5.insert(f1_var.clone(), Arc::new(MockTask::new("Task F1", vec![e_var.clone()])) as Arc<dyn Task>);
         
         let graph5 = TaskGraph::try_new(tasks5)?;
         
@@ -423,9 +427,9 @@ mod tests {
         // Create similar chain but with a different implementation for the first task
         let d_modified_var = create_var("D");
         // Use a different input variable to simulate a different task implementation
-        tasks6.insert(d_modified_var.clone(), Box::new(MockTask::new("Task D", vec![create_var("dummy_input")])) as Box<dyn Task>);
-        tasks6.insert(e_var.clone(), Box::new(MockTask::new("Task E", vec![d_modified_var.clone()])) as Box<dyn Task>);
-        tasks6.insert(f2_var.clone(), Box::new(MockTask::new("Task F2", vec![e_var.clone()])) as Box<dyn Task>);
+        tasks6.insert(d_modified_var.clone(), Arc::new(MockTask::new("Task D", vec![create_var("dummy_input")])) as Arc<dyn Task>);
+        tasks6.insert(e_var.clone(), Arc::new(MockTask::new("Task E", vec![d_modified_var.clone()])) as Arc<dyn Task>);
+        tasks6.insert(f2_var.clone(), Arc::new(MockTask::new("Task F2", vec![e_var.clone()])) as Arc<dyn Task>);
         
         let graph6 = TaskGraph::try_new(tasks6)?;
         

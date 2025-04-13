@@ -5,5 +5,6 @@ pub mod compiler;
 pub mod tasks;
 pub mod context;
 pub mod runtime;
+pub mod cache;
 pub mod value;
 pub mod task_graph;
