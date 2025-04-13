@@ -7,9 +7,8 @@ use indexmap::IndexMap;
 use petgraph::algo::toposort;
 use petgraph::graph::DiGraph;
 use petgraph::Direction;
-use async_trait::async_trait;
 
-use crate::{task_graph::tasks::Task, task_graph::value::{Variable, VariableKind, TaskValue}, error::AvengerLangError};
+use crate::{task_graph::tasks::Task, task_graph::{variable::{Variable, VariableKind}, value::TaskValue}, error::AvengerLangError};
 
 
 #[derive(Clone, Debug)]
@@ -172,6 +171,7 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use datafusion_common::ScalarValue;
+    use async_trait::async_trait;
 
     // Helper function to create a Variable for testing
     fn create_var(name: &str) -> Variable {

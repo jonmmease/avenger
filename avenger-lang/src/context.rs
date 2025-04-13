@@ -4,7 +4,7 @@ use datafusion::{arrow::array::record_batch, logical_expr::{ColumnarValue, Logic
 use datafusion_common::{DFSchema, DataFusionError, ScalarValue};
 use datafusion_sql::unparser::expr_to_sql;
 use sqlparser::ast::{Expr as SqlExpr, Query as SqlQuery, VisitMut, VisitorMut};
-use crate::{error::AvengerLangError, task_graph::value::{TaskValue, Variable, VariableKind}};
+use crate::{error::AvengerLangError, task_graph::{value::TaskValue, variable::{Variable, VariableKind}}};
 
 
 const MANGLED_PREFIX: &str = "_at_";

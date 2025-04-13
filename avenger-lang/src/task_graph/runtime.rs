@@ -6,7 +6,7 @@ use async_recursion::async_recursion;
 use crate::task_graph::cache::{TaskCache, RuntimeStats};
 use crate::error::AvengerLangError;
 use crate::task_graph::task_graph::TaskGraph;
-use crate::task_graph::value::{TaskValue, Variable};
+use crate::task_graph::{value::TaskValue, variable::Variable};
 
 
 // Threshold for spawning tasks (in milliseconds)
@@ -176,7 +176,7 @@ impl Clone for TaskGraphRuntime {
 mod tests {
     use super::*;
     use crate::task_graph::tasks::Task;
-    use crate::task_graph::value::VariableKind;
+    use crate::task_graph::variable::VariableKind;
     use async_trait::async_trait;
     use datafusion_common::ScalarValue;
     use std::sync::atomic::{AtomicU32, Ordering};

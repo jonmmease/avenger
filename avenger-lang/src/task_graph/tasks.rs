@@ -3,7 +3,7 @@ use std::ops::ControlFlow;
 use sqlparser::ast::{Expr as SqlExpr, ObjectName, Query as SqlQuery, Visit, Visitor};
 use async_trait::async_trait;
 
-use crate::{context::EvaluationContext, error::AvengerLangError, task_graph::value::{TaskValue, Variable, VariableKind}};
+use crate::{context::EvaluationContext, error::AvengerLangError, task_graph::{value::TaskValue, variable::{Variable, VariableKind}}};
 
 
 #[async_trait]
