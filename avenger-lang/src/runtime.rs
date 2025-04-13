@@ -1,12 +1,32 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use futures::future::{join_all, BoxFuture};
+use futures::future::{join_all, BoxFuture, FutureExt};
 use async_recursion::async_recursion;
 use crate::cache::TaskCache;
 use crate::error::AvengerLangError;
 use crate::task_graph::{TaskGraph};
 use crate::value::{TaskValue, Variable};
 use crate::tasks::Task;
+
+/// Controls whether a task should be spawned as a separate Tokio task
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpawnPolicy {
+    /// Always spawn a separate Tokio task
+    Always,
+    /// Never spawn a separate task, run inline with parent
+    Never,
+}
+
+/// Extension trait to add spawn policy functionality to Task
+pub trait TaskSpawnPolicy {
+    /// Determines if this task should be spawned as a separate Tokio task
+    fn spawn_policy(&self) -> SpawnPolicy {
+        SpawnPolicy::Always
+    }
+}
+
+// Implement for any type that implements Task
+impl<T: Task + ?Sized> TaskSpawnPolicy for T {}
 
 pub struct TaskGraphRuntime {
     cache: Arc<TaskCache>,
@@ -63,11 +83,39 @@ impl TaskGraphRuntime {
         
         for edge in &node.inputs {
             let dep_var = edge.source.clone();
+            let dep_node = graph.tasks().get(&dep_var).ok_or_else(|| {
+                AvengerLangError::VariableNotFound(format!("Dependency variable not found: {:?}", dep_var))
+            })?;
             let graph_clone = graph.clone();
             let runtime_clone = self.clone();
-            dependency_futures.push(tokio::spawn( async move {
-                runtime_clone.evaluate_variable(graph_clone, dep_var).await
-            }));
+            
+            // Use the spawn policy to determine whether to spawn a new task
+            match dep_node.task.spawn_policy() {
+                SpawnPolicy::Always => {
+                    // Spawn a new Tokio task for this dependency
+                    let spawned = tokio::spawn(async move {
+                        runtime_clone.evaluate_variable(graph_clone, dep_var).await
+                    });
+                    
+                    // Convert JoinHandle<Result<T, E>> to Future<Output=Result<T, E>>
+                    let mapped = async move {
+                        match spawned.await {
+                            Ok(result) => result,
+                            Err(err) => Err(AvengerLangError::TokioJoinError(err)),
+                        }
+                    }.boxed();
+                    
+                    dependency_futures.push(mapped);
+                },
+                SpawnPolicy::Never => {
+                    // Run directly without spawning
+                    let future = async move {
+                        runtime_clone.evaluate_variable(graph_clone, dep_var).await
+                    }.boxed();
+                    
+                    dependency_futures.push(future);
+                },
+            }
         }
         
         // Wait for all dependencies to complete
@@ -75,10 +123,7 @@ impl TaskGraphRuntime {
         let mut input_values = vec![];
         
         for result in dependency_results {
-            match result {
-                Ok(res) => input_values.push(res?),
-                Err(e) => return Err(AvengerLangError::TokioJoinError(e)),
-            }
+            input_values.push(result?);
         }
         
         // Now evaluate this task
