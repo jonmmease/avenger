@@ -5,10 +5,10 @@ edition = "2024"
 
 [dependencies]
 thiserror = { workspace = true }
-async-trait.workspace = true
+async-trait = { workspace = true }
 sqlparser = { workspace = true, features = ["visitor"] }
 datafusion = { workspace = true }
-datafusion-common.workspace = true
+datafusion-common = { workspace = true }
 datafusion-sql = { workspace = true }
 
 lazy_static = { workspace = true }
@@ -16,7 +16,8 @@ arrow-schema = { workspace = true }
 tokio = { workspace = true }
 indexmap = { workspace = true }
 petgraph = "0.8.1"
-
+futures = { workspace = true }
+async-recursion = "1.1.1"
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 

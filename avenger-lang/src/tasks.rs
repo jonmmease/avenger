@@ -7,7 +7,7 @@ use crate::{context::EvaluationContext, error::AvengerLangError, value::{TaskVal
 
 
 #[async_trait]
-pub trait Task {
+pub trait Task: Send + Sync {
     /// Get the dependencies of the task
     fn input_variables(&self) -> Result<Vec<Variable>, AvengerLangError> {
         Ok(vec![])

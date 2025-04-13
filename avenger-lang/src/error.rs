@@ -32,4 +32,16 @@ pub enum AvengerLangError {
 
     #[error("Dependency cycle detected in task graph")]
     DependencyCycle(String),
+    
+    #[error("Runtime error: `{0}`")]
+    RuntimeError(String),
+    
+    #[error("Dependency error: `{0}`")]
+    DependencyError(String),
+    
+    #[error("Evaluation error: `{0}`")]
+    EvaluationError(String),
+
+    #[error("Tokio join error: `{0}`")]
+    TokioJoinError(#[from] tokio::task::JoinError),
 }
