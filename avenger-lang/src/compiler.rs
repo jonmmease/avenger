@@ -5,7 +5,7 @@ use datafusion_common::{DFSchema, ScalarValue};
 use sqlparser::ast::{Expr as SqlExpr, Query as SqlQuery, VisitMut};
 use datafusion_sql::{planner::{ContextProvider, SqlToRel}, sqlparser::ast::{Ident, VisitorMut}, unparser::{self, expr_to_sql}, ResolvedTableReference, TableReference};
 
-use crate::{context::{mangle_name, EvaluationContext}, error::AvengerLangError, parser::AvengerParser};
+use crate::{context::{EvaluationContext}, error::AvengerLangError, parser::AvengerParser};
 
 
 pub fn parse_expr(expr_str: &str) -> Result<SqlExpr, AvengerLangError> {

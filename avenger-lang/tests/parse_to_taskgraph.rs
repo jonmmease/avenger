@@ -9,7 +9,12 @@ async fn test_parse_file_to_taskgraph() -> Result<(), AvengerLangError> {
     // This is a comment
     in val<int> my_val: 1 + 23;
     dataset my_dataset: select @my_val * 2 as my_val_2;
-    out expr my_expr: @my_val + 1;
+    out expr my_expr: @my_val + "some_col";
+    out dataset my_dataset2: 
+        with a as (select 23 as "some_col")
+        select @my_expr * 3 as my_val_3 from a;
+
+    dataset my_dataset3: select my_val_3 * 2 as another_col from @my_dataset2;
     "#;
     
     // Create a new parser with the tokens and parse the file
@@ -17,16 +22,18 @@ async fn test_parse_file_to_taskgraph() -> Result<(), AvengerLangError> {
     let tokens = parser.tokenize(src).unwrap();
     let mut parser = parser.with_tokens_with_locations(tokens);
     let file = parser.parse().unwrap();
-    println!("{:#?}", file);
+    // println!("{:#?}", file);
 
     // Build Task Graph from parsed file
     let task_graph = Arc::new(TaskGraph::try_from(file)?);
-    println!("{:#?}", task_graph);
+    // println!("{:#?}", task_graph);
 
     // Evaluate the task graph
     let my_val = Variable::new("my_val");
     let my_expr = Variable::new("my_expr");
     let my_dataset = Variable::new("my_dataset");
+    let my_dataset2 = Variable::new("my_dataset2");
+    let my_dataset3 = Variable::new("my_dataset3");
 
     let runtime = TaskGraphRuntime::new();
 
@@ -61,6 +68,64 @@ async fn test_parse_file_to_taskgraph() -> Result<(), AvengerLangError> {
 
     println!("my_dataset");
     table.show()?;
+
+    // Eval expr variable
+    let vals = runtime.evaluate_variables(
+        task_graph.clone(), &[my_expr.clone()]
+    ).await?;
+
+    let my_expr_val = vals.get(&my_expr).unwrap();
+    println!("my_expr: {:#?}", my_expr_val);
+
+    // Eval dataset2 variable
+    let vals = runtime.evaluate_variables(
+        task_graph.clone(), &[my_dataset2.clone()]
+    ).await?;
+
+    let my_dataset2_val = vals.get(&my_dataset2).unwrap().clone();
+    let (my_dataset2_val, task_value_context) = my_dataset2_val.into_dataset().unwrap();
+
+    let ctx = EvaluationContext::new();
+    ctx.register_task_value_context(&task_value_context).await?;
+
+    let table = match my_dataset2_val {
+        TaskDataset::LogicalPlan(plan) => {
+            let my_dataset2_df = ctx.session_ctx().execute_logical_plan(plan.clone()).await?;
+            ArrowTable::from_dataframe(my_dataset2_df).await?
+        }
+        TaskDataset::ArrowTable(table) => {
+            table
+        }
+    };
+
+    println!("my_dataset2");
+    table.show()?;
+
+    // Eval dataset3 variable
+    let vals = runtime.evaluate_variables(
+        task_graph.clone(), &[my_dataset3.clone()]
+    ).await?;
+
+    let my_dataset3_val = vals.get(&my_dataset3).unwrap().clone();
+    let (my_dataset3_val, task_value_context) = my_dataset3_val.into_dataset().unwrap();
+
+    let ctx = EvaluationContext::new();
+    ctx.register_task_value_context(&task_value_context).await?;
+
+    let table = match my_dataset3_val {
+        TaskDataset::LogicalPlan(plan) => {
+            let my_dataset3_df = ctx.session_ctx().execute_logical_plan(plan.clone()).await?;
+            ArrowTable::from_dataframe(my_dataset3_df).await?
+        }
+        TaskDataset::ArrowTable(table) => {
+            table
+        }
+    };
+
+    println!("my_dataset3");
+    table.show()?;
+
+
     Ok(())
 }
 

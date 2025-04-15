@@ -154,7 +154,6 @@ impl Task for DatasetDeclTask {
         if let ControlFlow::Break(Result::Err(err)) = self.query.visit(&mut visitor) {
             return Err(err);
         }
-        println!("DatasetDeclTask deps: {:#?}", visitor.deps);
         Ok(visitor.deps)
     }
 
@@ -162,12 +161,11 @@ impl Task for DatasetDeclTask {
         &self,
         input_values: &[TaskValue],
     ) -> Result<TaskValue, AvengerLangError> {
-        println!("Evaluating DatasetDeclTask with input_values: {:#?}", input_values);
         let ctx = EvaluationContext::new();
         ctx.register_values(&self.input_variables()?, &input_values).await?;
         let plan = ctx.compile_query(&self.query).await?;
 
-        if self.eval {
+        if false {
             // Eager evaluation, evaluate the logical plan
             let table = ctx.eval_query(&self.query).await?;
             Ok(TaskValue::Dataset { context: Default::default() , dataset: TaskDataset::ArrowTable(table) })
@@ -176,7 +174,6 @@ impl Task for DatasetDeclTask {
             let task_value_context = TaskValueContext::from_combined_task_value_context(
                 &self.input_variables()?, &input_values
             )?;
-    
             Ok(TaskValue::Dataset { context: task_value_context, dataset: TaskDataset::LogicalPlan(plan) })
         }
     }
