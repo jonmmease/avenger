@@ -3,5 +3,6 @@ pub mod runtime;
 pub mod cache;
 pub mod tasks;
 pub mod value;
-pub mod variable;
+pub mod dependency;
 pub mod memory;
+pub mod variable;

@@ -3,9 +3,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use lru::LruCache;
-use crate::task_graph::{value::TaskValue, variable::{Variable, VariableKind}};
 use crate::error::AvengerLangError;
 use datafusion_common::ScalarValue;
+
+use super::value::TaskValue;
+use super::variable::Variable;
 
 /// A cached result including the task value and runtime information
 #[derive(Clone)]

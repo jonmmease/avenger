@@ -1,10 +1,10 @@
 use std::{collections::HashMap, ops::ControlFlow, sync::{Arc, Mutex}};
 
-use datafusion::{arrow::array::record_batch, logical_expr::{ColumnarValue, LogicalPlan}, prelude::{DataFrame, Expr, SessionContext}, variable::{VarProvider, VarType}};
+use datafusion::{arrow::array::record_batch, datasource::MemTable, logical_expr::{ColumnarValue, LogicalPlan}, prelude::{DataFrame, Expr, SessionContext}, variable::{VarProvider, VarType}};
 use datafusion_common::{DFSchema, DataFusionError, ScalarValue};
-use datafusion_sql::unparser::expr_to_sql;
+use datafusion_sql::{unparser::expr_to_sql, TableReference};
 use sqlparser::ast::{Expr as SqlExpr, Query as SqlQuery, VisitMut, VisitorMut};
-use crate::{error::AvengerLangError, task_graph::{value::TaskValue, variable::{Variable, VariableKind}}};
+use crate::{error::AvengerLangError, task_graph::{dependency::{Dependency, DependencyKind}, value::{ArrowTable, TaskValue}, variable::Variable}};
 
 
 const MANGLED_PREFIX: &str = "_at_";
@@ -67,14 +67,11 @@ impl EvaluationContext {
     /// Register values corresponding to variables in the context
     pub async fn register_values(&self, variables: &[Variable], values: &[TaskValue]) -> Result<(), AvengerLangError> {
         for (variable, value) in variables.iter().zip(values.iter()) {
-            match (&variable.kind, value) {
-                (VariableKind::Val, TaskValue::Val(val)) => self.register_val(&variable.name, val.clone())?,
-                (VariableKind::ValOrExpr, TaskValue::Val(val)) => self.register_val(&variable.name, val.clone())?,
-                (VariableKind::ValOrExpr, TaskValue::Expr(expr)) => self.register_expr(&variable.name, expr.clone())?,
-                (VariableKind::Dataset, TaskValue::Dataset(plan)) => self.register_dataset(&variable.name, plan.clone()).await?,
-                _ => return Err(
-                    AvengerLangError::InternalError(format!("Invalid variable kind and value type: {:?} {:?}", variable.kind, value))
-                ),
+            match value {
+                TaskValue::Val(val) => self.register_val(&variable.name, val.clone())?,
+                TaskValue::Expr(expr) => self.register_expr(&variable.name, expr.clone())?,
+                TaskValue::Dataset(plan) => self.register_dataset(&variable.name, plan.clone()).await?,
+                TaskValue::Table(table) => self.register_table(&variable.name, table.clone())?,
             };
         }
         Ok(())
@@ -90,16 +87,28 @@ impl EvaluationContext {
     /// Maybe add an evaluation option in the future to control whether it's stored as a view
     /// or evaluated and registered as in-memory table
     pub async fn register_dataset(&self, name: &str, plan: LogicalPlan) -> Result<(), AvengerLangError> {
-        if !name.starts_with("@") {
-            return Err(AvengerLangError::InternalError(format!("Dataset name should start with @ prefix: {}", name)));
-        }
         let df = self.session_ctx.execute_logical_plan(plan).await?;
-        self.session_ctx.register_table(name, df.into_view())?;
+        self.session_ctx.register_table(format!("@{}", name), df.into_view())?;
+        Ok(())
+    }
+
+    /// Register an ArrowTable as a table in the DataFusion context
+    pub fn register_table(&self, name: &str, table: ArrowTable) -> Result<(), AvengerLangError> {
+        let table = MemTable::try_new(table.schema.clone(), vec![table.batches.clone()])?;
+        self.session_ctx.register_table(
+            TableReference::Bare {
+                table: name.into(),
+            },
+            Arc::new(table),
+        );
         Ok(())
     }
 
     /// Get a registered dataset from the context
     pub async fn get_dataset(&self, name: &str) -> Result<DataFrame, AvengerLangError> {
+        if !name.starts_with("@") {
+            return Err(AvengerLangError::InternalError(format!("Dataset name should start with @ prefix: {}", name)));
+        }
         let df = self.session_ctx.table(name).await?;
         Ok(df)
     }
@@ -117,13 +126,16 @@ impl EvaluationContext {
 
     /// Get a value from the context
     pub fn get_val(&self, name: &str) -> Result<ScalarValue, AvengerLangError> {
-        let val = self.val_provider.get_value(vec![format!("@{}", name)])?;
+        if !name.starts_with("@") {
+            return Err(AvengerLangError::InternalError(format!("Val name should start with @ prefix: {}", name)));
+        }
+        let val = self.val_provider.get_value(vec![name.to_string()])?;
         Ok(val)
     }
 
     /// Check if a value is registered in the context
     pub fn has_val(&self, name: &str) -> bool {
-        self.val_provider.get_type(&[format!("@{}", name)]).is_some()
+        self.val_provider.get_type(&[ name.to_string()]).is_some()
     }
 
     /// Add an expression to the context
@@ -134,8 +146,11 @@ impl EvaluationContext {
 
     /// Get an expression from the context
     pub fn get_expr(&self, name: &str) -> Result<Expr, AvengerLangError> {
+        if !name.starts_with("@") {
+            return Err(AvengerLangError::InternalError(format!("Expr name should start with @ prefix: {}", name)));
+        }   
         let locked = self.exprs.lock().unwrap();
-        let expr = locked.get(&format!("@{}", name)).ok_or(
+        let expr = locked.get(&name.to_string()).ok_or(
             AvengerLangError::ExpressionNotFound(format!("Expression {} not found", name))
         )?;
         Ok(expr.clone())
@@ -143,7 +158,7 @@ impl EvaluationContext {
 
     /// Check if an expression is stored in the context
     pub fn has_expr(&self, name: &str) -> bool {
-        self.exprs.lock().unwrap().contains_key(&format!("@{}", name))
+        self.exprs.lock().unwrap().contains_key(&name.to_string())
     }
 
     /// Compile a SQL query to a logical plan, expanding sql with referenced expressions

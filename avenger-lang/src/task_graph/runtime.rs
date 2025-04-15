@@ -6,7 +6,9 @@ use async_recursion::async_recursion;
 use crate::task_graph::cache::{TaskCache, RuntimeStats};
 use crate::error::AvengerLangError;
 use crate::task_graph::task_graph::TaskGraph;
-use crate::task_graph::{value::TaskValue, variable::Variable};
+use crate::task_graph::{value::TaskValue, dependency::Dependency};
+
+use super::variable::Variable;
 
 
 // Threshold for spawning tasks (in milliseconds)
@@ -38,7 +40,7 @@ impl TaskGraphRuntime {
         // Process all requested variables
         let arc_self = Arc::new(self.clone());
         for var in variables {
-            let result = arc_self.clone().evaluate_variable(graph.clone(), var.clone()).await?;
+            let result = arc_self.clone().evaluate_variable(graph.clone(), &var).await?;
             results.insert(var.clone(), result);
         }
         
@@ -50,13 +52,13 @@ impl TaskGraphRuntime {
     async fn evaluate_variable(
         self: Arc<Self>,
         graph: Arc<TaskGraph>,
-        variable: Variable,
+        variable: &Variable,
     ) -> Result<TaskValue, AvengerLangError> {
         // Start timing this variable's evaluation
         let start_time = Instant::now();
         
         // Lookup the node for this variable
-        let node = graph.tasks().get(&variable).ok_or_else(|| {
+        let node = graph.tasks().get(variable).ok_or_else(|| {
             AvengerLangError::VariableNotFound(format!("Variable not found: {:?}", variable))
         })?;
         
@@ -64,7 +66,7 @@ impl TaskGraphRuntime {
         if let Some(cached_value) = self.cache.get(node.fingerprint).await {
             // Even for cached values, store that this variable was accessed
             if let Some(stats) = self.cache.get_variable_stats(&variable).await {
-                self.cache.store_variable_stats(variable, stats).await;
+                self.cache.store_variable_stats(variable.clone(), stats).await;
             }
             return Ok(cached_value);
         }
@@ -98,7 +100,7 @@ impl TaskGraphRuntime {
             if should_spawn {
                 // Spawn a new Tokio task for this dependency
                 let spawned = tokio::spawn(async move {
-                    runtime_clone.evaluate_variable(graph_clone, dep_var).await
+                    runtime_clone.evaluate_variable(graph_clone, &dep_var).await
                 });
                 
                 // Convert JoinHandle<Result<T, E>> to Future<Output=Result<T, E>>
@@ -113,7 +115,7 @@ impl TaskGraphRuntime {
             } else {
                 // Run directly without spawning
                 let future = async move {
-                    runtime_clone.evaluate_variable(graph_clone, dep_var).await
+                    runtime_clone.evaluate_variable(graph_clone, &dep_var).await
                 }.boxed();
                 
                 dependency_futures.push(future);
@@ -176,7 +178,7 @@ impl Clone for TaskGraphRuntime {
 mod tests {
     use super::*;
     use crate::task_graph::tasks::Task;
-    use crate::task_graph::variable::VariableKind;
+    use crate::task_graph::dependency::DependencyKind;
     use async_trait::async_trait;
     use datafusion_common::ScalarValue;
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -187,12 +189,12 @@ mod tests {
     #[derive(Debug, Clone)]
     struct MockTask {
         name: String,
-        input_vars: Vec<Variable>,
+        input_vars: Vec<Dependency>,
         return_value: TaskValue,
     }
 
     impl MockTask {
-        fn new(name: &str, input_vars: Vec<Variable>, return_value: TaskValue) -> Self {
+        fn new(name: &str, input_vars: Vec<Dependency>, return_value: TaskValue) -> Self {
             Self {
                 name: name.to_string(),
                 input_vars,
@@ -203,7 +205,7 @@ mod tests {
 
     #[async_trait]
     impl Task for MockTask {
-        fn input_variables(&self) -> Result<Vec<Variable>, AvengerLangError> {
+        fn input_dependencies(&self) -> Result<Vec<Dependency>, AvengerLangError> {
             Ok(self.input_vars.clone())
         }
 
@@ -219,7 +221,7 @@ mod tests {
     #[derive(Debug, Clone)]
     struct DelayedTask {
         name: String,
-        dependencies: Vec<Variable>,
+        dependencies: Vec<Dependency>,
         delay: Duration,
         return_value: TaskValue,
     }
@@ -227,7 +229,7 @@ mod tests {
     impl DelayedTask {
         fn new(
             name: &str, 
-            dependencies: Vec<Variable>, 
+            dependencies: Vec<Dependency>, 
             delay_ms: u64,
             return_value: TaskValue,
         ) -> Self {
@@ -242,7 +244,7 @@ mod tests {
     
     #[async_trait]
     impl Task for DelayedTask {
-        fn input_variables(&self) -> Result<Vec<Variable>, AvengerLangError> {
+        fn input_dependencies(&self) -> Result<Vec<Dependency>, AvengerLangError> {
             Ok(self.dependencies.clone())
         }
         
@@ -259,8 +261,8 @@ mod tests {
     // A task that counts how many times it's been evaluated
     #[derive(Debug, Clone)]
     struct CountingTask {
-        var: Variable,
-        dependencies: Vec<Variable>,
+        var: Dependency,
+        dependencies: Vec<Dependency>,
         counter: Arc<AtomicU32>,
         return_value: TaskValue,
     }
@@ -268,12 +270,12 @@ mod tests {
     impl CountingTask {
         fn new(
             name: &str, 
-            dependencies: Vec<Variable>, 
+            dependencies: Vec<Dependency>, 
             counter: Arc<AtomicU32>, 
             return_value: TaskValue
         ) -> Self {
             Self {
-                var: Variable::new(name.to_string(), VariableKind::ValOrExpr),
+                var: Dependency::new(name.to_string(), DependencyKind::ValOrExpr),
                 dependencies,
                 counter,
                 return_value,
@@ -283,7 +285,7 @@ mod tests {
     
     #[async_trait]
     impl Task for CountingTask {
-        fn input_variables(&self) -> Result<Vec<Variable>, AvengerLangError> {
+        fn input_dependencies(&self) -> Result<Vec<Dependency>, AvengerLangError> {
             Ok(self.dependencies.clone())
         }
         
@@ -301,7 +303,7 @@ mod tests {
     async fn test_evaluate_single_variable() -> Result<(), AvengerLangError> {
         // Create a simple task graph with a single task
         let mut tasks = HashMap::new();
-        let var = Variable::new("test".to_string(), VariableKind::ValOrExpr);
+        let var = Variable::new("test");
         
         let task = MockTask::new(
             "test_task", 
@@ -334,9 +336,12 @@ mod tests {
         // Create a task graph with dependencies
         let mut tasks = HashMap::new();
         
-        let var_a = Variable::new("A".to_string(), VariableKind::ValOrExpr);
-        let var_b = Variable::new("B".to_string(), VariableKind::ValOrExpr);
-        let var_c = Variable::new("C".to_string(), VariableKind::ValOrExpr);
+        let var_a = Variable::new("A");
+        let dep_a = Dependency::new(var_a.name.clone(), DependencyKind::ValOrExpr);
+        let var_b = Variable::new("B");
+        let dep_b = Dependency::new(var_b.name.clone(), DependencyKind::ValOrExpr);
+        let var_c = Variable::new("C");
+        let dep_c = Dependency::new(var_c.name.clone(), DependencyKind::ValOrExpr);
         
         // Task A has no dependencies
         let task_a = MockTask::new(
@@ -348,14 +353,14 @@ mod tests {
         // Task B depends on A
         let task_b = MockTask::new(
             "task_b", 
-            vec![var_a.clone()], 
+            vec![dep_a], 
             TaskValue::Val(ScalarValue::Int32(Some(2)))
         );
         
         // Task C depends on B
         let task_c = MockTask::new(
             "task_c", 
-            vec![var_b.clone()], 
+            vec![dep_b], 
             TaskValue::Val(ScalarValue::Int32(Some(3)))
         );
         
@@ -385,7 +390,7 @@ mod tests {
     async fn test_basic_caching() -> Result<(), AvengerLangError> {
         // Create a task that we can track invocations
         let mut tasks = HashMap::new();
-        let var = Variable::new("test".to_string(), VariableKind::ValOrExpr);
+        let var = Variable::new("test");
         let counter = Arc::new(AtomicU32::new(0));
         
         let task = CountingTask::new(
@@ -415,9 +420,12 @@ mod tests {
         // Test that dependencies are properly cached
         let mut tasks = HashMap::new();
         
-        let var_a = Variable::new("A".to_string(), VariableKind::ValOrExpr);
-        let var_b = Variable::new("B".to_string(), VariableKind::ValOrExpr);
-        let var_c = Variable::new("C".to_string(), VariableKind::ValOrExpr);
+        let var_a = Variable::new("A");
+        let dep_a = Dependency::new(var_a.name.clone(), DependencyKind::ValOrExpr);
+        let var_b = Variable::new("B");
+        let dep_b = Dependency::new(var_b.name.clone(), DependencyKind::ValOrExpr);
+        let var_c = Variable::new("C");
+        let dep_c = Dependency::new(var_c.name.clone(), DependencyKind::ValOrExpr);
         
         let counter_a = Arc::new(AtomicU32::new(0));
         let counter_b = Arc::new(AtomicU32::new(0));
@@ -434,7 +442,7 @@ mod tests {
         // Task B depends on A
         let task_b = CountingTask::new(
             "B",
-            vec![var_a.clone()],
+            vec![dep_a],
             counter_b.clone(),
             TaskValue::Val(ScalarValue::Int32(Some(2)))
         );
@@ -442,7 +450,7 @@ mod tests {
         // Task C depends on B
         let task_c = CountingTask::new(
             "C",
-            vec![var_b.clone()],
+            vec![dep_b],
             counter_c.clone(),
             TaskValue::Val(ScalarValue::Int32(Some(3)))
         );
@@ -484,7 +492,7 @@ mod tests {
     async fn test_shared_cache() -> Result<(), AvengerLangError> {
         // Test that multiple runtimes can share a cache
         let mut tasks = HashMap::new();
-        let var = Variable::new("test".to_string(), VariableKind::ValOrExpr);
+        let var = Variable::new("test");
         let counter = Arc::new(AtomicU32::new(0));
         
         let task = CountingTask::new(
@@ -527,8 +535,8 @@ mod tests {
         let mut tasks1 = HashMap::new();
         let mut tasks2 = HashMap::new();
         
-        let var1 = Variable::new("test1".to_string(), VariableKind::ValOrExpr);
-        let var2 = Variable::new("test2".to_string(), VariableKind::ValOrExpr);
+        let var1 = Variable::new("test1");
+        let var2 = Variable::new("test2");
         
         let counter1 = Arc::new(AtomicU32::new(0));
         let counter2 = Arc::new(AtomicU32::new(0));
@@ -580,10 +588,14 @@ mod tests {
         let mut tasks = HashMap::new();
         
         // Define variables
-        let var_a = Variable::new("A".to_string(), VariableKind::ValOrExpr);
-        let var_b = Variable::new("B".to_string(), VariableKind::ValOrExpr);
-        let var_c = Variable::new("C".to_string(), VariableKind::ValOrExpr);
-        let var_d = Variable::new("D".to_string(), VariableKind::ValOrExpr);
+        let var_a = Variable::new("A");
+        let dep_a = Dependency::new(var_a.name.clone(), DependencyKind::ValOrExpr);
+        let var_b = Variable::new("B");
+        let dep_b = Dependency::new(var_b.name.clone(), DependencyKind::ValOrExpr);
+        let var_c = Variable::new("C");
+        let dep_c = Dependency::new(var_c.name.clone(), DependencyKind::ValOrExpr);
+        let var_d = Variable::new("D");
+        let dep_d = Dependency::new(var_d.name.clone(), DependencyKind::ValOrExpr);
         
         // Task A: Fast and independent (25ms, below threshold)
         let task_a = DelayedTask::new(
@@ -596,7 +608,7 @@ mod tests {
         // Task B: Medium speed, depends on A (60ms, above threshold)
         let task_b = DelayedTask::new(
             "task_b",
-            vec![var_a.clone()],
+            vec![dep_a.clone()],
             60,
             TaskValue::Val(ScalarValue::Int32(Some(2))),
         );
@@ -604,7 +616,7 @@ mod tests {
         // Task C: Slow, depends on A (200ms, above threshold)
         let task_c = DelayedTask::new(
             "task_c",
-            vec![var_a.clone()],
+            vec![dep_a.clone()],
             200,
             TaskValue::Val(ScalarValue::Int32(Some(3))),
         );
@@ -612,7 +624,7 @@ mod tests {
         // Task D: Very slow, depends on B and C (will be run in parallel)
         let task_d = DelayedTask::new(
             "task_d",
-            vec![var_b.clone(), var_c.clone()],
+            vec![dep_b, dep_c],
             150,
             TaskValue::Val(ScalarValue::Int32(Some(4))),
         );
@@ -660,10 +672,14 @@ mod tests {
         let mut tasks2 = HashMap::new();
         
         // Define variables for the second test
-        let var_a2 = Variable::new("A2".to_string(), VariableKind::ValOrExpr);
-        let var_b2 = Variable::new("B2".to_string(), VariableKind::ValOrExpr);
-        let var_c2 = Variable::new("C2".to_string(), VariableKind::ValOrExpr);
-        let var_d2 = Variable::new("D2".to_string(), VariableKind::ValOrExpr);
+        let var_a2 = Variable::new("A2");
+        let dep_a2 = Dependency::new(var_a2.name.clone(), DependencyKind::ValOrExpr);
+        let var_b2 = Variable::new("B2");
+        let dep_b2 = Dependency::new(var_b2.name.clone(), DependencyKind::ValOrExpr);
+        let var_c2 = Variable::new("C2");
+        let dep_c2 = Dependency::new(var_c2.name.clone(), DependencyKind::ValOrExpr);
+        let var_d2 = Variable::new("D2");
+        let dep_d2 = Dependency::new(var_d2.name.clone(), DependencyKind::ValOrExpr);
         
         // Same task types as before, different variables
         let task_a2 = DelayedTask::new(
@@ -675,21 +691,21 @@ mod tests {
         
         let task_b2 = DelayedTask::new(
             "task_b2",
-            vec![var_a2.clone()],
+            vec![dep_a2.clone()],
             60,
             TaskValue::Val(ScalarValue::Int32(Some(2))),
         );
         
         let task_c2 = DelayedTask::new(
             "task_c2",
-            vec![var_a2.clone()],
+            vec![dep_a2.clone()],
             200, 
             TaskValue::Val(ScalarValue::Int32(Some(3))),
         );
         
         let task_d2 = DelayedTask::new(
             "task_d2",
-            vec![var_b2.clone(), var_c2.clone()],
+            vec![dep_b2, dep_c2],
             150,
             TaskValue::Val(ScalarValue::Int32(Some(4))),
         );
