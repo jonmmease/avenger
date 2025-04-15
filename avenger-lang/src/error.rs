@@ -1,3 +1,4 @@
+use arrow_schema::ArrowError;
 use datafusion_common::DataFusionError;
 use thiserror::Error;
 use sqlparser::tokenizer::TokenizerError;
@@ -26,6 +27,9 @@ pub enum AvengerLangError {
 
     #[error("DataFusion error: `{0}`")]
     DataFusionError(#[from] DataFusionError),
+
+    #[error("Arrow error: `{0}`")]
+    ArrowError(#[from] ArrowError),
 
     #[error("Unexpected token: `{0}`")]
     UnexpectedToken(String),

@@ -308,7 +308,7 @@ mod tests {
         let task = MockTask::new(
             "test_task", 
             vec![], 
-            TaskValue::Val(ScalarValue::Int32(Some(42)))
+            TaskValue::Val { value: ScalarValue::Int32(Some(42)) }
         );
         
         tasks.insert(var.clone(), Arc::new(task) as Arc<dyn Task>);
@@ -322,7 +322,7 @@ mod tests {
         // Check the result
         assert_eq!(results.len(), 1);
         
-        if let TaskValue::Val(ScalarValue::Int32(Some(value))) = &results[&var] {
+        if let TaskValue::Val { value: ScalarValue::Int32(Some(value)) } = &results[&var] {
             assert_eq!(*value, 42);
         } else {
             panic!("Expected Int32(42)");
@@ -347,21 +347,21 @@ mod tests {
         let task_a = MockTask::new(
             "task_a", 
             vec![], 
-            TaskValue::Val(ScalarValue::Int32(Some(1)))
+            TaskValue::Val { value: ScalarValue::Int32(Some(1)) }
         );
         
         // Task B depends on A
         let task_b = MockTask::new(
             "task_b", 
             vec![dep_a], 
-            TaskValue::Val(ScalarValue::Int32(Some(2)))
+            TaskValue::Val { value: ScalarValue::Int32(Some(2)) }
         );
         
         // Task C depends on B
         let task_c = MockTask::new(
             "task_c", 
             vec![dep_b], 
-            TaskValue::Val(ScalarValue::Int32(Some(3)))
+            TaskValue::Val { value: ScalarValue::Int32(Some(3)) }
         );
         
         tasks.insert(var_a.clone(), Arc::new(task_a) as Arc<dyn Task>);
@@ -377,7 +377,7 @@ mod tests {
         // Check the result
         assert_eq!(results.len(), 1);
         
-        if let TaskValue::Val(ScalarValue::Int32(Some(value))) = &results[&var_c] {
+        if let TaskValue::Val { value: ScalarValue::Int32(Some(value)) } = &results[&var_c] {
             assert_eq!(*value, 3);
         } else {
             panic!("Expected Int32(3)");
@@ -397,7 +397,7 @@ mod tests {
             "test",
             vec![],
             counter.clone(),
-            TaskValue::Val(ScalarValue::Int32(Some(99)))
+            TaskValue::Val { value: ScalarValue::Int32(Some(99)) }
         );
         
         tasks.insert(var.clone(), Arc::new(task) as Arc<dyn Task>);
@@ -436,7 +436,7 @@ mod tests {
             "A",
             vec![],
             counter_a.clone(),
-            TaskValue::Val(ScalarValue::Int32(Some(1)))
+            TaskValue::Val { value: ScalarValue::Int32(Some(1)) }
         );
         
         // Task B depends on A
@@ -444,7 +444,7 @@ mod tests {
             "B",
             vec![dep_a],
             counter_b.clone(),
-            TaskValue::Val(ScalarValue::Int32(Some(2)))
+            TaskValue::Val { value: ScalarValue::Int32(Some(2)) }
         );
         
         // Task C depends on B
@@ -452,7 +452,7 @@ mod tests {
             "C",
             vec![dep_b],
             counter_c.clone(),
-            TaskValue::Val(ScalarValue::Int32(Some(3)))
+            TaskValue::Val { value: ScalarValue::Int32(Some(3)) }
         );
         
         tasks.insert(var_a.clone(), Arc::new(task_a) as Arc<dyn Task>);
@@ -499,7 +499,7 @@ mod tests {
             "test",
             vec![],
             counter.clone(),
-            TaskValue::Val(ScalarValue::Int32(Some(99)))
+            TaskValue::Val { value: ScalarValue::Int32(Some(99)) }
         );
         
         tasks.insert(var.clone(), Arc::new(task) as Arc<dyn Task>);
@@ -545,14 +545,14 @@ mod tests {
             "test1",
             vec![],
             counter1.clone(),
-            TaskValue::Val(ScalarValue::Int32(Some(99)))
+            TaskValue::Val { value: ScalarValue::Int32(Some(99)) }
         );
         
         let task2 = CountingTask::new(
             "test2",
             vec![],
             counter2.clone(),
-            TaskValue::Val(ScalarValue::Int32(Some(99)))
+            TaskValue::Val { value: ScalarValue::Int32(Some(99)) }
         );
         
         tasks1.insert(var1.clone(), Arc::new(task1) as Arc<dyn Task>);
@@ -602,7 +602,7 @@ mod tests {
             "task_a",
             vec![],
             25,
-            TaskValue::Val(ScalarValue::Int32(Some(1))),
+            TaskValue::Val { value: ScalarValue::Int32(Some(1)) },
         );
         
         // Task B: Medium speed, depends on A (60ms, above threshold)
@@ -610,7 +610,7 @@ mod tests {
             "task_b",
             vec![dep_a.clone()],
             60,
-            TaskValue::Val(ScalarValue::Int32(Some(2))),
+            TaskValue::Val { value: ScalarValue::Int32(Some(2)) },
         );
         
         // Task C: Slow, depends on A (200ms, above threshold)
@@ -618,7 +618,7 @@ mod tests {
             "task_c",
             vec![dep_a.clone()],
             200,
-            TaskValue::Val(ScalarValue::Int32(Some(3))),
+            TaskValue::Val { value: ScalarValue::Int32(Some(3)) },
         );
         
         // Task D: Very slow, depends on B and C (will be run in parallel)
@@ -626,7 +626,7 @@ mod tests {
             "task_d",
             vec![dep_b, dep_c],
             150,
-            TaskValue::Val(ScalarValue::Int32(Some(4))),
+            TaskValue::Val { value: ScalarValue::Int32(Some(4)) },
         );
         
         tasks.insert(var_a.clone(), Arc::new(task_a) as Arc<dyn Task>);
@@ -686,28 +686,28 @@ mod tests {
             "task_a2",
             vec![],
             25,
-            TaskValue::Val(ScalarValue::Int32(Some(1))),
+            TaskValue::Val { value: ScalarValue::Int32(Some(1)) },
         );
         
         let task_b2 = DelayedTask::new(
             "task_b2",
             vec![dep_a2.clone()],
             60,
-            TaskValue::Val(ScalarValue::Int32(Some(2))),
+            TaskValue::Val { value: ScalarValue::Int32(Some(2)) },
         );
         
         let task_c2 = DelayedTask::new(
             "task_c2",
             vec![dep_a2.clone()],
             200, 
-            TaskValue::Val(ScalarValue::Int32(Some(3))),
+            TaskValue::Val { value: ScalarValue::Int32(Some(3)) },
         );
         
         let task_d2 = DelayedTask::new(
             "task_d2",
             vec![dep_b2, dep_c2],
             150,
-            TaskValue::Val(ScalarValue::Int32(Some(4))),
+            TaskValue::Val { value: ScalarValue::Int32(Some(4)) },
         );
         
         tasks2.insert(var_a2.clone(), Arc::new(task_a2) as Arc<dyn Task>);

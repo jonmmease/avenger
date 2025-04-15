@@ -3,9 +3,9 @@ use std::{fmt::Debug, ops::ControlFlow};
 use sqlparser::ast::{Expr as SqlExpr, ObjectName, Query as SqlQuery, Visit, Visitor};
 use async_trait::async_trait;
 
-use crate::{ast::{DatasetPropDecl, ExprPropDecl, ValPropDecl}, context::EvaluationContext, error::AvengerLangError, task_graph::{value::TaskValue, dependency::{Dependency, DependencyKind}}};
+use crate::{ast::{DatasetPropDecl, ExprPropDecl, ValPropDecl}, context::EvaluationContext, error::AvengerLangError, task_graph::{dependency::{Dependency, DependencyKind}, value::{TaskDataset, TaskValue}}};
 
-use super::variable::Variable;
+use super::{value::TaskValueContext, variable::Variable};
 
 
 #[async_trait]
@@ -81,7 +81,7 @@ impl Task for ValDeclTask {
         let ctx = EvaluationContext::new();
         ctx.register_values(&self.input_variables()?, &input_values).await?;
         let val = ctx.evaluate_expr(&self.value).await?;
-        Ok(TaskValue::Val(val))
+        Ok(TaskValue::Val { value: val })
     }
 }
 
@@ -119,8 +119,12 @@ impl Task for ExprDeclTask {
     ) -> Result<TaskValue, AvengerLangError> {
         let ctx = EvaluationContext::new();
         ctx.register_values(&self.input_variables()?, &input_values).await?;
-        let expr = ctx.compile_expr(&self.expr)?;
-        Ok(TaskValue::Expr(expr))
+
+        let sql_expr = ctx.expand_expr(&self.expr)?;
+        let task_value_context = TaskValueContext::from_combined_task_value_context(
+            &self.input_variables()?, &input_values
+        )?;
+        Ok(TaskValue::Expr { context: task_value_context, sql_expr })
     }
 }
 
@@ -134,11 +138,12 @@ impl From<ExprPropDecl> for ExprDeclTask {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DatasetDeclTask {
     pub query: Box<SqlQuery>,
+    pub eval: bool,
 }
 
 impl DatasetDeclTask {
-    pub fn new(query: SqlQuery) -> Self {
-        Self { query: Box::new(query) }
+    pub fn new(query: SqlQuery, eval: bool) -> Self {
+        Self { query: Box::new(query), eval }
     }
 }
 
@@ -161,13 +166,25 @@ impl Task for DatasetDeclTask {
         let ctx = EvaluationContext::new();
         ctx.register_values(&self.input_variables()?, &input_values).await?;
         let plan = ctx.compile_query(&self.query).await?;
-        Ok(TaskValue::Dataset(plan))
+
+        if self.eval {
+            // Eager evaluation, evaluate the logical plan
+            let table = ctx.eval_query(&self.query).await?;
+            Ok(TaskValue::Dataset { context: Default::default() , dataset: TaskDataset::ArrowTable(table) })
+        } else {
+            // Lazy evaluation, return the logical plan, along with the reference value context
+            let task_value_context = TaskValueContext::from_combined_task_value_context(
+                &self.input_variables()?, &input_values
+            )?;
+    
+            Ok(TaskValue::Dataset { context: task_value_context, dataset: TaskDataset::LogicalPlan(plan) })
+        }
     }
 }
 
 impl From<DatasetPropDecl> for DatasetDeclTask {
     fn from(dataset_prop_decl: DatasetPropDecl) -> Self {
-        Self { query: dataset_prop_decl.value }
+        Self { query: dataset_prop_decl.value, eval: true }
     }
 }
 

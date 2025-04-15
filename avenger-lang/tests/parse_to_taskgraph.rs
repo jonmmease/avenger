@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use avenger_lang::{ast::AvengerFile, context::EvaluationContext, error::AvengerLangError, parser::AvengerParser, task_graph::{dependency::{Dependency, DependencyKind}, runtime::TaskGraphRuntime, task_graph::TaskGraph, variable::Variable}};
+use avenger_lang::{ast::AvengerFile, context::EvaluationContext, error::AvengerLangError, parser::AvengerParser, task_graph::{dependency::{Dependency, DependencyKind}, runtime::TaskGraphRuntime, task_graph::TaskGraph, value::{ArrowTable, TaskDataset}, variable::Variable}};
 
 
 #[tokio::test]
@@ -43,13 +43,24 @@ async fn test_parse_file_to_taskgraph() -> Result<(), AvengerLangError> {
         task_graph.clone(), &[my_dataset.clone()]
     ).await?;
 
-    let my_dataset_val = vals.get(&my_dataset).unwrap();
-    let my_dataset_val = my_dataset_val.as_dataset().unwrap();
+    let my_dataset_val = vals.get(&my_dataset).unwrap().clone();
+    let (my_dataset_val, task_value_context) = my_dataset_val.into_dataset().unwrap();
+
     let ctx = EvaluationContext::new();
-    let my_dataset_df = ctx.session_ctx().execute_logical_plan(my_dataset_val.clone()).await?;
+    ctx.register_task_value_context(&task_value_context).await?;
+
+    let table = match my_dataset_val {
+        TaskDataset::LogicalPlan(plan) => {
+            let my_dataset_df = ctx.session_ctx().execute_logical_plan(plan.clone()).await?;
+            ArrowTable::from_dataframe(my_dataset_df).await?
+        }
+        TaskDataset::ArrowTable(table) => {
+            table
+        }
+    };
 
     println!("my_dataset");
-    my_dataset_df.show().await?;
+    table.show()?;
     Ok(())
 }
 
