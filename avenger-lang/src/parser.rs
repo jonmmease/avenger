@@ -90,7 +90,6 @@ impl AvengerParser {
 
     // // Rule parsers
     fn parse_type(&mut self) -> Result<Option<Type>, ParserError> {
-        println!("parse_type");
         if self.parser.peek_token_ref().token == Token::Lt {
             self.parser.expect_token(&Token::Lt)?;
             let name = self.parser.parse_identifier()?;
@@ -208,6 +207,19 @@ mod tests {
         // Create a new parser with the tokens
         let mut parser = parser.with_tokens_with_locations(tokens);
 
+        let file = parser.parse().unwrap();
+        println!("{:#?}", file);
+    }
+
+    #[test]
+    fn test_parse_file2() {
+        let src = r#"
+        // This is a comment
+        in expr my_expr: (2 + 1) * 3;
+        "#;
+        let parser = AvengerParser::new();
+        let tokens = parser.tokenize(src).unwrap();
+        let mut parser = parser.with_tokens_with_locations(tokens);
         let file = parser.parse().unwrap();
         println!("{:#?}", file);
     }
