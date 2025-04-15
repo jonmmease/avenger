@@ -243,7 +243,7 @@ mod tests {
             _input_values: &[TaskValue],
         ) -> Result<TaskValue, AvengerLangError> {
             // For testing, just return a dummy value
-            Ok(TaskValue::Val(ScalarValue::Int32(Some(42))))
+            Ok(TaskValue::Val { value: ScalarValue::Int32(Some(42)) })
         }
     }
 

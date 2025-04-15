@@ -524,7 +524,7 @@ mod tests {
         
         // Insert some values
         let fingerprint1 = 100;
-        let value1 = TaskValue::Val(datafusion_common::ScalarValue::Utf8(Some("test1".to_string())));
+        let value1 = TaskValue::Val { value: datafusion_common::ScalarValue::Utf8(Some("test1".to_string())) };
         cache.insert(fingerprint1, value1.clone(), Duration::from_millis(10)).await;
         
         // Verify we can get the value back
@@ -535,7 +535,7 @@ mod tests {
         
         // Insert a second value
         let fingerprint2 = 200;
-        let value2 = TaskValue::Val(datafusion_common::ScalarValue::Utf8(Some("test2".to_string())));
+        let value2 = TaskValue::Val { value: datafusion_common::ScalarValue::Utf8(Some("test2".to_string())) };
         cache.insert(fingerprint2, value2.clone(), Duration::from_millis(20)).await;
         
         // Verify both values are retrievable
@@ -552,7 +552,7 @@ mod tests {
     async fn test_task_cache_memory_limit() {
         // Create a string with a known size (about ~25 bytes for the struct + string data)
         let make_string_value = |s: &str| -> TaskValue {
-            TaskValue::Val(datafusion_common::ScalarValue::Utf8(Some(s.to_string())))
+            TaskValue::Val { value: datafusion_common::ScalarValue::Utf8(Some(s.to_string())) }
         };
         
         // Create a TaskCache with a very low memory limit (100 bytes)
