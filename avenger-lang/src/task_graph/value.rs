@@ -6,7 +6,7 @@ use datafusion_common::ScalarValue;
 use datafusion::arrow::array::RecordBatch;
 use crate::error::AvengerLangError;
 
-use super::memory::{inner_size_of_scalar, inner_size_of_table};
+use super::{memory::{inner_size_of_scalar, inner_size_of_table}, dependency::{Dependency, DependencyKind}};
 
 /// The value of a task
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -49,6 +49,15 @@ impl TaskValue {
         };
 
         std::mem::size_of::<Self>() + inner_size
+    }
+
+    pub fn make_dependency(&self, name: &str) -> Dependency {
+        match self {
+            TaskValue::Val(scalar) => Dependency::new(name, DependencyKind::Val),
+            TaskValue::Expr(expr) => Dependency::new(name, DependencyKind::ValOrExpr),
+            TaskValue::Dataset(df) => Dependency::new(name, DependencyKind::Dataset),
+            TaskValue::Table(table) => Dependency::new(name, DependencyKind::Table),
+        }
     }
 }
 
