@@ -174,7 +174,6 @@ impl AvengerParser {
                 let name = self.next_word()?;
                 self.parser.expect_token(&Token::Colon)?;
                 let value = self.parse_comp_instance()?;
-                self.parser.expect_token(&Token::SemiColon)?;
                 Ok(Statement::CompPropDecl(CompPropDecl {
                     name, value, qualifier, type_: ty
                 }))

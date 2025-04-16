@@ -18,7 +18,7 @@ pub trait Task: Debug + Send + Sync {
     /// Get the input variables of the task
     fn input_variables(&self) -> Result<Vec<Variable>, AvengerLangError> {
         Ok(self.input_dependencies()?.iter().map(
-            |dep| Variable::new(dep.name.clone())
+            |dep| dep.variable.clone()
         ).collect())
     }
 
@@ -204,21 +204,38 @@ impl Visitor for CollectDependenciesVisitor {
     fn pre_visit_relation(&mut self, relation: &ObjectName) -> ControlFlow<Self::Break> {
         let table_name = relation.to_string();
 
-        // 
-        if table_name.starts_with("@") {
-            self.deps.push(Dependency::new(table_name[1..].to_string(), DependencyKind::Dataset));
+        // Handle dataset references
+        if table_name.starts_with("@") {            // Drop leading @ and split on __
+            let parts = table_name[1..].split(".").map(|s| s.to_string()).collect::<Vec<_>>();
+
+            self.deps.push(Dependency::with_parts(
+                parts, DependencyKind::Dataset)
+            );
         }
 
         ControlFlow::Continue(())
     }
 
     fn pre_visit_expr(&mut self, expr: &SqlExpr) -> ControlFlow<Self::Break> {
-        if let SqlExpr::Identifier(ident) = expr.clone() {
-            if ident.value.starts_with("@") {
-                self.deps.push(Dependency::new(
-                    ident.value[1..].to_string(), DependencyKind::ValOrExpr)
-                );
+        match &expr {
+            SqlExpr::Identifier(ident) => {
+                if ident.value.starts_with("@") {
+                    self.deps.push(Dependency::new(
+                        ident.value[1..].to_string(), DependencyKind::ValOrExpr)
+                    );
+                }
             }
+            SqlExpr::CompoundIdentifier(idents) => {
+                if !idents.is_empty() && idents[0].value.starts_with("@") {
+                    let mut parts: Vec<String> = idents.iter().map(|ident| ident.value.clone()).collect();
+                    // Drop the leading @
+                    parts[0] = parts[0][1..].to_string();
+                    self.deps.push(Dependency::with_parts(
+                        parts, DependencyKind::ValOrExpr)
+                    );
+                }
+            }
+            _ => {}
         }
         ControlFlow::Continue(())
     }

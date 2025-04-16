@@ -1,15 +1,23 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, atomic::{AtomicU32, Ordering}};
 use std::time::{Duration, Instant};
-use futures::future::{join_all, BoxFuture, FutureExt};
+
 use async_recursion::async_recursion;
-use crate::task_graph::cache::{TaskCache, RuntimeStats};
+use futures::future::{join_all, FutureExt};
+use tokio::time::sleep;
+
+use crate::context::EvaluationContext;
 use crate::error::AvengerLangError;
-use crate::task_graph::task_graph::TaskGraph;
-use crate::task_graph::{value::TaskValue, dependency::Dependency};
+use crate::task_graph::{
+    cache::{RuntimeStats, TaskCache},
+    dependency::{Dependency, DependencyKind},
+    tasks::Task,
+    variable::Variable,
+    task_graph::TaskGraph,
+    value::TaskValue,
+};
 
-use super::variable::Variable;
-
+use super::value::TaskDataset;
 
 // Threshold for spawning tasks (in milliseconds)
 const SPAWN_THRESHOLD_MS: u64 = 50;
@@ -37,13 +45,41 @@ impl TaskGraphRuntime {
     ) -> Result<HashMap<Variable, TaskValue>, AvengerLangError> {
         let mut results = HashMap::new();
         
-        // Process all requested variables
+        // Process all requested variables in parallel
         let arc_self = Arc::new(self.clone());
+        let mut eval_var_futures = vec![];
         for var in variables {
-            let result = arc_self.clone().evaluate_variable(graph.clone(), &var).await?;
+            let var = var.clone();
+            let arc_self = arc_self.clone();
+            let graph = graph.clone();
+            let eval_var_future = tokio::spawn(async move {
+                let result = arc_self.evaluate_variable(graph, &var).await?;
+                if let TaskValue::Dataset { 
+                    context, 
+                    dataset: TaskDataset::LogicalPlan(plan) 
+                } = result {
+                    // Evaluate the logical plan
+                    let ctx = EvaluationContext::new();
+                    ctx.register_task_value_context(&context).await?;
+                    let table = ctx.eval_plan(plan.clone()).await?;
+                    let task_value = TaskValue::Dataset {
+                        context: Default::default(),
+                        dataset: TaskDataset::ArrowTable(table),
+                    };
+                    Ok::<_, AvengerLangError>((var.clone(), task_value))
+                } else {
+                    Ok::<_, AvengerLangError>((var.clone(), result))
+                }
+            });
+            eval_var_futures.push(eval_var_future);
+        }
+
+        let eval_var_results = join_all(eval_var_futures).await;
+        for res in eval_var_results {
+            let (var, result) = res??;
             results.insert(var.clone(), result);
         }
-        
+
         Ok(results)
     }
 
@@ -184,6 +220,11 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Duration;
     use tokio::time::sleep;
+    
+    /// Helper function to convert a Variable to a Dependency
+    fn variable_to_dependency(var: &Variable, kind: DependencyKind) -> Dependency {
+        Dependency { variable: var.clone(), kind }
+    }
     
     // Re-implement MockTask for testing since it's only in the test module of tasks.rs
     #[derive(Debug, Clone)]
@@ -337,11 +378,11 @@ mod tests {
         let mut tasks = HashMap::new();
         
         let var_a = Variable::new("A");
-        let dep_a = Dependency::new(var_a.name.clone(), DependencyKind::ValOrExpr);
+        let dep_a = variable_to_dependency(&var_a, DependencyKind::ValOrExpr);
         let var_b = Variable::new("B");
-        let dep_b = Dependency::new(var_b.name.clone(), DependencyKind::ValOrExpr);
+        let dep_b = variable_to_dependency(&var_b, DependencyKind::ValOrExpr);
         let var_c = Variable::new("C");
-        let dep_c = Dependency::new(var_c.name.clone(), DependencyKind::ValOrExpr);
+        let dep_c = variable_to_dependency(&var_c, DependencyKind::ValOrExpr);
         
         // Task A has no dependencies
         let task_a = MockTask::new(
@@ -421,11 +462,11 @@ mod tests {
         let mut tasks = HashMap::new();
         
         let var_a = Variable::new("A");
-        let dep_a = Dependency::new(var_a.name.clone(), DependencyKind::ValOrExpr);
+        let dep_a = variable_to_dependency(&var_a, DependencyKind::ValOrExpr);
         let var_b = Variable::new("B");
-        let dep_b = Dependency::new(var_b.name.clone(), DependencyKind::ValOrExpr);
+        let dep_b = variable_to_dependency(&var_b, DependencyKind::ValOrExpr);
         let var_c = Variable::new("C");
-        let dep_c = Dependency::new(var_c.name.clone(), DependencyKind::ValOrExpr);
+        let dep_c = variable_to_dependency(&var_c, DependencyKind::ValOrExpr);
         
         let counter_a = Arc::new(AtomicU32::new(0));
         let counter_b = Arc::new(AtomicU32::new(0));
@@ -589,13 +630,13 @@ mod tests {
         
         // Define variables
         let var_a = Variable::new("A");
-        let dep_a = Dependency::new(var_a.name.clone(), DependencyKind::ValOrExpr);
+        let dep_a = variable_to_dependency(&var_a, DependencyKind::ValOrExpr);
         let var_b = Variable::new("B");
-        let dep_b = Dependency::new(var_b.name.clone(), DependencyKind::ValOrExpr);
+        let dep_b = variable_to_dependency(&var_b, DependencyKind::ValOrExpr);
         let var_c = Variable::new("C");
-        let dep_c = Dependency::new(var_c.name.clone(), DependencyKind::ValOrExpr);
+        let dep_c = variable_to_dependency(&var_c, DependencyKind::ValOrExpr);
         let var_d = Variable::new("D");
-        let dep_d = Dependency::new(var_d.name.clone(), DependencyKind::ValOrExpr);
+        let dep_d = variable_to_dependency(&var_d, DependencyKind::ValOrExpr);
         
         // Task A: Fast and independent (25ms, below threshold)
         let task_a = DelayedTask::new(
@@ -673,13 +714,13 @@ mod tests {
         
         // Define variables for the second test
         let var_a2 = Variable::new("A2");
-        let dep_a2 = Dependency::new(var_a2.name.clone(), DependencyKind::ValOrExpr);
+        let dep_a2 = variable_to_dependency(&var_a2, DependencyKind::ValOrExpr);
         let var_b2 = Variable::new("B2");
-        let dep_b2 = Dependency::new(var_b2.name.clone(), DependencyKind::ValOrExpr);
+        let dep_b2 = variable_to_dependency(&var_b2, DependencyKind::ValOrExpr);
         let var_c2 = Variable::new("C2");
-        let dep_c2 = Dependency::new(var_c2.name.clone(), DependencyKind::ValOrExpr);
+        let dep_c2 = variable_to_dependency(&var_c2, DependencyKind::ValOrExpr);
         let var_d2 = Variable::new("D2");
-        let dep_d2 = Dependency::new(var_d2.name.clone(), DependencyKind::ValOrExpr);
+        let dep_d2 = variable_to_dependency(&var_d2, DependencyKind::ValOrExpr);
         
         // Same task types as before, different variables
         let task_a2 = DelayedTask::new(

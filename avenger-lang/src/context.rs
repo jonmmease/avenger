@@ -3,7 +3,7 @@ use std::{collections::HashMap, ops::ControlFlow, sync::{Arc, Mutex}};
 use datafusion::{arrow::array::record_batch, datasource::MemTable, logical_expr::{ColumnarValue, LogicalPlan}, prelude::{DataFrame, Expr, SessionContext}, variable::{VarProvider, VarType}};
 use datafusion_common::{DFSchema, DataFusionError, ScalarValue};
 use datafusion_sql::{unparser::expr_to_sql, TableReference};
-use sqlparser::ast::{Expr as SqlExpr, Query as SqlQuery, VisitMut, VisitorMut};
+use sqlparser::ast::{Expr as SqlExpr, Ident, ObjectName, Query as SqlQuery, VisitMut, VisitorMut};
 use crate::{error::AvengerLangError, task_graph::{dependency::{Dependency, DependencyKind}, value::{ArrowTable, TaskDataset, TaskValue, TaskValueContext}, variable::Variable}};
 
 
@@ -16,10 +16,10 @@ use crate::{error::AvengerLangError, task_graph::{dependency::{Dependency, Depen
 pub struct EvaluationContext {
     session_ctx: SessionContext,
 
-    // Expressions already evaluated, stored using plain
-    exprs: Arc<Mutex<HashMap<String, SqlExpr>>>,
+    // Expressions already evaluated, stored using Variable
+    exprs: Arc<Mutex<HashMap<Variable, SqlExpr>>>,
 
-    // Values already evaluated, stored using plain
+    // Values already evaluated, stored using Variable
     val_provider: Arc<EvaluationValProvider>,
 }
 
@@ -74,19 +74,21 @@ impl EvaluationContext {
     /// Maybe add an evaluation option in the future to control whether it's stored as a view
     /// or evaluated and registered as in-memory table
     pub async fn register_dataset(&self, variable: &Variable, dataset: TaskDataset) -> Result<(), AvengerLangError> {
-        if variable.name.starts_with("@") {
-            return Err(AvengerLangError::InternalError(format!("Dataset name should not include the @ prefix: {}", variable.name)));
+        if !variable.parts.is_empty() && variable.parts[0].starts_with("@") {
+            return Err(AvengerLangError::InternalError(format!("Dataset name should not include the @ prefix: {}", variable.name())));
         }
+        let table_name = format!("@{}", variable.name()).replace(".", "__");
+        println!("Registering dataset: {}", table_name);
         match dataset {
             TaskDataset::LogicalPlan(plan) => {
                 let df = self.session_ctx.execute_logical_plan(plan).await?;
-                self.session_ctx.register_table(format!("@{}", variable.name), df.into_view())?;
+                self.session_ctx.register_table(table_name.clone(), df.into_view())?;
             }
             TaskDataset::ArrowTable(table) => {
                 let table = MemTable::try_new(table.schema.clone(), vec![table.batches.clone()])?;
                 self.session_ctx.register_table(
                     TableReference::Bare {
-                        table: format!("@{}", variable.name).into(),
+                        table: table_name.into(),
                     },
                     Arc::new(table),
                 )?;
@@ -97,71 +99,71 @@ impl EvaluationContext {
 
     /// Get a registered dataset from the context
     pub async fn get_dataset(&self, variable: &Variable) -> Result<DataFrame, AvengerLangError> {
-        if variable.name.starts_with("@") {
-            return Err(AvengerLangError::InternalError(format!("Dataset name should not include the @ prefix: {}", variable.name)));
+        if !variable.parts.is_empty() && variable.parts[0].starts_with("@") {
+            return Err(AvengerLangError::InternalError(format!("Dataset name should not include the @ prefix: {}", variable.name())));
         }
-        let df = self.session_ctx.table(&format!("@{}", variable.name)).await?;
+        let df = self.session_ctx.table(&format!("@{}", variable.name())).await?;
         Ok(df)
     }
 
     /// Check if a dataset is registered in the context, handling mangling
     pub fn has_dataset(&self, variable: &Variable) -> bool {
-        if variable.name.starts_with("@") {
-            panic!("Dataset name should not include the @ prefix: {}", variable.name);
+        if !variable.parts.is_empty() && variable.parts[0].starts_with("@") {
+            panic!("Dataset name should not include the @ prefix: {}", variable.name());
         }
-        self.session_ctx.table_exist(&format!("@{}", variable.name)).unwrap_or(false)
+        self.session_ctx.table_exist(&format!("@{}", variable.name())).unwrap_or(false)
     }
 
     /// Register a value in the context
     pub fn register_val(&self, variable: &Variable, val: ScalarValue) -> Result<(), AvengerLangError> {
-        if variable.name.starts_with("@") {
-            return Err(AvengerLangError::InternalError(format!("Val name should not include the @ prefix: {}", variable.name)));
+        if !variable.parts.is_empty() && variable.parts[0].starts_with("@") {
+            return Err(AvengerLangError::InternalError(format!("Val name should not include the @ prefix: {}", variable.name())));
         }
-        self.val_provider.insert(variable.name.clone(), val);
+        self.val_provider.insert(variable.clone(), val);
         Ok(())
     }
 
     /// Get a value from the context
     pub fn get_val(&self, variable: &Variable) -> Result<ScalarValue, AvengerLangError> {
-        if variable.name.starts_with("@") {
-            return Err(AvengerLangError::InternalError(format!("Val name should not include the @ prefix: {}", variable.name)));
+        if !variable.parts.is_empty() && variable.parts[0].starts_with("@") {
+            return Err(AvengerLangError::InternalError(format!("Val name should not include the @ prefix: {}", variable.name())));
         }
-        let val = self.val_provider.get_value(vec![variable.name.to_string()])?;
+        let val = self.val_provider.get_scalar_value(variable)?;
         Ok(val)
     }
 
     /// Check if a value is registered in the context
     pub fn has_val(&self, variable: &Variable) -> bool {
-        if variable.name.starts_with("@") {
-            panic!("Val name should not include the @ prefix: {}", variable.name);
+        if !variable.parts.is_empty() && variable.parts[0].starts_with("@") {
+            panic!("Val name should not include the @ prefix: {}", variable.name());
         }
-        self.val_provider.get_type(&[ variable.name.to_string()]).is_some()
+        self.val_provider.has_variable(variable)
     }
 
     /// Add an expression to the context
     pub fn register_expr(&self, variable: &Variable, sql_expr: SqlExpr) -> Result<(), AvengerLangError> {
-        if variable.name.starts_with("@") {
-            panic!("Expr name should not include the @ prefix: {}", variable.name);
+        if !variable.parts.is_empty() && variable.parts[0].starts_with("@") {
+            panic!("Expr name should not include the @ prefix: {}", variable.name());
         }
-        self.exprs.lock().unwrap().insert(variable.name.clone(), sql_expr);
+        self.exprs.lock().unwrap().insert(variable.clone(), sql_expr);
         Ok(())
     }
 
     /// Get an expression from the context
     pub fn get_expr(&self, variable: &Variable) -> Result<SqlExpr, AvengerLangError> {
-        if variable.name.starts_with("@") {
-            return Err(AvengerLangError::InternalError(format!("Expr name should not include the @ prefix: {}", variable.name)));
+        if !variable.parts.is_empty() && variable.parts[0].starts_with("@") {
+            return Err(AvengerLangError::InternalError(format!("Expr name should not include the @ prefix: {}", variable.name())));
         }   
         let locked = self.exprs.lock().unwrap();
-        let expr = locked.get(&variable.name.to_string()).ok_or(
-            AvengerLangError::ExpressionNotFound(format!("Expression {} not found", variable.name))
+        let expr = locked.get(variable).ok_or(
+            AvengerLangError::ExpressionNotFound(format!("Expression {} not found", variable.name()))
         )?;
         Ok(expr.clone())
     }
 
     /// Check if an expression is stored in the context
     pub fn has_expr(&self, variable: &Variable) -> bool {
-        self.exprs.lock().unwrap().contains_key(&variable.name.to_string())
+        self.exprs.lock().unwrap().contains_key(variable)
     }
 
     /// Compile a SQL query to a logical plan, expanding sql with referenced expressions
@@ -178,6 +180,13 @@ impl EvaluationContext {
 
     pub async fn eval_query(&self, query: &SqlQuery) -> Result<ArrowTable, AvengerLangError> {
         let plan = self.compile_query(query).await?;
+        let df = self.session_ctx.execute_logical_plan(plan).await?;
+        let schema = df.schema().clone();
+        let table = df.collect().await?;
+        Ok(ArrowTable::try_new(schema.inner().clone(), table)?)
+    }
+
+    pub async fn eval_plan(&self, plan: LogicalPlan) -> Result<ArrowTable, AvengerLangError> {
         let df = self.session_ctx.execute_logical_plan(plan).await?;
         let schema = df.schema().clone();
         let table = df.collect().await?;
@@ -225,7 +234,7 @@ impl EvaluationContext {
 
 #[derive(Debug, Clone)]
 struct EvaluationValProvider {
-    vals: Arc<Mutex<HashMap<String, ScalarValue>>>,
+    vals: Arc<Mutex<HashMap<Variable, ScalarValue>>>,
 }
 
 impl EvaluationValProvider {
@@ -233,24 +242,55 @@ impl EvaluationValProvider {
         Self { vals: Arc::new(Mutex::new(HashMap::new())) }
     }
 
-    pub fn insert(&self, name: String, val: ScalarValue) {
-        self.vals.lock().unwrap().insert(name, val);
+    pub fn insert(&self, variable: Variable, val: ScalarValue) {
+        self.vals.lock().unwrap().insert(variable, val);
+    }
+    
+    pub fn get_scalar_value(&self, variable: &Variable) -> datafusion_common::Result<ScalarValue> {
+        let val = self.vals.lock().unwrap().get(variable).cloned().ok_or(
+            DataFusionError::Internal(format!("Variable {} not found", variable.name()))
+        )?;
+        Ok(val)
+    }
+    
+    pub fn has_variable(&self, variable: &Variable) -> bool {
+        self.vals.lock().unwrap().contains_key(variable)
     }
 }
 
 impl VarProvider for EvaluationValProvider {
     fn get_value(&self, var_names: Vec<String>) -> datafusion_common::Result<ScalarValue> {
-        let name = var_names[0].strip_prefix("@").unwrap_or(&var_names[0]);
-        let val = self.vals.lock().unwrap().get(name).cloned().ok_or(
-            DataFusionError::Internal(format!("Variable {} not found", var_names[0]))
+        // Create a Variable from the provided var_names, stripping @ from first part if present
+        let mut parts = var_names.clone();
+        if !parts.is_empty() {
+            // Always strip @ from the first part if present
+            if let Some(name) = parts[0].strip_prefix("@") {
+                parts[0] = name.to_string();
+            }
+        }
+        let variable = Variable::with_parts(parts);
+
+        println!("Getting variable: {:?}", variable);
+        
+        let val = self.vals.lock().unwrap().get(&variable).cloned().ok_or(
+            DataFusionError::Internal(format!("Variable {} not found", variable.name()))
         )?;
         Ok(val)
     }
     
     fn get_type(&self, var_names: &[String]) -> Option<arrow_schema::DataType> {
+        // Create a Variable from the provided var_names, stripping @ from first part if present
+        let mut parts = var_names.to_vec();
+        if !parts.is_empty() {
+            // Always strip @ from the first part if present
+            if let Some(name) = parts[0].strip_prefix("@") {
+                parts[0] = name.to_string();
+            }
+        }
+        let variable = Variable::with_parts(parts);
+        
         let locked = self.vals.lock().unwrap();
-        let name = var_names[0].strip_prefix("@").unwrap_or(&var_names[0]);
-        let val = locked.get(name)?;
+        let val = locked.get(&variable)?;
         Some(val.data_type())
     }
 }
@@ -273,13 +313,23 @@ impl<'a> VisitorMut for CompilationVisitor<'a> {
         let table_name = relation.to_string();
     
         if table_name.starts_with("@") {
-            let variable = Variable::new(table_name[1..].to_string());
+            let mut parts = relation.0.iter().map(|ident| ident.value.clone()).collect::<Vec<_>>();
 
-            if !self.ctx.has_dataset(&variable) {
-                return ControlFlow::Break(
-                    Err(AvengerLangError::InternalError(format!("Dataset {} not found", variable.name)))
-                );
-            }
+            // Join on __ into a single string
+            parts = vec![parts.join("__")];
+
+            // // Check if the dataset exists
+            // let variable = Variable::with_parts(parts.clone());
+            // if !self.ctx.has_dataset(&variable) {
+            //     return ControlFlow::Break(
+            //         Err(AvengerLangError::InternalError(format!("Dataset {} not found", variable.name())))
+            //     );
+            // }
+
+            // Update the relation to use the mangled name
+            let idents = parts.iter().map(|s| Ident::new(s.to_string())).collect::<Vec<_>>();
+
+            *relation = ObjectName(idents);
         }
 
         ControlFlow::Continue(())
@@ -288,17 +338,21 @@ impl<'a> VisitorMut for CompilationVisitor<'a> {
     fn pre_visit_expr(&mut self, expr: &mut SqlExpr) -> ControlFlow<Self::Break> {
         if let SqlExpr::Identifier(ident) = expr.clone() {
             if ident.value.starts_with("@") {
-                let ident_var = Variable::new(ident.value[1..].to_string());
+                let mut parts: Vec<String> = ident.value.split(".").map(|s| s.to_string()).collect();
+                // Drop the leading @
+                parts[0] = parts[0][1..].to_string();
+                let variable = Variable::with_parts(parts);
+
                 // Check if this is a reference to an expression
-                if let Ok(registered_expr) = self.ctx.get_expr(&ident_var) {
+                if let Ok(registered_expr) = self.ctx.get_expr(&variable) {
                     *expr = SqlExpr::Nested(Box::new(registered_expr.clone()));
                     return ControlFlow::Continue(());
                 }
                 
                 // Otherwise it must be a reference to a value
-                if !self.ctx.has_val(&ident_var) {
+                if !self.ctx.has_val(&variable) {
                     return ControlFlow::Break(Err(AvengerLangError::InternalError(
-                        format!("Val or Expr {} not found", ident_var.name)))
+                        format!("Val or Expr {} not found", variable.name())))
                     );
                 }
             }

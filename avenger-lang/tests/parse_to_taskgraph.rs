@@ -3,6 +3,14 @@ use std::sync::Arc;
 use avenger_lang::{ast::AvengerFile, context::EvaluationContext, error::AvengerLangError, parser::AvengerParser, task_graph::{dependency::{Dependency, DependencyKind}, runtime::TaskGraphRuntime, task_graph::TaskGraph, value::{ArrowTable, TaskDataset}, variable::Variable}};
 
 
+fn parse_file(src: &str) -> Result<AvengerFile, AvengerLangError> {
+    let parser = AvengerParser::new();
+    let tokens = parser.tokenize(src).unwrap();
+    let mut parser = parser.with_tokens_with_locations(tokens);
+    let file = parser.parse().unwrap();
+    Ok(file)
+}
+
 #[tokio::test]
 async fn test_parse_file_to_taskgraph() -> Result<(), AvengerLangError> {
     let src = r#"
@@ -18,10 +26,7 @@ async fn test_parse_file_to_taskgraph() -> Result<(), AvengerLangError> {
     "#;
     
     // Create a new parser with the tokens and parse the file
-    let parser = AvengerParser::new();
-    let tokens = parser.tokenize(src).unwrap();
-    let mut parser = parser.with_tokens_with_locations(tokens);
-    let file = parser.parse().unwrap();
+    let file = parse_file(src)?;
     // println!("{:#?}", file);
 
     // Build Task Graph from parsed file
@@ -129,3 +134,56 @@ async fn test_parse_file_to_taskgraph() -> Result<(), AvengerLangError> {
     Ok(())
 }
 
+
+
+#[tokio::test]
+async fn test_parse_file_to_taskgraph2() -> Result<(), AvengerLangError> {
+    let src = r#"
+    // This is a comment
+    in val<int> my_val: 1 + 23;
+
+    val depends_on_nested_val: @foo.foo_val * 2;
+
+    dataset upper_dataset: SELECT a, UPPER(b) as b FROM @foo.foo_dataset;
+
+    comp foo: FooComponent {
+        val foo_val: -@my_val;
+        dataset foo_dataset: SELECT * FROM (VALUES (1, 'one'), (2, 'two'), (3, 'three')) foo("a", "b");
+    }
+    "#;
+
+    // Build Task Graph from parsed file
+    let file = parse_file(src)?;
+    let task_graph = Arc::new(TaskGraph::try_from(file)?);
+
+    // Evaluate the task graph
+    let my_val = Variable::new("my_val");
+    let upper_dataset = Variable::with_parts(
+        vec!["upper_dataset".to_string()]
+    );
+    let foo_val = Variable::with_parts(
+        vec!["foo".to_string(), "foo_val".to_string()]
+    );
+    let depends_on_nested_val = Variable::with_parts(
+        vec!["depends_on_nested_val".to_string()]
+    );
+
+    let runtime = TaskGraphRuntime::new();
+
+
+    // Eval root variable
+    let vals = runtime.evaluate_variables(
+        task_graph.clone(), &[foo_val.clone(), depends_on_nested_val.clone(), upper_dataset.clone()]
+    ).await?;
+
+    let foo_val_val = vals.get(&foo_val).unwrap();
+    println!("foo_val: {:#?}", foo_val_val);
+
+    let depends_on_nested_val_val = vals.get(&depends_on_nested_val).unwrap();
+    println!("depends_on_nested_val: {:#?}", depends_on_nested_val_val);
+
+    let upper_dataset_val = vals.get(&upper_dataset).unwrap();
+    println!("upper_dataset: {:#?}", upper_dataset_val);
+
+    Ok(())
+}
