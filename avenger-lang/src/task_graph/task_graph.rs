@@ -48,23 +48,21 @@ impl TaskGraph {
         // First, add all nodes to the graph
         for variable in tasks.keys() {
             let idx = graph.add_node(variable.clone());
-            node_indices.insert(variable.name.clone(), idx);
+            node_indices.insert(variable.clone(), idx);
         }
         
         // Add edges based on task dependencies
         for (variable, task) in &tasks {
-            let target_idx = node_indices[&variable.name];
+            let target_idx = node_indices[variable];
             
             // Get input dependencies for this task
             let input_variables = task.input_dependencies()?;
             
             // Add edges from each input dependency to this task
             for input_var in input_variables {
-                if let Some(source_idx) = node_indices.get(&input_var.name) {
+                if let Some(source_idx) = node_indices.get(&input_var.variable) {
                     // Add edge from input to the current task
                     graph.add_edge(*source_idx, target_idx, ());
-                } else {
-                    println!("Input variable {:?} not found in node_indices: {:#?}", input_var, node_indices);
                 }
             }
         }
@@ -141,7 +139,7 @@ impl TaskGraph {
             // Add parent fingerprints to the hash if there are any
             if !parent_variables.is_empty() {
                 for parent in &parent_variables {
-                    if let Some(parent_fingerprint) = fingerprints.get(&parent.name.clone().into()) {
+                    if let Some(parent_fingerprint) = fingerprints.get(parent) {
                         parent_fingerprint.hash(&mut final_hasher);
                     }
                 }
@@ -150,7 +148,7 @@ impl TaskGraph {
             let fingerprint = final_hasher.finish();
             
             // Store the fingerprint for potential child nodes to use
-            fingerprints.insert(dependency.name.clone().into(), fingerprint);
+            fingerprints.insert(dependency.clone(), fingerprint);
             
             // Create the task node
             let task_node = TaskNode {
@@ -161,7 +159,7 @@ impl TaskGraph {
                 fingerprint,
             };
             
-            sorted_tasks.insert(dependency.name.clone().into(), task_node);
+            sorted_tasks.insert(dependency, task_node);
         }
         
         Ok(TaskGraph { tasks: sorted_tasks })
@@ -169,6 +167,43 @@ impl TaskGraph {
 
     pub fn tasks(&self) -> &IndexMap<Variable, TaskNode> {
         &self.tasks
+    }
+
+    fn tasks_from_statement(statement: Statement, parent: &[String]) -> Result<HashMap<Variable, Arc<dyn Task>>, AvengerLangError> {
+        let mut tasks: HashMap<Variable, Arc<dyn Task>> = HashMap::new();
+        match statement {
+            Statement::ValPropDecl(val_prop_decl) => {
+                let mut parts = Vec::from(parent);
+                parts.push(val_prop_decl.name.clone());
+                let variable = Variable::with_parts(parts);
+                let task = ValDeclTask::from(val_prop_decl);
+                tasks.insert(variable, Arc::new(task));
+            }
+            Statement::ExprPropDecl(expr_prop_decl) => {
+                let mut parts = Vec::from(parent);
+                parts.push(expr_prop_decl.name.clone());
+                let variable = Variable::with_parts(parts);
+                let task = ExprDeclTask::from(expr_prop_decl);
+                tasks.insert(variable, Arc::new(task));
+            }
+            Statement::DatasetPropDecl(dataset_prop_decl) => {
+                let mut parts = Vec::from(parent);
+                parts.push(dataset_prop_decl.name.clone());
+                let variable = Variable::with_parts(parts);
+                let task = DatasetDeclTask::from(dataset_prop_decl);
+                tasks.insert(variable, Arc::new(task));
+            }
+            Statement::CompPropDecl(comp_prop_decl) => {
+                let mut nested_parent = Vec::from(parent);
+                nested_parent.push(comp_prop_decl.name.clone());
+                for statement in comp_prop_decl.value.statements {
+                    for (var, task) in TaskGraph::tasks_from_statement(statement, &nested_parent)? {
+                        tasks.insert(var, task);
+                    }
+                }
+            }
+        }
+        Ok(tasks)
     }
 }
 
@@ -178,26 +213,9 @@ impl TryFrom<AvengerFile> for TaskGraph {
     fn try_from(file: AvengerFile) -> Result<Self, Self::Error> {
         let mut tasks: HashMap<Variable, Arc<dyn Task>> = HashMap::new();
         for statement in file.statements {
-            match statement {
-                Statement::ValPropDecl(val_prop_decl) => {
-                    let variable = Variable::new(&val_prop_decl.name);
-                    let task = ValDeclTask::from(val_prop_decl);
-                    tasks.insert(variable.clone(), Arc::new(task));
-                }
-                Statement::ExprPropDecl(expr_prop_decl) => {
-                    let variable = Variable::new(&expr_prop_decl.name);
-                    let task = ExprDeclTask::from(expr_prop_decl);
-                    tasks.insert(variable.clone(), Arc::new(task));
-                }
-                Statement::DatasetPropDecl(dataset_prop_decl) => {
-                    let variable = Variable::new(&dataset_prop_decl.name);
-                    let task = DatasetDeclTask::from(dataset_prop_decl);
-                    tasks.insert(variable.clone(), Arc::new(task));
-                }
-                Statement::CompPropDecl(_comp_prop_decl) => {
-                    // TODO: Implement component handling
-                    // For now, components are not processed in the task graph
-                }
+            let parent: Vec<String> = Vec::new();
+            for (var, task) in TaskGraph::tasks_from_statement(statement, &parent)? {
+                tasks.insert(var, task);
             }
         }
         Ok(TaskGraph::try_new(tasks)?)
@@ -218,6 +236,10 @@ mod tests {
 
     fn create_dependency(name: &str) -> Dependency {
         Dependency::new(name.to_string(), DependencyKind::Val)
+    }
+    
+    fn variable_to_dependency(var: &Variable, kind: DependencyKind) -> Dependency {
+        Dependency { variable: var.clone(), kind }
     }
 
     // Mock implementation of Task for testing
@@ -276,8 +298,8 @@ mod tests {
         let task3_var = create_var("task3");
         
         tasks.insert(task1_var.clone(), Arc::new(MockTask::new("Task 1", vec![])) as Arc<dyn Task>);
-        tasks.insert(task2_var.clone(), Arc::new(MockTask::new("Task 2", vec![create_dependency(&task1_var.name)])) as Arc<dyn Task>);
-        tasks.insert(task3_var.clone(), Arc::new(MockTask::new("Task 3", vec![create_dependency(&task2_var.name)])) as Arc<dyn Task>);
+        tasks.insert(task2_var.clone(), Arc::new(MockTask::new("Task 2", vec![variable_to_dependency(&task1_var, DependencyKind::Val)])) as Arc<dyn Task>);
+        tasks.insert(task3_var.clone(), Arc::new(MockTask::new("Task 3", vec![variable_to_dependency(&task2_var, DependencyKind::Val)])) as Arc<dyn Task>);
 
         let graph = TaskGraph::try_new(tasks)?;
         
@@ -303,9 +325,9 @@ mod tests {
         let task2_var = create_var("task2");
         let task3_var = create_var("task3");
         
-        tasks.insert(task1_var.clone(), Arc::new(MockTask::new("Task 1", vec![create_dependency(&task3_var.name)])) as Arc<dyn Task>);
-        tasks.insert(task2_var.clone(), Arc::new(MockTask::new("Task 2", vec![create_dependency(&task1_var.name)])) as Arc<dyn Task>);
-        tasks.insert(task3_var.clone(), Arc::new(MockTask::new("Task 3", vec![create_dependency(&task2_var.name)])) as Arc<dyn Task>);
+        tasks.insert(task1_var.clone(), Arc::new(MockTask::new("Task 1", vec![variable_to_dependency(&task3_var, DependencyKind::Val)])) as Arc<dyn Task>);
+        tasks.insert(task2_var.clone(), Arc::new(MockTask::new("Task 2", vec![variable_to_dependency(&task1_var, DependencyKind::Val)])) as Arc<dyn Task>);
+        tasks.insert(task3_var.clone(), Arc::new(MockTask::new("Task 3", vec![variable_to_dependency(&task2_var, DependencyKind::Val)])) as Arc<dyn Task>);
 
         // This should panic due to the cycle
         if let Err(e) = TaskGraph::try_new(tasks) {
@@ -332,10 +354,10 @@ mod tests {
         let e_var = create_var("E");
         
         tasks.insert(a_var.clone(), Arc::new(MockTask::new("A", vec![])) as Arc<dyn Task>);
-        tasks.insert(b_var.clone(), Arc::new(MockTask::new("B", vec![create_dependency(&a_var.name)])) as Arc<dyn Task>);
-        tasks.insert(c_var.clone(), Arc::new(MockTask::new("C", vec![create_dependency(&a_var.name)])) as Arc<dyn Task>);
-        tasks.insert(d_var.clone(), Arc::new(MockTask::new("D", vec![create_dependency(&b_var.name)])) as Arc<dyn Task>);
-        tasks.insert(e_var.clone(), Arc::new(MockTask::new("E", vec![create_dependency(&b_var.name), create_dependency(&c_var.name)])) as Arc<dyn Task>);
+        tasks.insert(b_var.clone(), Arc::new(MockTask::new("B", vec![variable_to_dependency(&a_var, DependencyKind::Val)])) as Arc<dyn Task>);
+        tasks.insert(c_var.clone(), Arc::new(MockTask::new("C", vec![variable_to_dependency(&a_var, DependencyKind::Val)])) as Arc<dyn Task>);
+        tasks.insert(d_var.clone(), Arc::new(MockTask::new("D", vec![variable_to_dependency(&b_var, DependencyKind::Val)])) as Arc<dyn Task>);
+        tasks.insert(e_var.clone(), Arc::new(MockTask::new("E", vec![variable_to_dependency(&b_var, DependencyKind::Val), variable_to_dependency(&c_var, DependencyKind::Val)])) as Arc<dyn Task>);
 
         let graph = TaskGraph::try_new(tasks)?;
         
@@ -379,7 +401,7 @@ mod tests {
         // Task D depends on A
         tasks.insert(
             d_var.clone(), 
-            Arc::new(MockTask::new("D", vec![create_dependency(&a_var.name)])) as Arc<dyn Task>
+            Arc::new(MockTask::new("D", vec![variable_to_dependency(&a_var, DependencyKind::Val)])) as Arc<dyn Task>
         );
 
         let graph = TaskGraph::try_new(tasks)?;
@@ -434,7 +456,7 @@ mod tests {
         // Create base task B
         tasks3.insert(b_var.clone(), Arc::new(MockTask::new("Task B", vec![])) as Arc<dyn Task>);
         // Create task C1 that depends on B
-        tasks3.insert(c1_var.clone(), Arc::new(MockTask::new("Task C1", vec![create_dependency(&b_var.name)])) as Arc<dyn Task>);
+        tasks3.insert(c1_var.clone(), Arc::new(MockTask::new("Task C1", vec![variable_to_dependency(&b_var, DependencyKind::Val)])) as Arc<dyn Task>);
         
         // Create the same tasks for the second graph
         tasks4.insert(b_var.clone(), Arc::new(MockTask::new("Task B", vec![])) as Arc<dyn Task>);
@@ -458,8 +480,8 @@ mod tests {
         
         // Create tasks with a dependency chain: D -> E -> F1
         tasks5.insert(d_var.clone(), Arc::new(MockTask::new("Task D", vec![])) as Arc<dyn Task>);
-        tasks5.insert(e_var.clone(), Arc::new(MockTask::new("Task E", vec![create_dependency(&d_var.name)])) as Arc<dyn Task>);
-        tasks5.insert(f1_var.clone(), Arc::new(MockTask::new("Task F1", vec![create_dependency(&e_var.name)])) as Arc<dyn Task>);
+        tasks5.insert(e_var.clone(), Arc::new(MockTask::new("Task E", vec![variable_to_dependency(&d_var, DependencyKind::Val)])) as Arc<dyn Task>);
+        tasks5.insert(f1_var.clone(), Arc::new(MockTask::new("Task F1", vec![variable_to_dependency(&e_var, DependencyKind::Val)])) as Arc<dyn Task>);
         
         let graph5 = TaskGraph::try_new(tasks5)?;
         
@@ -470,8 +492,8 @@ mod tests {
         let d_modified_var = create_var("D");
         // Use a different input variable to simulate a different task implementation
         tasks6.insert(d_modified_var.clone(), Arc::new(MockTask::new("Task D", vec![create_dependency("dummy_input")])) as Arc<dyn Task>);
-        tasks6.insert(e_var.clone(), Arc::new(MockTask::new("Task E", vec![create_dependency(&d_modified_var.name)])) as Arc<dyn Task>);
-        tasks6.insert(f2_var.clone(), Arc::new(MockTask::new("Task F2", vec![create_dependency(&e_var.name)])) as Arc<dyn Task>);
+        tasks6.insert(e_var.clone(), Arc::new(MockTask::new("Task E", vec![variable_to_dependency(&d_modified_var, DependencyKind::Val)])) as Arc<dyn Task>);
+        tasks6.insert(f2_var.clone(), Arc::new(MockTask::new("Task F2", vec![variable_to_dependency(&e_var, DependencyKind::Val)])) as Arc<dyn Task>);
         
         let graph6 = TaskGraph::try_new(tasks6)?;
         
