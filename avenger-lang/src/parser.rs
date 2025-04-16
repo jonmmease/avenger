@@ -8,7 +8,7 @@ use sqlparser::ast::{Expr as SqlExpr};
 use lazy_static::lazy_static;
 
 
-use crate::ast::{AvengerFile, DatasetPropDecl, ExprPropDecl, PropQualifier, Statement, Type, ValPropDecl};
+use crate::ast::{AvengerFile, DatasetPropDecl, ExprPropDecl, PropQualifier, Statement, Type, ValPropDecl, CompPropDecl, CompInstance};
 use crate::error::AvengerLangError;
 
 lazy_static! {
@@ -119,6 +119,20 @@ impl AvengerParser {
         }
     }
     
+    fn parse_comp_instance(&mut self) -> Result<CompInstance, AvengerLangError> {
+        let name = self.next_word()?;
+        self.parser.expect_token(&Token::LBrace)?;
+        
+        let mut statements = Vec::new();
+        while self.parser.peek_token_ref().token != Token::RBrace {
+            statements.push(self.parse_statement()?);
+        }
+        
+        self.parser.expect_token(&Token::RBrace)?;
+        
+        Ok(CompInstance { name, statements })
+    }
+    
     fn parse_statement(&mut self) -> Result<Statement, AvengerLangError> {
         // Parse and advance past the optional qualifier
         let qualifier = self.parse_qualifier();
@@ -153,6 +167,16 @@ impl AvengerParser {
                 self.parser.expect_token(&Token::SemiColon)?;
                 Ok(Statement::DatasetPropDecl(DatasetPropDecl { 
                     name, value, qualifier, type_: ty 
+                }))
+            }
+            "comp" => {
+                let ty = self.parse_type()?;
+                let name = self.next_word()?;
+                self.parser.expect_token(&Token::Colon)?;
+                let value = self.parse_comp_instance()?;
+                self.parser.expect_token(&Token::SemiColon)?;
+                Ok(Statement::CompPropDecl(CompPropDecl {
+                    name, value, qualifier, type_: ty
                 }))
             }
             _ => {
@@ -216,6 +240,22 @@ mod tests {
         let src = r#"
         // This is a comment
         in expr my_expr: (2 + 1) * 3;
+        "#;
+        let parser = AvengerParser::new();
+        let tokens = parser.tokenize(src).unwrap();
+        let mut parser = parser.with_tokens_with_locations(tokens);
+        let file = parser.parse().unwrap();
+        println!("{:#?}", file);
+    }
+
+    #[test]
+    fn test_parse_comp_declaration() {
+        let src = r#"
+        // This is a component
+        out comp<Widget> my_comp: MyComponent {
+            val internal_val: 42;
+            expr result: @internal_val * 2;
+        };
         "#;
         let parser = AvengerParser::new();
         let tokens = parser.tokenize(src).unwrap();
