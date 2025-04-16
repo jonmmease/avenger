@@ -194,6 +194,10 @@ impl TryFrom<AvengerFile> for TaskGraph {
                     let task = DatasetDeclTask::from(dataset_prop_decl);
                     tasks.insert(variable.clone(), Arc::new(task));
                 }
+                Statement::CompPropDecl(_comp_prop_decl) => {
+                    // TODO: Implement component handling
+                    // For now, components are not processed in the task graph
+                }
             }
         }
         Ok(TaskGraph::try_new(tasks)?)

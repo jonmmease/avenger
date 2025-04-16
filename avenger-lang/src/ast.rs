@@ -1,6 +1,3 @@
-
-
-
 use sqlparser::dialect::GenericDialect;
 use sqlparser::ast::{Value as SqlValue, Expr as SqlExpr, Query as SqlQuery};
 
@@ -12,7 +9,10 @@ use sqlparser::ast::{Value as SqlValue, Expr as SqlExpr, Query as SqlQuery};
 //  val_prop       → prop_qualifier? + "val" + type? + ":" + sql_expr + ";"
 //  expr_prop      → prop_qualifier? + "expr" + type? + ":" + sql_expr + ";"
 //  dataset_prop   → prop_qualifier? + "dataset" + type? + ":" + sql_query + ";"
-//  statement      → (val_prop | expr_prop | dataset_prop) + ";"
+//  comp_prop      → prop_qualifier? + "comp" + type? + ":" + comp_instance + ";"
+//  comp_instance  → PASCAL_IDENTIFIER + "{" + statement* + "}"
+//
+//  statement      → (val_prop | expr_prop | dataset_prop | comp_prop) + ";"
 //  file           → statement*
 //
 #[derive(Debug, Clone, PartialEq, Eq, Hash) ]
@@ -49,10 +49,26 @@ pub struct DatasetPropDecl {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CompPropDecl {
+    pub qualifier: Option<PropQualifier>,
+    pub name: String,
+    pub type_: Option<Type>,
+    pub value: CompInstance,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CompInstance {
+    pub name: String,
+    pub statements: Vec<Statement>,
+}
+
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Statement {
     ValPropDecl(ValPropDecl),
     ExprPropDecl(ExprPropDecl),
     DatasetPropDecl(DatasetPropDecl),
+    CompPropDecl(CompPropDecl),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
