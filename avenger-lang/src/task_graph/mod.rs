@@ -6,3 +6,4 @@ pub mod value;
 pub mod dependency;
 pub mod memory;
 pub mod variable;
+pub mod scope;
