@@ -4,7 +4,7 @@ use sqlparser::tokenizer::{TokenWithSpan, Word};
 use sqlparser::dialect::{Dialect, GenericDialect, SnowflakeDialect};
 use sqlparser::parser::{Parser as SqlParser, ParserError};
 use sqlparser::tokenizer::{Token, Tokenizer};
-use sqlparser::ast::{Expr as SqlExpr};
+use sqlparser::ast::{Expr as SqlExpr, Query as SqlQuery};
 use lazy_static::lazy_static;
 
 
@@ -221,6 +221,22 @@ impl AvengerParser {
     pub fn with_tokens_with_locations(mut self, tokens: Vec<TokenWithSpan>) -> Self {
         self.parser = self.parser.with_tokens_with_locations(tokens);
         self
+    }
+
+    pub fn parse_single_query(input: &str) -> Result<Box<SqlQuery>, AvengerLangError> {
+        let parser = AvengerParser::new();
+        let tokens = parser.tokenize(input)?;
+        let mut parser = parser.with_tokens_with_locations(tokens);
+        let query = parser.parser.parse_query()?;
+        Ok(query)
+    }
+
+    pub fn parse_single_expr(input: &str) -> Result<SqlExpr, AvengerLangError> {
+        let parser = AvengerParser::new();
+        let tokens = parser.tokenize(input)?;
+        let mut parser = parser.with_tokens_with_locations(tokens);
+        let expr = parser.parser.parse_expr()?;
+        Ok(expr)
     }
 }
 

@@ -8,3 +8,4 @@ pub mod memory;
 pub mod variable;
 pub mod scope;
 pub mod component_registry;
+pub mod component;

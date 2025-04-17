@@ -8,10 +8,13 @@ use petgraph::algo::toposort;
 use petgraph::graph::DiGraph;
 use petgraph::Direction;
 
-use crate::ast::{AvengerFile, DatasetPropDecl, ExprPropDecl, Statement, ValPropDecl, Visitor, VisitorContext};
+use sqlparser::ast::{Query as SqlQuery, Select, SetExpr};
+use crate::ast::{AvengerFile, CompInstance, DatasetPropDecl, ExprPropDecl, Statement, ValPropDecl, Visitor, VisitorContext};
+use crate::parser::AvengerParser;
 use crate::{task_graph::tasks::Task, task_graph::{dependency::{Dependency, DependencyKind}, value::TaskValue}, error::AvengerLangError};
 
-use super::component_registry::PropType;
+
+use super::component::PropType;
 use super::scope::{Scope, ScopePath};
 use super::tasks::{DatasetDeclTask, ExprDeclTask, ValDeclTask};
 use super::variable::Variable;
@@ -258,6 +261,89 @@ impl Visitor for TaskGraphBuilder {
                 self.scope.resolve_sql_query(&mut query, &ScopePath::new(ctx.scope_path.to_vec()))?;
                 self.tasks.insert(variable, Arc::new(DatasetDeclTask { query, eval: false }));
             },
+        }
+        Ok(())
+    }
+
+    fn visit_comp_instance(&mut self, comp_instance: &CompInstance, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+
+        let component_spec = ctx.component_registry.lookup_component(&ctx.component_type)
+            .ok_or_else(|| AvengerLangError::InternalError(format!(
+                "Unknown component type: {}", ctx.component_type)))?;
+
+        if component_spec.is_mark {
+            // Add internal _encoded_data and _config properties for computing mark encoding
+            let prop_bindings = comp_instance.prop_bindings();
+
+            // Find the names of all expr property bindings
+            let expr_prop_names = prop_bindings.iter()
+                .filter_map(|(_, binding)| {
+                    if component_spec.props.get(&binding.name) == Some(&PropType::Expr) {
+                        Some(binding.name.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+
+
+            let expr_props_csv = if expr_prop_names.is_empty() {
+                "1 as _unit".to_string()
+            } else {
+                expr_prop_names.iter().map(
+                    |name| format!("@{name} as {name}")
+                ).collect::<Vec<_>>().join(", ")
+            };
+
+            let mut query = if prop_bindings.contains_key("data") {
+                AvengerParser::parse_single_query(
+                    &format!("SELECT {expr_props_csv} FROM @data")
+                )?
+            } else {
+                AvengerParser::parse_single_query(
+                    &format!("SELECT {expr_props_csv}")
+                )?
+            };
+
+            self.scope.resolve_sql_query(&mut query, &ScopePath::new(ctx.scope_path.to_vec()))?;
+
+            // Create a task for the encoded data
+            let task = DatasetDeclTask { query, eval: false };
+            let mut parts = ctx.scope_path.clone();
+            parts.push("_encoded_data".to_string());
+            let encoded_data_variable = Variable::with_parts(parts);
+            self.tasks.insert(encoded_data_variable, Arc::new(task));
+
+            // Add component prop for the remaining val properties
+            // Find the names of all expr property bindings
+            let val_prop_names = prop_bindings.iter()
+                .filter_map(|(_, binding)| {
+                    if component_spec.props.get(&binding.name) == Some(&PropType::Val) {
+                        Some(binding.name.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            let val_props_csv = if val_prop_names.is_empty() {
+                "1 as _unit".to_string()
+            } else {
+                val_prop_names.iter().map(
+                    |name| format!("@{name} as {name}")
+                ).collect::<Vec<_>>().join(", ")
+            };
+
+            let mut query = AvengerParser::parse_single_query(
+                &format!("SELECT {val_props_csv}")
+            )?;
+            self.scope.resolve_sql_query(&mut query, &ScopePath::new(ctx.scope_path.to_vec()))?;
+
+            let task = DatasetDeclTask { query, eval: false };
+            let mut parts = ctx.scope_path.clone();
+            parts.push("_config".to_string());
+            let config_variable = Variable::with_parts(parts);
+            self.tasks.insert(config_variable, Arc::new(task));
         }
         Ok(())
     }

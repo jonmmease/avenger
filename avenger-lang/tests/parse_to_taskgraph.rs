@@ -206,6 +206,9 @@ async fn test_parse_file_to_taskgraph2() -> Result<(), AvengerLangError> {
 #[tokio::test]
 async fn test_parse_file_with_mark() -> Result<(), AvengerLangError> {
     let src = r#"
+    width := 400;
+    height := 400;
+
     dataset data_0: SELECT * FROM (VALUES 
             (1, 'red'),
             (2, 'green'),
@@ -214,25 +217,16 @@ async fn test_parse_file_with_mark() -> Result<(), AvengerLangError> {
          
     comp mark1: Rect {
         data := SELECT * FROM @data_0;
-        x := "a" * 100;
         x2 := @x + 10;
+        x := "a" * 100;
         y := "a" * 10 + 10;
         y2 := 0;
         fill := "b";
         stroke_width := 4;
         stroke := 'black';
 
-        // Marks can have 
-        out dataset _encoded_data: 
-            SELECT 
-                @x as x, 
-                @x2 as x2, 
-                @y as y, 
-                @y2 as y2, 
-                @fill as fill, 
-                @stroke_width as stroke_width, 
-                @stroke as stroke 
-            FROM @data;
+        clip := false;
+        zindex := 1 + 2;
     }
     "#;
 
@@ -245,25 +239,39 @@ async fn test_parse_file_with_mark() -> Result<(), AvengerLangError> {
         println!("Inputs: {:#?}", task_node.task.input_dependencies());
     }
 
-    // Evaluate the task graph
+    // Evaluate the built-in mark datasets
     let encoded_data = Variable::with_parts(
         vec!["mark1".to_string(), "_encoded_data".to_string()]
+    );
+    let config_variable = Variable::with_parts(
+        vec!["mark1".to_string(), "_config".to_string()]
     );
 
     let runtime = TaskGraphRuntime::new();
 
     let vals = runtime.evaluate_variables(
-        task_graph.clone(), &[encoded_data.clone()]
+        task_graph.clone(), &[encoded_data.clone(), config_variable.clone()]
     ).await?;
 
     let encoded_data_val = vals.get(&encoded_data).unwrap();
-    println!("encoded_data: {:#?}", encoded_data_val);
+    // println!("encoded_data: {:#?}", encoded_data_val);
+
+    let config_val = vals.get(&config_variable).unwrap();
+    // println!("config: {:#?}", config_val);
 
     let (task_dataset, _) = encoded_data_val.as_dataset().unwrap();
-    let TaskDataset::ArrowTable(table) = task_dataset else {
+    let TaskDataset::ArrowTable(encoded_table) = task_dataset else {
         return Err(AvengerLangError::InternalError(format!("Expected ArrowTable, got {:?}", task_dataset)));
     };
 
-    table.show()?;
+    encoded_table.show()?;
+
+    let (task_dataset, _) = config_val.as_dataset().unwrap();
+    let TaskDataset::ArrowTable(config_table) = task_dataset else {
+        return Err(AvengerLangError::InternalError(format!("Expected ArrowTable, got {:?}", task_dataset)));
+    };
+
+    config_table.show()?;
+
     Ok(())
 }
