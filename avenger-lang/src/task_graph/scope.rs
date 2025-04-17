@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use std::ops::ControlFlow;
 
 use super::variable::Variable;
-use crate::ast::{AvengerFile, Visitor, ValPropDecl, ExprPropDecl, DatasetPropDecl, CompPropDecl};
+use crate::ast::{AvengerFile, CompPropDecl, DatasetPropDecl, ExprPropDecl, PropBinding, ValPropDecl, Visitor, VisitorContext};
 use crate::error::AvengerLangError;
 use sqlparser::ast::{Expr as SqlExpr, Ident, ObjectName, Query as SqlQuery, VisitMut, VisitorMut as SqlVisitorMut};
 
@@ -104,20 +104,24 @@ impl ScopeBuilder {
 }
 
 impl Visitor for ScopeBuilder {
-    fn visit_val_prop_decl(&mut self, val_prop: &ValPropDecl, scope_path: &[String]) {
-        self.add_property(&val_prop.name, scope_path);
+    fn visit_val_prop_decl(&mut self, val_prop: &ValPropDecl, ctx: &VisitorContext) {
+        self.add_property(&val_prop.name, &ctx.scope_path);
     }
 
-    fn visit_expr_prop_decl(&mut self, expr_prop: &ExprPropDecl, scope_path: &[String]) {
-        self.add_property(&expr_prop.name, scope_path);
+    fn visit_expr_prop_decl(&mut self, expr_prop: &ExprPropDecl, ctx: &VisitorContext) {
+        self.add_property(&expr_prop.name, &ctx.scope_path);
     }
 
-    fn visit_dataset_prop_decl(&mut self, dataset_prop: &DatasetPropDecl, scope_path: &[String]) {
-        self.add_property(&dataset_prop.name, scope_path);
+    fn visit_dataset_prop_decl(&mut self, dataset_prop: &DatasetPropDecl, ctx: &VisitorContext) {
+        self.add_property(&dataset_prop.name, &ctx.scope_path);
     }
 
-    fn visit_comp_prop_decl(&mut self, comp_prop: &CompPropDecl, scope_path: &[String]) {
-        self.add_property(&comp_prop.name, scope_path);
+    fn visit_comp_prop_decl(&mut self, comp_prop: &CompPropDecl, ctx: &VisitorContext) {
+        self.add_property(&comp_prop.name, &ctx.scope_path);
+    }
+
+    fn visit_prop_binding(&mut self, prop_binding: &PropBinding, ctx: &VisitorContext) {
+        self.add_property(&prop_binding.name, &ctx.scope_path);
     }
 }
 
@@ -282,7 +286,7 @@ impl<'a> ResolveVarInSqlVisitor<'a> {
                 return Some(resolved.to_idents());
             }
         }
-        None
+        panic!("Failed to resolve variable: {:?}", idents);
     }
 }
 
