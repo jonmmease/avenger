@@ -12,10 +12,10 @@ use lyon_path::{Path, Winding};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
-use std::hash::{Hash, Hasher};
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneSymbolMark {
     pub name: String,
@@ -199,6 +199,22 @@ pub enum SymbolShape {
     Circle,
     /// Path with origin top-left
     Path(lyon_path::Path),
+}
+
+impl PartialEq for SymbolShape {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Circle, Self::Circle) => true,
+            (Self::Path(a), Self::Path(b)) => {
+                let mut hash_a = DefaultHasher::new();
+                let mut hash_b = DefaultHasher::new();
+                hash_lyon_path(a, &mut hash_a);
+                hash_lyon_path(b, &mut hash_b);
+                hash_a.finish() == hash_b.finish()
+            }
+            _ => false,
+        }
+    }
 }
 
 impl Hash for SymbolShape {

@@ -1,3 +1,5 @@
+use std::hash::{DefaultHasher, Hasher};
+
 use crate::marks::mark::SceneMark;
 use crate::marks::path::ScenePathMark;
 use avenger_common::types::{ColorOrGradient, Gradient, PathTransform};
@@ -6,6 +8,8 @@ use lyon_path::geom::euclid::Point2D;
 use lyon_path::geom::Box2D;
 use lyon_path::Winding;
 use serde::{Deserialize, Serialize};
+
+use super::symbol::hash_lyon_path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Clip {
@@ -18,6 +22,27 @@ pub enum Clip {
     },
     Path(lyon_path::Path),
 }
+
+impl PartialEq for Clip {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::None, Self::None) => true,
+            (
+                Self::Rect { x: x1, y: y1, width: w1, height: h1 }, 
+                Self::Rect { x: x2, y: y2, width: w2, height: h2 }
+            ) => x1 == x2 && y1 == y2 && w1 == w2 && h1 == h2,
+            (Self::Path(path1), Self::Path(path2)) => {
+                let mut hasher_a = DefaultHasher::new();
+                let mut hasher_b = DefaultHasher::new();
+                hash_lyon_path(path1, &mut hasher_a);
+                hash_lyon_path(path2, &mut hasher_b);
+                hasher_a.finish() == hasher_b.finish()
+            }
+            _ => false,
+        }
+    }
+}
+
 
 impl Default for Clip {
     fn default() -> Self {
@@ -56,7 +81,7 @@ impl Clip {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SceneGroup {
     pub name: String,
     pub origin: [f32; 2],

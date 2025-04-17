@@ -164,7 +164,7 @@ pub enum AreaOrientation {
 }
 impl_hash_for_scalar_or_array!(AreaOrientation);
 
-#[derive(Clone, Debug, Copy, Serialize, Deserialize)]
+#[derive(Clone, Debug, Copy, PartialEq, Serialize, Deserialize)]
 pub struct LinearScaleAdjustment {
     pub scale: f32,
     pub offset: f32,
