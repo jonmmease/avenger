@@ -149,6 +149,9 @@ async fn test_parse_file_to_taskgraph2() -> Result<(), AvengerLangError> {
     comp foo: FooComponent {
         val foo_val: -@my_val;
         dataset foo_dataset: SELECT * FROM (VALUES (1, 'one'), (2, 'two'), (3, 'three')) foo("a", "b");
+
+        // This should resolve to foo.foo_val.
+        val bar_val: @foo_val * 2;
     }
     "#;
 
@@ -167,13 +170,21 @@ async fn test_parse_file_to_taskgraph2() -> Result<(), AvengerLangError> {
     let depends_on_nested_val = Variable::with_parts(
         vec!["depends_on_nested_val".to_string()]
     );
+    let bar_val = Variable::with_parts(
+        vec!["foo".to_string(), "bar_val".to_string()]
+    );
 
     let runtime = TaskGraphRuntime::new();
 
-
     // Eval root variable
     let vals = runtime.evaluate_variables(
-        task_graph.clone(), &[foo_val.clone(), depends_on_nested_val.clone(), upper_dataset.clone()]
+        task_graph.clone(), 
+        &[
+        foo_val.clone(), 
+        depends_on_nested_val.clone(), 
+        upper_dataset.clone(), 
+        bar_val.clone()
+    ]
     ).await?;
 
     let foo_val_val = vals.get(&foo_val).unwrap();
@@ -184,6 +195,9 @@ async fn test_parse_file_to_taskgraph2() -> Result<(), AvengerLangError> {
 
     let upper_dataset_val = vals.get(&upper_dataset).unwrap();
     println!("upper_dataset: {:#?}", upper_dataset_val);
+
+    let bar_val_val = vals.get(&bar_val).unwrap();
+    println!("bar_val: {:#?}", bar_val_val);
 
     Ok(())
 }

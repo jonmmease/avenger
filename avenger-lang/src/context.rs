@@ -78,7 +78,6 @@ impl EvaluationContext {
             return Err(AvengerLangError::InternalError(format!("Dataset name should not include the @ prefix: {}", variable.name())));
         }
         let table_name = format!("@{}", variable.name()).replace(".", "__");
-        println!("Registering dataset: {}", table_name);
         match dataset {
             TaskDataset::LogicalPlan(plan) => {
                 let df = self.session_ctx.execute_logical_plan(plan).await?;
@@ -269,8 +268,6 @@ impl VarProvider for EvaluationValProvider {
             }
         }
         let variable = Variable::with_parts(parts);
-
-        println!("Getting variable: {:?}", variable);
         
         let val = self.vals.lock().unwrap().get(&variable).cloned().ok_or(
             DataFusionError::Internal(format!("Variable {} not found", variable.name()))
@@ -351,6 +348,8 @@ impl<'a> VisitorMut for CompilationVisitor<'a> {
                 
                 // Otherwise it must be a reference to a value
                 if !self.ctx.has_val(&variable) {
+                    println!("Val {:?} not found", variable);
+                    println!("Context: {:#?}", self.ctx.val_provider.vals.lock().unwrap().keys().collect::<Vec<_>>());
                     return ControlFlow::Break(Err(AvengerLangError::InternalError(
                         format!("Val or Expr {} not found", variable.name())))
                     );

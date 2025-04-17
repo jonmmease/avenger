@@ -1,7 +1,11 @@
 use std::collections::{HashMap, HashSet};
+use std::cell::RefCell;
+use std::ops::ControlFlow;
 
 use super::variable::Variable;
-
+use crate::ast::{AvengerFile, Visitor, ValPropDecl, ExprPropDecl, DatasetPropDecl, CompPropDecl};
+use crate::error::AvengerLangError;
+use sqlparser::ast::{Expr as SqlExpr, Ident, ObjectName, Query as SqlQuery, VisitMut, VisitorMut as SqlVisitorMut};
 
 pub struct ScopeLevel {
     // The name of the scope level. Top level is "root"
@@ -10,6 +14,16 @@ pub struct ScopeLevel {
     pub properties: HashSet<String>,
     // The child scopes
     pub children: HashMap<String, ScopeLevel>,
+}
+
+impl Clone for ScopeLevel {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            properties: self.properties.clone(),
+            children: self.children.clone(),
+        }
+    }
 }
 
 pub struct Scope {
@@ -37,6 +51,74 @@ impl Scope {
             Scope::add_component_paths(component_paths, child, &parts);
         }
     }
+    
+    // Create a Scope from an AvengerFile using the ScopeBuilder visitor
+    pub fn from_file(file: &AvengerFile) -> Self {
+        let mut builder = ScopeBuilder::new();
+        file.accept(&mut builder);
+        builder.build()
+    }
+}
+
+// ScopeBuilder visitor that constructs a Scope from an AvengerFile
+pub struct ScopeBuilder {
+    root_level: RefCell<ScopeLevel>,
+}
+
+impl ScopeBuilder {
+    pub fn new() -> Self {
+        Self {
+            root_level: RefCell::new(ScopeLevel {
+                name: "root".to_string(),
+                properties: HashSet::new(),
+                children: HashMap::new(),
+            }),
+        }
+    }
+    
+    fn add_property(&self, name: &str, scope_path: &[String]) {
+        let mut root_level = self.root_level.borrow_mut();
+        let mut current = &mut *root_level;
+        
+        // Navigate to the current scope level
+        for part in scope_path {
+            if !current.children.contains_key(part) {
+                current.children.insert(part.clone(), ScopeLevel {
+                    name: part.clone(),
+                    properties: HashSet::new(),
+                    children: HashMap::new(),
+                });
+            }
+            current = current.children.get_mut(part).unwrap();
+        }
+        
+        // Add the property to the current scope level
+        current.properties.insert(name.to_string());
+    }
+
+    pub fn build(&self) -> Scope {
+        let borrowed = self.root_level.borrow();
+        let root_level_clone = (*borrowed).clone();
+        Scope::new(root_level_clone)
+    }
+}
+
+impl Visitor for ScopeBuilder {
+    fn visit_val_prop_decl(&mut self, val_prop: &ValPropDecl, scope_path: &[String]) {
+        self.add_property(&val_prop.name, scope_path);
+    }
+
+    fn visit_expr_prop_decl(&mut self, expr_prop: &ExprPropDecl, scope_path: &[String]) {
+        self.add_property(&expr_prop.name, scope_path);
+    }
+
+    fn visit_dataset_prop_decl(&mut self, dataset_prop: &DatasetPropDecl, scope_path: &[String]) {
+        self.add_property(&dataset_prop.name, scope_path);
+    }
+
+    fn visit_comp_prop_decl(&mut self, comp_prop: &CompPropDecl, scope_path: &[String]) {
+        self.add_property(&comp_prop.name, scope_path);
+    }
 }
 
 
@@ -58,7 +140,6 @@ impl ScopePath {
 }
 
 impl Scope {
-
     fn make_scope_stack<'a>(&'a self, path: &ScopePath) -> Vec<&'a ScopeLevel> {
         let mut scope_stack: Vec<&ScopeLevel> = vec![&self.root_level];
         for part in &path.0 {
@@ -126,6 +207,110 @@ impl Scope {
                 None
             }
         }
+    }
+
+    pub fn resolve_sql_expr(&self, expr: &mut SqlExpr, scope_path: &ScopePath) -> Result<(), AvengerLangError> {
+        let mut visitor = ResolveVarInSqlVisitor::new(
+            self, scope_path
+        );
+        if let ControlFlow::Break(Err(err)) = expr.visit(&mut visitor) {
+            return Err(err)
+        }
+        Ok(())
+    }
+
+    pub fn resolve_sql_query(&self, query: &mut SqlQuery, scope_path: &ScopePath) -> Result<(), AvengerLangError> {
+        let mut visitor = ResolveVarInSqlVisitor::new(
+            self, scope_path
+        );
+        if let ControlFlow::Break(Err(err)) = query.visit(&mut visitor) {
+            return Err(err)
+        }
+        Ok(())
+    }
+}
+
+
+pub struct ResolveVarInSqlVisitor<'a> {
+    scope: &'a Scope,
+    path: &'a ScopePath,
+}
+
+impl<'a> ResolveVarInSqlVisitor<'a> {
+    pub fn new(scope: &'a Scope, path: &'a ScopePath) -> Self {
+        Self { scope, path }
+    }
+
+    fn resolve_idents(&self, idents: &[Ident]) -> Option<Vec<Ident>> {
+        if idents.is_empty() || !idents[0].value.starts_with("@") {
+            // Not a variable reference, so no need to resolve
+            return None;
+        } else if idents.len() == 1 {
+            // Name without leading @
+            let name = idents[0].value[1..].to_string();
+            let anchor = None;
+            if let Some(resolved) = self.scope.resolve_var(&name, &self.path, anchor) {
+                return Some(resolved.to_idents())
+            }
+        } else if idents.len() == 2 && idents[0].value == "@self" {
+            let name = idents[1].value.clone();
+            let anchor = Some(ScopeAnchor::Self_);
+            if let Some(resolved) = self.scope.resolve_var(&name, &self.path, anchor) {
+                return Some(resolved.to_idents());
+            }
+        } else if idents.len() == 2 && idents[0].value == "@parent" {
+            let name = idents[1].value.clone();
+            let anchor = Some(ScopeAnchor::Parent);
+            if let Some(resolved) = self.scope.resolve_var(&name, &self.path, anchor) {
+                return Some(resolved.to_idents());
+            }
+        } else if idents.len() == 2 && idents[0].value == "@root" {
+            let name = idents[1].value.clone();
+            let anchor = Some(ScopeAnchor::Root);
+            if let Some(resolved) = self.scope.resolve_var(&name, &self.path, anchor) {
+                return Some(resolved.to_idents());
+            }
+        } else {
+            let name = idents[idents.len() - 1].value.clone();
+            let mut anchor_parts = idents[0..idents.len() - 1].iter().map(|i| i.value.clone()).collect::<Vec<_>>();
+
+            // Remove leading @ from first part
+            anchor_parts[0] = anchor_parts[0][1..].to_string();
+
+            let anchor = Some(ScopeAnchor::Component(anchor_parts));
+            if let Some(resolved) = self.scope.resolve_var(&name, &self.path, anchor) {
+                return Some(resolved.to_idents());
+            }
+        }
+        None
+    }
+}
+
+impl<'a> SqlVisitorMut for ResolveVarInSqlVisitor<'a> {
+    type Break = Result<(), AvengerLangError>;
+
+    fn pre_visit_relation(&mut self, relation: &mut ObjectName) -> ControlFlow<Self::Break> {
+        if let Some(resolved) = self.resolve_idents(&relation.0) {
+            *relation = ObjectName(resolved);
+        }
+        ControlFlow::Continue(())
+    }
+
+    fn pre_visit_expr(&mut self, expr: &mut SqlExpr) -> ControlFlow<Self::Break> {
+        match expr.clone() {
+            SqlExpr::Identifier(ident) => {
+                if let Some(resolved) = self.resolve_idents(&[ident]) {
+                    *expr = SqlExpr::CompoundIdentifier(resolved);
+                }
+            }
+            SqlExpr::CompoundIdentifier(idents) => {
+                if let Some(resolved) = self.resolve_idents(&idents) {
+                    *expr = SqlExpr::CompoundIdentifier(resolved);
+                }
+            }
+            _ => {}
+        }
+        ControlFlow::Continue(())
     }
 }
 

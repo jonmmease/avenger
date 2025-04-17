@@ -8,9 +8,10 @@ use petgraph::algo::toposort;
 use petgraph::graph::DiGraph;
 use petgraph::Direction;
 
-use crate::ast::{AvengerFile, Statement};
+use crate::ast::{AvengerFile, DatasetPropDecl, ExprPropDecl, Statement, ValPropDecl, Visitor};
 use crate::{task_graph::tasks::Task, task_graph::{dependency::{Dependency, DependencyKind}, value::TaskValue}, error::AvengerLangError};
 
+use super::scope::{Scope, ScopePath};
 use super::tasks::{DatasetDeclTask, ExprDeclTask, ValDeclTask};
 use super::variable::Variable;
 
@@ -168,57 +169,68 @@ impl TaskGraph {
     pub fn tasks(&self) -> &IndexMap<Variable, TaskNode> {
         &self.tasks
     }
-
-    fn tasks_from_statement(statement: Statement, parent: &[String]) -> Result<HashMap<Variable, Arc<dyn Task>>, AvengerLangError> {
-        let mut tasks: HashMap<Variable, Arc<dyn Task>> = HashMap::new();
-        match statement {
-            Statement::ValPropDecl(val_prop_decl) => {
-                let mut parts = Vec::from(parent);
-                parts.push(val_prop_decl.name.clone());
-                let variable = Variable::with_parts(parts);
-                let task = ValDeclTask::from(val_prop_decl);
-                tasks.insert(variable, Arc::new(task));
-            }
-            Statement::ExprPropDecl(expr_prop_decl) => {
-                let mut parts = Vec::from(parent);
-                parts.push(expr_prop_decl.name.clone());
-                let variable = Variable::with_parts(parts);
-                let task = ExprDeclTask::from(expr_prop_decl);
-                tasks.insert(variable, Arc::new(task));
-            }
-            Statement::DatasetPropDecl(dataset_prop_decl) => {
-                let mut parts = Vec::from(parent);
-                parts.push(dataset_prop_decl.name.clone());
-                let variable = Variable::with_parts(parts);
-                let task = DatasetDeclTask::from(dataset_prop_decl);
-                tasks.insert(variable, Arc::new(task));
-            }
-            Statement::CompPropDecl(comp_prop_decl) => {
-                let mut nested_parent = Vec::from(parent);
-                nested_parent.push(comp_prop_decl.name.clone());
-                for statement in comp_prop_decl.value.statements {
-                    for (var, task) in TaskGraph::tasks_from_statement(statement, &nested_parent)? {
-                        tasks.insert(var, task);
-                    }
-                }
-            }
-        }
-        Ok(tasks)
-    }
 }
 
 impl TryFrom<AvengerFile> for TaskGraph {
     type Error = AvengerLangError;
 
     fn try_from(file: AvengerFile) -> Result<Self, Self::Error> {
-        let mut tasks: HashMap<Variable, Arc<dyn Task>> = HashMap::new();
-        for statement in file.statements {
-            let parent: Vec<String> = Vec::new();
-            for (var, task) in TaskGraph::tasks_from_statement(statement, &parent)? {
-                tasks.insert(var, task);
-            }
-        }
-        Ok(TaskGraph::try_new(tasks)?)
+        let mut builder = TaskGraphBuilder::new(Scope::from_file(&file));
+        file.accept(&mut builder);
+        builder.build()
+    }
+}
+
+pub struct TaskGraphBuilder {
+    scope: Scope,
+    tasks: HashMap<Variable, Arc<dyn Task>>,
+}
+
+impl TaskGraphBuilder {
+    pub fn new(scope: Scope) -> Self {
+        Self { scope, tasks: HashMap::new() }
+    }
+
+    pub fn build(self) -> Result<TaskGraph, AvengerLangError> {
+        Ok(TaskGraph::try_new(self.tasks)?)
+    }
+}
+
+impl Visitor for TaskGraphBuilder {
+    fn visit_val_prop_decl(&mut self, val_prop_decl: &ValPropDecl, scope_path: &[String]) {
+        let mut parts = Vec::from(scope_path);
+        parts.push(val_prop_decl.name.clone());
+        let variable = Variable::with_parts(parts);
+        let mut sql_expr = val_prop_decl.value.clone();
+
+        // TODO: propagate error through visitor
+        self.scope.resolve_sql_expr(&mut sql_expr, &ScopePath::new(scope_path.to_vec())).expect("Failed to resolve SQL expression");
+        let task = ValDeclTask::new(sql_expr);
+        self.tasks.insert(variable, Arc::new(task));
+    }
+
+    fn visit_expr_prop_decl(&mut self, expr_prop_decl: &ExprPropDecl, scope_path: &[String]) {
+        let mut parts = Vec::from(scope_path);
+        parts.push(expr_prop_decl.name.clone());
+        let variable = Variable::with_parts(parts);
+        let mut sql_expr = expr_prop_decl.value.clone();
+
+        // TODO: propagate error through visitor
+        self.scope.resolve_sql_expr(&mut sql_expr, &ScopePath::new(scope_path.to_vec())).expect("Failed to resolve SQL expression");
+        let task = ExprDeclTask::new(sql_expr);
+        self.tasks.insert(variable, Arc::new(task));
+    }
+
+    fn visit_dataset_prop_decl(&mut self, dataset_prop_decl: &DatasetPropDecl, scope_path: &[String]) {
+        let mut parts = Vec::from(scope_path);
+        parts.push(dataset_prop_decl.name.clone());
+        let variable = Variable::with_parts(parts);
+        let mut sql_query = dataset_prop_decl.value.clone();
+
+        // TODO: propagate error through visitor
+        self.scope.resolve_sql_query(&mut sql_query, &ScopePath::new(scope_path.to_vec())).expect("Failed to resolve SQL query");
+        let task = DatasetDeclTask { query: sql_query, eval: false };
+        self.tasks.insert(variable, Arc::new(task));
     }
 }
 
