@@ -92,25 +92,14 @@ impl TaskGraph {
             let task = tasks.remove(&dependency).expect("Task should exist");
             
             // Get input variables for this task
-            let input_vars = task.input_dependencies()?;
-            
-            // Build inputs (incoming edges)
-            let mut inputs: Vec<IncomingEdge> = Vec::new();
-            
-            // Track parent variables for fingerprinting
-            let mut parent_variables = Vec::new();
-            
-            // Get all incoming neighbors in the graph
-            for neighbor_idx in graph.neighbors_directed(idx, Direction::Incoming) {
-                let source = graph[neighbor_idx].clone();
-                parent_variables.push(source.clone());
-                
-                // Create an edge for this input
-                inputs.push(IncomingEdge {
-                    source: source.clone(),
-                });
-            }
-            
+            let input_deps = task.input_dependencies()?;
+            let parent_variables: Vec<Variable> = input_deps.iter().map(
+                |dep| dep.variable.clone()
+            ).collect();
+            let inputs: Vec<IncomingEdge> = input_deps.iter().map(
+                |dep| IncomingEdge { source: dep.variable.clone() }
+            ).collect();
+                        
             // Build outputs (outgoing edges)
             let outputs = graph
                 .neighbors_directed(idx, Direction::Outgoing)
@@ -122,11 +111,11 @@ impl TaskGraph {
             
             // Calculate content hash for this task
             let mut hasher = DefaultHasher::new();
-            dependency.hash(&mut hasher);  // Hash the variable name
+            dependency.hash(&mut hasher);
             
             // Since Task trait doesn't implement Debug, we'll use other task properties
             // Hash the task's input variables
-            for input_var in &input_vars {
+            for input_var in &input_deps {
                 input_var.hash(&mut hasher);
             }
             

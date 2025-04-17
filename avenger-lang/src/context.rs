@@ -77,6 +77,7 @@ impl EvaluationContext {
         if !variable.parts.is_empty() && variable.parts[0].starts_with("@") {
             return Err(AvengerLangError::InternalError(format!("Dataset name should not include the @ prefix: {}", variable.name())));
         }
+        
         let table_name = format!("@{}", variable.name()).replace(".", "__");
         match dataset {
             TaskDataset::LogicalPlan(plan) => {
@@ -168,12 +169,12 @@ impl EvaluationContext {
     /// Compile a SQL query to a logical plan, expanding sql with referenced expressions
     pub async fn compile_query(&self, query: &SqlQuery) -> Result<LogicalPlan, AvengerLangError> {
         // Visit the query and validate references
-        let mut query = query.clone();
+        let mut expanded_query = self.expand_query(&query)?;
         let mut visitor = CompilationVisitor::new(&self);
-        if let ControlFlow::Break(Result::Err(err)) = query.visit(&mut visitor) {
+        if let ControlFlow::Break(Result::Err(err)) = expanded_query.visit(&mut visitor) {
             return Err(err);
         }
-        let plan = self.session_ctx.state().create_logical_plan(&query.to_string()).await?;
+        let plan = self.session_ctx.state().create_logical_plan(&expanded_query.to_string()).await?;
         Ok(plan)
     }
 
@@ -203,6 +204,15 @@ impl EvaluationContext {
             return Err(err);
         }
         Ok(expr)
+    }
+
+    pub fn expand_query(&self, query: &SqlQuery) -> Result<SqlQuery, AvengerLangError> {
+        let mut query = query.clone();
+        let mut visitor = CompilationVisitor::new(&self);
+        if let ControlFlow::Break(Result::Err(err)) = query.visit(&mut visitor) {
+            return Err(err);
+        }
+        Ok(query)
     }
 
     pub async fn evaluate_expr(&self, expr: &SqlExpr) -> Result<ScalarValue, AvengerLangError> {
@@ -333,28 +343,48 @@ impl<'a> VisitorMut for CompilationVisitor<'a> {
     }
 
     fn pre_visit_expr(&mut self, expr: &mut SqlExpr) -> ControlFlow<Self::Break> {
-        if let SqlExpr::Identifier(ident) = expr.clone() {
-            if ident.value.starts_with("@") {
-                let mut parts: Vec<String> = ident.value.split(".").map(|s| s.to_string()).collect();
-                // Drop the leading @
-                parts[0] = parts[0][1..].to_string();
-                let variable = Variable::with_parts(parts);
+        match expr.clone() {
+            SqlExpr::Identifier(ident) => {
+                if ident.value.starts_with("@") {
+                    let variable = Variable::with_parts(vec![ident.value[1..].to_string()]);
 
-                // Check if this is a reference to an expression
-                if let Ok(registered_expr) = self.ctx.get_expr(&variable) {
-                    *expr = SqlExpr::Nested(Box::new(registered_expr.clone()));
-                    return ControlFlow::Continue(());
-                }
-                
-                // Otherwise it must be a reference to a value
-                if !self.ctx.has_val(&variable) {
-                    println!("Val {:?} not found", variable);
-                    println!("Context: {:#?}", self.ctx.val_provider.vals.lock().unwrap().keys().collect::<Vec<_>>());
-                    return ControlFlow::Break(Err(AvengerLangError::InternalError(
-                        format!("Val or Expr {} not found", variable.name())))
-                    );
+                    // Check if this is a reference to an expression
+                    if let Ok(registered_expr) = self.ctx.get_expr(&variable) {
+                        *expr = SqlExpr::Nested(Box::new(registered_expr.clone()));
+                        return ControlFlow::Continue(());
+                    }
+
+                    // Otherwise it must be a reference to a value
+                    if !self.ctx.has_val(&variable) {
+                        return ControlFlow::Break(Err(AvengerLangError::InternalError(
+                            format!("Val or Expr {} not found", variable.name())))
+                        );
+                    }
                 }
             }
+            SqlExpr::CompoundIdentifier(idents) => {
+                if !idents.is_empty() && idents[0].value.starts_with("@") {
+                    let mut parts = idents.iter().map(|ident| ident.value.clone()).collect::<Vec<_>>();
+                    parts[0] = parts[0][1..].to_string();
+                    let variable = Variable::with_parts(parts);
+
+                    // Check if this is a reference to an expression
+                    if let Ok(registered_expr) = self.ctx.get_expr(&variable) {
+                        *expr = SqlExpr::Nested(Box::new(registered_expr.clone()));
+                        return ControlFlow::Continue(());
+                    }
+
+                    // Otherwise it must be a reference to a value
+                    if !self.ctx.has_val(&variable) {
+                        println!("Val {:?} not found", variable);
+                        println!("Context: {:#?}", self.ctx.val_provider.vals.lock().unwrap().keys().collect::<Vec<_>>());
+                        return ControlFlow::Break(Err(AvengerLangError::InternalError(
+                            format!("Val or Expr {} not found", variable.name())))
+                        );
+                    }
+                }
+            }
+            _ => {}
         }
         ControlFlow::Continue(())
     }
