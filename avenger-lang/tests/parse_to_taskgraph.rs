@@ -201,3 +201,69 @@ async fn test_parse_file_to_taskgraph2() -> Result<(), AvengerLangError> {
 
     Ok(())
 }
+
+
+#[tokio::test]
+async fn test_parse_file_with_mark() -> Result<(), AvengerLangError> {
+    let src = r#"
+    dataset data_0: SELECT * FROM (VALUES 
+            (1, 'red'),
+            (2, 'green'),
+            (3, 'blue')
+        ) foo("a", "b");
+
+    comp mark1: Rect {
+        dataset data: SELECT * FROM @data_0;
+        expr x: "a" * 100;
+        expr x2: @x + 10;
+        expr y: "a" * 10 + 10;
+        expr y2: 0;
+        expr fill: "b";
+        expr stroke_width: 4;
+        expr stroke: 'black';
+
+        // Marks can have 
+        out dataset _encoded_data: 
+            SELECT 
+                @x as x, 
+                @x2 as x2, 
+                @y as y, 
+                @y2 as y2, 
+                @fill as fill, 
+                @stroke_width as stroke_width, 
+                @stroke as stroke 
+            FROM @data;
+    }
+    "#;
+
+    // Build Task Graph from parsed file
+    let file = parse_file(src)?;
+    let task_graph = Arc::new(TaskGraph::try_from(file)?);
+
+    for (variable, task_node) in task_graph.tasks() {
+        println!("Variable: {:?}", variable);
+        println!("Inputs: {:#?}", task_node.task.input_dependencies());
+    }
+
+    // Evaluate the task graph
+    let encoded_data = Variable::with_parts(
+        vec!["mark1".to_string(), "_encoded_data".to_string()]
+    );
+
+    let runtime = TaskGraphRuntime::new();
+
+    let vals = runtime.evaluate_variables(
+        task_graph.clone(), &[encoded_data.clone()]
+    ).await?;
+
+    let encoded_data_val = vals.get(&encoded_data).unwrap();
+    println!("encoded_data: {:#?}", encoded_data_val);
+
+    let (task_dataset, _) = encoded_data_val.as_dataset().unwrap();
+    let TaskDataset::ArrowTable(table) = task_dataset else {
+        return Err(AvengerLangError::InternalError(format!("Expected ArrowTable, got {:?}", task_dataset)));
+    };
+
+    table.show()?;
+    Ok(())
+}
