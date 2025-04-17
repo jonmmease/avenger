@@ -11,7 +11,13 @@ pub struct ScalarOrArray<T: Sync + Clone> {
     pub(crate) hash_cache: Arc<Mutex<Option<u64>>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl<T: Sync + Clone + PartialEq> PartialEq for ScalarOrArray<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.value == other.value
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ScalarOrArrayValue<T: Sync + Clone> {
     Scalar(T),
