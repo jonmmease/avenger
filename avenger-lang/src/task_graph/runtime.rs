@@ -217,6 +217,7 @@ mod tests {
     use crate::task_graph::dependency::DependencyKind;
     use async_trait::async_trait;
     use datafusion_common::ScalarValue;
+    use std::hash::{DefaultHasher, Hash, Hasher};
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Duration;
     use tokio::time::sleep;
@@ -255,6 +256,12 @@ mod tests {
             _input_values: &[TaskValue],
         ) -> Result<TaskValue, AvengerLangError> {
             Ok(self.return_value.clone())
+        }
+
+        fn fingerprint(&self) -> Result<u64, AvengerLangError> {
+            let mut hasher = DefaultHasher::new();
+            self.name.hash(&mut hasher);
+            Ok(hasher.finish())
         }
     }
     
@@ -297,12 +304,18 @@ mod tests {
             sleep(self.delay).await;
             Ok(self.return_value.clone())
         }
+
+        fn fingerprint(&self) -> Result<u64, AvengerLangError> {
+            let mut hasher = DefaultHasher::new();
+            self.name.hash(&mut hasher);
+            Ok(hasher.finish())
+        }
     }
     
     // A task that counts how many times it's been evaluated
     #[derive(Debug, Clone)]
     struct CountingTask {
-        var: Dependency,
+        dep: Dependency,
         dependencies: Vec<Dependency>,
         counter: Arc<AtomicU32>,
         return_value: TaskValue,
@@ -316,7 +329,7 @@ mod tests {
             return_value: TaskValue
         ) -> Self {
             Self {
-                var: Dependency::new(name.to_string(), DependencyKind::ValOrExpr),
+                dep: Dependency::new(name.to_string(), DependencyKind::ValOrExpr),
                 dependencies,
                 counter,
                 return_value,
@@ -337,6 +350,12 @@ mod tests {
             // Increment the counter each time evaluate is called
             self.counter.fetch_add(1, Ordering::SeqCst);
             Ok(self.return_value.clone())
+        }
+
+        fn fingerprint(&self) -> Result<u64, AvengerLangError> {
+            let mut hasher = DefaultHasher::new();
+            self.dep.hash(&mut hasher);
+            Ok(hasher.finish())
         }
     }
 

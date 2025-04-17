@@ -86,10 +86,10 @@ impl TaskGraph {
         let mut fingerprints: HashMap<Variable, u64> = HashMap::new();
         
         for idx in sorted_indices {
-            let dependency = graph[idx].clone();
+            let node_var = graph[idx].clone();
             
             // Take ownership of the task from the HashMap
-            let task = tasks.remove(&dependency).expect("Task should exist");
+            let task = tasks.remove(&node_var).expect("Task should exist");
             
             // Get input variables for this task
             let input_deps = task.input_dependencies()?;
@@ -109,47 +109,35 @@ impl TaskGraph {
                 })
                 .collect();
             
-            // Calculate content hash for this task
-            let mut hasher = DefaultHasher::new();
-            dependency.hash(&mut hasher);
-            
-            // Since Task trait doesn't implement Debug, we'll use other task properties
-            // Hash the task's input variables
-            for input_var in &input_deps {
-                input_var.hash(&mut hasher);
-            }
-            
-            // Get the content hash
-            let content_hash = hasher.finish();
-            
-            // Calculate final fingerprint by combining with parent fingerprints
-            let mut final_hasher = DefaultHasher::new();
-            content_hash.hash(&mut final_hasher);
+            // Calculate fingerprint by combining this tasks's fingerprint with 
+            // the fingerprints of its parents
+            let mut fingerprint_hasher = DefaultHasher::new();
+            task.fingerprint()?.hash(&mut fingerprint_hasher);
             
             // Add parent fingerprints to the hash if there are any
             if !parent_variables.is_empty() {
                 for parent in &parent_variables {
                     if let Some(parent_fingerprint) = fingerprints.get(parent) {
-                        parent_fingerprint.hash(&mut final_hasher);
+                        parent_fingerprint.hash(&mut fingerprint_hasher);
                     }
                 }
             }
             
-            let fingerprint = final_hasher.finish();
+            let fingerprint = fingerprint_hasher.finish();
             
             // Store the fingerprint for potential child nodes to use
-            fingerprints.insert(dependency.clone(), fingerprint);
+            fingerprints.insert(node_var.clone(), fingerprint);
             
             // Create the task node
             let task_node = TaskNode {
-                variable: dependency.clone(),
+                variable: node_var.clone(),
                 task,
                 inputs,
                 outputs,
                 fingerprint,
             };
             
-            sorted_tasks.insert(dependency, task_node);
+            sorted_tasks.insert(node_var, task_node);
         }
         
         Ok(TaskGraph { tasks: sorted_tasks })
@@ -244,7 +232,7 @@ mod tests {
     }
 
     // Mock implementation of Task for testing
-    #[derive(Debug)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     struct MockTask {
         name: String,
         input_deps: Vec<Dependency>,
@@ -271,6 +259,12 @@ mod tests {
         ) -> Result<TaskValue, AvengerLangError> {
             // For testing, just return a dummy value
             Ok(TaskValue::Val { value: ScalarValue::Int32(Some(42)) })
+        }
+
+        fn fingerprint(&self) -> Result<u64, AvengerLangError> {
+            let mut hasher = DefaultHasher::new();
+            self.hash(&mut hasher);
+            Ok(hasher.finish())
         }
     }
 

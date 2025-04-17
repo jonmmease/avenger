@@ -254,7 +254,7 @@ mod tests {
         out comp<Widget> my_comp: MyComponent {
             val internal_val: 42;
             expr result: @internal_val * 2;
-        };
+        }
         "#;
         let parser = AvengerParser::new();
         let tokens = parser.tokenize(src).unwrap();

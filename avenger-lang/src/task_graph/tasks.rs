@@ -1,4 +1,4 @@
-use std::{fmt::Debug, ops::ControlFlow};
+use std::{fmt::Debug, hash::{DefaultHasher, Hash, Hasher}, ops::ControlFlow};
 
 use sqlparser::ast::{Expr as SqlExpr, ObjectName, Query as SqlQuery, Visit, Visitor};
 use async_trait::async_trait;
@@ -21,6 +21,8 @@ pub trait Task: Debug + Send + Sync {
             |dep| dep.variable.clone()
         ).collect())
     }
+
+    fn fingerprint(&self) -> Result<u64, AvengerLangError>;
 
     /// Evaluate the task in a session context with the given dependencies
     async fn evaluate(
@@ -49,6 +51,12 @@ impl Task for TaskValueTask {
         _input_values: &[TaskValue],
     ) -> Result<TaskValue, AvengerLangError> {
         Ok(self.value.clone())
+    }
+
+    fn fingerprint(&self) -> Result<u64, AvengerLangError> {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        Ok(hasher.finish())
     }
 }
 
@@ -82,6 +90,12 @@ impl Task for ValDeclTask {
         ctx.register_values(&self.input_variables()?, &input_values).await?;
         let val = ctx.evaluate_expr(&self.value).await?;
         Ok(TaskValue::Val { value: val })
+    }
+
+    fn fingerprint(&self) -> Result<u64, AvengerLangError> {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        Ok(hasher.finish())
     }
 }
 
@@ -125,6 +139,12 @@ impl Task for ExprDeclTask {
             &self.input_variables()?, &input_values
         )?;
         Ok(TaskValue::Expr { context: task_value_context, sql_expr })
+    }
+
+    fn fingerprint(&self) -> Result<u64, AvengerLangError> {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        Ok(hasher.finish())
     }
 }
 
@@ -176,6 +196,12 @@ impl Task for DatasetDeclTask {
             )?;
             Ok(TaskValue::Dataset { context: task_value_context, dataset: TaskDataset::LogicalPlan(plan) })
         }
+    }
+
+    fn fingerprint(&self) -> Result<u64, AvengerLangError> {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        Ok(hasher.finish())
     }
 }
 
