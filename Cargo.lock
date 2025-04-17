@@ -537,6 +537,8 @@ dependencies = [
  "arrow-schema",
  "async-recursion",
  "async-trait",
+ "avenger-scales",
+ "avenger-scenegraph",
  "criterion",
  "datafusion",
  "datafusion-common",

@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-scales = { path = "../avenger-scales" }
+
 thiserror = { workspace = true }
 async-trait = { workspace = true }
 sqlparser = { workspace = true, features = ["visitor"] }

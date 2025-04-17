@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use avenger_lang::{ast::AvengerFile, context::EvaluationContext, error::AvengerLangError, parser::AvengerParser, task_graph::{dependency::{Dependency, DependencyKind}, runtime::TaskGraphRuntime, task_graph::TaskGraph, value::{ArrowTable, TaskDataset}, variable::Variable}};
+use avenger_lang::{ast::AvengerFile, context::EvaluationContext, error::AvengerLangError, marks::rect::build_rect_mark, parser::AvengerParser, task_graph::{dependency::{Dependency, DependencyKind}, runtime::TaskGraphRuntime, task_graph::TaskGraph, value::{ArrowTable, TaskDataset}, variable::Variable}};
 
 
 fn parse_file(src: &str) -> Result<AvengerFile, AvengerLangError> {
@@ -272,6 +272,9 @@ async fn test_parse_file_with_mark() -> Result<(), AvengerLangError> {
     };
 
     config_table.show()?;
+
+    let rect_mark = build_rect_mark(&encoded_table, &config_table)?;
+    println!("rect_mark: {:#?}", rect_mark);
 
     Ok(())
 }
