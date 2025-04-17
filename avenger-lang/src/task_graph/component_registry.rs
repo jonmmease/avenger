@@ -4,60 +4,8 @@ use sqlparser::ast::{Expr, Query};
 
 use crate::ast::SqlExprOrQuery;
 
-#[derive(Clone, Debug)]
-pub enum PropType {
-    Val,
-    Expr,
-    Dataset,
-}
+use super::component::{ComponentSpec, PropType};
 
-// Should default values be stored here?
-// =====================================
-// pub enum PropSpec {
-//     Val {
-//         default: Option<SqlExpr>,
-//     },
-//     Expr {
-//         default: Option<SqlExpr>,
-//     },
-//     Dataset {
-//         default: Option<SqlQuery>,
-//     },
-// }
-// 
-// impl PropSpec {
-//     pub fn val(default: SqlExpr) -> Self {
-//         Self::Val { default: Some(default) }
-//     }
-// 
-//     pub fn val_required() -> Self {
-//         Self::Val { default: None }
-//     }
-// 
-//     pub fn expr(default: SqlExpr) -> Self {
-//         Self::Expr { default: Some(default) }
-//     }
-// 
-//     pub fn expr_required() -> Self {
-//         Self::Expr { default: None }
-//     }
-// 
-//     pub fn dataset(default: SqlQuery) -> Self {
-//         Self::Dataset { default: Some(default) }
-//     }
-// 
-//     pub fn dataset_required() -> Self {
-//         Self::Dataset { default: None }
-//     }
-// }
-// =====================================
-
-#[derive(Clone, Debug)]
-pub struct ComponentSpec {
-    pub name: String,
-    pub props: HashMap<String, PropType>,
-    pub allow_children: bool,
-}
 
 #[derive(Clone, Debug)]
 pub struct ComponentRegistry {
@@ -86,6 +34,7 @@ impl ComponentRegistry {
         registry.register_component("App", ComponentSpec {
             name: "App".to_string(),
             allow_children: false,
+            is_mark: false,
             props: vec![
                 ("width", PropType::Val),
                 ("height", PropType::Val),
@@ -93,7 +42,8 @@ impl ComponentRegistry {
         });
         registry.register_component("Rect", ComponentSpec {
             name: "Rect".to_string(),
-            allow_children: false,
+                allow_children: false,
+            is_mark: true,
             props: vec![
                 ("data", PropType::Dataset),
                 ("zindex", PropType::Val),
@@ -115,6 +65,7 @@ impl ComponentRegistry {
         registry.register_component("Arc", ComponentSpec {
             name: "Arc".to_string(),
             allow_children: false,
+            is_mark: true,
             props: vec![
                 ("data", PropType::Dataset),
                 ("zindex", PropType::Val),
@@ -137,6 +88,7 @@ impl ComponentRegistry {
         registry.register_component("Area", ComponentSpec {
             name: "Area".to_string(),
             allow_children: false,
+            is_mark: true,
             props: vec![
                 ("data", PropType::Dataset),
                 ("zindex", PropType::Val),
@@ -159,6 +111,7 @@ impl ComponentRegistry {
         registry.register_component("Image", ComponentSpec {
             name: "Image".to_string(),
             allow_children: false,
+            is_mark: true,
             props: vec![
                 ("data", PropType::Dataset),
                 ("zindex", PropType::Val),
@@ -179,6 +132,7 @@ impl ComponentRegistry {
         registry.register_component("Line", ComponentSpec {
             name: "Line".to_string(),
             allow_children: false,
+            is_mark: true,
             props: vec![
                 ("data", PropType::Dataset),
                 ("zindex", PropType::Val),
@@ -197,6 +151,7 @@ impl ComponentRegistry {
         registry.register_component("Path", ComponentSpec {
             name: "Path".to_string(),
             allow_children: false,
+            is_mark: true,
             props: vec![
                 ("data", PropType::Dataset),
                 ("zindex", PropType::Val),
@@ -215,6 +170,7 @@ impl ComponentRegistry {
         registry.register_component("Rule", ComponentSpec {
             name: "Rule".to_string(),
             allow_children: false,
+            is_mark: true,
             props: vec![
                 ("data", PropType::Dataset),
                 ("zindex", PropType::Val),
@@ -234,6 +190,7 @@ impl ComponentRegistry {
         registry.register_component("Symbol", ComponentSpec {
             name: "Symbol".to_string(),
             allow_children: false,
+            is_mark: true,
             props: vec![
                 ("data", PropType::Dataset),
                 ("zindex", PropType::Val),
@@ -256,6 +213,7 @@ impl ComponentRegistry {
         registry.register_component("Text", ComponentSpec {
             name: "Text".to_string(),
             allow_children: false,
+            is_mark: true,
             props: vec![
                 ("data", PropType::Dataset),
                 ("zindex", PropType::Val),
@@ -279,6 +237,7 @@ impl ComponentRegistry {
         registry.register_component("Trail", ComponentSpec {
             name: "Trail".to_string(),
             allow_children: false,
+            is_mark: true,
             props: vec![
                 ("data", PropType::Dataset),
                 ("zindex", PropType::Val),
@@ -294,6 +253,7 @@ impl ComponentRegistry {
         registry.register_component("Group", ComponentSpec {
             name: "Group".to_string(),
             allow_children: true,
+            is_mark: false,
             props: vec![
                 ("x", PropType::Val),
                 ("y", PropType::Val),

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use sqlparser::dialect::GenericDialect;
@@ -67,6 +68,18 @@ pub struct CompPropDecl {
 pub struct CompInstance {
     pub name: String,
     pub statements: Vec<Statement>,
+}
+
+impl CompInstance {
+    pub fn prop_bindings(&self) -> HashMap<String, &PropBinding> {
+        self.statements.iter().filter_map(|stmt| {
+            if let Statement::PropBinding(binding) = stmt {
+                Some((binding.name.clone(), binding))
+            } else {
+                None
+            }
+        }).collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
