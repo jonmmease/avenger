@@ -8,7 +8,7 @@ use sqlparser::ast::{Expr as SqlExpr};
 use lazy_static::lazy_static;
 
 
-use crate::ast::{AvengerFile, DatasetPropDecl, ExprPropDecl, PropQualifier, Statement, Type, ValPropDecl, CompPropDecl, CompInstance};
+use crate::ast::{AvengerFile, CompInstance, CompPropDecl, DatasetPropDecl, ExprPropDecl, PropBinding, PropQualifier, SqlExprOrQuery, Statement, Type, ValPropDecl};
 use crate::error::AvengerLangError;
 
 lazy_static! {
@@ -177,6 +177,20 @@ impl AvengerParser {
                 Ok(Statement::CompPropDecl(CompPropDecl {
                     name, value, qualifier, type_: ty
                 }))
+            }
+            name if self.parser.peek_token_ref().token == Token::Assignment => {
+                self.parser.expect_token(&Token::Assignment)?;
+                if let Ok(sql_query) = self.parser.parse_query() {
+                    let value = SqlExprOrQuery::Query(sql_query);
+                    self.parser.expect_token(&Token::SemiColon)?;
+                    Ok(Statement::PropBinding(PropBinding { name: name.to_string(), value }))
+                } else if let Ok(sql_expr) = self.parser.parse_expr() {
+                    let value = SqlExprOrQuery::Expr(sql_expr);
+                    self.parser.expect_token(&Token::SemiColon)?;
+                    Ok(Statement::PropBinding(PropBinding { name: name.to_string(), value }))
+                } else {
+                    Err(AvengerLangError::UnexpectedToken(kind))
+                }
             }
             _ => {
                 Err(AvengerLangError::UnexpectedToken(kind))

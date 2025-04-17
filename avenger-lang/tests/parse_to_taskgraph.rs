@@ -146,7 +146,7 @@ async fn test_parse_file_to_taskgraph2() -> Result<(), AvengerLangError> {
 
     dataset upper_dataset: SELECT a, UPPER(b) as b FROM @foo.foo_dataset;
 
-    comp foo: FooComponent {
+    comp foo: Arc {
         val foo_val: -@my_val;
         dataset foo_dataset: SELECT * FROM (VALUES (1, 'one'), (2, 'two'), (3, 'three')) foo("a", "b");
 
@@ -213,14 +213,14 @@ async fn test_parse_file_with_mark() -> Result<(), AvengerLangError> {
         ) foo("a", "b");
          
     comp mark1: Rect {
-        dataset data: SELECT * FROM @data_0;
-        expr x: "a" * 100;
-        expr x2: @x + 10;
-        expr y: "a" * 10 + 10;
-        expr y2: 0;
-        expr fill: "b";
-        expr stroke_width: 4;
-        expr stroke: 'black';
+        data := SELECT * FROM @data_0;
+        x := "a" * 100;
+        x2 := @x + 10;
+        y := "a" * 10 + 10;
+        y2 := 0;
+        fill := "b";
+        stroke_width := 4;
+        stroke := 'black';
 
         // Marks can have 
         out dataset _encoded_data: 

@@ -1,18 +1,25 @@
+use std::sync::Arc;
+
 use sqlparser::dialect::GenericDialect;
 use sqlparser::ast::{Value as SqlValue, Expr as SqlExpr, Query as SqlQuery};
+
+use crate::error::AvengerLangError;
+use crate::task_graph::component_registry::ComponentRegistry;
 
 //
 //  sql_query and sql_expr rules are defined by sqlparser-rs
 //
 //  type           → "<" + IDENTIFIER + ">"
 //  prop_qualifier → "in" | "out"
+//  sql_expr_or_query → sql_expr | sql_query
 //  val_prop       → prop_qualifier? + "val" + type? + ":" + sql_expr + ";"
 //  expr_prop      → prop_qualifier? + "expr" + type? + ":" + sql_expr + ";"
 //  dataset_prop   → prop_qualifier? + "dataset" + type? + ":" + sql_query + ";"
 //  comp_prop      → prop_qualifier? + "comp" + type? + ":" + comp_instance + ";"
 //  comp_instance  → PASCAL_IDENTIFIER + "{" + statement* + "}"
+//  prop_binding   → IDENTIFIER + ":=" + sql_expr_or_query + ";"
 //
-//  statement      → (val_prop | expr_prop | dataset_prop | comp_prop) + ";"
+//  statement      → (val_prop | expr_prop | dataset_prop | comp_prop | prop_binding) + ";"
 //  file           → statement*
 //
 #[derive(Debug, Clone, PartialEq, Eq, Hash) ]
@@ -62,6 +69,37 @@ pub struct CompInstance {
     pub statements: Vec<Statement>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum SqlExprOrQuery {
+    Expr(SqlExpr),
+    Query(Box<SqlQuery>),
+}
+
+impl SqlExprOrQuery {
+    pub fn into_expr(self) -> Result<SqlExpr, AvengerLangError> {
+        match self {
+            SqlExprOrQuery::Expr(expr) => Ok(expr),
+            SqlExprOrQuery::Query(query) => Err(
+                AvengerLangError::InternalError("Query not allowed".to_string())
+            ),
+        }
+    }
+
+    pub fn into_query(self) -> Result<Box<SqlQuery>, AvengerLangError> {
+        match self {
+            SqlExprOrQuery::Expr(expr) => Err(
+                AvengerLangError::InternalError("Expr not allowed".to_string())
+            ),
+            SqlExprOrQuery::Query(query) => Ok(query),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PropBinding {
+    pub name: String,
+    pub value: SqlExprOrQuery,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Statement {
@@ -69,6 +107,7 @@ pub enum Statement {
     ExprPropDecl(ExprPropDecl),
     DatasetPropDecl(DatasetPropDecl),
     CompPropDecl(CompPropDecl),
+    PropBinding(PropBinding),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -77,145 +116,184 @@ pub struct AvengerFile {
 }
 
 // Visitor trait for traversing the AST with immutable references
+#[derive(Debug, Clone)]
+pub struct VisitorContext {
+    pub scope_path: Vec<String>,
+    pub component_type: String,
+    pub component_registry: Arc<ComponentRegistry>,
+}
+
 pub trait Visitor {
-    fn visit_val_prop_decl(&mut self, val_prop: &ValPropDecl, scope_path: &[String]) {}
+    fn visit_val_prop_decl(&mut self, val_prop: &ValPropDecl, ctx: &VisitorContext) {}
     
-    fn visit_expr_prop_decl(&mut self, expr_prop: &ExprPropDecl, scope_path: &[String]) {}
+    fn visit_expr_prop_decl(&mut self, expr_prop: &ExprPropDecl, ctx: &VisitorContext) {}
     
-    fn visit_dataset_prop_decl(&mut self, dataset_prop: &DatasetPropDecl, scope_path: &[String]) {}
+    fn visit_dataset_prop_decl(&mut self, dataset_prop: &DatasetPropDecl, ctx: &VisitorContext) {}
     
-    fn visit_comp_prop_decl(&mut self, comp_prop: &CompPropDecl, scope_path: &[String]) {}
+    fn visit_comp_prop_decl(&mut self, comp_prop: &CompPropDecl, ctx: &VisitorContext) {}
     
-    fn visit_comp_instance(&mut self, comp_instance: &CompInstance, scope_path: &[String]) {}
+    fn visit_comp_instance(&mut self, comp_instance: &CompInstance, ctx: &VisitorContext) {}
+
+    fn visit_prop_binding(&mut self, prop_binding: &PropBinding, ctx: &VisitorContext) {}
+
+    fn visit_statement(&mut self, statement: &Statement, ctx: &VisitorContext) {}
     
-    fn visit_statement(&mut self, statement: &Statement, scope_path: &[String]) {}
-    
-    fn visit_avenger_file(&mut self, file: &AvengerFile, scope_path: &[String]) {}
+    fn visit_avenger_file(&mut self, file: &AvengerFile, ctx: &VisitorContext) {}
 }
 
 // Mutable visitor trait for traversing and potentially modifying the AST
 pub trait VisitorMut {
-    fn visit_val_prop_decl(&mut self, val_prop: &mut ValPropDecl, scope_path: &[String]) {}
+    fn visit_val_prop_decl(&mut self, val_prop: &mut ValPropDecl, ctx: &VisitorContext) {}
     
-    fn visit_expr_prop_decl(&mut self, expr_prop: &mut ExprPropDecl, scope_path: &[String]) {}
+    fn visit_expr_prop_decl(&mut self, expr_prop: &mut ExprPropDecl, ctx: &VisitorContext) {}
     
-    fn visit_dataset_prop_decl(&mut self, dataset_prop: &mut DatasetPropDecl, scope_path: &[String]) {}
+    fn visit_dataset_prop_decl(&mut self, dataset_prop: &mut DatasetPropDecl, ctx: &VisitorContext) {}
     
-    fn visit_comp_prop_decl(&mut self, comp_prop: &mut CompPropDecl, scope_path: &[String]) {}
+    fn visit_comp_prop_decl(&mut self, comp_prop: &mut CompPropDecl, ctx: &VisitorContext) {}
     
-    fn visit_comp_instance(&mut self, comp_instance: &mut CompInstance, scope_path: &[String]) {}
+    fn visit_comp_instance(&mut self, comp_instance: &mut CompInstance, ctx: &VisitorContext) {}
     
-    fn visit_statement(&mut self, statement: &mut Statement, scope_path: &[String]) {}
+    fn visit_prop_binding(&mut self, prop_binding: &mut PropBinding, ctx: &VisitorContext) {}
     
-    fn visit_avenger_file(&mut self, file: &mut AvengerFile, scope_path: &[String]) {}
+    fn visit_statement(&mut self, statement: &mut Statement, ctx: &VisitorContext) {}
+    
+    fn visit_avenger_file(&mut self, file: &mut AvengerFile, ctx: &VisitorContext) {}
 }
 
 // Implementation of accept methods for each AST node
 impl ValPropDecl {
-    pub fn accept<V: Visitor>(&self, visitor: &mut V, scope_path: &[String]) {
-        visitor.visit_val_prop_decl(self, scope_path);
+    pub fn accept<V: Visitor>(&self, visitor: &mut V, ctx: &VisitorContext) {
+        visitor.visit_val_prop_decl(self, ctx);
     }
     
-    pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, scope_path: &[String]) {
-        visitor.visit_val_prop_decl(self, scope_path);
+    pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, ctx: &VisitorContext) {
+        visitor.visit_val_prop_decl(self, ctx);
     }
 }
 
 impl ExprPropDecl {
-    pub fn accept<V: Visitor>(&self, visitor: &mut V, scope_path: &[String]) {
-        visitor.visit_expr_prop_decl(self, scope_path);
+    pub fn accept<V: Visitor>(&self, visitor: &mut V, ctx: &VisitorContext) {
+        visitor.visit_expr_prop_decl(self, ctx);
     }
     
-    pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, scope_path: &[String]) {
-        visitor.visit_expr_prop_decl(self, scope_path);
+    pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, ctx: &VisitorContext) {
+        visitor.visit_expr_prop_decl(self, ctx);
     }
 }
 
 impl DatasetPropDecl {
-    pub fn accept<V: Visitor>(&self, visitor: &mut V, scope_path: &[String]) {
-        visitor.visit_dataset_prop_decl(self, scope_path);
+    pub fn accept<V: Visitor>(&self, visitor: &mut V, ctx: &VisitorContext) {
+        visitor.visit_dataset_prop_decl(self, ctx);
     }
     
-    pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, scope_path: &[String]) {
-        visitor.visit_dataset_prop_decl(self, scope_path);
+    pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, ctx: &VisitorContext) {
+        visitor.visit_dataset_prop_decl(self, ctx);
     }
 }
 
 impl CompPropDecl {
-    pub fn accept<V: Visitor>(&self, visitor: &mut V, scope_path: &[String]) {
-        let mut new_scope_path = scope_path.to_vec();
-        new_scope_path.push(self.name.clone());
-        
-        visitor.visit_comp_prop_decl(self, &new_scope_path);
-        self.value.accept(visitor, &new_scope_path);
-    }
-    
-    pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, scope_path: &[String]) {
-        let mut new_scope_path = scope_path.to_vec();
+    pub fn accept<V: Visitor>(&self, visitor: &mut V, ctx: &VisitorContext) {
+
+        let mut new_scope_path = ctx.scope_path.to_vec();
         new_scope_path.push(self.name.clone());
 
-        self.value.accept_mut(visitor, &new_scope_path);
-        visitor.visit_comp_prop_decl(self, &new_scope_path);
+        let new_ctx = VisitorContext {
+            scope_path: new_scope_path,
+            component_type: self.value.name.clone(),
+            ..ctx.clone()
+        };
+
+        visitor.visit_comp_prop_decl(self, &new_ctx);
+        self.value.accept(visitor, &new_ctx);
+    }
+    
+    pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, ctx: &VisitorContext) {
+        let mut new_scope_path = ctx.scope_path.to_vec();
+        new_scope_path.push(self.name.clone());
+
+        let new_ctx = VisitorContext {
+            scope_path: new_scope_path,
+            component_type: self.name.clone(),
+            ..ctx.clone()
+        };
+        self.value.accept_mut(visitor, &new_ctx);
+        visitor.visit_comp_prop_decl(self, &new_ctx);
     }
 }
 
 impl CompInstance {
-    pub fn accept<V: Visitor>(&self, visitor: &mut V, scope_path: &[String]) {
-        visitor.visit_comp_instance(self, &scope_path);
+    pub fn accept<V: Visitor>(&self, visitor: &mut V, ctx: &VisitorContext) {
+        visitor.visit_comp_instance(self, ctx);
         for statement in &self.statements {
-            statement.accept(visitor, &scope_path);
+            statement.accept(visitor, ctx);
         }
     }
     
-    pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, scope_path: &[String]) {
-        // Create a new scope path that includes this component
-        let mut new_scope_path = scope_path.to_vec();
-        new_scope_path.push(self.name.clone());
-        
-        visitor.visit_comp_instance(self, &new_scope_path);
+    pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, ctx: &VisitorContext) {
+        visitor.visit_comp_instance(self, ctx);
         for statement in &mut self.statements {
-            statement.accept_mut(visitor, &new_scope_path);
+            statement.accept_mut(visitor, &ctx);
         }
     }
 }
 
+impl PropBinding {
+    pub fn accept<V: Visitor>(&self, visitor: &mut V, ctx: &VisitorContext) {
+        visitor.visit_prop_binding(self, ctx);
+    }
+    
+    pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, ctx: &VisitorContext) {
+        visitor.visit_prop_binding(self, ctx);
+    }
+}
+
 impl Statement {
-    pub fn accept<V: Visitor>(&self, visitor: &mut V, scope_path: &[String]) {
-        visitor.visit_statement(self, scope_path);
+    pub fn accept<V: Visitor>(&self, visitor: &mut V, ctx: &VisitorContext) {
+        visitor.visit_statement(self, ctx);
         match self {
-            Statement::ValPropDecl(val) => val.accept(visitor, scope_path),
-            Statement::ExprPropDecl(expr) => expr.accept(visitor, scope_path),
-            Statement::DatasetPropDecl(dataset) => dataset.accept(visitor, scope_path),
-            Statement::CompPropDecl(comp) => comp.accept(visitor, scope_path),
+            Statement::ValPropDecl(val) => val.accept(visitor, ctx),
+            Statement::ExprPropDecl(expr) => expr.accept(visitor, ctx),
+            Statement::DatasetPropDecl(dataset) => dataset.accept(visitor, ctx),
+            Statement::CompPropDecl(comp) => comp.accept(visitor, ctx),
+            Statement::PropBinding(prop) => prop.accept(visitor, ctx),
         }
     }
     
-    pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, scope_path: &[String]) {
+    pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, ctx: &VisitorContext) {
         match self {
-            Statement::ValPropDecl(val) => val.accept_mut(visitor, scope_path),
-            Statement::ExprPropDecl(expr) => expr.accept_mut(visitor, scope_path),
-            Statement::DatasetPropDecl(dataset) => dataset.accept_mut(visitor, scope_path),
-            Statement::CompPropDecl(comp) => comp.accept_mut(visitor, scope_path),
+            Statement::ValPropDecl(val) => val.accept_mut(visitor, ctx),
+            Statement::ExprPropDecl(expr) => expr.accept_mut(visitor, ctx),
+            Statement::DatasetPropDecl(dataset) => dataset.accept_mut(visitor, ctx),
+            Statement::CompPropDecl(comp) => comp.accept_mut(visitor, ctx),
+            Statement::PropBinding(prop) => prop.accept_mut(visitor, ctx),
         }
-        visitor.visit_statement(self, scope_path);
+        visitor.visit_statement(self, ctx);
     }
 }
 
 impl AvengerFile {
     pub fn accept<V: Visitor>(&self, visitor: &mut V) {
-        let root_path: Vec<String> = Vec::new();
-        visitor.visit_avenger_file(self, &root_path);
+        let root_ctx = VisitorContext {
+            scope_path: Vec::new(),
+            component_type: "App".to_string(),
+            component_registry: Arc::new(ComponentRegistry::new_with_marks()),
+        };
+        visitor.visit_avenger_file(self, &root_ctx);
         for statement in &self.statements {
-            statement.accept(visitor, &root_path);
+            statement.accept(visitor, &root_ctx);
         }
     }
     
     pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V) {
-        let root_path: Vec<String> = Vec::new();
+        let root_ctx = VisitorContext {
+            scope_path: Vec::new(),
+            component_type: "App".to_string(),
+            component_registry: Arc::new(ComponentRegistry::new_with_marks()),
+        };
         for statement in &mut self.statements {
-            statement.accept_mut(visitor, &root_path);
+            statement.accept_mut(visitor, &root_ctx);
         }
-        visitor.visit_avenger_file(self, &root_path);
+        visitor.visit_avenger_file(self, &root_ctx);
     }
 }
 

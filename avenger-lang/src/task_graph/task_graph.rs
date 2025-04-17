@@ -8,9 +8,10 @@ use petgraph::algo::toposort;
 use petgraph::graph::DiGraph;
 use petgraph::Direction;
 
-use crate::ast::{AvengerFile, DatasetPropDecl, ExprPropDecl, Statement, ValPropDecl, Visitor};
+use crate::ast::{AvengerFile, DatasetPropDecl, ExprPropDecl, Statement, ValPropDecl, Visitor, VisitorContext};
 use crate::{task_graph::tasks::Task, task_graph::{dependency::{Dependency, DependencyKind}, value::TaskValue}, error::AvengerLangError};
 
+use super::component_registry::PropType;
 use super::scope::{Scope, ScopePath};
 use super::tasks::{DatasetDeclTask, ExprDeclTask, ValDeclTask};
 use super::variable::Variable;
@@ -171,43 +172,98 @@ impl TaskGraphBuilder {
     pub fn build(self) -> Result<TaskGraph, AvengerLangError> {
         Ok(TaskGraph::try_new(self.tasks)?)
     }
+
+    pub fn validate_prop_decl(&self, prop_name: &str, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        if ctx.component_registry.lookup_prop(&ctx.component_type, prop_name).is_some() {
+            return Err(AvengerLangError::InternalError(format!(
+                "Property {} cannot be declared inside a component of type {} because \
+                this name is already used by the component itself. \
+                Bind the property if you wish to use it in a component using the `:=` bind operator.", prop_name, ctx.component_type)));
+        }
+        Ok(())
+    }
 }
 
 impl Visitor for TaskGraphBuilder {
-    fn visit_val_prop_decl(&mut self, val_prop_decl: &ValPropDecl, scope_path: &[String]) {
-        let mut parts = Vec::from(scope_path);
+    fn visit_val_prop_decl(&mut self, val_prop_decl: &ValPropDecl, ctx: &VisitorContext) {
+        // Validate this is not a component property
+        self.validate_prop_decl(&val_prop_decl.name, ctx).unwrap();
+
+        let mut parts = ctx.scope_path.clone();
         parts.push(val_prop_decl.name.clone());
         let variable = Variable::with_parts(parts);
         let mut sql_expr = val_prop_decl.value.clone();
 
         // TODO: propagate error through visitor
-        self.scope.resolve_sql_expr(&mut sql_expr, &ScopePath::new(scope_path.to_vec())).expect("Failed to resolve SQL expression");
+        self.scope.resolve_sql_expr(&mut sql_expr, &ScopePath::new(ctx.scope_path.to_vec())).expect("Failed to resolve SQL expression");
         let task = ValDeclTask::new(sql_expr);
         self.tasks.insert(variable, Arc::new(task));
     }
 
-    fn visit_expr_prop_decl(&mut self, expr_prop_decl: &ExprPropDecl, scope_path: &[String]) {
-        let mut parts = Vec::from(scope_path);
+    fn visit_expr_prop_decl(&mut self, expr_prop_decl: &ExprPropDecl, ctx: &VisitorContext) {
+        self.validate_prop_decl(&expr_prop_decl.name, ctx).unwrap();
+
+        let mut parts = ctx.scope_path.clone();
         parts.push(expr_prop_decl.name.clone());
         let variable = Variable::with_parts(parts);
         let mut sql_expr = expr_prop_decl.value.clone();
 
         // TODO: propagate error through visitor
-        self.scope.resolve_sql_expr(&mut sql_expr, &ScopePath::new(scope_path.to_vec())).expect("Failed to resolve SQL expression");
+        self.scope.resolve_sql_expr(&mut sql_expr, &ScopePath::new(ctx.scope_path.to_vec())).expect("Failed to resolve SQL expression");
         let task = ExprDeclTask::new(sql_expr);
         self.tasks.insert(variable, Arc::new(task));
     }
 
-    fn visit_dataset_prop_decl(&mut self, dataset_prop_decl: &DatasetPropDecl, scope_path: &[String]) {
-        let mut parts = Vec::from(scope_path);
+    fn visit_dataset_prop_decl(&mut self, dataset_prop_decl: &DatasetPropDecl, ctx: &VisitorContext) {
+        self.validate_prop_decl(&dataset_prop_decl.name, ctx).unwrap();
+
+        let mut parts = ctx.scope_path.clone();
         parts.push(dataset_prop_decl.name.clone());
         let variable = Variable::with_parts(parts);
         let mut sql_query = dataset_prop_decl.value.clone();
 
         // TODO: propagate error through visitor
-        self.scope.resolve_sql_query(&mut sql_query, &ScopePath::new(scope_path.to_vec())).expect("Failed to resolve SQL query");
+        self.scope.resolve_sql_query(&mut sql_query, &ScopePath::new(ctx.scope_path.to_vec())).expect("Failed to resolve SQL query");
         let task = DatasetDeclTask { query: sql_query, eval: false };
         self.tasks.insert(variable, Arc::new(task));
+    }
+
+    fn visit_prop_binding(&mut self, prop_binding: &crate::ast::PropBinding, ctx: &VisitorContext) {
+        let mut parts = ctx.scope_path.clone();
+        parts.push(prop_binding.name.clone());
+        let variable = Variable::with_parts(parts);
+
+        let Some(component_spec) = ctx.component_registry.lookup_component(&ctx.component_type) else {
+            panic!("Unknown component type: {}", ctx.component_type);
+        };
+
+        let Some(prop_type) = component_spec.props.get(&prop_binding.name) else {
+            panic!("Unknown property {} for component {}", prop_binding.name, ctx.component_type);
+        };
+
+        match prop_type {
+            PropType::Val => {
+                let mut sql_expr = prop_binding.value.clone().into_expr()
+                    .expect("Failed to convert value to expression");
+                self.scope.resolve_sql_expr(&mut sql_expr, &ScopePath::new(ctx.scope_path.to_vec()))
+                    .expect("Failed to resolve SQL expression");
+                self.tasks.insert(variable, Arc::new(ValDeclTask::new(sql_expr)));
+            },
+            PropType::Expr => {
+                let mut sql_expr = prop_binding.value.clone().into_expr()
+                    .expect("Failed to convert value to expression");
+                self.scope.resolve_sql_expr(&mut sql_expr, &ScopePath::new(ctx.scope_path.to_vec()))
+                    .expect("Failed to resolve SQL expression");
+                self.tasks.insert(variable, Arc::new(ExprDeclTask::new(sql_expr)));
+            },
+            PropType::Dataset => {
+                let mut query = prop_binding.value.clone().into_query()
+                    .expect("Failed to convert value to query");
+                self.scope.resolve_sql_query(&mut query, &ScopePath::new(ctx.scope_path.to_vec()))
+                    .expect("Failed to resolve SQL expression");
+                self.tasks.insert(variable, Arc::new(DatasetDeclTask { query, eval: false }));
+            },
+        }
     }
 }
 
