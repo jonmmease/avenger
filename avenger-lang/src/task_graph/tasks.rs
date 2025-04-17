@@ -1,6 +1,6 @@
 use std::{fmt::Debug, hash::{DefaultHasher, Hash, Hasher}, ops::ControlFlow};
 
-use sqlparser::ast::{Expr as SqlExpr, ObjectName, Query as SqlQuery, Visit, Visitor};
+use sqlparser::ast::{Expr as SqlExpr, ObjectName, Query as SqlQuery, Visit, VisitMut, Visitor as SqlVisitor};
 use async_trait::async_trait;
 
 use crate::{ast::{DatasetPropDecl, ExprPropDecl, ValPropDecl}, context::EvaluationContext, error::AvengerLangError, task_graph::{dependency::{Dependency, DependencyKind}, value::{TaskDataset, TaskValue}}};
@@ -223,7 +223,7 @@ impl CollectDependenciesVisitor {
     }
 }
 
-impl Visitor for CollectDependenciesVisitor {
+impl SqlVisitor for CollectDependenciesVisitor {
     type Break = Result<(), AvengerLangError>;
 
     /// Replace tables of the form @table_name with the true mangled table name

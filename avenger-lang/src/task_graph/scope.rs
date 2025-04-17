@@ -53,10 +53,10 @@ impl Scope {
     }
     
     // Create a Scope from an AvengerFile using the ScopeBuilder visitor
-    pub fn from_file(file: &AvengerFile) -> Self {
+    pub fn from_file(file: &AvengerFile) -> Result<Self, AvengerLangError> {
         let mut builder = ScopeBuilder::new();
-        file.accept(&mut builder);
-        builder.build()
+        file.accept(&mut builder)?;
+        Ok(builder.build())
     }
 }
 
@@ -76,7 +76,7 @@ impl ScopeBuilder {
         }
     }
     
-    fn add_property(&self, name: &str, scope_path: &[String]) {
+    fn add_property(&self, name: &str, scope_path: &[String]) -> Result<(), AvengerLangError> {
         let mut root_level = self.root_level.borrow_mut();
         let mut current = &mut *root_level;
         
@@ -89,11 +89,14 @@ impl ScopeBuilder {
                     children: HashMap::new(),
                 });
             }
-            current = current.children.get_mut(part).unwrap();
+            current = current.children.get_mut(part)
+                .ok_or_else(|| AvengerLangError::InternalError(format!(
+                    "Failed to find scope level part: {}", part)))?;
         }
         
         // Add the property to the current scope level
         current.properties.insert(name.to_string());
+        Ok(())
     }
 
     pub fn build(&self) -> Scope {
@@ -104,24 +107,29 @@ impl ScopeBuilder {
 }
 
 impl Visitor for ScopeBuilder {
-    fn visit_val_prop_decl(&mut self, val_prop: &ValPropDecl, ctx: &VisitorContext) {
-        self.add_property(&val_prop.name, &ctx.scope_path);
+    fn visit_val_prop_decl(&mut self, val_prop: &ValPropDecl, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        self.add_property(&val_prop.name, &ctx.scope_path)?;
+        Ok(())
     }
 
-    fn visit_expr_prop_decl(&mut self, expr_prop: &ExprPropDecl, ctx: &VisitorContext) {
-        self.add_property(&expr_prop.name, &ctx.scope_path);
+    fn visit_expr_prop_decl(&mut self, expr_prop: &ExprPropDecl, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        self.add_property(&expr_prop.name, &ctx.scope_path)?;
+        Ok(())
     }
 
-    fn visit_dataset_prop_decl(&mut self, dataset_prop: &DatasetPropDecl, ctx: &VisitorContext) {
-        self.add_property(&dataset_prop.name, &ctx.scope_path);
+    fn visit_dataset_prop_decl(&mut self, dataset_prop: &DatasetPropDecl, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        self.add_property(&dataset_prop.name, &ctx.scope_path)?;
+        Ok(())
     }
 
-    fn visit_comp_prop_decl(&mut self, comp_prop: &CompPropDecl, ctx: &VisitorContext) {
-        self.add_property(&comp_prop.name, &ctx.scope_path);
+    fn visit_comp_prop_decl(&mut self, comp_prop: &CompPropDecl, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        self.add_property(&comp_prop.name, &ctx.scope_path)?;
+        Ok(())
     }
 
-    fn visit_prop_binding(&mut self, prop_binding: &PropBinding, ctx: &VisitorContext) {
-        self.add_property(&prop_binding.name, &ctx.scope_path);
+    fn visit_prop_binding(&mut self, prop_binding: &PropBinding, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        self.add_property(&prop_binding.name, &ctx.scope_path)?;
+        Ok(())
     }
 }
 
@@ -144,17 +152,23 @@ impl ScopePath {
 }
 
 impl Scope {
-    fn make_scope_stack<'a>(&'a self, path: &ScopePath) -> Vec<&'a ScopeLevel> {
+    fn make_scope_stack<'a>(&'a self, path: &ScopePath) -> Result<Vec<&'a ScopeLevel>, AvengerLangError> {
         let mut scope_stack: Vec<&ScopeLevel> = vec![&self.root_level];
         for part in &path.0 {
-            scope_stack.push(scope_stack[scope_stack.len() - 1].children.get(part).unwrap());
+            let next_level = scope_stack[scope_stack.len() - 1].children.get(part)
+                .ok_or_else(|| AvengerLangError::InternalError(format!(
+                    "Failed to find scope level part: {}", part)))?;
+            scope_stack.push(next_level);
         }
-        scope_stack
+        Ok(scope_stack)
     }
 
     /// Resolve a variable reference used in a particular scope
     pub fn resolve_var(&self, name: &str, path: &ScopePath, anchor: Option<ScopeAnchor>) -> Option<Variable> {
-        let scope_stack = self.make_scope_stack(path);
+        let scope_stack = match self.make_scope_stack(path) {
+            Ok(stack) => stack,
+            Err(_) => return None,
+        };
         
         // Walk the stack to find the variable
         match anchor {
@@ -286,7 +300,7 @@ impl<'a> ResolveVarInSqlVisitor<'a> {
                 return Some(resolved.to_idents());
             }
         }
-        panic!("Failed to resolve variable: {:?}", idents);
+        None
     }
 }
 
@@ -296,6 +310,10 @@ impl<'a> SqlVisitorMut for ResolveVarInSqlVisitor<'a> {
     fn pre_visit_relation(&mut self, relation: &mut ObjectName) -> ControlFlow<Self::Break> {
         if let Some(resolved) = self.resolve_idents(&relation.0) {
             *relation = ObjectName(resolved);
+        } else if relation.0.first().map_or(false, |ident| ident.value.starts_with("@")) {
+            return ControlFlow::Break(Err(AvengerLangError::InternalError(
+                format!("Failed to resolve variable reference: {:?}", relation)
+            )));
         }
         ControlFlow::Continue(())
     }
@@ -303,13 +321,25 @@ impl<'a> SqlVisitorMut for ResolveVarInSqlVisitor<'a> {
     fn pre_visit_expr(&mut self, expr: &mut SqlExpr) -> ControlFlow<Self::Break> {
         match expr.clone() {
             SqlExpr::Identifier(ident) => {
-                if let Some(resolved) = self.resolve_idents(&[ident]) {
-                    *expr = SqlExpr::CompoundIdentifier(resolved);
+                if ident.value.starts_with("@") {
+                    if let Some(resolved) = self.resolve_idents(&[ident.clone()]) {
+                        *expr = SqlExpr::CompoundIdentifier(resolved);
+                    } else {
+                        return ControlFlow::Break(Err(AvengerLangError::InternalError(
+                            format!("Failed to resolve variable reference: {:?}", ident)
+                        )));
+                    }
                 }
             }
             SqlExpr::CompoundIdentifier(idents) => {
-                if let Some(resolved) = self.resolve_idents(&idents) {
-                    *expr = SqlExpr::CompoundIdentifier(resolved);
+                if idents.first().map_or(false, |id| id.value.starts_with("@")) {
+                    if let Some(resolved) = self.resolve_idents(&idents) {
+                        *expr = SqlExpr::CompoundIdentifier(resolved);
+                    } else {
+                        return ControlFlow::Break(Err(AvengerLangError::InternalError(
+                            format!("Failed to resolve variable reference: {:?}", idents)
+                        )));
+                    }
                 }
             }
             _ => {}
