@@ -1,4 +1,5 @@
 use arrow_schema::ArrowError;
+use avenger_scales::error::AvengerScaleError;
 use datafusion_common::DataFusionError;
 use thiserror::Error;
 use sqlparser::tokenizer::TokenizerError;
@@ -9,6 +10,9 @@ use sqlparser::parser::ParserError;
 pub enum AvengerLangError {
     #[error("Internal error: `{0}`")]
     InternalError(String),
+
+    #[error("AvengerScaleError: `{0}`")]
+    AvengerScaleError(#[from] AvengerScaleError),
 
     #[error("Variable not found: `{0}`")]
     VariableNotFound(String),

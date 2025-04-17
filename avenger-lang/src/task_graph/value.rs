@@ -4,6 +4,7 @@ use std::hash::Hash;
 use std::mem::Discriminant;
 use std::collections::hash_map::DefaultHasher;
 
+use datafusion::arrow::compute;
 use datafusion::arrow::util::pretty;
 use datafusion::prelude::DataFrame;
 use sqlparser::ast::{Expr as SqlExpr};
@@ -224,6 +225,36 @@ impl ArrowTable {
 
     pub fn show(&self) -> Result<(), AvengerLangError> {
         Ok(pretty::print_batches(&self.batches)?)
+    }
+
+
+    /// Get a column from the table as an Arrow array
+    pub fn column(&self, name: &str) -> Result<ArrayRef, AvengerLangError> {
+        let column = self.schema.index_of(name)?;
+        let arrays = self.batches.iter().map(
+            |batch| batch.column(column).as_ref()
+        ).collect::<Vec<&dyn Array>>();
+        Ok(compute::concat(arrays.as_slice())?)
+    }
+
+    /// Check if the table has a column
+    pub fn has_column(&self, name: &str) -> bool {
+        self.schema.index_of(name).is_ok()
+    }
+
+    pub fn num_rows(&self) -> usize {
+        self.batches.iter().map(|batch| batch.num_rows()).sum()
+    }
+
+    pub fn first_row_to_scalars(&self) -> Result<HashMap<String, ScalarValue>, AvengerLangError> {
+        let mut scalars = HashMap::new();
+        for (i, field) in self.schema.fields().iter().enumerate() {
+            let name = field.name();
+            let column = self.batches[0].column(i).as_ref();
+            let scalar = ScalarValue::try_from_array(column, 0)?;
+            scalars.insert(name.to_string(), scalar);
+        }
+        Ok(scalars)
     }
 }
 
