@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use super::mark::SceneMark;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+
+#[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneImageMark {
     pub name: String,

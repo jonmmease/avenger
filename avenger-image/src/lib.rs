@@ -16,7 +16,7 @@ pub use fetcher::make_image_fetcher;
 use fetcher::ImageFetcher;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Default, PartialEq,Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Hash, Serialize, Deserialize)]
 pub struct RgbaImage {
     pub width: u32,
     pub height: u32,

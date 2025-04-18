@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use super::mark::SceneMark;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneRectMark {
     pub name: String,

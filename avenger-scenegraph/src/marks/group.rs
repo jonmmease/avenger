@@ -2,14 +2,14 @@ use std::hash::{DefaultHasher, Hasher};
 
 use crate::marks::mark::SceneMark;
 use crate::marks::path::ScenePathMark;
+use avenger_common::lyon::hash_lyon_path;
 use avenger_common::types::{ColorOrGradient, Gradient, PathTransform};
 use avenger_common::value::ScalarOrArray;
 use lyon_path::geom::euclid::Point2D;
 use lyon_path::geom::Box2D;
 use lyon_path::Winding;
+use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
-
-use super::symbol::hash_lyon_path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Clip {
@@ -22,6 +22,26 @@ pub enum Clip {
     },
     Path(lyon_path::Path),
 }
+
+impl std::hash::Hash for Clip {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Clip::None => state.write_u8(0),
+            Clip::Rect { x, y, width, height } => {
+                vec![
+                    OrderedFloat::from(*x), 
+                    OrderedFloat::from(*y),
+                    OrderedFloat::from(*width), 
+                    OrderedFloat::from(*height)
+                ].hash(state);
+            }
+            Clip::Path(path) => {
+                hash_lyon_path(path, state);
+            }
+        }
+    }
+}
+
 
 impl PartialEq for Clip {
     fn eq(&self, other: &Self) -> bool {
@@ -93,6 +113,26 @@ pub struct SceneGroup {
     pub stroke_width: Option<f32>,
     pub stroke_offset: Option<f32>,
     pub zindex: Option<i32>,
+}
+
+impl std::hash::Hash for SceneGroup {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        vec![OrderedFloat::from(self.origin[0]), OrderedFloat::from(self.origin[1])].hash(state);
+        self.clip.hash(state);
+        self.gradients.hash(state);
+        self.fill.hash(state);
+        self.stroke.hash(state);
+        if let Some(stroke_width) = self.stroke_width {
+            OrderedFloat::from(stroke_width).hash(state);
+        }
+        if let Some(stroke_offset) = self.stroke_offset {
+            OrderedFloat::from(stroke_offset).hash(state);
+        }
+        
+        self.zindex.hash(state);
+        self.marks.hash(state);
+    }
 }
 
 impl SceneGroup {
