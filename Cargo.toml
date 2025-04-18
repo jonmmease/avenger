@@ -13,7 +13,6 @@ members = [
     "avenger-eventstream",
     "avenger-app",
     "avenger-winit-wgpu",
-    "avenger-parser",
     "avenger-lang",
     "examples/wgpu-scales",
     "examples/wgpu-winit",
