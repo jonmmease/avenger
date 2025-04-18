@@ -1,5 +1,6 @@
 use super::mark::SceneMark;
 use crate::error::AvengerSceneGraphError;
+use avenger_common::lyon::hash_lyon_path;
 use avenger_common::types::{ColorOrGradient, Gradient, LinearScaleAdjustment, PathTransform};
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use itertools::izip;
@@ -35,6 +36,31 @@ pub struct SceneSymbolMark {
     pub zindex: Option<i32>,
     pub x_adjustment: Option<LinearScaleAdjustment>,
     pub y_adjustment: Option<LinearScaleAdjustment>,
+}
+
+impl Hash for SceneSymbolMark {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.clip.hash(state);
+        self.len.hash(state);
+        self.gradients.hash(state);
+        self.shapes.hash(state);
+        if let Some(stroke_width) = self.stroke_width {
+            OrderedFloat(stroke_width).hash(state);
+        } else {
+            OrderedFloat(0.0).hash(state);
+        }
+        self.x.hash(state);
+        self.y.hash(state);
+        self.fill.hash(state);
+        self.size.hash(state);
+        self.stroke.hash(state);
+        self.angle.hash(state);
+        self.indices.hash(state);
+        self.zindex.hash(state);
+        self.x_adjustment.hash(state);
+        self.y_adjustment.hash(state);
+    }
 }
 
 impl SceneSymbolMark {
@@ -398,48 +424,5 @@ pub fn parse_svg_path(path: &str) -> Result<Path, AvengerSceneGraphError> {
 impl From<SceneSymbolMark> for SceneMark {
     fn from(mark: SceneSymbolMark) -> Self {
         SceneMark::Symbol(mark)
-    }
-}
-
-pub fn hash_point<H: Hasher>(point: &Point2D<f32, UnknownUnit>, hasher: &mut H) {
-    OrderedFloat::from(point.x).hash(hasher);
-    OrderedFloat::from(point.y).hash(hasher);
-}
-
-pub fn hash_lyon_path<H: Hasher>(path: &Path, hasher: &mut H) {
-    for evt in path.iter() {
-        // hash enum variant
-        let variant = std::mem::discriminant(&evt);
-        variant.hash(hasher);
-
-        // hash enum value
-        match evt {
-            PathEvent::Begin { at } => hash_point(&at, hasher),
-            PathEvent::Line { from, to, .. } => {
-                hash_point(&from, hasher);
-                hash_point(&to, hasher);
-            }
-            PathEvent::End { last, first, close } => {
-                hash_point(&last, hasher);
-                hash_point(&first, hasher);
-                close.hash(hasher);
-            }
-            PathEvent::Quadratic { from, ctrl, to, .. } => {
-                hash_point(&from, hasher);
-                hash_point(&ctrl, hasher);
-                hash_point(&to, hasher);
-            }
-            PathEvent::Cubic {
-                from,
-                ctrl1,
-                ctrl2,
-                to,
-            } => {
-                hash_point(&from, hasher);
-                hash_point(&ctrl1, hasher);
-                hash_point(&ctrl2, hasher);
-                hash_point(&to, hasher);
-            }
-        }
     }
 }

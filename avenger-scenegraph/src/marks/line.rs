@@ -2,6 +2,7 @@ use avenger_common::types::{ColorOrGradient, Gradient, StrokeCap, StrokeJoin};
 use avenger_common::value::ScalarOrArray;
 use lyon_algorithms::measure::{PathMeasurements, PathSampler, SampleType};
 use lyon_path::{geom::point, Path};
+use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
 use super::mark::SceneMark;
@@ -22,6 +23,28 @@ pub struct SceneLineMark {
     pub stroke_join: StrokeJoin,
     pub stroke_dash: Option<Vec<f32>>,
     pub zindex: Option<i32>,
+}
+
+impl std::hash::Hash for SceneLineMark {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.clip.hash(state);
+        self.len.hash(state);
+        self.gradients.hash(state);
+        self.x.hash(state);
+        self.y.hash(state);
+        self.defined.hash(state);
+        self.stroke.hash(state);
+        OrderedFloat(self.stroke_width).hash(state);
+        self.stroke_cap.hash(state);
+        self.stroke_join.hash(state);
+        if let Some(stroke_dash) = &self.stroke_dash {
+            stroke_dash.iter().for_each(|d| OrderedFloat(*d).hash(state));
+        } else {
+            OrderedFloat(0.0).hash(state);
+        }
+        self.zindex.hash(state);
+    }
 }
 
 impl SceneLineMark {

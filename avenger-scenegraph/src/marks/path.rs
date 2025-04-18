@@ -1,10 +1,11 @@
 use super::mark::SceneMark;
-use super::symbol::hash_lyon_path;
+use avenger_common::lyon::hash_lyon_path;
 use avenger_common::types::{ColorOrGradient, Gradient, PathTransform, StrokeCap, StrokeJoin};
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use itertools::izip;
 use lyon_extra::euclid::Vector2D;
 use lyon_path::Path;
+use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 use std::hash::{DefaultHasher, Hasher};
 use std::sync::Arc;
@@ -25,6 +26,28 @@ pub struct ScenePathMark {
     pub transform: ScalarOrArray<PathTransform>,
     pub indices: Option<Arc<Vec<usize>>>,
     pub zindex: Option<i32>,
+}
+
+impl std::hash::Hash for ScenePathMark {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.clip.hash(state);
+        self.len.hash(state);
+        self.gradients.hash(state);
+        self.stroke_cap.hash(state);
+        self.stroke_join.hash(state);
+        if let Some(stroke_width) = self.stroke_width {
+            OrderedFloat(stroke_width).hash(state);
+        } else {
+            OrderedFloat(0.0).hash(state);
+        }
+        self.path.hash(state);
+        self.fill.hash(state);
+        self.stroke.hash(state);
+        self.transform.hash(state);
+        self.indices.hash(state);
+        self.zindex.hash(state);
+    }
 }
 
 impl PartialEq for ScenePathMark {
@@ -152,3 +175,4 @@ impl From<ScenePathMark> for SceneMark {
         SceneMark::Path(mark)
     }
 }
+

@@ -6,7 +6,7 @@ use lyon_path::{geom::Point, Path};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneRuleMark {
     pub name: String,
@@ -24,6 +24,7 @@ pub struct SceneRuleMark {
     pub indices: Option<Arc<Vec<usize>>>,
     pub zindex: Option<i32>,
 }
+
 
 impl SceneRuleMark {
     pub fn x_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {

@@ -1,5 +1,7 @@
 use std::sync::{Arc, Mutex};
 
+use avenger_image::RgbaImage;
+use avenger_text::types::{FontWeight, FontStyle, TextAlign, TextBaseline};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
@@ -243,6 +245,38 @@ impl Hash for ScalarOrArray<f32> {
     }
 }
 
+impl Hash for ScalarOrArray<Vec<f32>> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let mut hash_cache = self.hash_cache.lock().unwrap();
+
+        match &self.value {
+            ScalarOrArrayValue::Scalar(values) => {
+                for value in values.iter() {
+                    let hash_value = hash_cache.get_or_insert_with(|| {
+                        let mut inner_hasher = std::hash::DefaultHasher::new();
+                        OrderedFloat::from(*value).hash(&mut inner_hasher);
+                        inner_hasher.finish()
+                    });
+                    state.write_u64(*hash_value);
+                }
+            }
+
+            ScalarOrArrayValue::Array(valuess) => {
+                for values in valuess.iter() {
+                    let hash_value = hash_cache.get_or_insert_with(|| {
+                        let mut inner_hasher = std::hash::DefaultHasher::new();
+                        for value in values.iter() {
+                            OrderedFloat::from(*value).hash(&mut inner_hasher);
+                        }
+                        inner_hasher.finish()
+                    });
+                    state.write_u64(*hash_value);
+                }
+            }
+        }
+    }
+}
+
 #[macro_export]
 macro_rules! impl_hash_for_scalar_or_array {
     ($t:ty) => {
@@ -280,4 +314,10 @@ impl_hash_for_scalar_or_array!(i64);
 impl_hash_for_scalar_or_array!(usize);
 impl_hash_for_scalar_or_array!(u32);
 impl_hash_for_scalar_or_array!(u64);
+impl_hash_for_scalar_or_array!(bool);
 impl_hash_for_scalar_or_array!(String);
+impl_hash_for_scalar_or_array!(RgbaImage);
+impl_hash_for_scalar_or_array!(FontWeight);
+impl_hash_for_scalar_or_array!(FontStyle);
+impl_hash_for_scalar_or_array!(TextAlign);
+impl_hash_for_scalar_or_array!(TextBaseline);

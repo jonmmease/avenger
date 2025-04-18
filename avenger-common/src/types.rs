@@ -1,4 +1,4 @@
-use crate::impl_hash_for_scalar_or_array;
+use crate::{impl_hash_for_scalar_or_array, value::{ScalarOrArray, ScalarOrArrayValue}};
 use lyon_extra::euclid::{Transform2D, UnknownUnit};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
@@ -188,3 +188,24 @@ impl Hash for LinearScaleAdjustment {
 }
 
 pub type PathTransform = Transform2D<f32, UnknownUnit, UnknownUnit>;
+
+pub fn hash_path_transform(transform: &PathTransform, state: &mut impl Hasher) {
+    OrderedFloat(transform.m11).hash(state);
+    OrderedFloat(transform.m12).hash(state);
+    OrderedFloat(transform.m21).hash(state);
+    OrderedFloat(transform.m22).hash(state);
+    OrderedFloat(transform.m31).hash(state);
+    OrderedFloat(transform.m32).hash(state);
+}
+
+impl Hash for ScalarOrArray<PathTransform> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match &self.value {
+            ScalarOrArrayValue::Scalar(transform) => hash_path_transform(transform, state),
+            ScalarOrArrayValue::Array(transforms) => {
+                transforms.iter().for_each(|transform| hash_path_transform(transform, state));
+            }
+        }
+    }
+}
+

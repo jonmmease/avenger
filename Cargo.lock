@@ -461,7 +461,10 @@ dependencies = [
 name = "avenger-common"
 version = "0.0.8"
 dependencies = [
+ "avenger-image",
+ "avenger-text",
  "lyon_extra",
+ "lyon_path",
  "ordered-float 4.5.0",
  "serde",
  "strum",
@@ -617,11 +620,11 @@ dependencies = [
 name = "avenger-text"
 version = "0.0.8"
 dependencies = [
- "avenger-common",
  "cosmic-text",
  "image",
  "lazy_static 1.5.0",
  "lyon_path",
+ "ordered-float 4.5.0",
  "serde",
  "strum",
  "thiserror 2.0.3",

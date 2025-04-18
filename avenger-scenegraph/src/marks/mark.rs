@@ -13,7 +13,7 @@ use crate::marks::text::SceneTextMark;
 use crate::marks::trail::SceneTrailMark;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 pub enum SceneMark {
     Arc(SceneArcMark),
     Area(SceneAreaMark),
