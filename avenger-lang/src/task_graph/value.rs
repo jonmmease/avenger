@@ -4,6 +4,7 @@ use std::hash::Hash;
 use std::mem::Discriminant;
 use std::collections::hash_map::DefaultHasher;
 
+use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::compute;
 use datafusion::arrow::util::pretty;
 use datafusion::prelude::DataFrame;
@@ -104,6 +105,9 @@ impl TaskValueContext {
                     task_value_context.add_dataset(variable.clone(), dataset.clone());
                     task_value_context.merge(context);
                 }
+                _ => {
+                    // skip
+                }
             };
         }
         Ok(task_value_context)
@@ -117,11 +121,12 @@ impl Default for TaskValueContext {
 }
 
 /// The value of a task
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub enum TaskValue {
     Val { value: ScalarValue },
     Expr { sql_expr: SqlExpr, context: TaskValueContext },
     Dataset { dataset: TaskDataset, context: TaskValueContext },
+    Mark { mark: SceneMark },
 }
 
 impl TaskValue {
@@ -164,6 +169,20 @@ impl TaskValue {
         match self {
             TaskValue::Dataset{dataset, context} => Ok((dataset, context)),
             _ => Err(AvengerLangError::InternalError("Expected a dataset".to_string())),
+        }
+    }
+
+    pub fn as_mark(&self) -> Result<&SceneMark, AvengerLangError> {
+        match self {
+            TaskValue::Mark{mark} => Ok(mark),
+            _ => Err(AvengerLangError::InternalError("Expected a mark".to_string())),
+        }
+    }
+
+    pub fn into_mark(self) -> Result<SceneMark, AvengerLangError> {
+        match self {
+            TaskValue::Mark{mark} => Ok(mark),
+            _ => Err(AvengerLangError::InternalError("Expected a mark".to_string())),
         }
     }
 

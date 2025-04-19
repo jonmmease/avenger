@@ -49,6 +49,9 @@ impl EvaluationContext {
                     self.register_task_value_context(&context).await?;
                     self.register_dataset(&variable, dataset.clone()).await?;
                 }
+                _ => {
+                    // skip
+                }
             };
         }
         Ok(())

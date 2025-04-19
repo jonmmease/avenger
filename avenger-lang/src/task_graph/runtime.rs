@@ -3,9 +3,12 @@ use std::sync::{Arc, atomic::{AtomicU32, Ordering}};
 use std::time::{Duration, Instant};
 
 use async_recursion::async_recursion;
+use avenger_scales::utils::ScalarValueUtils;
+use avenger_scenegraph::scene_graph::SceneGraph;
 use futures::future::{join_all, FutureExt};
 use tokio::time::sleep;
 
+use crate::ast::{AvengerFile, Statement};
 use crate::context::EvaluationContext;
 use crate::error::AvengerLangError;
 use crate::task_graph::{
@@ -17,6 +20,7 @@ use crate::task_graph::{
     value::TaskValue,
 };
 
+use super::component_registry::ComponentRegistry;
 use super::value::TaskDataset;
 
 // Threshold for spawning tasks (in milliseconds)
@@ -35,6 +39,82 @@ impl TaskGraphRuntime {
     
     pub fn with_cache(cache: Arc<TaskCache>) -> Self {
         Self { cache }
+    }
+
+
+    pub async fn evaluate_file(
+        &self,
+        file: &AvengerFile,
+    ) -> Result<SceneGraph, AvengerLangError> {
+
+        // Build task graph
+        let task_graph = Arc::new(TaskGraph::try_from(file)?);
+        
+        // Build variables for size of the scenegraph
+        let mut dim_vars = vec![];
+
+        let width_var = Variable::new("width");
+        let height_var = Variable::new("height");
+        let x_var = Variable::new("x");
+        let y_var = Variable::new("y");
+        for var in [&width_var, &height_var, &x_var, &y_var] {
+            if task_graph.tasks().contains_key(var) {
+                dim_vars.push(var.clone());
+            }
+        }
+
+        // Build variables for the marks
+        let registry = ComponentRegistry::new();
+        let mut mark_vars = vec![];
+        for stmt in &file.statements {
+            if let Statement::CompPropDecl(comp) = stmt {
+                let comp_type = comp.value.name.clone();
+                let is_mark = registry.lookup_component(&comp_type).map(|spec| spec.is_mark).unwrap_or(false);
+                if is_mark || comp_type == "Group" {
+                    // Build var with group components mark
+                    let mark_var = Variable::with_parts(vec![comp.name.clone(), "_mark".to_string()]);
+                    mark_vars.push(mark_var);
+                }
+            }
+        }
+
+        // Combine dimension and mark variables
+        let all_vars = [dim_vars, mark_vars.clone()].concat();
+
+        // Evaluate all variables
+        let mut results = self.evaluate_variables(task_graph, &all_vars).await?;
+
+        // Get the width, height, x, and y from the results and apply defaults
+        let width = results.get(&width_var)
+            .and_then(|v| v.as_val().ok())
+            .and_then(|v| v.as_f32().ok())
+            .unwrap_or(500.0);
+        
+        let height = results.get(&height_var)
+            .and_then(|v| v.as_val().ok())
+            .and_then(|v| v.as_f32().ok())
+            .unwrap_or(500.0);
+
+        let x = results.get(&x_var)
+            .and_then(|v| v.as_val().ok())
+            .and_then(|v| v.as_f32().ok())
+            .unwrap_or(0.0);
+
+        let y = results.get(&y_var)
+            .and_then(|v| v.as_val().ok())
+            .and_then(|v| v.as_f32().ok())
+            .unwrap_or(0.0);
+
+
+        // Get the marks
+        let marks = mark_vars.iter().map(|v| results.remove(v).unwrap().into_mark().unwrap()).collect::<Vec<_>>();
+
+        Ok(SceneGraph {
+            width,
+            height,
+            origin: [x, y],
+            marks,
+        })
     }
 
     /// Evaluate the given variables in the task graph

@@ -16,7 +16,7 @@ use crate::{task_graph::tasks::Task, task_graph::{dependency::{Dependency, Depen
 
 use super::component::PropType;
 use super::scope::{Scope, ScopePath};
-use super::tasks::{DatasetDeclTask, ExprDeclTask, ValDeclTask};
+use super::tasks::{DatasetDeclTask, ExprDeclTask, GroupMarkTask, RectMarkTask, ValDeclTask};
 use super::variable::Variable;
 
 
@@ -153,11 +153,11 @@ impl TaskGraph {
     }
 }
 
-impl TryFrom<AvengerFile> for TaskGraph {
+impl TryFrom<&AvengerFile> for TaskGraph {
     type Error = AvengerLangError;
 
-    fn try_from(file: AvengerFile) -> Result<Self, Self::Error> {
-        let mut builder = TaskGraphBuilder::new(Scope::from_file(&file)?);
+    fn try_from(file: &AvengerFile) -> Result<Self, Self::Error> {
+        let mut builder = TaskGraphBuilder::new(Scope::from_file(file)?);
         file.accept(&mut builder)?;
         builder.build()
     }
@@ -271,10 +271,43 @@ impl Visitor for TaskGraphBuilder {
             .ok_or_else(|| AvengerLangError::InternalError(format!(
                 "Unknown component type: {}", ctx.component_type)))?;
 
-        if component_spec.is_mark {
-            // Add internal _encoded_data and _config properties for computing mark encoding
-            let prop_bindings = comp_instance.prop_bindings();
+        // Add a config property that is a dataset with one column for each value binding
+        let prop_bindings = comp_instance.prop_bindings();
 
+        // Add component prop for the remaining val properties
+        // Find the names of all expr property bindings
+        let val_prop_names = prop_bindings.iter()
+            .filter_map(|(_, binding)| {
+                if component_spec.props.get(&binding.name) == Some(&PropType::Val) {
+                    Some(binding.name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let val_props_csv = if val_prop_names.is_empty() {
+            "1 as _unit".to_string()
+        } else {
+            val_prop_names.iter().map(
+                |name| format!("@{name} as {name}")
+            ).collect::<Vec<_>>().join(", ")
+        };
+
+        let mut query = AvengerParser::parse_single_query(
+            &format!("SELECT {val_props_csv}")
+        )?;
+        self.scope.resolve_sql_query(&mut query, &ScopePath::new(ctx.scope_path.to_vec()))?;
+
+        let task = DatasetDeclTask { query, eval: true };
+        let mut parts = ctx.scope_path.clone();
+        parts.push("config".to_string());
+        let config_variable = Variable::with_parts(parts);
+        self.tasks.insert(config_variable.clone(), Arc::new(task));
+
+        // Handle mark-specific tasks
+        if component_spec.is_mark {
+            // Create encoded_data task
             // Find the names of all expr property bindings
             let expr_prop_names = prop_bindings.iter()
                 .filter_map(|(_, binding)| {
@@ -285,7 +318,6 @@ impl Visitor for TaskGraphBuilder {
                     }
                 })
                 .collect::<Vec<_>>();
-
 
             let expr_props_csv = if expr_prop_names.is_empty() {
                 "1 as _unit".to_string()
@@ -308,42 +340,45 @@ impl Visitor for TaskGraphBuilder {
             self.scope.resolve_sql_query(&mut query, &ScopePath::new(ctx.scope_path.to_vec()))?;
 
             // Create a task for the encoded data
-            let task = DatasetDeclTask { query, eval: false };
+            // Mark task expects eval: true
+            let task = DatasetDeclTask { query, eval: true };
             let mut parts = ctx.scope_path.clone();
-            parts.push("_encoded_data".to_string());
+            parts.push("encoded_data".to_string());
             let encoded_data_variable = Variable::with_parts(parts);
-            self.tasks.insert(encoded_data_variable, Arc::new(task));
+            self.tasks.insert(encoded_data_variable.clone(), Arc::new(task));
 
-            // Add component prop for the remaining val properties
-            // Find the names of all expr property bindings
-            let val_prop_names = prop_bindings.iter()
-                .filter_map(|(_, binding)| {
-                    if component_spec.props.get(&binding.name) == Some(&PropType::Val) {
-                        Some(binding.name.clone())
-                    } else {
-                        None
+            // Create a task to build the mark
+            if component_spec.name == "Rect" {
+                let mut parts = ctx.scope_path.clone();
+                parts.push("_mark".to_string());
+                let variable = Variable::with_parts(parts);
+                let task = RectMarkTask::new(
+                    encoded_data_variable,
+                    config_variable,
+                );
+                self.tasks.insert(variable, Arc::new(task));
+            }
+        } else if comp_instance.name == "Group" {
+            let mark_vars = comp_instance.child_comp_decls().into_iter().filter_map(|comp_decl| {
+                if let Some(comp_spec) = ctx.component_registry.lookup_component(&comp_decl.value.name) {
+                    if comp_spec.is_mark {
+                        let mut parts = ctx.scope_path.clone();
+                        parts.push(comp_decl.name.clone());
+                        parts.push("_mark".to_string());
+                        return Some(Variable::with_parts(parts))
                     }
-                })
-                .collect::<Vec<_>>();
+                }
+                None
+            }).collect::<Vec<_>>();
 
-            let val_props_csv = if val_prop_names.is_empty() {
-                "1 as _unit".to_string()
-            } else {
-                val_prop_names.iter().map(
-                    |name| format!("@{name} as {name}")
-                ).collect::<Vec<_>>().join(", ")
-            };
-
-            let mut query = AvengerParser::parse_single_query(
-                &format!("SELECT {val_props_csv}")
-            )?;
-            self.scope.resolve_sql_query(&mut query, &ScopePath::new(ctx.scope_path.to_vec()))?;
-
-            let task = DatasetDeclTask { query, eval: false };
+            // Build group mark variable
             let mut parts = ctx.scope_path.clone();
-            parts.push("_config".to_string());
-            let config_variable = Variable::with_parts(parts);
-            self.tasks.insert(config_variable, Arc::new(task));
+            parts.push("_mark".to_string());
+            let group_mark_variable = Variable::with_parts(parts);
+
+            // Build task
+            let task = GroupMarkTask::new(config_variable, mark_vars);
+            self.tasks.insert(group_mark_variable, Arc::new(task));
         }
         Ok(())
     }
