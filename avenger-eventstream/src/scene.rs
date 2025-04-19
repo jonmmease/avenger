@@ -19,6 +19,7 @@ pub enum SceneGraphEvent {
     WindowMoved(WindowMovedEvent),
     WindowFocused(bool),
     WindowCloseRequested,
+    FileChanged(SceneFileChangedEvent),
 }
 
 impl SceneGraphEvent {
@@ -70,6 +71,7 @@ impl SceneGraphEvent {
             Self::WindowMoved(..) => SceneGraphEventType::WindowMoved,
             Self::WindowFocused(..) => SceneGraphEventType::WindowFocused,
             Self::WindowCloseRequested => SceneGraphEventType::WindowCloseRequested,
+            Self::FileChanged(..) => SceneGraphEventType::FileChanged,
         }
     }
 }
@@ -90,6 +92,7 @@ pub enum SceneGraphEventType {
     WindowMoved,
     WindowFocused,
     WindowCloseRequested,
+    FileChanged,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -174,4 +177,13 @@ pub struct ModifiersState {
     pub control: bool,
     pub alt: bool,
     pub meta: bool,
+}
+
+/// Event triggered when a monitored file changes
+#[derive(Debug, Clone, PartialEq)]
+pub struct SceneFileChangedEvent {
+    /// The path of the file that changed
+    pub file_path: String,
+    /// Error message if file couldn't be read
+    pub error: Option<String>,
 }

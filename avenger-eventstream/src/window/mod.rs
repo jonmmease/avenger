@@ -14,6 +14,7 @@ pub enum WindowEvent {
     MouseWheel(WindowMouseWheel),
     KeyboardInput(WindowKeyboardInput),
     Touch(WindowTouch),
+    FileChanged(WindowFileChangedEvent),
 }
 
 impl WindowEvent {
@@ -154,4 +155,13 @@ pub enum MouseButton {
 pub enum MouseScrollDelta {
     LineDelta(f32, f32),
     PixelDelta(f64, f64),
+}
+
+/// Event for file system changes
+#[derive(Debug, Clone, PartialEq)]
+pub struct WindowFileChangedEvent {
+    /// Path to the file that changed
+    pub file_path: String,
+    /// Error message if the file couldn't be read
+    pub error: Option<String>,
 }

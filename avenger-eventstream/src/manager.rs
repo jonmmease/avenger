@@ -1,7 +1,5 @@
 use crate::scene::{
-    ModifiersState, SceneClickEvent, SceneCursorMovedEvent, SceneDoubleClickEvent, SceneGraphEvent,
-    SceneKeyPressEvent, SceneKeyReleaseEvent, SceneMouseDownEvent, SceneMouseEnterEvent,
-    SceneMouseLeaveEvent, SceneMouseUpEvent, SceneMouseWheelEvent,
+    ModifiersState, SceneClickEvent, SceneCursorMovedEvent, SceneDoubleClickEvent, SceneFileChangedEvent, SceneGraphEvent, SceneKeyPressEvent, SceneKeyReleaseEvent, SceneMouseDownEvent, SceneMouseEnterEvent, SceneMouseLeaveEvent, SceneMouseUpEvent, SceneMouseWheelEvent
 };
 use crate::stream::{EventStream, EventStreamConfig, UpdateStatus};
 use crate::window::{ElementState, Key, MouseButton, NamedKey, WindowEvent, WindowKeyboardInput};
@@ -36,6 +34,7 @@ pub trait EventStreamHandler<State: Clone + Send + Sync + 'static> {
 //     }
 // }
 
+#[derive(Clone)]
 pub struct EventStreamManager<State: Clone + Send + Sync + 'static> {
     state: State,
     streams: Vec<EventStream<State>>,
@@ -232,6 +231,10 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
             WindowEvent::WindowMoved(e) => Some(SceneGraphEvent::WindowMoved(e.clone())),
             WindowEvent::WindowFocused(focused) => Some(SceneGraphEvent::WindowFocused(*focused)),
             WindowEvent::WindowCloseRequested => Some(SceneGraphEvent::WindowCloseRequested),
+            WindowEvent::FileChanged(e) => Some(SceneGraphEvent::FileChanged(SceneFileChangedEvent {
+                file_path: e.file_path.clone(),
+                error: e.error.clone(),
+            })),
             _ => None,
         };
 
