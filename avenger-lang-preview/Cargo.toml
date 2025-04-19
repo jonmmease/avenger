@@ -10,7 +10,12 @@ avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-common = { path = "../avenger-common" }
 avenger-app = { path = "../avenger-app" }
 avenger-winit-wgpu = { path = "../avenger-winit-wgpu" }
+avenger-eventstream = { path = "../avenger-eventstream" }
+avenger-geometry = { path = "../avenger-geometry" }
 async-trait = { workspace = true }
 futures = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 winit = { workspace = true }
+notify = "8.0.0"
+env_logger = "0.10.0"
+log = "0.4.20"

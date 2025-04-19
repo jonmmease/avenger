@@ -1,11 +1,12 @@
 use crate::scene::{
-    ModifiersState, SceneClickEvent, SceneCursorMovedEvent, SceneDoubleClickEvent, SceneFileChangedEvent, SceneGraphEvent, SceneKeyPressEvent, SceneKeyReleaseEvent, SceneMouseDownEvent, SceneMouseEnterEvent, SceneMouseLeaveEvent, SceneMouseUpEvent, SceneMouseWheelEvent
+    ModifiersState, SceneClickEvent, SceneCursorMovedEvent, SceneDoubleClickEvent, SceneFileChangedEvent, SceneGraphEvent, SceneGraphEventType, SceneKeyPressEvent, SceneKeyReleaseEvent, SceneMouseDownEvent, SceneMouseEnterEvent, SceneMouseLeaveEvent, SceneMouseUpEvent, SceneMouseWheelEvent
 };
 use crate::stream::{EventStream, EventStreamConfig, UpdateStatus};
 use crate::window::{ElementState, Key, MouseButton, NamedKey, WindowEvent, WindowKeyboardInput};
 use async_trait::async_trait;
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::marks::mark::MarkInstance;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -99,6 +100,18 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
             (Key::Named(NamedKey::Super), ElementState::Released) => self.modifiers.meta = false,
             _ => {}
         }
+    }
+
+    /// Get all file paths that are watched by registered event streams
+    pub fn get_watched_files(&self) -> Vec<PathBuf> {
+        self.streams.iter().map(|stream| {
+            stream.config.types.iter().filter_map(|t| {
+                match t {
+                    SceneGraphEventType::FileChanged(file_path) => Some(file_path.clone()),
+                    _ => None,
+                }
+            }).collect::<Vec<_>>()
+        }).flatten().collect()
     }
 
     pub async fn dispatch_event(
@@ -231,10 +244,12 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
             WindowEvent::WindowMoved(e) => Some(SceneGraphEvent::WindowMoved(e.clone())),
             WindowEvent::WindowFocused(focused) => Some(SceneGraphEvent::WindowFocused(*focused)),
             WindowEvent::WindowCloseRequested => Some(SceneGraphEvent::WindowCloseRequested),
-            WindowEvent::FileChanged(e) => Some(SceneGraphEvent::FileChanged(SceneFileChangedEvent {
-                file_path: e.file_path.clone(),
-                error: e.error.clone(),
-            })),
+            WindowEvent::FileChanged(e) => {
+                Some(SceneGraphEvent::FileChanged(SceneFileChangedEvent {
+                    file_path: e.file_path.clone(),
+                    error: e.error.clone(),
+                }))
+            }
             _ => None,
         };
 

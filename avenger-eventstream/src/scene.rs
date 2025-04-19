@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use avenger_scenegraph::marks::mark::MarkInstance;
 
 use crate::window::{Key, MouseButton, MouseScrollDelta, WindowMovedEvent, WindowResizeEvent};
@@ -71,7 +73,7 @@ impl SceneGraphEvent {
             Self::WindowMoved(..) => SceneGraphEventType::WindowMoved,
             Self::WindowFocused(..) => SceneGraphEventType::WindowFocused,
             Self::WindowCloseRequested => SceneGraphEventType::WindowCloseRequested,
-            Self::FileChanged(..) => SceneGraphEventType::FileChanged,
+            Self::FileChanged(SceneFileChangedEvent{file_path, ..}) => SceneGraphEventType::FileChanged(file_path.clone()),
         }
     }
 }
@@ -92,7 +94,7 @@ pub enum SceneGraphEventType {
     WindowMoved,
     WindowFocused,
     WindowCloseRequested,
-    FileChanged,
+    FileChanged(PathBuf),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -183,7 +185,7 @@ pub struct ModifiersState {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SceneFileChangedEvent {
     /// The path of the file that changed
-    pub file_path: String,
+    pub file_path: PathBuf,
     /// Error message if file couldn't be read
     pub error: Option<String>,
 }

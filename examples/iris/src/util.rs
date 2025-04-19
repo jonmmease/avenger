@@ -405,9 +405,8 @@ pub async fn run() {
         .build()
         .unwrap();
 
-    let mut app = WinitWgpuAvengerApp::new(avenger_app, 2.0, tokio_runtime);
+    let (mut app, event_loop) = WinitWgpuAvengerApp::new_and_event_loop(avenger_app, 2.0, tokio_runtime);
 
-    let event_loop = EventLoop::new().expect("Failed to build event loop");
     event_loop
         .run_app(&mut app)
         .expect("Failed to run event loop");
