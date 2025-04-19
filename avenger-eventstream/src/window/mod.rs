@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 mod winit;
 
 /// Native window events, in logical coordinates
@@ -28,7 +30,7 @@ impl WindowEvent {
 
     pub fn skip_if_render_pending(&self) -> bool {
         match self {
-            Self::MouseInput(_) | Self::KeyboardInput(_) => false,
+            Self::MouseInput(_) | Self::KeyboardInput(_) | Self::FileChanged(_) => false,
             _ => true,
         }
     }
@@ -161,7 +163,7 @@ pub enum MouseScrollDelta {
 #[derive(Debug, Clone, PartialEq)]
 pub struct WindowFileChangedEvent {
     /// Path to the file that changed
-    pub file_path: String,
+    pub file_path: PathBuf,
     /// Error message if the file couldn't be read
     pub error: Option<String>,
 }

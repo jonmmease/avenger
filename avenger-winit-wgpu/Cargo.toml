@@ -12,3 +12,4 @@ winit = { workspace = true }
 wgpu = { workspace = true }
 log = { workspace = true }
 tokio = { workspace = true }
+notify = "8.0.0"

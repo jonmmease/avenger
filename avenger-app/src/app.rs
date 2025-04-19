@@ -1,4 +1,5 @@
 use futures::Future;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
@@ -29,6 +30,7 @@ pub trait SceneGraphBuilder<State: Clone + Send + Sync + 'static> {
 //     }
 // }
 
+#[derive(Clone)]
 pub struct AvengerApp<State>
 where
     State: Clone + Send + Sync + 'static,
@@ -43,6 +45,10 @@ impl<State> AvengerApp<State>
 where
     State: Clone + Send + Sync + 'static,
 {
+    /// Get a mutable reference to the app state
+    pub fn app_state_mut(&mut self) -> &mut State {
+        self.event_stream_manager.state_mut()
+    }
     pub async fn try_new(
         initial_state: State,
         scene_graph_builder: Arc<dyn SceneGraphBuilder<State>>,
@@ -66,6 +72,10 @@ where
             rtree,
             scene_graph,
         })
+    }
+
+    pub fn get_watched_files(&self) -> Vec<PathBuf> {
+        self.event_stream_manager.get_watched_files()
     }
 
     /// Update the state of the app without rebuilding the scene graph

@@ -20,3 +20,5 @@ __pycache__/
 examples/wgpu-scales/geometry.svg
 examples/iris/geometry.svg
 .vscode/launch.json
+
+avenger-lang-preview/preview.avgr

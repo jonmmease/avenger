@@ -1,15 +1,20 @@
+mod file_watcher;
+
 use avenger_app::app::AvengerApp;
 use avenger_common::canvas::CanvasDimensions;
-use avenger_eventstream::window::WindowEvent as AvengerWindowEvent;
+use avenger_eventstream::window::{WindowEvent as AvengerWindowEvent, WindowFileChangedEvent};
 use avenger_wgpu::canvas::{Canvas, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
+use std::path::PathBuf;
 use std::time::Instant;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
-use winit::event_loop::ActiveEventLoop;
+use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::keyboard;
 use winit::keyboard::NamedKey;
 use winit::window::{WindowAttributes, WindowId};
+
+pub use file_watcher::FileWatcher;
 
 pub struct WinitWgpuAvengerApp<'a, State>
 where
@@ -17,31 +22,48 @@ where
 {
     canvas: Option<WindowCanvas<'a>>,
     scale: f32,
-    avenger_app: AvengerApp<State>,
+    pub avenger_app: AvengerApp<State>,
     render_pending: bool,
     tokio_runtime: tokio::runtime::Runtime,
+    file_watcher: Option<FileWatcher>,
 }
 
 impl<'a, State> WinitWgpuAvengerApp<'a, State>
 where
     State: Clone + Send + Sync + 'static,
 {
-    pub fn new(
+    pub fn new_and_event_loop(
         avenger_app: AvengerApp<State>,
         scale: f32,
         tokio_runtime: tokio::runtime::Runtime,
-    ) -> Self {
-        Self {
+    ) -> (Self, EventLoop<AvengerWindowEvent>) {
+
+        // Create event loop with AvengerWindowEvent as custom event type
+        // We save a proxy and return the original event loop
+        let event_loop = EventLoop::<AvengerWindowEvent>::with_user_event().build().expect("Failed to build event loop");
+        let watched_files = avenger_app.get_watched_files();
+        let file_watcher = if !watched_files.is_empty() {
+            println!("Creating file watcher for {:?}", watched_files);
+            Some(FileWatcher::new(event_loop.create_proxy(), watched_files).expect("Failed to create file watcher"))
+        } else {
+            None
+        };
+
+        // println the watched file
+        let winit_app = Self {
             canvas: None,
             scale,
             avenger_app,
             render_pending: false,
             tokio_runtime,
-        }
+            file_watcher,
+        };
+
+        (winit_app, event_loop)
     }
 }
 
-impl<'a, State> ApplicationHandler for WinitWgpuAvengerApp<'a, State>
+impl<'a, State> ApplicationHandler<AvengerWindowEvent> for WinitWgpuAvengerApp<'a, State>
 where
     State: Clone + Send + Sync + 'static,
 {
@@ -73,6 +95,24 @@ where
         self.canvas = Some(canvas);
     }
 
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: AvengerWindowEvent) {
+        // Process file change events and other custom events
+        if !self.render_pending || !event.skip_if_render_pending() {
+            if let Some(canvas) = &mut self.canvas {
+                if let Some(scene_graph) = self
+                    .tokio_runtime
+                    .block_on(self.avenger_app.update(&event, 
+                        Instant::now())
+                    )
+                    .expect("Failed to update app")
+                {
+                    canvas.set_scene(&scene_graph).unwrap();
+                    canvas.window().request_redraw();
+                }
+            }
+        }
+    }
+
     fn window_event(
         &mut self,
         _event_loop: &ActiveEventLoop,
@@ -83,7 +123,9 @@ where
             Some(canvas) => canvas,
             None => return,
         };
-
+        
+        // User events are handled through the application::event method
+        
         if window_id == canvas.window().id() && !canvas.input(&event) {
             match event {
                 WindowEvent::CloseRequested
@@ -107,8 +149,6 @@ where
 
                     canvas.update();
 
-                    // println!("render");
-
                     match canvas.render() {
                         Ok(_) => {
                             self.render_pending = false;
@@ -129,8 +169,8 @@ where
                         }
                     }
 
-                    let duration = start_time.elapsed(); // Calculate elapsed time
-                                                         // println!("Render time: {:?}", duration); // Print the duration
+                    let _duration = start_time.elapsed(); // Calculate elapsed time
+                                                         // println!("Render time: {:?}", _duration); // Print the duration
                 }
                 event => {
                     if let Some(event) = AvengerWindowEvent::from_winit_event(event, self.scale) {
