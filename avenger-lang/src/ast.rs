@@ -80,6 +80,16 @@ impl CompInstance {
             }
         }).collect()
     }
+
+    pub fn child_comp_decls(&self) -> Vec<&CompPropDecl> {
+        self.statements.iter().filter_map(|stmt| {
+            if let Statement::CompPropDecl(comp_prop) = stmt {
+                Some(comp_prop)
+            } else {
+                None
+            }
+        }).collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

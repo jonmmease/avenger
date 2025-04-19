@@ -223,6 +223,14 @@ impl AvengerParser {
         self
     }
 
+    pub fn parse_single_file(input: &str) -> Result<AvengerFile, AvengerLangError> {
+        let parser = AvengerParser::new();
+        let tokens = parser.tokenize(input)?;
+        let mut parser = parser.with_tokens_with_locations(tokens);
+        let file = parser.parse_file()?;
+        Ok(file)
+    }
+
     pub fn parse_single_query(input: &str) -> Result<Box<SqlQuery>, AvengerLangError> {
         let parser = AvengerParser::new();
         let tokens = parser.tokenize(input)?;

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use avenger_lang::{ast::AvengerFile, context::EvaluationContext, error::AvengerLangError, marks::rect::build_rect_mark, parser::AvengerParser, task_graph::{dependency::{Dependency, DependencyKind}, runtime::TaskGraphRuntime, task_graph::TaskGraph, value::{ArrowTable, TaskDataset}, variable::Variable}};
-
+use avenger_lang::{ast::AvengerFile, context::EvaluationContext, error::AvengerLangError, parser::AvengerParser, task_graph::{dependency::{Dependency, DependencyKind}, runtime::TaskGraphRuntime, task_graph::TaskGraph, value::{ArrowTable, TaskDataset}, variable::Variable}};
+use avenger_lang::marks::build_rect_mark;
 
 fn parse_file(src: &str) -> Result<AvengerFile, AvengerLangError> {
     let parser = AvengerParser::new();
@@ -30,7 +30,7 @@ async fn test_parse_file_to_taskgraph() -> Result<(), AvengerLangError> {
     // println!("{:#?}", file);
 
     // Build Task Graph from parsed file
-    let task_graph = Arc::new(TaskGraph::try_from(file)?);
+    let task_graph = Arc::new(TaskGraph::try_from(&file)?);
     // println!("{:#?}", task_graph);
 
     // Evaluate the task graph
@@ -157,7 +157,7 @@ async fn test_parse_file_to_taskgraph2() -> Result<(), AvengerLangError> {
 
     // Build Task Graph from parsed file
     let file = parse_file(src)?;
-    let task_graph = Arc::new(TaskGraph::try_from(file)?);
+    let task_graph = Arc::new(TaskGraph::try_from(&file)?);
 
     // Evaluate the task graph
     let my_val = Variable::new("my_val");
@@ -204,53 +204,66 @@ async fn test_parse_file_to_taskgraph2() -> Result<(), AvengerLangError> {
 
 
 #[tokio::test]
-async fn test_parse_file_with_mark() -> Result<(), AvengerLangError> {
+async fn test_parse_file_to_scene_graph() -> Result<(), AvengerLangError> {
     let src = r#"
-    width := 400;
-    height := 400;
+    width := 440;
+    height := 440;
 
     dataset data_0: SELECT * FROM (VALUES 
             (1, 'red'),
             (2, 'green'),
             (3, 'blue')
         ) foo("a", "b");
-         
-    comp mark1: Rect {
-        data := SELECT * FROM @data_0;
-        x2 := @x + 10;
-        x := "a" * 100;
-        y := "a" * 10 + 10;
-        y2 := 0;
-        fill := "b";
-        stroke_width := 4;
-        stroke := 'black';
 
-        clip := false;
-        zindex := 1 + 2;
+    comp g1: Group {
+        x := 20;
+        y := 20;
+
+        comp mark1: Rect {
+            data := SELECT * FROM @data_0;
+            x2 := @x + 10;
+            x := "a" * 100;
+            y := "a" * 10 + 10;
+            y2 := 0;
+            fill := "b";
+            stroke_width := 4;
+            stroke := 'black';
+
+            clip := false;
+            zindex := 1 + 2;
+        }
     }
     "#;
 
     // Build Task Graph from parsed file
     let file = parse_file(src)?;
-    let task_graph = Arc::new(TaskGraph::try_from(file)?);
+    let task_graph = Arc::new(TaskGraph::try_from(&file)?);
 
-    for (variable, task_node) in task_graph.tasks() {
-        println!("Variable: {:?}", variable);
-        println!("Inputs: {:#?}", task_node.task.input_dependencies());
-    }
+    // for (variable, task_node) in task_graph.tasks() {
+    //     println!("Variable: {:?}", variable);
+    //     println!("Inputs: {:#?}", task_node.task.input_dependencies());
+    // }
 
     // Evaluate the built-in mark datasets
     let encoded_data = Variable::with_parts(
-        vec!["mark1".to_string(), "_encoded_data".to_string()]
+        vec!["g1".to_string(), "mark1".to_string(), "encoded_data".to_string()]
     );
     let config_variable = Variable::with_parts(
-        vec!["mark1".to_string(), "_config".to_string()]
+        vec!["g1".to_string(), "mark1".to_string(), "config".to_string()]
+    );
+    let rect_mark_variable = Variable::with_parts(
+        vec!["g1".to_string(), "mark1".to_string(), "_mark".to_string()]
+    );
+    let group_mark_variable = Variable::with_parts(
+        vec!["g1".to_string(), "_mark".to_string()]
     );
 
     let runtime = TaskGraphRuntime::new();
 
     let vals = runtime.evaluate_variables(
-        task_graph.clone(), &[encoded_data.clone(), config_variable.clone()]
+        task_graph.clone(), &[
+            encoded_data.clone(), config_variable.clone(), rect_mark_variable.clone(), group_mark_variable.clone()
+        ]
     ).await?;
 
     let encoded_data_val = vals.get(&encoded_data).unwrap();
@@ -259,22 +272,31 @@ async fn test_parse_file_with_mark() -> Result<(), AvengerLangError> {
     let config_val = vals.get(&config_variable).unwrap();
     // println!("config: {:#?}", config_val);
 
-    let (task_dataset, _) = encoded_data_val.as_dataset().unwrap();
+    let rect_mark_val = vals.get(&rect_mark_variable).unwrap();
+    let group_mark_val = vals.get(&group_mark_variable).unwrap();
+
+    let (task_dataset, _) = encoded_data_val.as_dataset()?;
     let TaskDataset::ArrowTable(encoded_table) = task_dataset else {
         return Err(AvengerLangError::InternalError(format!("Expected ArrowTable, got {:?}", task_dataset)));
     };
 
     encoded_table.show()?;
 
-    let (task_dataset, _) = config_val.as_dataset().unwrap();
+    let (task_dataset, _) = config_val.as_dataset()?;
     let TaskDataset::ArrowTable(config_table) = task_dataset else {
         return Err(AvengerLangError::InternalError(format!("Expected ArrowTable, got {:?}", task_dataset)));
     };
 
     config_table.show()?;
 
-    let rect_mark = build_rect_mark(&encoded_table, &config_table)?;
-    println!("rect_mark: {:#?}", rect_mark);
+    let rect_mark = rect_mark_val.as_mark()?;
+    let group_mark = group_mark_val.as_mark()?;
+
+    println!("group_mark: {:#?}", group_mark);
+
+
+    let scene_graph = runtime.evaluate_file(&file).await?;
+    println!("scene_graph: {:#?}", scene_graph);
 
     Ok(())
 }

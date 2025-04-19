@@ -2,9 +2,12 @@ use std::{fmt::Debug, hash::{DefaultHasher, Hash, Hasher}, ops::ControlFlow};
 
 use sqlparser::ast::{Expr as SqlExpr, ObjectName, Query as SqlQuery, Visit, VisitMut, Visitor as SqlVisitor};
 use async_trait::async_trait;
-
+use avenger_scales::scales::coerce::Coercer;
+use avenger_scales::utils::ScalarValueUtils;
+use avenger_scenegraph::marks::group::SceneGroup;
+use avenger_scenegraph::marks::mark::SceneMark;
 use crate::{ast::{DatasetPropDecl, ExprPropDecl, ValPropDecl}, context::EvaluationContext, error::AvengerLangError, task_graph::{dependency::{Dependency, DependencyKind}, value::{TaskDataset, TaskValue}}};
-
+use crate::marks::build_rect_mark;
 use super::{value::TaskValueContext, variable::Variable};
 
 
@@ -33,7 +36,7 @@ pub trait Task: Debug + Send + Sync {
 
 
 /// Task storing a scalar value
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub struct TaskValueTask {
     pub value: TaskValue,
 }
@@ -185,7 +188,7 @@ impl Task for DatasetDeclTask {
         ctx.register_values(&self.input_variables()?, &input_values).await?;
         let plan = ctx.compile_query(&self.query).await?;
 
-        if false {
+        if self.eval {
             // Eager evaluation, evaluate the logical plan
             let table = ctx.eval_query(&self.query).await?;
             Ok(TaskValue::Dataset { context: Default::default() , dataset: TaskDataset::ArrowTable(table) })
@@ -211,6 +214,160 @@ impl From<DatasetPropDecl> for DatasetDeclTask {
     }
 }
 
+
+#[derive(Debug, Clone, PartialEq, Hash)]
+pub struct RectMarkTask {
+    encoded_data: Variable,
+    config_data: Variable,
+}
+
+impl RectMarkTask {
+    pub fn new(encoded_data: Variable, config_data: Variable) -> Self {
+        Self {
+            encoded_data,
+            config_data,
+        }
+    }
+}
+
+#[async_trait]
+impl Task for RectMarkTask {
+    fn input_dependencies(&self) -> Result<Vec<Dependency>, AvengerLangError> {
+        Ok(vec![
+            Dependency { variable: self.encoded_data.clone(), kind: DependencyKind::Dataset },
+            Dependency { variable: self.config_data.clone(), kind: DependencyKind::Dataset }
+        ])
+    }
+
+    async fn evaluate(
+        &self,
+        input_values: &[TaskValue],
+    ) -> Result<TaskValue, AvengerLangError> {
+        let TaskValue::Dataset { dataset: TaskDataset::ArrowTable(encoded_table), .. } = &input_values[0] else {
+            return Err(AvengerLangError::InternalError(
+                "Expected a dataset with arrow table for encoded_data input".to_string(),
+            ));
+        };
+        let TaskValue::Dataset { dataset: TaskDataset::ArrowTable(config_table), .. } = &input_values[1] else {
+            return Err(AvengerLangError::InternalError(
+                "Expected a dataset with arrow table for config_data input".to_string(),
+            ));
+        };
+        let mark = SceneMark::Rect(build_rect_mark(encoded_table, config_table)?);
+        Ok(TaskValue::Mark {mark})
+    }
+
+    fn fingerprint(&self) -> Result<u64, AvengerLangError> {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        Ok(hasher.finish())
+    }
+}
+
+
+#[derive(Debug, Clone, PartialEq, Hash)]
+pub struct GroupMarkTask {
+    config: Variable,
+    marks: Vec<Variable>,
+}
+
+impl GroupMarkTask {
+    pub fn new(config: Variable, marks: Vec<Variable>) -> Self {
+        Self { config, marks }
+    }
+}
+
+#[async_trait]
+impl Task for GroupMarkTask {
+    fn input_dependencies(&self) -> Result<Vec<Dependency>, AvengerLangError> {
+        let mut deps = vec![Dependency { variable: self.config.clone(), kind: DependencyKind::Dataset }];
+        for mark in &self.marks {
+            deps.push(Dependency { variable: mark.clone(), kind: DependencyKind::Mark });
+        }
+        Ok(deps)
+    }
+
+    async fn evaluate(
+        &self,
+        input_values: &[TaskValue],
+    ) -> Result<TaskValue, AvengerLangError> {
+
+        // Extract config table
+        let TaskValue::Dataset { dataset: TaskDataset::ArrowTable(config_table), .. } = &input_values[0] else {
+            return Err(AvengerLangError::InternalError(
+                format!("Expected a dataset with arrow table for config input. Got {:?}", input_values[0] ),
+            ));
+        };
+
+        // Extract marks
+        let mut marks = vec![];
+        for value in input_values {
+            if let TaskValue::Mark { mark, .. } = value {
+                marks.push(mark.clone());
+            }
+        }
+
+        // Get scalar config values
+        let coercer = Coercer::default();
+        let zindex = if let Ok(z) = config_table.column("zindex") {
+            let zindex = coercer.to_numeric(&z, None)?;
+            Some(*zindex.first().unwrap() as i32)
+        } else {
+            None
+        };
+        let x = if let Ok(x) = config_table.column("x") {
+            *coercer.to_numeric(&x, None)?.first().unwrap()
+        } else {
+            0.0
+        };
+        let y = if let Ok(y) = config_table.column("y") {
+            *coercer.to_numeric(&y, None)?.first().unwrap()
+        } else {
+            0.0
+        };
+        let fill = if let Ok(fill) = config_table.column("fill") {
+            Some(coercer.to_color(&fill, None)?.first().unwrap().clone())
+        } else {
+            None
+        };
+        let stroke = if let Ok(stroke) = config_table.column("stroke") {
+            Some(coercer.to_color(&stroke, None)?.first().unwrap().clone())
+        } else {
+            None
+        };
+        let stroke_width = if let Ok(stroke_width) = config_table.column("stroke_width") {
+            Some(*coercer.to_numeric(&stroke_width, None)?.first().unwrap())
+        } else {
+            None
+        };
+        let stroke_offset = if let Ok(stroke_offset) = config_table.column("stroke_offset") {
+            Some(*coercer.to_numeric(&stroke_offset, None)?.first().unwrap())
+        } else {
+            None
+        };
+
+        let group_mark = SceneGroup {
+            name: "".to_string(),
+            origin: [x, y],
+            clip: Default::default(),
+            marks,
+            gradients: vec![],
+            fill,
+            stroke,
+            stroke_width,
+            stroke_offset,
+            zindex,
+        };
+
+        Ok(TaskValue::Mark { mark: SceneMark::Group(group_mark) })
+    }
+
+    fn fingerprint(&self) -> Result<u64, AvengerLangError> {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        Ok(hasher.finish())
+    }
+}
 
 pub struct CollectDependenciesVisitor {
     /// The variables that are dependencies of the task, without leading @

@@ -4,7 +4,7 @@ pub enum DependencyKind {
     // Val is accepted as an expression everywhere
     ValOrExpr,
     Dataset,
-    Table,
+    Mark,
 }
 
 use super::variable::Variable;
