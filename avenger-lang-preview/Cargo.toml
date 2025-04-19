@@ -1,0 +1,16 @@
+[package]
+name = "avenger-lang-preview"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+avenger-lang = { path = "../avenger-lang" }
+avenger-wgpu = { path = "../avenger-wgpu" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-common = { path = "../avenger-common" }
+avenger-app = { path = "../avenger-app" }
+avenger-winit-wgpu = { path = "../avenger-winit-wgpu" }
+async-trait = { workspace = true }
+futures = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+winit = { workspace = true }
