@@ -1,4 +1,5 @@
 use futures::Future;
+use std::f32::consts::E;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -98,11 +99,16 @@ where
 
         // Reconstruct the scene graph if the need to rerender or rebuild geometry
         if update_status.rerender || update_status.rebuild_geometry {
-            self.scene_graph = Arc::new(
-                self.scene_graph_builder
-                    .build(self.event_stream_manager.state_mut())
-                    .await?,
-            );
+
+            let scene_graph = match self.scene_graph_builder.build(self.event_stream_manager.state_mut()).await {
+                Ok(scene_graph) => scene_graph,
+                Err(e) => {
+                    eprintln!("Failed to build scene graph: {:?}", e);
+                    return Err(AvengerAppError::InternalError("Failed to build scene graph".to_string()));
+                }
+            };
+
+            self.scene_graph = Arc::new(scene_graph);
         }
 
         // Rebuild the rtree if the need to rebuild geometry

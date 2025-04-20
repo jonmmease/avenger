@@ -99,15 +99,21 @@ where
         // Process file change events and other custom events
         if !self.render_pending || !event.skip_if_render_pending() {
             if let Some(canvas) = &mut self.canvas {
-                if let Some(scene_graph) = self
+
+                match self
                     .tokio_runtime
-                    .block_on(self.avenger_app.update(&event, 
-                        Instant::now())
-                    )
-                    .expect("Failed to update app")
+                    .block_on(self.avenger_app.update(&event, Instant::now()))
                 {
-                    canvas.set_scene(&scene_graph).unwrap();
-                    canvas.window().request_redraw();
+                    Ok(Some(scene_graph)) => {
+                        canvas.set_scene(&scene_graph).unwrap();
+                        canvas.window().request_redraw();
+                    }
+                    Ok(None) => {
+                        // No update needed
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to update app with user event: {:?}", e);
+                    }
                 }
             }
         }
