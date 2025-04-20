@@ -13,7 +13,7 @@ use arrow::{
     datatypes::{DataType, Field},
 };
 use avenger_common::types::{
-    AreaOrientation, ImageAlign, ImageBaseline, PathTransform, StrokeCap, StrokeJoin,
+    AreaOrientation, ImageAlign, ImageBaseline, PathTransform, StrokeCap, StrokeJoin, SymbolShape,
 };
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 use avenger_image::{make_image_fetcher, RgbaImage};
@@ -458,6 +458,33 @@ Expected struct with fields [a(Float32), b(Float32), c(Float32), d(Float32), e(F
             _ => {
                 return Err(AvengerScaleError::InternalError(format!(
                     "Unsupported data type for coercing to path transform: {:?}",
+                    dtype
+                )))
+            }
+        }
+        Ok(ScalarOrArray::new_array(result))
+    }
+
+    pub fn to_symbol_shape(
+        &self,
+        values: &ArrayRef,
+    ) -> Result<ScalarOrArray<SymbolShape>, AvengerScaleError> {
+        let dtype = values.data_type();
+        let mut result = Vec::new();
+        match dtype {
+            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
+                let cast_array = cast(values, &DataType::Utf8)?;
+                let string_array = cast_array.as_string::<i32>();
+                for s in string_array.iter() {
+                    if let Some(s) = s {
+                        let symbol_shape = SymbolShape::from_vega_str(s)?;
+                        result.push(symbol_shape);
+                    }
+                }
+            }
+            _ => {
+                return Err(AvengerScaleError::InternalError(format!(
+                    "Unsupported data type for coercing to symbol shape: {:?}",
                     dtype
                 )))
             }

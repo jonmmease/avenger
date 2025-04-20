@@ -1,4 +1,5 @@
 use lyon_extra::euclid::UnknownUnit;
+use lyon_extra::parser::{ParseError, ParserOptions, Source};
 use lyon_path::geom::euclid::Point2D;
 use lyon_path::PathEvent;
 use lyon_path::{Path, Winding};
@@ -61,3 +62,13 @@ impl Hash for ScalarOrArray<lyon_path::Path> {
         }
     }
 }
+
+pub fn parse_svg_path(path: &str) -> Result<Path, ParseError> {
+    let mut source = Source::new(path.chars());
+    let mut parser = lyon_extra::parser::PathParser::new();
+    let opts = ParserOptions::DEFAULT;
+    let mut builder = lyon_path::Path::builder();
+    parser.parse(&opts, &mut source, &mut builder)?;
+    Ok(builder.build())
+}
+
