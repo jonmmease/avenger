@@ -67,8 +67,6 @@ comp g1: Group {
 
         let runtime = TaskGraphRuntime::new();
 
-
-
         Self {
             ast: Arc::new(Mutex::new(None)),
             default_ast,
@@ -217,9 +215,6 @@ fn main() -> Result<(), AvengerAppError> {
         PathBuf::from(DEFAULT_FILE_NAME)
     };
 
-    // Canonicalize file path
-    let file_path = fs::canonicalize(&file_path).unwrap();
-    
     // Ensure file exists or create with default content
     let content = match ensure_file_exists(&file_path) {
         Ok(content) => content,
@@ -228,6 +223,11 @@ fn main() -> Result<(), AvengerAppError> {
             return Err(AvengerAppError::InternalError(e.to_string()));
         }
     };
+    
+    // Canonicalize file path after ensuring it exists
+    let file_path = fs::canonicalize(&file_path).map_err(|e| {
+        AvengerAppError::InternalError(format!("Failed to canonicalize path: {}", e))
+    })?;
     
     // Setup tokio runtime
     let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
@@ -257,7 +257,7 @@ fn main() -> Result<(), AvengerAppError> {
         chart_state,
         Arc::new(LangSceneGraphBuilder),
         vec![(file_handler_config, file_handler)],
-    )).expect("Failed to create avenger app");
+    )).expect("Failed to create initial avenger app");
 
     // // Create event loop with AvengerWindowEvent as custom event type
     // let event_loop = EventLoop::<WindowEvent>::with_user_event().build()
