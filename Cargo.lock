@@ -540,6 +540,7 @@ dependencies = [
  "arrow-schema",
  "async-recursion",
  "async-trait",
+ "avenger-common",
  "avenger-scales",
  "avenger-scenegraph",
  "criterion",

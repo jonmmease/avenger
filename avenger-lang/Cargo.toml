@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-scales = { path = "../avenger-scales" }
+avenger-common = { path = "../avenger-common" }
 
 thiserror = { workspace = true }
 async-trait = { workspace = true }
