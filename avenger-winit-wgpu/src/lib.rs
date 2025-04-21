@@ -43,7 +43,6 @@ where
         let event_loop = EventLoop::<AvengerWindowEvent>::with_user_event().build().expect("Failed to build event loop");
         let watched_files = avenger_app.get_watched_files();
         let file_watcher = if !watched_files.is_empty() {
-            println!("Creating file watcher for {:?}", watched_files);
             Some(FileWatcher::new(event_loop.create_proxy(), watched_files).expect("Failed to create file watcher"))
         } else {
             None

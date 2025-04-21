@@ -179,17 +179,28 @@ impl AvengerParser {
                 }))
             }
             name if self.parser.peek_token_ref().token == Token::Assignment => {
+                
                 self.parser.expect_token(&Token::Assignment)?;
+                let index = self.parser.index();
+                
                 if let Ok(sql_query) = self.parser.parse_query() {
                     let value = SqlExprOrQuery::Query(sql_query);
                     self.parser.expect_token(&Token::SemiColon)?;
                     Ok(Statement::PropBinding(PropBinding { name: name.to_string(), value }))
-                } else if let Ok(sql_expr) = self.parser.parse_expr() {
-                    let value = SqlExprOrQuery::Expr(sql_expr);
-                    self.parser.expect_token(&Token::SemiColon)?;
-                    Ok(Statement::PropBinding(PropBinding { name: name.to_string(), value }))
                 } else {
-                    Err(AvengerLangError::UnexpectedToken(kind))
+                    // Reset index to the index we were at prior to the attempt to parse as a query
+                    while self.parser.index() > index {
+                        self.parser.prev_token();
+                    }
+                    // Consume the assignment token if we jumped back to it
+                    let _ = self.parser.expect_token(&Token::Assignment);
+                    if let Ok(sql_expr) = self.parser.parse_expr() {
+                        let value = SqlExprOrQuery::Expr(sql_expr);
+                        self.parser.expect_token(&Token::SemiColon)?;
+                        Ok(Statement::PropBinding(PropBinding { name: name.to_string(), value }))
+                    } else {
+                        Err(AvengerLangError::UnexpectedToken(kind))
+                    }
                 }
             }
             _ => {
@@ -276,7 +287,19 @@ mod tests {
     fn test_parse_file2() {
         let src = r#"
         // This is a comment
-        in expr my_expr: (2 + 1) * 3;
+        in expr my_expr: ("a" + 1) * 3;
+        "#;
+        let parser = AvengerParser::new();
+        let tokens = parser.tokenize(src).unwrap();
+        let mut parser = parser.with_tokens_with_locations(tokens);
+        let file = parser.parse().unwrap();
+        println!("{:#?}", file);
+    }
+
+    #[test]
+    fn test_parse_file_binding() {
+        let src = r#"
+        my_expr := ("a" + 1) * 3;
         "#;
         let parser = AvengerParser::new();
         let tokens = parser.tokenize(src).unwrap();

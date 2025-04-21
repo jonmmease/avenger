@@ -258,21 +258,6 @@ fn main() -> Result<(), AvengerAppError> {
         Arc::new(LangSceneGraphBuilder),
         vec![(file_handler_config, file_handler)],
     )).expect("Failed to create initial avenger app");
-
-    // // Create event loop with AvengerWindowEvent as custom event type
-    // let event_loop = EventLoop::<WindowEvent>::with_user_event().build()
-    //     .expect("Failed to build event loop");
-    // let event_proxy = event_loop.create_proxy();
-    
-    // // Create and initialize file watcher
-    // let mut file_watcher = FileWatcher::new(event_proxy.clone());
-    
-    // // Watch the target file for changes
-    // if let Err(e) = file_watcher.watch(&file_path) {
-    //     error!("Failed to watch file {}: {}", file_path.display(), e);
-    // } else {
-    //     info!("Watching file for changes: {}", file_path.display());
-    // }
     
     // Create app with file watcher
     let (mut app, event_loop) = WinitWgpuAvengerApp::new_and_event_loop(avenger_app, 2.0, tokio_runtime);
