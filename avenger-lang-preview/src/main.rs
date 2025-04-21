@@ -19,11 +19,44 @@ use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use avenger_winit_wgpu::{FileWatcher, WinitWgpuAvengerApp};
 
+use clap::{Parser, Subcommand};
 use log::{error, info};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use winit::event_loop::EventLoop;
 
 const DEFAULT_FILE_NAME: &str = "app.avgr";
+
+/// Avenger Language Visualization Preview and Rendering Tool
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Launch an interactive preview window for an Avenger language file
+    Preview {
+        /// Path to the Avenger language file (.avgr)
+        #[arg(default_value = DEFAULT_FILE_NAME)]
+        file_path: String,
+    },
+    
+    /// Save an Avenger language file to a PNG image without launching a preview window
+    Save {
+        /// Path to the Avenger language file (.avgr)
+        file_path: String,
+        
+        /// Output path for the PNG image (defaults to input file with .png extension)
+        #[arg(short, long)]
+        output: Option<String>,
+        
+        /// Scale factor for the output image (default: 2.0)
+        #[arg(short, long, default_value_t = 2.0)]
+        scale: f32,
+    },
+}
 
 #[derive(Clone)]
 pub struct ChartState {
@@ -168,7 +201,9 @@ async fn save_png(task: SavePngTask) {
 
     canvas.set_scene(&task.scene_graph).expect("Failed to set scene");
     let generated_image = canvas.render().await.expect("Failed to render scene");
-    generated_image.save(task.file_path).expect("Failed to save PNG");
+    generated_image.save(&task.file_path).expect("Failed to save PNG");
+    
+    info!("Saved PNG to {}", task.file_path.display());
 }
 
 
@@ -282,19 +317,83 @@ comp g1: Group {
     }
 }
 
-fn main() -> Result<(), AvengerAppError> {
-    // Setup logger
-    env_logger::init();
+/// Parse and render an Avenger file to a PNG, useful for batch processing or headless environments
+async fn render_to_png(input_path: &Path, output_path: &Path, scale: f32) -> Result<(), AvengerAppError> {
+    // Ensure file exists and read it
+    if input_path.is_dir() {
+        return Err(AvengerAppError::InternalError(
+            format!("Input path is a directory: {}", input_path.display())
+        ));
+    }
 
-    // Parse command line arguments
-    let args: Vec<String> = std::env::args().collect();
-    
-    // Get file path from command line or use default
-    let file_path = if args.len() > 1 {
-        PathBuf::from(&args[1])
-    } else {
-        PathBuf::from(DEFAULT_FILE_NAME)
+    let content = match fs::read_to_string(input_path) {
+        Ok(content) => content,
+        Err(e) => {
+            return Err(AvengerAppError::InternalError(
+                format!("Failed to read input file: {}", e)
+            ));
+        }
     };
+    
+    // Parse the file
+    let parsed_file = match AvengerParser::parse_single_file(&content) {
+        Ok(file) => file,
+        Err(e) => {
+            return Err(AvengerAppError::InternalError(
+                format!("Failed to parse file: {}", e)
+            ));
+        }
+    };
+    
+    // Create runtime and evaluate file
+    let runtime = TaskGraphRuntime::new();
+    let scene_graph = runtime.evaluate_file(&parsed_file).await.map_err(|e| 
+        AvengerAppError::InternalError(format!("Failed to evaluate file: {}", e))
+    )?;
+    
+    // Create canvas and render to PNG
+    let mut canvas = PngCanvas::new(
+        CanvasDimensions {
+            size: [scene_graph.width, scene_graph.height],
+            scale,
+        },
+        CanvasConfig::default(),
+    )
+    .await.expect("Failed to create canvas");
+
+    canvas.set_scene(&scene_graph).expect("Failed to set scene");
+    let generated_image = canvas.render().await.expect("Failed to render scene");
+    
+    // Ensure the output directory exists
+    if let Some(parent) = output_path.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent).map_err(|e| 
+                AvengerAppError::InternalError(format!("Failed to create output directory: {}", e))
+            )?;
+        }
+    }
+    
+    // Save the image
+    generated_image.save(output_path).map_err(|e| 
+        AvengerAppError::InternalError(format!("Failed to save PNG: {}", e))
+    )?;
+    
+    info!("Saved PNG to {}", output_path.display());
+    
+    Ok(())
+}
+
+/// Launch the interactive preview window
+fn run_preview(file_path: &str) -> Result<(), AvengerAppError> {
+    // Convert string path to PathBuf
+    let file_path = PathBuf::from(file_path);
+
+    // Check if the path is a directory
+    if file_path.is_dir() {
+        return Err(AvengerAppError::InternalError(
+            format!("Cannot preview a directory: {}", file_path.display())
+        ));
+    }
 
     // Ensure file exists or create with default content
     let content = match ensure_file_exists(&file_path) {
@@ -315,7 +414,7 @@ fn main() -> Result<(), AvengerAppError> {
         .enable_all()
         .build()
         .expect("Failed to build tokio runtime");
-
+    
     // Create state and initial AST
     let chart_state = ChartState::new(file_path.clone());
     
@@ -346,6 +445,7 @@ fn main() -> Result<(), AvengerAppError> {
         }))]),
         ..Default::default()
     };
+
     // Create app with chart state and file change handler
     let avenger_app = tokio_runtime.block_on(AvengerApp::try_new(
         chart_state,
@@ -365,4 +465,36 @@ fn main() -> Result<(), AvengerAppError> {
         .expect("Failed to run event loop");
 
     Ok(())
+}
+
+fn main() -> Result<(), AvengerAppError> {
+    // Setup logger
+    env_logger::init();
+    
+    // Parse command line arguments with clap
+    let cli = Cli::parse();
+    
+    match cli.command {
+        Commands::Preview { file_path } => {
+            // Run the interactive preview window in a blocking context
+            run_preview(&file_path)
+        },
+        Commands::Save { file_path, output, scale } => {
+            // Create a runtime for the save command
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to build runtime");
+            
+            // Determine output path
+            let input_path = PathBuf::from(&file_path);
+            let output_path = match output {
+                Some(output) => PathBuf::from(output),
+                None => input_path.with_extension("png"),
+            };
+            
+            // Render to PNG within the runtime
+            rt.block_on(render_to_png(&input_path, &output_path, scale))
+        }
+    }
 }

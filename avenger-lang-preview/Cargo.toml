@@ -4,18 +4,18 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-avenger-lang = { path = "../avenger-lang" }
-avenger-wgpu = { path = "../avenger-wgpu" }
-avenger-scenegraph = { path = "../avenger-scenegraph" }
-avenger-common = { path = "../avenger-common" }
 avenger-app = { path = "../avenger-app" }
-avenger-winit-wgpu = { path = "../avenger-winit-wgpu" }
+avenger-common = { path = "../avenger-common" }
 avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-geometry = { path = "../avenger-geometry" }
+avenger-lang = { path = "../avenger-lang" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-wgpu = { path = "../avenger-wgpu" }
+avenger-winit-wgpu = { path = "../avenger-winit-wgpu" }
+
+tokio = { version = "*", features = ["rt", "rt-multi-thread", "macros"] }
 async-trait = { workspace = true }
-futures = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+clap = { version = "4.5.2", features = ["derive"] }
+env_logger = "0.11.2"
+log = "0.4"
 winit = { workspace = true }
-notify = "8.0.0"
-env_logger = "0.10.0"
-log = "0.4.20"
