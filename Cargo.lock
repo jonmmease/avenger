@@ -520,6 +520,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-cli"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "avenger-app",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-geometry",
+ "avenger-lang",
+ "avenger-scenegraph",
+ "avenger-wgpu",
+ "avenger-winit-wgpu",
+ "clap",
+ "env_logger 0.11.6",
+ "log",
+ "tokio",
+ "winit",
+]
+
+[[package]]
 name = "avenger-common"
 version = "0.0.8"
 dependencies = [
@@ -623,26 +643,6 @@ dependencies = [
  "sqlparser",
  "thiserror 2.0.3",
  "tokio",
-]
-
-[[package]]
-name = "avenger-lang-preview"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "avenger-app",
- "avenger-common",
- "avenger-eventstream",
- "avenger-geometry",
- "avenger-lang",
- "avenger-scenegraph",
- "avenger-wgpu",
- "avenger-winit-wgpu",
- "clap",
- "env_logger 0.11.6",
- "log",
- "tokio",
- "winit",
 ]
 
 [[package]]
