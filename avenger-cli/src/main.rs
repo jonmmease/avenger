@@ -26,7 +26,7 @@ use winit::event_loop::EventLoop;
 
 const DEFAULT_FILE_NAME: &str = "app.avgr";
 
-/// Avenger Language Visualization Preview and Rendering Tool
+/// Avenger CLI for visualization preview and rendering
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
