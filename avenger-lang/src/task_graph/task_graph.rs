@@ -3,6 +3,7 @@ use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
 use std::sync::Arc;
 
+use avenger_scenegraph::marks::mark::SceneMarkType;
 use indexmap::IndexMap;
 use petgraph::algo::toposort;
 use petgraph::graph::DiGraph;
@@ -16,7 +17,7 @@ use crate::{task_graph::tasks::Task, task_graph::{dependency::{Dependency, Depen
 
 use super::component::PropType;
 use super::scope::{Scope, ScopePath};
-use super::tasks::{DatasetDeclTask, ExprDeclTask, GroupMarkTask, RectMarkTask, ValDeclTask};
+use super::tasks::{DatasetDeclTask, ExprDeclTask, GroupMarkTask, MarkTask, RectMarkTask, ValDeclTask};
 use super::variable::Variable;
 
 
@@ -348,16 +349,28 @@ impl Visitor for TaskGraphBuilder {
             self.tasks.insert(encoded_data_variable.clone(), Arc::new(task));
 
             // Create a task to build the mark
-            if component_spec.name == "Rect" {
-                let mut parts = ctx.scope_path.clone();
-                parts.push("_mark".to_string());
-                let variable = Variable::with_parts(parts);
-                let task = RectMarkTask::new(
-                    encoded_data_variable,
-                    config_variable,
-                );
-                self.tasks.insert(variable, Arc::new(task));
-            }
+            let mut parts = ctx.scope_path.clone();
+            parts.push("_mark".to_string());
+            let mark_variable = Variable::with_parts(parts);
+
+            let mark_type = match component_spec.name.as_str() {
+                "Rect" => SceneMarkType::Rect,
+                "Arc" => SceneMarkType::Arc,
+                "Area" => SceneMarkType::Area,
+                "Image" => SceneMarkType::Image,
+                "Line" => SceneMarkType::Line,
+                "Path" => SceneMarkType::Path,
+                "Rule" => SceneMarkType::Rule,
+                "Symbol" => SceneMarkType::Symbol,
+                "Text" => SceneMarkType::Text,
+                "Trail" => SceneMarkType::Trail,
+                _ => return Err(AvengerLangError::InternalError(format!(
+                    "Unknown mark type: {}", component_spec.name
+                ))),
+            };
+
+            let task = MarkTask::new(encoded_data_variable, config_variable, mark_type);
+            self.tasks.insert(mark_variable, Arc::new(task));
         } else if comp_instance.name == "Group" {
             let mark_vars = comp_instance.child_comp_decls().into_iter().filter_map(|comp_decl| {
                 if let Some(comp_spec) = ctx.component_registry.lookup_component(&comp_decl.value.name) {

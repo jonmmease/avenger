@@ -202,7 +202,7 @@ impl ComponentRegistry {
                 ("fill", PropType::Expr),
                 ("size", PropType::Expr),
                 ("stroke", PropType::Expr),
-                ("stroke_width", PropType::Expr),
+                ("stroke_width", PropType::Val),
                 ("angle", PropType::Expr),
                 ("indices", PropType::Expr),
                 ("x_adjustment", PropType::Val),

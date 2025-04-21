@@ -19,6 +19,7 @@ use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 use avenger_image::{make_image_fetcher, RgbaImage};
 use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use css_color_parser::Color;
+use datafusion_common::ScalarValue;
 use lyon_extra::parser::{ParserOptions, Source};
 use lyon_path::geom::point;
 use paste::paste;
@@ -465,31 +466,38 @@ Expected struct with fields [a(Float32), b(Float32), c(Float32), d(Float32), e(F
         Ok(ScalarOrArray::new_array(result))
     }
 
-    pub fn to_symbol_shape(
+    pub fn to_symbol_shapes(
         &self,
-        values: &ArrayRef,
-    ) -> Result<ScalarOrArray<SymbolShape>, AvengerScaleError> {
-        let dtype = values.data_type();
-        let mut result = Vec::new();
-        match dtype {
-            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
-                let cast_array = cast(values, &DataType::Utf8)?;
-                let string_array = cast_array.as_string::<i32>();
-                for s in string_array.iter() {
-                    if let Some(s) = s {
-                        let symbol_shape = SymbolShape::from_vega_str(s)?;
-                        result.push(symbol_shape);
+        value: &ScalarValue,
+    ) -> Result<Vec<SymbolShape>, AvengerScaleError> {
+
+        match &value {
+            ScalarValue::List(list) => {
+                let val = list.value(0);
+                match val.data_type() {
+                    DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
+                        let cast_array = cast(&val, &DataType::Utf8)?;
+                        let string_array = cast_array.as_string::<i32>();
+                        let mut result = Vec::new();
+                        for s in string_array.iter() {
+                            if let Some(s) = s {
+                                let symbol_shape = SymbolShape::from_vega_str(s)?;
+                                result.push(symbol_shape);
+                            } else {
+                                result.push(SymbolShape::default());
+                            }
+                        }   
+                        return Ok(result);
+                    }
+                    _ => {
+                        return Err(AvengerScaleError::InternalError(format!("Unsupported data type for coercing to symbol shape: {:?}", value.data_type())));
                     }
                 }
             }
             _ => {
-                return Err(AvengerScaleError::InternalError(format!(
-                    "Unsupported data type for coercing to symbol shape: {:?}",
-                    dtype
-                )))
+                return Err(AvengerScaleError::InternalError(format!("Unsupported data type for coercing to symbol shape: {:?}", value.data_type())));
             }
         }
-        Ok(ScalarOrArray::new_array(result))
     }
 
     pub fn to_path(

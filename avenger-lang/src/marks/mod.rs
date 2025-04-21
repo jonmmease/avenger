@@ -12,6 +12,7 @@ use avenger_scenegraph::marks::trail::SceneTrailMark;
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_common::types::{AreaOrientation, StrokeCap, StrokeJoin};
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
+use datafusion_common::ScalarValue;
 
 use crate::{error::AvengerLangError, task_graph::value::ArrowTable};
 
@@ -615,14 +616,14 @@ pub fn build_symbol_mark(encoded_data: &ArrowTable, config: &ArrowTable) -> Resu
     ).flatten();
 
     let stroke_width = config.column("stroke_width").ok().and_then(
-        |arr| coercer.to_numeric(&arr, None).ok().map(|nums| {
+        |arr| coercer.to_numeric(&arr, None).ok().and_then(|nums| {
             nums.first().copied()
         })
-    ).unwrap_or(default_mark.stroke_width);
+    );
 
     // Get symbol shapes from config
-    let shapes = config.column("shape").ok().and_then(
-        |arr| coercer.to_symbol_shape(&arr).ok()
+    let shapes = config.column("shapes").ok().and_then(
+        |arr| coercer.to_symbol_shapes(&ScalarValue::try_from_array(&arr, 0).ok()?).ok()
     ).unwrap_or_else(|| default_mark.shapes.clone());
     
     // Extract data values
@@ -653,6 +654,8 @@ pub fn build_symbol_mark(encoded_data: &ArrowTable, config: &ArrowTable) -> Resu
     let angle = encoded_data.column("angle").ok().and_then(
         |arr| coercer.to_numeric(&arr, None).ok()
     ).unwrap_or_else(|| default_mark.angle.clone());
+
+    println!("stroke: {:?}, stroke_width: {:?}", stroke, stroke_width);
     
     Ok(SceneSymbolMark {
         name: "symbol".to_string(),
@@ -672,5 +675,154 @@ pub fn build_symbol_mark(encoded_data: &ArrowTable, config: &ArrowTable) -> Resu
         zindex,
         x_adjustment: None,
         y_adjustment: None,
+    })
+}
+
+pub fn build_text_mark(encoded_data: &ArrowTable, config: &ArrowTable) -> Result<SceneTextMark, AvengerLangError> {
+    // Build coercer
+    let coercer = Coercer::default();
+
+    // Make a default mark for fallback logic below
+    let default_mark = SceneTextMark::default();
+
+    // Extract config values
+    let clip = config.column("clip").ok().and_then(
+        |arr| coercer.to_boolean(&arr).ok().map(|bools| {
+            bools.first().map(|v| *v).unwrap_or(default_mark.clip)
+        })
+    ).unwrap_or(default_mark.clip);
+
+    let zindex = config.column("zindex").ok().and_then(
+        |arr| coercer.to_numeric(&arr, None).ok().map(|nums| {
+            nums.first().map(|v| *v as i32)
+        })
+    ).flatten();
+    
+    // Extract data values
+    let text = encoded_data.column("text").ok().and_then(
+        |arr| coercer.to_string(&arr, None).ok()
+    ).unwrap_or_else(|| default_mark.text.clone());
+
+    let x = encoded_data.column("x").ok().and_then(
+        |arr| coercer.to_numeric(&arr, None).ok()
+    ).unwrap_or_else(|| default_mark.x.clone());
+
+    let y = encoded_data.column("y").ok().and_then(
+        |arr| coercer.to_numeric(&arr, None).ok()
+    ).unwrap_or_else(|| default_mark.y.clone());
+
+    let align = encoded_data.column("align").ok().and_then(
+        |arr| coercer.to_text_align(&arr).ok()
+    ).unwrap_or_else(|| default_mark.align.clone());
+
+    let baseline = encoded_data.column("baseline").ok().and_then(
+        |arr| coercer.to_text_baseline(&arr).ok()
+    ).unwrap_or_else(|| default_mark.baseline.clone());
+
+    let angle = encoded_data.column("angle").ok().and_then(
+        |arr| coercer.to_numeric(&arr, None).ok()
+    ).unwrap_or_else(|| default_mark.angle.clone());
+
+    let color = encoded_data.column("color").ok().and_then(
+        |arr| coercer.to_color(&arr, None).ok()
+    ).unwrap_or_else(|| default_mark.color.clone());
+
+    let font = encoded_data.column("font").ok().and_then(
+        |arr| coercer.to_string(&arr, None).ok()
+    ).unwrap_or_else(|| default_mark.font.clone());
+
+    let font_size = encoded_data.column("font_size").ok().and_then(
+        |arr| coercer.to_numeric(&arr, None).ok()
+    ).unwrap_or_else(|| default_mark.font_size.clone());
+
+    let font_weight = encoded_data.column("font_weight").ok().and_then(
+        |arr| coercer.to_font_weight(&arr).ok()
+    ).unwrap_or_else(|| default_mark.font_weight.clone());
+
+    let font_style = encoded_data.column("font_style").ok().and_then(
+        |arr| coercer.to_font_style(&arr).ok()
+    ).unwrap_or_else(|| default_mark.font_style.clone());
+
+    let limit = encoded_data.column("limit").ok().and_then(
+        |arr| coercer.to_numeric(&arr, None).ok()
+    ).unwrap_or_else(|| default_mark.limit.clone());
+    
+    Ok(SceneTextMark {
+        name: "text".to_string(),
+        clip,
+        len: encoded_data.num_rows() as u32,
+        text,
+        x,
+        y,
+        align,
+        baseline,
+        angle,
+        color,
+        font,
+        font_size,
+        font_weight,
+        font_style,
+        limit,
+        indices: None,
+        zindex,
+    })
+}
+
+pub fn build_trail_mark(encoded_data: &ArrowTable, config: &ArrowTable) -> Result<SceneTrailMark, AvengerLangError> {
+    // Build coercer
+    let coercer = Coercer::default();
+
+    // Make a default mark for fallback logic below
+    let default_mark = SceneTrailMark::default();
+
+    // Extract config values
+    let clip = config.column("clip").ok().and_then(
+        |arr| coercer.to_boolean(&arr).ok().map(|bools| {
+            bools.first().map(|v| *v).unwrap_or(default_mark.clip)
+        })
+    ).unwrap_or(default_mark.clip);
+
+    let zindex = config.column("zindex").ok().and_then(
+        |arr| coercer.to_numeric(&arr, None).ok().map(|nums| {
+            nums.first().map(|v| *v as i32)
+        })
+    ).flatten();
+    
+    // Extract data values
+    let x = encoded_data.column("x").ok().and_then(
+        |arr| coercer.to_numeric(&arr, None).ok()
+    ).unwrap_or_else(|| default_mark.x.clone());
+
+    let y = encoded_data.column("y").ok().and_then(
+        |arr| coercer.to_numeric(&arr, None).ok()
+    ).unwrap_or_else(|| default_mark.y.clone());
+
+    let size = encoded_data.column("size").ok().and_then(
+        |arr| coercer.to_numeric(&arr, None).ok()
+    ).unwrap_or_else(|| default_mark.size.clone());
+
+    // Extract defined data (whether each point should be included in the trail)
+    let defined = encoded_data.column("defined").ok().and_then(
+        |arr| coercer.to_boolean(&arr).ok()
+    ).unwrap_or_else(|| default_mark.defined.clone());
+
+    // Extract stroke color
+    let stroke = encoded_data.column("stroke").ok().and_then(
+        |arr| coercer.to_color(&arr, None).ok().and_then(|colors| {
+            colors.first().cloned()
+        })
+    ).unwrap_or_else(|| default_mark.stroke.clone());
+    
+    Ok(SceneTrailMark {
+        name: "trail".to_string(),
+        clip,
+        len: encoded_data.num_rows() as u32,
+        gradients: default_mark.gradients.clone(),
+        stroke,
+        x,
+        y,
+        size,
+        defined,
+        zindex,
     })
 }
