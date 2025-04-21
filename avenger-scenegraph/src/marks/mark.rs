@@ -85,6 +85,7 @@ impl SceneMark {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub enum SceneMarkType {
     Arc,
     Area,

@@ -1,13 +1,18 @@
 use std::{fmt::Debug, hash::{DefaultHasher, Hash, Hasher}, ops::ControlFlow};
+use std::sync::Arc;
 
 use sqlparser::ast::{Expr as SqlExpr, ObjectName, Query as SqlQuery, Visit, VisitMut, Visitor as SqlVisitor};
 use async_trait::async_trait;
 use avenger_scales::scales::coerce::Coercer;
 use avenger_scales::utils::ScalarValueUtils;
 use avenger_scenegraph::marks::group::SceneGroup;
-use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_scenegraph::marks::mark::{SceneMark, SceneMarkType};
 use crate::{ast::{DatasetPropDecl, ExprPropDecl, ValPropDecl}, context::EvaluationContext, error::AvengerLangError, task_graph::{dependency::{Dependency, DependencyKind}, value::{TaskDataset, TaskValue}}};
-use crate::marks::build_rect_mark;
+use crate::marks::{
+    build_rect_mark, build_arc_mark, build_area_mark, build_image_mark, 
+    build_line_mark, build_path_mark, build_rule_mark, build_symbol_mark,
+    build_text_mark, build_trail_mark
+};
 use super::{value::TaskValueContext, variable::Variable};
 
 
@@ -214,24 +219,26 @@ impl From<DatasetPropDecl> for DatasetDeclTask {
     }
 }
 
-
+// Generic Mark Task to handle all mark types
 #[derive(Debug, Clone, PartialEq, Hash)]
-pub struct RectMarkTask {
+pub struct MarkTask {
     encoded_data: Variable,
     config_data: Variable,
+    mark_type: SceneMarkType,
 }
 
-impl RectMarkTask {
-    pub fn new(encoded_data: Variable, config_data: Variable) -> Self {
+impl MarkTask {
+    pub fn new(encoded_data: Variable, config_data: Variable, mark_type: SceneMarkType) -> Self {
         Self {
             encoded_data,
             config_data,
+            mark_type,
         }
     }
 }
 
 #[async_trait]
-impl Task for RectMarkTask {
+impl Task for MarkTask {
     fn input_dependencies(&self) -> Result<Vec<Dependency>, AvengerLangError> {
         Ok(vec![
             Dependency { variable: self.encoded_data.clone(), kind: DependencyKind::Dataset },
@@ -253,7 +260,26 @@ impl Task for RectMarkTask {
                 "Expected a dataset with arrow table for config_data input".to_string(),
             ));
         };
-        let mark = SceneMark::Rect(build_rect_mark(encoded_table, config_table)?);
+        
+        let mark = match &self.mark_type {
+            SceneMarkType::Rect => SceneMark::Rect(build_rect_mark(encoded_table, config_table)?),
+            SceneMarkType::Arc => SceneMark::Arc(build_arc_mark(encoded_table, config_table)?),
+            SceneMarkType::Area => SceneMark::Area(build_area_mark(encoded_table, config_table)?),
+            SceneMarkType::Image => SceneMark::Image(Arc::new(build_image_mark(encoded_table, config_table)?)),
+            SceneMarkType::Line => SceneMark::Line(build_line_mark(encoded_table, config_table)?),
+            SceneMarkType::Path => SceneMark::Path(build_path_mark(encoded_table, config_table)?),
+            SceneMarkType::Rule => SceneMark::Rule(build_rule_mark(encoded_table, config_table)?),
+            SceneMarkType::Symbol => SceneMark::Symbol(build_symbol_mark(encoded_table, config_table)?),
+            SceneMarkType::Text => SceneMark::Text(Arc::new(build_text_mark(encoded_table, config_table)?)),
+            SceneMarkType::Trail => SceneMark::Trail(build_trail_mark(encoded_table, config_table)?),
+            SceneMarkType::Group => {
+                // Group marks require a different approach, so this is a placeholder that returns an error
+                return Err(AvengerLangError::InternalError(
+                    "Group marks should use GroupMarkTask instead of MarkTask".to_string(),
+                ));
+            }
+        };
+        
         Ok(TaskValue::Mark {mark})
     }
 
@@ -264,6 +290,21 @@ impl Task for RectMarkTask {
     }
 }
 
+// For backward compatibility, keep RectMarkTask as a thin wrapper around MarkTask
+#[derive(Debug, Clone, PartialEq, Hash)]
+pub struct RectMarkTask {
+    encoded_data: Variable,
+    config_data: Variable,
+}
+
+impl RectMarkTask {
+    pub fn new(encoded_data: Variable, config_data: Variable) -> Self {
+        Self {
+            encoded_data,
+            config_data,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub struct GroupMarkTask {
