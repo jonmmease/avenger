@@ -32,6 +32,7 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 arrow = { workspace = true }
 avenger-wgpu = { path = "../avenger-wgpu" }
 anyhow = { workspace = true }
+rstest = "0.25.0"
 
 [[bench]]
 name = "context_bench"

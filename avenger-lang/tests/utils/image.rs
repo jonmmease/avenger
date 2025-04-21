@@ -9,7 +9,7 @@ use anyhow::{bail, Result};
 /// Compare a runtime-generated image against a baseline image
 pub async fn assert_runtime_image_equal(
     scene_graph: &SceneGraph,
-    name: &str,
+    path: &str,
     scale: f32,
     save_baseline: bool,
 ) -> Result<()> {
@@ -25,8 +25,8 @@ pub async fn assert_runtime_image_equal(
 
     canvas.set_scene(&scene_graph).expect("Failed to set scene");
     let generated_image = canvas.render().await?;
-    let generated_buffer = image_to_png(&generated_image, name, save_baseline)?;
-    let (baseline_image, baseline_buffer) = load_baseline_image(name)?;
+    let generated_buffer = image_to_png(&generated_image, path, save_baseline)?;
+    let (baseline_image, baseline_buffer) = load_baseline_image(path)?;
     assert_images_equal(
         &generated_image,
         &baseline_image,
@@ -39,10 +39,10 @@ pub async fn assert_runtime_image_equal(
 /// Save an image to a PNG file and return it as a PNG-encoded buffer
 pub fn image_to_png(
     image: &RgbaImage,
-    name: &str,
+    path: &str,
     save_baseline: bool,
 ) -> Result<Vec<u8>> {
-    let path = format!("tests/baselines/{}.png", name);
+    let path = format!("tests/baselines/{}.png", path);
     let mut buffer = Vec::new();
     image.write_to(
         &mut std::io::Cursor::new(&mut buffer),
@@ -54,14 +54,14 @@ pub fn image_to_png(
         if let Some(parent) = Path::new(&path).parent() {
             std::fs::create_dir_all(parent).unwrap();
         }
-        image.save(path);
+        image.save(path)?;
     }
     Ok(buffer)
 }
 
 /// Load a PNG image from a file and return it as a PNG-encoded buffer
-pub fn load_baseline_image(name: &str) -> Result<(RgbaImage, Vec<u8>)> {
-    let path = format!("tests/baselines/{}.png", name);
+pub fn load_baseline_image(path: &str) -> Result<(RgbaImage, Vec<u8>)> {
+    let path = format!("tests/baselines/{}.png", path);
     let image = image::open(path)?
         .to_rgba8();
 
