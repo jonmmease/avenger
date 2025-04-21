@@ -654,8 +654,6 @@ pub fn build_symbol_mark(encoded_data: &ArrowTable, config: &ArrowTable) -> Resu
     let angle = encoded_data.column("angle").ok().and_then(
         |arr| coercer.to_numeric(&arr, None).ok()
     ).unwrap_or_else(|| default_mark.angle.clone());
-
-    println!("stroke: {:?}, stroke_width: {:?}", stroke, stroke_width);
     
     Ok(SceneSymbolMark {
         name: "symbol".to_string(),

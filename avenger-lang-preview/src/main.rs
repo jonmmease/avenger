@@ -4,6 +4,9 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use avenger_app::{app::{AvengerApp, SceneGraphBuilder}, error::AvengerAppError};
+use avenger_common::canvas::CanvasDimensions;
+use avenger_eventstream::stream::EventStreamFilter;
+use avenger_eventstream::window::Key;
 use avenger_eventstream::{
     manager::EventStreamHandler,
     scene::{SceneGraphEvent, SceneGraphEventType},
@@ -13,9 +16,11 @@ use avenger_eventstream::{
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_lang::{ast::AvengerFile, parser::AvengerParser, task_graph::runtime::TaskGraphRuntime};
 use avenger_scenegraph::scene_graph::SceneGraph;
+use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use avenger_winit_wgpu::{FileWatcher, WinitWgpuAvengerApp};
 
 use log::{error, info};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use winit::event_loop::EventLoop;
 
 const DEFAULT_FILE_NAME: &str = "app.avgr";
@@ -26,6 +31,7 @@ pub struct ChartState {
     pub default_ast: AvengerFile,
     pub runtime: Arc<TaskGraphRuntime>,
     pub file_path: PathBuf,
+    pub current_scene: Option<SceneGraph>,
 }
 
 impl ChartState {
@@ -72,6 +78,7 @@ comp g1: Group {
             default_ast,
             runtime: Arc::new(runtime),
             file_path,
+            current_scene: None,
         }
     }
 
@@ -104,7 +111,81 @@ impl SceneGraphBuilder<ChartState> for LangSceneGraphBuilder {
         let scene_graph = state.runtime.evaluate_file(&ast).await.map_err(
             |e| AvengerAppError::InternalError(e.to_string())
         )?;
+        state.current_scene = Some(scene_graph.clone());
         Ok(scene_graph)
+    }
+}
+
+
+struct SavePngTask {
+    scene_graph: SceneGraph,
+    file_path: PathBuf,
+    scale: f32,
+}
+
+
+#[derive(Clone)]
+pub struct SavePngHandler {
+    sender: UnboundedSender<SavePngTask>,
+}
+
+impl SavePngHandler {
+    pub fn new() -> Self {
+        let (sender, mut recv) = unbounded_channel::<SavePngTask>();
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        std::thread::spawn(move || {
+            let local = tokio::task::LocalSet::new();
+
+            local.spawn_local(async move {
+                while let Some(new_task) = recv.recv().await {
+                    tokio::task::spawn_local(save_png(new_task));
+                }
+            });
+
+            // This will return once all senders are dropped and all
+            // spawned tasks have returned.
+            rt.block_on(local);
+        });
+    
+        Self { sender }
+    }
+}
+
+async fn save_png(task: SavePngTask) {
+    let mut canvas = PngCanvas::new(
+        CanvasDimensions {
+            size: [task.scene_graph.width, task.scene_graph.height],
+            scale: task.scale,
+        },
+        CanvasConfig::default(),
+    )
+    .await.expect("Failed to create canvas");
+
+    canvas.set_scene(&task.scene_graph).expect("Failed to set scene");
+    let generated_image = canvas.render().await.expect("Failed to render scene");
+    generated_image.save(task.file_path).expect("Failed to save PNG");
+}
+
+
+#[async_trait]
+impl EventStreamHandler<ChartState> for SavePngHandler {
+    async fn handle(&self, _event: &SceneGraphEvent, state: &mut ChartState, _rtree: &SceneGraphRTree) -> UpdateStatus {
+        if let Some(scene_graph) = &state.current_scene {
+            // Ignore send errors if receiver has been dropped
+            let file_path = state.file_path.clone().with_extension("png");
+            let scale = 2.0;
+            let _ = self.sender.send(SavePngTask {
+                scene_graph: scene_graph.clone(),
+                file_path,
+                scale,
+            });
+        }
+        UpdateStatus::default()
     }
 }
 
@@ -236,7 +317,7 @@ fn main() -> Result<(), AvengerAppError> {
         .expect("Failed to build tokio runtime");
 
     // Create state and initial AST
-    let mut chart_state = ChartState::new(file_path.clone());
+    let chart_state = ChartState::new(file_path.clone());
     
     // Parse initial file
     if let Err(e) = chart_state.update_from_file(&content) {
@@ -251,12 +332,28 @@ fn main() -> Result<(), AvengerAppError> {
         consume: false,
         ..Default::default()
     };
-    
+
+    let save_png_handler = Arc::new(SavePngHandler::new());
+    let save_png_handler_config = EventStreamConfig {
+        types: vec![SceneGraphEventType::KeyPress],
+        consume: false,
+        filter: Some(vec![EventStreamFilter(Arc::new(|event| {
+            if let SceneGraphEvent::KeyPress(e) = event {
+                e.key == Key::Character('s') && (e.modifiers.control || e.modifiers.meta)
+            } else {
+                false
+            }
+        }))]),
+        ..Default::default()
+    };
     // Create app with chart state and file change handler
     let avenger_app = tokio_runtime.block_on(AvengerApp::try_new(
         chart_state,
         Arc::new(LangSceneGraphBuilder),
-        vec![(file_handler_config, file_handler)],
+        vec![
+            (file_handler_config, file_handler),
+            (save_png_handler_config, save_png_handler),
+        ],
     )).expect("Failed to create initial avenger app");
     
     // Create app with file watcher
