@@ -27,7 +27,7 @@ cp package.json dist/
 """
 
 [tasks.pack-vega-renderer]
-depends_on = ["build-vega-renderer"]
+depends-on = ["build-vega-renderer"]
 cwd = "avenger-vega-renderer"
 cmd = """
 rm -rf packed/ &&
@@ -37,7 +37,7 @@ mv avenger-vega-renderer-*.tgz packed
 """
 
 [tasks.test-vega-renderer]
-depends_on = ["build-vega-renderer"]
+depends-on = ["build-vega-renderer"]
 cwd = "avenger-vega-renderer"
 cmd = """
 pytest
@@ -69,6 +69,7 @@ pillow = ">=10.3.0,<10.4"
 ruff = ">=0.3.7,<0.4"
 deno = ">=1.42.4,<1.43"
 protobuf = ">=4.25.3,<4.26"
+tree-sitter-cli = ">=0.25.3"
 
 [pypi-dependencies]
 pytest-playwright = "*"
