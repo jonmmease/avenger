@@ -1,0 +1,41 @@
+{
+  "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/config.schema.json",
+  "grammars": [
+    {
+      "name": "avenger",
+      "camelcase": "Avenger",
+      "title": "Avenger",
+      "scope": "source.avenger",
+      "file-types": [
+        "avgr",
+        "avenger"
+      ],
+      "injection-regex": "^avenger$",
+      "class-name": "TreeSitterAvenger"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "Apache 2",
+    "description": "Avenger Visualization Language",
+    "authors": [
+      {
+        "name": "Jon Mease",
+        "email": "jonmmease@gmail.com",
+        "url": "https://jonmmease.dev/"
+      }
+    ],
+    "links": {
+      "repository": "https://github.com/jonmmease/avenger"
+    }
+  },
+  "bindings": {
+    "c": true,
+    "go": true,
+    "node": true,
+    "python": true,
+    "rust": true,
+    "swift": true,
+    "zig": false
+  }
+}
