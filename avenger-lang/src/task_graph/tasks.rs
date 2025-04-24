@@ -13,7 +13,7 @@ use crate::marks::{
     build_line_mark, build_path_mark, build_rule_mark, build_symbol_mark,
     build_text_mark, build_trail_mark
 };
-use super::{value::TaskValueContext, variable::Variable};
+use super::{runtime::TaskGraphRuntime, value::TaskValueContext, variable::Variable};
 
 
 #[async_trait]
@@ -35,6 +35,7 @@ pub trait Task: Debug + Send + Sync {
     /// Evaluate the task in a session context with the given dependencies
     async fn evaluate(
         &self,
+        runtime: Arc<TaskGraphRuntime>,
         input_values: &[TaskValue],
     ) -> Result<TaskValue, AvengerLangError>;
 }
@@ -56,6 +57,7 @@ impl TaskValueTask {
 impl Task for TaskValueTask {
     async fn evaluate(
         &self,
+        _runtime: Arc<TaskGraphRuntime>,
         _input_values: &[TaskValue],
     ) -> Result<TaskValue, AvengerLangError> {
         Ok(self.value.clone())
@@ -92,6 +94,7 @@ impl Task for ValDeclTask {
 
     async fn evaluate(
         &self,
+        _runtime: Arc<TaskGraphRuntime>,
         input_values: &[TaskValue],
     ) -> Result<TaskValue, AvengerLangError> {
         let ctx = EvaluationContext::new();
@@ -137,6 +140,7 @@ impl Task for ExprDeclTask {
 
     async fn evaluate(
         &self,
+        _runtime: Arc<TaskGraphRuntime>,
         input_values: &[TaskValue],
     ) -> Result<TaskValue, AvengerLangError> {
         let ctx = EvaluationContext::new();
@@ -187,6 +191,7 @@ impl Task for DatasetDeclTask {
 
     async fn evaluate(
         &self,
+        _runtime: Arc<TaskGraphRuntime>,
         input_values: &[TaskValue],
     ) -> Result<TaskValue, AvengerLangError> {
         let ctx = EvaluationContext::new();
@@ -248,6 +253,7 @@ impl Task for MarkTask {
 
     async fn evaluate(
         &self,
+        _runtime: Arc<TaskGraphRuntime>,
         input_values: &[TaskValue],
     ) -> Result<TaskValue, AvengerLangError> {
         let TaskValue::Dataset { dataset: TaskDataset::ArrowTable(encoded_table), .. } = &input_values[0] else {
@@ -330,6 +336,7 @@ impl Task for GroupMarkTask {
 
     async fn evaluate(
         &self,
+        _runtime: Arc<TaskGraphRuntime>,
         input_values: &[TaskValue],
     ) -> Result<TaskValue, AvengerLangError> {
 
