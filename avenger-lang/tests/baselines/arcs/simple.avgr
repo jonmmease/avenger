@@ -14,7 +14,7 @@ Group {
         x := 20;
         y := 20;
 
-        comp mark1: Arc {
+        Arc {
             data := SELECT * FROM @data_0;
 
             expr a_minus_1: "a" - 1;
