@@ -72,7 +72,7 @@ impl TaskGraphRuntime {
                 let is_mark = registry.lookup_component(&comp_type).map(|spec| spec.is_mark).unwrap_or(false);
                 if is_mark || comp_type == "Group" {
                     // Build var with group components mark
-                    let mark_var = Variable::with_parts(vec![comp.name(), "_mark".to_string()]);
+                    let mark_var = Variable::with_parts(vec![comp.name.clone(), "_mark".to_string()]);
                     mark_vars.push(mark_var);
                 }
             }
