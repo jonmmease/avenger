@@ -63,17 +63,9 @@ pub struct DatasetPropDecl {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CompPropDecl {
     pub qualifier: Option<PropQualifier>,
-    pub name: Option<String>,
+    pub name: String,
     pub type_: Option<Type>,
     pub value: CompInstance,
-    // Index of the component statement among its sibling statements
-    pub index: usize,
-}
-
-impl CompPropDecl {
-    pub fn name(&self) -> String {
-        self.name.clone().unwrap_or_else(|| format!("_comp_{}", self.index))
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -173,6 +165,8 @@ pub enum Statement {
     ComponentDef(ComponentDef),
     Import(Import),
     FunctionDef(FunctionDef),
+    ConditionalIfComponents(ConditionalIfComponents),
+    ConditionalMatchComponents(ConditionalMatchComponents),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -331,6 +325,186 @@ impl FunctionDef {
 }
 
 
+/// Statement allowed inside conditional component blocks
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ConditionalComponentsStatement {
+    ValPropDecl(ValPropDecl),
+    ExprPropDecl(ExprPropDecl),
+    DatasetPropDecl(DatasetPropDecl),
+    CompPropDecl(CompPropDecl),
+}
+
+impl TryFrom<Statement> for ConditionalComponentsStatement {
+    type Error = AvengerLangError;
+
+    fn try_from(stmt: Statement) -> Result<Self, Self::Error> {
+        match stmt {
+            Statement::ValPropDecl(val_prop) => Ok(ConditionalComponentsStatement::ValPropDecl(val_prop)),
+            Statement::ExprPropDecl(expr_prop) => Ok(ConditionalComponentsStatement::ExprPropDecl(expr_prop)),
+            Statement::DatasetPropDecl(dataset_prop) => Ok(ConditionalComponentsStatement::DatasetPropDecl(dataset_prop)),
+            Statement::CompPropDecl(comp_prop) => Ok(ConditionalComponentsStatement::CompPropDecl(comp_prop)),
+            _ => Err(AvengerLangError::InternalError("Unsupported conditional components statement".to_string())),
+        }
+    }
+}
+
+impl ConditionalComponentsStatement {
+    pub fn accept<V: Visitor>(&self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        visitor.visit_conditional_components_statement(self, ctx)?;
+        match self {
+            ConditionalComponentsStatement::ValPropDecl(val_prop) => val_prop.accept(visitor, ctx),
+            ConditionalComponentsStatement::ExprPropDecl(expr_prop) => expr_prop.accept(visitor, ctx),
+            ConditionalComponentsStatement::DatasetPropDecl(dataset_prop) => dataset_prop.accept(visitor, ctx),
+            ConditionalComponentsStatement::CompPropDecl(comp_prop) => comp_prop.accept(visitor, ctx),
+        }
+    }
+    
+    pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        visitor.visit_conditional_components_statement(self, ctx)?;
+        match self {
+            ConditionalComponentsStatement::ValPropDecl(val_prop) => val_prop.accept_mut(visitor, ctx),
+            ConditionalComponentsStatement::ExprPropDecl(expr_prop) => expr_prop.accept_mut(visitor, ctx),
+            ConditionalComponentsStatement::DatasetPropDecl(dataset_prop) => dataset_prop.accept_mut(visitor, ctx),
+            ConditionalComponentsStatement::CompPropDecl(comp_prop) => comp_prop.accept_mut(visitor, ctx),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ConditionalIfBranch {
+    pub condition: SqlExpr,
+    pub statements: Vec<ConditionalComponentsStatement>,
+}
+
+impl ConditionalIfBranch {
+    pub fn accept<V: Visitor>(&self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        visitor.visit_conditional_if_branch(self, ctx)?;
+        for statement in &self.statements {
+            statement.accept(visitor, ctx)?;
+        }
+        Ok(())
+    }
+    
+    pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        visitor.visit_conditional_if_branch(self, ctx)?;
+        for statement in &mut self.statements {
+            statement.accept_mut(visitor, ctx)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ConditionalIfComponents {
+    pub if_branches: Vec<ConditionalIfBranch>,
+    pub else_branch: Option<Vec<ConditionalComponentsStatement>>,
+}
+
+impl ConditionalIfComponents {
+    pub fn accept<V: Visitor>(&self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        visitor.visit_conditional_if_components(self, ctx)?;
+        for branch in &self.if_branches {
+            branch.accept(visitor, ctx)?;
+            for statement in &branch.statements {
+                statement.accept(visitor, ctx)?;
+            }
+        }
+        if let Some(statements) = &self.else_branch {
+            for statement in statements {
+                statement.accept(visitor, ctx)?;
+            }
+        }
+        Ok(())
+    }
+    
+    pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        visitor.visit_conditional_if_components(self, ctx)?;
+        for branch in &mut self.if_branches {
+            branch.accept_mut(visitor, ctx)?;
+            for statement in &mut branch.statements {
+                statement.accept_mut(visitor, ctx)?;
+            }
+        }
+        if let Some(statements) = &mut self.else_branch {
+            for statement in statements {
+                statement.accept_mut(visitor, ctx)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ConditionalMatchBranch {
+    pub match_value: String,
+    pub statements: Vec<ConditionalComponentsStatement>,
+}
+
+impl ConditionalMatchBranch {
+    pub fn accept<V: Visitor>(&self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        visitor.visit_conditional_match_branch(self, ctx)?;
+        for statement in &self.statements {
+            statement.accept(visitor, ctx)?;
+        }
+        Ok(())
+    }
+
+    pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        visitor.visit_conditional_match_branch(self, ctx)?;
+        for statement in &mut self.statements {
+            statement.accept_mut(visitor, ctx)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ConditionalMatchDefaultBranch {
+    pub statements: Vec<ConditionalComponentsStatement>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ConditionalMatchComponents {
+    pub match_expr: SqlExpr,
+    pub branches: Vec<ConditionalMatchBranch>,
+    pub default_branch: Option<ConditionalMatchDefaultBranch>,
+}
+
+impl ConditionalMatchComponents {
+    pub fn accept<V: Visitor>(&self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        visitor.visit_conditional_match_components(self, ctx)?;
+        for branch in &self.branches {
+            branch.accept(visitor, ctx)?;
+            for statement in &branch.statements {
+                statement.accept(visitor, ctx)?;
+            }
+        }
+        if let Some(statements) = &self.default_branch {
+            for statement in &statements.statements {
+                statement.accept(visitor, ctx)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        visitor.visit_conditional_match_components(self, ctx)?;
+        for branch in &mut self.branches {
+            branch.accept_mut(visitor, ctx)?;
+            for statement in &mut branch.statements {
+                statement.accept_mut(visitor, ctx)?;
+            }
+        }
+        if let Some(statements) = &mut self.default_branch {
+            for statement in &mut statements.statements {
+                statement.accept_mut(visitor, ctx)?;
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AvengerFile {
     pub imports: Vec<Import>,
@@ -389,7 +563,27 @@ pub trait Visitor {
     fn visit_statement(&mut self, statement: &Statement, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
         Ok(())
     }
-    
+
+    fn visit_conditional_components_statement(&mut self, statement: &ConditionalComponentsStatement, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        Ok(())
+    }
+
+    fn visit_conditional_if_branch(&mut self, branch: &ConditionalIfBranch, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        Ok(())
+    }
+
+    fn visit_conditional_if_components(&mut self, components: &ConditionalIfComponents, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        Ok(())
+    }
+
+    fn visit_conditional_match_branch(&mut self, branch: &ConditionalMatchBranch, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        Ok(())
+    }
+
+    fn visit_conditional_match_components(&mut self, components: &ConditionalMatchComponents, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        Ok(())
+    }
+
     fn visit_avenger_file(&mut self, file: &AvengerFile, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
         Ok(())
     }
@@ -440,6 +634,26 @@ pub trait VisitorMut {
     fn visit_statement(&mut self, statement: &mut Statement, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
         Ok(())
     }
+
+    fn visit_conditional_components_statement(&mut self, statement: &mut ConditionalComponentsStatement, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        Ok(())
+    }
+
+    fn visit_conditional_if_branch(&mut self, branch: &mut ConditionalIfBranch, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        Ok(())
+    }
+
+    fn visit_conditional_if_components(&mut self, components: &mut ConditionalIfComponents, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        Ok(())
+    }
+
+    fn visit_conditional_match_branch(&mut self, branch: &mut ConditionalMatchBranch, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        Ok(())
+    }
+
+    fn visit_conditional_match_components(&mut self, components: &mut ConditionalMatchComponents, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        Ok(())
+    }
     
     fn visit_avenger_file(&mut self, file: &mut AvengerFile, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
         Ok(())
@@ -480,7 +694,7 @@ impl DatasetPropDecl {
 impl CompPropDecl {
     pub fn accept<V: Visitor>(&self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
         let mut new_scope_path = ctx.scope_path.to_vec();
-        new_scope_path.push(self.name());
+        new_scope_path.push(self.name.clone());
 
         let new_ctx = VisitorContext {
             scope_path: new_scope_path,
@@ -494,11 +708,11 @@ impl CompPropDecl {
     
     pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
         let mut new_scope_path = ctx.scope_path.to_vec();
-        new_scope_path.push(self.name());
+        new_scope_path.push(self.name.clone());
 
         let new_ctx = VisitorContext {
             scope_path: new_scope_path,
-            component_type: self.name(),
+            component_type: self.name.clone(),
             ..ctx.clone()
         };
         self.value.accept_mut(visitor, &new_ctx)?;
@@ -546,6 +760,8 @@ impl Statement {
             Statement::ComponentDef(comp_decl) => comp_decl.accept(visitor, ctx),
             Statement::Import(import) => import.accept(visitor, ctx),
             Statement::FunctionDef(function_def) => function_def.accept(visitor, ctx),
+            Statement::ConditionalIfComponents(components) => components.accept(visitor, ctx),
+            Statement::ConditionalMatchComponents(components) => components.accept(visitor, ctx),
         }
     }
     
@@ -559,6 +775,8 @@ impl Statement {
             Statement::ComponentDef(comp_decl) => comp_decl.accept_mut(visitor, ctx)?,
             Statement::Import(import) => import.accept_mut(visitor, ctx)?,
             Statement::FunctionDef(function_def) => function_def.accept_mut(visitor, ctx)?,
+            Statement::ConditionalIfComponents(components) => components.accept_mut(visitor, ctx)?,
+            Statement::ConditionalMatchComponents(components) => components.accept_mut(visitor, ctx)?,
         }
         visitor.visit_statement(self, ctx)
     }

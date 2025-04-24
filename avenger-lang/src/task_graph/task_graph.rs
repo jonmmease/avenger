@@ -376,7 +376,7 @@ impl Visitor for TaskGraphBuilder {
                 if let Some(comp_spec) = ctx.component_registry.lookup_component(&comp_decl.value.name) {
                     if comp_spec.is_mark {
                         let mut parts = ctx.scope_path.clone();
-                        parts.push(comp_decl.name());
+                        parts.push(comp_decl.name.clone());
                         parts.push("_mark".to_string());
                         return Some(Variable::with_parts(parts))
                     }

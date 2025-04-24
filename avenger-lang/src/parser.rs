@@ -8,7 +8,7 @@ use sqlparser::ast::{Expr as SqlExpr, Query as SqlQuery};
 use lazy_static::lazy_static;
 
 
-use crate::ast::{AvengerFile, CompInstance, CompPropDecl, ComponentDef, DatasetPropDecl, ExprPropDecl, FunctionDef, FunctionParam, FunctionParamKind, FunctionReturnParam, FunctionStatement, Import, ImportItem, PropBinding, PropQualifier, ReturnStatement, SqlExprOrQuery, Statement, Type, ValPropDecl};
+use crate::ast::{AvengerFile, CompInstance, CompPropDecl, ComponentDef, ConditionalComponentsStatement, ConditionalIfBranch, ConditionalIfComponents, ConditionalMatchBranch, ConditionalMatchComponents, ConditionalMatchDefaultBranch, DatasetPropDecl, ExprPropDecl, FunctionDef, FunctionParam, FunctionParamKind, FunctionReturnParam, FunctionStatement, Import, ImportItem, PropBinding, PropQualifier, ReturnStatement, SqlExprOrQuery, Statement, Type, ValPropDecl};
 use crate::error::AvengerLangError;
 
 lazy_static! {
@@ -149,10 +149,8 @@ impl AvengerParser {
         self.parser.expect_token(&Token::LBrace)?;
         
         let mut statements = Vec::new();
-        let mut index = 0;
         while self.parser.peek_token_ref().token != Token::RBrace {
-            statements.push(self.parse_statement(index)?);
-            index += 1;
+            statements.push(self.parse_statement()?);
         }
         
         self.parser.expect_token(&Token::RBrace)?;
@@ -160,7 +158,7 @@ impl AvengerParser {
         Ok(CompInstance { name, statements })
     }
     
-    fn parse_statement(&mut self, index: usize) -> Result<Statement, AvengerLangError> {
+    fn parse_statement(&mut self) -> Result<Statement, AvengerLangError> {
         // Parse and advance past the optional qualifier
         let qualifier = self.parse_qualifier();
 
@@ -206,11 +204,10 @@ impl AvengerParser {
                 self.parser.expect_token(&Token::Colon)?;
                 let value = self.parse_comp_instance()?;
                 Ok(Statement::CompPropDecl(CompPropDecl {
-                    name: Some(name),
+                    name: format!("_comp_{}", self.parser.index()),
                     value,
                     qualifier,
                     type_: ty,
-                    index
                 }))
             }
             "import" => {
@@ -225,6 +222,14 @@ impl AvengerParser {
                 let value = self.parse_function_def()?;
                 Ok(Statement::FunctionDef(value))
             }
+            "if" => {
+                let value = self.parse_conditional_if_components()?;
+                Ok(Statement::ConditionalIfComponents(value))
+            }
+            "match" => {
+                let value = self.parse_conditional_match_components()?;
+                Ok(Statement::ConditionalMatchComponents(value))
+            }
             // Handle binding
             name if self.parser.peek_nth_token_ref(1).token == Token::Assignment => {
                 // Consume the name
@@ -237,11 +242,10 @@ impl AvengerParser {
             _ if self.parser.peek_nth_token_ref(1).token == Token::LBrace => {
                 let comp_instance = self.parse_comp_instance()?;
                 Ok(Statement::CompPropDecl(CompPropDecl {
-                    name: None,
+                    name: format!("_comp_{}", self.parser.index()),
                     value: comp_instance,
                     qualifier: None,
                     type_: None,
-                    index
                 }))
             }
             _ => {
@@ -337,10 +341,8 @@ impl AvengerParser {
         self.parser.expect_token(&Token::LBrace)?;
 
         let mut statements = Vec::new();
-        let mut index = 0;
         while self.parser.peek_token_ref().token != Token::RBrace {
-            statements.push(self.parse_statement(index)?);
-            index += 1;
+            statements.push(self.parse_statement()?);
         }
         self.parser.expect_token(&Token::RBrace)?;
         Ok(ComponentDef { name, inherits, statements })
@@ -402,12 +404,10 @@ impl AvengerParser {
 
         // Parse statements until return statement
         let mut statements = Vec::new();
-        let mut index = 0;
         while self.peek_word() != Ok("return".to_string()) {
-            let stmt = self.parse_statement(index)?;
+            let stmt = self.parse_statement()?;
             let function_stmt = FunctionStatement::try_from(stmt)?;
             statements.push(function_stmt);
-            index += 1;
         }
 
         // Parse return statement
@@ -420,6 +420,109 @@ impl AvengerParser {
 
         Ok(FunctionDef { name, is_method, params, statements, return_param, return_statement })
     }
+
+    fn parse_conditional_if_branch(&mut self) -> Result<ConditionalIfBranch, AvengerLangError> {
+        self.expect_word("if")?;
+        self.parser.expect_token(&Token::LParen)?;
+        let condition = self.parser.parse_expr()?;
+        self.parser.expect_token(&Token::RParen)?;
+        self.parser.expect_token(&Token::LBrace)?;
+
+        let mut statements = Vec::new();
+        while self.parser.peek_token_ref().token != Token::RBrace {
+            statements.push(ConditionalComponentsStatement::try_from(self.parse_statement()?)?);
+        }
+        self.parser.expect_token(&Token::RBrace)?;
+        Ok(ConditionalIfBranch { condition, statements })
+    }
+
+    fn parse_conditional_if_components(&mut self) -> Result<ConditionalIfComponents, AvengerLangError> {
+        let mut branches = Vec::new();
+        let else_statements = loop {
+            branches.push(self.parse_conditional_if_branch()?);
+            if self.peek_word() != Ok("else".to_string()) {
+                // Finished parsing branches and there is no else branch
+                break None;
+            }
+            // Consume the else keyword
+            self.next_word()?;
+
+            if self.peek_word() == Ok("if".to_string()) {
+                // Parse the next if-else branch
+                branches.push(self.parse_conditional_if_branch()?);
+            } else {
+                // Parse the else branch
+                let mut else_statements = Vec::new();
+                self.parser.expect_token(&Token::LBrace)?;
+                while self.parser.peek_token_ref().token != Token::RBrace {
+                    else_statements.push(
+                        ConditionalComponentsStatement::try_from(self.parse_statement()?)?
+                    );
+                }
+                self.parser.expect_token(&Token::RBrace)?;
+                break Some(else_statements);
+            }
+        };
+
+        Ok(ConditionalIfComponents { if_branches: branches, else_branch: else_statements })
+    }
+
+
+    fn parse_conditional_match_branch(&mut self) -> Result<ConditionalMatchBranch, AvengerLangError> {
+        let match_value = self.expect_single_quoted_string()?;
+        self.parser.expect_token(&Token::RArrow)?;
+
+        self.parser.expect_token(&Token::LBrace)?;
+        let mut statements = Vec::new();
+        while self.parser.peek_token_ref().token != Token::RBrace {
+            statements.push(ConditionalComponentsStatement::try_from(self.parse_statement()?)?);
+        }
+        self.parser.expect_token(&Token::RBrace)?;
+
+        Ok(ConditionalMatchBranch { match_value, statements })
+    }
+
+    fn parse_conditional_match_default_branch(&mut self) -> Result<ConditionalMatchDefaultBranch, AvengerLangError> {
+        self.expect_word("_")?;
+        self.parser.expect_token(&Token::RArrow)?;
+        self.parser.expect_token(&Token::LBrace)?;
+        let mut statements = Vec::new();
+        while self.parser.peek_token_ref().token != Token::RBrace {
+            statements.push(ConditionalComponentsStatement::try_from(self.parse_statement()?)?);
+        }
+        self.parser.expect_token(&Token::RBrace)?;
+
+        Ok(ConditionalMatchDefaultBranch { statements })
+    }
+
+    fn parse_conditional_match_components(&mut self) -> Result<ConditionalMatchComponents, AvengerLangError> {
+        self.expect_word("match")?;
+        self.parser.expect_token(&Token::LParen)?;
+        let match_expr = self.parser.parse_expr()?;
+        self.parser.expect_token(&Token::RParen)?;
+        self.parser.expect_token(&Token::LBrace)?;
+
+        let mut branches = Vec::new();
+        let default_branch = loop {
+            let next_token = self.parser.peek_token().token;
+            println!("next_token: {:?}", next_token);
+
+            if next_token == Token::RBrace {
+                // Finished parsing branches and there is no default branch
+                self.parser.expect_token(&Token::RBrace)?;
+                break None;
+            } else if self.peek_word() == Ok("_".to_string()) {
+                // Found default branch
+                break Some(self.parse_conditional_match_default_branch()?);
+            } else {
+                // Found non-default branch
+                branches.push(self.parse_conditional_match_branch()?);
+            }
+        };
+
+        Ok(ConditionalMatchComponents { match_expr, branches, default_branch })
+    }
+
 
     fn parse_file(&mut self) -> Result<AvengerFile, AvengerLangError> {
         let mut imports = Vec::new();
@@ -493,6 +596,23 @@ mod tests {
                 val inner_val: 10;
                 return @my_val + @inner_val;
             }
+
+            if (@my_val > 10) {
+                val another_val: 10;
+                Rect {
+                    x := @another_val;
+                    y := 20;
+                    width := 100;
+                    height := 100;
+                }
+            } else {
+                val another_val: 20;
+                Arc {
+                    x := 10;
+                    y := 20;
+                    radius := @another_val;
+                }
+            }
         }
         "#;
         let parser = AvengerParser::new();
@@ -515,9 +635,30 @@ mod tests {
         CompB {
             in expr my_expr: ("a" + 1) * 3;
 
-            fn my_fn(self, val my_val) -> expr {
+            fn my_fn(self, val my_val) -> expr { 
                 expr inner_expr: @self.my_expr + 1;
                 return @my_val + @inner_expr;
+            }
+
+            match (@my_val) {
+                'a' => {
+                    val another_val: 10;
+                    Rect {
+                        x := @another_val;
+                    }
+                }
+                'b' => {
+                    val another_val: 20;
+                    comp foo: Arc {
+                        x := @another_val;
+                    }
+                }
+                _ => {
+                    val another_val: 30;
+                    Rect {
+                        x := @another_val;
+                    }
+                }
             }
         }
         "#;

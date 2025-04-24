@@ -123,7 +123,7 @@ impl Visitor for ScopeBuilder {
     }
 
     fn visit_comp_prop_decl(&mut self, comp_prop: &CompPropDecl, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
-        self.add_property(&comp_prop.name(), &ctx.scope_path)?;
+        self.add_property(&comp_prop.name, &ctx.scope_path)?;
         Ok(())
     }
 
