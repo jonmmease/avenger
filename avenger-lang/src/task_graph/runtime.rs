@@ -247,7 +247,7 @@ impl TaskGraphRuntime {
         }
         
         // Now evaluate this task
-        let value = node.task.evaluate(&input_values).await?;
+        let value = node.task.evaluate(self.clone(), &input_values).await?;
         
         // Calculate runtime for this task
         let runtime = start_time.elapsed();
