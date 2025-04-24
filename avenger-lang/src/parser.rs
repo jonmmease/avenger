@@ -8,7 +8,7 @@ use sqlparser::ast::{Expr as SqlExpr, Query as SqlQuery};
 use lazy_static::lazy_static;
 
 
-use crate::ast::{AvengerFile, CompInstance, CompPropDecl, DatasetPropDecl, ExprPropDecl, PropBinding, PropQualifier, SqlExprOrQuery, Statement, Type, ValPropDecl};
+use crate::ast::{AvengerFile, CompInstance, CompPropDecl, ComponentDef, DatasetPropDecl, ExprPropDecl, Import, ImportItem, PropBinding, PropQualifier, SqlExprOrQuery, Statement, Type, ValPropDecl};
 use crate::error::AvengerLangError;
 
 lazy_static! {
@@ -118,14 +118,41 @@ impl AvengerParser {
             _ => self.parser.expected("name", next_token),
         }
     }
+
+    fn expect_word(&mut self, expected: &str) -> Result<(), ParserError> {
+        if self.peek_word()? != expected.to_string() {
+            self.parser.expected(expected, self.parser.peek_token())
+        } else {
+            self.parser.next_token();
+            Ok(())
+        }
+    }
+
+    fn peek_word(&mut self) -> Result<String, ParserError> {
+        let next_token = self.parser.peek_token();
+        match next_token.token {
+            Token::Word(w) => Ok(w.into_ident(next_token.span).value),
+            _ => self.parser.expected("word", next_token),
+        }
+    }
+
+    fn expect_single_quoted_string(&mut self) -> Result<String, ParserError> {
+        let next_token = self.parser.next_token();
+        match next_token.token {
+            Token::SingleQuotedString(s) => Ok(s),
+            _ => self.parser.expected("single quoted string", next_token),
+        }
+    }
     
     fn parse_comp_instance(&mut self) -> Result<CompInstance, AvengerLangError> {
         let name = self.next_word()?;
         self.parser.expect_token(&Token::LBrace)?;
         
         let mut statements = Vec::new();
+        let mut index = 0;
         while self.parser.peek_token_ref().token != Token::RBrace {
-            statements.push(self.parse_statement()?);
+            statements.push(self.parse_statement(index)?);
+            index += 1;
         }
         
         self.parser.expect_token(&Token::RBrace)?;
@@ -133,13 +160,14 @@ impl AvengerParser {
         Ok(CompInstance { name, statements })
     }
     
-    fn parse_statement(&mut self) -> Result<Statement, AvengerLangError> {
+    fn parse_statement(&mut self, index: usize) -> Result<Statement, AvengerLangError> {
         // Parse and advance past the optional qualifier
         let qualifier = self.parse_qualifier();
 
-        let kind = self.next_word()?;
+        let kind = self.peek_word()?;
         match kind.as_str() {
             "val" => {
+                self.next_word()?;
                 let ty = self.parse_type()?;
                 let name = self.next_word()?;
                 self.parser.expect_token(&Token::Colon)?;
@@ -150,6 +178,7 @@ impl AvengerParser {
                 }))
             }
             "expr" => {
+                self.next_word()?;
                 let ty = self.parse_type()?;
                 let name = self.next_word()?;
                 self.parser.expect_token(&Token::Colon)?;
@@ -160,6 +189,7 @@ impl AvengerParser {
                 }))
             }
             "dataset" => {
+                self.next_word()?;
                 let ty = self.parse_type()?;
                 let name = self.next_word()?;
                 self.parser.expect_token(&Token::Colon)?;
@@ -170,16 +200,31 @@ impl AvengerParser {
                 }))
             }
             "comp" => {
+                self.next_word()?;
                 let ty = self.parse_type()?;
                 let name = self.next_word()?;
                 self.parser.expect_token(&Token::Colon)?;
                 let value = self.parse_comp_instance()?;
                 Ok(Statement::CompPropDecl(CompPropDecl {
-                    name, value, qualifier, type_: ty
+                    name: Some(name),
+                    value,
+                    qualifier,
+                    type_: ty,
+                    index
                 }))
             }
-            name if self.parser.peek_token_ref().token == Token::Assignment => {
-                
+            "import" => {
+                let value = self.parse_import()?;
+                Ok(Statement::Import(value))
+            }
+            "component" => {
+                let value = self.parse_component_def()?;
+                Ok(Statement::ComponentDef(value))
+            }
+            // Handle binding
+            name if self.parser.peek_nth_token_ref(1).token == Token::Assignment => {
+                // Consume the name
+                self.next_word()?;
                 self.parser.expect_token(&Token::Assignment)?;
                 let index = self.parser.index();
                 
@@ -203,18 +248,97 @@ impl AvengerParser {
                     }
                 }
             }
+            // Handle anonymouse component instance
+            _ if self.parser.peek_nth_token_ref(1).token == Token::LBrace => {
+                let comp_instance = self.parse_comp_instance()?;
+                Ok(Statement::CompPropDecl(CompPropDecl {
+                    name: None,
+                    value: comp_instance,
+                    qualifier: None,
+                    type_: None,
+                    index
+                }))
+            }
             _ => {
                 Err(AvengerLangError::UnexpectedToken(kind))
             }
         }
     }
 
-    fn parse_file(&mut self) -> Result<AvengerFile, AvengerLangError> {
-        let mut statements = Vec::new();
-        while !self.is_at_end() {
-            statements.push(self.parse_statement()?);
+    /// Parses an import statement
+    /// 
+    /// import 'path/to/Component';
+    /// import 'path/to/Component' as alias;
+    fn parse_import(&mut self) -> Result<Import, AvengerLangError> {
+        self.expect_word("import")?;
+
+        self.parser.expect_token(&Token::LBrace)?;
+
+        let mut items = Vec::new();
+        while self.parser.peek_token_ref().token != Token::RBrace {
+            let name = self.next_word()?;
+            let alias = if self.peek_word() == Ok("as".to_string()) {
+                self.next_word()?;
+                Some(self.next_word()?)
+            } else {
+                None
+            };
+            items.push(ImportItem { name, alias });
+
+            // If the next token is a comma, consume it
+            // This handles trailing commas
+            if self.parser.peek_token_ref().token == Token::Comma {
+                self.parser.next_token();
+            }
         }
-        Ok(AvengerFile { statements })
+        self.parser.expect_token(&Token::RBrace)?;
+
+        // Check for explicit import path
+        let from = if self.peek_word() == Ok("from".to_string()) {
+            self.next_word()?;
+            let from = self.expect_single_quoted_string()?;
+            // Semi-colon only required if there is a from path;
+            self.parser.expect_token(&Token::SemiColon)?;
+            Some(from)
+        } else {
+            None
+        };
+
+        Ok(Import { from, items })
+    }
+
+    /// Parses a component definition
+    /// 
+    /// component ComponentName inherits ParentComponent {
+    ///     statements*
+    /// }
+    fn parse_component_def(&mut self) -> Result<ComponentDef, AvengerLangError> {
+        self.expect_word("component")?;
+
+        let name = self.next_word()?;
+        self.expect_word("inherits")?;
+        let inherits = self.next_word()?;
+
+        self.parser.expect_token(&Token::LBrace)?;
+
+        let mut statements = Vec::new();
+        let mut index = 0;
+        while self.parser.peek_token_ref().token != Token::RBrace {
+            statements.push(self.parse_statement(index)?);
+            index += 1;
+        }
+        self.parser.expect_token(&Token::RBrace)?;
+        Ok(ComponentDef { name, inherits, statements })
+    }
+
+    fn parse_file(&mut self) -> Result<AvengerFile, AvengerLangError> {
+        let mut imports = Vec::new();
+        while self.peek_word() == Ok("import".to_string()) {
+            imports.push(self.parse_import()?);
+        }
+        let main_component = self.parse_comp_instance()?;
+        self.parser.expect_token(&Token::EOF)?;
+        Ok(AvengerFile { imports, main_component })
     }
 
     // Public methods
@@ -268,9 +392,12 @@ mod tests {
     fn test_parse_file() {
         let src = r#"
         // This is a comment
-        in val<int> my_val: 1 + 23;
-        dataset my_dataset: select * from @my_table LIMIT 12;
-        out expr my_expr: @my_val + 1;
+        CompA {
+            import { ComponentA, CompB }
+            in val<int> my_val: 1 + 23;
+            dataset my_dataset: select * from @my_table LIMIT 12;
+            out expr my_expr: @my_val + 1;
+        }
         "#;
         let parser = AvengerParser::new();
         let tokens = parser.tokenize(src).unwrap();
@@ -287,7 +414,11 @@ mod tests {
     fn test_parse_file2() {
         let src = r#"
         // This is a comment
-        in expr my_expr: ("a" + 1) * 3;
+        import { ComponentA, CompB }
+        import { Slider as MySlider, } from 'avenger/widgets';
+        CompB {
+            in expr my_expr: ("a" + 1) * 3;
+        }
         "#;
         let parser = AvengerParser::new();
         let tokens = parser.tokenize(src).unwrap();
@@ -299,7 +430,16 @@ mod tests {
     #[test]
     fn test_parse_file_binding() {
         let src = r#"
-        my_expr := ("a" + 1) * 3;
+        Group {
+            component MyComp inherits Rect {
+                in val my_val: null;
+            }
+            comp my_comp: MyComp {
+                my_val := 1 + 23;
+            }
+ 
+            my_expr := ("a" + 1) * 3;
+        }
         "#;
         let parser = AvengerParser::new();
         let tokens = parser.tokenize(src).unwrap();
@@ -312,9 +452,17 @@ mod tests {
     fn test_parse_comp_declaration() {
         let src = r#"
         // This is a component
-        out comp<Widget> my_comp: MyComponent {
-            val internal_val: 42;
-            expr result: @internal_val * 2;
+        OuterComponent {
+            out comp<Widget> my_comp: MyComponent {
+                val internal_val: 42;
+                expr result: @internal_val * 2;
+            }
+            Rect {
+                x := 10;
+                y := 20;
+                width := 100;
+                height := 100;
+            }
         }
         "#;
         let parser = AvengerParser::new();
