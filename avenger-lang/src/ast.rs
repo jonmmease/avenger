@@ -418,6 +418,9 @@ impl AvengerFile {
             component_registry: Arc::new(ComponentRegistry::new_with_marks()),
         };
         visitor.visit_avenger_file(self, &root_ctx)?;
+        for import in &self.imports {
+            import.accept(visitor, &root_ctx)?;
+        }
         self.main_component.accept(visitor, &root_ctx)?;
         Ok(())
     }
@@ -429,6 +432,9 @@ impl AvengerFile {
             component_registry: Arc::new(ComponentRegistry::new_with_marks()),
         };
         visitor.visit_avenger_file(self, &root_ctx)?;
+        for import in &mut self.imports {
+            import.accept_mut(visitor, &root_ctx)?;
+        }
         self.main_component.accept_mut(visitor, &root_ctx)?;
         Ok(())
     }

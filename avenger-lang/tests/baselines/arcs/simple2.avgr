@@ -1,32 +1,34 @@
-width := 200;
-height := 200;
+Group {
+    width := 200;
+    height := 200;
 
-dataset data_0: SELECT * FROM (VALUES 
+    dataset data_0: SELECT * FROM (VALUES
         (1, 'red'),
         (2, 'green'),
-        (3, 'blue')
+        (3, 'yellow')
     ) foo("a", "b");
 
-val pi: 3.14159;
+    val pi: 3.14159;
 
-comp g1: Group {
-    x := 20;
-    y := 20;
+    comp g1: Group {
+        x := 20;
+        y := 20;
 
-    comp mark1: Arc {
-        data := SELECT * FROM @data_0;
-        x := ("a" - 1) * 40;
-        y := ("a" - 1) * 40 + 50;
+        comp mark1: Arc {
+            data := SELECT * FROM @data_0;
+            x := ("a" - 1) * 40;
+            y := ("a" - 1) * 40 + 50;
 
-        start_angle := "a" * @pi / 8.0;
-        end_angle := @start_angle + @pi / 4.0;
+            start_angle := "a" * @pi / 8.0;
+            end_angle := @start_angle + @pi / 4.0;
 
-        outer_radius := 50;
-        fill := "b";
-        stroke_width := 4;
-        stroke := 'black';
+            outer_radius := 50;
+            fill := "b";
+            stroke_width := 4;
+            stroke := 'black';
 
-        clip := false;
-        zindex := 1 + 2;
+            clip := false;
+            zindex := 1 + 2;
+        }
     }
 }
