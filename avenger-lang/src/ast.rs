@@ -19,9 +19,12 @@ use crate::task_graph::component_registry::ComponentRegistry;
 //  comp_prop      → prop_qualifier? + "comp" + type? + ":" + comp_instance + ";"
 //  comp_instance  → PASCAL_IDENTIFIER + "{" + statement* + "}"
 //  prop_binding   → IDENTIFIER + ":=" + sql_expr_or_query + ";"
+//  component_decl → "component" + PASCAL_IDENTIFIER + "inherits" + PASCAL_IDENTIFIER + "{" + statement* + "}"
+//  import_path   → IDENTIFIER + ("/" + IDENTIFIER)*
+//  import       → "import" + import_path + ("as" + IDENTIFIER)? + ";"
 //
-//  statement      → (val_prop | expr_prop | dataset_prop | comp_prop | prop_binding) + ";"
-//  file           → statement*
+//  statement      → (val_prop | expr_prop | dataset_prop | comp_prop | prop_binding | component_decl | import) + ";"
+//  file           → comp_instance
 //
 #[derive(Debug, Clone, PartialEq, Eq, Hash) ]
 pub struct Type(pub String);
@@ -59,9 +62,17 @@ pub struct DatasetPropDecl {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CompPropDecl {
     pub qualifier: Option<PropQualifier>,
-    pub name: String,
+    pub name: Option<String>,
     pub type_: Option<Type>,
     pub value: CompInstance,
+    // Index of the component statement among its sibling statements
+    pub index: usize,
+}
+
+impl CompPropDecl {
+    pub fn name(&self) -> String {
+        self.name.clone().unwrap_or_else(|| format!("_comp_{}", self.index))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -125,17 +136,69 @@ pub struct PropBinding {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ComponentDef {
+    pub name: String,
+    pub inherits: String,
+    pub statements: Vec<Statement>,
+}
+
+impl ComponentDef {
+    pub fn accept<V: Visitor>(&self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        visitor.visit_component_def(self, ctx)?;
+        for statement in &self.statements {
+            statement.accept(visitor, ctx)?;
+        }
+        Ok(())
+    }
+    
+    pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        visitor.visit_component_def(self, ctx)?;
+        for statement in &mut self.statements {
+            statement.accept_mut(visitor, ctx)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Statement {
     ValPropDecl(ValPropDecl),
     ExprPropDecl(ExprPropDecl),
     DatasetPropDecl(DatasetPropDecl),
     CompPropDecl(CompPropDecl),
     PropBinding(PropBinding),
+    ComponentDef(ComponentDef),
+    Import(Import),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ImportItem {
+    pub name: String,
+    pub alias: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Import {
+    pub from: Option<String>,
+    pub items: Vec<ImportItem>,
+}
+
+impl Import {
+    pub fn accept<V: Visitor>(&self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        visitor.visit_import(self, ctx)?;
+        Ok(())
+    }
+    
+    pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        visitor.visit_import(self, ctx)?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AvengerFile {
-    pub statements: Vec<Statement>,
+    pub imports: Vec<Import>,
+    pub main_component: CompInstance,
 }
 
 // Visitor trait for traversing the AST with immutable references
@@ -164,6 +227,14 @@ pub trait Visitor {
     }
     
     fn visit_comp_instance(&mut self, comp_instance: &CompInstance, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        Ok(())
+    }
+
+    fn visit_component_def(&mut self, component_def: &ComponentDef, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        Ok(())
+    }
+
+    fn visit_import(&mut self, import: &Import, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
         Ok(())
     }
 
@@ -203,6 +274,14 @@ pub trait VisitorMut {
     }
     
     fn visit_prop_binding(&mut self, prop_binding: &mut PropBinding, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        Ok(())
+    }
+
+    fn visit_component_def(&mut self, component_def: &mut ComponentDef, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        Ok(())
+    }
+
+    fn visit_import(&mut self, import: &mut Import, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
         Ok(())
     }
     
@@ -249,7 +328,7 @@ impl DatasetPropDecl {
 impl CompPropDecl {
     pub fn accept<V: Visitor>(&self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
         let mut new_scope_path = ctx.scope_path.to_vec();
-        new_scope_path.push(self.name.clone());
+        new_scope_path.push(self.name());
 
         let new_ctx = VisitorContext {
             scope_path: new_scope_path,
@@ -263,11 +342,11 @@ impl CompPropDecl {
     
     pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
         let mut new_scope_path = ctx.scope_path.to_vec();
-        new_scope_path.push(self.name.clone());
+        new_scope_path.push(self.name());
 
         let new_ctx = VisitorContext {
             scope_path: new_scope_path,
-            component_type: self.name.clone(),
+            component_type: self.name(),
             ..ctx.clone()
         };
         self.value.accept_mut(visitor, &new_ctx)?;
@@ -312,6 +391,8 @@ impl Statement {
             Statement::DatasetPropDecl(dataset) => dataset.accept(visitor, ctx),
             Statement::CompPropDecl(comp) => comp.accept(visitor, ctx),
             Statement::PropBinding(prop) => prop.accept(visitor, ctx),
+            Statement::ComponentDef(comp_decl) => comp_decl.accept(visitor, ctx),
+            Statement::Import(import) => import.accept(visitor, ctx),
         }
     }
     
@@ -322,6 +403,8 @@ impl Statement {
             Statement::DatasetPropDecl(dataset) => dataset.accept_mut(visitor, ctx)?,
             Statement::CompPropDecl(comp) => comp.accept_mut(visitor, ctx)?,
             Statement::PropBinding(prop) => prop.accept_mut(visitor, ctx)?,
+            Statement::ComponentDef(comp_decl) => comp_decl.accept_mut(visitor, ctx)?,
+            Statement::Import(import) => import.accept_mut(visitor, ctx)?,
         }
         visitor.visit_statement(self, ctx)
     }
@@ -335,9 +418,7 @@ impl AvengerFile {
             component_registry: Arc::new(ComponentRegistry::new_with_marks()),
         };
         visitor.visit_avenger_file(self, &root_ctx)?;
-        for statement in &self.statements {
-            statement.accept(visitor, &root_ctx)?;
-        }
+        self.main_component.accept(visitor, &root_ctx)?;
         Ok(())
     }
     
@@ -347,10 +428,9 @@ impl AvengerFile {
             component_type: "App".to_string(),
             component_registry: Arc::new(ComponentRegistry::new_with_marks()),
         };
-        for statement in &mut self.statements {
-            statement.accept_mut(visitor, &root_ctx)?;
-        }
-        visitor.visit_avenger_file(self, &root_ctx)
+        visitor.visit_avenger_file(self, &root_ctx)?;
+        self.main_component.accept_mut(visitor, &root_ctx)?;
+        Ok(())
     }
 }
 
