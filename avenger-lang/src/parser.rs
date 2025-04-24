@@ -359,7 +359,21 @@ impl AvengerParser {
         self.expect_word("fn")?;
         let name = self.next_word()?;
         self.parser.expect_token(&Token::LParen)?;
+
+        // Check if first arg is self
+        let is_method = if self.peek_word() == Ok("self".to_string()) {
+            // Consume the self keyword and the comma if it exists
+            self.next_word()?;
+            if self.parser.peek_token_ref().token == Token::Comma {
+                self.parser.next_token();
+            }
+            true
+        } else {
+            false
+        };
+
         let mut params = Vec::new();
+
         while self.parser.peek_token_ref().token != Token::RParen {
             let kind = self.parse_function_param_kind()?;
             let name = self.next_word()?;
@@ -404,7 +418,7 @@ impl AvengerParser {
         // Close function body
         self.parser.expect_token(&Token::RBrace)?;
 
-        Ok(FunctionDef { name, params, statements, return_param, return_statement })
+        Ok(FunctionDef { name, is_method, params, statements, return_param, return_statement })
     }
 
     fn parse_file(&mut self) -> Result<AvengerFile, AvengerLangError> {
@@ -500,6 +514,11 @@ mod tests {
         import { Slider as MySlider, } from 'avenger/widgets';
         CompB {
             in expr my_expr: ("a" + 1) * 3;
+
+            fn my_fn(self, val my_val) -> expr {
+                expr inner_expr: @self.my_expr + 1;
+                return @my_val + @inner_expr;
+            }
         }
         "#;
         let parser = AvengerParser::new();

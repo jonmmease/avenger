@@ -303,6 +303,7 @@ impl FunctionStatement {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FunctionDef {
     pub name: String,
+    pub is_method: bool,
     pub params: Vec<FunctionParam>,
     pub return_param: FunctionReturnParam,
     pub statements: Vec<FunctionStatement>,
@@ -328,6 +329,7 @@ impl FunctionDef {
         Ok(())
     }
 }
+
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AvengerFile {
