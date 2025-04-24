@@ -35,6 +35,7 @@ pub enum PropQualifier {
     Out,
 }
 
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ValPropDecl {
     pub qualifier: Option<PropQualifier>,
@@ -103,6 +104,8 @@ impl CompInstance {
     }
 }
 
+
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SqlExprOrQuery {
     Expr(SqlExpr),
@@ -169,6 +172,7 @@ pub enum Statement {
     PropBinding(PropBinding),
     ComponentDef(ComponentDef),
     Import(Import),
+    FunctionDef(FunctionDef),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -191,6 +195,136 @@ impl Import {
     
     pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
         visitor.visit_import(self, ctx)?;
+        Ok(())
+    }
+}
+
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ReturnStatement {
+    pub value: SqlExprOrQuery,
+}
+
+impl ReturnStatement {
+    pub fn accept<V: Visitor>(&self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        visitor.visit_return_statement(self, ctx)?;
+        Ok(())
+    }
+
+    pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        visitor.visit_return_statement(self, ctx)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FunctionValArgValue {
+    pub value: SqlExpr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FunctionExprArgValue {
+    pub value: SqlExpr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FunctionDatasetArgValue {
+    pub value: Box<SqlQuery>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum FunctionParamKind {
+    Val,
+    Expr,
+    Dataset,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FunctionParam {
+    pub name: String,
+    pub kind: FunctionParamKind,
+    pub type_: Option<Type>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FunctionReturnParam {
+    pub kind: FunctionParamKind,
+    pub type_: Option<Type>,
+}
+
+impl FunctionParam {
+    pub fn accept<V: Visitor>(&self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        Ok(())
+    }
+    
+    pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum FunctionStatement {
+    ValPropDecl(ValPropDecl),
+    ExprPropDecl(ExprPropDecl),
+    DatasetPropDecl(DatasetPropDecl),
+}
+
+impl TryFrom<Statement> for FunctionStatement {
+    type Error = AvengerLangError;
+
+    fn try_from(stmt: Statement) -> Result<Self, Self::Error> {
+        match stmt {
+            Statement::ValPropDecl(val_prop) => Ok(FunctionStatement::ValPropDecl(val_prop)),
+            Statement::ExprPropDecl(expr_prop) => Ok(FunctionStatement::ExprPropDecl(expr_prop)),
+            Statement::DatasetPropDecl(dataset_prop) => Ok(FunctionStatement::DatasetPropDecl(dataset_prop)),
+            _ => Err(AvengerLangError::InternalError("Unsupported function statement".to_string())),
+        }
+    }
+}
+
+impl FunctionStatement {
+    pub fn accept<V: Visitor>(&self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        match self {
+            FunctionStatement::ValPropDecl(val_prop) => val_prop.accept(visitor, ctx),
+            FunctionStatement::ExprPropDecl(expr_prop) => expr_prop.accept(visitor, ctx),
+            FunctionStatement::DatasetPropDecl(dataset_prop) => dataset_prop.accept(visitor, ctx),
+        }
+    }
+
+    pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        match self {
+            FunctionStatement::ValPropDecl(val_prop) => val_prop.accept_mut(visitor, ctx),
+            FunctionStatement::ExprPropDecl(expr_prop) => expr_prop.accept_mut(visitor, ctx),
+            FunctionStatement::DatasetPropDecl(dataset_prop) => dataset_prop.accept_mut(visitor, ctx),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FunctionDef {
+    pub name: String,
+    pub params: Vec<FunctionParam>,
+    pub return_param: FunctionReturnParam,
+    pub statements: Vec<FunctionStatement>,
+    pub return_statement: ReturnStatement,
+}
+
+impl FunctionDef {
+    pub fn accept<V: Visitor>(&self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        visitor.visit_function_def(self, ctx)?;
+        for statement in &self.statements {
+            statement.accept(visitor, ctx)?;
+        }
+        self.return_statement.accept(visitor, ctx)?;
+        Ok(())
+    }
+
+    pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        visitor.visit_function_def(self, ctx)?;
+        for statement in &mut self.statements {
+            statement.accept_mut(visitor, ctx)?;
+        }
+        self.return_statement.accept_mut(visitor, ctx)?;
         Ok(())
     }
 }
@@ -238,6 +372,14 @@ pub trait Visitor {
         Ok(())
     }
 
+    fn visit_function_def(&mut self, function_def: &FunctionDef, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        Ok(())
+    }
+
+    fn visit_return_statement(&mut self, return_statement: &ReturnStatement, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        Ok(())
+    }
+
     fn visit_prop_binding(&mut self, prop_binding: &PropBinding, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
         Ok(())
     }
@@ -282,6 +424,14 @@ pub trait VisitorMut {
     }
 
     fn visit_import(&mut self, import: &mut Import, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        Ok(())
+    }
+
+    fn visit_function_def(&mut self, function_def: &mut FunctionDef, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
+        Ok(())
+    }
+
+    fn visit_return_statement(&mut self, return_statement: &mut ReturnStatement, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
         Ok(())
     }
     
@@ -393,6 +543,7 @@ impl Statement {
             Statement::PropBinding(prop) => prop.accept(visitor, ctx),
             Statement::ComponentDef(comp_decl) => comp_decl.accept(visitor, ctx),
             Statement::Import(import) => import.accept(visitor, ctx),
+            Statement::FunctionDef(function_def) => function_def.accept(visitor, ctx),
         }
     }
     
@@ -405,6 +556,7 @@ impl Statement {
             Statement::PropBinding(prop) => prop.accept_mut(visitor, ctx)?,
             Statement::ComponentDef(comp_decl) => comp_decl.accept_mut(visitor, ctx)?,
             Statement::Import(import) => import.accept_mut(visitor, ctx)?,
+            Statement::FunctionDef(function_def) => function_def.accept_mut(visitor, ctx)?,
         }
         visitor.visit_statement(self, ctx)
     }

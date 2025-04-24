@@ -8,7 +8,7 @@ use sqlparser::ast::{Expr as SqlExpr, Query as SqlQuery};
 use lazy_static::lazy_static;
 
 
-use crate::ast::{AvengerFile, CompInstance, CompPropDecl, ComponentDef, DatasetPropDecl, ExprPropDecl, Import, ImportItem, PropBinding, PropQualifier, SqlExprOrQuery, Statement, Type, ValPropDecl};
+use crate::ast::{AvengerFile, CompInstance, CompPropDecl, ComponentDef, DatasetPropDecl, ExprPropDecl, FunctionDef, FunctionParam, FunctionParamKind, FunctionReturnParam, FunctionStatement, Import, ImportItem, PropBinding, PropQualifier, ReturnStatement, SqlExprOrQuery, Statement, Type, ValPropDecl};
 use crate::error::AvengerLangError;
 
 lazy_static! {
@@ -221,32 +221,17 @@ impl AvengerParser {
                 let value = self.parse_component_def()?;
                 Ok(Statement::ComponentDef(value))
             }
+            "fn" => {
+                let value = self.parse_function_def()?;
+                Ok(Statement::FunctionDef(value))
+            }
             // Handle binding
             name if self.parser.peek_nth_token_ref(1).token == Token::Assignment => {
                 // Consume the name
                 self.next_word()?;
                 self.parser.expect_token(&Token::Assignment)?;
-                let index = self.parser.index();
-                
-                if let Ok(sql_query) = self.parser.parse_query() {
-                    let value = SqlExprOrQuery::Query(sql_query);
-                    self.parser.expect_token(&Token::SemiColon)?;
-                    Ok(Statement::PropBinding(PropBinding { name: name.to_string(), value }))
-                } else {
-                    // Reset index to the index we were at prior to the attempt to parse as a query
-                    while self.parser.index() > index {
-                        self.parser.prev_token();
-                    }
-                    // Consume the assignment token if we jumped back to it
-                    let _ = self.parser.expect_token(&Token::Assignment);
-                    if let Ok(sql_expr) = self.parser.parse_expr() {
-                        let value = SqlExprOrQuery::Expr(sql_expr);
-                        self.parser.expect_token(&Token::SemiColon)?;
-                        Ok(Statement::PropBinding(PropBinding { name: name.to_string(), value }))
-                    } else {
-                        Err(AvengerLangError::UnexpectedToken(kind))
-                    }
-                }
+                let expr_or_query = self.parse_sql_expr_or_query(true)?;
+                Ok(Statement::PropBinding(PropBinding { name: name.to_string(), value: expr_or_query }))
             }
             // Handle anonymouse component instance
             _ if self.parser.peek_nth_token_ref(1).token == Token::LBrace => {
@@ -263,6 +248,36 @@ impl AvengerParser {
                 Err(AvengerLangError::UnexpectedToken(kind))
             }
         }
+    }
+
+    fn parse_sql_expr_or_query(&mut self, required_semi_colon: bool) -> Result<SqlExprOrQuery, AvengerLangError> {
+        let index = self.parser.index();
+        
+        let next_token = self.parser.peek_token_ref().token.clone();
+        let expr_or_query = if let Ok(sql_query) = self.parser.parse_query() {
+            let value = SqlExprOrQuery::Query(sql_query);
+            value
+        } else {
+            // Reset index to the index we were at prior to the attempt to parse as a query
+            while self.parser.index() > index {
+                self.parser.prev_token();
+            }
+            // Consume the assignment token if we jumped back to it
+            let _ = self.parser.expect_token(&Token::Assignment);
+            if let Ok(sql_expr) = self.parser.parse_expr() {
+                let value = SqlExprOrQuery::Expr(sql_expr);
+                value
+            } else {
+                return Err(AvengerLangError::UnexpectedToken(next_token.to_string()))
+            }
+        };
+
+        // Consume optional semi-colon
+        if required_semi_colon || self.parser.peek_token_ref().token == Token::SemiColon {
+            self.parser.expect_token(&Token::SemiColon)?;
+        }
+
+        Ok(expr_or_query)
     }
 
     /// Parses an import statement
@@ -331,6 +346,67 @@ impl AvengerParser {
         Ok(ComponentDef { name, inherits, statements })
     }
 
+    fn parse_function_param_kind(&mut self) -> Result<FunctionParamKind, AvengerLangError> {
+        match self.next_word()?.as_str() {
+            "val" => Ok(FunctionParamKind::Val),
+            "expr" => Ok(FunctionParamKind::Expr),
+            "dataset" => Ok(FunctionParamKind::Dataset),
+            t => Err(AvengerLangError::UnexpectedToken(t.to_string()))
+        }
+    }
+
+    fn parse_function_def(&mut self) -> Result<FunctionDef, AvengerLangError> {
+        self.expect_word("fn")?;
+        let name = self.next_word()?;
+        self.parser.expect_token(&Token::LParen)?;
+        let mut params = Vec::new();
+        while self.parser.peek_token_ref().token != Token::RParen {
+            let kind = self.parse_function_param_kind()?;
+            let name = self.next_word()?;
+            let ty = self.parse_type()?;
+            params.push(FunctionParam { 
+                name, 
+                type_: ty, 
+                kind 
+            });
+
+            // If the next token is a comma, consume it
+            // This handles trailing commas
+            if self.parser.peek_token_ref().token == Token::Comma {
+                self.parser.next_token();
+            }
+        }
+        self.parser.expect_token(&Token::RParen)?;
+
+        self.parser.expect_token(&Token::Arrow)?;
+        let return_kind = self.parse_function_param_kind()?;
+        let return_type = self.parse_type()?;
+        let return_param = FunctionReturnParam { kind: return_kind, type_: return_type };
+
+        // Open function body
+        self.parser.expect_token(&Token::LBrace)?;
+
+        // Parse statements until return statement
+        let mut statements = Vec::new();
+        let mut index = 0;
+        while self.peek_word() != Ok("return".to_string()) {
+            let stmt = self.parse_statement(index)?;
+            let function_stmt = FunctionStatement::try_from(stmt)?;
+            statements.push(function_stmt);
+            index += 1;
+        }
+
+        // Parse return statement
+        self.expect_word("return")?;
+        let expr_or_query = self.parse_sql_expr_or_query(false)?;
+        let return_statement = ReturnStatement{ value: expr_or_query };
+        
+        // Close function body
+        self.parser.expect_token(&Token::RBrace)?;
+
+        Ok(FunctionDef { name, params, statements, return_param, return_statement })
+    }
+
     fn parse_file(&mut self) -> Result<AvengerFile, AvengerLangError> {
         let mut imports = Vec::new();
         while self.peek_word() == Ok("import".to_string()) {
@@ -340,6 +416,7 @@ impl AvengerParser {
         self.parser.expect_token(&Token::EOF)?;
         Ok(AvengerFile { imports, main_component })
     }
+    
 
     // Public methods
     pub fn tokenize(&self, input: &str) -> Result<Vec<TokenWithSpan>, AvengerLangError> {
@@ -397,6 +474,11 @@ mod tests {
             in val<int> my_val: 1 + 23;
             dataset my_dataset: select * from @my_table LIMIT 12;
             out expr my_expr: @my_val + 1;
+
+            fn my_fn(val my_val) -> val {
+                val inner_val: 10;
+                return @my_val + @inner_val;
+            }
         }
         "#;
         let parser = AvengerParser::new();
