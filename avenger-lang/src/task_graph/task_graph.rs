@@ -14,8 +14,9 @@ use crate::ast::{AvengerFile, CompInstance, DatasetPropDecl, ExprPropDecl, State
 use crate::parser::AvengerParser;
 use crate::{task_graph::tasks::Task, task_graph::{dependency::{Dependency, DependencyKind}, value::TaskValue}, error::AvengerLangError};
 
-
-use super::component::PropType;
+use super::compiler::ExtractComponentDefinitionsVisitor;
+use super::component::ComponentSpec;
+use super::component_registry::{ComponentRegistry, PropRegistration};
 use super::scope::{Scope, ScopePath};
 use super::tasks::{DatasetDeclTask, ExprDeclTask, GroupMarkTask, MarkTask, RectMarkTask, ValDeclTask};
 use super::variable::Variable;
@@ -152,13 +153,11 @@ impl TaskGraph {
     pub fn tasks(&self) -> &IndexMap<Variable, TaskNode> {
         &self.tasks
     }
-}
 
-impl TryFrom<&AvengerFile> for TaskGraph {
-    type Error = AvengerLangError;
-
-    fn try_from(file: &AvengerFile) -> Result<Self, Self::Error> {
-        let mut builder = TaskGraphBuilder::new(Scope::from_file(file)?);
+    pub fn from_file(file: &AvengerFile, component_registry: Arc<ComponentRegistry>) -> Result<Self, AvengerLangError> {
+        let mut builder = TaskGraphBuilder::new(
+            Scope::from_file(&file)?, component_registry
+        );
         file.accept(&mut builder)?;
         builder.build()
     }
@@ -167,11 +166,16 @@ impl TryFrom<&AvengerFile> for TaskGraph {
 pub struct TaskGraphBuilder {
     scope: Scope,
     tasks: HashMap<Variable, Arc<dyn Task>>,
+    component_registry: Arc<ComponentRegistry>,
 }
 
 impl TaskGraphBuilder {
-    pub fn new(scope: Scope) -> Self {
-        Self { scope, tasks: HashMap::new() }
+    pub fn new(scope: Scope, component_registry: Arc<ComponentRegistry>) -> Self {
+        Self { 
+            scope, 
+            tasks: HashMap::new(), 
+            component_registry 
+        }
     }
 
     pub fn build(self) -> Result<TaskGraph, AvengerLangError> {
@@ -179,7 +183,7 @@ impl TaskGraphBuilder {
     }
 
     pub fn validate_prop_decl(&self, prop_name: &str, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
-        if ctx.component_registry.lookup_prop(&ctx.component_type, prop_name).is_some() {
+        if self.component_registry.lookup_prop(&ctx.component_type, prop_name).is_some() {
             return Err(AvengerLangError::InternalError(format!(
                 "Property {} cannot be declared inside a component of type {} because \
                 this name is already used by the component itself. \
@@ -238,26 +242,26 @@ impl Visitor for TaskGraphBuilder {
         parts.push(prop_binding.name.clone());
         let variable = Variable::with_parts(parts);
 
-        let component_spec = ctx.component_registry.lookup_component(&ctx.component_type)
+        let component_spec = self.component_registry.lookup_component(&ctx.component_type)
             .ok_or_else(|| AvengerLangError::InternalError(format!(
                 "Unknown component type: {}", ctx.component_type)))?;
 
-        let prop_type = component_spec.props.get(&prop_binding.name)
+        let prop_type = self.component_registry.lookup_prop(&ctx.component_type, &prop_binding.name)
             .ok_or_else(|| AvengerLangError::InternalError(format!(
                 "Unknown property {} for component {}", prop_binding.name, ctx.component_type)))?;
 
         match prop_type {
-            PropType::Val => {
+            PropRegistration::Val(_) => {
                 let mut sql_expr = prop_binding.value.clone().into_expr()?;
                 self.scope.resolve_sql_expr(&mut sql_expr, &ScopePath::new(ctx.scope_path.to_vec()))?;
                 self.tasks.insert(variable, Arc::new(ValDeclTask::new(sql_expr)));
             }
-            PropType::Expr => {
+            PropRegistration::Expr(_) => {
                 let mut sql_expr = prop_binding.value.clone().into_expr()?;
                 self.scope.resolve_sql_expr(&mut sql_expr, &ScopePath::new(ctx.scope_path.to_vec()))?;
                 self.tasks.insert(variable, Arc::new(ExprDeclTask::new(sql_expr)));
             },
-            PropType::Dataset => {
+            PropRegistration::Dataset(_) => {
                 let mut query = prop_binding.value.clone().into_query()?;
                 self.scope.resolve_sql_query(&mut query, &ScopePath::new(ctx.scope_path.to_vec()))?;
                 self.tasks.insert(variable, Arc::new(DatasetDeclTask { query, eval: false }));
@@ -268,19 +272,18 @@ impl Visitor for TaskGraphBuilder {
 
     fn visit_comp_instance(&mut self, comp_instance: &CompInstance, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
 
-        let component_spec = ctx.component_registry.lookup_component(&ctx.component_type)
-            .ok_or_else(|| AvengerLangError::InternalError(format!(
-                "Unknown component type: {}", ctx.component_type)))?;
+        println!("comp_instance: {:#?}", comp_instance.name);
 
         // Add a config property that is a dataset with one column for each value binding
+        let props = self.component_registry.all_props(&comp_instance.name);
         let prop_bindings = comp_instance.prop_bindings();
 
         // Add component prop for the remaining val properties
         // Find the names of all expr property bindings
-        let val_prop_names = prop_bindings.iter()
-            .filter_map(|(_, binding)| {
-                if component_spec.props.get(&binding.name) == Some(&PropType::Val) {
-                    Some(binding.name.clone())
+        let val_prop_names = props.iter()
+            .filter_map(|(name, prop)| {
+                if let PropRegistration::Val(_) = prop {
+                    Some(name.clone())
                 } else {
                     None
                 }
@@ -307,13 +310,13 @@ impl Visitor for TaskGraphBuilder {
         self.tasks.insert(config_variable.clone(), Arc::new(task));
 
         // Handle mark-specific tasks
-        if component_spec.is_mark {
+        if let Some(mark_type) = self.component_registry.lookup_mark_type(&ctx.component_type) {
             // Create encoded_data task
             // Find the names of all expr property bindings
-            let expr_prop_names = prop_bindings.iter()
-                .filter_map(|(_, binding)| {
-                    if component_spec.props.get(&binding.name) == Some(&PropType::Expr) {
-                        Some(binding.name.clone())
+            let expr_prop_names = props.iter()
+                .filter_map(|(name, prop)| {
+                    if let PropRegistration::Expr(_) = prop {
+                        Some(name.clone())
                     } else {
                         None
                     }
@@ -352,36 +355,18 @@ impl Visitor for TaskGraphBuilder {
             let mut parts = ctx.scope_path.clone();
             parts.push("_mark".to_string());
             let mark_variable = Variable::with_parts(parts);
-
-            let mark_type = match component_spec.name.as_str() {
-                "Rect" => SceneMarkType::Rect,
-                "Arc" => SceneMarkType::Arc,
-                "Area" => SceneMarkType::Area,
-                "Image" => SceneMarkType::Image,
-                "Line" => SceneMarkType::Line,
-                "Path" => SceneMarkType::Path,
-                "Rule" => SceneMarkType::Rule,
-                "Symbol" => SceneMarkType::Symbol,
-                "Text" => SceneMarkType::Text,
-                "Trail" => SceneMarkType::Trail,
-                _ => return Err(AvengerLangError::InternalError(format!(
-                    "Unknown mark type: {}", component_spec.name
-                ))),
-            };
-
             let task = MarkTask::new(encoded_data_variable, config_variable, mark_type);
             self.tasks.insert(mark_variable, Arc::new(task));
         } else if comp_instance.name == "Group" {
             let mark_vars = comp_instance.child_comp_decls().into_iter().filter_map(|comp_decl| {
-                if let Some(comp_spec) = ctx.component_registry.lookup_component(&comp_decl.value.name) {
-                    if comp_spec.is_mark {
-                        let mut parts = ctx.scope_path.clone();
-                        parts.push(comp_decl.name.clone());
-                        parts.push("_mark".to_string());
-                        return Some(Variable::with_parts(parts))
-                    }
+                if self.component_registry.lookup_mark_type(&comp_decl.value.name).is_some() {
+                    let mut parts = ctx.scope_path.clone();
+                    parts.push(comp_decl.name.clone());
+                    parts.push("_mark".to_string());
+                    Some(Variable::with_parts(parts))
+                } else {
+                    None
                 }
-                None
             }).collect::<Vec<_>>();
 
             // Build group mark variable
@@ -399,6 +384,8 @@ impl Visitor for TaskGraphBuilder {
 
 #[cfg(test)]
 mod tests {
+    use crate::task_graph::runtime::TaskGraphRuntime;
+
     use super::*;
     use std::sync::Arc;
     use datafusion_common::ScalarValue;
@@ -441,6 +428,7 @@ mod tests {
 
         async fn evaluate(
             &self,
+            _runtime: Arc<TaskGraphRuntime>,
             _input_values: &[TaskValue],
         ) -> Result<TaskValue, AvengerLangError> {
             // For testing, just return a dummy value

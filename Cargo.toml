@@ -72,7 +72,7 @@ anyhow = { version = "1.0.98" }
 base64 = "0.22.1"
 urlencoding = "2.1"
 
-sqlparser = "0.54.0"
+sqlparser = { version = "0.54.0" }
 datafusion = { version = "46.0.0" }
 datafusion-common = { version = "46.0.0" }
 datafusion-sql = { version = "46.0.0" }

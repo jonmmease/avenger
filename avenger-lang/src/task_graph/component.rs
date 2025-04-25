@@ -1,5 +1,9 @@
 use std::collections::HashMap;
 
+use super::component_registry::{DatasetPropRegistration, ExprPropRegistration, PropRegistration, ValPropRegistration};
+use crate::ast::{ComponentDef, Statement, SqlExprOrQuery};
+use sqlparser::ast::{Expr as SqlExpr, Query as SqlQuery, Value as SqlValue};
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PropType {
     Val,
@@ -11,55 +15,53 @@ pub enum PropType {
 #[derive(Clone, Debug)]
 pub struct ComponentSpec {
     pub name: String,
-    pub props: HashMap<String, PropType>,
+    pub inherits: Option<String>,
+    pub props: HashMap<String, PropRegistration>,
+    pub bindings: HashMap<String, SqlExprOrQuery>,
     pub allow_children: bool,
     pub is_mark: bool,
 }
 
 impl ComponentSpec {
-    pub fn new(name: String, props: HashMap<String, PropType>, allow_children: bool, is_mark: bool) -> Self {
-        Self { name, props, allow_children, is_mark  }
-    }    
+    pub fn from_component_def(component_def: &ComponentDef) -> Self {
+        let name = component_def.name.clone();
+        let mut props = HashMap::new();
+        let mut bindings = HashMap::new();
+        for statement in &component_def.statements {
+            match statement {
+                Statement::ValPropDecl(val_prop_decl) => {
+                    props.insert(val_prop_decl.name.clone(), PropRegistration::Val(ValPropRegistration {
+                        qualifier: val_prop_decl.qualifier,
+                        default: Some(val_prop_decl.value.clone()),
+                    }));
+                }
+                Statement::ExprPropDecl(expr_prop_decl) => {
+                    props.insert(expr_prop_decl.name.clone(), PropRegistration::Expr(ExprPropRegistration {
+                        qualifier: expr_prop_decl.qualifier,
+                        default: Some(expr_prop_decl.value.clone()),
+                    }));
+                }
+                Statement::DatasetPropDecl(dataset_prop_decl) => {
+                    props.insert(dataset_prop_decl.name.clone(), PropRegistration::Dataset(DatasetPropRegistration {
+                        qualifier: dataset_prop_decl.qualifier,
+                        default: Some(dataset_prop_decl.value.clone()),
+                    }));
+                }
+                Statement::PropBinding(binding) => {
+                    bindings.insert(binding.name.clone(), binding.value.clone());
+                }
+                _ => {}
+            }
+        }
+        
+        Self {
+            name,
+            props,
+            bindings,
+            inherits: Some(component_def.inherits.clone()), 
+            allow_children: true,
+            is_mark: false
+        }
+    }
 }
 
-
-// Should default values be stored here?
-// =====================================
-// pub enum PropSpec {
-//     Val {
-//         default: Option<SqlExpr>,
-//     },
-//     Expr {
-//         default: Option<SqlExpr>,
-//     },
-//     Dataset {
-//         default: Option<SqlQuery>,
-//     },
-// }
-// 
-// impl PropSpec {
-//     pub fn val(default: SqlExpr) -> Self {
-//         Self::Val { default: Some(default) }
-//     }
-// 
-//     pub fn val_required() -> Self {
-//         Self::Val { default: None }
-//     }
-// 
-//     pub fn expr(default: SqlExpr) -> Self {
-//         Self::Expr { default: Some(default) }
-//     }
-// 
-//     pub fn expr_required() -> Self {
-//         Self::Expr { default: None }
-//     }
-// 
-//     pub fn dataset(default: SqlQuery) -> Self {
-//         Self::Dataset { default: Some(default) }
-//     }
-// 
-//     pub fn dataset_required() -> Self {
-//         Self::Dataset { default: None }
-//     }
-// }
-// =====================================

@@ -1,0 +1,17 @@
+Group {
+    width := 400.0;
+    height := 400.0;
+
+    component RedRect inherits Rect {
+        fill := "red";
+        stroke := "black";
+        stroke_width := 2.0;
+    }
+
+    RedRect {
+        x := 10.0;
+        y := 10.0;
+        width := 100.0;
+        height := 100.0;
+    }
+}

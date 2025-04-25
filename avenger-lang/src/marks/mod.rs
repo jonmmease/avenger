@@ -72,7 +72,7 @@ pub fn build_rect_mark(encoded_data: &ArrowTable, config: &ArrowTable) -> Result
     let corner_radius = encoded_data.column("corner_radius").ok().and_then(
         |arr| coercer.to_numeric(&arr, None).ok()
     ).unwrap_or_else(|| default_mark.corner_radius.clone());
-    
+
     Ok(SceneRectMark {
         name: "rect".to_string(),
         clip,

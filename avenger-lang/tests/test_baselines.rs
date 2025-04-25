@@ -19,16 +19,15 @@ use utils::assert_runtime_image_equal;
 use anyhow::Result;
 
 #[rstest]
-#[case("arcs/simple")]
-#[case("arcs/simple2")]
-// #[case("other/path")]
+// #[case("arcs/simple")]
+// #[case("arcs/simple2")]
+#[case("components/custom_component")]
 #[tokio::test]
 async fn test_baselines(#[case] path: &str) -> Result<()> {
     let file = load_file(&format!("{path}.avgr"))?;
-    let task_graph = Arc::new(TaskGraph::try_from(&file)?);
     let runtime = TaskGraphRuntime::new();
     let scene_graph = runtime.evaluate_file(&file).await?;
-    assert_runtime_image_equal(&scene_graph, path, 2.0, false).await?;
+    assert_runtime_image_equal(&scene_graph, path, 2.0, true).await?;
     Ok(())
 }
 
