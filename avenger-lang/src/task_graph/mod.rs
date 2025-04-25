@@ -9,3 +9,4 @@ pub mod variable;
 pub mod scope;
 pub mod component_registry;
 pub mod component;
+pub mod compiler;

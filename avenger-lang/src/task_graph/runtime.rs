@@ -20,6 +20,8 @@ use crate::task_graph::{
     value::TaskValue,
 };
 
+use super::compiler::ExtractComponentDefinitionsVisitor;
+use super::component::ComponentSpec;
 use super::component_registry::ComponentRegistry;
 use super::value::TaskDataset;
 
@@ -47,8 +49,22 @@ impl TaskGraphRuntime {
         file: &AvengerFile,
     ) -> Result<SceneGraph, AvengerLangError> {
 
+        // Build component registry
+        let mut file = file.clone();
+        let mut visitor = ExtractComponentDefinitionsVisitor::new();
+        file.accept_mut(&mut visitor)?;
+        let component_defs = visitor.component_definitions;
+        let component_specs: Vec<ComponentSpec> = component_defs.iter().map(
+            |def| ComponentSpec::from_component_def(def)
+        ).collect();
+        let mut registry = ComponentRegistry::new_with_marks();
+        for spec in component_specs {
+            registry.register_component(&spec.name, spec.clone());
+        }
+        let component_registry = Arc::new(registry);
+        
         // Build task graph
-        let task_graph = Arc::new(TaskGraph::try_from(file)?);
+        let task_graph = Arc::new(TaskGraph::from_file(&file, component_registry.clone())?);
         
         // Build variables for size of the scenegraph
         let mut dim_vars = vec![];
@@ -64,19 +80,23 @@ impl TaskGraphRuntime {
         }
 
         // Build variables for the marks
-        let registry = ComponentRegistry::new();
-        let mut mark_vars = vec![];
-        for stmt in &file.main_component.statements {
-            if let Statement::CompPropDecl(comp) = stmt {
-                let comp_type = comp.value.name.clone();
-                let is_mark = registry.lookup_component(&comp_type).map(|spec| spec.is_mark).unwrap_or(false);
-                if is_mark || comp_type == "Group" {
-                    // Build var with group components mark
-                    let mark_var = Variable::with_parts(vec![comp.name.clone(), "_mark".to_string()]);
-                    mark_vars.push(mark_var);
-                }
-            }
-        }
+        let mut mark_vars = vec![Variable::with_parts(vec!["_mark".to_string()])];
+
+
+        // for stmt in &file.main_component.statements {
+        //     if let Statement::CompPropDecl(comp) = stmt {
+        //         let comp_type = comp.value.name.clone();
+        //         println!("comp_type: {comp_type:?}");
+        //         let is_mark = component_registry.lookup_component(&comp_type).map(
+        //             |spec| spec.is_mark
+        //         ).unwrap_or(false);
+        //         if is_mark || comp_type == "Group" {
+        //             // Build var with group components mark
+        //             let mark_var = Variable::with_parts(vec![comp.name.clone(), "_mark".to_string()]);
+        //             mark_vars.push(mark_var);
+        //         }
+        //     }
+        // }
 
         // Combine dimension and mark variables
         let all_vars = [dim_vars, mark_vars.clone()].concat();
@@ -108,6 +128,8 @@ impl TaskGraphRuntime {
 
         // Get the marks
         let marks = mark_vars.iter().map(|v| results.remove(v).unwrap().into_mark().unwrap()).collect::<Vec<_>>();
+
+        println!("marks: {:?}", marks);
 
         Ok(SceneGraph {
             width,
@@ -333,6 +355,7 @@ mod tests {
 
         async fn evaluate(
             &self,
+            _runtime: Arc<TaskGraphRuntime>,
             _input_values: &[TaskValue],
         ) -> Result<TaskValue, AvengerLangError> {
             Ok(self.return_value.clone())
@@ -378,6 +401,7 @@ mod tests {
         
         async fn evaluate(
             &self,
+            _runtime: Arc<TaskGraphRuntime>,
             _input_values: &[TaskValue],
         ) -> Result<TaskValue, AvengerLangError> {
             // Simulate work by sleeping
@@ -425,6 +449,7 @@ mod tests {
         
         async fn evaluate(
             &self,
+            _runtime: Arc<TaskGraphRuntime>,
             _input_values: &[TaskValue],
         ) -> Result<TaskValue, AvengerLangError> {
             // Increment the counter each time evaluate is called

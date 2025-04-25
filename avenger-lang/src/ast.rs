@@ -29,7 +29,7 @@ use crate::task_graph::component_registry::ComponentRegistry;
 #[derive(Debug, Clone, PartialEq, Eq, Hash) ]
 pub struct Type(pub String);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PropQualifier {
     In,
     Out,
@@ -516,7 +516,6 @@ pub struct AvengerFile {
 pub struct VisitorContext {
     pub scope_path: Vec<String>,
     pub component_type: String,
-    pub component_registry: Arc<ComponentRegistry>,
 }
 
 pub trait Visitor {
@@ -702,8 +701,9 @@ impl CompPropDecl {
             ..ctx.clone()
         };
 
+        self.value.accept(visitor, &new_ctx)?;
         visitor.visit_comp_prop_decl(self, &new_ctx)?;
-        self.value.accept(visitor, &new_ctx)
+        Ok(())
     }
     
     pub fn accept_mut<V: VisitorMut>(&mut self, visitor: &mut V, ctx: &VisitorContext) -> Result<(), AvengerLangError> {
@@ -716,7 +716,8 @@ impl CompPropDecl {
             ..ctx.clone()
         };
         self.value.accept_mut(visitor, &new_ctx)?;
-        visitor.visit_comp_prop_decl(self, &new_ctx)
+        visitor.visit_comp_prop_decl(self, &new_ctx)?;
+        Ok(())
     }
 }
 
@@ -787,7 +788,6 @@ impl AvengerFile {
         let root_ctx = VisitorContext {
             scope_path: Vec::new(),
             component_type: "App".to_string(),
-            component_registry: Arc::new(ComponentRegistry::new_with_marks()),
         };
         visitor.visit_avenger_file(self, &root_ctx)?;
         for import in &self.imports {
@@ -801,7 +801,6 @@ impl AvengerFile {
         let root_ctx = VisitorContext {
             scope_path: Vec::new(),
             component_type: "App".to_string(),
-            component_registry: Arc::new(ComponentRegistry::new_with_marks()),
         };
         visitor.visit_avenger_file(self, &root_ctx)?;
         for import in &mut self.imports {

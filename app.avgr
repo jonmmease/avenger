@@ -1,0 +1,39 @@
+
+width := 440;
+height := 440;
+
+dataset data_0: SELECT * FROM (VALUES 
+        (1, 'red'),
+        (2, 'green'),
+        (3, 'cyan')
+    ) foo("a", "b");
+
+comp g1: Group {
+    x := 20;
+    y := 20;
+
+    comp mark1: Rect {
+        data := SELECT * FROM @data_0;
+        x2 := @x + 20;
+        x := "a" * 100;
+        y := "a" * 10 + 10;
+        y2 := 0;
+        fill := "b";
+        stroke_width := 8;
+        stroke := 'rgba(237, 14, 188, 0.5)';
+        corner_radius := 3;
+    }
+
+    comp mark2: Symbol {
+        data := SELECT *, "a" * 30 AS "angle" FROM @data_0;
+        x := "a" * 100;
+        y := "a" * 10 + 50;
+        size := 800;
+        fill := "b";
+        stroke := 'black';  
+        stroke_width := 2;
+        shapes := ['square', 'triangle-up', 'wedge'];
+        angle := "angle";
+        shape_index := "a" - 1;
+    }
+}

@@ -394,6 +394,8 @@ impl Task for GroupMarkTask {
             None
         };
 
+        println!("group marks: {:#?}", self.marks);
+
         let group_mark = SceneGroup {
             name: "".to_string(),
             origin: [x, y],

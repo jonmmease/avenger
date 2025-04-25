@@ -73,7 +73,7 @@ impl Dialect for AvengerSqlDialect {
 
 
 pub struct AvengerParser {
-    pub parser: SqlParser<'static>,
+    pub parser: SqlParser<'static>
 }
 
 
@@ -531,7 +531,10 @@ impl AvengerParser {
         }
         let main_component = self.parse_comp_instance()?;
         self.parser.expect_token(&Token::EOF)?;
-        Ok(AvengerFile { imports, main_component })
+        Ok(AvengerFile { 
+            imports, 
+            main_component 
+        })
     }
     
 
@@ -586,7 +589,7 @@ mod tests {
     fn test_parse_file() {
         let src = r#"
         // This is a comment
-        CompA {
+        Group {
             import { ComponentA, CompB }
             in val<int> my_val: 1 + 23;
             dataset my_dataset: select * from @my_table LIMIT 12;
@@ -632,7 +635,7 @@ mod tests {
         // This is a comment
         import { ComponentA, CompB }
         import { Slider as MySlider, } from 'avenger/widgets';
-        CompB {
+        Group {
             in expr my_expr: ("a" + 1) * 3;
 
             fn my_fn(self, val my_val) -> expr { 
@@ -694,7 +697,7 @@ mod tests {
     fn test_parse_comp_declaration() {
         let src = r#"
         // This is a component
-        OuterComponent {
+        Group {
             out comp<Widget> my_comp: MyComponent {
                 val internal_val: 42;
                 expr result: @internal_val * 2;
