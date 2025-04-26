@@ -1,8 +1,8 @@
-mod ts_typed_ast;
+pub mod parse;
 
 use ast::SqlExpression;
 use tree_sitter::{Query, QueryCursor, StreamingIterator};
-use ts_typed_ast::AstNode;
+use parse::ts_typed_ast::AstNode;
 
 mod ast {
     include!(concat!(env!("OUT_DIR"), "/ast.rs"));
@@ -16,7 +16,7 @@ pub fn add(left: u64, right: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use tree_sitter::{Point, TreeCursor};
-    use ts_typed_ast::AstNode;
+    use parse::ts_typed_ast::AstNode;
 
     use super::*;
 
