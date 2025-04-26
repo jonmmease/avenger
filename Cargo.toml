@@ -14,6 +14,7 @@ members = [
     "avenger-app",
     "avenger-winit-wgpu",
     "avenger-lang",
+    "avenger-lang2",
     "avenger-cli",
     "examples/wgpu-scales",
     "examples/wgpu-winit",
