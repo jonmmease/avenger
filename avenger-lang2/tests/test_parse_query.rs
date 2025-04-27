@@ -12,8 +12,8 @@ FROM table_1 as "asdf
 WHERE a AND b < 100
 ORDER BY a DESC, b"#;
 
-    let lines = src.lines().collect::<Vec<_>>();
     // Compute line lengths, add 1 for the newline between lines
+    let lines = src.lines().collect::<Vec<_>>();
     let line_lens = lines.iter().map(|line| line.len() + 1).collect::<Vec<_>>();
     println!("line_lens: {:?}", line_lens);
 
