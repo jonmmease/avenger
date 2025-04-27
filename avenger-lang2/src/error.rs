@@ -3,7 +3,7 @@ use std::io;
 use regex::Regex;
 use sqlparser::parser::ParserError;
 use thiserror::Error;
-use ariadne::{Color, Config, Label, Report, ReportKind, Source};
+use ariadne::{Color, ColorGenerator, Config, Label, Report, ReportKind, Source};
 
 
 #[derive(Error, Debug)]
@@ -87,11 +87,15 @@ impl PositionalParseErrorInfo {
         let lines = src.lines().collect::<Vec<_>>();
         let line_lens = lines.iter().map(|line| line.len() + 1).collect::<Vec<_>>();
         let span_start = line_lens[..self.line - 1].iter().sum::<usize>() + self.column - 1;
+
+        let mut colors = ColorGenerator::new();
     
         Report::build(ReportKind::Error, (file_name, span_start..span_start))
             .with_message("Parsing error")
             .with_label(
-                Label::new((file_name, span_start..span_start + self.len - 1)).with_message(&self.message),
+                Label::new((file_name, span_start..span_start + self.len - 1))
+                    .with_message(&self.message)
+                    .with_color(colors.next()),
             )
             .finish()
             .print((file_name, Source::from(src)))
