@@ -13,6 +13,10 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 heck = "0.4"
 
+ariadne = "0.5.1"
+sqlparser = { workspace = true }
+regex = "1"
+
 [build-dependencies]
 # tree-sitter-avenger = "0.0.4"
 tree-sitter-avenger = { path = "/Users/jonmmease/VegaFusion/repos/tree-sitter-avenger" }

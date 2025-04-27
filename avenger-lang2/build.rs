@@ -119,7 +119,7 @@ pub enum {node_name}<'tree> {{"
 
             writeln!(
                 out_file,
-                r#"impl<'tree> crate::parse::ts_typed_ast::AstNode<'tree> for {node_name}<'tree> {{
+                r#"impl<'tree> crate::tree_sitter_ast::ts_typed_ast::AstNode<'tree> for {node_name}<'tree> {{
     fn can_cast(kind: u16) -> bool {{
         {can_casts}
     }}
@@ -197,7 +197,7 @@ pub struct {node_name}<'tree> {{
 
             writeln!(
                 out_file,
-                r#"impl<'tree> crate::parse::ts_typed_ast::AstNode<'tree> for {node_name}<'tree> {{
+                r#"impl<'tree> crate::tree_sitter_ast::ts_typed_ast::AstNode<'tree> for {node_name}<'tree> {{
     fn can_cast(kind: u16) -> bool {{
         kind == {kind_id}
     }}
@@ -262,19 +262,19 @@ pub struct {node_name}<'tree> {{
                         writeln!(
                             out_file,
                             r#"    pub fn {method}(&self) -> impl Iterator<Item = {type_}<'tree>> {{
-        crate::parse::ts_typed_ast::Children::new(crate::parse::ts_typed_ast::AstNode::node(self), std::num::NonZeroU16::new({field_id}).unwrap())
+        crate::tree_sitter_ast::ts_typed_ast::Children::new(crate::tree_sitter_ast::ts_typed_ast::AstNode::node(self), std::num::NonZeroU16::new({field_id}).unwrap())
     }}"#
                         )
                         .unwrap();
                     } else if required {
                         writeln!(
                             out_file,
-                            r#"    pub fn {method}(&self) -> Result<{type_}<'tree>, crate::parse::ts_typed_ast::MissingNodeChildError<'tree>> {{
-        let node = crate::parse::ts_typed_ast::AstNode::node(self);
+                            r#"    pub fn {method}(&self) -> Result<{type_}<'tree>, crate::tree_sitter_ast::ts_typed_ast::MissingNodeChildError<'tree>> {{
+        let node = crate::tree_sitter_ast::ts_typed_ast::AstNode::node(self);
         node
             .child_by_field_id({field_id})
-            .and_then(crate::parse::ts_typed_ast::AstNode::cast)
-            .ok_or_else(|| crate::parse::ts_typed_ast::MissingNodeChildError::new(node, {field_id}))
+            .and_then(crate::tree_sitter_ast::ts_typed_ast::AstNode::cast)
+            .ok_or_else(|| crate::tree_sitter_ast::ts_typed_ast::MissingNodeChildError::new(node, {field_id}))
     }}"#
                         )
                         .unwrap();
@@ -282,9 +282,9 @@ pub struct {node_name}<'tree> {{
                         writeln!(
                             out_file,
                             r#"    pub fn {method}(&self) -> Option<{type_}<'tree>> {{
-        crate::parse::ts_typed_ast::AstNode::node(self)
+        crate::tree_sitter_ast::ts_typed_ast::AstNode::node(self)
             .child_by_field_id({field_id})
-            .and_then(crate::parse::ts_typed_ast::AstNode::cast)
+            .and_then(crate::tree_sitter_ast::ts_typed_ast::AstNode::cast)
     }}"#
                         )
                         .unwrap();
