@@ -12,6 +12,7 @@ check_keyword = "0.2"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 heck = "0.4"
+thiserror = { workspace = true }
 
 ariadne = "0.5.1"
 sqlparser = { workspace = true }

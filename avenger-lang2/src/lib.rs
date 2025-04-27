@@ -1,5 +1,6 @@
 pub mod tree_sitter_ast;
 pub mod ast;
+pub mod error;
 
 use tree_sitter_ast::SqlExpression;
 use tree_sitter::{Query, QueryCursor, StreamingIterator};
