@@ -15,7 +15,6 @@ pub enum Statement {
     ComponentProp(ComponentProp),
     PropBinding(PropBinding),
     FunctionDef(FunctionDef),
-    ComponentDef(ComponentDef),
 }
 
 impl Spanned for Statement {
@@ -28,7 +27,6 @@ impl Spanned for Statement {
             Statement::ComponentProp(component_prop) => component_prop.span(),
             Statement::PropBinding(prop_binding) => prop_binding.span(),
             Statement::FunctionDef(function_def) => function_def.span(),
-            Statement::ComponentDef(component_def) => component_def.span(),
         }
     }
 }
@@ -220,26 +218,6 @@ impl Spanned for PropBinding {
         ])
     }
 }
-
-// Component definition
-// --------------------
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ComponentDef {
-    pub name: Identifier,
-    pub inherits: Option<Identifier>,
-    pub statements: Vec<Statement>,
-}
-
-impl Spanned for ComponentDef {
-    fn span(&self) -> Span {
-        let mut span = self.name.span();
-        if let Some(inherits) = &self.inherits {
-            span = span.union(&inherits.span());
-        }
-        span
-    }
-}
-
 
 // function definition
 // -------------------
