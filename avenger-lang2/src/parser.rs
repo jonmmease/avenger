@@ -6,7 +6,7 @@ use sqlparser::dialect::{Dialect, GenericDialect, SnowflakeDialect};
 use sqlparser::parser::{Parser as SqlParser, ParserError};
 use sqlparser::tokenizer::{Token, TokenWithSpan, Tokenizer};
 
-use crate::ast::{AvengerFile, ComponentProp, DatasetProp, ExprProp, Identifier, ImportItem, ImportStatement, KeywordAs, KeywordComp, KeywordDataset, KeywordExpr, KeywordFrom, KeywordImport, KeywordIn, KeywordOut, KeywordVal, Qualifier, Statement, Type, ValProp};
+use crate::ast::{AvengerFile, ComponentProp, DatasetProp, ExprProp, Identifier, ImportItem, ImportStatement, KeywordAs, KeywordComp, KeywordDataset, KeywordExpr, KeywordFrom, KeywordImport, KeywordIn, KeywordOut, KeywordVal, PropBinding, Qualifier, SqlExprOrQuery, Statement, Type, ValProp};
 use crate::error::{AvengerLangError, PositionalParseErrorInfo};
 
 
@@ -120,25 +120,6 @@ impl<'a> AvengerParser<'a> {
         }
     }
 
-    // /// Peek a word token, with optional expected value. Returns the identifier value.
-    // fn peek_ident(&mut self, expected: Option<&str>) -> Result<Identifier, ParserError> {
-    //     let this_token = self.parser.peek_token();
-    //     match &this_token.token {
-    //         Token::Word(w) => {
-    //             if let Some(expected) = expected {
-    //                 if w.value != expected {
-    //                     return self.parser.expected(expected, this_token);
-    //                 }
-    //             }
-    //             Ok(Identifier { 
-    //                 span: this_token.span, 
-    //                 name: w.value.clone() 
-    //             })
-    //         },
-    //         _ => self.parser.expected(expected.unwrap_or("word"), this_token),
-    //     }
-    // }
-
     /// Expect a word token, with optional expected value. Returns the word value.
     fn expect_ident(&mut self, expected: Option<&str>, msg: &str) -> Result<Identifier, ParserError> {
         let token = self.parser.next_token();
@@ -192,8 +173,21 @@ impl<'a> AvengerParser<'a> {
             "dataset" => self.parse_dataset_statement(qualifier, ident),
             "comp" => self.parse_comp_prop_statement(qualifier, ident),
             "fn" => self.parse_fn_statement(),
+            
+            // Handle binding or the form:
+            // name := query_or_expr;
+            _ if self.parser.peek_token().token == Token::Assignment => {
+                // Consume the assignment token
+                self.parser.next_token();
+
+                // Parse the query or expression, with required trailing semi-colon
+                let expr_or_query = self.parse_sql_expr_or_query(true)?;
+
+                Ok(Statement::PropBinding(PropBinding { name: ident, expr: expr_or_query }))
+            }
             _ => {
-                // Assume anonymous component value
+                // Assume anonymous component value of the form:
+                // Rect {...}
                 self.error_if_qualifier(qualifier, "anonymous component")?;
                 self.parse_component_value(None, None, None)
             },
@@ -404,6 +398,29 @@ impl<'a> AvengerParser<'a> {
     fn parse_fn_statement(&mut self) -> Result<Statement, AvengerLangError> {
         todo!()
     }
+
+    fn parse_sql_expr_or_query(&mut self, required_semi_colon: bool) -> Result<SqlExprOrQuery, AvengerLangError> {
+        let index = self.parser.index();
+        let expr_or_query = if let Ok(sql_query) = self.parser.parse_query() {
+            let value = SqlExprOrQuery::Query(sql_query);
+            value
+        } else {
+            // Reset index to the index we were at prior to the attempt to parse as a query
+            while self.parser.index() > index {
+                self.parser.prev_token();
+            }
+            // Consume the assignment token if we jumped back to it, but don't fail if we don't find it
+            let _ = self.parser.expect_token(&Token::Assignment);
+            SqlExprOrQuery::Expr(self.parser.parse_expr()?)
+        };
+
+        // Consume optional semi-colon
+        if required_semi_colon || self.parser.peek_token_ref().token == Token::SemiColon {
+            self.parser.expect_token(&Token::SemiColon)?;
+        }
+
+        Ok(expr_or_query)
+    }
 }
 
 
@@ -462,6 +479,18 @@ import { Blah }
 comp foo: Rect {}"#;
         let mut parser = AvengerParser::new(sql).unwrap();
 
+        let file = parser.parse().unwrap();
+        println!("{:#?}", file);
+        assert_eq!(file.statements.len(), 1);
+    }
+
+
+    #[test]
+    fn test_parse_binding_statement() {
+        let sql = r#"
+        foo := select * from bar;
+        "#;
+        let mut parser = AvengerParser::new(sql).unwrap();
         let file = parser.parse().unwrap();
         println!("{:#?}", file);
         assert_eq!(file.statements.len(), 1);
