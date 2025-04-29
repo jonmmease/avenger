@@ -667,6 +667,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlparser",
+ "sqlparser_derive",
  "thiserror 2.0.3",
  "tree-sitter",
  "tree-sitter-avenger",

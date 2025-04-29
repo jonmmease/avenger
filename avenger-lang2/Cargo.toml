@@ -15,7 +15,8 @@ heck = "0.4"
 thiserror = { workspace = true }
 
 ariadne = "0.5.1"
-sqlparser = { workspace = true }
+sqlparser = { workspace = true, features = ["visitor"] }
+sqlparser_derive = { workspace = true }
 regex = "1"
 lazy_static = { workspace = true }
 

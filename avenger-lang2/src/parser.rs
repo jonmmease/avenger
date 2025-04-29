@@ -1,7 +1,7 @@
 use std::any::TypeId;
 
 use lazy_static::lazy_static;
-use sqlparser::ast::Spanned;
+use sqlparser::ast::{Ident, Spanned};
 use sqlparser::dialect::{Dialect, GenericDialect, SnowflakeDialect};
 use sqlparser::parser::{Parser as SqlParser, ParserError};
 use sqlparser::tokenizer::{Token, TokenWithSpan, Tokenizer};
@@ -121,7 +121,7 @@ impl<'a> AvengerParser<'a> {
     }
 
     /// Expect a word token, with optional expected value. Returns the word value.
-    fn expect_ident(&mut self, expected: Option<&str>, msg: &str) -> Result<Identifier, ParserError> {
+    fn expect_ident(&mut self, expected: Option<&str>, msg: &str) -> Result<Ident, ParserError> {
         let token = self.parser.next_token();
         match &token.token {
             Token::Word(w) => {
@@ -130,19 +130,20 @@ impl<'a> AvengerParser<'a> {
                         return self.parser.expected(expected, token);
                     }
                 }
-                Ok(Identifier { 
-                    span: token.span, 
-                    name: w.value.clone() 
+                Ok(Ident { 
+                    value: w.value.clone(),
+                    quote_style: w.quote_style,
+                    span: token.span,
                 })
             },
             _ => self.parser.expected(msg, token),
         }
     }
 
-    fn expect_single_quoted_string(&mut self) -> Result<Identifier, ParserError> {
+    fn expect_single_quoted_string(&mut self) -> Result<Ident, ParserError> {
         let next_token = self.parser.next_token();
         match next_token.token {
-            Token::SingleQuotedString(s) => Ok(Identifier { name: s, span: next_token.span }),
+            Token::SingleQuotedString(s) => Ok(Ident { value: s, quote_style: Some('\''), span: next_token.span }),
             _ => self.parser.expected("single quoted string", next_token),
         }
     }
@@ -151,7 +152,7 @@ impl<'a> AvengerParser<'a> {
         // Get the first identifier
         let mut ident = self.expect_ident(None, "start of statement")?;
         // See if we have a qualifier
-        let qualifier = match ident.name.as_str() {
+        let qualifier = match ident.value.as_str() {
             "in" => {
                 // Build qualifier and advance to next identifier
                 let q = Qualifier::In(KeywordIn { span: ident.span });
@@ -166,7 +167,7 @@ impl<'a> AvengerParser<'a> {
             },
             _ => None,
         };
-        match ident.name.as_str() {
+        match ident.value.as_str() {
             "import" => Ok(Statement::Import(self.parse_import_statement(qualifier, ident)?)),
             "val" => Ok(Statement::ValProp(self.parse_val_statement(qualifier, ident)?)),
             "expr" => Ok(Statement::ExprProp(self.parse_expr_statement(qualifier, ident)?)),
@@ -211,7 +212,7 @@ impl<'a> AvengerParser<'a> {
     /// import { Foo } from "bar";
     /// import { Foo as Bar, Baz } from "bar";
     /// import { Blah }
-    fn parse_import_statement(&mut self, qualifier: Option<Qualifier>, statement_iden: Identifier) -> Result<ImportStatement, AvengerLangError> {
+    fn parse_import_statement(&mut self, qualifier: Option<Qualifier>, statement_iden: Ident) -> Result<ImportStatement, AvengerLangError> {
         self.error_if_qualifier(qualifier, "import")?;
 
         // Build import keyword from statement identifier
@@ -225,22 +226,21 @@ impl<'a> AvengerParser<'a> {
         while self.parser.peek_token().token != Token::RBrace {
 
             let component = self.expect_ident(None, "import component")?;
-            let as_ = if self.is_ident(Some("as")) {
+            let (as_keyword, alias) = if self.is_ident(Some("as")) {
                 // Get the as keyword
                 let as_ident = self.expect_ident(Some("as"), "as")?;
                 let as_keyword = KeywordAs { span: as_ident.span };
 
                 // Get the alias
                 let alias = self.expect_ident(None, "import alias")?;
-                Some((
-                    as_keyword, alias
-                ))
+                (Some(as_keyword), Some(alias))
             } else {
-                None
+                (None, None)
             };
             items.push(ImportItem {
                 name: component,
-                as_,
+                as_keyword,
+                alias,
             });
             // Consume comma if present
             if self.parser.peek_token().token == Token::Comma {
@@ -250,7 +250,7 @@ impl<'a> AvengerParser<'a> {
         self.parser.expect_token(&Token::RBrace)?;
 
         // Parse from clause
-        let from = if self.is_ident(Some("from")) {
+        let (from_keyword, from_path) = if self.is_ident(Some("from")) {
             let from_ident = self.expect_ident(Some("from"), "from")?;
             let from_keyword = KeywordFrom { span: from_ident.span };
 
@@ -258,15 +258,16 @@ impl<'a> AvengerParser<'a> {
             let path = self.expect_single_quoted_string()?;
             // semi-colon required after path
             self.parser.expect_token(&Token::SemiColon)?;
-            Some((from_keyword, path))
+            (Some(from_keyword), Some(path))
         } else {
-            None
+            (None, None)
         };
 
         Ok(ImportStatement {
             import_keyword,
             items,
-            from,
+            from_keyword,
+            from_path,
         })
     }
 
@@ -287,12 +288,12 @@ impl<'a> AvengerParser<'a> {
 
     fn parse_param_kind(&mut self) -> Result<ParamKind, AvengerLangError> {
         let ident = self.expect_ident(None, "param kind")?;
-        match ident.name.as_str() {
+        match ident.value.as_str() {
             "val" => Ok(ParamKind::Val(KeywordVal { span: ident.span })),
             "expr" => Ok(ParamKind::Expr(KeywordExpr { span: ident.span })),
             "dataset" => Ok(ParamKind::Dataset(KeywordDataset { span: ident.span })),
             _ => Err(AvengerLangError::PositionalParseError(PositionalParseErrorInfo {
-                message: format!("invalid param kind: {}", ident.name),
+                message: format!("invalid param kind: {}", ident.value),
                 line: ident.span.start.line as i32,
                 column: ident.span.start.column as i32,
                 len: (ident.span.end.column - ident.span.start.column) as usize,
@@ -302,7 +303,7 @@ impl<'a> AvengerParser<'a> {
 
     /// Parse a val statement of the form:
     /// val <Type> foo: 23;
-    fn parse_val_statement(&mut self, qualifier: Option<Qualifier>, statement_iden: Identifier) -> Result<ValProp, AvengerLangError> {
+    fn parse_val_statement(&mut self, qualifier: Option<Qualifier>, statement_iden: Ident) -> Result<ValProp, AvengerLangError> {
         // Build val keyword from statement identifier
         let val_keyword = KeywordVal { span: statement_iden.span };
 
@@ -324,7 +325,7 @@ impl<'a> AvengerParser<'a> {
         Ok(ValProp { qualifier, val_keyword, type_, name, expr })
     }
 
-    fn parse_expr_statement(&mut self, qualifier: Option<Qualifier>, statement_iden: Identifier) -> Result<ExprProp, AvengerLangError> {
+    fn parse_expr_statement(&mut self, qualifier: Option<Qualifier>, statement_iden: Ident) -> Result<ExprProp, AvengerLangError> {
         // Build expr keyword from statement identifier
         let expr_keyword = KeywordExpr { span: statement_iden.span };
 
@@ -346,7 +347,7 @@ impl<'a> AvengerParser<'a> {
         Ok(ExprProp { qualifier, expr_keyword, type_, name, expr })
     }
 
-    fn parse_dataset_statement(&mut self, qualifier: Option<Qualifier>, statement_iden: Identifier) -> Result<DatasetProp, AvengerLangError> {
+    fn parse_dataset_statement(&mut self, qualifier: Option<Qualifier>, statement_iden: Ident) -> Result<DatasetProp, AvengerLangError> {
         // Build dataset keyword from statement identifier
         let dataset_keyword = KeywordDataset { span: statement_iden.span };
 
@@ -370,7 +371,7 @@ impl<'a> AvengerParser<'a> {
 
     /// Parse a component property statement of the form:
     /// comp foo: Rect {...}
-    fn parse_comp_prop_statement(&mut self, qualifier: Option<Qualifier>, statement_iden: Identifier) -> Result<ComponentProp, AvengerLangError> {
+    fn parse_comp_prop_statement(&mut self, qualifier: Option<Qualifier>, statement_iden: Ident) -> Result<ComponentProp, AvengerLangError> {
         // Build comp keyword from statement identifier
         let comp_keyword = KeywordComp { span: statement_iden.span };
 
@@ -386,7 +387,7 @@ impl<'a> AvengerParser<'a> {
 
     /// Parse a component value statement of the form:
     /// Rect {...}
-    fn parse_component_value(&mut self, qualifier: Option<Qualifier>, keyword: Option<KeywordComp>, prop_name: Option<Identifier>) -> Result<ComponentProp, AvengerLangError> {
+    fn parse_component_value(&mut self, qualifier: Option<Qualifier>, keyword: Option<KeywordComp>, prop_name: Option<Ident>) -> Result<ComponentProp, AvengerLangError> {
 
         // parse component name
         let component_name = self.expect_ident(None, "component name")?;
@@ -415,7 +416,7 @@ impl<'a> AvengerParser<'a> {
     /// fn foo() -> val { ... }
     /// fn foo(val bar, expr baz) -> dataset { ... }
     /// fn foo(val <int> bar, expr <string> baz) -> dataset { ... }
-    fn parse_fn_statement(&mut self, qualifier: Option<Qualifier>, statement_iden: Identifier) -> Result<FunctionDef, AvengerLangError> {
+    fn parse_fn_statement(&mut self, qualifier: Option<Qualifier>, statement_iden: Ident) -> Result<FunctionDef, AvengerLangError> {
         self.error_if_qualifier(qualifier, "fn")?;
 
         // Build import keyword from statement identifier
@@ -490,12 +491,12 @@ impl<'a> AvengerParser<'a> {
     fn parse_function_body_statement(&mut self) -> Result<FunctionStatement, AvengerLangError> {
         // Get the first identifier
         let ident = self.expect_ident(None, "start of statement")?;
-        match ident.name.as_str() {
+        match ident.value.as_str() {
             "val" => Ok(FunctionStatement::ValProp(self.parse_val_statement(None, ident)?)),
             "expr" => Ok(FunctionStatement::ExprProp(self.parse_expr_statement(None, ident)?)),
             "dataset" => Ok(FunctionStatement::DatasetProp(self.parse_dataset_statement(None, ident)?)),
             _ => Err(AvengerLangError::PositionalParseError(PositionalParseErrorInfo {
-                message: format!("invalid function statement: {}", ident.name),
+                message: format!("invalid function statement: {}", ident.value),
                 line: ident.span.start.line as i32,
                 column: ident.span.start.column as i32,
                 len: (ident.span.end.column - ident.span.start.column) as usize,
