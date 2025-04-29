@@ -112,6 +112,12 @@ pub struct ValProp {
     pub expr: SqlExpr,
 }
 
+impl ValProp {
+    pub fn name(&self) -> &str {
+        self.name.name.as_str()
+    }
+}
+
 impl Spanned for ValProp {
     fn span(&self) -> Span {
         let mut span = Span::empty();
@@ -139,6 +145,12 @@ pub struct ExprProp {
     pub expr: SqlExpr,
 }
 
+impl ExprProp {
+    pub fn name(&self) -> &str {
+        self.name.name.as_str()
+    }
+}
+
 impl Spanned for ExprProp {
     fn span(&self) -> Span {
         let mut span = Span::empty();
@@ -163,6 +175,12 @@ pub struct DatasetProp {
     pub type_: Option<Type>,
     pub name: Identifier,
     pub query: Box<SqlQuery>,
+}
+
+impl DatasetProp {
+    pub fn name(&self) -> &str {
+        self.name.name.as_str()
+    }
 }
 
 impl Spanned for DatasetProp {
@@ -192,6 +210,18 @@ pub struct ComponentProp {
     pub statements: Vec<Statement>,
 }
 
+impl ComponentProp {
+    pub fn name(&self) -> String {
+        if let Some(prop_name) = &self.prop_name {
+            prop_name.name.clone()
+        } else {
+            // Build a unique component name based on the location
+            let start_location = self.component_name.span.start;
+            format!("_comp_{}_{}", start_location.line, start_location.column)
+        }
+    }
+}
+
 impl Spanned for ComponentProp {
     fn span(&self) -> Span {
         let mut span = Span::empty();
@@ -215,6 +245,12 @@ impl Spanned for ComponentProp {
 pub struct PropBinding {
     pub name: Identifier,
     pub expr: SqlExprOrQuery,
+}
+
+impl PropBinding {
+    pub fn name(&self) -> &str {
+        self.name.name.as_str()
+    }
 }
 
 impl Spanned for PropBinding {
