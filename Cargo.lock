@@ -674,6 +674,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-runtime"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "arrow-schema",
+ "async-recursion",
+ "async-trait",
+ "avenger-lang2",
+ "avenger-scenegraph",
+ "datafusion",
+ "datafusion-common",
+ "futures",
+ "indexmap",
+ "lru",
+ "petgraph 0.8.1",
+ "sqlparser",
+ "thiserror 2.0.3",
+ "tokio",
+]
+
+[[package]]
 name = "avenger-scales"
 version = "0.1.0"
 dependencies = [
