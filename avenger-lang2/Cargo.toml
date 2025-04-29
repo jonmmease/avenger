@@ -17,6 +17,7 @@ thiserror = { workspace = true }
 ariadne = "0.5.1"
 sqlparser = { workspace = true }
 regex = "1"
+lazy_static = { workspace = true }
 
 [build-dependencies]
 # tree-sitter-avenger = "0.0.4"

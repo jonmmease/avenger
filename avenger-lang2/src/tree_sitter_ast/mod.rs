@@ -5,7 +5,7 @@ include!(concat!(env!("OUT_DIR"), "/ast.rs"));
 
 #[cfg(test)]
 mod tests {
-    use tree_sitter::{Point, Query, QueryCursor, StreamingIterator, TreeCursor};
+    use tree_sitter::{Point, Query, QueryCursor, StreamingIterator};
     use crate::tree_sitter_ast::{self, ts_typed_ast::AstNode};
 
     use super::*;
