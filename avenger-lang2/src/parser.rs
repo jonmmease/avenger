@@ -562,7 +562,9 @@ pub fn parse_project(project_path: &PathBuf) -> Result<AvengerProject, AvengerLa
         }));
     }
     
-    Ok(AvengerProject { files })
+    Ok(AvengerProject { 
+        files: files.into_iter().map(|file| (file.name.clone(), file)).collect() 
+    })
 }
 
 fn parse_single_file(file_path: &PathBuf, rel_dir: &str, files: &mut Vec<AvengerFile>) -> Result<(), AvengerLangError> {

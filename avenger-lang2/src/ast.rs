@@ -1,9 +1,12 @@
+use std::collections::HashMap;
+
 use sqlparser::{ast::{Expr as SqlExpr, Query as SqlQuery, Spanned, Ident}, tokenizer::Span};
 
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AvengerProject {
-    pub files: Vec<AvengerFile>,
+    // Map from file/component name to parsed file
+    pub files: HashMap<String, AvengerFile>,
 }
 
 

@@ -2,26 +2,34 @@ use std::ops::ControlFlow;
 
 use sqlparser::ast::{Visit, VisitMut, Visitor, VisitorMut};
 
-use crate::ast::{AvengerFile, ComponentProp, DatasetProp, ExprProp, FunctionDef, FunctionReturn, FunctionStatement, ImportStatement, PropBinding, SqlExprOrQuery, Statement, ValProp};
+use crate::ast::{AvengerFile, AvengerProject, ComponentProp, DatasetProp, ExprProp, FunctionDef, FunctionReturn, FunctionStatement, ImportStatement, PropBinding, SqlExprOrQuery, Statement, ValProp};
 
 
-pub struct VisitorContext {
+pub struct VisitorContext<'a> {
     pub path: Vec<String>,
+    pub project: &'a AvengerProject,
 }
 
-impl VisitorContext {
-    pub fn new() -> Self {
-        Self { path: vec![] }
+impl<'a> VisitorContext<'a> {
+    pub fn new(project: &'a AvengerProject) -> Self {
+        Self { path: vec![], project }
     }
 
     pub fn child(&self, name: &str) -> Self {
         let mut path = self.path.clone();
         path.push(name.to_string());
-        Self { path }
+        Self { path, project: self.project }
     }
 }
 
 pub trait AvengerVisitor: Visitor {
+    fn pre_visit_avenger_project(&mut self, _project: &AvengerProject, _context: &VisitorContext) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
+    fn post_visit_avenger_project(&mut self, _project: &AvengerProject, _context: &VisitorContext) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
+
     fn pre_visit_avenger_file(&mut self, _file: &AvengerFile, _context: &VisitorContext) -> ControlFlow<Self::Break> {
         ControlFlow::Continue(())
     }   
@@ -101,6 +109,13 @@ pub trait AvengerVisitor: Visitor {
 }
 
 pub trait AvengerVisitorMut: VisitorMut {
+    fn pre_visit_avenger_project(&mut self, _project: &mut AvengerProject, _context: &VisitorContext) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
+    fn post_visit_avenger_project(&mut self, _project: &mut AvengerProject, _context: &VisitorContext) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
+
     fn pre_visit_avenger_file(&mut self, _file: &mut AvengerFile, _context: &VisitorContext) -> ControlFlow<Self::Break> {
         ControlFlow::Continue(())
     }   
@@ -406,22 +421,33 @@ impl AvengerVisitMut for Statement {
     }
 }
 
-impl AvengerFile {
-    pub fn visit<V: AvengerVisitor>(&self, visitor: &mut V) -> ControlFlow<V::Break> {
-        let context = VisitorContext { path: vec![] };
-        visitor.pre_visit_avenger_file(self, &context)?;
+impl AvengerVisit for AvengerFile {
+    fn visit<V: AvengerVisitor>(&self, visitor: &mut V, context: &VisitorContext) -> ControlFlow<V::Break> {
+        visitor.pre_visit_avenger_file(self, context)?;
         for statement in &self.statements {
-            statement.visit(visitor, &context)?;
+            statement.visit(visitor, context)?;
         }
-        visitor.post_visit_avenger_file(self, &context)
+        visitor.post_visit_avenger_file(self, context)
     }
+}
 
-    pub fn visit_mut<V: AvengerVisitorMut>(&mut self, visitor: &mut V) -> ControlFlow<V::Break> {
-        let context = VisitorContext { path: vec![] };
-        visitor.pre_visit_avenger_file(self, &context)?;
+impl AvengerVisitMut for AvengerFile {
+    fn visit<V: AvengerVisitorMut>(&mut self, visitor: &mut V, context: &VisitorContext) -> ControlFlow<V::Break> {
+        visitor.pre_visit_avenger_file(self, context)?;
         for statement in &mut self.statements {
-            AvengerVisitMut::visit(statement, visitor, &context)?;
+            statement.visit(visitor, context)?;
         }
-        visitor.post_visit_avenger_file(self, &context)
+        visitor.post_visit_avenger_file(self, context)
+    }
+}
+
+impl AvengerProject {
+    pub fn visit<V: AvengerVisitor>(&self, visitor: &mut V) -> ControlFlow<V::Break> {
+        let context = VisitorContext { path: vec![], project: self };
+        visitor.pre_visit_avenger_project(self, &context)?;
+        for file in self.files.values() {
+            file.visit(visitor, &context)?;
+        }
+        visitor.post_visit_avenger_project(self, &context)
     }
 }
