@@ -1,9 +1,9 @@
 use std::io;
 
 use regex::Regex;
-use sqlparser::parser::ParserError;
+use sqlparser::{parser::ParserError, tokenizer::TokenizerError};
 use thiserror::Error;
-use ariadne::{Color, ColorGenerator, Config, Label, Report, ReportKind, Source};
+use ariadne::{ColorGenerator, Label, Report, ReportKind, Source};
 
 
 #[derive(Error, Debug)]
@@ -20,9 +20,23 @@ pub enum AvengerLangError {
     GeneralParserError(String),
 }
 
+impl From<TokenizerError> for AvengerLangError {
+    fn from(error: TokenizerError) -> Self {
+        AvengerLangError::PositionalParseError(PositionalParseErrorInfo {
+            message: error.message,
+            line: error.location.line as i32,
+            column: error.location.column as i32,
+            len: 1,
+        })
+    }
+}
+
 
 impl From<ParserError> for AvengerLangError {
     fn from(error: ParserError) -> Self {
+
+        println!("try from: {:#?}", error);
+
         let msg = match error {
             ParserError::TokenizerError(msg) => msg.clone(),
             ParserError::ParserError(msg) => msg.clone(),
@@ -33,12 +47,23 @@ impl From<ParserError> for AvengerLangError {
 
         // Try to extract position information from the message
         // Check for length of found item in message, default to 1 if not found
-        let len = Regex::new(r"found: ([^ ]+)").ok()
+        let found = Regex::new(r"found: ([^ ]+)").ok()
             .and_then(|re| re.captures(&msg))
             .and_then(|captures| captures.get(1))
-            .map(|found| found.as_str().len() + 1)
-            .unwrap_or(1);
+            .map(|found| found.as_str());
 
+
+        // Handle EOF, where we don't have a line or column reported
+        if found == Some("EOF") {
+            return Self::PositionalParseError(PositionalParseErrorInfo {
+                message: msg.as_str().to_string(),
+                line: -1,
+                column: -1,
+                len: 1,
+            })
+        }
+
+        let len = found.map(|found| found.len() + 1).unwrap_or(1);
         Regex::new(r"(.*) at Line: (\d+), Column: (\d+)").ok()
             .and_then(|re| re.captures(&msg))
             .and_then(|captures| {
@@ -77,16 +102,28 @@ impl AvengerLangError {
 #[derive(Debug, Clone)]
 pub struct PositionalParseErrorInfo {
     pub message: String,
-    pub line: usize,
-    pub column: usize,
+    /// Line number, -1 for last line
+    pub line: i32,
+    /// Column number, -1 for last column
+    pub column: i32,
     pub len: usize,
 }
 
 impl PositionalParseErrorInfo {
     pub fn pretty_print(&self, src: &str, file_name: &str) -> io::Result<()> {
+        println!("pretty_print: {:#?}", self);
+
         let lines = src.lines().collect::<Vec<_>>();
         let line_lens = lines.iter().map(|line| line.len() + 1).collect::<Vec<_>>();
-        let span_start = line_lens[..self.line - 1].iter().sum::<usize>() + self.column - 1;
+
+        // Locate span start
+        let span_start = if self.line == -1 {
+            // Find last non-whitespace character, and add 1
+            let num_trailing_ws = src.chars().rev().take_while(|c| c.is_whitespace()).count();
+            src.len() - num_trailing_ws
+        } else {
+            line_lens[..self.line as usize - 1].iter().sum::<usize>() + self.column as usize - 1
+        };
 
         let mut colors = ColorGenerator::new();
     

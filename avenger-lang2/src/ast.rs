@@ -1,8 +1,8 @@
-use sqlparser::{ast::{Expr as SqlExpr, Query as SqlQuery, Spanned}, tokenizer::{Span, Word}};
+use sqlparser::{ast::{Expr as SqlExpr, Query as SqlQuery, Spanned}, tokenizer::Span};
 
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct File {
+pub struct AvengerFile {
     pub statements: Vec<Statement>,
 }
 
@@ -55,18 +55,21 @@ impl Spanned for ImportItem {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ImportStatement {
+    pub import_keyword: KeywordImport,
     pub items: Vec<ImportItem>,
-    pub from: Option<Identifier>,
+    pub from: Option<(KeywordFrom, Identifier)>,
 }
 
 impl Spanned for ImportStatement {
     fn span(&self) -> Span {
         let mut span = Span::empty();
+        span = span.union(&self.import_keyword.span());
         for item in &self.items {
             span = span.union(&item.span());
         }
-        if let Some(from) = &self.from {
+        if let Some((from, path)) = &self.from {
             span = span.union(&from.span());
+            span = span.union(&path.span());
         }
         span
     }
@@ -103,6 +106,7 @@ impl Spanned for Qualifier {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ValProp {
     pub qualifier: Option<Qualifier>,
+    pub val_keyword: KeywordVal,
     pub type_: Option<Type>,
     pub name: Identifier,
     pub expr: SqlExpr,
@@ -129,6 +133,7 @@ impl Spanned for ValProp {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ExprProp {
     pub qualifier: Option<Qualifier>,
+    pub expr_keyword: KeywordExpr,
     pub type_: Option<Type>,
     pub name: Identifier,
     pub expr: SqlExpr,
@@ -154,9 +159,10 @@ impl Spanned for ExprProp {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DatasetProp {
     pub qualifier: Option<Qualifier>,
+    pub dataset_keyword: KeywordDataset,
     pub type_: Option<Type>,
     pub name: Identifier,
-    pub query: SqlQuery,
+    pub query: Box<SqlQuery>,
 }
 
 impl Spanned for DatasetProp {
@@ -178,8 +184,9 @@ impl Spanned for DatasetProp {
 // --------------
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ComponentProp {
+    // qualifier, keyword, and name are optional for components
     pub qualifier: Option<Qualifier>,
-    // Name is optional for components
+    pub component_keyword: Option<KeywordComp>,
     pub prop_name: Option<Identifier>,
     pub component_name: Identifier,
     pub statements: Vec<Statement>,
@@ -343,8 +350,8 @@ impl Spanned for SqlExprOrQuery {
 // identifier
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Identifier {
-    pub span: Span,
     pub name: String,
+    pub span: Span,
 }
 
 impl Spanned for Identifier {
@@ -387,3 +394,4 @@ define_keyword!(KeywordComponent);
 define_keyword!(KeywordComp);
 define_keyword!(KeywordFn);
 define_keyword!(KeywordReturn);
+define_keyword!(KeywordFrom);
