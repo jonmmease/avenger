@@ -1,0 +1,21 @@
+[package]
+name = "avenger-runtime"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+avenger-lang2 = { path = "../avenger-lang2" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+thiserror = { workspace = true }
+datafusion = { workspace = true }
+datafusion-common = { workspace = true }
+arrow = { workspace = true }
+arrow-schema = { workspace = true }
+sqlparser = { workspace = true }
+tokio = { workspace = true }
+indexmap = { workspace = true }
+petgraph = "0.8.1"
+futures = { workspace = true }
+async-recursion = "1.1.1"
+async-trait = { workspace = true }
+lru = "0.14.0"
