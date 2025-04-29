@@ -1,0 +1,16 @@
+// Rect mark with a color and black border
+in val color: string = "red";
+in val width: 100;
+in val height: 100;
+in val x: 0;
+in val y: 0;
+
+Rect {
+    x := x;
+    y := y;
+    width := width;
+    height := height;
+    fill := color;
+    stroke := 'black';
+    stroke_width := 3;
+}
