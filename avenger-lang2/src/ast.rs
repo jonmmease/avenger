@@ -2,7 +2,15 @@ use sqlparser::{ast::{Expr as SqlExpr, Query as SqlQuery, Spanned, Ident}, token
 
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AvengerProject {
+    pub files: Vec<AvengerFile>,
+}
+
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AvengerFile {
+    pub name: String,
+    pub path: String,
     pub statements: Vec<Statement>,
 }
 

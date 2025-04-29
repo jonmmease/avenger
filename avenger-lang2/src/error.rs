@@ -111,8 +111,6 @@ pub struct PositionalParseErrorInfo {
 
 impl PositionalParseErrorInfo {
     pub fn pretty_print(&self, src: &str, file_name: &str) -> io::Result<()> {
-        println!("pretty_print: {:#?}", self);
-
         let lines = src.lines().collect::<Vec<_>>();
         let line_lens = lines.iter().map(|line| line.len() + 1).collect::<Vec<_>>();
 
