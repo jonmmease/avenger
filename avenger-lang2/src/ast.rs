@@ -311,6 +311,7 @@ impl Spanned for FunctionReturn {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FunctionDef {
+    pub fn_keyword: KeywordFn,
     pub name: Identifier,
     pub params: Vec<FunctionParam>,
     pub return_param: FunctionReturnParam,
