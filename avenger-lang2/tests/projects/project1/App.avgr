@@ -1,5 +1,7 @@
 import { ColoredRect }
 
+background := "white";
+
 Group {
     ColoredRect {
         x := 100;
