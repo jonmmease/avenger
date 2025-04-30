@@ -7,6 +7,14 @@ impl Variable {
     pub fn new(parts: Vec<String>) -> Self {
         Self { parts }
     }
+
+    pub fn name(&self) -> String {
+        self.parts.join(".")
+    }
+
+    pub fn mangled_var_name(&self) -> String {
+        format!("@{}", self.parts.join("__"))
+    }
 }
 
 impl From<String> for Variable {

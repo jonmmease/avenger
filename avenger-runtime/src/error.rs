@@ -1,4 +1,5 @@
 use arrow_schema::ArrowError;
+use avenger_scales::error::AvengerScaleError;
 use datafusion_common::DataFusionError;
 use thiserror::Error;
 
@@ -18,6 +19,9 @@ pub enum AvengerRuntimeError {
 
     #[error("Dependency cycle: `{0}`")]
     DependencyCycle(String),
+
+    #[error("Scale error: `{0}`")]
+    ScaleError(#[from] AvengerScaleError),
 
     #[error("DataFusion error: `{0}`")]
     DataFusionError(#[from] DataFusionError),
@@ -53,6 +57,7 @@ impl AvengerRuntimeError {
             Self::ExpressionNotFound(e) => Self::ExpressionNotFound(e.clone()),
             Self::DatasetNotFound(e) => Self::DatasetNotFound(e.clone()),
             Self::DependencyCycle(e) => Self::DependencyCycle(e.clone()),
+            Self::ScaleError(e) => Self::InternalError(e.to_string()),
             Self::DataFusionError(e) => Self::InternalError(e.to_string()),
             Self::ArrowError(e) => Self::InternalError(e.to_string()),
             Self::TokioJoinError(e) => Self::InternalError(e.to_string()),
