@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use sqlparser::{ast::{Expr as SqlExpr, Query as SqlQuery, Spanned, Ident}, tokenizer::Span};
 
+use crate::error::AvengerLangError;
+
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AvengerProject {
@@ -221,7 +223,7 @@ pub struct ComponentProp {
     pub qualifier: Option<Qualifier>,
     pub component_keyword: Option<KeywordComp>,
     pub prop_name: Option<Ident>,
-    pub component_name: Ident,
+    pub component_type: Ident,
     pub statements: Vec<Statement>,
 }
 
@@ -231,7 +233,7 @@ impl ComponentProp {
             prop_name.value.clone()
         } else {
             // Build a unique component name based on the location
-            let start_location = self.component_name.span.start;
+            let start_location = self.component_type.span.start;
             format!("_comp_{}_{}", start_location.line, start_location.column)
         }
     }
@@ -246,7 +248,7 @@ impl Spanned for ComponentProp {
         if let Some(prop_name) = &self.prop_name {
             span = span.union(&prop_name.span);
         }
-        span = span.union(&self.component_name.span);
+        span = span.union(&self.component_type.span);
         for statement in &self.statements {
             span = span.union(&statement.span());
         }
@@ -388,6 +390,26 @@ impl Spanned for FunctionDef {
 pub enum SqlExprOrQuery {
     Expr(SqlExpr),
     Query(Box<SqlQuery>),
+}
+
+impl SqlExprOrQuery {
+    pub fn into_expr(self) -> Result<SqlExpr, AvengerLangError> {
+        match self {
+            SqlExprOrQuery::Expr(expr) => Ok(expr),
+            SqlExprOrQuery::Query(_) => Err(
+                AvengerLangError::InternalError("Query not allowed".to_string())
+            ),
+        }
+    }
+
+    pub fn into_query(self) -> Result<Box<SqlQuery>, AvengerLangError> {
+        match self {
+            SqlExprOrQuery::Expr(_) => Err(
+                AvengerLangError::InternalError("Expr not allowed".to_string())
+            ),
+            SqlExprOrQuery::Query(query) => Ok(query),
+        }
+    }
 }
 
 impl Spanned for SqlExprOrQuery {

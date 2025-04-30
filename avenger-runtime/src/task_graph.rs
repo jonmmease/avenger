@@ -182,6 +182,7 @@ impl TaskGraph {
         &self.tasks
     }
 
+    // Here:
     // pub fn from_file(file: &AvengerFile, component_registry: Arc<ComponentRegistry>) -> Result<Self, AvengerRuntimeError> {
     //     let mut builder = TaskGraphBuilder::new(
     //         Scope::from_file(&file)?, component_registry

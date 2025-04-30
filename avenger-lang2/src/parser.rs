@@ -4,7 +4,7 @@ use std::fs::{self, File};
 use std::io::Read;
 
 use lazy_static::lazy_static;
-use sqlparser::ast::{Ident, Spanned};
+use sqlparser::ast::{Ident, Spanned, Query as SqlQuery, Expr as SqlExpr};
 use sqlparser::dialect::{Dialect, GenericDialect, SnowflakeDialect};
 use sqlparser::parser::{Parser as SqlParser, ParserError};
 use sqlparser::tokenizer::{Token, TokenWithSpan, Tokenizer};
@@ -420,7 +420,7 @@ impl<'a> AvengerParser<'a> {
             qualifier,
             component_keyword: keyword,
             prop_name, 
-            component_name, 
+            component_type: component_name, 
             statements, 
         })
     }
@@ -540,6 +540,18 @@ impl<'a> AvengerParser<'a> {
         }
 
         Ok(expr_or_query)
+    }
+
+    pub fn parse_single_query(input: &str) -> Result<Box<SqlQuery>, AvengerLangError> {
+        let mut parser = AvengerParser::new(input, "test.avgr", "")?;
+        let query = parser.parser.parse_query()?;
+        Ok(query)
+    }
+
+    pub fn parse_single_expr(input: &str) -> Result<SqlExpr, AvengerLangError> {
+        let mut parser = AvengerParser::new(input, "test.avgr", "")?;
+        let expr = parser.parser.parse_expr()?;
+        Ok(expr)
     }
 }
 
