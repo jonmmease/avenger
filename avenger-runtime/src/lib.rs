@@ -10,6 +10,9 @@ pub mod runtime;
 pub mod visitors;
 pub mod context;
 pub mod marks;
+pub mod component_registry;
+pub mod scope;
+
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right

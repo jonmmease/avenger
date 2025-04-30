@@ -1,8 +1,9 @@
-use std::ops::ControlFlow;
+use std::{collections::HashMap, ops::ControlFlow, sync::Arc};
 
+use avenger_lang2::{ast::{ComponentProp, DatasetProp, ExprProp, PropBinding, ValProp}, parser::AvengerParser, visitor::{AvengerVisitor, VisitorContext}};
 use sqlparser::ast::{Expr as SqlExpr, Ident, ObjectName, Query as SqlQuery, Visit, Visitor, VisitorMut};
 
-use crate::{context::TaskEvaluationContext, dependency::{Dependency, DependencyKind}, error::AvengerRuntimeError, variable::Variable};
+use crate::{component_registry::{ComponentRegistry, PropRegistration}, context::TaskEvaluationContext, dependency::{Dependency, DependencyKind}, error::AvengerRuntimeError, scope::Scope, tasks::{DatasetPropTask, ExprPropTask, MarkTask, Task, ValPropTask}, variable::Variable};
 
 
 pub struct CollectDependenciesVisitor {
@@ -152,6 +153,163 @@ impl<'a> VisitorMut for CompilationVisitor<'a> {
             }
             _ => {}
         }
+        ControlFlow::Continue(())
+    }
+}
+
+
+pub struct TaskBuilderVisitor<'a> {
+    registry: &'a ComponentRegistry,
+    scope: &'a Scope,
+    tasks: HashMap<Variable, Arc<dyn Task>>
+}
+
+impl<'a> TaskBuilderVisitor<'a> {
+    pub fn new(registry: &'a ComponentRegistry, scope: &'a Scope) -> Self {
+        Self { registry, scope, tasks: HashMap::new() }
+    }
+
+    fn make_variable(&self, name: &str, context: &VisitorContext) -> Variable {
+        let mut path = context.path.clone();
+        path.push(name.to_string());
+        Variable::new(path)
+    }
+}
+
+impl<'a> Visitor for TaskBuilderVisitor<'a> {
+    type Break = Result<(), AvengerRuntimeError>;
+}
+
+impl<'a> AvengerVisitor for TaskBuilderVisitor<'a> {
+    fn pre_visit_val_prop(&mut self, statement: &ValProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
+        let variable = self.make_variable(statement.name(), context);
+        let task = ValPropTask::new(statement.expr.clone());
+        self.tasks.insert(variable, Arc::new(task));
+        ControlFlow::Continue(())
+    }
+
+    fn pre_visit_expr_prop(&mut self, statement: &ExprProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
+        let variable = self.make_variable(statement.name(), context);
+        let task = ExprPropTask::new(statement.expr.clone());
+        self.tasks.insert(variable, Arc::new(task));
+        ControlFlow::Continue(())
+    }
+
+    fn pre_visit_dataset_prop(&mut self, statement: &DatasetProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
+        let variable = self.make_variable(statement.name(), context);
+        let task = DatasetPropTask::new(statement.query.clone(), false);
+        self.tasks.insert(variable, Arc::new(task));
+        ControlFlow::Continue(())
+    }
+
+    fn pre_visit_prop_binding(&mut self, prop_binding: &PropBinding, context: &VisitorContext) -> ControlFlow<Self::Break> {
+        let variable = self.make_variable(&prop_binding.name.value, context);
+
+        let Some(component_spec) = self.registry.lookup_component(&context.component_type) else {
+            return ControlFlow::Break(Err(AvengerRuntimeError::InternalError(format!(
+                "Unknown component type: {}", context.component_type))));
+        };
+
+        let Some(prop_type) = component_spec.props.get(&prop_binding.name.value) else {
+            return ControlFlow::Break(Err(AvengerRuntimeError::InternalError(format!(
+                "Unknown property {} for component {}", prop_binding.name, context.component_type))));
+        };
+
+        match prop_type {
+            PropRegistration::Val(_) => {
+                let Ok(mut sql_expr) = prop_binding.expr.clone().into_expr() else {
+                    return ControlFlow::Break(Err(AvengerRuntimeError::InternalError(format!(
+                        "Expression for property {} must be a value", prop_binding.name))));
+                };
+                if let Err(err) = self.scope.resolve_sql_expr(&mut sql_expr, &context.path) {
+                    return ControlFlow::Break(Err(err));
+                }
+                self.tasks.insert(variable, Arc::new(ValPropTask::new(sql_expr)));
+            }
+            PropRegistration::Expr(_) => {
+                let Ok(mut sql_expr) = prop_binding.expr.clone().into_expr() else {
+                    return ControlFlow::Break(Err(AvengerRuntimeError::InternalError(format!(
+                        "Expression for property {} must be a value or expression", prop_binding.name))));
+                };
+                if let Err(err) = self.scope.resolve_sql_expr(&mut sql_expr, &context.path) {
+                    return ControlFlow::Break(Err(err));
+                }
+                self.tasks.insert(variable, Arc::new(ExprPropTask::new(sql_expr)));
+            },
+            PropRegistration::Dataset(_) => {
+                let Ok(mut query) = prop_binding.expr.clone().into_query() else {
+                    return ControlFlow::Break(Err(AvengerRuntimeError::InternalError(format!(
+                        "Expression for property {} must be a query", prop_binding.name))));
+                };
+                if let Err(err) = self.scope.resolve_sql_query(&mut query, &context.path) {
+                    return ControlFlow::Break(Err(err));
+                }
+                self.tasks.insert(variable, Arc::new(DatasetPropTask::new(query, false)));
+            },
+        }
+        ControlFlow::Continue(())
+    }
+
+    fn pre_visit_component_prop(&mut self, statement: &ComponentProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
+        // Get the component type
+        let component_type = statement.component_type.value.clone();
+
+        // Lookup the component type in the registry
+        let Some(component_spec) = self.registry.lookup_component(&component_type) else {
+            return ControlFlow::Break(Err(AvengerRuntimeError::ComponentNotFound(component_type)));
+        };
+
+        // Build config_data variable. This is a single row dataset with a column for each val prop
+        let config_variable = self.make_variable(&statement.name(), context);
+
+        let val_prop_names = component_spec.props.iter()
+            .filter_map(|(name, prop)| {
+                if let PropRegistration::Val(_) = prop {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let val_props_csv = if val_prop_names.is_empty() {
+            "1 as _unit".to_string()
+        } else {
+            val_prop_names.iter().map(
+                |name| format!("@{name} as {name}")
+            ).collect::<Vec<_>>().join(", ")
+        };
+
+        let Ok(mut query) = AvengerParser::parse_single_query(
+            &format!("SELECT {val_props_csv}")
+        ) else {
+            return ControlFlow::Break(Err(AvengerRuntimeError::InternalError(format!(
+                "Failed to parse config query for component {}", component_type))));
+        };
+
+        if let Err(err) = self.scope.resolve_sql_query(&mut query, &context.path) {
+            return ControlFlow::Break(Err(err));
+        }
+
+        let task = DatasetPropTask { query, eval: true };
+        let mut parts = context.path.clone();
+        parts.push("config".to_string());
+        let config_variable = Variable::new(parts);
+        self.tasks.insert(config_variable.clone(), Arc::new(task));
+
+        // if component_spec.is_mark {
+        //     // Create a mark task
+        //     let task = MarkTask::new(variable, statement.statements.clone());
+        //     self.tasks.insert(variable, Arc::new(task));
+        // } else {
+        //     // Create a component task
+        // }
+
+
+
+
+        // let task = ComponentPropTask::new(statement.component.clone(), statement.props.clone());
+        // self.tasks.insert(variable, Arc::new(task));
         ControlFlow::Continue(())
     }
 }

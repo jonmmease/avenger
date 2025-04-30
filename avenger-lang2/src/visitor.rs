@@ -5,20 +5,21 @@ use sqlparser::ast::{Visit, VisitMut, Visitor, VisitorMut};
 use crate::ast::{AvengerFile, AvengerProject, ComponentProp, DatasetProp, ExprProp, FunctionDef, FunctionReturn, FunctionStatement, ImportStatement, PropBinding, SqlExprOrQuery, Statement, ValProp};
 
 
-pub struct VisitorContext<'a> {
+pub struct VisitorContext {
     pub path: Vec<String>,
-    pub project: &'a AvengerProject,
+    // type of parent component
+    pub component_type: String,
 }
 
-impl<'a> VisitorContext<'a> {
-    pub fn new(project: &'a AvengerProject) -> Self {
-        Self { path: vec![], project }
+impl VisitorContext {
+    pub fn new() -> Self {
+        Self { path: vec![], component_type: "".to_string() }
     }
 
-    pub fn child(&self, name: &str) -> Self {
+    pub fn child(&self, name: &str, component_type: &str) -> Self {
         let mut path = self.path.clone();
         path.push(name.to_string());
-        Self { path, project: self.project }
+        Self { path, component_type: component_type.to_string() }
     }
 }
 
@@ -287,7 +288,7 @@ impl AvengerVisit for ComponentProp {
         visitor.pre_visit_component_prop(self, context)?;
 
         // Process statements with child context
-        let child_context = context.child(&self.name());
+        let child_context = context.child(&self.name(), &self.component_type.value);
         for statement in &self.statements {
             statement.visit(visitor, &child_context)?;
         }
@@ -301,7 +302,7 @@ impl AvengerVisitMut for ComponentProp {
         visitor.pre_visit_component_prop(self, context)?;
 
         // Process statements with child context
-        let child_context = context.child(&self.name());
+        let child_context = context.child(&self.name(), &self.component_type.value);
         for statement in &mut self.statements {
             statement.visit(visitor, &child_context)?;
         }
@@ -424,9 +425,15 @@ impl AvengerVisitMut for Statement {
 impl AvengerVisit for AvengerFile {
     fn visit<V: AvengerVisitor>(&self, visitor: &mut V, context: &VisitorContext) -> ControlFlow<V::Break> {
         visitor.pre_visit_avenger_file(self, context)?;
+
+        // Visit top-level statements in the file
+        let child_context = VisitorContext { 
+            path: vec![], component_type: self.name.clone() 
+        };
         for statement in &self.statements {
-            statement.visit(visitor, context)?;
+            statement.visit(visitor, &child_context)?;
         }
+
         visitor.post_visit_avenger_file(self, context)
     }
 }
@@ -443,7 +450,7 @@ impl AvengerVisitMut for AvengerFile {
 
 impl AvengerProject {
     pub fn visit<V: AvengerVisitor>(&self, visitor: &mut V) -> ControlFlow<V::Break> {
-        let context = VisitorContext { path: vec![], project: self };
+        let context = VisitorContext { path: vec![], component_type: "".to_string() };
         visitor.pre_visit_avenger_project(self, &context)?;
         for file in self.files.values() {
             file.visit(visitor, &context)?;

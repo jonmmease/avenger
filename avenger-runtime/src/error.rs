@@ -17,6 +17,9 @@ pub enum AvengerRuntimeError {
     #[error("Dataset not found: `{0}`")]
     DatasetNotFound(String),
 
+    #[error("Component not found: `{0}`")]
+    ComponentNotFound(String),
+
     #[error("Dependency cycle: `{0}`")]
     DependencyCycle(String),
 
@@ -56,6 +59,7 @@ impl AvengerRuntimeError {
             Self::VariableNotFound(e) => Self::VariableNotFound(e.clone()),
             Self::ExpressionNotFound(e) => Self::ExpressionNotFound(e.clone()),
             Self::DatasetNotFound(e) => Self::DatasetNotFound(e.clone()),
+            Self::ComponentNotFound(e) => Self::ComponentNotFound(e.clone()),
             Self::DependencyCycle(e) => Self::DependencyCycle(e.clone()),
             Self::ScaleError(e) => Self::InternalError(e.to_string()),
             Self::DataFusionError(e) => Self::InternalError(e.to_string()),

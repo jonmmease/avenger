@@ -112,6 +112,11 @@ pub struct ExprPropTask {
     pub expr: SqlExpr,
 }
 
+impl ExprPropTask {
+    pub fn new(expr: SqlExpr) -> Self {
+        Self { expr }
+    }
+}
 
 #[async_trait]
 impl Task for ExprPropTask {
@@ -155,8 +160,8 @@ pub struct DatasetPropTask {
 }
 
 impl DatasetPropTask {
-    pub fn new(query: SqlQuery, eval: bool) -> Self {
-        Self { query: Box::new(query), eval }
+    pub fn new(query: Box<SqlQuery>, eval: bool) -> Self {
+        Self { query, eval }
     }
 }
 
