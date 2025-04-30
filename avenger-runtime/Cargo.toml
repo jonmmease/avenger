@@ -6,9 +6,12 @@ edition = "2024"
 [dependencies]
 avenger-lang2 = { path = "../avenger-lang2" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-scales = { path = "../avenger-scales" }
+avenger-common = { path = "../avenger-common" }
 thiserror = { workspace = true }
 datafusion = { workspace = true }
 datafusion-common = { workspace = true }
+datafusion-sql = { workspace = true }
 arrow = { workspace = true }
 arrow-schema = { workspace = true }
 sqlparser = { workspace = true }

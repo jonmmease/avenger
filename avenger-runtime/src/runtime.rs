@@ -39,7 +39,6 @@ impl TaskGraphRuntime {
                     &input_node.source,
                 );
 
-                // In non-wasm environment, use tokio::spawn for multi-threading
                 inputs_futures.push(node_fut);
             }
 
