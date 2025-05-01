@@ -4,7 +4,7 @@ use avenger_scales::scales::coerce::Coercer;
 use avenger_scenegraph::marks::{group::SceneGroup, mark::{SceneMark, SceneMarkType}};
 use std::{fmt::Debug, hash::{DefaultHasher, Hash, Hasher}, sync::Arc};
 
-use crate::{context::TaskEvaluationContext, dependency::{Dependency, DependencyKind}, error::AvengerRuntimeError, marks::{build_arc_mark, build_area_mark, build_image_mark, build_line_mark, build_path_mark, build_rect_mark, build_rule_mark, build_symbol_mark, build_text_mark, build_trail_mark}, runtime::TaskGraphRuntime, value::{TaskDataset, TaskValue, TaskValueContext}, variable::Variable, visitors::{collect_expr_dependencies, collect_query_dependencies}};
+use crate::{context::TaskEvaluationContext, dependency::{collect_expr_dependencies, collect_query_dependencies, Dependency, DependencyKind}, error::AvengerRuntimeError, marks::{build_arc_mark, build_area_mark, build_image_mark, build_line_mark, build_path_mark, build_rect_mark, build_rule_mark, build_symbol_mark, build_text_mark, build_trail_mark}, runtime::TaskGraphRuntime, value::{TaskDataset, TaskValue, TaskValueContext}, variable::Variable};
 
 use sqlparser::ast::{Expr as SqlExpr, Query as SqlQuery};
 
