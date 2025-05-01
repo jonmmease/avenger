@@ -4,7 +4,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::ops::ControlFlow;
 use std::sync::Arc;
 
-use avenger_lang2::ast::{AvengerProject, ComponentProp, DatasetProp, ExprProp, PropBinding, ValProp};
+use avenger_lang2::ast::{AvengerFile, ComponentProp, DatasetProp, ExprProp, PropBinding, ValProp};
 use avenger_lang2::parser::AvengerParser;
 use avenger_lang2::visitor::{AvengerVisitor, VisitorContext};
 use indexmap::IndexMap;
@@ -182,22 +182,15 @@ impl TaskGraph {
         &self.tasks
     }
 
-    pub fn from_file(project: &AvengerProject, file_name: &str) -> Result<Self, AvengerRuntimeError> {
-        // Get file
-        let Some(file) = project.files.get(file_name) else {
-            return Err(AvengerRuntimeError::InternalError(format!(
-                "File {} not found in project", file_name
-            )));
-        };
-
+    pub fn from_file(file_ast: &AvengerFile) -> Result<Self, AvengerRuntimeError> {
         // Get scope
-        let scope = PropertyScope::from_file(project, file_name)?;
-        let component_registry = ComponentRegistry::from(project);
+        let scope = PropertyScope::from_file(file_ast)?;
+        let component_registry = ComponentRegistry::new_with_marks();
 
         let mut builder = TaskBuilderVisitor::new(
             &component_registry, &scope, 
         );
-        if let ControlFlow::Break(err) = file.visit(&mut builder) {
+        if let ControlFlow::Break(err) = file_ast.visit(&mut builder) {
             return Err(AvengerRuntimeError::InternalError(format!(
                 "Error building task graph: {:?}", err
             )));

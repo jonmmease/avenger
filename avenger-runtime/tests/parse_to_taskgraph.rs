@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use avenger_lang2::{ast::{AvengerFile, AvengerProject}, parser::AvengerParser};
+use avenger_lang2::{ast::AvengerFile, parser::AvengerParser};
 use avenger_runtime::{cache::RuntimeCacheConfig, context::TaskEvaluationContext, error::AvengerRuntimeError, runtime::TaskGraphRuntime, task_graph::TaskGraph, value::{ArrowTable, TaskDataset}, variable::Variable};
 
 
 fn parse_file(src: &str) -> Result<AvengerFile, AvengerRuntimeError> {
-    let mut parser = AvengerParser::new(src, "Foo", "")?;
+    let mut parser = AvengerParser::new(src, "Foo", "/path/to/components")?;
     let file = parser.parse()?;
     Ok(file)
 }
@@ -25,14 +25,11 @@ async fn test_parse_file_to_taskgraph() -> Result<(), AvengerRuntimeError> {
     "#;
 
     // Create a new parser with the tokens and parse the file
-    let file = parse_file(src)?;
-    let project = AvengerProject { 
-        files: vec![("Foo".to_string(), file)].into_iter().collect()
-    };
+    let file_ast = parse_file(src)?;
     // println!("{:#?}", file);
 
     // Build Task Graph from parsed file
-    let task_graph = Arc::new(TaskGraph::from_file(&project, "Foo")?);
+    let task_graph = Arc::new(TaskGraph::from_file(&file_ast)?);
     // println!("{:#?}", task_graph);
 
     // Evaluate the task graph
@@ -158,10 +155,7 @@ async fn test_parse_file_to_taskgraph2() -> Result<(), AvengerRuntimeError> {
 
     // Build Task Graph from parsed file
     let file = parse_file(src)?;
-    let project = AvengerProject { 
-        files: vec![("Foo".to_string(), file)].into_iter().collect()
-    };
-    let task_graph = Arc::new(TaskGraph::from_file(&project, "Foo")?);
+    let task_graph = Arc::new(TaskGraph::from_file(&file)?);
 
     // Evaluate the task graph
     let my_val = Variable::new(vec!["my_val".to_string()]);
@@ -235,14 +229,11 @@ async fn test_parse_file_to_scene_graph() -> Result<(), AvengerRuntimeError> {
 
     // Build Task Graph from parsed file
     let file = parse_file(src)?;
-    let project = AvengerProject { 
-        files: vec![("Foo".to_string(), file)].into_iter().collect()
-    };
 
     let cache_config = RuntimeCacheConfig::default();
     let runtime = Arc::new(TaskGraphRuntime::new(cache_config));
 
-    let scene_graph = runtime.evaluate_file(&project, "Foo").await?;
+    let scene_graph = runtime.evaluate_file(&file).await?;
     println!("scene_graph: {:#?}", scene_graph);
 
     Ok(())
