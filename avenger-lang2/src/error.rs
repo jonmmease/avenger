@@ -1,4 +1,4 @@
-use std::io;
+use std::{io, path::PathBuf};
 
 use regex::Regex;
 use sqlparser::{parser::ParserError, tokenizer::TokenizerError};
@@ -18,6 +18,18 @@ pub enum AvengerLangError {
     /// A parser error with a position in the source code
     #[error("Parser error: `{0}`")]
     GeneralParserError(String),
+
+    /// A file not found error
+    #[error("IO error: `{0}`")]
+    IoError(#[from] io::Error),
+
+    /// A file not found error
+    #[error("File not found: `{0}`")]
+    FileNotFoundError(PathBuf),
+
+    /// A file extension error
+    #[error("Invalid file extension: `{0}`")]
+    InvalidFileExtensionError(PathBuf),
 }
 
 impl From<TokenizerError> for AvengerLangError {
