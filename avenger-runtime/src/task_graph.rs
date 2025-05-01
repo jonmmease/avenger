@@ -1,16 +1,21 @@
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
+use std::ops::ControlFlow;
 use std::sync::Arc;
 
+use avenger_lang2::ast::AvengerProject;
 use indexmap::IndexMap;
 use petgraph::algo::toposort;
 use petgraph::graph::DiGraph;
 use petgraph::Direction;
 
+use crate::component_registry::ComponentRegistry;
 use crate::error::AvengerRuntimeError;
+use crate::scope::Scope;
 use crate::tasks::Task;
 use crate::variable::Variable;
+use crate::visitors::TaskBuilderVisitor;
 
 // use super::compiler::ExtractComponentDefinitionsVisitor;
 // use super::component::ComponentSpec;
@@ -182,12 +187,26 @@ impl TaskGraph {
         &self.tasks
     }
 
-    // Here:
-    // pub fn from_file(file: &AvengerFile, component_registry: Arc<ComponentRegistry>) -> Result<Self, AvengerRuntimeError> {
-    //     let mut builder = TaskGraphBuilder::new(
-    //         Scope::from_file(&file)?, component_registry
-    //     );
-    //     file.accept(&mut builder)?;
-    //     builder.build()
-    // }
+    pub fn from_file(project: &AvengerProject, file_name: &str) -> Result<Self, AvengerRuntimeError> {
+        // Get file
+        let Some(file) = project.files.get(file_name) else {
+            return Err(AvengerRuntimeError::InternalError(format!(
+                "File {} not found in project", file_name
+            )));
+        };
+
+        // Get scope
+        let scope = Scope::from_file(project, file_name)?;
+        let component_registry = ComponentRegistry::from(project);
+
+        let mut builder = TaskBuilderVisitor::new(
+            &component_registry, &scope, 
+        );
+        if let ControlFlow::Break(err) = file.visit(&mut builder) {
+            return Err(AvengerRuntimeError::InternalError(format!(
+                "Error building task graph: {:?}", err
+            )));
+        };
+        TaskGraph::try_new(builder.build())
+    }
 }

@@ -237,6 +237,56 @@ impl ComponentProp {
             format!("_comp_{}_{}", start_location.line, start_location.column)
         }
     }
+
+    pub fn val_props(&self) -> HashMap<String, ValProp> {
+        self.statements.iter().filter_map(|stmt| {
+            if let Statement::ValProp(val_prop) = stmt {
+                Some((val_prop.name().to_string(), val_prop.clone()))
+            } else {
+                None
+            }
+        }).collect()
+    }
+
+    pub fn prop_bindings(&self) -> HashMap<String, PropBinding> {
+        self.statements.iter().filter_map(|stmt| {
+            if let Statement::PropBinding(prop_binding) = stmt {
+                Some((prop_binding.name().to_string(), prop_binding.clone()))
+            } else {
+                None
+            }
+        }).collect()
+    }
+
+    pub fn expr_props(&self) -> HashMap<String, ExprProp> {
+        self.statements.iter().filter_map(|stmt| {
+            if let Statement::ExprProp(expr_prop) = stmt {
+                Some((expr_prop.name().to_string(), expr_prop.clone()))
+            } else {
+                None
+            }
+        }).collect()
+    }
+
+    pub fn dataset_props(&self) -> HashMap<String, DatasetProp> {
+        self.statements.iter().filter_map(|stmt| {
+            if let Statement::DatasetProp(dataset_prop) = stmt {
+                Some((dataset_prop.name().to_string(), dataset_prop.clone()))
+            } else {
+                None
+            }
+        }).collect()
+    }
+
+    pub fn component_props(&self) -> HashMap<String, ComponentProp> {
+        self.statements.iter().filter_map(|stmt| {
+            if let Statement::ComponentProp(component_prop) = stmt {
+                Some((component_prop.name().to_string(), component_prop.clone()))
+            } else {
+                None
+            }
+        }).collect()
+    }
 }
 
 impl Spanned for ComponentProp {

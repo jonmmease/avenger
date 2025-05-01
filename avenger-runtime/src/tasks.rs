@@ -2,11 +2,11 @@ use async_trait::async_trait;
 use avenger_lang2::ast::{DatasetProp, ExprProp, ValProp};
 use avenger_scales::scales::coerce::Coercer;
 use avenger_scenegraph::marks::{group::SceneGroup, mark::{SceneMark, SceneMarkType}};
-use std::{fmt::Debug, hash::{DefaultHasher, Hash, Hasher}, ops::ControlFlow, sync::Arc};
+use std::{fmt::Debug, hash::{DefaultHasher, Hash, Hasher}, sync::Arc};
 
 use crate::{context::TaskEvaluationContext, dependency::{Dependency, DependencyKind}, error::AvengerRuntimeError, marks::{build_arc_mark, build_area_mark, build_image_mark, build_line_mark, build_path_mark, build_rect_mark, build_rule_mark, build_symbol_mark, build_text_mark, build_trail_mark}, runtime::TaskGraphRuntime, value::{TaskDataset, TaskValue, TaskValueContext}, variable::Variable, visitors::{collect_expr_dependencies, collect_query_dependencies}};
 
-use sqlparser::ast::{Expr as SqlExpr, Query as SqlQuery, Visit};
+use sqlparser::ast::{Expr as SqlExpr, Query as SqlQuery};
 
 
 #[async_trait]

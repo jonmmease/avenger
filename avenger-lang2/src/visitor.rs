@@ -24,10 +24,10 @@ impl VisitorContext {
 }
 
 pub trait AvengerVisitor: Visitor {
-    fn pre_visit_avenger_project(&mut self, _project: &AvengerProject, _context: &VisitorContext) -> ControlFlow<Self::Break> {
+    fn pre_visit_avenger_project(&mut self, _project: &AvengerProject) -> ControlFlow<Self::Break> {
         ControlFlow::Continue(())
     }
-    fn post_visit_avenger_project(&mut self, _project: &AvengerProject, _context: &VisitorContext) -> ControlFlow<Self::Break> {
+    fn post_visit_avenger_project(&mut self, _project: &AvengerProject) -> ControlFlow<Self::Break> {
         ControlFlow::Continue(())
     }
 
@@ -110,10 +110,10 @@ pub trait AvengerVisitor: Visitor {
 }
 
 pub trait AvengerVisitorMut: VisitorMut {
-    fn pre_visit_avenger_project(&mut self, _project: &mut AvengerProject, _context: &VisitorContext) -> ControlFlow<Self::Break> {
+    fn pre_visit_avenger_project(&mut self, _project: &mut AvengerProject) -> ControlFlow<Self::Break> {
         ControlFlow::Continue(())
     }
-    fn post_visit_avenger_project(&mut self, _project: &mut AvengerProject, _context: &VisitorContext) -> ControlFlow<Self::Break> {
+    fn post_visit_avenger_project(&mut self, _project: &mut AvengerProject) -> ControlFlow<Self::Break> {
         ControlFlow::Continue(())
     }
 
@@ -422,9 +422,12 @@ impl AvengerVisitMut for Statement {
     }
 }
 
-impl AvengerVisit for AvengerFile {
-    fn visit<V: AvengerVisitor>(&self, visitor: &mut V, context: &VisitorContext) -> ControlFlow<V::Break> {
-        visitor.pre_visit_avenger_file(self, context)?;
+impl AvengerFile {
+    pub fn visit<V: AvengerVisitor>(&self, visitor: &mut V) -> ControlFlow<V::Break> {
+        let context = VisitorContext { 
+            path: vec![], component_type: self.name.clone() 
+        };
+        visitor.pre_visit_avenger_file(self, &context)?;
 
         // Visit top-level statements in the file
         let child_context = VisitorContext { 
@@ -434,27 +437,28 @@ impl AvengerVisit for AvengerFile {
             statement.visit(visitor, &child_context)?;
         }
 
-        visitor.post_visit_avenger_file(self, context)
+        visitor.post_visit_avenger_file(self, &context)
+    }
+
+    pub fn visit_mut<V: AvengerVisitorMut>(&mut self, visitor: &mut V) -> ControlFlow<V::Break> {
+        let context = VisitorContext { 
+            path: vec![], component_type: self.name.clone() 
+        };
+        visitor.pre_visit_avenger_file(self, &context)?;
+        for statement in &mut self.statements {
+            statement.visit(visitor, &context)?;
+        }
+        visitor.post_visit_avenger_file(self, &context)
     }
 }
 
-impl AvengerVisitMut for AvengerFile {
-    fn visit<V: AvengerVisitorMut>(&mut self, visitor: &mut V, context: &VisitorContext) -> ControlFlow<V::Break> {
-        visitor.pre_visit_avenger_file(self, context)?;
-        for statement in &mut self.statements {
-            statement.visit(visitor, context)?;
-        }
-        visitor.post_visit_avenger_file(self, context)
-    }
-}
 
 impl AvengerProject {
     pub fn visit<V: AvengerVisitor>(&self, visitor: &mut V) -> ControlFlow<V::Break> {
-        let context = VisitorContext { path: vec![], component_type: "".to_string() };
-        visitor.pre_visit_avenger_project(self, &context)?;
+        visitor.pre_visit_avenger_project(self)?;
         for file in self.files.values() {
-            file.visit(visitor, &context)?;
+            file.visit(visitor)?;
         }
-        visitor.post_visit_avenger_project(self, &context)
+        visitor.post_visit_avenger_project(self)
     }
 }
