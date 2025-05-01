@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 use async_recursion::async_recursion;
-use avenger_lang2::ast::{AvengerProject, Statement};
+use avenger_lang2::ast::{AvengerFile, Statement};
 use avenger_scales::utils::ScalarValueUtils;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use futures::future::join_all;
@@ -79,14 +79,10 @@ impl TaskGraphRuntime {
 
     pub async fn evaluate_file(
         self: Arc<Self>,
-        project: &AvengerProject,
-        file_name: &str,
+        file_ast: &AvengerFile,
     ) -> Result<SceneGraph, AvengerRuntimeError> {
-
-        // let component_registry = Arc::new(ComponentRegistry::from(project));
-        
         // Build task graph
-        let task_graph = Arc::new(TaskGraph::from_file(&project, file_name)?);
+        let task_graph = Arc::new(TaskGraph::from_file(file_ast)?);
         
         // Build variables for size of the scenegraph
         let mut dim_vars = vec![];
@@ -103,12 +99,6 @@ impl TaskGraphRuntime {
 
         // Build variables for the child marks
         let mut mark_vars = vec![];
-
-        let Some(file_ast) = project.files.get(file_name) else {
-            return Err(AvengerRuntimeError::InternalError(format!(
-                "File {} not found in project", file_name
-            )));
-        };
         
         for stmt in &file_ast.statements {
             if let Statement::ComponentProp(comp) = stmt {

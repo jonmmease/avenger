@@ -9,7 +9,7 @@ use sqlparser::dialect::{Dialect, GenericDialect, SnowflakeDialect};
 use sqlparser::parser::{Parser as SqlParser, ParserError};
 use sqlparser::tokenizer::{Token, TokenWithSpan, Tokenizer};
 
-use crate::ast::{AvengerFile, AvengerProject, ComponentProp, DatasetProp, ExprProp, FunctionDef, FunctionParam, FunctionReturn, FunctionReturnParam, FunctionStatement, ImportItem, ImportStatement, KeywordAs, KeywordComp, KeywordDataset, KeywordExpr, KeywordFn, KeywordFrom, KeywordImport, KeywordIn, KeywordOut, KeywordReturn, KeywordVal, ParamKind, PropBinding, Qualifier, SqlExprOrQuery, Statement, Type, ValProp};
+use crate::ast::{AvengerFile, ComponentProp, DatasetProp, ExprProp, FunctionDef, FunctionParam, FunctionReturn, FunctionReturnParam, FunctionStatement, ImportItem, ImportStatement, KeywordAs, KeywordComp, KeywordDataset, KeywordExpr, KeywordFn, KeywordFrom, KeywordImport, KeywordIn, KeywordOut, KeywordReturn, KeywordVal, ParamKind, PropBinding, Qualifier, SqlExprOrQuery, Statement, Type, ValProp};
 use crate::error::{AvengerLangError, PositionalParseErrorInfo};
 
 
@@ -77,8 +77,11 @@ impl Dialect for AvengerSqlDialect {
 pub struct AvengerParser<'a> {
     pub parser: SqlParser<'static>,
     pub tokens: Vec<TokenWithSpan>,
+    /// The source code being parsed
     pub src: &'a str,
+    /// The name of the file being parsed, without the extension
     pub name: &'a str,
+    /// The relative path/url to the file being parsed
     pub path: &'a str,
 }
 
@@ -553,118 +556,6 @@ impl<'a> AvengerParser<'a> {
         let expr = parser.parser.parse_expr()?;
         Ok(expr)
     }
-}
-
-/// Parse a project from the given path, recursively finding all Avenger files (.avgr extension)
-pub fn parse_project(project_path: &PathBuf) -> Result<AvengerProject, AvengerLangError> {
-    let mut files = Vec::new();
-    
-    if project_path.is_file() {
-        // Parse a single file
-        parse_single_file(project_path, "", &mut files)?;
-    } else if project_path.is_dir() {
-        // Recursively parse all files in directory
-        parse_directory(project_path, "", &mut files)?;
-    } else {
-        return Err(AvengerLangError::PositionalParseError(PositionalParseErrorInfo {
-            message: format!("Path '{}' is neither a file nor a directory", project_path.display()),
-            line: 0,
-            column: 0,
-            len: 0,
-        }));
-    }
-    
-    Ok(AvengerProject { 
-        files: files.into_iter().map(|file| (file.name.clone(), file)).collect() 
-    })
-}
-
-fn parse_single_file(file_path: &PathBuf, rel_dir: &str, files: &mut Vec<AvengerFile>) -> Result<(), AvengerLangError> {
-    // Only parse files with .avgr or .avenger extension
-    let extension = file_path.extension().and_then(|ext| ext.to_str());
-    if !matches!(extension, Some("avgr") | Some("avenger")) {
-        return Ok(());
-    }
-    
-    // Read file contents
-    let mut file = File::open(file_path).map_err(|e| AvengerLangError::PositionalParseError(PositionalParseErrorInfo {
-        message: format!("Failed to open file '{}': {}", file_path.display(), e),
-        line: 0,
-        column: 0,
-        len: 0,
-    }))?;
-    
-    let mut contents = String::new();
-    file.read_to_string(&mut contents).map_err(|e| AvengerLangError::PositionalParseError(PositionalParseErrorInfo {
-        message: format!("Failed to read file '{}': {}", file_path.display(), e),
-        line: 0,
-        column: 0,
-        len: 0,
-    }))?;
-    
-    // Get file name without extension
-    let file_name = file_path.file_stem()
-        .and_then(|name| name.to_str())
-        .unwrap_or("unknown");
-    
-    // Use rel_dir as the path (without including the filename)
-    let rel_path = rel_dir.to_string();
-    
-    // Parse file
-    let mut parser = AvengerParser::new(&contents, file_name, &rel_path).map_err(|e| {
-        e.pretty_print(&contents, file_name).unwrap();
-        return e;
-    })?;
-    let file = parser.parse().map_err(|e| {
-        e.pretty_print(&contents, file_name).unwrap();
-        return e;
-    })?;
-    files.push(file);
-    
-    Ok(())
-}
-
-fn parse_directory(dir_path: &PathBuf, rel_dir: &str, files: &mut Vec<AvengerFile>) -> Result<(), AvengerLangError> {
-    // Read directory entries
-    let entries = fs::read_dir(dir_path).map_err(|e| AvengerLangError::PositionalParseError(PositionalParseErrorInfo {
-        message: format!("Failed to read directory '{}': {}", dir_path.display(), e),
-        line: 0,
-        column: 0,
-        len: 0,
-    }))?;
-    
-    // Process each entry
-    for entry in entries {
-        let entry = entry.map_err(|e| AvengerLangError::PositionalParseError(PositionalParseErrorInfo {
-            message: format!("Failed to read directory entry: {}", e),
-            line: 0,
-            column: 0,
-            len: 0,
-        }))?;
-        
-        let path = entry.path();
-        
-        if path.is_file() {
-            parse_single_file(&path, rel_dir, files)?;
-        } else if path.is_dir() {
-            // Get directory name
-            let dir_name = path.file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("unknown");
-                
-            // Create new relative directory path for this entry
-            let new_rel_dir = if rel_dir.is_empty() {
-                dir_name.to_string()
-            } else {
-                format!("{}/{}", rel_dir, dir_name)
-            };
-            
-            // Recursively process subdirectories
-            parse_directory(&path, &new_rel_dir, files)?;
-        }
-    }
-    
-    Ok(())
 }
 
 #[cfg(test)]

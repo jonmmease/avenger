@@ -1,10 +1,10 @@
 use std::collections::HashMap;
-use avenger_lang2::ast::{AvengerFile, AvengerProject, Qualifier, Statement};
+use avenger_lang2::ast::{AvengerFile, Qualifier, Statement};
 use avenger_scenegraph::marks::mark::SceneMarkType;
 use sqlparser::ast::{Expr as SqlExpr, Query as SqlQuery, Value as SqlValue};
 
 
-/// A registry of components and their properties.
+/// A registry of built-in components and their properties.
 #[derive(Clone, Debug)]
 pub struct ComponentRegistry {
     components: HashMap<String, ComponentSpec>,
@@ -1383,19 +1383,6 @@ impl ComponentRegistry {
         registry
     }
 }
-
-/// Create a ComponentRegistry with built-in marks and the components defined in the project.
-impl From<&AvengerProject> for ComponentRegistry {
-    fn from(value: &AvengerProject) -> Self {
-        let mut registry = Self::new_with_marks();
-        for file in value.files.values() {
-            let spec = ComponentSpec::from_file(file);
-            registry.register_component(&spec.name.clone(), spec);
-        }
-        registry
-    }
-}
-
 
 #[derive(Clone, Debug)]
 pub struct ComponentSpec {

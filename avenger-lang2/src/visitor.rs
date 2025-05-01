@@ -2,7 +2,7 @@ use std::ops::ControlFlow;
 
 use sqlparser::ast::{Visit, VisitMut, Visitor, VisitorMut};
 
-use crate::ast::{AvengerFile, AvengerProject, ComponentProp, DatasetProp, ExprProp, FunctionDef, FunctionReturn, FunctionStatement, ImportStatement, PropBinding, SqlExprOrQuery, Statement, ValProp};
+use crate::ast::{AvengerFile, ComponentProp, DatasetProp, ExprProp, FunctionDef, FunctionReturn, FunctionStatement, ImportStatement, PropBinding, SqlExprOrQuery, Statement, ValProp};
 
 
 pub struct VisitorContext {
@@ -24,13 +24,6 @@ impl VisitorContext {
 }
 
 pub trait AvengerVisitor: Visitor {
-    fn pre_visit_avenger_project(&mut self, _project: &AvengerProject) -> ControlFlow<Self::Break> {
-        ControlFlow::Continue(())
-    }
-    fn post_visit_avenger_project(&mut self, _project: &AvengerProject) -> ControlFlow<Self::Break> {
-        ControlFlow::Continue(())
-    }
-
     fn pre_visit_avenger_file(&mut self, _file: &AvengerFile, _context: &VisitorContext) -> ControlFlow<Self::Break> {
         ControlFlow::Continue(())
     }   
@@ -110,13 +103,6 @@ pub trait AvengerVisitor: Visitor {
 }
 
 pub trait AvengerVisitorMut: VisitorMut {
-    fn pre_visit_avenger_project(&mut self, _project: &mut AvengerProject) -> ControlFlow<Self::Break> {
-        ControlFlow::Continue(())
-    }
-    fn post_visit_avenger_project(&mut self, _project: &mut AvengerProject) -> ControlFlow<Self::Break> {
-        ControlFlow::Continue(())
-    }
-
     fn pre_visit_avenger_file(&mut self, _file: &mut AvengerFile, _context: &VisitorContext) -> ControlFlow<Self::Break> {
         ControlFlow::Continue(())
     }   
@@ -449,16 +435,5 @@ impl AvengerFile {
             statement.visit(visitor, &context)?;
         }
         visitor.post_visit_avenger_file(self, &context)
-    }
-}
-
-
-impl AvengerProject {
-    pub fn visit<V: AvengerVisitor>(&self, visitor: &mut V) -> ControlFlow<V::Break> {
-        visitor.pre_visit_avenger_project(self)?;
-        for file in self.files.values() {
-            file.visit(visitor)?;
-        }
-        visitor.post_visit_avenger_project(self)
     }
 }

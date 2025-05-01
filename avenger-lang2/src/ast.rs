@@ -4,14 +4,6 @@ use sqlparser::{ast::{Expr as SqlExpr, Query as SqlQuery, Spanned, Ident}, token
 
 use crate::error::AvengerLangError;
 
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AvengerProject {
-    // Map from file/component name to parsed file
-    pub files: HashMap<String, AvengerFile>,
-}
-
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AvengerFile {
     pub name: String,

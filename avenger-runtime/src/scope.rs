@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::cell::RefCell;
 use std::ops::ControlFlow;
 
-use avenger_lang2::ast::{AvengerProject, ComponentProp, DatasetProp, ExprProp, ValProp};
+use avenger_lang2::ast::{AvengerFile, ComponentProp, DatasetProp, ExprProp, ValProp};
 use sqlparser::ast::{Expr as SqlExpr, Ident, ObjectName, Query as SqlQuery, VisitMut, Visitor, VisitorMut as SqlVisitorMut};
 use avenger_lang2::visitor::{AvengerVisitor, VisitorContext};
 
@@ -58,12 +58,9 @@ impl PropertyScope {
     }
     
     // Create a Scope from an AvengerFile using the ScopeBuilder visitor
-    pub fn from_file(project: &AvengerProject, file_name: &str) -> Result<Self, AvengerRuntimeError> {
-        let registry = ComponentRegistry::from(project);
+    pub fn from_file(file_ast: &AvengerFile) -> Result<Self, AvengerRuntimeError> {
+        let registry = ComponentRegistry::new_with_marks();
         let mut builder = PropertyScopeBuilder::new(&registry);
-        let file_ast = project.files.get(file_name).ok_or_else(|| AvengerRuntimeError::InternalError(format!(
-            "File {} not found in project", file_name
-        )))?;
         if let ControlFlow::Break(err) = file_ast.visit(&mut builder) {
             return Err(AvengerRuntimeError::InternalError(format!(
                 "Error building scope: {:?}", err
