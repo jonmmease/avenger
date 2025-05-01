@@ -1,7 +1,19 @@
 use std::sync::Arc;
 
-use avenger_lang::{ast::AvengerFile, context::EvaluationContext, error::AvengerLangError, parser::AvengerParser, task_graph::{dependency::{Dependency, DependencyKind}, runtime::TaskGraphRuntime, task_graph::TaskGraph, value::{ArrowTable, TaskDataset}, variable::Variable}};
 use avenger_lang::marks::build_rect_mark;
+use avenger_lang::{
+    ast::AvengerFile,
+    context::EvaluationContext,
+    error::AvengerLangError,
+    parser::AvengerParser,
+    task_graph::{
+        dependency::{Dependency, DependencyKind},
+        runtime::TaskGraphRuntime,
+        task_graph::TaskGraph,
+        value::{ArrowTable, TaskDataset},
+        variable::Variable,
+    },
+};
 
 fn parse_file(src: &str) -> Result<AvengerFile, AvengerLangError> {
     let parser = AvengerParser::new();
@@ -18,13 +30,13 @@ async fn test_parse_file_to_taskgraph() -> Result<(), AvengerLangError> {
     in val<int> my_val: 1 + 23;
     dataset my_dataset: select @my_val * 2 as my_val_2;
     out expr my_expr: @my_val + "some_col";
-    out dataset my_dataset2: 
+    out dataset my_dataset2:
         with a as (select 23 as "some_col")
         select @my_expr * 3 as my_val_3 from a;
 
     dataset my_dataset3: select my_val_3 * 2 as another_col from @my_dataset2;
     "#;
-    
+
     // Create a new parser with the tokens and parse the file
     let file = parse_file(src)?;
     // println!("{:#?}", file);
@@ -43,17 +55,17 @@ async fn test_parse_file_to_taskgraph() -> Result<(), AvengerLangError> {
     let runtime = TaskGraphRuntime::new();
 
     // Eval root variable
-    let vals = runtime.evaluate_variables(
-        task_graph.clone(), &[my_val.clone()]
-    ).await?;
+    let vals = runtime
+        .evaluate_variables(task_graph.clone(), &[my_val.clone()])
+        .await?;
 
     let my_val_val = vals.get(&my_val).unwrap();
     println!("my_val: {:#?}", my_val_val);
 
     // Eval dataset variable
-    let vals = runtime.evaluate_variables(
-        task_graph.clone(), &[my_dataset.clone()]
-    ).await?;
+    let vals = runtime
+        .evaluate_variables(task_graph.clone(), &[my_dataset.clone()])
+        .await?;
 
     let my_dataset_val = vals.get(&my_dataset).unwrap().clone();
     let (my_dataset_val, task_value_context) = my_dataset_val.into_dataset().unwrap();
@@ -66,26 +78,24 @@ async fn test_parse_file_to_taskgraph() -> Result<(), AvengerLangError> {
             let my_dataset_df = ctx.session_ctx().execute_logical_plan(plan.clone()).await?;
             ArrowTable::from_dataframe(my_dataset_df).await?
         }
-        TaskDataset::ArrowTable(table) => {
-            table
-        }
+        TaskDataset::ArrowTable(table) => table,
     };
 
     println!("my_dataset");
     table.show()?;
 
     // Eval expr variable
-    let vals = runtime.evaluate_variables(
-        task_graph.clone(), &[my_expr.clone()]
-    ).await?;
+    let vals = runtime
+        .evaluate_variables(task_graph.clone(), &[my_expr.clone()])
+        .await?;
 
     let my_expr_val = vals.get(&my_expr).unwrap();
     println!("my_expr: {:#?}", my_expr_val);
 
     // Eval dataset2 variable
-    let vals = runtime.evaluate_variables(
-        task_graph.clone(), &[my_dataset2.clone()]
-    ).await?;
+    let vals = runtime
+        .evaluate_variables(task_graph.clone(), &[my_dataset2.clone()])
+        .await?;
 
     let my_dataset2_val = vals.get(&my_dataset2).unwrap().clone();
     let (my_dataset2_val, task_value_context) = my_dataset2_val.into_dataset().unwrap();
@@ -98,18 +108,16 @@ async fn test_parse_file_to_taskgraph() -> Result<(), AvengerLangError> {
             let my_dataset2_df = ctx.session_ctx().execute_logical_plan(plan.clone()).await?;
             ArrowTable::from_dataframe(my_dataset2_df).await?
         }
-        TaskDataset::ArrowTable(table) => {
-            table
-        }
+        TaskDataset::ArrowTable(table) => table,
     };
 
     println!("my_dataset2");
     table.show()?;
 
     // Eval dataset3 variable
-    let vals = runtime.evaluate_variables(
-        task_graph.clone(), &[my_dataset3.clone()]
-    ).await?;
+    let vals = runtime
+        .evaluate_variables(task_graph.clone(), &[my_dataset3.clone()])
+        .await?;
 
     let my_dataset3_val = vals.get(&my_dataset3).unwrap().clone();
     let (my_dataset3_val, task_value_context) = my_dataset3_val.into_dataset().unwrap();
@@ -122,19 +130,14 @@ async fn test_parse_file_to_taskgraph() -> Result<(), AvengerLangError> {
             let my_dataset3_df = ctx.session_ctx().execute_logical_plan(plan.clone()).await?;
             ArrowTable::from_dataframe(my_dataset3_df).await?
         }
-        TaskDataset::ArrowTable(table) => {
-            table
-        }
+        TaskDataset::ArrowTable(table) => table,
     };
 
     println!("my_dataset3");
     table.show()?;
 
-
     Ok(())
 }
-
-
 
 #[tokio::test]
 async fn test_parse_file_to_taskgraph2() -> Result<(), AvengerLangError> {
@@ -161,31 +164,25 @@ async fn test_parse_file_to_taskgraph2() -> Result<(), AvengerLangError> {
 
     // Evaluate the task graph
     let my_val = Variable::new("my_val");
-    let upper_dataset = Variable::with_parts(
-        vec!["upper_dataset".to_string()]
-    );
-    let foo_val = Variable::with_parts(
-        vec!["foo".to_string(), "foo_val".to_string()]
-    );
-    let depends_on_nested_val = Variable::with_parts(
-        vec!["depends_on_nested_val".to_string()]
-    );
-    let bar_val = Variable::with_parts(
-        vec!["foo".to_string(), "bar_val".to_string()]
-    );
+    let upper_dataset = Variable::with_parts(vec!["upper_dataset".to_string()]);
+    let foo_val = Variable::with_parts(vec!["foo".to_string(), "foo_val".to_string()]);
+    let depends_on_nested_val = Variable::with_parts(vec!["depends_on_nested_val".to_string()]);
+    let bar_val = Variable::with_parts(vec!["foo".to_string(), "bar_val".to_string()]);
 
     let runtime = TaskGraphRuntime::new();
 
     // Eval root variable
-    let vals = runtime.evaluate_variables(
-        task_graph.clone(), 
-        &[
-        foo_val.clone(), 
-        depends_on_nested_val.clone(), 
-        upper_dataset.clone(), 
-        bar_val.clone()
-    ]
-    ).await?;
+    let vals = runtime
+        .evaluate_variables(
+            task_graph.clone(),
+            &[
+                foo_val.clone(),
+                depends_on_nested_val.clone(),
+                upper_dataset.clone(),
+                bar_val.clone(),
+            ],
+        )
+        .await?;
 
     let foo_val_val = vals.get(&foo_val).unwrap();
     println!("foo_val: {:#?}", foo_val_val);
@@ -202,14 +199,13 @@ async fn test_parse_file_to_taskgraph2() -> Result<(), AvengerLangError> {
     Ok(())
 }
 
-
 #[tokio::test]
 async fn test_parse_file_to_scene_graph() -> Result<(), AvengerLangError> {
     let src = r#"
     width := 440;
     height := 440;
 
-    dataset data_0: SELECT * FROM (VALUES 
+    dataset data_0: SELECT * FROM (VALUES
             (1, 'red'),
             (2, 'green'),
             (3, 'blue')
@@ -245,26 +241,36 @@ async fn test_parse_file_to_scene_graph() -> Result<(), AvengerLangError> {
     // }
 
     // Evaluate the built-in mark datasets
-    let encoded_data = Variable::with_parts(
-        vec!["g1".to_string(), "mark1".to_string(), "encoded_data".to_string()]
-    );
-    let config_variable = Variable::with_parts(
-        vec!["g1".to_string(), "mark1".to_string(), "config".to_string()]
-    );
-    let rect_mark_variable = Variable::with_parts(
-        vec!["g1".to_string(), "mark1".to_string(), "_mark".to_string()]
-    );
-    let group_mark_variable = Variable::with_parts(
-        vec!["g1".to_string(), "_mark".to_string()]
-    );
+    let encoded_data = Variable::with_parts(vec![
+        "g1".to_string(),
+        "mark1".to_string(),
+        "encoded_data".to_string(),
+    ]);
+    let config_variable = Variable::with_parts(vec![
+        "g1".to_string(),
+        "mark1".to_string(),
+        "config".to_string(),
+    ]);
+    let rect_mark_variable = Variable::with_parts(vec![
+        "g1".to_string(),
+        "mark1".to_string(),
+        "_mark".to_string(),
+    ]);
+    let group_mark_variable = Variable::with_parts(vec!["g1".to_string(), "_mark".to_string()]);
 
     let runtime = TaskGraphRuntime::new();
 
-    let vals = runtime.evaluate_variables(
-        task_graph.clone(), &[
-            encoded_data.clone(), config_variable.clone(), rect_mark_variable.clone(), group_mark_variable.clone()
-        ]
-    ).await?;
+    let vals = runtime
+        .evaluate_variables(
+            task_graph.clone(),
+            &[
+                encoded_data.clone(),
+                config_variable.clone(),
+                rect_mark_variable.clone(),
+                group_mark_variable.clone(),
+            ],
+        )
+        .await?;
 
     let encoded_data_val = vals.get(&encoded_data).unwrap();
     // println!("encoded_data: {:#?}", encoded_data_val);
@@ -277,14 +283,20 @@ async fn test_parse_file_to_scene_graph() -> Result<(), AvengerLangError> {
 
     let (task_dataset, _) = encoded_data_val.as_dataset()?;
     let TaskDataset::ArrowTable(encoded_table) = task_dataset else {
-        return Err(AvengerLangError::InternalError(format!("Expected ArrowTable, got {:?}", task_dataset)));
+        return Err(AvengerLangError::InternalError(format!(
+            "Expected ArrowTable, got {:?}",
+            task_dataset
+        )));
     };
 
     encoded_table.show()?;
 
     let (task_dataset, _) = config_val.as_dataset()?;
     let TaskDataset::ArrowTable(config_table) = task_dataset else {
-        return Err(AvengerLangError::InternalError(format!("Expected ArrowTable, got {:?}", task_dataset)));
+        return Err(AvengerLangError::InternalError(format!(
+            "Expected ArrowTable, got {:?}",
+            task_dataset
+        )));
     };
 
     config_table.show()?;
@@ -294,9 +306,22 @@ async fn test_parse_file_to_scene_graph() -> Result<(), AvengerLangError> {
 
     println!("group_mark: {:#?}", group_mark);
 
-
     let scene_graph = runtime.evaluate_file(&file).await?;
     println!("scene_graph: {:#?}", scene_graph);
+
+    Ok(())
+}
+
+#[test]
+fn test_parse_sql_error() -> Result<(), AvengerLangError> {
+    match AvengerParser::parse_single_expr("2 + 3") {
+        Ok(ast) => {
+            println!("{:?}", ast);
+        }
+        Err(err) => {
+            println!("{:?}", err);
+        }
+    }
 
     Ok(())
 }
