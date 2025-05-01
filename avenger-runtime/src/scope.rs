@@ -2,9 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::cell::RefCell;
 use std::ops::ControlFlow;
 
-use avenger_lang2::ast::{AvengerFile, AvengerProject, ComponentProp, DatasetProp, ExprProp, PropBinding, ValProp};
+use avenger_lang2::ast::{AvengerProject, ComponentProp, DatasetProp, ExprProp, ValProp};
 use sqlparser::ast::{Expr as SqlExpr, Ident, ObjectName, Query as SqlQuery, VisitMut, Visitor, VisitorMut as SqlVisitorMut};
-use avenger_lang2::visitor::{AvengerVisit, AvengerVisitor, VisitorContext};
+use avenger_lang2::visitor::{AvengerVisitor, VisitorContext};
 
 use crate::component_registry::ComponentRegistry;
 use crate::error::AvengerRuntimeError;
@@ -14,8 +14,8 @@ use crate::variable::Variable;
 pub struct ScopeLevel {
     // The name of the scope level. Top level is "root"
     pub name: String,
-    // The val/expr/dataset properties of this scope level
-    pub properties: HashSet<String>,
+    // The item names in this scope level
+    pub items: HashSet<String>,
     // The child scopes
     pub children: HashMap<String, ScopeLevel>,
 }
@@ -24,22 +24,22 @@ impl Clone for ScopeLevel {
     fn clone(&self) -> Self {
         Self {
             name: self.name.clone(),
-            properties: self.properties.clone(),
+            items: self.items.clone(),
             children: self.children.clone(),
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Scope {
+pub struct PropertyScope {
     root_level: ScopeLevel,
     component_paths: HashMap<String, Vec<String>>,
 }
 
-impl Scope {
+impl PropertyScope {
     pub fn new(root_level: ScopeLevel) -> Self {
         let mut component_paths = HashMap::new();
-        Scope::add_component_paths(&mut component_paths, &root_level, &vec![]);
+        PropertyScope::add_component_paths(&mut component_paths, &root_level, &vec![]);
 
         Self { root_level, component_paths }
     }
@@ -53,14 +53,14 @@ impl Scope {
             let mut parts = prefix.to_vec();
             parts.push(name.clone());
             component_paths.insert(name.clone(), parts.clone());
-            Scope::add_component_paths(component_paths, child, &parts);
+            PropertyScope::add_component_paths(component_paths, child, &parts);
         }
     }
     
     // Create a Scope from an AvengerFile using the ScopeBuilder visitor
     pub fn from_file(project: &AvengerProject, file_name: &str) -> Result<Self, AvengerRuntimeError> {
         let registry = ComponentRegistry::from(project);
-        let mut builder = ScopeBuilder::new(&registry);
+        let mut builder = PropertyScopeBuilder::new(&registry);
         let file_ast = project.files.get(file_name).ok_or_else(|| AvengerRuntimeError::InternalError(format!(
             "File {} not found in project", file_name
         )))?;
@@ -74,17 +74,17 @@ impl Scope {
 }
 
 // ScopeBuilder visitor that constructs a Scope from an AvengerFile
-pub struct ScopeBuilder<'a> {
+pub struct PropertyScopeBuilder<'a> {
     root_level: RefCell<ScopeLevel>,
     registry: &'a ComponentRegistry,
 }
 
-impl<'a> ScopeBuilder<'a> {
+impl<'a> PropertyScopeBuilder<'a> {
     pub fn new(registry: &'a ComponentRegistry) -> Self {
         Self {
             root_level: RefCell::new(ScopeLevel {
                 name: "root".to_string(),
-                properties: HashSet::new(),
+                items: HashSet::new(),
                 children: HashMap::new(),
             }),
             registry,
@@ -100,7 +100,7 @@ impl<'a> ScopeBuilder<'a> {
             if !current.children.contains_key(part) {
                 current.children.insert(part.clone(), ScopeLevel {
                     name: part.clone(),
-                    properties: HashSet::new(),
+                    items: HashSet::new(),
                     children: HashMap::new(),
                 });
             }
@@ -110,22 +110,22 @@ impl<'a> ScopeBuilder<'a> {
         }
         
         // Add the property to the current scope level
-        current.properties.insert(name.to_string());
+        current.items.insert(name.to_string());
         Ok(())
     }
 
-    pub fn build(&self) -> Scope {
+    pub fn build(&self) -> PropertyScope {
         let borrowed = self.root_level.borrow();
         let root_level_clone = (*borrowed).clone();
-        Scope::new(root_level_clone)
+        PropertyScope::new(root_level_clone)
     }
 }
 
-impl<'a> Visitor for ScopeBuilder<'a> {
+impl<'a> Visitor for PropertyScopeBuilder<'a> {
     type Break = Result<(), AvengerRuntimeError>;
 }
 
-impl<'a> AvengerVisitor for ScopeBuilder<'a> {
+impl<'a> AvengerVisitor for PropertyScopeBuilder<'a> {
     fn pre_visit_val_prop(&mut self, val_prop: &ValProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
         if let Err(err) = self.add_property(&val_prop.name.value, &context.path) {
             return ControlFlow::Break(Err(err));
@@ -156,7 +156,7 @@ impl<'a> AvengerVisitor for ScopeBuilder<'a> {
         };
         let mut child_path = context.path.clone();
         child_path.push(comp_prop.name());
-        for (name, prop) in component_type.props.iter() {
+        for name in component_type.props.keys() {
             if let Err(err) = self.add_property(&name, &child_path) {
                 return ControlFlow::Break(Err(err));
             }
@@ -175,7 +175,7 @@ pub enum ScopeAnchor {
 }
 
 
-impl Scope {
+impl PropertyScope {
     fn make_scope_stack<'a>(&'a self, path: &[String]) -> Result<Vec<&'a ScopeLevel>, AvengerRuntimeError> {
         let mut scope_stack: Vec<&ScopeLevel> = vec![&self.root_level];
         for part in path {
@@ -201,7 +201,7 @@ impl Scope {
         match anchor {
             Some(ScopeAnchor::Self_) => {
                 // check only the final level
-                if scope_stack[scope_stack.len() - 1].properties.contains(name) {
+                if scope_stack[scope_stack.len() - 1].items.contains(name) {
                     let mut parts: Vec<String> = (1..scope_stack.len()).map(|i| scope_stack[i].name.clone()).collect();
                     parts.push(name.to_string());
                     return Some(Variable::new(parts));
@@ -210,7 +210,7 @@ impl Scope {
             }
             Some(ScopeAnchor::Parent) => {
                 // Check only the parent level
-                if scope_stack[scope_stack.len() - 2].properties.contains(name) {
+                if scope_stack[scope_stack.len() - 2].items.contains(name) {
                     let mut parts: Vec<String> = (1..scope_stack.len() - 1).map(|i| scope_stack[i].name.clone()).collect();
                     parts.push(name.to_string());
                     return Some(Variable::new(parts));
@@ -219,7 +219,7 @@ impl Scope {
             }
             Some(ScopeAnchor::Root) => {
                 // Check only the root level
-                if scope_stack[0].properties.contains(name) {
+                if scope_stack[0].items.contains(name) {
                     return Some(Variable::new(vec![name.to_string()]));
                 }
                 None
@@ -242,7 +242,7 @@ impl Scope {
             None => {
                 // Walk the stack to find the variable
                 for lvl in (0..scope_stack.len()).rev() {
-                    if scope_stack[lvl].properties.contains(name) {
+                    if scope_stack[lvl].items.contains(name) {
                         // Build variable from the root
                         let mut parts: Vec<String> = (1..=lvl).map(|i| scope_stack[i].name.clone()).collect();
                         parts.push(name.to_string());
@@ -278,12 +278,12 @@ impl Scope {
 
 
 pub struct ResolveVarInSqlVisitor<'a> {
-    scope: &'a Scope,
+    scope: &'a PropertyScope,
     path: &'a [String],
 }
 
 impl<'a> ResolveVarInSqlVisitor<'a> {
-    pub fn new(scope: &'a Scope, path: &'a [String]) -> Self {
+    pub fn new(scope: &'a PropertyScope, path: &'a [String]) -> Self {
         Self { scope, path }
     }
 
@@ -377,12 +377,18 @@ impl<'a> SqlVisitorMut for ResolveVarInSqlVisitor<'a> {
 }
 
 
+pub struct ImportScope {
+    // The scope of the imported file
+    pub root_level: ScopeLevel,
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
     
     fn assert_var_resolution(
-        scope: &Scope, 
+        scope: &PropertyScope, 
         name: &str, 
         path: &[String], 
         anchor: Option<ScopeAnchor>,
@@ -403,17 +409,17 @@ mod tests {
 
     #[test]
     fn test_resolve_var() {
-        let scope = Scope::new( 
+        let scope = PropertyScope::new( 
             ScopeLevel { 
                 name: "root".to_string(), 
-                properties: vec![
+                items: vec![
                     "rootVarA".to_string(),
                     "rootVarB".to_string(),
                 ].into_iter().collect(), 
                 children: vec![
                     ("child1".to_string(), ScopeLevel {
                         name: "child1".to_string(),
-                        properties: vec![
+                        items: vec![
                             "var1".to_string(),
                             "var2".to_string(),
                         ].into_iter().collect(),
@@ -421,14 +427,14 @@ mod tests {
                     }),
                     ("child2".to_string(), ScopeLevel {
                         name: "child2".to_string(),
-                        properties: vec![
+                        items: vec![
                             "varA".to_string(),
                             "varB".to_string(),
                         ].into_iter().collect(),
                         children: vec![
                             ("child2_a".to_string(), ScopeLevel {
                                 name: "child2_a".to_string(),
-                                properties: vec![
+                                items: vec![
                                     "varC".to_string(),
                                     "varD".to_string(),
                                 ].into_iter().collect(),

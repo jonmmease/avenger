@@ -1,10 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
 use async_recursion::async_recursion;
-use avenger_lang2::ast::{AvengerFile, AvengerProject, Statement};
+use avenger_lang2::ast::{AvengerProject, Statement};
 use avenger_scales::utils::ScalarValueUtils;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use futures::future::join_all;
-use crate::{cache::{RuntimeCache, RuntimeCacheConfig}, component_registry::ComponentRegistry, error::AvengerRuntimeError, task_graph::TaskGraph, value::TaskValue, variable::Variable};
+use crate::{cache::{RuntimeCache, RuntimeCacheConfig}, error::AvengerRuntimeError, task_graph::TaskGraph, value::TaskValue, variable::Variable};
 
 pub struct TaskGraphRuntime {
     cache: Arc<RuntimeCache>,

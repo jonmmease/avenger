@@ -1,3 +1,8 @@
+use std::ops::ControlFlow;
+use sqlparser::ast::{Expr as SqlExpr, ObjectName, Query as SqlQuery, Visit, Visitor};
+use crate::{error::AvengerRuntimeError, variable::Variable};
+
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DependencyKind {
     Val,
@@ -6,8 +11,6 @@ pub enum DependencyKind {
     Dataset,
     Mark,
 }
-
-use super::variable::Variable;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Dependency {
@@ -20,3 +23,78 @@ impl Dependency {
         Self { variable: Variable::new(parts), kind }
     }
 }
+
+pub struct CollectDependenciesVisitor {
+    /// The variables that are dependencies of the task, without leading @
+    deps: Vec<Dependency>,
+}
+
+impl CollectDependenciesVisitor {
+    pub fn new() -> Self {
+        Self { deps: vec![] }
+    }
+}
+
+impl Visitor for CollectDependenciesVisitor {
+    type Break = Result<(), AvengerRuntimeError>;
+
+    /// Replace tables of the form @table_name with the true mangled table name
+    fn pre_visit_relation(&mut self, relation: &ObjectName) -> ControlFlow<Self::Break> {
+        let table_name = relation.to_string();
+
+        // Handle dataset references
+        if table_name.starts_with("@") {
+            // Drop leading @ and split on .
+            let parts = table_name[1..].split(".").map(|s| s.to_string()).collect::<Vec<_>>();
+
+            self.deps.push(Dependency::new(
+                parts, DependencyKind::Dataset)
+            );
+        }
+
+        ControlFlow::Continue(())
+    }
+
+    fn pre_visit_expr(&mut self, expr: &SqlExpr) -> ControlFlow<Self::Break> {
+        match &expr {
+            SqlExpr::Identifier(ident) => {
+                if ident.value.starts_with("@") {
+                    self.deps.push(Dependency::new(
+                        vec![ident.value[1..].to_string()], DependencyKind::ValOrExpr)
+                    );
+                }
+            }
+            SqlExpr::CompoundIdentifier(idents) => {
+                if !idents.is_empty() && idents[0].value.starts_with("@") {
+                    let mut parts: Vec<String> = idents.iter().map(|ident| ident.value.clone()).collect();
+                    // Drop the leading @
+                    parts[0] = parts[0][1..].to_string();
+                    self.deps.push(Dependency::new(
+                        parts, DependencyKind::ValOrExpr)
+                    );
+                }
+            }
+            _ => {}
+        }
+        ControlFlow::Continue(())
+    }
+}
+
+pub fn collect_expr_dependencies(expr: &SqlExpr) -> Result<Vec<Dependency>, AvengerRuntimeError> {
+    let mut visitor = CollectDependenciesVisitor::new();
+    if let ControlFlow::Break(Result::Err(err)) = expr.visit(&mut visitor) {
+        return Err(err);
+    }
+    Ok(visitor.deps)
+}
+
+pub fn collect_query_dependencies(query: &SqlQuery) -> Result<Vec<Dependency>, AvengerRuntimeError> {
+    let mut visitor = CollectDependenciesVisitor::new();
+    if let ControlFlow::Break(Result::Err(err)) = query.visit(&mut visitor) {
+        return Err(err);
+    }
+    Ok(visitor.deps)
+}
+
+
+

@@ -7,7 +7,6 @@ pub mod task_graph;
 pub mod tasks;
 pub mod dependency;
 pub mod runtime;
-pub mod visitors;
 pub mod context;
 pub mod marks;
 pub mod component_registry;

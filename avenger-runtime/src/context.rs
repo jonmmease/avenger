@@ -9,8 +9,8 @@ use datafusion::{
 };
 use datafusion_common::{DFSchema, DataFusionError, ScalarValue};
 use datafusion_sql::TableReference;
-use sqlparser::ast::{Expr as SqlExpr, Query as SqlQuery, VisitMut};
-use crate::{error::AvengerRuntimeError, visitors::CompilationVisitor};
+use sqlparser::ast::{Expr as SqlExpr, Ident, ObjectName, Query as SqlQuery, VisitMut, VisitorMut};
+use crate::error::AvengerRuntimeError;
 use crate::{value::{ArrowTable, TaskDataset, TaskValue, TaskValueContext}, variable::Variable};
 
 
@@ -318,4 +318,85 @@ impl VarProvider for EvaluationValProvider {
         Some(val.data_type())
     }
 }
+
+
+
+
+pub struct CompilationVisitor<'a> {
+    ctx: &'a TaskEvaluationContext,
+}
+
+impl<'a> CompilationVisitor<'a> {
+    pub fn new(ctx: &'a TaskEvaluationContext) -> Self {
+        Self { ctx }
+    }
+}
+
+impl<'a> VisitorMut for CompilationVisitor<'a> {
+    type Break = Result<(), AvengerRuntimeError>;
+
+    fn pre_visit_relation(&mut self, relation: &mut datafusion_sql::sqlparser::ast::ObjectName) -> ControlFlow<Self::Break> {
+        let table_name = relation.to_string();
+    
+        if table_name.starts_with("@") {
+            let mut parts = relation.0.iter().map(|ident| ident.value.clone()).collect::<Vec<_>>();
+
+            // Join on __ into a single string
+            parts = vec![parts.join("__")];
+
+            // Update the relation to use the mangled name
+            let idents = parts.iter().map(|s| Ident::new(s.to_string())).collect::<Vec<_>>();
+
+            *relation = ObjectName(idents);
+        }
+
+        ControlFlow::Continue(())
+    }
+
+    fn pre_visit_expr(&mut self, expr: &mut SqlExpr) -> ControlFlow<Self::Break> {
+        match expr.clone() {
+            SqlExpr::Identifier(ident) => {
+                if ident.value.starts_with("@") {
+                    let variable = Variable::new(vec![ident.value[1..].to_string()]);
+
+                    // Check if this is a reference to an expression
+                    if let Ok(registered_expr) = self.ctx.get_expr(&variable) {
+                        *expr = SqlExpr::Nested(Box::new(registered_expr.clone()));
+                        return ControlFlow::Continue(());
+                    }
+
+                    // Otherwise it must be a reference to a value
+                    if !self.ctx.has_val(&variable) {
+                        return ControlFlow::Break(Err(AvengerRuntimeError::ExpressionNotFound(
+                            format!("Val or Expr {} not found", variable.name())))
+                        );
+                    }
+                }
+            }
+            SqlExpr::CompoundIdentifier(idents) => {
+                if !idents.is_empty() && idents[0].value.starts_with("@") {
+                    let mut parts = idents.iter().map(|ident| ident.value.clone()).collect::<Vec<_>>();
+                    parts[0] = parts[0][1..].to_string();
+                    let variable = Variable::new(parts);
+
+                    // Check if this is a reference to an expression
+                    if let Ok(registered_expr) = self.ctx.get_expr(&variable) {
+                        *expr = SqlExpr::Nested(Box::new(registered_expr.clone()));
+                        return ControlFlow::Continue(());
+                    }
+
+                    // Otherwise it must be a reference to a value
+                    if !self.ctx.has_val(&variable) {
+                        return ControlFlow::Break(Err(AvengerRuntimeError::ExpressionNotFound(
+                            format!("Val or Expr {} not found", variable.name())))
+                        );
+                    }
+                }
+            }
+            _ => {}
+        }
+        ControlFlow::Continue(())
+    }
+}
+
 
