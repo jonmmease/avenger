@@ -3,7 +3,7 @@ use std::{collections::HashMap, ops::ControlFlow, sync::Arc};
 use avenger_lang2::{ast::{ComponentProp, DatasetProp, ExprProp, PropBinding, ValProp}, parser::AvengerParser, visitor::{AvengerVisitor, VisitorContext}};
 use sqlparser::ast::{Expr as SqlExpr, Ident, ObjectName, Query as SqlQuery, Visit, Visitor, VisitorMut};
 
-use crate::{component_registry::{ComponentRegistry, PropRegistration}, context::TaskEvaluationContext, dependency::{Dependency, DependencyKind}, error::AvengerRuntimeError, scope::Scope, tasks::{DatasetPropTask, ExprPropTask, MarkTask, Task, ValPropTask}, variable::Variable};
+use crate::{component_registry::{ComponentRegistry, ExprPropRegistration, PropRegistration, ValPropRegistration}, context::TaskEvaluationContext, dependency::{Dependency, DependencyKind}, error::AvengerRuntimeError, scope::Scope, tasks::{DatasetPropTask, ExprPropTask, GroupMarkTask, MarkTask, Task, ValPropTask}, variable::Variable};
 
 
 pub struct CollectDependenciesVisitor {
@@ -169,10 +169,14 @@ impl<'a> TaskBuilderVisitor<'a> {
         Self { registry, scope, tasks: HashMap::new() }
     }
 
-    fn make_variable(&self, name: &str, context: &VisitorContext) -> Variable {
+    pub fn make_variable(&self, name: &str, context: &VisitorContext) -> Variable {
         let mut path = context.path.clone();
         path.push(name.to_string());
         Variable::new(path)
+    }
+
+    pub fn build(self) -> HashMap<Variable, Arc<dyn Task>> {
+        self.tasks
     }
 }
 
@@ -183,21 +187,34 @@ impl<'a> Visitor for TaskBuilderVisitor<'a> {
 impl<'a> AvengerVisitor for TaskBuilderVisitor<'a> {
     fn pre_visit_val_prop(&mut self, statement: &ValProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
         let variable = self.make_variable(statement.name(), context);
-        let task = ValPropTask::new(statement.expr.clone());
+        
+        let mut expr = statement.expr.clone();
+        if let Err(err) = self.scope.resolve_sql_expr(&mut expr, &context.path) {
+            return ControlFlow::Break(Err(err));
+        }
+        let task = ValPropTask::new(expr);
         self.tasks.insert(variable, Arc::new(task));
         ControlFlow::Continue(())
     }
 
     fn pre_visit_expr_prop(&mut self, statement: &ExprProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
         let variable = self.make_variable(statement.name(), context);
-        let task = ExprPropTask::new(statement.expr.clone());
+        let mut expr = statement.expr.clone();
+        if let Err(err) = self.scope.resolve_sql_expr(&mut expr, &context.path) {
+            return ControlFlow::Break(Err(err));
+        }
+        let task = ExprPropTask::new(expr);
         self.tasks.insert(variable, Arc::new(task));
         ControlFlow::Continue(())
     }
 
     fn pre_visit_dataset_prop(&mut self, statement: &DatasetProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
         let variable = self.make_variable(statement.name(), context);
-        let task = DatasetPropTask::new(statement.query.clone(), false);
+        let mut query = statement.query.clone();
+        if let Err(err) = self.scope.resolve_sql_query(&mut query, &context.path) {
+            return ControlFlow::Break(Err(err));
+        }
+        let task = DatasetPropTask::new(query, false);
         self.tasks.insert(variable, Arc::new(task));
         ControlFlow::Continue(())
     }
@@ -250,7 +267,7 @@ impl<'a> AvengerVisitor for TaskBuilderVisitor<'a> {
         ControlFlow::Continue(())
     }
 
-    fn pre_visit_component_prop(&mut self, statement: &ComponentProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
+    fn post_visit_component_prop(&mut self, statement: &ComponentProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
         // Get the component type
         let component_type = statement.component_type.value.clone();
 
@@ -259,25 +276,29 @@ impl<'a> AvengerVisitor for TaskBuilderVisitor<'a> {
             return ControlFlow::Break(Err(AvengerRuntimeError::ComponentNotFound(component_type)));
         };
 
-        // Build config_data variable. This is a single row dataset with a column for each val prop
-        let config_variable = self.make_variable(&statement.name(), context);
-
-        let val_prop_names = component_spec.props.iter()
-            .filter_map(|(name, prop)| {
-                if let PropRegistration::Val(_) = prop {
-                    Some(name.clone())
-                } else {
-                    None
+        // let statement_val_props = statement.val_props();
+        let statement_bindings = statement.prop_bindings();
+        let mut val_csv_parts = Vec::new();
+        for (name, prop) in component_spec.props.iter() {
+            if let PropRegistration::Val(_) = prop {
+                if statement_bindings.contains_key(name) {
+                    // We have a binding for this property, use its value
+                    val_csv_parts.push(format!("@{name} as {name}"));
+                } else if let PropRegistration::Val(ValPropRegistration { default, .. }) = prop {
+                    if let Some(default) = default {
+                        val_csv_parts.push(format!("{} as {name}", default.to_string()));
+                    } else {
+                        // TODO: What should we do here?
+                        // val_csv_parts.push(format!("NULL as {name}"));
+                    }
                 }
-            })
-            .collect::<Vec<_>>();
+            }
+        }
 
-        let val_props_csv = if val_prop_names.is_empty() {
+        let val_props_csv = if val_csv_parts.is_empty() {
             "1 as _unit".to_string()
         } else {
-            val_prop_names.iter().map(
-                |name| format!("@{name} as {name}")
-            ).collect::<Vec<_>>().join(", ")
+            val_csv_parts.join(", ")
         };
 
         let Ok(mut query) = AvengerParser::parse_single_query(
@@ -287,29 +308,98 @@ impl<'a> AvengerVisitor for TaskBuilderVisitor<'a> {
                 "Failed to parse config query for component {}", component_type))));
         };
 
-        if let Err(err) = self.scope.resolve_sql_query(&mut query, &context.path) {
+        let mut child_path = context.path.clone();
+        child_path.push(statement.name());
+        if let Err(err) = self.scope.resolve_sql_query(&mut query, &child_path) {
             return ControlFlow::Break(Err(err));
         }
 
         let task = DatasetPropTask { query, eval: true };
-        let mut parts = context.path.clone();
+        let mut parts = child_path.clone();
         parts.push("config".to_string());
         let config_variable = Variable::new(parts);
         self.tasks.insert(config_variable.clone(), Arc::new(task));
 
-        // if component_spec.is_mark {
-        //     // Create a mark task
-        //     let task = MarkTask::new(variable, statement.statements.clone());
-        //     self.tasks.insert(variable, Arc::new(task));
-        // } else {
-        //     // Create a component task
-        // }
+        // Handle mark-specific tasks
+        if let Some(mark_type) = self.registry.lookup_mark_type(
+            &statement.component_type.value
+        ) {
+            let mut expr_csv_parts = Vec::new();
+            for (name, prop) in component_spec.props.iter() {
+                if let PropRegistration::Expr(_) = prop {
+                    if statement_bindings.contains_key(name) {
+                        // We have a binding for this property, use its value
+                        expr_csv_parts.push(format!("@{name} as {name}"));
+                    } else if let PropRegistration::Expr(ExprPropRegistration { default, .. }) = prop {
+                        if let Some(default) = default {
+                            expr_csv_parts.push(format!("{} as {name}", default.to_string()));
+                        } else {
+                            // TODO: What should we do here?
+                            // expr_csv_parts.push(format!("NULL as {name}"));
+                        }
+                    }
+                }
+            }
 
+            let expr_props_csv = if expr_csv_parts.is_empty() {
+                "1 as _unit".to_string()
+            } else {
+                expr_csv_parts.join(", ")
+            };
 
+            let mut query_res = if statement_bindings.contains_key("data") {
+                AvengerParser::parse_single_query(
+                    &format!("SELECT {expr_props_csv} FROM @data")
+                )
+            } else {
+                AvengerParser::parse_single_query(
+                    &format!("SELECT {expr_props_csv}")
+                )
+            };
+            let mut query = if let Ok(query) = query_res {
+                query
+            } else {
+                return ControlFlow::Break(Err(AvengerRuntimeError::InternalError(format!(
+                    "Failed to parse config query for component {}", component_type))));
+            };
 
+            if let Err(err) = self.scope.resolve_sql_query(&mut query, &child_path) {
+                return ControlFlow::Break(Err(err));
+            }
 
-        // let task = ComponentPropTask::new(statement.component.clone(), statement.props.clone());
-        // self.tasks.insert(variable, Arc::new(task));
+            // Create a task for the encoded data
+            // Mark task expects eval: true
+            let task = DatasetPropTask { query, eval: true };
+            let mut parts = child_path.clone();
+            parts.push("encoded_data".to_string());
+            let encoded_data_variable = Variable::new(parts);
+            self.tasks.insert(encoded_data_variable.clone(), Arc::new(task));
+
+            // Create a task to build the mark
+            let mut parts = child_path.clone();
+            parts.push("_mark".to_string());
+            let mark_variable = Variable::new(parts);
+            let task = MarkTask::new(encoded_data_variable, config_variable, mark_type);
+            self.tasks.insert(mark_variable, Arc::new(task));
+        } else {
+            // Treat all non-marks as groups for now.
+            // Later we'll have components that aren't groups or marks.
+            let mark_vars = statement.component_props().into_iter().filter_map(|(name, prop)| {
+                let mut parts = child_path.clone();
+                parts.push(name.clone());
+                parts.push("_mark".to_string());
+                Some(Variable::new(parts))
+            }).collect::<Vec<_>>();
+
+            // Build group mark variable
+            let mut parts = child_path.clone();
+            parts.push("_mark".to_string());
+            let group_mark_variable = Variable::new(parts);
+
+            // Build task
+            let task = GroupMarkTask::new(config_variable, mark_vars);
+            self.tasks.insert(group_mark_variable, Arc::new(task));
+        }
         ControlFlow::Continue(())
     }
 }

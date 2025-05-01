@@ -1,4 +1,5 @@
 use arrow_schema::ArrowError;
+use avenger_lang2::error::AvengerLangError;
 use avenger_scales::error::AvengerScaleError;
 use datafusion_common::DataFusionError;
 use thiserror::Error;
@@ -25,6 +26,9 @@ pub enum AvengerRuntimeError {
 
     #[error("Scale error: `{0}`")]
     ScaleError(#[from] AvengerScaleError),
+
+    #[error("AvengerLang error: `{0}`")]
+    AvengerLangError(#[from] AvengerLangError),
 
     #[error("DataFusion error: `{0}`")]
     DataFusionError(#[from] DataFusionError),
@@ -65,6 +69,7 @@ impl AvengerRuntimeError {
             Self::DataFusionError(e) => Self::InternalError(e.to_string()),
             Self::ArrowError(e) => Self::InternalError(e.to_string()),
             Self::TokioJoinError(e) => Self::InternalError(e.to_string()),
+            Self::AvengerLangError(e) => Self::InternalError(e.to_string()),
         }
     }
 }

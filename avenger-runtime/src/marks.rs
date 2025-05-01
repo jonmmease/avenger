@@ -1,4 +1,5 @@
-use avenger_scales::{scales::coerce::Coercer, utils::ScalarValueUtils};
+use avenger_common::value::ScalarOrArray;
+use avenger_scales::scales::coerce::Coercer;
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::marks::arc::SceneArcMark;
 use avenger_scenegraph::marks::area::SceneAreaMark;
@@ -9,9 +10,6 @@ use avenger_scenegraph::marks::text::SceneTextMark;
 use avenger_scenegraph::marks::image::SceneImageMark;
 use avenger_scenegraph::marks::line::SceneLineMark;
 use avenger_scenegraph::marks::trail::SceneTrailMark;
-use avenger_scenegraph::marks::group::SceneGroup;
-use avenger_common::types::{AreaOrientation, StrokeCap, StrokeJoin};
-use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use datafusion_common::ScalarValue;
 
 use crate::{error::AvengerRuntimeError, value::ArrowTable};

@@ -2,13 +2,15 @@ use std::collections::{HashMap, HashSet};
 use std::cell::RefCell;
 use std::ops::ControlFlow;
 
-use avenger_lang2::ast::{AvengerFile, ComponentProp, DatasetProp, ExprProp, PropBinding, ValProp};
+use avenger_lang2::ast::{AvengerFile, AvengerProject, ComponentProp, DatasetProp, ExprProp, PropBinding, ValProp};
 use sqlparser::ast::{Expr as SqlExpr, Ident, ObjectName, Query as SqlQuery, VisitMut, Visitor, VisitorMut as SqlVisitorMut};
 use avenger_lang2::visitor::{AvengerVisit, AvengerVisitor, VisitorContext};
 
+use crate::component_registry::ComponentRegistry;
 use crate::error::AvengerRuntimeError;
 use crate::variable::Variable;
 
+#[derive(Debug, PartialEq)]
 pub struct ScopeLevel {
     // The name of the scope level. Top level is "root"
     pub name: String,
@@ -28,6 +30,7 @@ impl Clone for ScopeLevel {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct Scope {
     root_level: ScopeLevel,
     component_paths: HashMap<String, Vec<String>>,
@@ -54,27 +57,37 @@ impl Scope {
         }
     }
     
-    // // Create a Scope from an AvengerFile using the ScopeBuilder visitor
-    // pub fn from_file(file: &AvengerFile) -> Result<Self, AvengerRuntimeError> {
-    //     let mut builder = ScopeBuilder::new();
-    //     file.visit(&mut builder, &VisitorContext::new(file))?;
-    //     Ok(builder.build())
-    // }
+    // Create a Scope from an AvengerFile using the ScopeBuilder visitor
+    pub fn from_file(project: &AvengerProject, file_name: &str) -> Result<Self, AvengerRuntimeError> {
+        let registry = ComponentRegistry::from(project);
+        let mut builder = ScopeBuilder::new(&registry);
+        let file_ast = project.files.get(file_name).ok_or_else(|| AvengerRuntimeError::InternalError(format!(
+            "File {} not found in project", file_name
+        )))?;
+        if let ControlFlow::Break(err) = file_ast.visit(&mut builder) {
+            return Err(AvengerRuntimeError::InternalError(format!(
+                "Error building scope: {:?}", err
+            )));
+        }
+        Ok(builder.build())
+    }
 }
 
 // ScopeBuilder visitor that constructs a Scope from an AvengerFile
-pub struct ScopeBuilder {
+pub struct ScopeBuilder<'a> {
     root_level: RefCell<ScopeLevel>,
+    registry: &'a ComponentRegistry,
 }
 
-impl ScopeBuilder {
-    pub fn new() -> Self {
+impl<'a> ScopeBuilder<'a> {
+    pub fn new(registry: &'a ComponentRegistry) -> Self {
         Self {
             root_level: RefCell::new(ScopeLevel {
                 name: "root".to_string(),
                 properties: HashSet::new(),
                 children: HashMap::new(),
             }),
+            registry,
         }
     }
     
@@ -108,42 +121,45 @@ impl ScopeBuilder {
     }
 }
 
-impl Visitor for ScopeBuilder {
+impl<'a> Visitor for ScopeBuilder<'a> {
     type Break = Result<(), AvengerRuntimeError>;
 }
 
-impl AvengerVisitor for ScopeBuilder {
-    fn pre_visit_val_prop(&mut self, val_prop: &ValProp, ctx: &VisitorContext) -> ControlFlow<Self::Break> {
-        if let Err(err) = self.add_property(&val_prop.name.value, &ctx.path) {
+impl<'a> AvengerVisitor for ScopeBuilder<'a> {
+    fn pre_visit_val_prop(&mut self, val_prop: &ValProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
+        if let Err(err) = self.add_property(&val_prop.name.value, &context.path) {
             return ControlFlow::Break(Err(err));
         }
         ControlFlow::Continue(())
     }
 
-    fn pre_visit_expr_prop(&mut self, expr_prop: &ExprProp, ctx: &VisitorContext) -> ControlFlow<Self::Break> {
-        if let Err(err) = self.add_property(&expr_prop.name.value, &ctx.path) {
+    fn pre_visit_expr_prop(&mut self, expr_prop: &ExprProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
+        if let Err(err) = self.add_property(&expr_prop.name.value, &context.path) {
             return ControlFlow::Break(Err(err));
         }
         ControlFlow::Continue(())
     }
 
-    fn pre_visit_dataset_prop(&mut self, dataset_prop: &DatasetProp, ctx: &VisitorContext) -> ControlFlow<Self::Break> {
-        if let Err(err) = self.add_property(&dataset_prop.name.value, &ctx.path) {
+    fn pre_visit_dataset_prop(&mut self, dataset_prop: &DatasetProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
+        if let Err(err) = self.add_property(&dataset_prop.name.value, &context.path) {
             return ControlFlow::Break(Err(err));
         }
         ControlFlow::Continue(())
     }
 
-    fn pre_visit_component_prop(&mut self, comp_prop: &ComponentProp, ctx: &VisitorContext) -> ControlFlow<Self::Break> {
-        if let Err(err) = self.add_property(&comp_prop.name(), &ctx.path) {
-            return ControlFlow::Break(Err(err));
-        }
-        ControlFlow::Continue(())
-    }
-
-    fn pre_visit_prop_binding(&mut self, prop_binding: &PropBinding, ctx: &VisitorContext) -> ControlFlow<Self::Break> {
-        if let Err(err) = self.add_property(&prop_binding.name.value, &ctx.path) {
-            return ControlFlow::Break(Err(err));
+    fn post_visit_component_prop(&mut self, comp_prop: &ComponentProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
+        // Add all properties of the component type to the scope
+        let Some(component_type) = self.registry.lookup_component(&comp_prop.component_type.value) else {
+            return ControlFlow::Break(Err(AvengerRuntimeError::InternalError(format!(
+                "Component type {} not found in registry", comp_prop.component_type.value
+            ))));
+        };
+        let mut child_path = context.path.clone();
+        child_path.push(comp_prop.name());
+        for (name, prop) in component_type.props.iter() {
+            if let Err(err) = self.add_property(&name, &child_path) {
+                return ControlFlow::Break(Err(err));
+            }
         }
         ControlFlow::Continue(())
     }
@@ -175,7 +191,10 @@ impl Scope {
     pub fn resolve_var(&self, name: &str, path: &[String], anchor: Option<ScopeAnchor>) -> Option<Variable> {
         let scope_stack = match self.make_scope_stack(path) {
             Ok(stack) => stack,
-            Err(_) => return None,
+            Err(err) => {
+                println!("Error making scope stack: {:?}", err);
+                return None;
+            }
         };
         
         // Walk the stack to find the variable
@@ -250,6 +269,7 @@ impl Scope {
             self, scope_path
         );
         if let ControlFlow::Break(Err(err)) = query.visit(&mut visitor) {
+            println!("Scope: {:#?}", self);
             return Err(err)
         }
         Ok(())
@@ -320,7 +340,7 @@ impl<'a> SqlVisitorMut for ResolveVarInSqlVisitor<'a> {
             *relation = ObjectName(resolved);
         } else if relation.0.first().map_or(false, |ident| ident.value.starts_with("@")) {
             return ControlFlow::Break(Err(AvengerRuntimeError::InternalError(
-                format!("Failed to resolve variable reference: {:?}", relation)
+                format!("Failed to resolve variable reference: {:?} in path: {:?}", relation, self.path)
             )));
         }
         ControlFlow::Continue(())
@@ -334,7 +354,7 @@ impl<'a> SqlVisitorMut for ResolveVarInSqlVisitor<'a> {
                         *expr = SqlExpr::CompoundIdentifier(resolved);
                     } else {
                         return ControlFlow::Break(Err(AvengerRuntimeError::InternalError(
-                            format!("Failed to resolve variable reference: {:?}", ident)
+                            format!("Failed to resolve variable reference: {:?} in path: {:?}", ident, self.path)
                         )));
                     }
                 }
@@ -345,7 +365,7 @@ impl<'a> SqlVisitorMut for ResolveVarInSqlVisitor<'a> {
                         *expr = SqlExpr::CompoundIdentifier(resolved);
                     } else {
                         return ControlFlow::Break(Err(AvengerRuntimeError::InternalError(
-                            format!("Failed to resolve variable reference: {:?}", idents)
+                            format!("Failed to resolve variable reference: {:?} in path: {:?}", idents, self.path)
                         )));
                     }
                 }

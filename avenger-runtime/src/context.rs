@@ -1,6 +1,12 @@
 use std::{collections::HashMap, ops::ControlFlow, sync::{Arc, Mutex}};
 
-use datafusion::{arrow::array::record_batch, datasource::MemTable, logical_expr::{ColumnarValue, LogicalPlan}, prelude::{DataFrame, Expr, SessionContext}, variable::{VarProvider, VarType}};
+use datafusion::{
+    arrow::array::record_batch, 
+    datasource::MemTable, 
+    logical_expr::{ColumnarValue, LogicalPlan}, 
+    prelude::{DataFrame, SessionContext}, 
+    variable::{VarProvider, VarType}
+};
 use datafusion_common::{DFSchema, DataFusionError, ScalarValue};
 use datafusion_sql::TableReference;
 use sqlparser::ast::{Expr as SqlExpr, Query as SqlQuery, VisitMut};

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use avenger_lang2::ast::{AvengerFile, AvengerProject, ComponentProp, Qualifier, Statement};
+use avenger_lang2::ast::{AvengerFile, AvengerProject, Qualifier, Statement};
+use avenger_scenegraph::marks::mark::SceneMarkType;
 use sqlparser::ast::{Expr as SqlExpr, Query as SqlQuery, Value as SqlValue};
 
 
@@ -26,6 +27,22 @@ impl ComponentRegistry {
 
     pub fn lookup_prop(&self, component: &str, prop: &str) -> Option<&PropRegistration> {
         self.components.get(component).and_then(|spec| spec.props.get(prop))
+    }
+
+    pub fn lookup_mark_type(&self, component: &str) -> Option<SceneMarkType> {
+        match component {
+            "Rect" => Some(SceneMarkType::Rect),
+            "Arc" => Some(SceneMarkType::Arc),
+            "Area" => Some(SceneMarkType::Area),
+            "Image" => Some(SceneMarkType::Image),
+            "Line" => Some(SceneMarkType::Line),
+            "Path" => Some(SceneMarkType::Path),
+            "Rule" => Some(SceneMarkType::Rule),
+            "Symbol" => Some(SceneMarkType::Symbol),
+            "Text" => Some(SceneMarkType::Text),
+            "Trail" => Some(SceneMarkType::Trail),
+            _ => None,
+        }
     }
 
     pub fn new_with_marks() -> Self {
@@ -1426,6 +1443,17 @@ impl ComponentSpec {
             }
         }
 
+        // Add group props
+        for prop in ["x", "y", "width", "height"] {
+            props.insert(
+                prop.to_string(),
+                PropRegistration::Val(ValPropRegistration {
+                    qualifier: None,
+                    default: None,
+                }),
+            );
+        }
+        
         Self {
             name: name.to_string(),
             props,
