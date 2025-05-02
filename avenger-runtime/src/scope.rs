@@ -2,9 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::cell::RefCell;
 use std::ops::ControlFlow;
 
-use avenger_lang2::ast::{AvengerFile, ComponentProp, DatasetProp, ExprProp, ValProp};
+use avenger_lang::ast::{AvengerFile, ComponentProp, DatasetProp, ExprProp, ValProp};
 use sqlparser::ast::{Expr as SqlExpr, Ident, ObjectName, Query as SqlQuery, VisitMut, Visitor, VisitorMut as SqlVisitorMut};
-use avenger_lang2::visitor::{AvengerVisitor, VisitorContext};
+use avenger_lang::visitor::{AvengerVisitor, VisitorContext};
 
 use crate::component_registry::ComponentRegistry;
 use crate::error::AvengerRuntimeError;

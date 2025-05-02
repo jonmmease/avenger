@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use avenger_lang2::ast::{AvengerFile, Qualifier, Statement};
+use avenger_lang::ast::{AvengerFile, Qualifier, Statement};
 use avenger_scenegraph::marks::mark::SceneMarkType;
 use sqlparser::ast::{Expr as SqlExpr, Query as SqlQuery, Value as SqlValue};
 

@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use avenger_lang2::ast::{DatasetProp, ExprProp, ValProp};
+use avenger_lang::ast::{DatasetProp, ExprProp, ValProp};
 use avenger_scales::scales::coerce::Coercer;
 use avenger_scenegraph::marks::{group::SceneGroup, mark::{SceneMark, SceneMarkType}};
 use std::{fmt::Debug, hash::{DefaultHasher, Hash, Hasher}, sync::Arc};

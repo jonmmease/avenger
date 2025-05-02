@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-avenger-lang2 = { path = "../avenger-lang2" }
+avenger-lang = { path = "../avenger-lang" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-scales = { path = "../avenger-scales" }
 avenger-common = { path = "../avenger-common" }

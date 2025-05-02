@@ -1,5 +1,5 @@
 use arrow_schema::ArrowError;
-use avenger_lang2::error::AvengerLangError;
+use avenger_lang::error::AvengerLangError;
 use avenger_scales::error::AvengerScaleError;
 use datafusion_common::DataFusionError;
 use thiserror::Error;

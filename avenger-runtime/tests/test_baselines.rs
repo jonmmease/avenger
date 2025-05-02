@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use arrow::array::{ArrayRef, Float32Array, RecordBatch};
 use arrow::datatypes::{DataType, Field, Schema};
-use avenger_lang2::loader::{AvengerFilesystemLoader, AvengerLoader};
+use avenger_lang::loader::{AvengerFilesystemLoader, AvengerLoader};
 use rstest::rstest;
 
 mod utils;
@@ -20,7 +20,7 @@ use anyhow::Result;
 // #[case("components/custom_component")]
 #[tokio::test]
 async fn test_baselines(#[case] path: &str) -> Result<()> {
-    use avenger_lang2::imports::load_main_component_file;
+    use avenger_lang::imports::load_main_component_file;
     use avenger_runtime::{cache::RuntimeCacheConfig, runtime::TaskGraphRuntime};
 
     let file_ast = load_main_component_file(PathBuf::from(format!("tests/baselines/{}", path)).join("App.avgr"), true)?;

@@ -4,36 +4,26 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-avenger-scenegraph = { path = "../avenger-scenegraph" }
-avenger-scales = { path = "../avenger-scales" }
-avenger-common = { path = "../avenger-common" }
-
+# tree-sitter-avenger = "0.0.4"
+tree-sitter-avenger = { path = "/Users/jonmmease/VegaFusion/repos/tree-sitter-avenger" }
+tree-sitter = "0.25.3"
+check_keyword = "0.2"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+heck = "0.4"
 thiserror = { workspace = true }
-async-trait = { workspace = true }
+
+ariadne = "0.5.1"
 sqlparser = { workspace = true, features = ["visitor"] }
-datafusion = { workspace = true }
-datafusion-common = { workspace = true }
-datafusion-sql = { workspace = true }
-
+sqlparser_derive = { workspace = true }
+regex = "1"
 lazy_static = { workspace = true }
-arrow-schema = { workspace = true }
-tokio = { workspace = true }
-indexmap = { workspace = true }
-petgraph = "0.8.1"
-futures = { workspace = true }
-async-recursion = "1.1.1"
-lru = "0.14.0"
 
-[dev-dependencies]
-image = { workspace = true }
-criterion = { version = "0.5", features = ["html_reports"] }
-pixelmatch = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread"] }
-arrow = { workspace = true }
-avenger-wgpu = { path = "../avenger-wgpu" }
-anyhow = { workspace = true }
-rstest = "0.25.0"
-
-[[bench]]
-name = "context_bench"
-harness = false
+[build-dependencies]
+# tree-sitter-avenger = "0.0.4"
+tree-sitter-avenger = { path = "/Users/jonmmease/VegaFusion/repos/tree-sitter-avenger" }
+tree-sitter = "0.25.3"
+check_keyword = "0.2"
+heck = "0.4"
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
