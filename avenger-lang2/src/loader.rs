@@ -12,11 +12,12 @@ pub trait AvengerLoader {
 pub struct AvengerFilesystemLoader {
     // absolute path to the project base directory
     base_path: PathBuf,
+    verbose: bool,
 }
 
 impl AvengerFilesystemLoader {
-    pub fn new(base_path: PathBuf) -> Self {
-        Self { base_path }
+    pub fn new(base_path: &Path, verbose: bool) -> Self {
+        Self { base_path: base_path.canonicalize().unwrap(), verbose }
     }
 }
 
@@ -34,26 +35,34 @@ impl AvengerLoader for AvengerFilesystemLoader {
         let abs_from_path = self.base_path.join(path).canonicalize().unwrap();
         if !abs_from_path.starts_with(&self.base_path) {
             return Err(AvengerLangError::InternalError(
-                "Import from outside of base path not allowed".to_string())
-            );
+                format!(
+                    "Import {} from outside of base path ({}) not allowed", 
+                    abs_from_path.to_str().unwrap(), 
+                    self.base_path.to_str().unwrap()
+                )
+            ));
         }
 
         if !abs_from_path.exists() {
             return Err(AvengerLangError::FileNotFoundError(abs_from_path));
         }
 
-        if abs_from_path.extension() != Some(OsStr::new("avgr")) {
-            return Err(AvengerLangError::InvalidFileExtensionError(abs_from_path));
-        }
-
         let abs_file_path = abs_from_path.join(format!("{}.avgr", component_name));
-        let file = std::fs::read_to_string(&abs_file_path)?;
+        let src = std::fs::read_to_string(&abs_file_path)?;
+
         let mut parser = AvengerParser::new(
-            &file, component_name, abs_from_path.to_str().unwrap()
+            &src, component_name, abs_from_path.to_str().unwrap()
         )?;
 
-        let file = parser.parse()?;
-        Ok(file)
+        match parser.parse() {
+            Ok(file) => Ok(file),
+            Err(e) => {
+                if self.verbose {
+                    let _ = e.pretty_print(&src, &format!("{}.avgr", component_name));
+                }
+                return Err(e);
+            }
+        }
     }
 }
 

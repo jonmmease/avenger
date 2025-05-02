@@ -14,7 +14,11 @@ use avenger_eventstream::{
     window::WindowEvent,
 };
 use avenger_geometry::rtree::SceneGraphRTree;
-use avenger_lang::{ast::AvengerFile, parser::AvengerParser, task_graph::runtime::TaskGraphRuntime};
+use avenger_lang2::error::AvengerLangError;
+use avenger_lang2::imports::load_main_component_file;
+use avenger_lang2::{ast::AvengerFile, parser::AvengerParser};
+use avenger_runtime::cache::RuntimeCacheConfig;
+use avenger_runtime::runtime::TaskGraphRuntime;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use avenger_winit_wgpu::{FileWatcher, WinitWgpuAvengerApp};
@@ -24,7 +28,7 @@ use log::{error, info};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use winit::event_loop::EventLoop;
 
-const DEFAULT_FILE_NAME: &str = "app.avgr";
+const DEFAULT_FILE_NAME: &str = "App.avgr";
 
 /// Avenger CLI for visualization preview and rendering
 #[derive(Parser)]
@@ -63,7 +67,7 @@ pub struct ChartState {
     pub ast: Arc<Mutex<Option<AvengerFile>>>,
     pub default_ast: AvengerFile,
     pub runtime: Arc<TaskGraphRuntime>,
-    pub file_path: PathBuf,
+    pub main_component_path: PathBuf,
     pub current_scene: Option<SceneGraph>,
 }
 
@@ -71,56 +75,26 @@ impl ChartState {
     pub fn new(file_path: PathBuf) -> Self {
         // Default avenger file content
         let default_file_str = r#"
-width := 840;
-height := 440;
-
-dataset data_0: SELECT * FROM (VALUES 
-        (1, 'red'),
-        (2, 'green'),
-        (3, 'blue')
-    ) foo("a", "b");
-
-comp g1: Group {
-    x := 20;
-    y := 20;
-
-    comp mark1: Rect {
-        data := SELECT * FROM @data_0;
-        x2 := @x + 10;
-        x := "a" * 100;
-        y := "a" * 10 + 10;
-        y2 := 0;
-        fill := "b";
-        stroke_width := 4;
-        stroke := 'black';
-
-        clip := false;
-        zindex := 1 + 2;
-    }
-}
+width := 234;
+height := 234;
         "#;
-        
-        let default_ast = AvengerParser::parse_single_file(
-            default_file_str
-        ).expect("Failed to parse default file");
-
-        let runtime = TaskGraphRuntime::new();
+        let mut parser = AvengerParser::new(default_file_str, "App", ".").expect("Failed to create parser");
+        let default_ast = parser.parse().expect("Failed to parse default file");
+        let runtime = TaskGraphRuntime::new(RuntimeCacheConfig::default());
 
         Self {
             ast: Arc::new(Mutex::new(None)),
             default_ast,
             runtime: Arc::new(runtime),
-            file_path,
+            main_component_path: file_path,
             current_scene: None,
         }
     }
 
-    pub fn update_from_file(&self, content: &str) -> Result<(), String> {
-        let parsed_file = AvengerParser::parse_single_file(content)
-            .map_err(|e| format!("Failed to parse file: {}", e))?;
-        
+    pub fn update_from_file(&self) -> Result<(), AvengerLangError> {
+        let file_ast = load_main_component_file(self.main_component_path.clone(), true)?;
         let mut ast = self.ast.lock().unwrap();
-        *ast = Some(parsed_file);
+        *ast = Some(file_ast);
         Ok(())
     }
 }
@@ -141,7 +115,7 @@ impl SceneGraphBuilder<ChartState> for LangSceneGraphBuilder {
             }
         };
 
-        let scene_graph = state.runtime.evaluate_file(&ast).await.map_err(
+        let scene_graph = state.runtime.clone().evaluate_file(&ast).await.map_err(
             |e| AvengerAppError::InternalError(e.to_string())
         )?;
         state.current_scene = Some(scene_graph.clone());
@@ -212,7 +186,7 @@ impl EventStreamHandler<ChartState> for SavePngHandler {
     async fn handle(&self, _event: &SceneGraphEvent, state: &mut ChartState, _rtree: &SceneGraphRTree) -> UpdateStatus {
         if let Some(scene_graph) = &state.current_scene {
             // Ignore send errors if receiver has been dropped
-            let file_path = state.file_path.clone().with_extension("png");
+            let file_path = state.main_component_path.clone().with_extension("png");
             let scale = 2.0;
             let _ = self.sender.send(SavePngTask {
                 scene_graph: scene_graph.clone(),
@@ -236,39 +210,30 @@ impl EventStreamHandler<ChartState> for FileChangeHandler {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         // Handle file change events
-        if let SceneGraphEvent::FileChanged(e) = event {
-            // Check if this is the file we're watching
-            if Path::new(&e.file_path) == state.file_path {
-                // Read file content when event is received
-                match fs::read_to_string(&state.file_path) {
-                    Ok(content) => {
-                        match state.update_from_file(&content) {
-                            Ok(_) => {
-                                info!("Updated app from file: {:?}", e.file_path);
-                                // Return true to indicate that a render is needed
-                                return UpdateStatus {
-                                    rerender: true,
-                                    rebuild_geometry: true,
-                                };
-                            }
-                            Err(err) => {
-                                error!("Failed to update AST: {}", err);
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        error!("Error reading file {:?}: {}", e.file_path, err);
-                    }
+        if let SceneGraphEvent::FileChanged(_) = event {
+            if let Err(e) = state.update_from_file() {
+                UpdateStatus::default()
+            } else {
+                UpdateStatus {
+                    rerender: true,
+                    rebuild_geometry: true,
                 }
             }
+        } else {
+            UpdateStatus::default()
         }
-
-        // No update needed by default
-        UpdateStatus::default()
     }
 }
 
-fn ensure_file_exists(path: &Path) -> Result<String, std::io::Error> {
+fn ensure_file_exists(path: &Path) -> Result<(), std::io::Error> {
+    let parent = path.parent().unwrap();
+
+    // Create parent directory if it doesn't exist
+    if !parent.exists() {
+        fs::create_dir_all(parent)?;
+    }
+
+    // Write file if it doesn't exist
     if !path.exists() {
         let default_content = r#"
 width := 440;
@@ -309,12 +274,8 @@ comp g1: Group {
         // Create the file with default content
         fs::write(path, default_content)?;
         info!("Created default file at: {}", path.display());
-        Ok(default_content.to_string())
-    } else {
-        // Read existing file
-        let content = fs::read_to_string(path)?;
-        Ok(content)
     }
+    Ok(())
 }
 
 /// Parse and render an Avenger file to a PNG, useful for batch processing or headless environments
@@ -326,28 +287,18 @@ async fn render_to_png(input_path: &Path, output_path: &Path, scale: f32) -> Res
         ));
     }
 
-    let content = match fs::read_to_string(input_path) {
-        Ok(content) => content,
-        Err(e) => {
-            return Err(AvengerAppError::InternalError(
-                format!("Failed to read input file: {}", e)
-            ));
-        }
-    };
-    
-    // Parse the file
-    let parsed_file = match AvengerParser::parse_single_file(&content) {
-        Ok(file) => file,
-        Err(e) => {
-            return Err(AvengerAppError::InternalError(
-                format!("Failed to parse file: {}", e)
-            ));
-        }
-    };
-    
+    let input_path = input_path.canonicalize().map_err(|e| {
+        AvengerAppError::InternalError(format!("Failed to canonicalize path: {}", e))
+    })?;
+
+    let file_ast = load_main_component_file(input_path, true).map_err(|e| {
+        AvengerAppError::InternalError(format!("Failed to load file: {}", e))
+    })?;
+
     // Create runtime and evaluate file
-    let runtime = TaskGraphRuntime::new();
-    let scene_graph = runtime.evaluate_file(&parsed_file).await.map_err(|e| 
+    let runtime = Arc::new(TaskGraphRuntime::new(RuntimeCacheConfig::default()));
+
+    let scene_graph = runtime.evaluate_file(&file_ast).await.map_err(|e| 
         AvengerAppError::InternalError(format!("Failed to evaluate file: {}", e))
     )?;
     
@@ -395,18 +346,14 @@ fn run_preview(file_path: &str) -> Result<(), AvengerAppError> {
         ));
     }
 
-    // Ensure file exists or create with default content
-    let content = match ensure_file_exists(&file_path) {
-        Ok(content) => content,
-        Err(e) => {
-            error!("Failed to ensure file exists: {}", e);
-            return Err(AvengerAppError::InternalError(e.to_string()));
-        }
-    };
-    
     // Canonicalize file path after ensuring it exists
     let file_path = fs::canonicalize(&file_path).map_err(|e| {
         AvengerAppError::InternalError(format!("Failed to canonicalize path: {}", e))
+    })?;
+
+    // Ensure file exists or create with default content
+    ensure_file_exists(&file_path).map_err(|e| {
+        AvengerAppError::InternalError(format!("Failed to ensure file exists: {}", e))
     })?;
     
     // Setup tokio runtime
@@ -419,13 +366,16 @@ fn run_preview(file_path: &str) -> Result<(), AvengerAppError> {
     let chart_state = ChartState::new(file_path.clone());
     
     // Parse initial file
-    if let Err(e) = chart_state.update_from_file(&content) {
+    if let Err(e) = chart_state.update_from_file() {
         error!("Failed to parse initial file: {}", e);
         // Fall back to default AST
     }
     
     // Create file change event handler and config
     let file_handler = Arc::new(FileChangeHandler);
+
+    // TODO, watch other files in the project
+    println!("watch file_path: {:?}", file_path);
     let file_handler_config = EventStreamConfig {
         types: vec![SceneGraphEventType::FileChanged(file_path.clone())],
         consume: false,

@@ -12,7 +12,8 @@ avenger-app = { path = "../avenger-app" }
 avenger-common = { path = "../avenger-common" }
 avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-geometry = { path = "../avenger-geometry" }
-avenger-lang = { path = "../avenger-lang" }
+avenger-lang2 = { path = "../avenger-lang2" }
+avenger-runtime = { path = "../avenger-runtime" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-wgpu = { path = "../avenger-wgpu" }
 avenger-winit-wgpu = { path = "../avenger-winit-wgpu" }

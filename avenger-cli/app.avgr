@@ -3,21 +3,22 @@ width := 440;
 height := 440;
 
 dataset data_0: SELECT * FROM (VALUES
-        (1, 'red'),
-        (2, 'green'),
-        (3, 'yellow')
+        (1, 'cyan'),
+        (2, 'red'),
+        (3, 'pink'),
     ) foo("a", "b");
 
 // asdf
 comp g1: Group {
     x := 20;
     y := 20;
+    
 
     comp mark1: Rect {
         data := SELECT * FROM @data_0;
         x2 := @x + 10;
         x := "a" * 100;
-        y := "a" * 10 + 10;
+        y := "a" * 30 + 10;
         y2 := 0;
         fill := "b";
         stroke_width := 4;

@@ -546,13 +546,13 @@ impl<'a> AvengerParser<'a> {
     }
 
     pub fn parse_single_query(input: &str) -> Result<Box<SqlQuery>, AvengerLangError> {
-        let mut parser = AvengerParser::new(input, "test.avgr", "")?;
+        let mut parser = AvengerParser::new(input, "App", "")?;
         let query = parser.parser.parse_query()?;
         Ok(query)
     }
 
     pub fn parse_single_expr(input: &str) -> Result<SqlExpr, AvengerLangError> {
-        let mut parser = AvengerParser::new(input, "test.avgr", "")?;
+        let mut parser = AvengerParser::new(input, "App", "")?;
         let expr = parser.parser.parse_expr()?;
         Ok(expr)
     }
@@ -569,7 +569,7 @@ import { Foo } from 'bar';
 import { Foo as Bar, Baz } from 'bar';
 import { Blah }
         "#;
-        let mut parser = AvengerParser::new(sql, "test.avgr", "").unwrap();
+        let mut parser = AvengerParser::new(sql, "App", "").unwrap();
         let file = parser.parse().unwrap();
         assert_eq!(file.statements.len(), 3);
     }
@@ -579,7 +579,7 @@ import { Blah }
         let sql = r#"
         val foo: 23;
         "#;
-        let mut parser = AvengerParser::new(sql, "test.avgr", "").unwrap();
+        let mut parser = AvengerParser::new(sql, "App", "").unwrap();
         let file = parser.parse().unwrap();
         println!("{:#?}", file);
         assert_eq!(file.statements.len(), 1);
@@ -590,7 +590,7 @@ import { Blah }
         let sql = r#"
         expr foo: 23;
         "#;
-        let mut parser = AvengerParser::new(sql, "test.avgr", "").unwrap();
+        let mut parser = AvengerParser::new(sql, "App", "").unwrap();
         let file = parser.parse().unwrap();
         println!("{:#?}", file);
         assert_eq!(file.statements.len(), 1);
@@ -601,7 +601,7 @@ import { Blah }
         let sql = r#"
         dataset foo: select * from bar;
         "#;
-        let mut parser = AvengerParser::new(sql, "test.avgr", "").unwrap();
+        let mut parser = AvengerParser::new(sql, "App", "").unwrap();
         let file = parser.parse().unwrap();
         println!("{:#?}", file);
         assert_eq!(file.statements.len(), 1);
@@ -611,7 +611,7 @@ import { Blah }
     fn test_parse_component_statement() {
         let sql = r#"
 comp foo: Rect {}"#;
-        let mut parser = AvengerParser::new(sql, "test.avgr", "").unwrap();
+        let mut parser = AvengerParser::new(sql, "App", "").unwrap();
 
         let file = parser.parse().unwrap();
         println!("{:#?}", file);
@@ -624,7 +624,7 @@ comp foo: Rect {}"#;
         let sql = r#"
         foo := select * from bar;
         "#;
-        let mut parser = AvengerParser::new(sql, "test.avgr", "").unwrap();
+        let mut parser = AvengerParser::new(sql, "App", "").unwrap();
         let file = parser.parse().unwrap();
         println!("{:#?}", file);
         assert_eq!(file.statements.len(), 1);
@@ -638,7 +638,7 @@ comp foo: Rect {}"#;
         fn baz(val a, expr b) -> dataset { return select * from bar }
         fn qux(val <int> a, expr <string> b) -> val <string> { return "hello" }
         "#;
-        let mut parser = AvengerParser::new(sql, "test.avgr", "").unwrap();
+        let mut parser = AvengerParser::new(sql, "App", "").unwrap();
         let file = parser.parse().unwrap();
         println!("{:#?}", file);
         assert_eq!(file.statements.len(), 4);
@@ -649,7 +649,7 @@ comp foo: Rect {}"#;
         let sql = r#"
         dataset foo: select * from bar
 "#;
-        let mut parser = AvengerParser::new(sql, "test.avgr", "").unwrap();
+        let mut parser = AvengerParser::new(sql, "App", "").unwrap();
         match parser.parse() {
             Ok(_) => panic!("Expected error"),
             Err(e) => {
@@ -663,13 +663,13 @@ comp foo: Rect {}"#;
     fn try_parse_with_trailing_junk() {
         let sql = r#"
 comp foo: Rect {}}"#;
-        let mut parser = AvengerParser::new(sql, "test.avgr", "").unwrap();
+        let mut parser = AvengerParser::new(sql, "App", "").unwrap();
         match parser.parse() {
             Ok(_) => {
                 println!("No error");
             }
             Err(e) => {
-                e.pretty_print(sql, "test.avgr").unwrap();
+                e.pretty_print(sql, "App").unwrap();
             }
         }
     }
