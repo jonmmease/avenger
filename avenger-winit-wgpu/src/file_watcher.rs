@@ -8,6 +8,7 @@ use avenger_app::error::AvengerAppError;
 use avenger_eventstream::window::{WindowEvent, WindowFileChangedEvent};
 use log::error;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::event::ModifyKind;
 use winit::event_loop::EventLoopProxy;
 
 /// FileWatcher manages file system monitoring and sends events to the EventLoop when files change
@@ -45,7 +46,7 @@ impl FileWatcher {
         let mut watcher = RecommendedWatcher::new(
             move |result: Result<Event, notify::Error>| {
                 if let Ok(event) = result {
-                    if matches!(event.kind, EventKind::Modify(_)) {
+                    if matches!(event.kind, EventKind::Modify(ModifyKind::Data(_))) {
                         // Process each modified path
                         for path in event.paths {
                             // Canonicalize the event path for comparison

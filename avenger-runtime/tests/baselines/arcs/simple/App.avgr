@@ -10,7 +10,7 @@ Group {
     dataset data_0: SELECT * FROM (VALUES
             (1, 'red'),
             (2, 'purple'),
-            (3, 'green')
+            (3, 'yellow')
         ) foo("a", "b");
 
     val pi: 3.14159;
@@ -34,7 +34,7 @@ Group {
 
             x := @a_minus_1 * 40;
             y := @a_minus_1 * 40 + 50;
-            
+
 
             start_angle := "a" * @pi / 6.0;
             end_angle := @start_angle + @pi / 3.0;
