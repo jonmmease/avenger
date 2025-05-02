@@ -16,9 +16,9 @@ use avenger_eventstream::{
     window::WindowEvent,
 };
 use avenger_geometry::rtree::SceneGraphRTree;
-use avenger_lang2::error::AvengerLangError;
-use avenger_lang2::imports::load_main_component_file;
-use avenger_lang2::{ast::AvengerFile, parser::AvengerParser};
+use avenger_lang::error::AvengerLangError;
+use avenger_lang::imports::load_main_component_file;
+use avenger_lang::{ast::AvengerFile, parser::AvengerParser};
 use avenger_runtime::cache::RuntimeCacheConfig;
 use avenger_runtime::runtime::TaskGraphRuntime;
 use avenger_scenegraph::scene_graph::SceneGraph;

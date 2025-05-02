@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 use async_recursion::async_recursion;
-use avenger_lang2::ast::{AvengerFile, Statement};
+use avenger_lang::ast::{AvengerFile, Statement};
 use avenger_scales::utils::ScalarValueUtils;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use futures::future::join_all;

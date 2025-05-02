@@ -4,9 +4,9 @@ use std::collections::hash_map::DefaultHasher;
 use std::ops::ControlFlow;
 use std::sync::Arc;
 
-use avenger_lang2::ast::{AvengerFile, ComponentProp, DatasetProp, ExprProp, PropBinding, ValProp};
-use avenger_lang2::parser::AvengerParser;
-use avenger_lang2::visitor::{AvengerVisitor, VisitorContext};
+use avenger_lang::ast::{AvengerFile, ComponentProp, DatasetProp, ExprProp, PropBinding, ValProp};
+use avenger_lang::parser::AvengerParser;
+use avenger_lang::visitor::{AvengerVisitor, VisitorContext};
 use indexmap::IndexMap;
 use petgraph::algo::toposort;
 use petgraph::graph::DiGraph;
