@@ -214,9 +214,8 @@ impl EventStreamHandler<ChartState> for FileChangeHandler {
     ) -> UpdateStatus {
         // Handle file change events
         if let SceneGraphEvent::FileChanged(SceneFileChangedEvent { file_path, .. }) = event {
-            println!("file changed: {}", file_path.to_string_lossy());
+            println!("file changed: {}", file_path.display());
             if let Err(e) = state.update_from_file() {
-                error!("Failed to update AST: {}", e);
                 UpdateStatus::default()
             } else {
                 UpdateStatus {

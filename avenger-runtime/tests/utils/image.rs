@@ -1,10 +1,10 @@
+use anyhow::{Result, bail};
 use avenger_common::canvas::CanvasDimensions;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use image::RgbaImage;
 use pixelmatch;
 use std::path::Path;
-use anyhow::{bail, Result};
 
 /// Compare a runtime-generated image against a baseline image
 pub async fn assert_runtime_image_equal(
@@ -13,7 +13,6 @@ pub async fn assert_runtime_image_equal(
     scale: f32,
     save_baseline: bool,
 ) -> Result<()> {
-
     let mut canvas = PngCanvas::new(
         CanvasDimensions {
             size: [scene_graph.width, scene_graph.height],
@@ -21,7 +20,8 @@ pub async fn assert_runtime_image_equal(
         },
         CanvasConfig::default(),
     )
-    .await.expect("Failed to create canvas");
+    .await
+    .expect("Failed to create canvas");
 
     canvas.set_scene(&scene_graph).expect("Failed to set scene");
     let generated_image = canvas.render().await?;
@@ -37,11 +37,7 @@ pub async fn assert_runtime_image_equal(
 }
 
 /// Save an image to a PNG file and return it as a PNG-encoded buffer
-pub fn image_to_png(
-    image: &RgbaImage,
-    path: &str,
-    save_baseline: bool,
-) -> Result<Vec<u8>> {
+pub fn image_to_png(image: &RgbaImage, path: &str, save_baseline: bool) -> Result<Vec<u8>> {
     let path = format!("tests/baselines/{}/App.png", path);
     let mut buffer = Vec::new();
     image.write_to(
@@ -61,9 +57,8 @@ pub fn image_to_png(
 
 /// Load a PNG image from a file and return it as a PNG-encoded buffer
 pub fn load_baseline_image(path: &str) -> Result<(RgbaImage, Vec<u8>)> {
-    let path = format!("tests/baselines/{}.png", path);
-    let image = image::open(path)?
-        .to_rgba8();
+    let path = format!("tests/baselines/{}/App.png", path);
+    let image = image::open(path)?.to_rgba8();
 
     let mut buffer = Vec::new();
     image.write_to(
@@ -75,10 +70,7 @@ pub fn load_baseline_image(path: &str) -> Result<(RgbaImage, Vec<u8>)> {
 }
 
 /// Compare two PNG-encoded images and return the number of different pixels
-pub fn compare_images(
-    generated_buffer: &[u8],
-    baseline_buffer: &[u8],
-) -> Result<usize> {
+pub fn compare_images(generated_buffer: &[u8], baseline_buffer: &[u8]) -> Result<usize> {
     let mut diff_output = Vec::new();
     let Ok(diff_pixels) = pixelmatch::pixelmatch(
         std::io::Cursor::new(generated_buffer),

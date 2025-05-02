@@ -46,9 +46,6 @@ impl From<TokenizerError> for AvengerLangError {
 
 impl From<ParserError> for AvengerLangError {
     fn from(error: ParserError) -> Self {
-
-        println!("try from: {:#?}", error);
-
         let msg = match error {
             ParserError::TokenizerError(msg) => msg.clone(),
             ParserError::ParserError(msg) => msg.clone(),

@@ -12,5 +12,5 @@ comp r2: Rect {
     fill := @parent.fill;
     stroke := 'black';
     corner_radius := 10;
-    stroke_width := 4;
+    stroke_width := 14;
 }
