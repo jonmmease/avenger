@@ -538,7 +538,8 @@ dependencies = [
  "avenger-common",
  "avenger-eventstream",
  "avenger-geometry",
- "avenger-lang",
+ "avenger-lang2",
+ "avenger-runtime",
  "avenger-scenegraph",
  "avenger-wgpu",
  "avenger-winit-wgpu",
@@ -546,6 +547,7 @@ dependencies = [
  "env_logger 0.11.6",
  "log",
  "tokio",
+ "walkdir",
  "winit",
 ]
 
@@ -677,6 +679,7 @@ dependencies = [
 name = "avenger-runtime"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "arrow",
  "arrow-schema",
  "async-recursion",
@@ -685,13 +688,17 @@ dependencies = [
  "avenger-lang2",
  "avenger-scales",
  "avenger-scenegraph",
+ "avenger-wgpu",
  "datafusion",
  "datafusion-common",
  "datafusion-sql",
  "futures",
+ "image 0.25.5",
  "indexmap",
  "lru",
  "petgraph 0.8.1",
+ "pixelmatch",
+ "rstest 0.25.0",
  "sqlparser",
  "thiserror 2.0.3",
  "tokio",

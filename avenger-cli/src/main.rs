@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -5,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use avenger_app::{app::{AvengerApp, SceneGraphBuilder}, error::AvengerAppError};
 use avenger_common::canvas::CanvasDimensions;
+use avenger_eventstream::scene::SceneFileChangedEvent;
 use avenger_eventstream::stream::EventStreamFilter;
 use avenger_eventstream::window::Key;
 use avenger_eventstream::{
@@ -22,6 +24,7 @@ use avenger_runtime::runtime::TaskGraphRuntime;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use avenger_winit_wgpu::{FileWatcher, WinitWgpuAvengerApp};
+use walkdir::WalkDir;
 
 use clap::{Parser, Subcommand};
 use log::{error, info};
@@ -210,8 +213,10 @@ impl EventStreamHandler<ChartState> for FileChangeHandler {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         // Handle file change events
-        if let SceneGraphEvent::FileChanged(_) = event {
+        if let SceneGraphEvent::FileChanged(SceneFileChangedEvent { file_path, .. }) = event {
+            println!("file changed: {}", file_path.to_string_lossy());
             if let Err(e) = state.update_from_file() {
+                error!("Failed to update AST: {}", e);
                 UpdateStatus::default()
             } else {
                 UpdateStatus {
@@ -374,10 +379,28 @@ fn run_preview(file_path: &str) -> Result<(), AvengerAppError> {
     // Create file change event handler and config
     let file_handler = Arc::new(FileChangeHandler);
 
-    // TODO, watch other files in the project
-    println!("watch file_path: {:?}", file_path);
+    // Gather all *.avgr files in the directory recursively
+    let dir_path = file_path.parent().unwrap();
+
+    let file_event_types = WalkDir::new(dir_path)
+        .into_iter()
+        .filter_map(|entry| {
+            if let Ok(entry) = entry {
+                if entry.path().is_file() && entry.path().extension() == Some(OsStr::new("avgr")) {
+                    let file_path = entry.path().to_path_buf();
+                    println!("watch: {}", file_path.display());
+                    Some(SceneGraphEventType::FileChanged(file_path))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
     let file_handler_config = EventStreamConfig {
-        types: vec![SceneGraphEventType::FileChanged(file_path.clone())],
+        types: file_event_types,
         consume: false,
         ..Default::default()
     };

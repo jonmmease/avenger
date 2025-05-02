@@ -10,7 +10,7 @@ Group {
     dataset data_0: SELECT * FROM (VALUES
             (1, 'red'),
             (2, 'purple'),
-            (3, 'cyan')
+            (3, 'green')
         ) foo("a", "b");
 
     val pi: 3.14159;

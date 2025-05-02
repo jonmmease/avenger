@@ -79,3 +79,6 @@ sqlparser_derive = "0.3.0"
 datafusion = { version = "46.0.0" }
 datafusion-common = { version = "46.0.0" }
 datafusion-sql = { version = "46.0.0" }
+
+pixelmatch = "0.1"
+rstest = "0.25.0"
