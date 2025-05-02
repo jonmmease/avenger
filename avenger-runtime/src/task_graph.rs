@@ -85,8 +85,19 @@ impl TaskGraph {
             Ok(indices) => indices,
             Err(cycle) => {
                 // Handle cycles here if needed
+                let node_var = graph[cycle.node_id()].clone();
+
+                // let dot_graph = DiGraph::<String, ()>::new();
+                let dot_graph = graph.map(
+                    |idx, n| n.name(),
+                     |idx, e| e
+                );
+
+                use petgraph::dot::{Dot, Config};
+                println!("{:?}", Dot::with_config(&dot_graph, &[Config::EdgeNoLabel]));
+
                 return Err(AvengerRuntimeError::DependencyCycle(
-                    format!("Dependency cycle detected in task graph: {:?}", cycle)
+                    format!("Dependency cycle detected in task graph. Includes variable: {:?}", node_var)
                 ));
             }
         };
@@ -180,6 +191,32 @@ impl TaskGraph {
 
     pub fn tasks(&self) -> &IndexMap<Variable, TaskNode> {
         &self.tasks
+    }
+
+    pub fn to_dot(&self) -> String {
+        let mut dot = String::from("digraph TaskGraph {\n");
+        
+        // Add nodes
+        for (variable, node) in &self.tasks {
+            let var_name = variable.name();
+            // Escape quotes in variable name if needed
+            let escaped_name = var_name.replace("\"", "\\\"");
+            dot.push_str(&format!("    \"{}\" [label=\"{}\"];\n", escaped_name, escaped_name));
+        }
+        
+        // Add edges
+        for (variable, node) in &self.tasks {
+            let source_name = variable.name();
+            
+            // Add edges for each input (dependency)
+            for input in &node.inputs {
+                let target_name = input.source.name();
+                dot.push_str(&format!("    \"{}\" -> \"{}\";\n", target_name, source_name));
+            }
+        }
+        
+        dot.push_str("}\n");
+        dot
     }
 
     pub fn from_file(file_ast: &AvengerFile) -> Result<Self, AvengerRuntimeError> {

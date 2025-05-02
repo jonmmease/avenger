@@ -196,7 +196,8 @@ impl Task for DatasetPropTask {
     fn fingerprint(&self) -> Result<u64, AvengerRuntimeError> {
         let mut hasher = DefaultHasher::new();
         self.hash(&mut hasher);
-        Ok(hasher.finish())
+        let fp = hasher.finish();
+        Ok(fp)
     }
 }
 
@@ -377,8 +378,6 @@ impl Task for GroupMarkTask {
         } else {
             None
         };
-
-        println!("group marks: {:#?}", self.marks);
 
         let group_mark = SceneGroup {
             name: "".to_string(),
