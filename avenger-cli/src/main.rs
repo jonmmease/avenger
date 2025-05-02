@@ -216,6 +216,10 @@ impl EventStreamHandler<ChartState> for FileChangeHandler {
         if let SceneGraphEvent::FileChanged(SceneFileChangedEvent { file_path, .. }) = event {
             println!("file changed: {}", file_path.display());
             if let Err(e) = state.update_from_file() {
+                if !matches!(e, AvengerLangError::PositionalParseError(_)) {
+                    // We already printed out a pretty version of positional parse errors
+                    error!("Failed to update AST: {}", e);
+                }
                 UpdateStatus::default()
             } else {
                 UpdateStatus {

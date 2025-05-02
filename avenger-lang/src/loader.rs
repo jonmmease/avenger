@@ -50,9 +50,18 @@ impl AvengerLoader for AvengerFilesystemLoader {
         let abs_file_path = abs_from_path.join(format!("{}.avgr", component_name));
         let src = std::fs::read_to_string(&abs_file_path)?;
 
-        let mut parser = AvengerParser::new(
+
+        let mut parser = match AvengerParser::new(
             &src, component_name, abs_from_path.to_str().unwrap()
-        )?;
+        ) {
+            Ok(parser) => parser,
+            Err(e) => {
+                if self.verbose {
+                    let _ = e.pretty_print(&src, &format!("{}.avgr", component_name));
+                }
+                return Err(e);
+            }
+        };
 
         match parser.parse() {
             Ok(file) => Ok(file),
