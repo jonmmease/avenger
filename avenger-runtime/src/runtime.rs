@@ -76,7 +76,6 @@ impl TaskGraphRuntime {
         Ok(Vec::from(variables).into_iter().zip(values).collect())
     }
 
-
     pub async fn evaluate_file(
         self: Arc<Self>,
         file_ast: &AvengerFile,
@@ -103,7 +102,7 @@ impl TaskGraphRuntime {
         for stmt in &file_ast.statements {
             if let Statement::ComponentProp(comp) = stmt {
                 let comp_type = comp.component_type.value.clone();
-                println!("comp_type: {comp_type:?}");
+
                 // let is_mark = component_registry.lookup_component(&comp_type).map(
                 //     |spec| spec.is_mark
                 // ).unwrap_or(false);
@@ -147,8 +146,6 @@ impl TaskGraphRuntime {
 
         // Get the marks
         let marks = mark_vars.iter().map(|v| results.remove(v).unwrap().into_mark().unwrap()).collect::<Vec<_>>();
-
-        println!("marks: {:?}", marks);
 
         Ok(SceneGraph {
             width,

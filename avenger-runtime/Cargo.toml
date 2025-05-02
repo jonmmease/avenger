@@ -22,3 +22,10 @@ futures = { workspace = true }
 async-recursion = "1.1.1"
 async-trait = { workspace = true }
 lru = "0.14.0"
+
+[dev-dependencies]
+avenger-wgpu = { path = "../avenger-wgpu" }
+rstest = { workspace = true }
+anyhow = { workspace = true }
+image = { workspace = true }
+pixelmatch = { workspace = true }
