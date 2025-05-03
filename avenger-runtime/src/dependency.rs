@@ -1,7 +1,6 @@
-use std::ops::ControlFlow;
-use sqlparser::ast::{Expr as SqlExpr, ObjectName, Query as SqlQuery, Visit, Visitor};
 use crate::{error::AvengerRuntimeError, variable::Variable};
-
+use sqlparser::ast::{Expr as SqlExpr, ObjectName, Query as SqlQuery, Visit, Visitor};
+use std::ops::ControlFlow;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DependencyKind {
@@ -18,9 +17,12 @@ pub struct Dependency {
     pub kind: DependencyKind,
 }
 
-impl Dependency {    
+impl Dependency {
     pub fn new(parts: Vec<String>, kind: DependencyKind) -> Self {
-        Self { variable: Variable::new(parts), kind }
+        Self {
+            variable: Variable::new(parts),
+            kind,
+        }
     }
 }
 
@@ -32,6 +34,13 @@ pub struct CollectDependenciesVisitor {
 impl CollectDependenciesVisitor {
     pub fn new() -> Self {
         Self { deps: vec![] }
+    }
+
+    pub fn add_dependency(&mut self, parts: Vec<String>, kind: DependencyKind) {
+        let dep = Dependency::new(parts, kind);
+        if !self.deps.contains(&dep) {
+            self.deps.push(dep);
+        }
     }
 }
 
@@ -45,11 +54,12 @@ impl Visitor for CollectDependenciesVisitor {
         // Handle dataset references
         if table_name.starts_with("@") {
             // Drop leading @ and split on .
-            let parts = table_name[1..].split(".").map(|s| s.to_string()).collect::<Vec<_>>();
+            let parts = table_name[1..]
+                .split(".")
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>();
 
-            self.deps.push(Dependency::new(
-                parts, DependencyKind::Dataset)
-            );
+            self.add_dependency(parts, DependencyKind::Dataset);
         }
 
         ControlFlow::Continue(())
@@ -59,19 +69,19 @@ impl Visitor for CollectDependenciesVisitor {
         match &expr {
             SqlExpr::Identifier(ident) => {
                 if ident.value.starts_with("@") {
-                    self.deps.push(Dependency::new(
-                        vec![ident.value[1..].to_string()], DependencyKind::ValOrExpr)
+                    self.add_dependency(
+                        vec![ident.value[1..].to_string()],
+                        DependencyKind::ValOrExpr,
                     );
                 }
             }
             SqlExpr::CompoundIdentifier(idents) => {
                 if !idents.is_empty() && idents[0].value.starts_with("@") {
-                    let mut parts: Vec<String> = idents.iter().map(|ident| ident.value.clone()).collect();
+                    let mut parts: Vec<String> =
+                        idents.iter().map(|ident| ident.value.clone()).collect();
                     // Drop the leading @
                     parts[0] = parts[0][1..].to_string();
-                    self.deps.push(Dependency::new(
-                        parts, DependencyKind::ValOrExpr)
-                    );
+                    self.add_dependency(parts, DependencyKind::ValOrExpr);
                 }
             }
             _ => {}
@@ -88,13 +98,12 @@ pub fn collect_expr_dependencies(expr: &SqlExpr) -> Result<Vec<Dependency>, Aven
     Ok(visitor.deps)
 }
 
-pub fn collect_query_dependencies(query: &SqlQuery) -> Result<Vec<Dependency>, AvengerRuntimeError> {
+pub fn collect_query_dependencies(
+    query: &SqlQuery,
+) -> Result<Vec<Dependency>, AvengerRuntimeError> {
     let mut visitor = CollectDependenciesVisitor::new();
     if let ControlFlow::Break(Result::Err(err)) = query.visit(&mut visitor) {
         return Err(err);
     }
     Ok(visitor.deps)
 }
-
-
-

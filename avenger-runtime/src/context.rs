@@ -1,23 +1,33 @@
-use std::{collections::HashMap, ops::ControlFlow, sync::{Arc, Mutex}};
+use std::{
+    collections::HashMap,
+    ops::ControlFlow,
+    sync::{Arc, Mutex},
+};
 
+use crate::{error::AvengerRuntimeError, udtf::read_csv::LocalCsvTableFunc};
+use crate::{
+    value::{ArrowTable, TaskDataset, TaskValue, TaskValueContext},
+    variable::Variable,
+};
+use arrow::array::AsArray;
 use datafusion::{
-    arrow::array::record_batch, 
-    datasource::MemTable, 
-    logical_expr::{ColumnarValue, LogicalPlan}, 
-    prelude::{DataFrame, SessionContext}, 
-    variable::{VarProvider, VarType}
+    arrow::array::record_batch,
+    datasource::MemTable,
+    logical_expr::{ColumnarValue, LogicalPlan},
+    prelude::{DataFrame, SessionContext},
+    variable::{VarProvider, VarType},
 };
 use datafusion_common::{DFSchema, DataFusionError, ScalarValue};
 use datafusion_sql::TableReference;
-use sqlparser::ast::{Expr as SqlExpr, Ident, ObjectName, Query as SqlQuery, VisitMut, VisitorMut};
-use crate::error::AvengerRuntimeError;
-use crate::{value::{ArrowTable, TaskDataset, TaskValue, TaskValueContext}, variable::Variable};
-
+use sqlparser::{
+    ast::{Expr as SqlExpr, Ident, ObjectName, Query as SqlQuery, VisitMut, VisitorMut},
+    keywords::SCHEMA,
+};
 
 /// The context for evaluating tasks
 ///  - When a Val tasks is evaluated, the value is stored in DataFusion sessions context as a variable
 ///  - When a Dataset taks is evaluated, the dataset is stored in DataFusion sessions context as a table
-///  - When an Expr task is evaluated, the expression is stored in the exprs prop (since there's not 
+///  - When an Expr task is evaluated, the expression is stored in the exprs prop (since there's not
 ///    a place to store it in the SessionContext)
 pub struct TaskEvaluationContext {
     session_ctx: SessionContext,
@@ -29,21 +39,32 @@ impl TaskEvaluationContext {
     pub fn new() -> Self {
         // Build a session context with our own variable provider
         let session_ctx = SessionContext::new();
+
+        // register custom ud(.?)fs
+        session_ctx.register_udtf("read_csv", Arc::new(LocalCsvTableFunc {}));
+
         let val_provider = Arc::new(EvaluationValProvider::new());
         session_ctx.register_variable(VarType::UserDefined, val_provider.clone());
         Self {
             session_ctx,
             exprs: Arc::new(Mutex::new(HashMap::new())),
-            val_provider, 
+            val_provider,
         }
     }
 
     /// Register values corresponding to variables in the context
-    pub async fn register_values(&self, variables: &[Variable], values: &[TaskValue]) -> Result<(), AvengerRuntimeError> {
+    pub async fn register_values(
+        &self,
+        variables: &[Variable],
+        values: &[TaskValue],
+    ) -> Result<(), AvengerRuntimeError> {
         for (variable, value) in variables.iter().zip(values.iter()) {
             match value {
                 TaskValue::Val { value: val } => self.register_val(&variable, val.clone())?,
-                TaskValue::Expr { sql_expr: expr, context } => {
+                TaskValue::Expr {
+                    sql_expr: expr,
+                    context,
+                } => {
                     self.register_task_value_context(&context).await?;
                     self.register_expr(&variable, expr.clone())?;
                 }
@@ -59,7 +80,10 @@ impl TaskEvaluationContext {
         Ok(())
     }
 
-    pub async fn register_task_value_context(&self, context: &TaskValueContext) -> Result<(), AvengerRuntimeError> {
+    pub async fn register_task_value_context(
+        &self,
+        context: &TaskValueContext,
+    ) -> Result<(), AvengerRuntimeError> {
         for (name, value) in context.values().iter() {
             self.register_val(&name, value.clone())?;
         }
@@ -75,19 +99,25 @@ impl TaskEvaluationContext {
     }
 
     /// Register a DataFrame in the context under a mangled name
-    pub async fn register_dataset(&self, variable: &Variable, dataset: TaskDataset) -> Result<(), AvengerRuntimeError> {
+    pub async fn register_dataset(
+        &self,
+        variable: &Variable,
+        dataset: TaskDataset,
+    ) -> Result<(), AvengerRuntimeError> {
         if !variable.parts.is_empty() && variable.parts[0].starts_with("@") {
-            return Err(AvengerRuntimeError::InternalError(
-                format!("Dataset name should not include the @ prefix: {}", variable.name())
-            ));
+            return Err(AvengerRuntimeError::InternalError(format!(
+                "Dataset name should not include the @ prefix: {}",
+                variable.name()
+            )));
         }
-        
+
         // Replace . with __ in the table name so that DataFusion doesn't interpret it as a schema
         let mangled_name = variable.mangled_var_name();
         match dataset {
             TaskDataset::LogicalPlan(plan) => {
                 let df = self.session_ctx.execute_logical_plan(plan).await?;
-                self.session_ctx.register_table(mangled_name.clone(), df.into_view())?;
+                self.session_ctx
+                    .register_table(mangled_name.clone(), df.into_view())?;
             }
             TaskDataset::ArrowTable(table) => {
                 let table = MemTable::try_new(table.schema.clone(), vec![table.batches.clone()])?;
@@ -105,9 +135,10 @@ impl TaskEvaluationContext {
     /// Get a registered dataset from the context
     pub async fn get_dataset(&self, variable: &Variable) -> Result<DataFrame, AvengerRuntimeError> {
         if !variable.parts.is_empty() && variable.parts[0].starts_with("@") {
-            return Err(AvengerRuntimeError::InternalError(
-                format!("Dataset name should not include the @ prefix: {}", variable.name())
-            ));
+            return Err(AvengerRuntimeError::InternalError(format!(
+                "Dataset name should not include the @ prefix: {}",
+                variable.name()
+            )));
         }
         let mangled_name = variable.mangled_var_name();
         let df = self.session_ctx.table(&mangled_name).await?;
@@ -117,18 +148,26 @@ impl TaskEvaluationContext {
     /// Check if a dataset is registered in the context, handling mangling
     pub fn has_dataset(&self, variable: &Variable) -> bool {
         if !variable.parts.is_empty() && variable.parts[0].starts_with("@") {
-            panic!("Dataset name should not include the @ prefix: {}", variable.name());
+            panic!(
+                "Dataset name should not include the @ prefix: {}",
+                variable.name()
+            );
         }
         let mangled_name = variable.mangled_var_name();
         self.session_ctx.table_exist(&mangled_name).unwrap_or(false)
     }
 
     /// Register a value in the context
-    pub fn register_val(&self, variable: &Variable, val: ScalarValue) -> Result<(), AvengerRuntimeError> {
+    pub fn register_val(
+        &self,
+        variable: &Variable,
+        val: ScalarValue,
+    ) -> Result<(), AvengerRuntimeError> {
         if !variable.parts.is_empty() && variable.parts[0].starts_with("@") {
-            return Err(AvengerRuntimeError::InternalError(
-                format!("Val name should not include the @ prefix: {}", variable.name())
-            ));
+            return Err(AvengerRuntimeError::InternalError(format!(
+                "Val name should not include the @ prefix: {}",
+                variable.name()
+            )));
         }
         self.val_provider.insert(variable.clone(), val);
         Ok(())
@@ -137,9 +176,10 @@ impl TaskEvaluationContext {
     /// Get a value from the context
     pub fn get_val(&self, variable: &Variable) -> Result<ScalarValue, AvengerRuntimeError> {
         if !variable.parts.is_empty() && variable.parts[0].starts_with("@") {
-            return Err(AvengerRuntimeError::InternalError(
-                format!("Val name should not include the @ prefix: {}", variable.name())
-            ));
+            return Err(AvengerRuntimeError::InternalError(format!(
+                "Val name should not include the @ prefix: {}",
+                variable.name()
+            )));
         }
         let val = self.val_provider.get_scalar_value(variable)?;
         Ok(val)
@@ -148,31 +188,48 @@ impl TaskEvaluationContext {
     /// Check if a value is registered in the context
     pub fn has_val(&self, variable: &Variable) -> bool {
         if !variable.parts.is_empty() && variable.parts[0].starts_with("@") {
-            panic!("Val name should not include the @ prefix: {}", variable.name());
+            panic!(
+                "Val name should not include the @ prefix: {}",
+                variable.name()
+            );
         }
         self.val_provider.has_variable(variable)
     }
 
     /// Add an expression to the context
-    pub fn register_expr(&self, variable: &Variable, sql_expr: SqlExpr) -> Result<(), AvengerRuntimeError> {
+    pub fn register_expr(
+        &self,
+        variable: &Variable,
+        sql_expr: SqlExpr,
+    ) -> Result<(), AvengerRuntimeError> {
         if !variable.parts.is_empty() && variable.parts[0].starts_with("@") {
-            panic!("Expr name should not include the @ prefix: {}", variable.name());
+            panic!(
+                "Expr name should not include the @ prefix: {}",
+                variable.name()
+            );
         }
-        self.exprs.lock().unwrap().insert(variable.clone(), sql_expr);
+        self.exprs
+            .lock()
+            .unwrap()
+            .insert(variable.clone(), sql_expr);
         Ok(())
     }
 
     /// Get an expression from the context
     pub fn get_expr(&self, variable: &Variable) -> Result<SqlExpr, AvengerRuntimeError> {
         if !variable.parts.is_empty() && variable.parts[0].starts_with("@") {
-            return Err(AvengerRuntimeError::InternalError(
-                format!("Expr name should not include the @ prefix: {}", variable.name())
-            ));
-        }   
+            return Err(AvengerRuntimeError::InternalError(format!(
+                "Expr name should not include the @ prefix: {}",
+                variable.name()
+            )));
+        }
         let locked = self.exprs.lock().unwrap();
-        let expr = locked.get(variable).ok_or(
-            AvengerRuntimeError::ExpressionNotFound(format!("Expression {} not found", variable.name()))
-        )?;
+        let expr = locked
+            .get(variable)
+            .ok_or(AvengerRuntimeError::ExpressionNotFound(format!(
+                "Expression {} not found",
+                variable.name()
+            )))?;
         Ok(expr.clone())
     }
 
@@ -182,16 +239,23 @@ impl TaskEvaluationContext {
     }
 
     /// Compile a SQL query to a logical plan, expanding sql with referenced expressions
-    pub async fn compile_query(&self, query: &SqlQuery) -> Result<LogicalPlan, AvengerRuntimeError> {
+    pub async fn compile_query(
+        &self,
+        query: &SqlQuery,
+    ) -> Result<LogicalPlan, AvengerRuntimeError> {
         // Visit the query and validate references
         let mut expanded_query = self.expand_query(&query)?;
         let mut visitor = CompilationVisitor::new(&self);
-        if let ControlFlow::Break(Result::Err(err)) = VisitMut::visit(
-            &mut expanded_query, &mut visitor
-        ) {
+        if let ControlFlow::Break(Result::Err(err)) =
+            VisitMut::visit(&mut expanded_query, &mut visitor)
+        {
             return Err(err);
         }
-        let plan = self.session_ctx.state().create_logical_plan(&expanded_query.to_string()).await?;
+        let plan = self
+            .session_ctx
+            .state()
+            .create_logical_plan(&expanded_query.to_string())
+            .await?;
         Ok(plan)
     }
 
@@ -211,7 +275,7 @@ impl TaskEvaluationContext {
     }
 
     /// Expand the sql expression with referenced expressions into a single expression,
-    /// 
+    ///
     /// Referenced expressions are inlined into the expression
     pub fn expand_expr(&self, expr: &SqlExpr) -> Result<SqlExpr, AvengerRuntimeError> {
         // Visit the query and validate references
@@ -233,30 +297,55 @@ impl TaskEvaluationContext {
     }
 
     pub async fn evaluate_expr(&self, expr: &SqlExpr) -> Result<ScalarValue, AvengerRuntimeError> {
-        let sql_expr = self.expand_expr(expr)?;
-        let expr = self.session_ctx.parse_sql_expr(&sql_expr.to_string(), &DFSchema::empty())?;
+        let mut sql_expr = self.expand_expr(expr)?;
 
-        let val = self.session_ctx.create_physical_expr(expr, &DFSchema::empty())?;
-        let col_val = val.evaluate(
-            &record_batch!(
-                ("_dummy", Int32, [1])
-            ).unwrap()
-        )?;
-        match col_val {
-            ColumnarValue::Scalar(scalar_value) => Ok(scalar_value),
-            ColumnarValue::Array(array) => {
-                if array.len() != 1 {
-                    return Err(AvengerRuntimeError::InternalError("Array value not expected".to_string()));
-                }
-                // Handle single element array
-                let val = ScalarValue::try_from_array(array.as_ref(), 0)?;
-                Ok(val)
-            }
+        // update references with compilation visitor
+        let mut visitor = CompilationVisitor::new(&self);
+        if let ControlFlow::Break(Result::Err(err)) = VisitMut::visit(&mut sql_expr, &mut visitor) {
+            return Err(err);
         }
+
+        let plan = self
+            .session_ctx
+            .state()
+            .create_logical_plan(&format!("SELECT {} as val", sql_expr.to_string()))
+            .await?;
+
+        let df = self.session_ctx.execute_logical_plan(plan).await?;
+        let schema = df.schema().inner().clone();
+        let partitions = df.collect().await?;
+        let table = ArrowTable::try_new(schema, partitions)?;
+
+        let col = table.column("val")?;
+        let v = ScalarValue::try_from_array(&col, 0)?;
+        Ok(v)
+
+        // println!("expanded expr: {}", sql_expr);
+        // let expr = self
+        //     .session_ctx
+        //     .parse_sql_expr(&sql_expr.to_string(), &DFSchema::empty())?;
+
+        // println!("parsed expr: {:?}", expr);
+
+        // let val = self
+        //     .session_ctx
+        //     .create_physical_expr(expr, &DFSchema::empty())?;
+        // let col_val = val.evaluate(&record_batch!(("_dummy", Int32, [1])).unwrap())?;
+        // match col_val {
+        //     ColumnarValue::Scalar(scalar_value) => Ok(scalar_value),
+        //     ColumnarValue::Array(array) => {
+        //         if array.len() != 1 {
+        //             return Err(AvengerRuntimeError::InternalError(
+        //                 "Array value not expected".to_string(),
+        //             ));
+        //         }
+        //         // Handle single element array
+        //         let val = ScalarValue::try_from_array(array.as_ref(), 0)?;
+        //         Ok(val)
+        //     }
+        // }
     }
-
 }
-
 
 #[derive(Debug, Clone)]
 struct EvaluationValProvider {
@@ -265,62 +354,71 @@ struct EvaluationValProvider {
 
 impl EvaluationValProvider {
     pub fn new() -> Self {
-        Self { vals: Arc::new(Mutex::new(HashMap::new())) }
+        Self {
+            vals: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 
     pub fn insert(&self, variable: Variable, val: ScalarValue) {
         self.vals.lock().unwrap().insert(variable, val);
     }
-    
+
     pub fn get_scalar_value(&self, variable: &Variable) -> datafusion_common::Result<ScalarValue> {
-        let val = self.vals.lock().unwrap().get(variable).cloned().ok_or(
-            DataFusionError::Internal(format!("Variable {} not found", variable.name()))
-        )?;
+        let val =
+            self.vals
+                .lock()
+                .unwrap()
+                .get(variable)
+                .cloned()
+                .ok_or(DataFusionError::Internal(format!(
+                    "Variable {} not found",
+                    variable.name()
+                )))?;
         Ok(val)
     }
-    
+
     pub fn has_variable(&self, variable: &Variable) -> bool {
         self.vals.lock().unwrap().contains_key(variable)
+    }
+
+    pub fn unmangle_name(names: &[String]) -> Variable {
+        let mut mangled_name = names[0].clone();
+        if mangled_name.starts_with('@') {
+            mangled_name = mangled_name[1..].to_string();
+        }
+
+        let parts = mangled_name
+            .split("__")
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>();
+        Variable::new(parts)
     }
 }
 
 impl VarProvider for EvaluationValProvider {
     fn get_value(&self, var_names: Vec<String>) -> datafusion_common::Result<ScalarValue> {
-        // Create a Variable from the provided var_names, stripping @ from first part if present
-        let mut parts = var_names.clone();
-        if !parts.is_empty() {
-            // Always strip @ from the first part if present
-            if let Some(name) = parts[0].strip_prefix("@") {
-                parts[0] = name.to_string();
-            }
-        }
-        let variable = Variable::new(parts);
-        
-        let val = self.vals.lock().unwrap().get(&variable).cloned().ok_or(
-            DataFusionError::Internal(format!("Variable {} not found", variable.name()))
-        )?;
+        let variable = Self::unmangle_name(&var_names);
+        let val =
+            self.vals
+                .lock()
+                .unwrap()
+                .get(&variable)
+                .cloned()
+                .ok_or(DataFusionError::Internal(format!(
+                    "Variable {} not found",
+                    variable.name()
+                )))?;
         Ok(val)
     }
-    
+
     fn get_type(&self, var_names: &[String]) -> Option<arrow_schema::DataType> {
-        // Create a Variable from the provided var_names, stripping @ from first part if present
-        let mut parts = var_names.to_vec();
-        if !parts.is_empty() {
-            // Always strip @ from the first part if present
-            if let Some(name) = parts[0].strip_prefix("@") {
-                parts[0] = name.to_string();
-            }
-        }
-        let variable = Variable::new(parts);
-        
+        let variable = Self::unmangle_name(var_names);
         let locked = self.vals.lock().unwrap();
         let val = locked.get(&variable)?;
         Some(val.data_type())
     }
 }
-
-
-
 
 pub struct CompilationVisitor<'a> {
     ctx: &'a TaskEvaluationContext,
@@ -335,18 +433,21 @@ impl<'a> CompilationVisitor<'a> {
 impl<'a> VisitorMut for CompilationVisitor<'a> {
     type Break = Result<(), AvengerRuntimeError>;
 
-    fn pre_visit_relation(&mut self, relation: &mut datafusion_sql::sqlparser::ast::ObjectName) -> ControlFlow<Self::Break> {
+    fn pre_visit_relation(
+        &mut self,
+        relation: &mut datafusion_sql::sqlparser::ast::ObjectName,
+    ) -> ControlFlow<Self::Break> {
         let table_name = relation.to_string();
-    
+
         if table_name.starts_with("@") {
-            let mut parts = relation.0.iter().map(|ident| ident.value.clone()).collect::<Vec<_>>();
+            let mut parts = relation
+                .0
+                .iter()
+                .map(|ident| ident.value.clone())
+                .collect::<Vec<_>>();
 
             // Join on __ into a single string
-            parts = vec![parts.join("__")];
-
-            // Update the relation to use the mangled name
-            let idents = parts.iter().map(|s| Ident::new(s.to_string())).collect::<Vec<_>>();
-
+            let idents = vec![Ident::new(parts.join("__"))];
             *relation = ObjectName(idents);
         }
 
@@ -357,7 +458,7 @@ impl<'a> VisitorMut for CompilationVisitor<'a> {
         match expr.clone() {
             SqlExpr::Identifier(ident) => {
                 if ident.value.starts_with("@") {
-                    let variable = Variable::new(vec![ident.value[1..].to_string()]);
+                    let variable = Variable::from_mangled_name(&ident.value);
 
                     // Check if this is a reference to an expression
                     if let Ok(registered_expr) = self.ctx.get_expr(&variable) {
@@ -368,16 +469,19 @@ impl<'a> VisitorMut for CompilationVisitor<'a> {
                     // Otherwise it must be a reference to a value
                     if !self.ctx.has_val(&variable) {
                         return ControlFlow::Break(Err(AvengerRuntimeError::ExpressionNotFound(
-                            format!("Val or Expr {} not found", variable.name())))
-                        );
+                            format!("Val or Expr {} not found", variable.name()),
+                        )));
                     }
                 }
             }
             SqlExpr::CompoundIdentifier(idents) => {
                 if !idents.is_empty() && idents[0].value.starts_with("@") {
-                    let mut parts = idents.iter().map(|ident| ident.value.clone()).collect::<Vec<_>>();
-                    parts[0] = parts[0][1..].to_string();
-                    let variable = Variable::new(parts);
+                    let mangled_name = idents
+                        .iter()
+                        .map(|s| s.value.clone())
+                        .collect::<Vec<_>>()
+                        .join("__");
+                    let variable = Variable::from_mangled_name(&mangled_name);
 
                     // Check if this is a reference to an expression
                     if let Ok(registered_expr) = self.ctx.get_expr(&variable) {
@@ -388,9 +492,12 @@ impl<'a> VisitorMut for CompilationVisitor<'a> {
                     // Otherwise it must be a reference to a value
                     if !self.ctx.has_val(&variable) {
                         return ControlFlow::Break(Err(AvengerRuntimeError::ExpressionNotFound(
-                            format!("Val or Expr {} not found", variable.name())))
-                        );
+                            format!("Val or Expr {} not found", variable.name()),
+                        )));
                     }
+
+                    // Update with mangled name, joining on __ into a single string
+                    *expr = SqlExpr::Identifier(Ident::new(variable.mangled_var_name()));
                 }
             }
             _ => {}
@@ -398,5 +505,3 @@ impl<'a> VisitorMut for CompilationVisitor<'a> {
         ControlFlow::Continue(())
     }
 }
-
-

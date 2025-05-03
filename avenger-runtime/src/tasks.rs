@@ -1,13 +1,32 @@
 use async_trait::async_trait;
 use avenger_lang::ast::{DatasetProp, ExprProp, ValProp};
 use avenger_scales::scales::coerce::Coercer;
-use avenger_scenegraph::marks::{group::SceneGroup, mark::{SceneMark, SceneMarkType}};
-use std::{fmt::Debug, hash::{DefaultHasher, Hash, Hasher}, sync::Arc};
+use avenger_scenegraph::marks::{
+    group::SceneGroup,
+    mark::{SceneMark, SceneMarkType},
+};
+use std::{
+    fmt::Debug,
+    hash::{DefaultHasher, Hash, Hasher},
+    sync::Arc,
+};
 
-use crate::{context::TaskEvaluationContext, dependency::{collect_expr_dependencies, collect_query_dependencies, Dependency, DependencyKind}, error::AvengerRuntimeError, marks::{build_arc_mark, build_area_mark, build_image_mark, build_line_mark, build_path_mark, build_rect_mark, build_rule_mark, build_symbol_mark, build_text_mark, build_trail_mark}, runtime::TaskGraphRuntime, value::{TaskDataset, TaskValue, TaskValueContext}, variable::Variable};
+use crate::{
+    context::TaskEvaluationContext,
+    dependency::{
+        Dependency, DependencyKind, collect_expr_dependencies, collect_query_dependencies,
+    },
+    error::AvengerRuntimeError,
+    marks::{
+        build_arc_mark, build_area_mark, build_image_mark, build_line_mark, build_path_mark,
+        build_rect_mark, build_rule_mark, build_symbol_mark, build_text_mark, build_trail_mark,
+    },
+    runtime::TaskGraphRuntime,
+    value::{TaskDataset, TaskValue, TaskValueContext},
+    variable::Variable,
+};
 
 use sqlparser::ast::{Expr as SqlExpr, Query as SqlQuery};
-
 
 #[async_trait]
 pub trait Task: Debug + Send + Sync {
@@ -18,9 +37,11 @@ pub trait Task: Debug + Send + Sync {
 
     /// Get the input variables of the task
     fn input_variables(&self) -> Result<Vec<Variable>, AvengerRuntimeError> {
-        Ok(self.input_dependencies()?.iter().map(
-            |dep| dep.variable.clone()
-        ).collect())
+        Ok(self
+            .input_dependencies()?
+            .iter()
+            .map(|dep| dep.variable.clone())
+            .collect())
     }
 
     fn fingerprint(&self) -> Result<u64, AvengerRuntimeError>;
@@ -32,7 +53,6 @@ pub trait Task: Debug + Send + Sync {
         input_values: &[TaskValue],
     ) -> Result<TaskValue, AvengerRuntimeError>;
 }
-
 
 /// Task storing an inline value
 #[derive(Debug, Clone, PartialEq, Hash)]
@@ -63,7 +83,6 @@ impl Task for TaskValueTask {
     }
 }
 
-
 /// A task that evaluates to a scalarvalue
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ValPropTask {
@@ -77,7 +96,7 @@ impl ValPropTask {
 }
 
 #[async_trait]
-impl Task for ValPropTask {    
+impl Task for ValPropTask {
     fn input_dependencies(&self) -> Result<Vec<Dependency>, AvengerRuntimeError> {
         collect_expr_dependencies(&self.value)
     }
@@ -88,7 +107,8 @@ impl Task for ValPropTask {
         input_values: &[TaskValue],
     ) -> Result<TaskValue, AvengerRuntimeError> {
         let ctx = TaskEvaluationContext::new();
-        ctx.register_values(&self.input_variables()?, &input_values).await?;
+        ctx.register_values(&self.input_variables()?, &input_values)
+            .await?;
         let val = ctx.evaluate_expr(&self.value).await?;
         Ok(TaskValue::Val { value: val })
     }
@@ -102,7 +122,9 @@ impl Task for ValPropTask {
 
 impl From<ValProp> for ValPropTask {
     fn from(val_prop: ValProp) -> Self {
-        Self { value: val_prop.expr }
+        Self {
+            value: val_prop.expr,
+        }
     }
 }
 
@@ -130,13 +152,16 @@ impl Task for ExprPropTask {
         input_values: &[TaskValue],
     ) -> Result<TaskValue, AvengerRuntimeError> {
         let ctx = TaskEvaluationContext::new();
-        ctx.register_values(&self.input_variables()?, &input_values).await?;
+        ctx.register_values(&self.input_variables()?, &input_values)
+            .await?;
 
         let sql_expr = ctx.expand_expr(&self.expr)?;
-        let task_value_context = TaskValueContext::from_vars_and_vals(
-            &self.input_variables()?, &input_values
-        )?;
-        Ok(TaskValue::Expr { context: task_value_context, sql_expr })
+        let task_value_context =
+            TaskValueContext::from_vars_and_vals(&self.input_variables()?, &input_values)?;
+        Ok(TaskValue::Expr {
+            context: task_value_context,
+            sql_expr,
+        })
     }
 
     fn fingerprint(&self) -> Result<u64, AvengerRuntimeError> {
@@ -148,7 +173,9 @@ impl Task for ExprPropTask {
 
 impl From<ExprProp> for ExprPropTask {
     fn from(expr_prop: ExprProp) -> Self {
-        Self { expr: expr_prop.expr }
+        Self {
+            expr: expr_prop.expr,
+        }
     }
 }
 
@@ -177,19 +204,25 @@ impl Task for DatasetPropTask {
         input_values: &[TaskValue],
     ) -> Result<TaskValue, AvengerRuntimeError> {
         let ctx = TaskEvaluationContext::new();
-        ctx.register_values(&self.input_variables()?, &input_values).await?;
+        ctx.register_values(&self.input_variables()?, &input_values)
+            .await?;
         let plan = ctx.compile_query(&self.query).await?;
 
         if self.eval {
             // Eager evaluation, evaluate the logical plan
             let table = ctx.eval_query(&self.query).await?;
-            Ok(TaskValue::Dataset { context: Default::default() , dataset: TaskDataset::ArrowTable(table) })
+            Ok(TaskValue::Dataset {
+                context: Default::default(),
+                dataset: TaskDataset::ArrowTable(table),
+            })
         } else {
             // Lazy evaluation, return the logical plan, along with the reference value context
-            let task_value_context = TaskValueContext::from_vars_and_vals(
-                &self.input_variables()?, &input_values
-            )?;
-            Ok(TaskValue::Dataset { context: task_value_context, dataset: TaskDataset::LogicalPlan(plan) })
+            let task_value_context =
+                TaskValueContext::from_vars_and_vals(&self.input_variables()?, &input_values)?;
+            Ok(TaskValue::Dataset {
+                context: task_value_context,
+                dataset: TaskDataset::LogicalPlan(plan),
+            })
         }
     }
 
@@ -203,11 +236,12 @@ impl Task for DatasetPropTask {
 
 impl From<DatasetProp> for DatasetPropTask {
     fn from(dataset_prop: DatasetProp) -> Self {
-        Self { query: dataset_prop.query, eval: true }
+        Self {
+            query: dataset_prop.query,
+            eval: true,
+        }
     }
 }
-
-
 
 // Generic Mark Task to handle all mark types
 #[derive(Debug, Clone, PartialEq, Hash)]
@@ -231,8 +265,14 @@ impl MarkTask {
 impl Task for MarkTask {
     fn input_dependencies(&self) -> Result<Vec<Dependency>, AvengerRuntimeError> {
         Ok(vec![
-            Dependency { variable: self.encoded_data.clone(), kind: DependencyKind::Dataset },
-            Dependency { variable: self.config_data.clone(), kind: DependencyKind::Dataset }
+            Dependency {
+                variable: self.encoded_data.clone(),
+                kind: DependencyKind::Dataset,
+            },
+            Dependency {
+                variable: self.config_data.clone(),
+                kind: DependencyKind::Dataset,
+            },
         ])
     }
 
@@ -241,28 +281,44 @@ impl Task for MarkTask {
         _runtime: Arc<TaskGraphRuntime>,
         input_values: &[TaskValue],
     ) -> Result<TaskValue, AvengerRuntimeError> {
-        let TaskValue::Dataset { dataset: TaskDataset::ArrowTable(encoded_table), .. } = &input_values[0] else {
+        let TaskValue::Dataset {
+            dataset: TaskDataset::ArrowTable(encoded_table),
+            ..
+        } = &input_values[0]
+        else {
             return Err(AvengerRuntimeError::InternalError(
                 "Expected a dataset with arrow table for encoded_data input".to_string(),
             ));
         };
-        let TaskValue::Dataset { dataset: TaskDataset::ArrowTable(config_table), .. } = &input_values[1] else {
+        let TaskValue::Dataset {
+            dataset: TaskDataset::ArrowTable(config_table),
+            ..
+        } = &input_values[1]
+        else {
             return Err(AvengerRuntimeError::InternalError(
                 "Expected a dataset with arrow table for config_data input".to_string(),
             ));
         };
-        
+
         let mark = match &self.mark_type {
             SceneMarkType::Rect => SceneMark::Rect(build_rect_mark(encoded_table, config_table)?),
             SceneMarkType::Arc => SceneMark::Arc(build_arc_mark(encoded_table, config_table)?),
             SceneMarkType::Area => SceneMark::Area(build_area_mark(encoded_table, config_table)?),
-            SceneMarkType::Image => SceneMark::Image(Arc::new(build_image_mark(encoded_table, config_table)?)),
+            SceneMarkType::Image => {
+                SceneMark::Image(Arc::new(build_image_mark(encoded_table, config_table)?))
+            }
             SceneMarkType::Line => SceneMark::Line(build_line_mark(encoded_table, config_table)?),
             SceneMarkType::Path => SceneMark::Path(build_path_mark(encoded_table, config_table)?),
             SceneMarkType::Rule => SceneMark::Rule(build_rule_mark(encoded_table, config_table)?),
-            SceneMarkType::Symbol => SceneMark::Symbol(build_symbol_mark(encoded_table, config_table)?),
-            SceneMarkType::Text => SceneMark::Text(Arc::new(build_text_mark(encoded_table, config_table)?)),
-            SceneMarkType::Trail => SceneMark::Trail(build_trail_mark(encoded_table, config_table)?),
+            SceneMarkType::Symbol => {
+                SceneMark::Symbol(build_symbol_mark(encoded_table, config_table)?)
+            }
+            SceneMarkType::Text => {
+                SceneMark::Text(Arc::new(build_text_mark(encoded_table, config_table)?))
+            }
+            SceneMarkType::Trail => {
+                SceneMark::Trail(build_trail_mark(encoded_table, config_table)?)
+            }
             SceneMarkType::Group => {
                 // Group marks require a different approach, so this is a placeholder that returns an error
                 return Err(AvengerRuntimeError::InternalError(
@@ -270,8 +326,8 @@ impl Task for MarkTask {
                 ));
             }
         };
-        
-        Ok(TaskValue::Mark {mark})
+
+        Ok(TaskValue::Mark { mark })
     }
 
     fn fingerprint(&self) -> Result<u64, AvengerRuntimeError> {
@@ -312,9 +368,15 @@ impl GroupMarkTask {
 #[async_trait]
 impl Task for GroupMarkTask {
     fn input_dependencies(&self) -> Result<Vec<Dependency>, AvengerRuntimeError> {
-        let mut deps = vec![Dependency { variable: self.config.clone(), kind: DependencyKind::Dataset }];
+        let mut deps = vec![Dependency {
+            variable: self.config.clone(),
+            kind: DependencyKind::Dataset,
+        }];
         for mark in &self.marks {
-            deps.push(Dependency { variable: mark.clone(), kind: DependencyKind::Mark });
+            deps.push(Dependency {
+                variable: mark.clone(),
+                kind: DependencyKind::Mark,
+            });
         }
         Ok(deps)
     }
@@ -324,12 +386,16 @@ impl Task for GroupMarkTask {
         _runtime: Arc<TaskGraphRuntime>,
         input_values: &[TaskValue],
     ) -> Result<TaskValue, AvengerRuntimeError> {
-
         // Extract config table
-        let TaskValue::Dataset { dataset: TaskDataset::ArrowTable(config_table), .. } = &input_values[0] else {
-            return Err(AvengerRuntimeError::InternalError(
-                format!("Expected a dataset with arrow table for config input. Got {:?}", input_values[0] ),
-            ));
+        let TaskValue::Dataset {
+            dataset: TaskDataset::ArrowTable(config_table),
+            ..
+        } = &input_values[0]
+        else {
+            return Err(AvengerRuntimeError::InternalError(format!(
+                "Expected a dataset with arrow table for config input. Got {:?}",
+                input_values[0]
+            )));
         };
 
         // Extract marks
@@ -392,7 +458,9 @@ impl Task for GroupMarkTask {
             zindex,
         };
 
-        Ok(TaskValue::Mark { mark: SceneMark::Group(group_mark) })
+        Ok(TaskValue::Mark {
+            mark: SceneMark::Group(group_mark),
+        })
     }
 
     fn fingerprint(&self) -> Result<u64, AvengerRuntimeError> {

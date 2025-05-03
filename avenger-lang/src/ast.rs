@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use sqlparser::{ast::{Expr as SqlExpr, Query as SqlQuery, Spanned, Ident}, tokenizer::Span};
+use sqlparser::{
+    ast::{Expr as SqlExpr, Ident, Query as SqlQuery, Spanned},
+    tokenizer::Span,
+};
 
 use crate::error::AvengerLangError;
 
@@ -48,11 +51,7 @@ pub struct ImportItem {
 impl Spanned for ImportItem {
     fn span(&self) -> Span {
         if let (Some(as_keyword), Some(alias)) = (&self.as_keyword, &self.alias) {
-            Span::union_iter([
-                self.name.span,
-                as_keyword.span,
-                alias.span,
-            ])
+            Span::union_iter([self.name.span, as_keyword.span, alias.span])
         } else {
             self.name.span
         }
@@ -231,53 +230,68 @@ impl ComponentProp {
     }
 
     pub fn val_props(&self) -> HashMap<String, ValProp> {
-        self.statements.iter().filter_map(|stmt| {
-            if let Statement::ValProp(val_prop) = stmt {
-                Some((val_prop.name().to_string(), val_prop.clone()))
-            } else {
-                None
-            }
-        }).collect()
+        self.statements
+            .iter()
+            .filter_map(|stmt| {
+                if let Statement::ValProp(val_prop) = stmt {
+                    Some((val_prop.name().to_string(), val_prop.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     pub fn prop_bindings(&self) -> HashMap<String, PropBinding> {
-        self.statements.iter().filter_map(|stmt| {
-            if let Statement::PropBinding(prop_binding) = stmt {
-                Some((prop_binding.name().to_string(), prop_binding.clone()))
-            } else {
-                None
-            }
-        }).collect()
+        self.statements
+            .iter()
+            .filter_map(|stmt| {
+                if let Statement::PropBinding(prop_binding) = stmt {
+                    Some((prop_binding.name().to_string(), prop_binding.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     pub fn expr_props(&self) -> HashMap<String, ExprProp> {
-        self.statements.iter().filter_map(|stmt| {
-            if let Statement::ExprProp(expr_prop) = stmt {
-                Some((expr_prop.name().to_string(), expr_prop.clone()))
-            } else {
-                None
-            }
-        }).collect()
+        self.statements
+            .iter()
+            .filter_map(|stmt| {
+                if let Statement::ExprProp(expr_prop) = stmt {
+                    Some((expr_prop.name().to_string(), expr_prop.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     pub fn dataset_props(&self) -> HashMap<String, DatasetProp> {
-        self.statements.iter().filter_map(|stmt| {
-            if let Statement::DatasetProp(dataset_prop) = stmt {
-                Some((dataset_prop.name().to_string(), dataset_prop.clone()))
-            } else {
-                None
-            }
-        }).collect()
+        self.statements
+            .iter()
+            .filter_map(|stmt| {
+                if let Statement::DatasetProp(dataset_prop) = stmt {
+                    Some((dataset_prop.name().to_string(), dataset_prop.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     pub fn component_props(&self) -> HashMap<String, ComponentProp> {
-        self.statements.iter().filter_map(|stmt| {
-            if let Statement::ComponentProp(component_prop) = stmt {
-                Some((component_prop.name().to_string(), component_prop.clone()))
-            } else {
-                None
-            }
-        }).collect()
+        self.statements
+            .iter()
+            .filter_map(|stmt| {
+                if let Statement::ComponentProp(component_prop) = stmt {
+                    Some((component_prop.name().to_string(), component_prop.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 }
 
@@ -314,10 +328,7 @@ impl PropBinding {
 
 impl Spanned for PropBinding {
     fn span(&self) -> Span {
-        Span::union_iter([
-            self.name.span,
-            self.expr.span(),
-        ])
+        Span::union_iter([self.name.span, self.expr.span()])
     }
 }
 
@@ -397,10 +408,7 @@ pub struct FunctionReturn {
 
 impl Spanned for FunctionReturn {
     fn span(&self) -> Span {
-        Span::union_iter([
-            self.keyword.span(),
-            self.value.span(),
-        ])
+        Span::union_iter([self.keyword.span(), self.value.span()])
     }
 }
 
@@ -438,17 +446,19 @@ impl SqlExprOrQuery {
     pub fn into_expr(self) -> Result<SqlExpr, AvengerLangError> {
         match self {
             SqlExprOrQuery::Expr(expr) => Ok(expr),
-            SqlExprOrQuery::Query(_) => Err(
-                AvengerLangError::InternalError("Query not allowed".to_string())
-            ),
+            SqlExprOrQuery::Query(q) => Err(AvengerLangError::InternalError(format!(
+                "Query not allowed: {:#?}",
+                q
+            ))),
         }
     }
 
     pub fn into_query(self) -> Result<Box<SqlQuery>, AvengerLangError> {
         match self {
-            SqlExprOrQuery::Expr(_) => Err(
-                AvengerLangError::InternalError("Expr not allowed".to_string())
-            ),
+            SqlExprOrQuery::Expr(expr) => Err(AvengerLangError::InternalError(format!(
+                "Expr not allowed: {}",
+                expr
+            ))),
             SqlExprOrQuery::Query(query) => Ok(query),
         }
     }
@@ -470,7 +480,6 @@ pub struct Identifier {
     pub span: Span,
 }
 
-
 impl Spanned for Identifier {
     fn span(&self) -> Span {
         self.span
@@ -491,7 +500,7 @@ macro_rules! define_keyword {
                 self.span
             }
         }
-        
+
         impl $name {
             pub fn new(span: Span) -> Self {
                 Self { span }
@@ -513,22 +522,21 @@ define_keyword!(KeywordFn);
 define_keyword!(KeywordReturn);
 define_keyword!(KeywordFrom);
 
-
 #[cfg(test)]
 mod tests {
     use sqlparser::ast::Visitor;
 
     use super::*;
-    
+
     struct TestVisitor {
         visited: Vec<String>,
     }
 
     // impl Visitor for TestVisitor {
     //     type Break = ();
-        
+
     //     fn post_visit_expr(&mut self, _expr: &SqlExpr) -> std::ops::ControlFlow<Self::Break> {
-            
+
     //     }
     // }
 }

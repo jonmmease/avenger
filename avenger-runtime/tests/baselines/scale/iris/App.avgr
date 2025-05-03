@@ -1,0 +1,34 @@
+import { LinearScale } from '.';
+
+width := 480;
+height := 480;
+
+dataset iris: SELECT * FROM read_csv('avenger-runtime/tests/data/iris.csv');
+
+comp x_scale: LinearScale {
+    domain := (SELECT [min("SepalLengthCm"), max("SepalLengthCm")] FROM @iris);
+    range := [40, 440];
+    domain_expr := "SepalLengthCm";
+}
+
+comp y_scale: LinearScale {
+    domain := (SELECT [min("SepalWidthCm"), max("SepalWidthCm")] FROM @iris);
+    range := [440, 40];
+    domain_expr := "SepalWidthCm";
+}
+
+Rect {
+    x := (@x_scale.range)[1];
+    y := (@y_scale.range)[1];
+    x2 := (@x_scale.range)[2];
+    y2 := (@y_scale.range)[2];
+    stroke := 'black';
+    stroke_width := 0.2;
+}
+
+Symbol {
+    data := select * from @iris;
+    fill := 'black';
+    x := @x_scale.range_expr;
+    y := @y_scale.range_expr;
+}

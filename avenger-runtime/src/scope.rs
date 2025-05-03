@@ -1,10 +1,13 @@
-use std::collections::{HashMap, HashSet};
 use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::ops::ControlFlow;
 
 use avenger_lang::ast::{AvengerFile, ComponentProp, DatasetProp, ExprProp, ValProp};
-use sqlparser::ast::{Expr as SqlExpr, Ident, ObjectName, Query as SqlQuery, VisitMut, Visitor, VisitorMut as SqlVisitorMut};
 use avenger_lang::visitor::{AvengerVisitor, VisitorContext};
+use sqlparser::ast::{
+    Expr as SqlExpr, Ident, ObjectName, Query as SqlQuery, VisitMut, Visitor,
+    VisitorMut as SqlVisitorMut,
+};
 
 use crate::component_registry::ComponentRegistry;
 use crate::error::AvengerRuntimeError;
@@ -41,13 +44,16 @@ impl PropertyScope {
         let mut component_paths = HashMap::new();
         PropertyScope::add_component_paths(&mut component_paths, &root_level, &vec![]);
 
-        Self { root_level, component_paths }
+        Self {
+            root_level,
+            component_paths,
+        }
     }
 
     fn add_component_paths(
         component_paths: &mut HashMap<String, Vec<String>>,
         level: &ScopeLevel,
-        prefix: &[String]
+        prefix: &[String],
     ) {
         for (name, child) in level.children.iter() {
             let mut parts = prefix.to_vec();
@@ -56,14 +62,15 @@ impl PropertyScope {
             PropertyScope::add_component_paths(component_paths, child, &parts);
         }
     }
-    
+
     // Create a Scope from an AvengerFile using the ScopeBuilder visitor
     pub fn from_file(file_ast: &AvengerFile) -> Result<Self, AvengerRuntimeError> {
         let registry = ComponentRegistry::new_with_marks();
         let mut builder = PropertyScopeBuilder::new(&registry);
         if let ControlFlow::Break(err) = file_ast.visit(&mut builder) {
             return Err(AvengerRuntimeError::InternalError(format!(
-                "Error building scope: {:?}", err
+                "Error building scope: {:?}",
+                err
             )));
         }
         Ok(builder.build())
@@ -87,25 +94,31 @@ impl<'a> PropertyScopeBuilder<'a> {
             registry,
         }
     }
-    
+
     fn add_property(&self, name: &str, scope_path: &[String]) -> Result<(), AvengerRuntimeError> {
         let mut root_level = self.root_level.borrow_mut();
         let mut current = &mut *root_level;
-        
+
         // Navigate to the current scope level
         for part in scope_path {
             if !current.children.contains_key(part) {
-                current.children.insert(part.clone(), ScopeLevel {
-                    name: part.clone(),
-                    items: HashSet::new(),
-                    children: HashMap::new(),
-                });
+                current.children.insert(
+                    part.clone(),
+                    ScopeLevel {
+                        name: part.clone(),
+                        items: HashSet::new(),
+                        children: HashMap::new(),
+                    },
+                );
             }
-            current = current.children.get_mut(part)
-                .ok_or_else(|| AvengerRuntimeError::InternalError(format!(
-                    "Failed to find scope level part: {}", part)))?;
+            current = current.children.get_mut(part).ok_or_else(|| {
+                AvengerRuntimeError::InternalError(format!(
+                    "Failed to find scope level part: {}",
+                    part
+                ))
+            })?;
         }
-        
+
         // Add the property to the current scope level
         current.items.insert(name.to_string());
         Ok(())
@@ -123,32 +136,52 @@ impl<'a> Visitor for PropertyScopeBuilder<'a> {
 }
 
 impl<'a> AvengerVisitor for PropertyScopeBuilder<'a> {
-    fn pre_visit_val_prop(&mut self, val_prop: &ValProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
+    fn pre_visit_val_prop(
+        &mut self,
+        val_prop: &ValProp,
+        context: &VisitorContext,
+    ) -> ControlFlow<Self::Break> {
         if let Err(err) = self.add_property(&val_prop.name.value, &context.path) {
             return ControlFlow::Break(Err(err));
         }
         ControlFlow::Continue(())
     }
 
-    fn pre_visit_expr_prop(&mut self, expr_prop: &ExprProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
+    fn pre_visit_expr_prop(
+        &mut self,
+        expr_prop: &ExprProp,
+        context: &VisitorContext,
+    ) -> ControlFlow<Self::Break> {
         if let Err(err) = self.add_property(&expr_prop.name.value, &context.path) {
             return ControlFlow::Break(Err(err));
         }
         ControlFlow::Continue(())
     }
 
-    fn pre_visit_dataset_prop(&mut self, dataset_prop: &DatasetProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
+    fn pre_visit_dataset_prop(
+        &mut self,
+        dataset_prop: &DatasetProp,
+        context: &VisitorContext,
+    ) -> ControlFlow<Self::Break> {
         if let Err(err) = self.add_property(&dataset_prop.name.value, &context.path) {
             return ControlFlow::Break(Err(err));
         }
         ControlFlow::Continue(())
     }
 
-    fn post_visit_component_prop(&mut self, comp_prop: &ComponentProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
+    fn post_visit_component_prop(
+        &mut self,
+        comp_prop: &ComponentProp,
+        context: &VisitorContext,
+    ) -> ControlFlow<Self::Break> {
         // Add all properties of the component type to the scope
-        let Some(component_type) = self.registry.lookup_component(&comp_prop.component_type.value) else {
+        let Some(component_type) = self
+            .registry
+            .lookup_component(&comp_prop.component_type.value)
+        else {
             return ControlFlow::Break(Err(AvengerRuntimeError::InternalError(format!(
-                "Component type {} not found in registry", comp_prop.component_type.value
+                "Component type {} not found in registry",
+                comp_prop.component_type.value
             ))));
         };
         let mut child_path = context.path.clone();
@@ -162,30 +195,42 @@ impl<'a> AvengerVisitor for PropertyScopeBuilder<'a> {
     }
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ScopeAnchor {
     Self_,
     Parent,
     Root,
-    Component(Vec<String>)
+    Component(Vec<String>),
 }
 
-
 impl PropertyScope {
-    fn make_scope_stack<'a>(&'a self, path: &[String]) -> Result<Vec<&'a ScopeLevel>, AvengerRuntimeError> {
+    fn make_scope_stack<'a>(
+        &'a self,
+        path: &[String],
+    ) -> Result<Vec<&'a ScopeLevel>, AvengerRuntimeError> {
         let mut scope_stack: Vec<&ScopeLevel> = vec![&self.root_level];
         for part in path {
-            let next_level = scope_stack[scope_stack.len() - 1].children.get(part)
-                .ok_or_else(|| AvengerRuntimeError::InternalError(format!(
-                    "Failed to find scope level part: {}", part)))?;
+            let next_level = scope_stack[scope_stack.len() - 1]
+                .children
+                .get(part)
+                .ok_or_else(|| {
+                    AvengerRuntimeError::InternalError(format!(
+                        "Failed to find scope level part: {}",
+                        part
+                    ))
+                })?;
             scope_stack.push(next_level);
         }
         Ok(scope_stack)
     }
 
     /// Resolve a variable reference used in a particular scope
-    pub fn resolve_var(&self, name: &str, path: &[String], anchor: Option<ScopeAnchor>) -> Option<Variable> {
+    pub fn resolve_var(
+        &self,
+        name: &str,
+        path: &[String],
+        anchor: Option<ScopeAnchor>,
+    ) -> Option<Variable> {
         let scope_stack = match self.make_scope_stack(path) {
             Ok(stack) => stack,
             Err(err) => {
@@ -193,13 +238,15 @@ impl PropertyScope {
                 return None;
             }
         };
-        
+
         // Walk the stack to find the variable
         match anchor {
             Some(ScopeAnchor::Self_) => {
                 // check only the final level
                 if scope_stack[scope_stack.len() - 1].items.contains(name) {
-                    let mut parts: Vec<String> = (1..scope_stack.len()).map(|i| scope_stack[i].name.clone()).collect();
+                    let mut parts: Vec<String> = (1..scope_stack.len())
+                        .map(|i| scope_stack[i].name.clone())
+                        .collect();
                     parts.push(name.to_string());
                     return Some(Variable::new(parts));
                 }
@@ -208,7 +255,9 @@ impl PropertyScope {
             Some(ScopeAnchor::Parent) => {
                 // Check only the parent level
                 if scope_stack[scope_stack.len() - 2].items.contains(name) {
-                    let mut parts: Vec<String> = (1..scope_stack.len() - 1).map(|i| scope_stack[i].name.clone()).collect();
+                    let mut parts: Vec<String> = (1..scope_stack.len() - 1)
+                        .map(|i| scope_stack[i].name.clone())
+                        .collect();
                     parts.push(name.to_string());
                     return Some(Variable::new(parts));
                 }
@@ -225,7 +274,7 @@ impl PropertyScope {
                 let Some(root_path) = self.component_paths.get(&parts[0]) else {
                     return None;
                 };
-                // 
+                //
                 let mut path = root_path.clone();
                 for child_part in parts[1..].iter() {
                     let Some(child_level) = scope_stack[0].children.get(child_part) else {
@@ -241,7 +290,8 @@ impl PropertyScope {
                 for lvl in (0..scope_stack.len()).rev() {
                     if scope_stack[lvl].items.contains(name) {
                         // Build variable from the root
-                        let mut parts: Vec<String> = (1..=lvl).map(|i| scope_stack[i].name.clone()).collect();
+                        let mut parts: Vec<String> =
+                            (1..=lvl).map(|i| scope_stack[i].name.clone()).collect();
                         parts.push(name.to_string());
                         return Some(Variable::new(parts));
                     }
@@ -251,28 +301,33 @@ impl PropertyScope {
         }
     }
 
-    pub fn resolve_sql_expr(&self, expr: &mut SqlExpr, scope_path: &[String]) -> Result<(), AvengerRuntimeError> {
-        let mut visitor = ResolveVarInSqlVisitor::new(
-            self, scope_path
-        );
+    pub fn resolve_sql_expr(
+        &self,
+        expr: &mut SqlExpr,
+        scope_path: &[String],
+    ) -> Result<(), AvengerRuntimeError> {
+        println!("resolving expression: {} in scope {:?}", expr, scope_path);
+        println!("{expr:#?}");
+        let mut visitor = ResolveVarInSqlVisitor::new(self, scope_path);
         if let ControlFlow::Break(Err(err)) = expr.visit(&mut visitor) {
-            return Err(err)
+            return Err(err);
         }
         Ok(())
     }
 
-    pub fn resolve_sql_query(&self, query: &mut SqlQuery, scope_path: &[String]) -> Result<(), AvengerRuntimeError> {
-        let mut visitor = ResolveVarInSqlVisitor::new(
-            self, scope_path
-        );
+    pub fn resolve_sql_query(
+        &self,
+        query: &mut SqlQuery,
+        scope_path: &[String],
+    ) -> Result<(), AvengerRuntimeError> {
+        let mut visitor = ResolveVarInSqlVisitor::new(self, scope_path);
         if let ControlFlow::Break(Err(err)) = query.visit(&mut visitor) {
             println!("Scope: {:#?}", self);
-            return Err(err)
+            return Err(err);
         }
         Ok(())
     }
 }
-
 
 pub struct ResolveVarInSqlVisitor<'a> {
     scope: &'a PropertyScope,
@@ -293,7 +348,7 @@ impl<'a> ResolveVarInSqlVisitor<'a> {
             let name = idents[0].value[1..].to_string();
             let anchor = None;
             if let Some(resolved) = self.scope.resolve_var(&name, &self.path, anchor) {
-                return Some(resolved.to_idents())
+                return Some(resolved.to_idents());
             }
         } else if idents.len() == 2 && idents[0].value == "@self" {
             let name = idents[1].value.clone();
@@ -315,7 +370,10 @@ impl<'a> ResolveVarInSqlVisitor<'a> {
             }
         } else {
             let name = idents[idents.len() - 1].value.clone();
-            let mut anchor_parts = idents[0..idents.len() - 1].iter().map(|i| i.value.clone()).collect::<Vec<_>>();
+            let mut anchor_parts = idents[0..idents.len() - 1]
+                .iter()
+                .map(|i| i.value.clone())
+                .collect::<Vec<_>>();
 
             // Remove leading @ from first part
             anchor_parts[0] = anchor_parts[0][1..].to_string();
@@ -335,10 +393,15 @@ impl<'a> SqlVisitorMut for ResolveVarInSqlVisitor<'a> {
     fn pre_visit_relation(&mut self, relation: &mut ObjectName) -> ControlFlow<Self::Break> {
         if let Some(resolved) = self.resolve_idents(&relation.0) {
             *relation = ObjectName(resolved);
-        } else if relation.0.first().map_or(false, |ident| ident.value.starts_with("@")) {
-            return ControlFlow::Break(Err(AvengerRuntimeError::InternalError(
-                format!("Failed to resolve variable reference: {:?} in path: {:?}", relation, self.path)
-            )));
+        } else if relation
+            .0
+            .first()
+            .map_or(false, |ident| ident.value.starts_with("@"))
+        {
+            return ControlFlow::Break(Err(AvengerRuntimeError::InternalError(format!(
+                "Failed to resolve variable reference: {:?} in path: {:?}",
+                relation, self.path
+            ))));
         }
         ControlFlow::Continue(())
     }
@@ -351,7 +414,10 @@ impl<'a> SqlVisitorMut for ResolveVarInSqlVisitor<'a> {
                         *expr = SqlExpr::CompoundIdentifier(resolved);
                     } else {
                         return ControlFlow::Break(Err(AvengerRuntimeError::InternalError(
-                            format!("Failed to resolve variable reference: {:?} in path: {:?}", ident, self.path)
+                            format!(
+                                "Failed to resolve variable reference: {:?} in path: {:?}",
+                                ident, self.path
+                            ),
                         )));
                     }
                 }
@@ -362,7 +428,10 @@ impl<'a> SqlVisitorMut for ResolveVarInSqlVisitor<'a> {
                         *expr = SqlExpr::CompoundIdentifier(resolved);
                     } else {
                         return ControlFlow::Break(Err(AvengerRuntimeError::InternalError(
-                            format!("Failed to resolve variable reference: {:?} in path: {:?}", idents, self.path)
+                            format!(
+                                "Failed to resolve variable reference: {:?} in path: {:?}",
+                                idents, self.path
+                            ),
                         )));
                     }
                 }
@@ -373,29 +442,23 @@ impl<'a> SqlVisitorMut for ResolveVarInSqlVisitor<'a> {
     }
 }
 
-
 pub struct ImportScope {
     // The scope of the imported file
     pub root_level: ScopeLevel,
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     fn assert_var_resolution(
-        scope: &PropertyScope, 
-        name: &str, 
-        path: &[String], 
+        scope: &PropertyScope,
+        name: &str,
+        path: &[String],
         anchor: Option<ScopeAnchor>,
-        expected: Option<&[&str]>
+        expected: Option<&[&str]>,
     ) {
-        let var = scope.resolve_var(
-            name,
-            path,
-            anchor
-        );
+        let var = scope.resolve_var(name, path, anchor);
         if let Some(expected) = expected {
             let parts = expected.iter().map(|s| s.to_string()).collect();
             assert_eq!(var, Some(Variable::new(parts)));
@@ -406,121 +469,130 @@ mod tests {
 
     #[test]
     fn test_resolve_var() {
-        let scope = PropertyScope::new( 
-            ScopeLevel { 
-                name: "root".to_string(), 
-                items: vec![
-                    "rootVarA".to_string(),
-                    "rootVarB".to_string(),
-                ].into_iter().collect(), 
-                children: vec![
-                    ("child1".to_string(), ScopeLevel {
+        let scope = PropertyScope::new(ScopeLevel {
+            name: "root".to_string(),
+            items: vec!["rootVarA".to_string(), "rootVarB".to_string()]
+                .into_iter()
+                .collect(),
+            children: vec![
+                (
+                    "child1".to_string(),
+                    ScopeLevel {
                         name: "child1".to_string(),
-                        items: vec![
-                            "var1".to_string(),
-                            "var2".to_string(),
-                        ].into_iter().collect(),
+                        items: vec!["var1".to_string(), "var2".to_string()]
+                            .into_iter()
+                            .collect(),
                         children: HashMap::new(),
-                    }),
-                    ("child2".to_string(), ScopeLevel {
+                    },
+                ),
+                (
+                    "child2".to_string(),
+                    ScopeLevel {
                         name: "child2".to_string(),
-                        items: vec![
-                            "varA".to_string(),
-                            "varB".to_string(),
-                        ].into_iter().collect(),
-                        children: vec![
-                            ("child2_a".to_string(), ScopeLevel {
+                        items: vec!["varA".to_string(), "varB".to_string()]
+                            .into_iter()
+                            .collect(),
+                        children: vec![(
+                            "child2_a".to_string(),
+                            ScopeLevel {
                                 name: "child2_a".to_string(),
-                                items: vec![
-                                    "varC".to_string(),
-                                    "varD".to_string(),
-                                ].into_iter().collect(),
+                                items: vec!["varC".to_string(), "varD".to_string()]
+                                    .into_iter()
+                                    .collect(),
                                 children: HashMap::new(),
-                            }),
-                        ].into_iter().collect(),
-                    }),
-                ].into_iter().collect()
-            } 
-        );
+                            },
+                        )]
+                        .into_iter()
+                        .collect(),
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        });
 
         // Can reference var1 directly from child1 without an anchor
         assert_var_resolution(
-            &scope, "var1", 
+            &scope,
+            "var1",
             &["child1".to_string()],
             None,
-            Some(&["child1", "var1"])
+            Some(&["child1", "var1"]),
         );
 
         // Can reference var1 directly from child1 with self
         assert_var_resolution(
-            &scope, "var1", 
+            &scope,
+            "var1",
             &["child1".to_string()],
             Some(ScopeAnchor::Self_),
-            Some(&["child1", "var1"])
+            Some(&["child1", "var1"]),
         );
 
         // Cannot reference varA directly from child1
-        assert_var_resolution(
-            &scope, "varA", 
-            &["child1".to_string()],
-            None,
-            None,
-        );
+        assert_var_resolution(&scope, "varA", &["child1".to_string()], None, None);
 
         // Can reference root properties directly
         assert_var_resolution(
-            &scope, "rootVarA", 
+            &scope,
+            "rootVarA",
             &["child1".to_string()],
             None,
-            Some(&["rootVarA"])
+            Some(&["rootVarA"]),
         );
 
         // Cannot reference root properties directly with self
         assert_var_resolution(
-            &scope, "rootVarA", 
+            &scope,
+            "rootVarA",
             &["child1".to_string()],
             Some(ScopeAnchor::Self_),
-            None
+            None,
         );
 
         // Can reference root properties directly with root
         assert_var_resolution(
-            &scope, "rootVarA", 
+            &scope,
+            "rootVarA",
             &["child1".to_string()],
             Some(ScopeAnchor::Root),
-            Some(&["rootVarA"])
+            Some(&["rootVarA"]),
         );
 
         // Can reference root properties directly with root
         assert_var_resolution(
-            &scope, "rootVarA", 
+            &scope,
+            "rootVarA",
             &["child1".to_string()],
             Some(ScopeAnchor::Parent),
-            Some(&["rootVarA"])
+            Some(&["rootVarA"]),
         );
 
         // Can reference parent properties directly with parent
         assert_var_resolution(
-            &scope, "varB", 
+            &scope,
+            "varB",
             &["child2".to_string(), "child2_a".to_string()],
             Some(ScopeAnchor::Parent),
-            Some(&["child2", "varB"])
+            Some(&["child2", "varB"]),
         );
 
         // Can't reference self properties directly with parent
         assert_var_resolution(
-            &scope, "varC", 
+            &scope,
+            "varC",
             &["child2".to_string(), "child2_a".to_string()],
             Some(ScopeAnchor::Parent),
-            None
+            None,
         );
 
         // Can reference varA from child2_a using component anchor
         assert_var_resolution(
-            &scope, "varA", 
+            &scope,
+            "varA",
             &["child1".to_string()],
             Some(ScopeAnchor::Component(vec!["child2_a".to_string()])),
-            Some(&["child2", "child2_a", "varA"])
+            Some(&["child2", "child2_a", "varA"]),
         );
     }
 }

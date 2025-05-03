@@ -1,10 +1,19 @@
-use std::{collections::HashMap, sync::Arc};
+use crate::{
+    cache::{RuntimeCache, RuntimeCacheConfig},
+    error::AvengerRuntimeError,
+    task_graph::TaskGraph,
+    value::TaskValue,
+    variable::Variable,
+};
 use async_recursion::async_recursion;
 use avenger_lang::ast::{AvengerFile, Statement};
 use avenger_scales::utils::ScalarValueUtils;
-use avenger_scenegraph::scene_graph::SceneGraph;
+use avenger_scenegraph::{
+    marks::{group::SceneGroup, mark::SceneMark},
+    scene_graph::SceneGraph,
+};
 use futures::future::join_all;
-use crate::{cache::{RuntimeCache, RuntimeCacheConfig}, error::AvengerRuntimeError, task_graph::TaskGraph, value::TaskValue, variable::Variable};
+use std::{collections::HashMap, sync::Arc};
 
 pub struct TaskGraphRuntime {
     cache: Arc<RuntimeCache>,
@@ -23,13 +32,17 @@ impl TaskGraphRuntime {
         self: Arc<Self>,
         graph: Arc<TaskGraph>,
         variable: &Variable,
-    ) -> Result<TaskValue, AvengerRuntimeError> {        
+    ) -> Result<TaskValue, AvengerRuntimeError> {
         // Lookup the node for this variable
-        let node = graph.tasks().get(variable).ok_or_else(|| {
-            AvengerRuntimeError::VariableNotFound(format!("Variable not found: {:?}", variable))
-        })?.clone();
+        let node = graph
+            .tasks()
+            .get(variable)
+            .ok_or_else(|| {
+                AvengerRuntimeError::VariableNotFound(format!("Variable not found: {:?}", variable))
+            })?
+            .clone();
 
-        // Build future to compute the value of this variable, this will only be 
+        // Build future to compute the value of this variable, this will only be
         // executed if the value is not cached
         let inner_self = self.clone();
         let inner_graph = graph.clone();
@@ -37,10 +50,9 @@ impl TaskGraphRuntime {
             // Create future to compute node value (will only be executed if not present in cache)
             let mut inputs_futures = Vec::new();
             for input_node in &node.inputs {
-                let node_fut = inner_self.clone().evaluate_variable(
-                    inner_graph.clone(),
-                    &input_node.source,
-                );
+                let node_fut = inner_self
+                    .clone()
+                    .evaluate_variable(inner_graph.clone(), &input_node.source);
 
                 inputs_futures.push(node_fut);
             }
@@ -56,7 +68,10 @@ impl TaskGraphRuntime {
         };
 
         // get or construct from cache
-        Ok(self.cache.get_or_try_insert_with(node.fingerprint, node.identity_fingerprint, fut).await?)
+        Ok(self
+            .cache
+            .get_or_try_insert_with(node.fingerprint, node.identity_fingerprint, fut)
+            .await?)
     }
 
     pub async fn evaluate_variables(
@@ -66,13 +81,13 @@ impl TaskGraphRuntime {
     ) -> Result<HashMap<Variable, TaskValue>, AvengerRuntimeError> {
         let mut futures = Vec::new();
         for variable in variables {
-            futures.push(
-                self.clone().evaluate_variable(graph.clone(), variable)
-            );
+            futures.push(self.clone().evaluate_variable(graph.clone(), variable));
         }
 
         let values = join_all(futures).await;
-        let values = values.into_iter().collect::<Result<Vec<_>, AvengerRuntimeError>>()?;
+        let values = values
+            .into_iter()
+            .collect::<Result<Vec<_>, AvengerRuntimeError>>()?;
         Ok(Vec::from(variables).into_iter().zip(values).collect())
     }
 
@@ -82,7 +97,7 @@ impl TaskGraphRuntime {
     ) -> Result<SceneGraph, AvengerRuntimeError> {
         // Build task graph
         let task_graph = Arc::new(TaskGraph::from_file(file_ast)?);
-        
+
         // Build variables for size of the scenegraph
         let mut dim_vars = vec![];
 
@@ -98,15 +113,15 @@ impl TaskGraphRuntime {
 
         // Build variables for the child marks
         let mut mark_vars = vec![];
-        
+
         for stmt in &file_ast.statements {
             if let Statement::ComponentProp(comp) = stmt {
-                let comp_type = comp.component_type.value.clone();
+                // let comp_type = comp.component_type.value.clone();
 
                 // let is_mark = component_registry.lookup_component(&comp_type).map(
                 //     |spec| spec.is_mark
                 // ).unwrap_or(false);
-                
+
                 // if is_mark || comp_type == "Group" { }
                 // Build var with group components mark
                 let mut parts = vec![comp.name()];
@@ -120,38 +135,54 @@ impl TaskGraphRuntime {
         let all_vars = [dim_vars, mark_vars.clone()].concat();
 
         // Evaluate all variables
-        let mut results = self.clone().evaluate_variables(task_graph.clone(), &all_vars).await?;
+        let mut results = self
+            .clone()
+            .evaluate_variables(task_graph.clone(), &all_vars)
+            .await?;
 
         // Get the width, height, x, and y from the results and apply defaults
-        let width = results.get(&width_var)
-            .and_then(|v| v.as_val().ok())
-            .and_then(|v| v.as_f32().ok())
-            .unwrap_or(500.0);
-        
-        let height = results.get(&height_var)
+        let width = results
+            .get(&width_var)
             .and_then(|v| v.as_val().ok())
             .and_then(|v| v.as_f32().ok())
             .unwrap_or(500.0);
 
-        let x = results.get(&x_var)
+        let height = results
+            .get(&height_var)
+            .and_then(|v| v.as_val().ok())
+            .and_then(|v| v.as_f32().ok())
+            .unwrap_or(500.0);
+
+        let x = results
+            .get(&x_var)
             .and_then(|v| v.as_val().ok())
             .and_then(|v| v.as_f32().ok())
             .unwrap_or(0.0);
 
-        let y = results.get(&y_var)
+        let y = results
+            .get(&y_var)
             .and_then(|v| v.as_val().ok())
             .and_then(|v| v.as_f32().ok())
             .unwrap_or(0.0);
-
 
         // Get the marks
-        let marks = mark_vars.iter().map(|v| results.remove(v).unwrap().into_mark().unwrap()).collect::<Vec<_>>();
+        let marks = mark_vars
+            .iter()
+            .map(|v| results.remove(v).unwrap().into_mark().unwrap())
+            .collect::<Vec<_>>();
+
+        // Build top-level group
+        let group = SceneMark::Group(SceneGroup {
+            origin: [0.0, 0.0],
+            marks,
+            ..Default::default()
+        });
 
         Ok(SceneGraph {
             width,
             height,
             origin: [x, y],
-            marks,
+            marks: vec![group],
         })
     }
 }
