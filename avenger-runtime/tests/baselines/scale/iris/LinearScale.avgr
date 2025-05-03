@@ -1,9 +1,136 @@
 in val domain: [0, 1];
 in val range: [0, 1];
 in expr domain_expr: 0.5;
+in val nice: 0;
 
 // Compute scale and offset factors
-val scale: (@range[2] - @range[1]) / (@domain[2] - @domain[1]);
-val offset: @range[1] - @scale * @domain[1];
+val scale: (@range[2] - @range[1]) / (@final_domain[2] - @final_domain[1]);
+val offset: @range[1] - @scale * @final_domain[1];
 
 out expr range_expr: @domain_expr * @scale + @offset;
+val final_domain: CASE
+    WHEN @nice > 0 THEN @tick_nice(count:=@nice, domain_start:=@domain[1], domain_end:=@domain[2]).nice_domain
+    ELSE @domain END;
+
+// Helper to build nice extents
+comp tick_nice: Group {
+    in val count: 10;
+    in val domain_start: 0;
+    in val domain_end: 10;
+
+    val start: least(@domain_start, @domain_end);
+    val stop: greatest(@domain_start, @domain_end);
+
+    dataset ds:
+      WITH RECURSIVE nice_iterations AS (
+      -- Base case: iteration 0
+      SELECT
+        0 as iter,
+        @start as start,
+        @stop as stop,
+        0.0 as prestep,
+        -- Calculate initial tick_increment
+        POWER(10.0, FLOOR(LOG(10, (@stop - @start) / GREATEST(@count, 1)))) *
+        CASE
+          WHEN ((@stop - @start) / GREATEST(@count, 1)) /
+               POWER(10.0, FLOOR(LOG(10, (@stop - @start) / GREATEST(@count, 1)))) >= SQRT(50)
+          THEN 10.0
+          WHEN ((@stop - @start) / GREATEST(@count, 1)) /
+               POWER(10.0, FLOOR(LOG(10, (@stop - @start) / GREATEST(@count, 1)))) >= SQRT(10)
+          THEN 5.0
+          WHEN ((@stop - @start) / GREATEST(@count, 1)) /
+               POWER(10.0, FLOOR(LOG(10, (@stop - @start) / GREATEST(@count, 1)))) >= SQRT(2)
+          THEN 2.0
+          ELSE 1.0
+        END as step
+
+      UNION ALL
+
+      -- Recursive case
+      SELECT
+        iter + 1,
+        CASE
+          WHEN step > 0 THEN FLOOR(start / step) * step
+          WHEN step < 0 THEN CEIL(start * step) / step
+          ELSE start
+        END as new_start,
+        CASE
+          WHEN step > 0 THEN CEIL(stop / step) * step
+          WHEN step < 0 THEN FLOOR(stop * step) / step
+          ELSE stop
+        END as new_stop,
+        step as prestep,
+        -- Recalculate tick_increment for new bounds
+        POWER(10.0, FLOOR(LOG(10,
+          (CASE WHEN step > 0 THEN CEIL(stop / step) * step WHEN step < 0 THEN FLOOR(stop * step) / step ELSE stop END -
+           CASE WHEN step > 0 THEN FLOOR(start / step) * step WHEN step < 0 THEN CEIL(start * step) / step ELSE start END) /
+          GREATEST(@count, 1)
+        ))) *
+        CASE
+          WHEN ((CASE WHEN step > 0 THEN CEIL(stop / step) * step WHEN step < 0 THEN FLOOR(stop * step) / step ELSE stop END -
+                 CASE WHEN step > 0 THEN FLOOR(start / step) * step WHEN step < 0 THEN CEIL(start * step) / step ELSE start END) /
+                GREATEST(@count, 1)) /
+               POWER(10.0, FLOOR(LOG(10,
+                 (CASE WHEN step > 0 THEN CEIL(stop / step) * step WHEN step < 0 THEN FLOOR(stop * step) / step ELSE stop END -
+                  CASE WHEN step > 0 THEN FLOOR(start / step) * step WHEN step < 0 THEN CEIL(start * step) / step ELSE start END) /
+                 GREATEST(@count, 1)
+               ))) >= SQRT(50)
+          THEN 10.0
+          WHEN ((CASE WHEN step > 0 THEN CEIL(stop / step) * step WHEN step < 0 THEN FLOOR(stop * step) / step ELSE stop END -
+                 CASE WHEN step > 0 THEN FLOOR(start / step) * step WHEN step < 0 THEN CEIL(start * step) / step ELSE start END) /
+                GREATEST(@count, 1)) /
+               POWER(10.0, FLOOR(LOG(10,
+                 (CASE WHEN step > 0 THEN CEIL(stop / step) * step WHEN step < 0 THEN FLOOR(stop * step) / step ELSE stop END -
+                  CASE WHEN step > 0 THEN FLOOR(start / step) * step WHEN step < 0 THEN CEIL(start * step) / step ELSE start END) /
+                 GREATEST(@count, 1)
+               ))) >= SQRT(10)
+          THEN 5.0
+          WHEN ((CASE WHEN step > 0 THEN CEIL(stop / step) * step WHEN step < 0 THEN FLOOR(stop * step) / step ELSE stop END -
+                 CASE WHEN step > 0 THEN FLOOR(start / step) * step WHEN step < 0 THEN CEIL(start * step) / step ELSE start END) /
+                GREATEST(@count, 1)) /
+               POWER(10.0, FLOOR(LOG(10,
+                 (CASE WHEN step > 0 THEN CEIL(stop / step) * step WHEN step < 0 THEN FLOOR(stop * step) / step ELSE stop END -
+                  CASE WHEN step > 0 THEN FLOOR(start / step) * step WHEN step < 0 THEN CEIL(start * step) / step ELSE start END) /
+                 GREATEST(@count, 1)
+               ))) >= SQRT(2)
+          THEN 2.0
+          ELSE 1.0
+        END as step
+      FROM nice_iterations
+      WHERE iter < 9 AND step != prestep
+    )
+    -- Select the final result
+    SELECT
+      start as final_start,
+      stop as final_stop
+    FROM nice_iterations
+    ORDER BY iter DESC
+    LIMIT 1;
+
+    val nice_domain: (SELECT ["final_start", "final_stop"] from @ds);
+}
+
+// // Helper to build tick increment
+//comp tick_increment: Group {
+//    in val start: 0;
+//    in val stop: 100;
+//    in val count: 20;
+
+//    out val step: CASE WHEN @count > 0 THEN (@stop - @start) / @count ELSE 0 END;
+//    val power: floor(log10(@step));
+//    val error: @step / pow(10, @power);
+
+//    expr factor: CASE
+//            WHEN @error >= 7.071068 THEN 10.0
+//            WHEN @error >= 3.1622777 THEN 5.0
+//            WHEN @error >= 1.4142135 THEN 2.0
+//            ELSE 1.0
+//        END;
+
+//    out val res: CASE
+//            WHEN @count <= 0 THEN NULL
+//            WHEN @start = @stop THEN NULL
+//            WHEN @step = 0 THEN NULL
+//            ELSE pow(10, @power) * @factor
+//            END;
+//}

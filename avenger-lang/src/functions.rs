@@ -13,7 +13,7 @@ use crate::{
     ast::{AvengerFile, ComponentProp, DatasetProp, ExprProp, KeywordComp, Statement, ValProp},
     error::AvengerLangError,
     parser::AvengerParser,
-    visitor::{AvengerVisitor, AvengerVisitorMut, VisitorContext},
+    visitor::{AvengerVisitMut, AvengerVisitor, AvengerVisitorMut, VisitorContext},
 };
 
 /// Visitor to expand binding expressions in SQL expressions
@@ -26,7 +26,11 @@ use crate::{
 ///
 /// The visitor will expand the function call to
 /// ```avgr
-/// comp foo_a12: @foo(a:=12);
+/// comp foo_a12: Group {
+///     val a: 12;
+///     val b: 2;
+///     val res: @a * 2 + @b;
+/// }
 /// val a: @foo_a12 + 12;
 /// ```
 
@@ -181,9 +185,11 @@ impl AvengerVisitorMut for FunctionBindingExpander {
         self.set_context(context);
 
         // Push child component instances into the scope
-        for statement in file.statements.iter() {
-            if let Statement::ComponentProp(component_prop) = statement {
-                self.push_component_instance(component_prop);
+        for statement in file.statements.clone().into_iter() {
+            if let Statement::ComponentProp(mut component_prop) = statement {
+                let context = self.current_context.clone();
+                component_prop.visit(self, &context);
+                self.push_component_instance(&component_prop);
             }
         }
 
@@ -198,9 +204,12 @@ impl AvengerVisitorMut for FunctionBindingExpander {
         self.set_context(context);
 
         // Push child component instances into the scope
-        for statement in statement.statements.iter() {
-            if let Statement::ComponentProp(component_prop) = statement {
-                self.push_component_instance(component_prop);
+        for statement in statement.statements.clone().into_iter() {
+            if let Statement::ComponentProp(mut component_prop) = statement {
+                // Visit the clone of the component to expand function there
+                let context = self.current_context.clone();
+                component_prop.visit(self, &context);
+                self.push_component_instance(&component_prop);
             }
         }
 
@@ -299,14 +308,14 @@ impl AvengerVisitorMut for FunctionBindingExpander {
         _context: &VisitorContext,
     ) -> ControlFlow<Self::Break> {
         for (bound_instance_name, instance) in self.bound_instances.iter() {
-            if !instance.path.is_empty() {
-                // Expected path to be empty
-                return ControlFlow::Break(Err(AvengerLangError::InternalError(format!(
-                    "Expected path to be empty, got {:?}",
-                    instance.path
-                ))));
-            }
-            let Some(inner_statements) = self.component_instances.get(&instance.instance_name)
+            // if !instance.path.is_empty() {
+            //     // Expected path to be empty
+            //     return ControlFlow::Break(Err(AvengerLangError::InternalError(format!(
+            //         "Expected path to be empty, got {:?}",
+            //         instance.path
+            //     ))));
+            // }
+            let Some(inner_statements) = self.component_instances.get(&instance.instance_name).cloned()
             else {
                 println!(
                     "Not from this path, so adding to remaining statements: {:#?}",
@@ -317,10 +326,10 @@ impl AvengerVisitorMut for FunctionBindingExpander {
                     bound_instance_name
                 ))));
             };
-
+            
             // Override the statements with the named arguments
             let Ok(inner_statements) = override_statements_with_params(
-                inner_statements,
+                &inner_statements,
                 &instance.instance_name,
                 &instance.args,
             ) else {
