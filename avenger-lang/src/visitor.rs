@@ -4,7 +4,7 @@ use sqlparser::ast::{Visit, VisitMut, Visitor, VisitorMut};
 
 use crate::ast::{AvengerFile, ComponentProp, DatasetProp, ExprProp, FunctionDef, FunctionReturn, FunctionStatement, ImportStatement, PropBinding, SqlExprOrQuery, Statement, ValProp};
 
-
+#[derive(Debug, Clone)]
 pub struct VisitorContext {
     pub path: Vec<String>,
     // type of parent component
