@@ -231,7 +231,7 @@ pub fn load_main_component_file(
         }
     }
 
-    println!("after: {}", main_component);
+    // println!("after: {}", main_component);
 
     Ok(main_component)
 }

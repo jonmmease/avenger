@@ -7,12 +7,14 @@ dataset iris: SELECT * FROM read_csv('avenger-runtime/tests/data/iris.csv');
 
 comp x_scale: LinearScale {
     domain := (SELECT [min("SepalLengthCm"), max("SepalLengthCm")] FROM @iris);
+    nice := 5;
     range := [40, 440];
     domain_expr:="SepalLengthCm";
 }
 
 comp y_scale: LinearScale {
     domain := (SELECT [min("SepalWidthCm"), max("SepalWidthCm")] FROM @iris);
+    nice := 5;
     range := [440, 40];
 }
 
@@ -28,7 +30,13 @@ Rect {
 Symbol {
     data := select * from @iris;
     fill := 'black';
-    //x := @x_scale(domain_expr:="SepalLengthCm").range_expr;
-    x := @x_scale.range_expr;
+    x := @x_scale(domain_expr:="SepalLengthCm").range_expr;
     y := @y_scale(domain_expr:="SepalWidthCm").range_expr;
+}
+
+Text {
+    x := 40;
+    y := 30;
+    val incr: @y_scale.final_domain;
+    text := CASE WHEN @incr is not null THEN CAST(@incr AS STRING) ELSE 'NULL' END;
 }
