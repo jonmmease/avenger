@@ -1,7 +1,11 @@
-import { MyRect } from '.';
+import { MyRect, NonVis } from '.';
 
 width := 200;
 height := 200;
+
+comp vis: NonVis {
+    v := 1;
+}
 
 Group {
     width := 200;
@@ -16,7 +20,7 @@ Group {
     val pi: 3.14159;
 
     comp g1: Group {
-        x := 20;
+        x := 20 + @vis.v2;
         y := 20;
 
         comp r1: MyRect {
