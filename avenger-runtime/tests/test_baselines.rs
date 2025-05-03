@@ -15,8 +15,8 @@ use datafusion::scalar::ScalarValue;
 use utils::assert_runtime_image_equal;
 
 #[rstest]
-#[case("arcs/simple")]
-// #[case("arcs/simple2")]
+// #[case("arcs/simple")]
+#[case("scale/iris")]
 // #[case("components/custom_component")]
 #[tokio::test]
 async fn test_baselines(#[case] path: &str) -> Result<()> {
