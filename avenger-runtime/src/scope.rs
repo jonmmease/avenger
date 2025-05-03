@@ -306,8 +306,6 @@ impl PropertyScope {
         expr: &mut SqlExpr,
         scope_path: &[String],
     ) -> Result<(), AvengerRuntimeError> {
-        println!("resolving expression: {} in scope {:?}", expr, scope_path);
-        println!("{expr:#?}");
         let mut visitor = ResolveVarInSqlVisitor::new(self, scope_path);
         if let ControlFlow::Break(Err(err)) = expr.visit(&mut visitor) {
             return Err(err);

@@ -8,13 +8,12 @@ dataset iris: SELECT * FROM read_csv('avenger-runtime/tests/data/iris.csv');
 comp x_scale: LinearScale {
     domain := (SELECT [min("SepalLengthCm"), max("SepalLengthCm")] FROM @iris);
     range := [40, 440];
-    domain_expr := "SepalLengthCm";
+    domain_expr:="SepalLengthCm";
 }
 
 comp y_scale: LinearScale {
     domain := (SELECT [min("SepalWidthCm"), max("SepalWidthCm")] FROM @iris);
     range := [440, 40];
-    domain_expr := "SepalWidthCm";
 }
 
 Rect {
@@ -29,6 +28,7 @@ Rect {
 Symbol {
     data := select * from @iris;
     fill := 'black';
+    //x := @x_scale(domain_expr:="SepalLengthCm").range_expr;
     x := @x_scale.range_expr;
-    y := @y_scale.range_expr;
+    y := @y_scale(domain_expr:="SepalWidthCm").range_expr;
 }

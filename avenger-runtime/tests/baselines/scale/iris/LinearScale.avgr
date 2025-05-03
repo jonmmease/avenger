@@ -1,13 +1,9 @@
 in val domain: [0, 1];
 in val range: [0, 1];
-in expr domain_expr: 0;
+in expr domain_expr: 0.5;
 
 // Compute scale and offset factors
 val scale: (@range[2] - @range[1]) / (@domain[2] - @domain[1]);
 val offset: @range[1] - @scale * @domain[1];
 
 out expr range_expr: @domain_expr * @scale + @offset;
-
-fn scale(expr domain_expr) -> expr {
-    return @domain_expr * @scale + @offset
-}
