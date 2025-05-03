@@ -803,10 +803,10 @@ comp foo: Rect {}}"#;
     #[test]
     fn try_parse_fn_syntax_ideas() {
         let sql = r#"
-@foo(a:=12).res
+select * from @foo
         "#;
         let mut parser = AvengerParser::new(sql, "App", "").unwrap();
-        let file = parser.parser.parse_expr().unwrap();
+        let file = parser.parser.parse_query().unwrap();
         println!("{:#?}", file);
     }
 }
