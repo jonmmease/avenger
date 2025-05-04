@@ -52,8 +52,7 @@ async fn run_sequence_query() {
 
     ctx.sql(
         r#"
-        CREATE FUNCTION f1(BIGINT)
-            RETURNS BIGINT
+        CREATE FUNCTION f1(BIGINT) RETURNS BIGINT
             RETURN $1 + 1
     "#,
     )
@@ -61,104 +60,26 @@ async fn run_sequence_query() {
     .unwrap();
     ctx.sql(
         r#"
-        CREATE FUNCTION f2(BIGINT, BIGINT)
-            RETURNS BIGINT
-            RETURN $1 + f1($2);
+        CREATE FUNCTION f2(BIGINT, BIGINT) RETURNS BIGINT[]
+            RETURN [$1 + f1($2), $1];
     "#,
     )
     .await
     .unwrap();
 
-    let sql2 = r#"
-        SELECT f2(1, 2)
-    "#;
+    ctx.sql(
+        r#"
+        CREATE FUNCTION f3(BIGINT, BIGINT) RETURNS struct<a BIGINT, b BIGINT>
+            RETURN {a: $1 + f1($2), b: $1};
+    "#,
+    )
+    .await
+    .unwrap();
 
     let sql = r#"
-        WITH RECURSIVE nice_iterations AS (
-          -- Base case: iteration 0
-          SELECT
-            0 as iter,
-            @start as start,
-            @stop as stop,
-            0.0 as prestep,
-            -- Calculate initial tick_increment
-            POWER(10.0, FLOOR(LOG(10, (@stop - @start) / GREATEST(@count, 1)))) *
-            CASE
-              WHEN ((@stop - @start) / GREATEST(@count, 1)) /
-                   POWER(10.0, FLOOR(LOG(10, (@stop - @start) / GREATEST(@count, 1)))) >= SQRT(50)
-              THEN 10.0
-              WHEN ((@stop - @start) / GREATEST(@count, 1)) /
-                   POWER(10.0, FLOOR(LOG(10, (@stop - @start) / GREATEST(@count, 1)))) >= SQRT(10)
-              THEN 5.0
-              WHEN ((@stop - @start) / GREATEST(@count, 1)) /
-                   POWER(10.0, FLOOR(LOG(10, (@stop - @start) / GREATEST(@count, 1)))) >= SQRT(2)
-              THEN 2.0
-              ELSE 1.0
-            END as step
-
-          UNION ALL
-
-          -- Recursive case
-          SELECT
-            iter + 1,
-            CASE
-              WHEN step > 0 THEN FLOOR(start / step) * step
-              WHEN step < 0 THEN CEIL(start * step) / step
-              ELSE start
-            END as new_start,
-            CASE
-              WHEN step > 0 THEN CEIL(stop / step) * step
-              WHEN step < 0 THEN FLOOR(stop * step) / step
-              ELSE stop
-            END as new_stop,
-            step as prestep,
-            -- Recalculate tick_increment for new bounds
-            POWER(10.0, FLOOR(LOG(10,
-              (CASE WHEN step > 0 THEN CEIL(stop / step) * step WHEN step < 0 THEN FLOOR(stop * step) / step ELSE stop END -
-               CASE WHEN step > 0 THEN FLOOR(start / step) * step WHEN step < 0 THEN CEIL(start * step) / step ELSE start END) /
-              GREATEST(@count, 1)
-            ))) *
-            CASE
-              WHEN ((CASE WHEN step > 0 THEN CEIL(stop / step) * step WHEN step < 0 THEN FLOOR(stop * step) / step ELSE stop END -
-                     CASE WHEN step > 0 THEN FLOOR(start / step) * step WHEN step < 0 THEN CEIL(start * step) / step ELSE start END) /
-                    GREATEST(@count, 1)) /
-                   POWER(10.0, FLOOR(LOG(10,
-                     (CASE WHEN step > 0 THEN CEIL(stop / step) * step WHEN step < 0 THEN FLOOR(stop * step) / step ELSE stop END -
-                      CASE WHEN step > 0 THEN FLOOR(start / step) * step WHEN step < 0 THEN CEIL(start * step) / step ELSE start END) /
-                     GREATEST(@count, 1)
-                   ))) >= SQRT(50)
-              THEN 10.0
-              WHEN ((CASE WHEN step > 0 THEN CEIL(stop / step) * step WHEN step < 0 THEN FLOOR(stop * step) / step ELSE stop END -
-                     CASE WHEN step > 0 THEN FLOOR(start / step) * step WHEN step < 0 THEN CEIL(start * step) / step ELSE start END) /
-                    GREATEST(@count, 1)) /
-                   POWER(10.0, FLOOR(LOG(10,
-                     (CASE WHEN step > 0 THEN CEIL(stop / step) * step WHEN step < 0 THEN FLOOR(stop * step) / step ELSE stop END -
-                      CASE WHEN step > 0 THEN FLOOR(start / step) * step WHEN step < 0 THEN CEIL(start * step) / step ELSE start END) /
-                     GREATEST(@count, 1)
-                   ))) >= SQRT(10)
-              THEN 5.0
-              WHEN ((CASE WHEN step > 0 THEN CEIL(stop / step) * step WHEN step < 0 THEN FLOOR(stop * step) / step ELSE stop END -
-                     CASE WHEN step > 0 THEN FLOOR(start / step) * step WHEN step < 0 THEN CEIL(start * step) / step ELSE start END) /
-                    GREATEST(@count, 1)) /
-                   POWER(10.0, FLOOR(LOG(10,
-                     (CASE WHEN step > 0 THEN CEIL(stop / step) * step WHEN step < 0 THEN FLOOR(stop * step) / step ELSE stop END -
-                      CASE WHEN step > 0 THEN FLOOR(start / step) * step WHEN step < 0 THEN CEIL(start * step) / step ELSE start END) /
-                     GREATEST(@count, 1)
-                   ))) >= SQRT(2)
-              THEN 2.0
-              ELSE 1.0
-            END as step
-          FROM nice_iterations
-          WHERE iter < 9 AND step != prestep
-        )
-        -- Select the final result - assuming @start was already the lesser value
-        SELECT
-          start as final_start,
-          stop as final_stop
-        FROM nice_iterations
-        ORDER BY iter DESC
-        LIMIT 1;
+        SELECT f3(1, 2) as res
     "#;
+
     let df = ctx.sql(sql).await.unwrap();
     df.show().await.unwrap();
 
@@ -295,6 +216,7 @@ impl TryFrom<CreateFunction> for ScalarFunctionWrapper {
     type Error = DataFusionError;
 
     fn try_from(definition: CreateFunction) -> RResult<Self, Self::Error> {
+        println!("## definition:\n{:#?}\n---------", definition);
         Ok(Self {
             name: definition.name,
             expr: definition
