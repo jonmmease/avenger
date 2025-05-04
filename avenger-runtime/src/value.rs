@@ -6,7 +6,7 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::compute;
 use datafusion::arrow::util::pretty;
 use datafusion::prelude::DataFrame;
-use sqlparser::ast::Expr as SqlExpr;
+use sqlparser::ast::{CreateFunction, Expr as SqlExpr};
 use arrow_schema::{DataType, Schema, SchemaRef, TimeUnit};
 use datafusion::arrow::datatypes::ToByteSlice;
 use datafusion::{arrow::{array::{ArrayData, ArrayRef, ArrowPrimitiveType, BinaryViewArray, GenericBinaryArray, GenericStringArray, NullArray, OffsetSizeTrait, PrimitiveArray, StringViewArray, Array}, datatypes::{Date32Type, Date64Type, Decimal128Type, Decimal256Type, Float16Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, Time32MillisecondType, Time32SecondType, Time64MicrosecondType, Time64NanosecondType, TimestampMicrosecondType, TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type}}, logical_expr::LogicalPlan};
@@ -26,6 +26,7 @@ pub enum TaskDataset {
 pub struct TaskValueContext {
     values: Vec<(Variable, ScalarValue)>,
     datasets: Vec<(Variable, TaskDataset)>,
+    functions: Vec<(Variable, CreateFunction)>,
 }
 
 impl TaskValueContext {
@@ -33,6 +34,7 @@ impl TaskValueContext {
         Self {
             values: Vec::new(),
             datasets: Vec::new(),
+            functions: Vec::new(),
         }
     }
 
@@ -42,6 +44,10 @@ impl TaskValueContext {
 
     pub fn datasets(&self) -> &Vec<(Variable, TaskDataset)> {
         &self.datasets
+    }
+
+    pub fn functions(&self) -> &Vec<(Variable, CreateFunction)> {
+        &self.functions
     }
 
     pub fn add_value(&mut self, variable: Variable, value: ScalarValue) {
@@ -59,6 +65,15 @@ impl TaskValueContext {
 
         if !already_added {
             self.datasets.push((variable, dataset));
+        }
+    }
+
+    pub fn add_function(&mut self, variable: Variable, function: CreateFunction) {
+        let already_added = self.functions.iter().any(
+            |(curr_variable, _)| curr_variable == &variable);
+
+        if !already_added {
+            self.functions.push((variable, function));
         }
     }
 
@@ -85,6 +100,16 @@ impl TaskValueContext {
                 self.datasets.push((variable.clone(), dataset.clone()));
             }
         }
+
+        // Merge functions
+        let current_function_names = self.functions.iter().map(
+            |(variable, _)| variable.clone()).collect::<HashSet<_>>();
+
+        for (variable, function) in other.functions.iter() {
+            if !current_function_names.contains(variable) {
+                self.functions.push((variable.clone(), function.clone()));
+            }
+        }
     }
 
     /// Register values corresponding to variables in the context
@@ -100,6 +125,10 @@ impl TaskValueContext {
                 }
                 TaskValue::Dataset { context, dataset } => {
                     task_value_context.add_dataset(variable.clone(), dataset.clone());
+                    task_value_context.merge(context);
+                }
+                TaskValue::Function { context, function } => {
+                    task_value_context.add_function(variable.clone(), function.clone());
                     task_value_context.merge(context);
                 }
                 _ => {
@@ -123,6 +152,7 @@ pub enum TaskValue {
     Val { value: ScalarValue },
     Expr { sql_expr: SqlExpr, context: TaskValueContext },
     Dataset { dataset: TaskDataset, context: TaskValueContext },
+    Function { function: CreateFunction, context: TaskValueContext },
     Mark { mark: SceneMark },
 }
 
@@ -166,6 +196,20 @@ impl TaskValue {
         match self {
             TaskValue::Dataset{dataset, context} => Ok((dataset, context)),
             _ => Err(AvengerRuntimeError::InternalError("Expected a dataset".to_string())),
+        }
+    }
+
+    pub fn as_function(&self) -> Result<(&CreateFunction, &TaskValueContext), AvengerRuntimeError> {
+        match self {
+            TaskValue::Function{function, context} => Ok((function, context)),
+            _ => Err(AvengerRuntimeError::InternalError("Expected a function".to_string())),
+        }
+    }
+
+    pub fn into_function(self) -> Result<(CreateFunction, TaskValueContext), AvengerRuntimeError> {
+        match self {
+            TaskValue::Function{function, context} => Ok((function, context)),
+            _ => Err(AvengerRuntimeError::InternalError("Expected a function".to_string())),
         }
     }
 

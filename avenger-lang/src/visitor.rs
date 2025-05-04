@@ -1,8 +1,8 @@
 use std::ops::ControlFlow;
 
-use sqlparser::ast::{Visit, VisitMut, Visitor, VisitorMut};
+use sqlparser::ast::{Visit, VisitMut, Visitor, VisitorMut, Statement as SqlStatement};
 
-use crate::ast::{AvengerFile, ComponentProp, DatasetProp, ExprProp, FunctionDef, FunctionReturn, FunctionStatement, ImportStatement, PropBinding, SqlExprOrQuery, Statement, ValProp};
+use crate::ast::{AvengerFile, ComponentProp, DatasetProp, ExprProp, ImportStatement, PropBinding, SqlExprOrQuery, Statement, ValProp};
 
 #[derive(Debug, Clone)]
 pub struct VisitorContext {
@@ -79,27 +79,6 @@ pub trait AvengerVisitor: Visitor {
     fn post_visit_prop_binding(&mut self, _statement: &PropBinding, _context: &VisitorContext) -> ControlFlow<Self::Break> {
         ControlFlow::Continue(())
     }
-
-    fn pre_visit_function_def(&mut self, _statement: &FunctionDef, _context: &VisitorContext) -> ControlFlow<Self::Break> {
-        ControlFlow::Continue(())
-    }
-    fn post_visit_function_def(&mut self, _statement: &FunctionDef, _context: &VisitorContext) -> ControlFlow<Self::Break> {
-        ControlFlow::Continue(())
-    }
-
-    fn pre_visit_function_statement(&mut self, _statement: &FunctionStatement, _context: &VisitorContext) -> ControlFlow<Self::Break> {
-        ControlFlow::Continue(())
-    }
-    fn post_visit_function_statement(&mut self, _statement: &FunctionStatement, _context: &VisitorContext) -> ControlFlow<Self::Break> {
-        ControlFlow::Continue(())
-    }
-
-    fn pre_visit_function_return(&mut self, _statement: &FunctionReturn, _context: &VisitorContext) -> ControlFlow<Self::Break> {
-        ControlFlow::Continue(())
-    }
-    fn post_visit_function_return(&mut self, _statement: &FunctionReturn, _context: &VisitorContext) -> ControlFlow<Self::Break> {
-        ControlFlow::Continue(())
-    }
 }
 
 pub trait AvengerVisitorMut: VisitorMut {
@@ -156,27 +135,6 @@ pub trait AvengerVisitorMut: VisitorMut {
         ControlFlow::Continue(())
     }
     fn post_visit_prop_binding(&mut self, _statement: &mut PropBinding, _context: &VisitorContext) -> ControlFlow<Self::Break> {
-        ControlFlow::Continue(())
-    }
-
-    fn pre_visit_function_def(&mut self, _statement: &mut FunctionDef, _context: &VisitorContext) -> ControlFlow<Self::Break> {
-        ControlFlow::Continue(())
-    }
-    fn post_visit_function_def(&mut self, _statement: &mut FunctionDef, _context: &VisitorContext) -> ControlFlow<Self::Break> {
-        ControlFlow::Continue(())
-    }
-
-    fn pre_visit_function_statement(&mut self, _statement: &mut FunctionStatement, _context: &VisitorContext) -> ControlFlow<Self::Break> {
-        ControlFlow::Continue(())
-    }
-    fn post_visit_function_statement(&mut self, _statement: &mut FunctionStatement, _context: &VisitorContext) -> ControlFlow<Self::Break> {
-        ControlFlow::Continue(())
-    }
-
-    fn pre_visit_function_return(&mut self, _statement: &mut FunctionReturn, _context: &VisitorContext) -> ControlFlow<Self::Break> {
-        ControlFlow::Continue(())
-    }
-    fn post_visit_function_return(&mut self, _statement: &mut FunctionReturn, _context: &VisitorContext) -> ControlFlow<Self::Break> {
         ControlFlow::Continue(())
     }
 }
@@ -314,67 +272,6 @@ impl AvengerVisitMut for PropBinding {
     }
 }
 
-impl AvengerVisit for FunctionDef {
-    fn visit<V: AvengerVisitor>(&self, visitor: &mut V, context: &VisitorContext) -> ControlFlow<V::Break> {
-        visitor.pre_visit_function_def(self, context)?;
-        for statement in &self.statements {
-            statement.visit(visitor, context)?;
-        }
-        self.return_statement.visit(visitor, context)?;
-        visitor.post_visit_function_def(self, context)
-    }
-}
-
-impl AvengerVisitMut for FunctionDef {
-    fn visit<V: AvengerVisitorMut>(&mut self, visitor: &mut V, context: &VisitorContext) -> ControlFlow<V::Break> {
-        visitor.pre_visit_function_def(self, context)?;
-        for statement in &mut self.statements {
-            statement.visit(visitor, context)?;
-        }
-        AvengerVisitMut::visit(&mut self.return_statement, visitor, context)?;
-        visitor.post_visit_function_def(self, context)
-    }
-}
-
-impl AvengerVisit for FunctionStatement {
-    fn visit<V: AvengerVisitor>(&self, visitor: &mut V, context: &VisitorContext) -> ControlFlow<V::Break> {
-        visitor.pre_visit_function_statement(self, context)?;
-        match self {
-            FunctionStatement::ValProp(val_prop) => val_prop.visit(visitor, context)?,
-            FunctionStatement::ExprProp(expr_prop) => expr_prop.visit(visitor, context)?,
-            FunctionStatement::DatasetProp(dataset_prop) => dataset_prop.visit(visitor, context)?,
-        }
-        visitor.post_visit_function_statement(self, context)
-    }
-}
-
-impl AvengerVisitMut for FunctionStatement {
-    fn visit<V: AvengerVisitorMut>(&mut self, visitor: &mut V, context: &VisitorContext) -> ControlFlow<V::Break> {
-        visitor.pre_visit_function_statement(self, context)?;
-        match self {
-            FunctionStatement::ValProp(val_prop) => AvengerVisitMut::visit(val_prop, visitor, context)?,
-            FunctionStatement::ExprProp(expr_prop) => AvengerVisitMut::visit(expr_prop, visitor, context)?,
-            FunctionStatement::DatasetProp(dataset_prop) => AvengerVisitMut::visit(dataset_prop, visitor, context)?,
-        }
-        visitor.post_visit_function_statement(self, context)
-    }
-}
-
-impl AvengerVisit for FunctionReturn {
-    fn visit<V: AvengerVisitor>(&self, visitor: &mut V, context: &VisitorContext) -> ControlFlow<V::Break> {
-        visitor.pre_visit_function_return(self, context)?;
-        self.value.visit(visitor, context)?;
-        visitor.post_visit_function_return(self, context)
-    }
-}
-
-impl AvengerVisitMut for FunctionReturn {
-    fn visit<V: AvengerVisitorMut>(&mut self, visitor: &mut V, context: &VisitorContext) -> ControlFlow<V::Break> {
-        visitor.pre_visit_function_return(self, context)?;
-        AvengerVisitMut::visit(&mut self.value, visitor, context)?;
-        visitor.post_visit_function_return(self, context)
-    }
-}
 
 impl AvengerVisit for Statement {
     fn visit<V: AvengerVisitor>(&self, visitor: &mut V, context: &VisitorContext) -> ControlFlow<V::Break> {
@@ -386,7 +283,9 @@ impl AvengerVisit for Statement {
             Statement::DatasetProp(dataset_prop) => dataset_prop.visit(visitor, context)?,
             Statement::ComponentProp(component_prop) => component_prop.visit(visitor, context)?,
             Statement::PropBinding(prop_binding) => prop_binding.visit(visitor, context)?,
-            Statement::FunctionDef(function_def) => function_def.visit(visitor, context)?,
+            Statement::CreateFunction{function: create_function, ..} => {
+                SqlStatement::CreateFunction(create_function.clone()).visit(visitor)?
+            }
         }
         visitor.post_visit_avgr_statement(self, context)
     }
@@ -402,7 +301,7 @@ impl AvengerVisitMut for Statement {
             Statement::DatasetProp(dataset_prop) => AvengerVisitMut::visit(dataset_prop, visitor, context)?,
             Statement::ComponentProp(component_prop) => AvengerVisitMut::visit(component_prop, visitor, context)?,
             Statement::PropBinding(prop_binding) => AvengerVisitMut::visit(prop_binding, visitor, context)?,
-            Statement::FunctionDef(function_def) => AvengerVisitMut::visit(function_def, visitor, context)?,
+            Statement::CreateFunction{function: create_function, ..} => VisitMut::visit(create_function, visitor)?,
         }
         visitor.post_visit_avgr_statement(self, context)
     }

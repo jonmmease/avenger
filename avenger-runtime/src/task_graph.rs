@@ -11,12 +11,12 @@ use indexmap::IndexMap;
 use petgraph::algo::toposort;
 use petgraph::graph::DiGraph;
 use petgraph::Direction;
-use sqlparser::ast::Visitor;
+use sqlparser::ast::{Statement as SqlStatement, Visitor};
 
 use crate::component_registry::{ComponentRegistry, ExprPropRegistration, PropRegistration, ValPropRegistration};
 use crate::error::AvengerRuntimeError;
 use crate::scope::PropertyScope;
-use crate::tasks::{DatasetPropTask, ExprPropTask, GroupMarkTask, MarkTask, Task, ValPropTask};
+use crate::tasks::{CreateFunctionTask, DatasetPropTask, ExprPropTask, GroupMarkTask, MarkTask, Task, ValPropTask};
 use crate::variable::Variable;
 
 
@@ -241,12 +241,13 @@ impl TaskGraph {
 pub struct TaskBuilderVisitor<'a> {
     registry: &'a ComponentRegistry,
     scope: &'a PropertyScope,
-    tasks: HashMap<Variable, Arc<dyn Task>>
+    tasks: HashMap<Variable, Arc<dyn Task>>,
+    current_context: VisitorContext,
 }
 
 impl<'a> TaskBuilderVisitor<'a> {
     pub fn new(registry: &'a ComponentRegistry, scope: &'a PropertyScope) -> Self {
-        Self { registry, scope, tasks: HashMap::new() }
+        Self { registry, scope, tasks: HashMap::new(), current_context: VisitorContext::new() }
     }
 
     pub fn make_variable(&self, name: &str, context: &VisitorContext) -> Variable {
@@ -262,11 +263,19 @@ impl<'a> TaskBuilderVisitor<'a> {
 
 impl<'a> Visitor for TaskBuilderVisitor<'a> {
     type Break = Result<(), AvengerRuntimeError>;
+
+    fn pre_visit_statement(&mut self, statement: &SqlStatement) -> ControlFlow<Self::Break> {
+        if let SqlStatement::CreateFunction(create_function) = statement {
+            let function_name = create_function.name.0[0].value.clone();
+            let variable = self.make_variable(&function_name, &self.current_context);
+            let task = CreateFunctionTask::new(create_function.clone());
+            self.tasks.insert(variable, Arc::new(task));
+        }
+        ControlFlow::Continue(())
+    }
 }
 
 impl<'a> AvengerVisitor for TaskBuilderVisitor<'a> {
-
-
     fn pre_visit_val_prop(&mut self, statement: &ValProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
         let variable = self.make_variable(statement.name(), context);
         
@@ -349,7 +358,16 @@ impl<'a> AvengerVisitor for TaskBuilderVisitor<'a> {
         ControlFlow::Continue(())
     }
 
+    fn pre_visit_component_prop(&mut self, _statement: &ComponentProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
+        // Update the current context
+        self.current_context = context.clone();
+        ControlFlow::Continue(())
+    }
+
     fn post_visit_component_prop(&mut self, statement: &ComponentProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
+        // Update the current context
+        self.current_context = context.clone();
+
         // Get the component type
         let component_type = statement.component_type.value.clone();
 

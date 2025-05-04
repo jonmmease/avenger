@@ -14,7 +14,7 @@ use std::{
 use crate::{
     context::TaskEvaluationContext,
     dependency::{
-        Dependency, DependencyKind, collect_expr_dependencies, collect_query_dependencies,
+        collect_expr_dependencies, collect_function_dependencies, collect_query_dependencies, Dependency, DependencyKind
     },
     error::AvengerRuntimeError,
     marks::{
@@ -26,7 +26,7 @@ use crate::{
     variable::Variable,
 };
 
-use sqlparser::ast::{Expr as SqlExpr, Query as SqlQuery};
+use sqlparser::ast::{CreateFunction, Expr as SqlExpr, Query as SqlQuery};
 
 #[async_trait]
 pub trait Task: Debug + Send + Sync {
@@ -239,6 +239,58 @@ impl From<DatasetProp> for DatasetPropTask {
         Self {
             query: dataset_prop.query,
             eval: true,
+        }
+    }
+}
+
+/// A task that evaluates to an expression
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CreateFunctionTask {
+    pub function: CreateFunction,
+}
+
+impl CreateFunctionTask {
+    pub fn new(function: CreateFunction) -> Self {
+        Self { function }
+    }
+}
+
+#[async_trait]
+impl Task for CreateFunctionTask {
+    fn input_dependencies(&self) -> Result<Vec<Dependency>, AvengerRuntimeError> {
+        collect_function_dependencies(&self.function)
+    }
+
+    async fn evaluate(
+        &self,
+        _runtime: Arc<TaskGraphRuntime>,
+        input_values: &[TaskValue],
+    ) -> Result<TaskValue, AvengerRuntimeError> {
+        let ctx = TaskEvaluationContext::new();
+        ctx.register_values(&self.input_variables()?, &input_values)
+            .await?;
+
+        let function = ctx.expand_function(&self.function)?;
+        let task_value_context =
+            TaskValueContext::from_vars_and_vals(&self.input_variables()?, &input_values)?;
+
+        Ok(TaskValue::Function {
+            function,
+            context: task_value_context,
+        })
+    }
+
+    fn fingerprint(&self) -> Result<u64, AvengerRuntimeError> {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        Ok(hasher.finish())
+    }
+}
+
+impl From<CreateFunction> for CreateFunctionTask {
+    fn from(function: CreateFunction) -> Self {
+        Self {
+            function,
         }
     }
 }

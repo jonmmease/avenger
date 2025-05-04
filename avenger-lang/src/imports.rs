@@ -3,7 +3,7 @@ use std::{collections::HashMap, ops::ControlFlow, path::PathBuf};
 use sqlparser::ast::{Ident, VisitorMut};
 
 use crate::{
-    ast::{AvengerFile, ComponentProp, ImportStatement, Statement}, error::AvengerLangError, functions::FunctionBindingExpander, loader::{AvengerFilesystemLoader, AvengerLoader}, visitor::{AvengerVisitorMut, VisitorContext}
+    ast::{AvengerFile, ComponentProp, ImportStatement, Statement}, error::AvengerLangError, loader::{AvengerFilesystemLoader, AvengerLoader}, visitor::{AvengerVisitorMut, VisitorContext}
 };
 
 use std::sync::Arc;
@@ -217,19 +217,6 @@ pub fn load_main_component_file(
         }
     };
 
-    // Expand functions
-    let mut visitor = FunctionBindingExpander::new();
-    if let ControlFlow::Break(res) = main_component.visit_mut(&mut visitor) {
-        match res {
-            Ok(v) => {
-                return Err(AvengerLangError::InternalError(format!(
-                    "break without error: {:?}",
-                    v
-                )));
-            }
-            Err(e) => return Err(e),
-        }
-    }
 
     // println!("after: {}", main_component);
 
