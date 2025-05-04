@@ -16,8 +16,9 @@ use utils::assert_runtime_image_equal;
 
 #[rstest]
 // #[case("arcs/simple")]
-#[case("scale/iris")]
+// #[case("scale/iris")]
 // #[case("components/custom_component")]
+#[case("scale/simple")]
 #[tokio::test]
 async fn test_baselines(#[case] path: &str) -> Result<()> {
     use avenger_lang::imports::load_main_component_file;
@@ -29,6 +30,6 @@ async fn test_baselines(#[case] path: &str) -> Result<()> {
     )?;
     let runtime = Arc::new(TaskGraphRuntime::new(RuntimeCacheConfig::default()));
     let scene_graph = runtime.evaluate_file(&file_ast).await?;
-    assert_runtime_image_equal(&scene_graph, path, 2.0, false).await?;
+    assert_runtime_image_equal(&scene_graph, path, 2.0, true).await?;
     Ok(())
 }

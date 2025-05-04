@@ -1,0 +1,12 @@
+val v1: 12;
+
+create function double_it(double) returns double
+    return $1 * 2.0
+
+val v2: @double_it(@v1);
+
+Text {
+    x := 30;
+    y := 30;
+    text := cast(@v2 as string);
+}

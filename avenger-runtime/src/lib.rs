@@ -12,6 +12,7 @@ pub mod tasks;
 pub mod udtf;
 pub mod value;
 pub mod variable;
+pub mod function_factory;
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right

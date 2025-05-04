@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 use sqlparser::{
-    ast::{Expr as SqlExpr, Ident, Query as SqlQuery, Spanned},
+    ast::{CreateFunction, Expr as SqlExpr, Ident, Query as SqlQuery, Spanned},
     tokenizer::Span,
 };
 
@@ -23,7 +23,7 @@ pub enum Statement {
     DatasetProp(DatasetProp),
     ComponentProp(ComponentProp),
     PropBinding(PropBinding),
-    FunctionDef(FunctionDef),
+    CreateFunction {function: CreateFunction, span: Span},
 }
 
 impl Spanned for Statement {
@@ -35,7 +35,7 @@ impl Spanned for Statement {
             Statement::DatasetProp(dataset_prop) => dataset_prop.span(),
             Statement::ComponentProp(component_prop) => component_prop.span(),
             Statement::PropBinding(prop_binding) => prop_binding.span(),
-            Statement::FunctionDef(function_def) => function_def.span(),
+            Statement::CreateFunction { span, .. } => *span,
         }
     }
 }
@@ -58,7 +58,7 @@ impl fmt::Display for Statement {
             Statement::DatasetProp(dataset_prop) => write!(f, "{}", dataset_prop),
             Statement::ComponentProp(component_prop) => write!(f, "{}", component_prop),
             Statement::PropBinding(prop_binding) => write!(f, "{}", prop_binding),
-            Statement::FunctionDef(function_def) => write!(f, "{}", function_def),
+            Statement::CreateFunction { function, .. } => write!(f, "{}", function),
         }
     }
 }
@@ -527,183 +527,6 @@ impl fmt::Display for PropBinding {
     }
 }
 
-// function definition
-// -------------------
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ParamKind {
-    Val(KeywordVal),
-    Expr(KeywordExpr),
-    Dataset(KeywordDataset),
-}
-
-impl Spanned for ParamKind {
-    fn span(&self) -> Span {
-        match self {
-            ParamKind::Val(kw) => kw.span(),
-            ParamKind::Expr(kw) => kw.span(),
-            ParamKind::Dataset(kw) => kw.span(),
-        }
-    }
-}
-
-impl fmt::Display for ParamKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ParamKind::Val(_) => write!(f, "val"),
-            ParamKind::Expr(_) => write!(f, "expr"),
-            ParamKind::Dataset(_) => write!(f, "dataset"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FunctionParam {
-    pub name: Ident,
-    pub type_: Option<Type>,
-    pub kind: ParamKind,
-}
-
-impl Spanned for FunctionParam {
-    fn span(&self) -> Span {
-        Span::union_iter([
-            self.name.span,
-            self.type_.as_ref().map_or(Span::empty(), |t| t.span()),
-            self.kind.span(),
-        ])
-    }
-}
-
-impl fmt::Display for FunctionParam {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.kind)?;
-        if let Some(type_) = &self.type_ {
-            write!(f, " {}", type_)?;
-        }
-        write!(f, " {}", self.name.value)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FunctionReturnParam {
-    pub type_: Option<Type>,
-    pub kind: ParamKind,
-}
-
-impl Spanned for FunctionReturnParam {
-    fn span(&self) -> Span {
-        Span::union_iter([
-            self.type_.as_ref().map_or(Span::empty(), |t| t.span()),
-            self.kind.span(),
-        ])
-    }
-}
-
-impl fmt::Display for FunctionReturnParam {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.kind)?;
-        if let Some(type_) = &self.type_ {
-            write!(f, " {}", type_)?;
-        }
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum FunctionStatement {
-    ValProp(ValProp),
-    ExprProp(ExprProp),
-    DatasetProp(DatasetProp),
-}
-
-impl Spanned for FunctionStatement {
-    fn span(&self) -> Span {
-        match self {
-            FunctionStatement::ValProp(prop) => prop.span(),
-            FunctionStatement::ExprProp(prop) => prop.span(),
-            FunctionStatement::DatasetProp(prop) => prop.span(),
-        }
-    }
-}
-
-impl fmt::Display for FunctionStatement {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            FunctionStatement::ValProp(prop) => write!(f, "{}", prop),
-            FunctionStatement::ExprProp(prop) => write!(f, "{}", prop),
-            FunctionStatement::DatasetProp(prop) => write!(f, "{}", prop),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FunctionReturn {
-    pub keyword: KeywordReturn,
-    pub value: SqlExprOrQuery,
-}
-
-impl Spanned for FunctionReturn {
-    fn span(&self) -> Span {
-        Span::union_iter([self.keyword.span(), self.value.span()])
-    }
-}
-
-impl fmt::Display for FunctionReturn {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "return {}", self.value)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FunctionDef {
-    pub fn_keyword: KeywordFn,
-    pub name: Ident,
-    pub params: Vec<FunctionParam>,
-    pub return_param: FunctionReturnParam,
-    pub statements: Vec<FunctionStatement>,
-    pub return_statement: FunctionReturn,
-}
-
-impl Spanned for FunctionDef {
-    fn span(&self) -> Span {
-        Span::union_iter([
-            self.name.span,
-            Span::union_iter(self.params.iter().map(|p| p.span())),
-            self.return_param.span(),
-            Span::union_iter(self.statements.iter().map(|s| s.span())),
-            self.return_statement.span(),
-        ])
-    }
-}
-
-impl fmt::Display for FunctionDef {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "fn {}(", self.name.value)?;
-        
-        // Parameters
-        for (i, param) in self.params.iter().enumerate() {
-            if i > 0 {
-                write!(f, ", ")?;
-            }
-            write!(f, "{}", param)?;
-        }
-        
-        // Return type
-        write!(f, ") -> {} {{", self.return_param)?;
-        
-        // Body
-        if !self.statements.is_empty() {
-            writeln!(f)?;
-            for stmt in &self.statements {
-                writeln!(f, "    {}", stmt)?;
-            }
-            writeln!(f, "    {}", self.return_statement)?;
-        } else {
-            write!(f, " {} ", self.return_statement)?;
-        }
-        
-        write!(f, "}}")
-    }
-}
 
 // sql expr or query
 // -----------------
@@ -801,6 +624,7 @@ define_keyword!(KeywordComp);
 define_keyword!(KeywordFn);
 define_keyword!(KeywordReturn);
 define_keyword!(KeywordFrom);
+
 
 #[cfg(test)]
 mod tests {
@@ -973,77 +797,6 @@ mod tests {
         assert_eq!(output, expected);
     }
 
-    #[test]
-    fn test_display_function_def() {
-        let function = FunctionDef {
-            fn_keyword: KeywordFn { span: Span::empty() },
-            name: Ident {
-                value: "calculateTotal".to_string(),
-                quote_style: None,
-                span: Span::empty(),
-            },
-            params: vec![
-                FunctionParam {
-                    name: Ident {
-                        value: "price".to_string(),
-                        quote_style: None,
-                        span: Span::empty(),
-                    },
-                    type_: Some(Type { 
-                        name: Ident {
-                            value: "float".to_string(),
-                            quote_style: None,
-                            span: Span::empty(),
-                        }
-                    }),
-                    kind: ParamKind::Val(KeywordVal { span: Span::empty() }),
-                },
-                FunctionParam {
-                    name: Ident {
-                        value: "quantity".to_string(),
-                        quote_style: None,
-                        span: Span::empty(),
-                    },
-                    type_: None,
-                    kind: ParamKind::Val(KeywordVal { span: Span::empty() }),
-                },
-            ],
-            return_param: FunctionReturnParam {
-                type_: Some(Type { 
-                    name: Ident {
-                        value: "float".to_string(),
-                        quote_style: None,
-                        span: Span::empty(),
-                    }
-                }),
-                kind: ParamKind::Val(KeywordVal { span: Span::empty() }),
-            },
-            statements: vec![],
-            return_statement: FunctionReturn {
-                keyword: KeywordReturn { span: Span::empty() },
-                value: SqlExprOrQuery::Expr(SqlExpr::BinaryOp {
-                    left: Box::new(SqlExpr::Identifier(
-                        Ident {
-                            value: "price".to_string(),
-                            quote_style: None,
-                            span: Span::empty(),
-                        }
-                    )),
-                    op: sqlparser::ast::BinaryOperator::Multiply,
-                    right: Box::new(SqlExpr::Identifier(
-                        Ident {
-                            value: "quantity".to_string(),
-                            quote_style: None,
-                            span: Span::empty(),
-                        }
-                    )),
-                }),
-            },
-        };
-
-        let expected = "fn calculateTotal(val <float> price, val quantity) -> val <float> { return price * quantity }";
-        assert_eq!(function.to_string(), expected);
-    }
 
     #[test]
     fn test_display_deeply_nested_component_prop() {

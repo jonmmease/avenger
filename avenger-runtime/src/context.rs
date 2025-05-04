@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{error::AvengerRuntimeError, udtf::read_csv::LocalCsvTableFunc};
+use crate::{error::AvengerRuntimeError, function_factory::CustomFunctionFactory, udtf::read_csv::LocalCsvTableFunc};
 use crate::{
     value::{ArrowTable, TaskDataset, TaskValue, TaskValueContext},
     variable::Variable,
@@ -18,9 +18,9 @@ use datafusion::{
     variable::{VarProvider, VarType},
 };
 use datafusion_common::{DFSchema, DataFusionError, ScalarValue};
-use datafusion_sql::TableReference;
+use datafusion_sql::{TableReference, parser::Statement as DfStatement};
 use sqlparser::{
-    ast::{Expr as SqlExpr, Ident, ObjectName, Query as SqlQuery, VisitMut, VisitorMut},
+    ast::{CreateFunction, Expr as SqlExpr, Ident, ObjectName, Query as SqlQuery, Statement as SqlStatement, VisitMut, VisitorMut},
     keywords::SCHEMA,
 };
 
@@ -42,6 +42,11 @@ impl TaskEvaluationContext {
 
         // register custom ud(.?)fs
         session_ctx.register_udtf("read_csv", Arc::new(LocalCsvTableFunc {}));
+
+        // register function factory
+        let session_ctx = session_ctx.with_function_factory(
+            Arc::new(CustomFunctionFactory::default())
+        );
 
         let val_provider = Arc::new(EvaluationValProvider::new());
         session_ctx.register_variable(VarType::UserDefined, val_provider.clone());
@@ -71,6 +76,10 @@ impl TaskEvaluationContext {
                 TaskValue::Dataset { dataset, context } => {
                     self.register_task_value_context(&context).await?;
                     self.register_dataset(&variable, dataset.clone()).await?;
+                }
+                TaskValue::Function { function, context } => {
+                    self.register_task_value_context(&context).await?;
+                    self.register_function(&variable, function.clone()).await?;
                 }
                 _ => {
                     // skip
@@ -129,6 +138,27 @@ impl TaskEvaluationContext {
                 )?;
             }
         }
+        Ok(())
+    }
+
+    /// Register a function in the context
+    pub async fn register_function(&self, variable: &Variable, mut function: CreateFunction) -> Result<(), AvengerRuntimeError> {
+        if !variable.parts.is_empty() && variable.parts[0].starts_with("@") {
+            return Err(AvengerRuntimeError::InternalError(format!(
+                "Function name should not include the @ prefix: {}",
+                variable.name()
+            )));
+        }
+
+        // Compute mangled name and update function
+        let mangled_name = variable.mangled_var_name();
+        function.name = ObjectName(vec![Ident::new(mangled_name)]);
+
+        // Register function with this name
+        let plan = self.session_ctx.state().statement_to_plan(
+            DfStatement::Statement(Box::new(SqlStatement::CreateFunction(function)))
+        ).await?;
+        self.session_ctx.execute_logical_plan(plan).await?;
         Ok(())
     }
 
@@ -296,6 +326,15 @@ impl TaskEvaluationContext {
         Ok(query)
     }
 
+    pub fn expand_function(&self, function: &CreateFunction) -> Result<CreateFunction, AvengerRuntimeError> {
+        let mut function = function.clone();
+        let mut visitor = CompilationVisitor::new(&self);
+        if let ControlFlow::Break(Result::Err(err)) = function.visit(&mut visitor) {
+            return Err(err);
+        }
+        Ok(function)
+    }
+    
     pub async fn evaluate_expr(&self, expr: &SqlExpr) -> Result<ScalarValue, AvengerRuntimeError> {
         let mut sql_expr = self.expand_expr(expr)?;
 
@@ -440,7 +479,7 @@ impl<'a> VisitorMut for CompilationVisitor<'a> {
         let table_name = relation.to_string();
 
         if table_name.starts_with("@") {
-            let mut parts = relation
+            let parts = relation
                 .0
                 .iter()
                 .map(|ident| ident.value.clone())
@@ -456,6 +495,21 @@ impl<'a> VisitorMut for CompilationVisitor<'a> {
 
     fn pre_visit_expr(&mut self, expr: &mut SqlExpr) -> ControlFlow<Self::Break> {
         match expr.clone() {
+            SqlExpr::Function(mut func) => {
+                if func.name.0[0].value.starts_with("@") {
+                    // Update function with mangled name
+                    let parts = func.name
+                        .0
+                        .iter()
+                        .map(|ident| ident.value.clone())
+                        .collect::<Vec<_>>();
+
+                    let idents = vec![Ident::new(parts.join("__"))];
+                    func.name = ObjectName(idents);
+                    *expr = SqlExpr::Function(func);
+                    return ControlFlow::Continue(());
+                }
+            }
             SqlExpr::Identifier(ident) => {
                 if ident.value.starts_with("@") {
                     let variable = Variable::from_mangled_name(&ident.value);
