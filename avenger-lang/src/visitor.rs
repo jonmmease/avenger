@@ -1,6 +1,6 @@
 use std::ops::ControlFlow;
 
-use sqlparser::ast::{Visit, VisitMut, Visitor, VisitorMut, Statement as SqlStatement};
+use sqlparser::ast::{CreateFunction, Statement as SqlStatement, Visit, VisitMut, Visitor, VisitorMut};
 
 use crate::ast::{AvengerFile, ComponentProp, DatasetProp, ExprProp, ImportStatement, PropBinding, SqlExprOrQuery, Statement, ValProp};
 
@@ -79,6 +79,13 @@ pub trait AvengerVisitor: Visitor {
     fn post_visit_prop_binding(&mut self, _statement: &PropBinding, _context: &VisitorContext) -> ControlFlow<Self::Break> {
         ControlFlow::Continue(())
     }
+
+    fn pre_visit_create_function(&mut self, _statement: &CreateFunction, _context: &VisitorContext) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
+    fn post_visit_create_function(&mut self, _statement: &CreateFunction, _context: &VisitorContext) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
 }
 
 pub trait AvengerVisitorMut: VisitorMut {
@@ -135,6 +142,13 @@ pub trait AvengerVisitorMut: VisitorMut {
         ControlFlow::Continue(())
     }
     fn post_visit_prop_binding(&mut self, _statement: &mut PropBinding, _context: &VisitorContext) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
+
+    fn pre_visit_create_function(&mut self, _statement: &mut CreateFunction, _context: &VisitorContext) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
+    fn post_visit_create_function(&mut self, _statement: &mut CreateFunction, _context: &VisitorContext) -> ControlFlow<Self::Break> {
         ControlFlow::Continue(())
     }
 }
@@ -273,6 +287,33 @@ impl AvengerVisitMut for PropBinding {
 }
 
 
+impl AvengerVisit for CreateFunction {
+    fn visit<V: AvengerVisitor>(&self, visitor: &mut V, context: &VisitorContext) -> ControlFlow<V::Break> {
+        visitor.pre_visit_create_function(self, context)?;
+
+        // Visit the function body
+        if let Some(function_body) = &self.function_body {
+            function_body.visit(visitor)?;
+        }
+
+        visitor.post_visit_create_function(self, context)
+    }
+}
+
+impl AvengerVisitMut for CreateFunction {
+    fn visit<V: AvengerVisitorMut>(&mut self, visitor: &mut V, context: &VisitorContext) -> ControlFlow<V::Break> {
+        visitor.pre_visit_create_function(self, context)?;
+
+        // Visit the function body
+        if let Some(function_body) = &mut self.function_body {
+            function_body.visit(visitor)?;
+        }
+
+        visitor.post_visit_create_function(self, context)
+    }
+}
+
+
 impl AvengerVisit for Statement {
     fn visit<V: AvengerVisitor>(&self, visitor: &mut V, context: &VisitorContext) -> ControlFlow<V::Break> {
         visitor.pre_visit_avgr_statement(self, context)?;
@@ -283,11 +324,9 @@ impl AvengerVisit for Statement {
             Statement::DatasetProp(dataset_prop) => dataset_prop.visit(visitor, context)?,
             Statement::ComponentProp(component_prop) => component_prop.visit(visitor, context)?,
             Statement::PropBinding(prop_binding) => prop_binding.visit(visitor, context)?,
-            Statement::CreateFunction{function: create_function, ..} => {
-                SqlStatement::CreateFunction(create_function.clone()).visit(visitor)?
-            }
+            Statement::CreateFunction{function, ..} => AvengerVisit::visit(function, visitor, context)?,
         }
-        visitor.post_visit_avgr_statement(self, context)
+        visitor.post_visit_avgr_statement(self, context)    
     }
 }
 
@@ -301,7 +340,7 @@ impl AvengerVisitMut for Statement {
             Statement::DatasetProp(dataset_prop) => AvengerVisitMut::visit(dataset_prop, visitor, context)?,
             Statement::ComponentProp(component_prop) => AvengerVisitMut::visit(component_prop, visitor, context)?,
             Statement::PropBinding(prop_binding) => AvengerVisitMut::visit(prop_binding, visitor, context)?,
-            Statement::CreateFunction{function: create_function, ..} => VisitMut::visit(create_function, visitor)?,
+            Statement::CreateFunction{function, ..} => AvengerVisitMut::visit(function, visitor, context)?,
         }
         visitor.post_visit_avgr_statement(self, context)
     }

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::ops::ControlFlow;
 use std::sync::Arc;
 
@@ -8,17 +8,20 @@ use avenger_lang::ast::{AvengerFile, ComponentProp, DatasetProp, ExprProp, PropB
 use avenger_lang::parser::AvengerParser;
 use avenger_lang::visitor::{AvengerVisitor, VisitorContext};
 use indexmap::IndexMap;
+use petgraph::Direction;
 use petgraph::algo::toposort;
 use petgraph::graph::DiGraph;
-use petgraph::Direction;
-use sqlparser::ast::{Statement as SqlStatement, Visitor};
+use sqlparser::ast::{CreateFunction, Statement as SqlStatement, Visitor};
 
-use crate::component_registry::{ComponentRegistry, ExprPropRegistration, PropRegistration, ValPropRegistration};
+use crate::component_registry::{
+    ComponentRegistry, ExprPropRegistration, PropRegistration, ValPropRegistration,
+};
 use crate::error::AvengerRuntimeError;
 use crate::scope::PropertyScope;
-use crate::tasks::{CreateFunctionTask, DatasetPropTask, ExprPropTask, GroupMarkTask, MarkTask, Task, ValPropTask};
+use crate::tasks::{
+    CreateFunctionTask, DatasetPropTask, ExprPropTask, GroupMarkTask, MarkTask, Task, ValPropTask,
+};
 use crate::variable::Variable;
-
 
 #[derive(Clone, Debug)]
 pub struct IncomingEdge {
@@ -53,24 +56,26 @@ pub struct TaskGraph {
 }
 
 impl TaskGraph {
-    pub fn try_new(mut tasks: HashMap<Variable, Arc<dyn Task>>) -> Result<Self, AvengerRuntimeError> {
+    pub fn try_new(
+        mut tasks: HashMap<Variable, Arc<dyn Task>>,
+    ) -> Result<Self, AvengerRuntimeError> {
         // Build a directed graph for topological sorting
         let mut graph = DiGraph::<Variable, ()>::new();
         let mut node_indices = HashMap::new();
-        
+
         // First, add all nodes to the graph
         for variable in tasks.keys() {
             let idx = graph.add_node(variable.clone());
             node_indices.insert(variable.clone(), idx);
         }
-        
+
         // Add edges based on task dependencies
         for (variable, task) in &tasks {
             let target_idx = node_indices[variable];
-            
+
             // Get input dependencies for this task
             let input_variables = task.input_dependencies()?;
-            
+
             // Add edges from each input dependency to this task
             for input_var in input_variables {
                 if let Some(source_idx) = node_indices.get(&input_var.variable) {
@@ -79,7 +84,7 @@ impl TaskGraph {
                 }
             }
         }
-        
+
         // Perform topological sort
         let sorted_indices = match toposort(&graph, None) {
             Ok(indices) => indices,
@@ -88,43 +93,45 @@ impl TaskGraph {
                 let node_var = graph[cycle.node_id()].clone();
 
                 // let dot_graph = DiGraph::<String, ()>::new();
-                let dot_graph = graph.map(
-                    |idx, n| n.name(),
-                     |idx, e| e
-                );
+                let dot_graph = graph.map(|idx, n| n.name(), |idx, e| e);
 
-                use petgraph::dot::{Dot, Config};
-                println!("{:?}", Dot::with_config(&dot_graph, &[Config::EdgeNoLabel]));
-
-                return Err(AvengerRuntimeError::DependencyCycle(
-                    format!("Dependency cycle detected in task graph. Includes variable: {:?}", node_var)
-                ));
+                use petgraph::dot::{Config, Dot};
+                return Err(AvengerRuntimeError::DependencyCycle(format!(
+                    "Dependency cycle detected in task graph. Includes variable: {:?}",
+                    node_var
+                )));
             }
         };
-        
+
         // Build task nodes and collect them in topological order
         let mut sorted_tasks: IndexMap<Variable, TaskNode> = IndexMap::new();
-        
+
         // Create a map to store the fingerprints of tasks as they are computed
         let mut fingerprints: HashMap<Variable, u64> = HashMap::new();
         let mut identity_fingerprints: HashMap<Variable, u64> = HashMap::new();
-        
+
         for idx in sorted_indices {
             let node_var = graph[idx].clone();
-            
+
             // Take ownership of the task from the HashMap
-            let task = tasks.remove(&node_var)
-                .ok_or_else(|| AvengerRuntimeError::InternalError(format!("Task should exist for variable {:?}", node_var)))?;
-            
+            let task = tasks.remove(&node_var).ok_or_else(|| {
+                AvengerRuntimeError::InternalError(format!(
+                    "Task should exist for variable {:?}",
+                    node_var
+                ))
+            })?;
+
             // Get input variables for this task
             let input_deps = task.input_dependencies()?;
-            let parent_variables: Vec<Variable> = input_deps.iter().map(
-                |dep| dep.variable.clone()
-            ).collect();
-            let inputs: Vec<IncomingEdge> = input_deps.iter().map(
-                |dep| IncomingEdge { source: dep.variable.clone() }
-            ).collect();
-                        
+            let parent_variables: Vec<Variable> =
+                input_deps.iter().map(|dep| dep.variable.clone()).collect();
+            let inputs: Vec<IncomingEdge> = input_deps
+                .iter()
+                .map(|dep| IncomingEdge {
+                    source: dep.variable.clone(),
+                })
+                .collect();
+
             // Build outputs (outgoing edges)
             let outputs = graph
                 .neighbors_directed(idx, Direction::Outgoing)
@@ -133,18 +140,19 @@ impl TaskGraph {
                     OutgoingEdge { target }
                 })
                 .collect();
-            
-            // Calculate fingerprint by combining this tasks's fingerprint with 
+
+            // Calculate fingerprint by combining this tasks's fingerprint with
             // the fingerprints of its parents
             let mut fingerprint_hasher = DefaultHasher::new();
-            
-            
+
             // Update state fingerprints
             for parent in &parent_variables {
                 if let Some(parent_fingerprint) = fingerprints.get(parent) {
+                    parent.hash(&mut fingerprint_hasher);
                     parent_fingerprint.hash(&mut fingerprint_hasher);
                 }
             }
+            node_var.hash(&mut fingerprint_hasher);
             task.fingerprint()?.hash(&mut fingerprint_hasher);
 
             // Update identity fingerprints
@@ -160,19 +168,21 @@ impl TaskGraph {
                 // There are parents, so use their identity fingerprints
                 for parent in &parent_variables {
                     if let Some(parent_identity_fingerprint) = identity_fingerprints.get(parent) {
+                        parent.hash(&mut identity_fingerprint_hasher);
                         parent_identity_fingerprint.hash(&mut identity_fingerprint_hasher);
                     }
                 }
                 task.fingerprint()?.hash(&mut identity_fingerprint_hasher);
+                node_var.hash(&mut identity_fingerprint_hasher);
             }
-            
+
             let fingerprint = fingerprint_hasher.finish();
             let identity_fingerprint = identity_fingerprint_hasher.finish();
-            
+
             // Store the fingerprint for potential child nodes to use
             fingerprints.insert(node_var.clone(), fingerprint);
             identity_fingerprints.insert(node_var.clone(), identity_fingerprint);
-            
+
             // Create the task node
             let task_node = TaskNode {
                 variable: node_var.clone(),
@@ -182,12 +192,14 @@ impl TaskGraph {
                 fingerprint,
                 identity_fingerprint,
             };
-            
+
             sorted_tasks.insert(node_var, task_node);
         }
-        
-        Ok(TaskGraph { tasks: sorted_tasks })
-    }    
+
+        Ok(TaskGraph {
+            tasks: sorted_tasks,
+        })
+    }
 
     pub fn tasks(&self) -> &IndexMap<Variable, TaskNode> {
         &self.tasks
@@ -195,26 +207,32 @@ impl TaskGraph {
 
     pub fn to_dot(&self) -> String {
         let mut dot = String::from("digraph TaskGraph {\n");
-        
+
         // Add nodes
         for (variable, node) in &self.tasks {
             let var_name = variable.name();
             // Escape quotes in variable name if needed
             let escaped_name = var_name.replace("\"", "\\\"");
-            dot.push_str(&format!("    \"{}\" [label=\"{}\"];\n", escaped_name, escaped_name));
+            dot.push_str(&format!(
+                "    \"{}\" [label=\"{}\"];\n",
+                escaped_name, escaped_name
+            ));
         }
-        
+
         // Add edges
         for (variable, node) in &self.tasks {
             let source_name = variable.name();
-            
+
             // Add edges for each input (dependency)
             for input in &node.inputs {
                 let target_name = input.source.name();
-                dot.push_str(&format!("    \"{}\" -> \"{}\";\n", target_name, source_name));
+                dot.push_str(&format!(
+                    "    \"{}\" -> \"{}\";\n",
+                    target_name, source_name
+                ));
             }
         }
-        
+
         dot.push_str("}\n");
         dot
     }
@@ -224,30 +242,30 @@ impl TaskGraph {
         let scope = PropertyScope::from_file(file_ast)?;
         let component_registry = ComponentRegistry::new_with_marks();
 
-        let mut builder = TaskBuilderVisitor::new(
-            &component_registry, &scope, 
-        );
+        let mut builder = TaskBuilderVisitor::new(&component_registry, &scope);
         if let ControlFlow::Break(err) = file_ast.visit(&mut builder) {
             return Err(AvengerRuntimeError::InternalError(format!(
-                "Error building task graph: {:?}", err
+                "Error building task graph: {:?}",
+                err
             )));
         };
         TaskGraph::try_new(builder.build())
     }
 }
 
-
-
 pub struct TaskBuilderVisitor<'a> {
     registry: &'a ComponentRegistry,
     scope: &'a PropertyScope,
     tasks: HashMap<Variable, Arc<dyn Task>>,
-    current_context: VisitorContext,
 }
 
 impl<'a> TaskBuilderVisitor<'a> {
     pub fn new(registry: &'a ComponentRegistry, scope: &'a PropertyScope) -> Self {
-        Self { registry, scope, tasks: HashMap::new(), current_context: VisitorContext::new() }
+        Self {
+            registry,
+            scope,
+            tasks: HashMap::new(),
+        }
     }
 
     pub fn make_variable(&self, name: &str, context: &VisitorContext) -> Variable {
@@ -263,32 +281,52 @@ impl<'a> TaskBuilderVisitor<'a> {
 
 impl<'a> Visitor for TaskBuilderVisitor<'a> {
     type Break = Result<(), AvengerRuntimeError>;
-
-    fn pre_visit_statement(&mut self, statement: &SqlStatement) -> ControlFlow<Self::Break> {
-        if let SqlStatement::CreateFunction(create_function) = statement {
-            let function_name = create_function.name.0[0].value.clone();
-            let variable = self.make_variable(&function_name, &self.current_context);
-            let task = CreateFunctionTask::new(create_function.clone());
-            self.tasks.insert(variable, Arc::new(task));
-        }
-        ControlFlow::Continue(())
-    }
 }
 
 impl<'a> AvengerVisitor for TaskBuilderVisitor<'a> {
-    fn pre_visit_val_prop(&mut self, statement: &ValProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
+    fn pre_visit_create_function(
+        &mut self,
+        statement: &CreateFunction,
+        context: &VisitorContext,
+    ) -> ControlFlow<Self::Break> {
+        let function_name = statement.name.0[0].value.clone();
+        let variable = self.make_variable(&function_name, context);
+        let mut function = statement.clone();
+        if let Err(err) = self
+            .scope
+            .resolve_create_function(&mut function, &context.path)
+        {
+            return ControlFlow::Break(Err(err));
+        }
+        let task = CreateFunctionTask::new(function);
+        self.tasks.insert(variable, Arc::new(task));
+
+        ControlFlow::Continue(())
+    }
+
+    fn pre_visit_val_prop(
+        &mut self,
+        statement: &ValProp,
+        context: &VisitorContext,
+    ) -> ControlFlow<Self::Break> {
         let variable = self.make_variable(statement.name(), context);
-        
+
         let mut expr = statement.expr.clone();
         if let Err(err) = self.scope.resolve_sql_expr(&mut expr, &context.path) {
             return ControlFlow::Break(Err(err));
         }
+
         let task = ValPropTask::new(expr);
+
         self.tasks.insert(variable, Arc::new(task));
         ControlFlow::Continue(())
     }
 
-    fn pre_visit_expr_prop(&mut self, statement: &ExprProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
+    fn pre_visit_expr_prop(
+        &mut self,
+        statement: &ExprProp,
+        context: &VisitorContext,
+    ) -> ControlFlow<Self::Break> {
         let variable = self.make_variable(statement.name(), context);
         let mut expr = statement.expr.clone();
         if let Err(err) = self.scope.resolve_sql_expr(&mut expr, &context.path) {
@@ -299,7 +337,11 @@ impl<'a> AvengerVisitor for TaskBuilderVisitor<'a> {
         ControlFlow::Continue(())
     }
 
-    fn pre_visit_dataset_prop(&mut self, statement: &DatasetProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
+    fn pre_visit_dataset_prop(
+        &mut self,
+        statement: &DatasetProp,
+        context: &VisitorContext,
+    ) -> ControlFlow<Self::Break> {
         let variable = self.make_variable(statement.name(), context);
         let mut query = statement.query.clone();
         if let Err(err) = self.scope.resolve_sql_query(&mut query, &context.path) {
@@ -310,64 +352,76 @@ impl<'a> AvengerVisitor for TaskBuilderVisitor<'a> {
         ControlFlow::Continue(())
     }
 
-    fn pre_visit_prop_binding(&mut self, prop_binding: &PropBinding, context: &VisitorContext) -> ControlFlow<Self::Break> {
+    fn pre_visit_prop_binding(
+        &mut self,
+        prop_binding: &PropBinding,
+        context: &VisitorContext,
+    ) -> ControlFlow<Self::Break> {
         let variable = self.make_variable(&prop_binding.name.value, context);
 
         let Some(component_spec) = self.registry.lookup_component(&context.component_type) else {
             return ControlFlow::Break(Err(AvengerRuntimeError::InternalError(format!(
-                "Unknown component type: {}", context.component_type))));
+                "Unknown component type: {}",
+                context.component_type
+            ))));
         };
 
         let Some(prop_type) = component_spec.props.get(&prop_binding.name.value) else {
             return ControlFlow::Break(Err(AvengerRuntimeError::InternalError(format!(
-                "Unknown property {} for component {}", prop_binding.name, context.component_type))));
+                "Unknown property {} for component {}",
+                prop_binding.name, context.component_type
+            ))));
         };
 
         match prop_type {
             PropRegistration::Val(_) => {
                 let Ok(mut sql_expr) = prop_binding.expr.clone().into_expr() else {
                     return ControlFlow::Break(Err(AvengerRuntimeError::InternalError(format!(
-                        "Expression for property {} must be a value", prop_binding.name))));
+                        "Expression for property {} must be a value",
+                        prop_binding.name
+                    ))));
                 };
                 if let Err(err) = self.scope.resolve_sql_expr(&mut sql_expr, &context.path) {
                     return ControlFlow::Break(Err(err));
                 }
-                self.tasks.insert(variable, Arc::new(ValPropTask::new(sql_expr)));
+                self.tasks
+                    .insert(variable, Arc::new(ValPropTask::new(sql_expr)));
             }
             PropRegistration::Expr(_) => {
                 let Ok(mut sql_expr) = prop_binding.expr.clone().into_expr() else {
                     return ControlFlow::Break(Err(AvengerRuntimeError::InternalError(format!(
-                        "Expression for property {} must be a value or expression", prop_binding.name))));
+                        "Expression for property {} must be a value or expression",
+                        prop_binding.name
+                    ))));
                 };
                 if let Err(err) = self.scope.resolve_sql_expr(&mut sql_expr, &context.path) {
                     return ControlFlow::Break(Err(err));
                 }
-                self.tasks.insert(variable, Arc::new(ExprPropTask::new(sql_expr)));
-            },
+                self.tasks
+                    .insert(variable, Arc::new(ExprPropTask::new(sql_expr)));
+            }
             PropRegistration::Dataset(_) => {
                 let Ok(mut query) = prop_binding.expr.clone().into_query() else {
                     return ControlFlow::Break(Err(AvengerRuntimeError::InternalError(format!(
-                        "Expression for property {} must be a query", prop_binding.name))));
+                        "Expression for property {} must be a query",
+                        prop_binding.name
+                    ))));
                 };
                 if let Err(err) = self.scope.resolve_sql_query(&mut query, &context.path) {
                     return ControlFlow::Break(Err(err));
                 }
-                self.tasks.insert(variable, Arc::new(DatasetPropTask::new(query, false)));
-            },
+                self.tasks
+                    .insert(variable, Arc::new(DatasetPropTask::new(query, false)));
+            }
         }
         ControlFlow::Continue(())
     }
 
-    fn pre_visit_component_prop(&mut self, _statement: &ComponentProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
-        // Update the current context
-        self.current_context = context.clone();
-        ControlFlow::Continue(())
-    }
-
-    fn post_visit_component_prop(&mut self, statement: &ComponentProp, context: &VisitorContext) -> ControlFlow<Self::Break> {
-        // Update the current context
-        self.current_context = context.clone();
-
+    fn post_visit_component_prop(
+        &mut self,
+        statement: &ComponentProp,
+        context: &VisitorContext,
+    ) -> ControlFlow<Self::Break> {
         // Get the component type
         let component_type = statement.component_type.value.clone();
 
@@ -401,11 +455,12 @@ impl<'a> AvengerVisitor for TaskBuilderVisitor<'a> {
             val_csv_parts.join(", ")
         };
 
-        let Ok(mut query) = AvengerParser::parse_single_query(
-            &format!("SELECT {val_props_csv}")
-        ) else {
+        let Ok(mut query) = AvengerParser::parse_single_query(&format!("SELECT {val_props_csv}"))
+        else {
             return ControlFlow::Break(Err(AvengerRuntimeError::InternalError(format!(
-                "Failed to parse config query for component {}", component_type))));
+                "Failed to parse config query for component {}",
+                component_type
+            ))));
         };
 
         let mut child_path = context.path.clone();
@@ -421,16 +476,19 @@ impl<'a> AvengerVisitor for TaskBuilderVisitor<'a> {
         self.tasks.insert(config_variable.clone(), Arc::new(task));
 
         // Handle mark-specific tasks
-        if let Some(mark_type) = self.registry.lookup_mark_type(
-            &statement.component_type.value
-        ) {
+        if let Some(mark_type) = self
+            .registry
+            .lookup_mark_type(&statement.component_type.value)
+        {
             let mut expr_csv_parts = Vec::new();
             for (name, prop) in component_spec.props.iter() {
                 if let PropRegistration::Expr(_) = prop {
                     if statement_bindings.contains_key(name) {
                         // We have a binding for this property, use its value
                         expr_csv_parts.push(format!("@{name} as {name}"));
-                    } else if let PropRegistration::Expr(ExprPropRegistration { default, .. }) = prop {
+                    } else if let PropRegistration::Expr(ExprPropRegistration { default, .. }) =
+                        prop
+                    {
                         if let Some(default) = default {
                             expr_csv_parts.push(format!("{} as {name}", default.to_string()));
                         } else {
@@ -448,19 +506,17 @@ impl<'a> AvengerVisitor for TaskBuilderVisitor<'a> {
             };
 
             let query_res = if statement_bindings.contains_key("data") {
-                AvengerParser::parse_single_query(
-                    &format!("SELECT {expr_props_csv} FROM @data")
-                )
+                AvengerParser::parse_single_query(&format!("SELECT {expr_props_csv} FROM @data"))
             } else {
-                AvengerParser::parse_single_query(
-                    &format!("SELECT {expr_props_csv}")
-                )
+                AvengerParser::parse_single_query(&format!("SELECT {expr_props_csv}"))
             };
             let mut query = if let Ok(query) = query_res {
                 query
             } else {
                 return ControlFlow::Break(Err(AvengerRuntimeError::InternalError(format!(
-                    "Failed to parse config query for component {}", component_type))));
+                    "Failed to parse config query for component {}",
+                    component_type
+                ))));
             };
 
             if let Err(err) = self.scope.resolve_sql_query(&mut query, &child_path) {
@@ -473,7 +529,8 @@ impl<'a> AvengerVisitor for TaskBuilderVisitor<'a> {
             let mut parts = child_path.clone();
             parts.push("encoded_data".to_string());
             let encoded_data_variable = Variable::new(parts);
-            self.tasks.insert(encoded_data_variable.clone(), Arc::new(task));
+            self.tasks
+                .insert(encoded_data_variable.clone(), Arc::new(task));
 
             // Create a task to build the mark
             let mut parts = child_path.clone();
@@ -484,12 +541,16 @@ impl<'a> AvengerVisitor for TaskBuilderVisitor<'a> {
         } else {
             // Treat all non-marks as groups for now.
             // Later we'll have components that aren't groups or marks.
-            let mark_vars = statement.component_props().into_iter().filter_map(|(name, _prop)| {
-                let mut parts = child_path.clone();
-                parts.push(name.clone());
-                parts.push("_mark".to_string());
-                Some(Variable::new(parts))
-            }).collect::<Vec<_>>();
+            let mark_vars = statement
+                .component_props()
+                .into_iter()
+                .filter_map(|(name, _prop)| {
+                    let mut parts = child_path.clone();
+                    parts.push(name.clone());
+                    parts.push("_mark".to_string());
+                    Some(Variable::new(parts))
+                })
+                .collect::<Vec<_>>();
 
             // Build group mark variable
             let mut parts = child_path.clone();

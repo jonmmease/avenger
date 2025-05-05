@@ -215,7 +215,7 @@ impl<'a> AvengerParser<'a> {
             }
             _ => None,
         };
-        match ident.value.as_str() {
+        match ident.value.to_lowercase().as_str() {
             "import" => Ok(Statement::Import(
                 self.parse_import_statement(qualifier, ident)?,
             )),
@@ -373,6 +373,163 @@ impl<'a> AvengerParser<'a> {
             items,
             from_keyword,
             from_path,
+        })
+    }
+
+
+    /// Parse a val statement of the form:
+    /// val <Type> foo: 23;
+    fn parse_val_statement(
+        &mut self,
+        qualifier: Option<Qualifier>,
+        statement_iden: Ident,
+    ) -> Result<ValProp, AvengerLangError> {
+        // Build val keyword from statement identifier
+        let val_keyword = KeywordVal {
+            span: statement_iden.span,
+        };
+
+        // Get the type
+        let type_ = self.parse_type()?;
+
+        // Get the property name
+        let name = self.expect_ident(None, "val property name")?;
+
+        // Colon
+        self.parser.expect_token(&Token::Colon)?;
+
+        // Get the expression
+        let expr = self.parser.parse_expr()?;
+
+        // Semi-colon required after expression
+        self.parser.expect_token(&Token::SemiColon)?;
+
+        Ok(ValProp {
+            qualifier,
+            val_keyword,
+            type_,
+            name,
+            expr,
+        })
+    }
+
+    fn parse_expr_statement(
+        &mut self,
+        qualifier: Option<Qualifier>,
+        statement_iden: Ident,
+    ) -> Result<ExprProp, AvengerLangError> {
+        // Build expr keyword from statement identifier
+        let expr_keyword = KeywordExpr {
+            span: statement_iden.span,
+        };
+
+        // Get the type
+        let type_ = self.parse_type()?;
+
+        // Get the property name
+        let name = self.expect_ident(None, "expr property name")?;
+
+        // Colon
+        self.parser.expect_token(&Token::Colon)?;
+
+        // Get the expression
+        let expr = self.parser.parse_expr()?;
+
+        // Semi-colon required after expression
+        self.parser.expect_token(&Token::SemiColon)?;
+
+        Ok(ExprProp {
+            qualifier,
+            expr_keyword,
+            type_,
+            name,
+            expr,
+        })
+    }
+
+    fn parse_dataset_statement(
+        &mut self,
+        qualifier: Option<Qualifier>,
+        statement_iden: Ident,
+    ) -> Result<DatasetProp, AvengerLangError> {
+        // Build dataset keyword from statement identifier
+        let dataset_keyword = KeywordDataset {
+            span: statement_iden.span,
+        };
+
+        // Get the type
+        let type_ = self.parse_type()?;
+
+        // Get the property name
+        let name = self.expect_ident(None, "dataset property name")?;
+
+        // Colon
+        self.parser.expect_token(&Token::Colon)?;
+
+        // Get the query
+        let query = self.parser.parse_query()?;
+
+        // Semi-colon required after query
+        self.parser.expect_token(&Token::SemiColon)?;
+
+        Ok(DatasetProp {
+            qualifier,
+            dataset_keyword,
+            type_,
+            name,
+            query,
+        })
+    }
+
+    /// Parse a component property statement of the form:
+    /// comp foo: Rect {...}
+    fn parse_comp_prop_statement(
+        &mut self,
+        qualifier: Option<Qualifier>,
+        statement_iden: Ident,
+    ) -> Result<ComponentProp, AvengerLangError> {
+        // Build comp keyword from statement identifier
+        let comp_keyword = KeywordComp {
+            span: statement_iden.span,
+        };
+
+        // Get the component type
+        let name = self.expect_ident(None, "comp property name")?;
+
+        // Colon
+        self.parser.expect_token(&Token::Colon)?;
+
+        // Component name
+        let component_name = self.expect_ident(None, "component name")?;
+
+        // Get the statements
+        self.parse_component_value(qualifier, Some(comp_keyword), Some(name), component_name)
+    }
+
+    /// Parse a component value statement of the form:
+    /// Rect {...}
+    fn parse_component_value(
+        &mut self,
+        qualifier: Option<Qualifier>,
+        keyword: Option<KeywordComp>,
+        prop_name: Option<Ident>,
+        component_name: Ident,
+    ) -> Result<ComponentProp, AvengerLangError> {
+        // Open brace
+        self.parser.expect_token(&Token::LBrace)?;
+
+        // Parse statements
+        let statements = self.parse_statements()?;
+
+        // Close brace
+        self.parser.expect_token(&Token::RBrace)?;
+
+        Ok(ComponentProp {
+            qualifier,
+            component_keyword: keyword,
+            prop_name,
+            component_type: component_name,
+            statements,
         })
     }
 

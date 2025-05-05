@@ -38,7 +38,9 @@ impl TaskGraphRuntime {
             .tasks()
             .get(variable)
             .ok_or_else(|| {
-                AvengerRuntimeError::VariableNotFound(format!("Variable not found: {:?}", variable))
+                AvengerRuntimeError::VariableNotFound(
+                    format!("Variable not found: {:?}", variable,),
+                )
             })?
             .clone();
 
@@ -46,10 +48,11 @@ impl TaskGraphRuntime {
         // executed if the value is not cached
         let inner_self = self.clone();
         let inner_graph = graph.clone();
+        let inner_inputs = node.inputs.clone();
         let fut = async move {
             // Create future to compute node value (will only be executed if not present in cache)
             let mut inputs_futures = Vec::new();
-            for input_node in &node.inputs {
+            for input_node in &inner_inputs {
                 let node_fut = inner_self
                     .clone()
                     .evaluate_variable(inner_graph.clone(), &input_node.source);
@@ -68,10 +71,12 @@ impl TaskGraphRuntime {
         };
 
         // get or construct from cache
-        Ok(self
+        let val = self
             .cache
             .get_or_try_insert_with(node.fingerprint, node.identity_fingerprint, fut)
-            .await?)
+            .await?;
+
+        Ok(val)
     }
 
     pub async fn evaluate_variables(
