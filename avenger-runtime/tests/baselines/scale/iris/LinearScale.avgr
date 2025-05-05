@@ -1,89 +1,37 @@
+import { Ticks, Nice } from '.';
+
+// Input props
 in val domain: [0, 1];
 in val range: [0, 1];
 in val nice: 0;
 
-// Compute scale and offset factors
+// final domain, applying nice if required
+out val final_domain: case
+    when @nice > 0 then @_nice.nice_domain
+    else @domain end;
+
+// External function to perform scaling
+create function scale(domain_expr double) returns double
+    return @scale_factor * $1 + @offset
+
+// expose ticks array scalar and ticks dataset
+out val ticks_array: @_ticks.ticks_array;
+out dataset ticks: SELECT * FROM @_ticks.ticks;
+
+// Helpers to build nice extents
+val count: @nice::double;
+
 val scale_factor: (@range[2] - @range[1]) / (@final_domain[2] - @final_domain[1]);
 val offset: @range[1] - @scale_factor * @final_domain[1];
 
-val final_domain: case
-    when @nice > 0 then @tick_nice.nice_domain
-    else @domain end;
+// put internal helpers in inner group
+comp _nice: Nice {
+    domain := @parent.domain;
+    count := @parent.count;
+}
 
-create function scale(double) returns double
-    return @scale_factor * $1 + @offset
-
-// Helper to build nice extents
-comp tick_nice: Group {
-    in val count: @nice::double;
-    in val domain_start: @domain[1];
-    in val domain_end: @domain[2];
-
-    val start: least(@domain_start, @domain_end);
-    val stop: greatest(@domain_start, @domain_end);
-
-    dataset ds: with recursive nice_iterations as (
-      -- Base case: iteration 0
-      select
-        0 as iter,
-        @start as start,
-        @stop as stop,
-        0.0 as prestep,
-        @next_tick_increment(@start, @stop, @count) as step
-
-      union all
-
-      -- Recursive case
-      select
-        iter + 1,
-        @apply_nice_start(start, step) as new_start,
-        @apply_nice_stop(stop, step) as new_stop,
-        step as prestep,
-        @next_tick_increment(
-          @apply_nice_start(start, step),
-          @apply_nice_stop(stop, step),
-          @count
-        ) as step
-      from nice_iterations
-      where iter < 9 and abs(step - prestep) > 1e-8
-    )
-    -- Select the final result
-    select
-      start as final_start,
-      stop as final_stop
-    from nice_iterations
-    order by iter desc
-    limit 1;
-
-    val nice_domain: (select ["final_start", "final_stop"] from @ds);
-
-    create function next_tick_increment(double, double, double) returns double
-      return power(10.0, floor(log(10.0, ($2 - $1) / greatest($3, 1.0)))) *
-        case
-          when (($2 - $1) / greatest($3, 1.0)) /
-              power(10.0, floor(log(10.0, ($2 - $1) / greatest($3, 1.0)))) >= sqrt(50.0)+0.01
-          then 10.0
-          when (($2 - $1) / greatest($3, 1.0)) /
-              power(10.0, floor(log(10.0, ($2 - $1) / greatest($3, 1.0)))) >= sqrt(10.0)+0.01
-          then 5.0
-          when (($2 - $1) / greatest($3, 1.0)) /
-              power(10.0, floor(log(10.0, ($2 - $1) / greatest($3, 1.0)))) >= sqrt(2.0)+0.01
-          then 2.0
-          else 1.0
-        end
-
-
-    create function apply_nice_start(double, double) returns double
-      return case
-        when $2 > 0.0 then floor($1 / $2) * $2
-        when $2 < 0.0 then ceil($1 * $2) / $2
-        else $1
-      end
-
-    create function apply_nice_stop(double, double) returns double
-      return case
-        when $2 > 0.0 then ceil($1 / $2) * $2
-        when $2 < 0.0 then floor($1 * $2) / $2
-        else $1
-      end
+// Component for computing ticks dataset
+comp _ticks: Ticks {
+    domain := @final_domain;
+    count := @parent.count;
 }
