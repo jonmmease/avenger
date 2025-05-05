@@ -1,0 +1,76 @@
+// Component to compute nice domain extents from a raw domain
+in val count: 10;
+in val domain: [0.0, 1.0];
+
+// Output nice domain
+out val nice_domain: (select ["final_start", "final_stop"] from @nice_ds);
+
+val domain_start: @domain[1];
+val domain_end: @domain[2];
+val start: least(@domain_start, @domain_end);
+val stop: greatest(@domain_start, @domain_end);
+
+dataset nice_ds:
+    with recursive nice_iterations as (
+        -- Base case: iteration 0
+        select
+        0 as iter,
+        @start as start,
+        @stop as stop,
+        0.0 as prestep,
+        @next_tick_increment(@start, @stop, @count) as step
+
+        union all
+
+        -- Recursive case
+        select
+        iter + 1,
+        @apply_nice_start(start, step) as new_start,
+        @apply_nice_stop(stop, step) as new_stop,
+        step as prestep,
+        @next_tick_increment(
+            @apply_nice_start(start, step),
+            @apply_nice_stop(stop, step),
+            @count
+        ) as step
+        from nice_iterations
+        where iter < 9 and abs(step - prestep) > 1e-8
+    )
+    -- Select the final result
+    select
+        start as final_start,
+        stop as final_stop
+    from nice_iterations
+    order by iter desc
+    limit 1;
+
+
+create function next_tick_increment(double, double, double) returns double
+    return power(10.0, floor(log(10.0, ($2 - $1) / greatest($3, 1.0)))) *
+    case
+        when (($2 - $1) / greatest($3, 1.0)) /
+            power(10.0, floor(log(10.0, ($2 - $1) / greatest($3, 1.0)))) >= sqrt(50.0)+0.01
+        then 10.0
+        when (($2 - $1) / greatest($3, 1.0)) /
+            power(10.0, floor(log(10.0, ($2 - $1) / greatest($3, 1.0)))) >= sqrt(10.0)+0.01
+        then 5.0
+        when (($2 - $1) / greatest($3, 1.0)) /
+            power(10.0, floor(log(10.0, ($2 - $1) / greatest($3, 1.0)))) >= sqrt(2.0)+0.01
+        then 2.0
+        else 1.0
+    end
+
+
+create function apply_nice_start(double, double) returns double
+    return case
+    when $2 > 0.0 then floor($1 / $2) * $2
+    when $2 < 0.0 then ceil($1 * $2) / $2
+    else $1
+    end
+
+create function apply_nice_stop(double, double) returns double
+    return case
+    when $2 > 0.0 then ceil($1 / $2) * $2
+    when $2 < 0.0 then floor($1 * $2) / $2
+    else $1
+    end

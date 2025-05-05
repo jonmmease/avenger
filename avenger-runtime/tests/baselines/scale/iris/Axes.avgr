@@ -1,37 +1,8 @@
-import { LinearScale, Axes } from '.';
+import { LinearScale } from '.';
 
-width := 480;
-height := 480;
-
-dataset iris: select * from read_csv(
-    '/Users/jonmmease/VegaFusion/repos/avenger/avenger-runtime/tests/data/iris.csv'
-);
-
-comp x_scale: LinearScale {
-    domain := (select [min("SepalLengthCm"), max("SepalLengthCm")] from @iris);
-    nice := 20;
-    range := [40, 440];
-}
-
-comp y_scale: LinearScale {
-    domain := (select [min("SepalWidthCm"), max("SepalWidthCm")] from @iris);
-    nice := 10;
-    range := [440, 40];
-}
-
-// symbols
-Symbol {
-    data := select * from @iris;
-    fill := 'crimson';
-    x := @x_scale.scale("SepalLengthCm");
-    y := @y_scale.scale("SepalWidthCm");
-}
-
-// component binding not supported yet
-//Axes {
-//    x_scale := @parent.x_scale;
-//    y_scale := @parent.y_scale;
-//}
+in comp x_scale: LinearScale {}
+in comp y_scale: LinearScale {}
+in val tick_len: 4;
 
 // plot area outline
 Rect {
@@ -44,7 +15,6 @@ Rect {
 }
 
 // X axis ticks
-val tick_len: 4;
 Rule {
     data := SELECT * FROM @x_scale.ticks;
     x := @x_scale.scale("tick_value");

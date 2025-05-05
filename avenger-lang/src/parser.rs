@@ -717,6 +717,21 @@ comp foo: Rect {}}"#;
     }
 
     #[test]
+    fn try_parse_create_function_statement2() {
+        let sql = r#"
+        create FUNCTION f2(a1 bigint, foo table) returns table
+            return (
+                SELECT 1, @a1 as "a1" from @table
+            )
+        "#;
+        let mut parser = AvengerParser::new(sql, "App", "").unwrap();
+        let file = parser.parse().map_err(
+            |e| e.pretty_print(sql, "App").unwrap()).unwrap();
+        println!("{}", file);
+        println!("{:#?}", file);
+    }
+
+    #[test]
     fn try_parse_fn_syntax_ideas() {
         let sql = r#"
 select * from @foo
