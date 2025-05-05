@@ -1,6 +1,5 @@
 in val domain: [0, 1];
 in val range: [0, 1];
-in expr domain_expr: 0.5;
 in val nice: 0;
 
 // Compute scale and offset factors
@@ -46,7 +45,7 @@ comp tick_nice: Group {
           @count
         ) as step
       from nice_iterations
-      where iter < 9 and abs(step - prestep) > 1e-2
+      where iter < 9 and abs(step - prestep) > 1e-8
     )
     -- Select the final result
     select

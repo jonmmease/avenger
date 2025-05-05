@@ -11,7 +11,6 @@ comp x_scale: LinearScale {
     domain := (select [min("SepalLengthCm"), max("SepalLengthCm")] from @iris);
     nice := 5;
     range := [40, 440];
-    domain_expr:="SepalLengthCm";
 }
 
 comp y_scale: LinearScale {
@@ -20,6 +19,7 @@ comp y_scale: LinearScale {
     range := [440, 40];
 }
 
+// plot area outline
 Rect {
     x := (@x_scale.range)[1];
     y := (@y_scale.range)[1];
@@ -29,13 +29,15 @@ Rect {
     stroke_width := 0.2;
 }
 
+// x domain label
 Symbol {
     data := select * from @iris;
-    fill := 'black';
+    fill := 'crimson';
     x := @x_scale.scale("SepalLengthCm");
     y := @y_scale.scale("SepalWidthCm");
 }
 
+// y domain label
 Text {
     x := 200;
     y := 30;
