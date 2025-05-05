@@ -1,8 +1,18 @@
-use std::{collections::HashMap, num::NonZeroUsize, sync::{atomic::{AtomicUsize, Ordering}, Arc}, time::{Duration, Instant}};
-use crate::{error::{AvengerRuntimeError, DuplicateResult}, value::TaskValue};
+use crate::{
+    error::{AvengerRuntimeError, DuplicateResult},
+    value::TaskValue,
+};
 use lru::LruCache;
+use std::{
+    collections::HashMap,
+    num::NonZeroUsize,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::{Duration, Instant},
+};
 use tokio::sync::{Mutex, MutexGuard, RwLock};
-
 
 #[derive(Debug, Clone)]
 struct CachedValue {
@@ -18,7 +28,6 @@ impl CachedValue {
 
 type Initializer = Arc<RwLock<Option<Result<TaskValue, AvengerRuntimeError>>>>;
 
-
 pub struct RuntimeCacheConfig {
     capacity: Option<usize>,
     size_limit: Option<usize>,
@@ -26,10 +35,12 @@ pub struct RuntimeCacheConfig {
 
 impl Default for RuntimeCacheConfig {
     fn default() -> Self {
-        Self { capacity: Some(256), size_limit: None }
+        Self {
+            capacity: Some(256),
+            size_limit: None,
+        }
     }
 }
-
 
 /// The Cache uses a Segmented LRU (SLRU) cache policy
 /// (https://en.wikipedia.org/wiki/Cache_replacement_policies#Segmented_LRU_(SLRU)) where both the
@@ -62,9 +73,7 @@ impl RuntimeCache {
             size: Arc::new(AtomicUsize::new(0)),
             protected_memory: Arc::new(AtomicUsize::new(0)),
             probationary_memory: Arc::new(AtomicUsize::new(0)),
-            durations: Arc::new(Mutex::new(
-                LruCache::new(NonZeroUsize::new(512).unwrap()))
-            ),
+            durations: Arc::new(Mutex::new(LruCache::new(NonZeroUsize::new(512).unwrap()))),
         }
     }
 
@@ -296,16 +305,25 @@ impl RuntimeCache {
             // Drop lock on initializers collection
             let result = initializer.read().await;
             let result = match result.as_ref() {
-                None => self.spawn_initializer(state_fingerprint, identity_fingerprint, init).await,
+                None => {
+                    self.spawn_initializer(state_fingerprint, identity_fingerprint, init)
+                        .await
+                }
                 Some(result) => result.duplicate(),
             };
             result
         } else {
-            self.spawn_initializer(state_fingerprint, identity_fingerprint, init).await
+            self.spawn_initializer(state_fingerprint, identity_fingerprint, init)
+                .await
         }
     }
 
-    async fn spawn_initializer<F>(&self, state_fingerprint: u64, identity_fingerprint: u64, init: F) -> Result<TaskValue, AvengerRuntimeError>
+    async fn spawn_initializer<F>(
+        &self,
+        state_fingerprint: u64,
+        identity_fingerprint: u64,
+        init: F,
+    ) -> Result<TaskValue, AvengerRuntimeError>
     where
         F: Future<Output = Result<TaskValue, AvengerRuntimeError>> + Send + 'static,
     {
@@ -322,17 +340,20 @@ impl RuntimeCache {
             .insert(state_fingerprint, initializer.clone());
 
         // Check if we have a duration for this identity fingerprint
-        let duration = self.durations.lock().await.get(&identity_fingerprint).cloned();
+        let duration = self
+            .durations
+            .lock()
+            .await
+            .get(&identity_fingerprint)
+            .cloned();
 
-        // spawn tasks that were previously more than 100ms, and tasks 
+        // spawn tasks that were previously more than 100ms, and tasks
         // we don't have a duration for
         let should_spawn = match duration {
-            Some(duration) => {
-                duration > Duration::from_millis(100)
-            }
+            Some(duration) => duration > Duration::from_millis(100),
             None => true,
         };
-        
+
         let start = Instant::now();
         let res = if should_spawn {
             tokio::spawn(init).await?
@@ -352,7 +373,10 @@ impl RuntimeCache {
                     .await;
 
                 // Store duration for identity fingerprint
-                self.durations.lock().await.put(identity_fingerprint, duration);
+                self.durations
+                    .lock()
+                    .await
+                    .put(identity_fingerprint, duration);
 
                 // Stored initializer no longer required. Initializers are Arc
                 // pointers, so it's fine to drop initializer from here even if

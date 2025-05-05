@@ -16,9 +16,9 @@ use utils::assert_runtime_image_equal;
 
 #[rstest]
 // #[case("arcs/simple")]
-// #[case("scale/iris")]
+#[case("scale/iris")]
 // #[case("components/custom_component")]
-#[case("scale/simple")]
+// #[case("scale/simple")]
 #[tokio::test]
 async fn test_baselines(#[case] path: &str) -> Result<()> {
     use avenger_lang::imports::load_main_component_file;

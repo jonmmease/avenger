@@ -99,6 +99,9 @@ impl TaskEvaluationContext {
         for (name, dataset) in context.datasets().iter() {
             self.register_dataset(&name, dataset.clone()).await?;
         }
+        for (name, function) in context.functions().iter() {
+            self.register_function(&name, function.clone()).await?;
+        }
         Ok(())
     }
 

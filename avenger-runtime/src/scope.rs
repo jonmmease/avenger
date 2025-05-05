@@ -5,7 +5,7 @@ use std::ops::ControlFlow;
 use avenger_lang::ast::{AvengerFile, ComponentProp, DatasetProp, ExprProp, ValProp};
 use avenger_lang::visitor::{AvengerVisitor, VisitorContext};
 use sqlparser::ast::{
-    Expr as SqlExpr, Ident, ObjectName, Query as SqlQuery, VisitMut, Visitor,
+    CreateFunction, Expr as SqlExpr, Ident, ObjectName, Query as SqlQuery, VisitMut, Visitor,
     VisitorMut as SqlVisitorMut,
 };
 
@@ -36,31 +36,11 @@ impl Clone for ScopeLevel {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PropertyScope {
     root_level: ScopeLevel,
-    component_paths: HashMap<String, Vec<String>>,
 }
 
 impl PropertyScope {
     pub fn new(root_level: ScopeLevel) -> Self {
-        let mut component_paths = HashMap::new();
-        PropertyScope::add_component_paths(&mut component_paths, &root_level, &vec![]);
-
-        Self {
-            root_level,
-            component_paths,
-        }
-    }
-
-    fn add_component_paths(
-        component_paths: &mut HashMap<String, Vec<String>>,
-        level: &ScopeLevel,
-        prefix: &[String],
-    ) {
-        for (name, child) in level.children.iter() {
-            let mut parts = prefix.to_vec();
-            parts.push(name.clone());
-            component_paths.insert(name.clone(), parts.clone());
-            PropertyScope::add_component_paths(component_paths, child, &parts);
-        }
+        Self { root_level }
     }
 
     // Create a Scope from an AvengerFile using the ScopeBuilder visitor
@@ -169,6 +149,18 @@ impl<'a> AvengerVisitor for PropertyScopeBuilder<'a> {
         ControlFlow::Continue(())
     }
 
+    fn pre_visit_create_function(
+        &mut self,
+        create_function: &CreateFunction,
+        context: &VisitorContext,
+    ) -> ControlFlow<Self::Break> {
+        let name = create_function.name.0[0].value.to_string();
+        if let Err(err) = self.add_property(&name, &context.path) {
+            return ControlFlow::Break(Err(err));
+        }
+        ControlFlow::Continue(())
+    }
+
     fn post_visit_component_prop(
         &mut self,
         comp_prop: &ComponentProp,
@@ -271,19 +263,25 @@ impl PropertyScope {
                 None
             }
             Some(ScopeAnchor::Component(parts)) => {
-                let Some(root_path) = self.component_paths.get(&parts[0]) else {
-                    return None;
-                };
-                //
-                let mut path = root_path.clone();
-                for child_part in parts[1..].iter() {
-                    let Some(child_level) = scope_stack[0].children.get(child_part) else {
-                        return None;
-                    };
-                    path.push(child_level.name.clone());
+                // Walk stack to find first_part as a component
+                let first_part = &parts[0];
+                // Walk the stack to find the variable
+                for lvl in (0..scope_stack.len()).rev() {
+                    if scope_stack[lvl].children.contains_key(first_part) {
+                        // Build variable from the root
+                        let mut component_parts: Vec<String> =
+                            (1..=lvl).map(|i| scope_stack[i].name.clone()).collect();
+
+                        // Add the rest of the parts
+                        component_parts.extend(parts.iter().cloned());
+
+                        // Add name
+                        component_parts.push(name.to_string());
+
+                        return Some(Variable::new(component_parts));
+                    }
                 }
-                path.push(name.to_string());
-                Some(Variable::new(path))
+                None
             }
             None => {
                 // Walk the stack to find the variable
@@ -321,6 +319,18 @@ impl PropertyScope {
         let mut visitor = ResolveVarInSqlVisitor::new(self, scope_path);
         if let ControlFlow::Break(Err(err)) = query.visit(&mut visitor) {
             println!("Scope: {:#?}", self);
+            return Err(err);
+        }
+        Ok(())
+    }
+
+    pub fn resolve_create_function(
+        &self,
+        create_function: &mut CreateFunction,
+        scope_path: &[String],
+    ) -> Result<(), AvengerRuntimeError> {
+        let mut visitor = ResolveVarInSqlVisitor::new(self, scope_path);
+        if let ControlFlow::Break(Err(err)) = create_function.visit(&mut visitor) {
             return Err(err);
         }
         Ok(())
@@ -406,6 +416,22 @@ impl<'a> SqlVisitorMut for ResolveVarInSqlVisitor<'a> {
 
     fn pre_visit_expr(&mut self, expr: &mut SqlExpr) -> ControlFlow<Self::Break> {
         match expr.clone() {
+            SqlExpr::Function(mut func) => {
+                let idents = func.name.0;
+                if idents.first().map_or(false, |id| id.value.starts_with("@")) {
+                    if let Some(resolved) = self.resolve_idents(&idents) {
+                        func.name = ObjectName(resolved);
+                        *expr = SqlExpr::Function(func);
+                    } else {
+                        return ControlFlow::Break(Err(AvengerRuntimeError::InternalError(
+                            format!(
+                                "Failed to resolve variable reference: {:?} in path: {:?}",
+                                idents, self.path
+                            ),
+                        )));
+                    }
+                }
+            }
             SqlExpr::Identifier(ident) => {
                 if ident.value.starts_with("@") {
                     if let Some(resolved) = self.resolve_idents(&[ident.clone()]) {
