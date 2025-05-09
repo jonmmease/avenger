@@ -34,8 +34,8 @@ Rule {
 
 // x domain label
 Text {
-    x := 200;
-    y := 30;
+    x := ((@x_scale.range)[2] + (@x_scale.range)[1]) * 0.5;
+    y := (@y_scale.range)[1] + 20;
     val incr: @x_scale.final_domain;
     text := case when @incr is not null then cast(@incr as string) else 'NULL' end;
 }
@@ -43,7 +43,7 @@ Text {
 // y domain label
 Text {
     x := 30;
-    y := 250;
+    y := ((@y_scale.range)[2] + (@y_scale.range)[1]) * 0.5;
     angle := -90;
     val incr: @y_scale.final_domain;
     text := case when @incr is not null then cast(@incr as string) else 'NULL' end;

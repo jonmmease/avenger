@@ -1,12 +1,21 @@
-use std::{collections::HashMap, ops::ControlFlow, path::PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::ControlFlow,
+    path::PathBuf,
+};
 
 use sqlparser::ast::{Ident, VisitorMut};
 
 use crate::{
-    ast::{AvengerFile, ComponentProp, ImportStatement, Statement}, error::AvengerLangError, loader::{AvengerFilesystemLoader, AvengerLoader}, visitor::{AvengerVisitorMut, VisitorContext}
+    ast::{AvengerFile, ComponentProp, ImportStatement, Statement},
+    error::AvengerLangError,
+    loader::{AvengerFilesystemLoader, AvengerLoader},
+    visitor::{AvengerVisitorMut, VisitorContext},
 };
 
 use std::sync::Arc;
+use sqlparser::tokenizer::Span;
+use crate::ast::{ComponentRefProp, KeywordComp};
 
 #[derive(Clone)]
 
@@ -77,11 +86,12 @@ impl AvengerVisitorMut for InlineImportsVisitor {
 
             let mut new_statements = Vec::new();
 
-            // Keep all of the imported file's statements, but replace any in prop values with our
+            // Keep all the imported file's statements, but replace any in prop values with our
             // own binding values
+            let mut props_found: HashSet<String> = HashSet::new();
             for mut import_statement in file_ast.statements.clone() {
-                match &mut import_statement {
-                    Statement::ValProp(val_prop) => {
+                match import_statement {
+                    Statement::ValProp(mut val_prop) => {
                         if my_bindings.contains_key(&val_prop.name.value) {
                             // replace value my binding
                             match my_bindings[&val_prop.name.value].expr.clone().into_expr() {
@@ -93,8 +103,10 @@ impl AvengerVisitorMut for InlineImportsVisitor {
                                 }
                             }
                         }
+                        props_found.insert(val_prop.name.value.clone());
+                        new_statements.push(Statement::ValProp(val_prop));
                     }
-                    Statement::ExprProp(expr_prop) => {
+                    Statement::ExprProp(mut expr_prop) => {
                         if my_bindings.contains_key(&expr_prop.name.value) {
                             // replace value my binding
                             match my_bindings[&expr_prop.name.value].expr.clone().into_expr() {
@@ -106,10 +118,12 @@ impl AvengerVisitorMut for InlineImportsVisitor {
                                 }
                             }
                         }
+                        props_found.insert(expr_prop.name.value.clone());
+                        new_statements.push(Statement::ExprProp(expr_prop));
                     }
-                    Statement::DatasetProp(dataset_prop) => {
+                    Statement::DatasetProp(mut dataset_prop) => {
                         if my_bindings.contains_key(&dataset_prop.name.value) {
-                            // replace value my binding
+                            // replace value with my binding
                             match my_bindings[&dataset_prop.name.value]
                                 .expr
                                 .clone()
@@ -123,10 +137,41 @@ impl AvengerVisitorMut for InlineImportsVisitor {
                                 }
                             }
                         }
+                        props_found.insert(dataset_prop.name.value.clone());
+                        new_statements.push(Statement::DatasetProp(dataset_prop));
                     }
-                    _ => {}
+                    Statement::ComponentProp(component_prop) => {
+                        if my_bindings.contains_key(&component_prop.name()) {
+                            // replace value with my binding
+                            match my_bindings[&component_prop.name()]
+                                .expr
+                                .clone()
+                                .into_component_ref()
+                            {
+                                Ok(reference) => {
+                                    props_found.insert(component_prop.name());
+                                    new_statements.push(Statement::ComponentRefProp(ComponentRefProp {
+                                        comp_keyword: KeywordComp::new(Span::empty()),
+                                        name: Ident::new(component_prop.name()),
+                                        reference,
+                                    }));
+                                }
+                                Err(err) => {
+                                    return ControlFlow::Break(Err(err));
+                                }
+                            }
+                        } else {
+                            new_statements.push(Statement::ComponentProp(component_prop));
+                        }
+                    }
+                    Statement::PropBinding(prop_binding) => {
+                        props_found.insert(prop_binding.name.value.clone());
+                        new_statements.push(Statement::PropBinding(prop_binding));
+                    }
+                    stmt => {
+                        new_statements.push(stmt);
+                    }
                 }
-                new_statements.push(import_statement.clone());
             }
 
             // Add our own statements, other than bindings
@@ -134,7 +179,7 @@ impl AvengerVisitorMut for InlineImportsVisitor {
             for statement in component_prop.statements.clone() {
                 match &statement {
                     Statement::PropBinding(prop_binding) => {
-                        // skip
+                        // println!("skipping binding: {}", prop_binding);
                     }
                     _ => {
                         new_statements.push(statement.clone());
@@ -216,7 +261,6 @@ pub fn load_main_component_file(
             Err(e) => return Err(e),
         }
     };
-
 
     // println!("after: {}", main_component);
 
