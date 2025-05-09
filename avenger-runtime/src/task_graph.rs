@@ -413,6 +413,9 @@ impl<'a> AvengerVisitor for TaskBuilderVisitor<'a> {
                 self.tasks
                     .insert(variable, Arc::new(DatasetPropTask::new(query, false)));
             }
+            PropRegistration::Component(_) => {
+                // Nothing to do
+            }
         }
         ControlFlow::Continue(())
     }

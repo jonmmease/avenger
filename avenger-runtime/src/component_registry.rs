@@ -1426,6 +1426,15 @@ impl ComponentSpec {
                         }),
                     );
                 }
+                Statement::ComponentProp(component_prop) => {   
+                    props.insert(
+                        component_prop.name(),
+                        PropRegistration::Component(ComponentPropRegistration {
+                            qualifier: component_prop.qualifier.clone(),
+                            component_type: component_prop.component_type.value.clone(),
+                        }),
+                    );
+                }
                 _ => {}
             }
         }
@@ -1470,10 +1479,17 @@ pub struct DatasetPropRegistration {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ComponentPropRegistration {
+    pub qualifier: Option<Qualifier>,
+    pub component_type: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PropRegistration {
     Val(ValPropRegistration),
     Expr(ExprPropRegistration),
     Dataset(DatasetPropRegistration),
+    Component(ComponentPropRegistration),
 }
 
 
