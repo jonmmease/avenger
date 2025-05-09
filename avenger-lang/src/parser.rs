@@ -9,13 +9,7 @@ use sqlparser::dialect::{Dialect, GenericDialect, SnowflakeDialect};
 use sqlparser::parser::{Parser as SqlParser, ParserError};
 use sqlparser::tokenizer::{Span, Token, TokenWithSpan, Tokenizer};
 
-use crate::ast::{
-    AvengerFile, ComponentProp, DatasetProp, ExprProp,
-    ImportItem, ImportStatement, KeywordAs, KeywordComp,
-    KeywordDataset, KeywordExpr, KeywordFn, KeywordFrom, KeywordImport, KeywordIn, KeywordOut,
-    KeywordReturn, KeywordVal, PropBinding, Qualifier, SqlExprOrQuery, Statement, Type,
-    ValProp,
-};
+use crate::ast::{AvengerFile, ComponentProp, ComponentRefProp, DatasetProp, ExprProp, ImportItem, ImportStatement, KeywordAs, KeywordComp, KeywordDataset, KeywordExpr, KeywordFn, KeywordFrom, KeywordImport, KeywordIn, KeywordOut, KeywordReturn, KeywordVal, PropBinding, Qualifier, SqlExprOrQuery, Statement, Type, ValProp};
 use crate::error::{AvengerLangError, PositionalParseErrorInfo};
 
 lazy_static! {
@@ -164,6 +158,18 @@ impl<'a> AvengerParser<'a> {
         }
     }
 
+    fn peek_ident(&mut self, nth: usize) -> Result<Ident, ParserError> {
+        let next_token = self.parser.peek_nth_token(nth);
+        match next_token.token {
+            Token::Word(w) => Ok(Ident {
+                value: w.value.clone(),
+                quote_style: w.quote_style,
+                span: next_token.span,
+            }),
+            _ => self.parser.expected("identifier", next_token),
+        }
+    }
+
     /// Expect a word token, with optional expected value. Returns the word value.
     fn expect_ident(&mut self, expected: Option<&str>, msg: &str) -> Result<Ident, ParserError> {
         let token = self.parser.next_token();
@@ -228,9 +234,7 @@ impl<'a> AvengerParser<'a> {
             "dataset" => Ok(Statement::DatasetProp(
                 self.parse_dataset_statement(qualifier, ident)?,
             )),
-            "comp" => Ok(Statement::ComponentProp(
-                self.parse_comp_prop_statement(qualifier, ident)?,
-            )),
+            "comp" => self.parse_comp_prop_statement(qualifier, ident),
             "create" if self.peek_is_ident(0, Some("function")) => {
                 // Back up to the create keyword
                 // self.parser.prev_token();
@@ -487,7 +491,7 @@ impl<'a> AvengerParser<'a> {
         &mut self,
         qualifier: Option<Qualifier>,
         statement_iden: Ident,
-    ) -> Result<ComponentProp, AvengerLangError> {
+    ) -> Result<Statement, AvengerLangError> {
         // Build comp keyword from statement identifier
         let comp_keyword = KeywordComp {
             span: statement_iden.span,
@@ -500,10 +504,41 @@ impl<'a> AvengerParser<'a> {
         self.parser.expect_token(&Token::Colon)?;
 
         // Component name
-        let component_name = self.expect_ident(None, "component name")?;
+        let next_ident = self.peek_ident(0)?;
 
-        // Get the statements
-        self.parse_component_value(qualifier, Some(comp_keyword), Some(name), component_name)
+        if next_ident.value.starts_with('@') {
+            // We have a component reference
+            let object_name = self.parser.parse_object_name(false)?;
+
+            // Expect trailing semi-colon
+            self.parser.expect_token(&Token::SemiColon)?;
+
+            // Build idents
+            let mut reference = object_name.0;
+
+            // // Need to decide whether to store leading @
+            // // Remove leading @ from the first identifier
+            // reference[0] = Ident {
+            //     value: reference[0].value[1..].to_string(),
+            //     quote_style: None,
+            //     span: reference[0].span,
+            // };
+
+            // Build component reference property
+            Ok(Statement::ComponentRefProp(ComponentRefProp {
+                comp_keyword,
+                name,
+                reference,
+            }))
+        } else {
+            // We have a component definition
+            let component_name = self.expect_ident(None, "component name")?;
+            Ok(Statement::ComponentProp(
+                self.parse_component_value(
+                    qualifier, Some(comp_keyword), Some(name), component_name
+                )?
+            ))
+        }
     }
 
     /// Parse a component value statement of the form:
@@ -526,7 +561,7 @@ impl<'a> AvengerParser<'a> {
 
         Ok(ComponentProp {
             qualifier,
-            component_keyword: keyword,
+            comp_keyword: keyword,
             prop_name,
             component_type: component_name,
             statements,
@@ -672,6 +707,21 @@ comp foo: Rect {}"#;
         let file = parser.parse().unwrap();
         println!("{:#?}", file);
         assert_eq!(file.statements.len(), 4);
+    }
+
+    #[test]
+    fn try_parse_comp_ref() {
+        let sql = r#"
+comp foo: @parent.bar;"#;
+        let mut parser = AvengerParser::new(sql, "App", "").unwrap();
+        match parser.parse() {
+            Ok(parsed) => {
+                println!("No error!\n{}", parsed);
+            }
+            Err(e) => {
+                e.pretty_print(sql, "App").unwrap();
+            }
+        }
     }
 
     #[test]

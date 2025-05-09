@@ -19,7 +19,7 @@ comp y_scale: LinearScale {
     range := [440, 40];
 }
 
-// symbols
+// Scatter symbol mark
 Symbol {
     data := select * from @iris;
     fill := 'crimson';
@@ -27,54 +27,8 @@ Symbol {
     y := @y_scale.scale("SepalWidthCm");
 }
 
-// component binding not supported yet
-//Axes {
-//    x_scale := @parent.x_scale;
-//    y_scale := @parent.y_scale;
-//}
-
-// plot area outline
-Rect {
-    x := (@x_scale.range)[1];
-    y := (@y_scale.range)[1];
-    x2 := (@x_scale.range)[2];
-    y2 := (@y_scale.range)[2];
-    stroke := 'black';
-    stroke_width := 0.2;
-}
-
-// X axis ticks
-val tick_len: 4;
-Rule {
-    data := SELECT * FROM @x_scale.ticks;
-    x := @x_scale.scale("tick_value");
-    x2 := @x;
-    y2 := (@y_scale.range)[1];
-    y := @y2 + @tick_len;
-}
-
-// Y axis ticks
-Rule {
-    data := SELECT * FROM @y_scale.ticks;
-    y := @y_scale.scale("tick_value");
-    y2 := @y;
-    x2 := (@x_scale.range)[1];
-    x := @x2 - @tick_len;
-}
-
-// x domain label
-Text {
-    x := 200;
-    y := 30;
-    val incr: @x_scale.final_domain;
-    text := case when @incr is not null then cast(@incr as string) else 'NULL' end;
-}
-
-// y domain label
-Text {
-    x := 30;
-    y := 250;
-    angle := -90;
-    val incr: @y_scale.final_domain;
-    text := case when @incr is not null then cast(@incr as string) else 'NULL' end;
+// Add axes
+Axes {
+    x_scale := @parent.x_scale;
+    y_scale := @parent.y_scale;
 }

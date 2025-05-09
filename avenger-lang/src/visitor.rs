@@ -2,7 +2,7 @@ use std::ops::ControlFlow;
 
 use sqlparser::ast::{CreateFunction, Statement as SqlStatement, Visit, VisitMut, Visitor, VisitorMut};
 
-use crate::ast::{AvengerFile, ComponentProp, DatasetProp, ExprProp, ImportStatement, PropBinding, SqlExprOrQuery, Statement, ValProp};
+use crate::ast::{AvengerFile, ComponentProp, ComponentRefProp, DatasetProp, ExprProp, ImportStatement, PropBinding, SqlExprOrQuery, Statement, ValProp};
 
 #[derive(Debug, Clone)]
 pub struct VisitorContext {
@@ -73,6 +73,14 @@ pub trait AvengerVisitor: Visitor {
         ControlFlow::Continue(())
     }
 
+    fn pre_visit_component_ref_prop(&mut self, _statement: &ComponentRefProp, _context: &VisitorContext) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
+
+    fn post_visit_component_ref_prop(&mut self, _statement: &ComponentRefProp, _context: &VisitorContext) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
+
     fn pre_visit_prop_binding(&mut self, _statement: &PropBinding, _context: &VisitorContext) -> ControlFlow<Self::Break> {
         ControlFlow::Continue(())
     }
@@ -135,6 +143,13 @@ pub trait AvengerVisitorMut: VisitorMut {
         ControlFlow::Continue(())
     }
     fn post_visit_component_prop(&mut self, _statement: &mut ComponentProp, _context: &VisitorContext) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
+
+    fn pre_visit_component_ref_prop(&mut self, _statement: &mut ComponentRefProp, _context: &VisitorContext) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
+    fn post_visit_component_ref_prop(&mut self, _statement: &mut ComponentRefProp, _context: &VisitorContext) -> ControlFlow<Self::Break> {
         ControlFlow::Continue(())
     }
 
@@ -269,11 +284,23 @@ impl AvengerVisitMut for ComponentProp {
     }
 }
 
+impl AvengerVisit for ComponentRefProp {
+    fn visit<V: AvengerVisitor>(&self, visitor: &mut V, context: &VisitorContext) -> ControlFlow<V::Break> {
+        visitor.pre_visit_component_ref_prop(self, context)?;
+        visitor.post_visit_component_ref_prop(self, context)
+    }
+}
+
+impl AvengerVisitMut for ComponentRefProp {
+    fn visit<V: AvengerVisitorMut>(&mut self, visitor: &mut V, context: &VisitorContext) -> ControlFlow<V::Break> {
+        visitor.pre_visit_component_ref_prop(self, context)?;
+        visitor.post_visit_component_ref_prop(self, context)
+    }
+}
 
 impl AvengerVisit for PropBinding {
     fn visit<V: AvengerVisitor>(&self, visitor: &mut V, context: &VisitorContext) -> ControlFlow<V::Break> {
         visitor.pre_visit_prop_binding(self, context)?;
-        self.expr.visit(visitor, context)?;
         visitor.post_visit_prop_binding(self, context)
     }
 }
@@ -323,8 +350,10 @@ impl AvengerVisit for Statement {
             Statement::ExprProp(expr_prop) => expr_prop.visit(visitor, context)?,
             Statement::DatasetProp(dataset_prop) => dataset_prop.visit(visitor, context)?,
             Statement::ComponentProp(component_prop) => component_prop.visit(visitor, context)?,
+            Statement::ComponentRefProp(component_prop_ref) => component_prop_ref.visit(visitor, context)?,
             Statement::PropBinding(prop_binding) => prop_binding.visit(visitor, context)?,
             Statement::CreateFunction{function, ..} => AvengerVisit::visit(function, visitor, context)?,
+
         }
         visitor.post_visit_avgr_statement(self, context)    
     }
@@ -339,6 +368,7 @@ impl AvengerVisitMut for Statement {
             Statement::ExprProp(expr_prop) => AvengerVisitMut::visit(expr_prop, visitor, context)?,
             Statement::DatasetProp(dataset_prop) => AvengerVisitMut::visit(dataset_prop, visitor, context)?,
             Statement::ComponentProp(component_prop) => AvengerVisitMut::visit(component_prop, visitor, context)?,
+            Statement::ComponentRefProp(component_ref_prop) => AvengerVisitMut::visit(component_ref_prop, visitor, context)?,
             Statement::PropBinding(prop_binding) => AvengerVisitMut::visit(prop_binding, visitor, context)?,
             Statement::CreateFunction{function, ..} => AvengerVisitMut::visit(function, visitor, context)?,
         }

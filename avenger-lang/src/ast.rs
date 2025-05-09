@@ -22,6 +22,7 @@ pub enum Statement {
     ExprProp(ExprProp),
     DatasetProp(DatasetProp),
     ComponentProp(ComponentProp),
+    ComponentRefProp(ComponentRefProp),
     PropBinding(PropBinding),
     CreateFunction {function: CreateFunction, span: Span},
 }
@@ -35,6 +36,7 @@ impl Spanned for Statement {
             Statement::DatasetProp(dataset_prop) => dataset_prop.span(),
             Statement::ComponentProp(component_prop) => component_prop.span(),
             Statement::PropBinding(prop_binding) => prop_binding.span(),
+            Statement::ComponentRefProp(component_ref_prop) => component_ref_prop.span(),
             Statement::CreateFunction { span, .. } => *span,
         }
     }
@@ -59,6 +61,7 @@ impl fmt::Display for Statement {
             Statement::ComponentProp(component_prop) => write!(f, "{}", component_prop),
             Statement::PropBinding(prop_binding) => write!(f, "{}", prop_binding),
             Statement::CreateFunction { function, .. } => write!(f, "{}", function),
+            Statement::ComponentRefProp(component_ref_prop) => write!(f, "{}", component_ref_prop),
         }
     }
 }
@@ -317,7 +320,7 @@ impl fmt::Display for DatasetProp {
 pub struct ComponentProp {
     // qualifier, keyword, and name are optional for components
     pub qualifier: Option<Qualifier>,
-    pub component_keyword: Option<KeywordComp>,
+    pub comp_keyword: Option<KeywordComp>,
     pub prop_name: Option<Ident>,
     pub component_type: Ident,
     pub statements: Vec<Statement>,
@@ -424,10 +427,9 @@ impl fmt::Display for ComponentProp {
 }
 
 impl ComponentProp {
-    // Helper method to format with a specific indentation level
     fn fmt_with_indent(&self, f: &mut fmt::Formatter<'_>, indent_level: usize) -> fmt::Result {
         // If this is a named component prop
-        if let Some(_component_keyword) = &self.component_keyword {
+        if let Some(_component_keyword) = &self.comp_keyword {
             if let Some(qualifier) = &self.qualifier {
                 write!(f, "{}", qualifier)?;
             }
@@ -441,14 +443,14 @@ impl ComponentProp {
         if !self.statements.is_empty() {
             writeln!(f)?;
             
-            // Create indent string for this level
-            let indent = " ".repeat(indent_level);
+            // Create indent string for statements (one level deeper)
+            let inner_indent = " ".repeat(indent_level);
             
             for statement in &self.statements {
                 match statement {
                     // For nested components, recursively call fmt_with_indent
                     Statement::ComponentProp(nested_comp) => {
-                        write!(f, "{}", indent)?;
+                        write!(f, "{}", inner_indent)?;
                         nested_comp.fmt_with_indent(f, indent_level + 4)?;
                         writeln!(f)?;
                     },
@@ -459,15 +461,55 @@ impl ComponentProp {
                         
                         // Add indentation to each line
                         for line in stmt_str.lines() {
-                            writeln!(f, "{}{}", indent, line)?;
+                            writeln!(f, "{}{}", inner_indent, line)?;
                         }
                     }
                 }
             }
-        }
         
-        // Close brace (without trailing newline)
-        write!(f, "}}")
+            // Write closing brace with the same indentation as the opening line
+            let outer_indent = " ".repeat(indent_level - 4);
+            write!(f, "{}}}", outer_indent)
+        } else {
+            // If no statements, close on the same line
+            write!(f, "}}")
+        }
+    }
+}
+
+// Component reference
+// -----------------
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ComponentRefProp {
+    pub comp_keyword: KeywordComp,
+    pub name: Ident,
+    pub reference: Vec<Ident>,
+}
+
+impl ComponentRefProp {
+    pub fn name(&self) -> &str {
+        self.name.value.as_str()
+    }
+
+    pub fn reference(&self) -> String {
+        self.reference.iter().map(|ref_| ref_.value.clone()).collect::<Vec<_>>().join(".")
+    }
+}
+
+impl Spanned for ComponentRefProp {
+    fn span(&self) -> Span {
+        let mut span = self.name.span;
+        for ref_ in &self.reference {
+            span = span.union(&ref_.span);
+        }
+        span
+    }
+}
+
+impl fmt::Display for ComponentRefProp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "comp {}: {};", self.name(), self.reference())?;
+        Ok(())
     }
 }
 
@@ -523,6 +565,18 @@ impl SqlExprOrQuery {
                 expr
             ))),
             SqlExprOrQuery::Query(query) => Ok(query),
+        }
+    }
+
+    pub fn into_component_ref(self) -> Result<Vec<Ident>, AvengerLangError> {
+        let expr = self.into_expr()?;
+        match expr {
+            SqlExpr::Identifier(ident) => Ok(vec![ident]),
+            SqlExpr::CompoundIdentifier(identifiers) => Ok(identifiers),
+            _ => Err(AvengerLangError::InternalError(format!(
+                "Expected component reference, found: {}",
+                expr
+            ))),
         }
     }
 }
@@ -641,7 +695,7 @@ mod tests {
     fn test_display_component_prop() {
         let component = ComponentProp {
             qualifier: None,
-            component_keyword: Some(KeywordComp { span: Span::empty() }),
+            comp_keyword: Some(KeywordComp { span: Span::empty() }),
             prop_name: Some(Ident {
                 value: "chart".to_string(),
                 quote_style: None,
@@ -687,7 +741,7 @@ mod tests {
         // Create a nested Group component
         let nested_group = ComponentProp {
             qualifier: None,
-            component_keyword: None,
+            comp_keyword: None,
             prop_name: None,
             component_type: Ident {
                 value: "Group".to_string(),
@@ -735,7 +789,7 @@ mod tests {
         // Create a parent component that contains the nested group
         let parent_component = ComponentProp {
             qualifier: None,
-            component_keyword: None,
+            comp_keyword: None,
             prop_name: None,
             component_type: Ident {
                 value: "Group".to_string(),
@@ -772,7 +826,7 @@ mod tests {
         // Create the innermost (level 3) component
         let innermost_group = ComponentProp {
             qualifier: None,
-            component_keyword: None,
+            comp_keyword: None,
             prop_name: None,
             component_type: Ident {
                 value: "Group".to_string(),
@@ -819,7 +873,7 @@ mod tests {
         // Create the middle level (level 2) component
         let middle_group = ComponentProp {
             qualifier: None,
-            component_keyword: None,
+            comp_keyword: None,
             prop_name: None,
             component_type: Ident {
                 value: "Group".to_string(),
@@ -868,7 +922,7 @@ mod tests {
         // Create the outer (level 1) component
         let outer_component = ComponentProp {
             qualifier: None,
-            component_keyword: None,
+            comp_keyword: None,
             prop_name: None,
             component_type: Ident {
                 value: "Group".to_string(),
