@@ -446,51 +446,21 @@ impl ComponentProp {
             
             for statement in &self.statements {
                 match statement {
-                    // For nested components, handle the nested component formatting
+                    // For nested components, recursively call fmt_with_indent
                     Statement::ComponentProp(nested_comp) => {
-                        // Write the indentation for this component's opening line
                         write!(f, "{}", indent)?;
-                        
-                        if nested_comp.component_keyword.is_some() {
-                            if let Some(qualifier) = &nested_comp.qualifier {
-                                write!(f, "{}", qualifier)?;
-                            }
-                            write!(f, "comp {}: ", nested_comp.prop_name.as_ref().unwrap().value)?;
-                        }
-                        
-                        // Write the component type and open brace
-                        writeln!(f, "{} {{", nested_comp.component_type.value)?;
-                        
-                        // Format each statement in the nested component with increased indent level
-                        let next_level = indent_level + 4;
-                        let next_indent = " ".repeat(next_level);
-                        
-                        for nested_stmt in &nested_comp.statements {
-                            // For each statement in this component
-                            match nested_stmt {
-                                // If it's another component, call formatting recursively
-                                Statement::ComponentProp(inner_comp) => {
-                                    // Format the inner component using String as a buffer
-                                    let inner_result = format!("{}", inner_comp);
-                                    
-                                    // Add the correctly indented inner component
-                                    for line in inner_result.lines() {
-                                        writeln!(f, "{}{}", next_indent, line)?;
-                                    }
-                                },
-                                // For regular statements, just add the indentation
-                                _ => {
-                                    writeln!(f, "{}{}", next_indent, nested_stmt)?;
-                                }
-                            }
-                        }
-                        
-                        // Close this nested component with correct indentation
-                        writeln!(f, "{}}}", indent)?;
+                        nested_comp.fmt_with_indent(f, indent_level + 4)?;
+                        writeln!(f)?;
                     },
                     // For non-component statements
                     _ => {
-                        writeln!(f, "{}{}", indent, statement)?;
+                        // Format the statement to a string to handle multi-line output
+                        let stmt_str = format!("{}", statement);
+                        
+                        // Add indentation to each line
+                        for line in stmt_str.lines() {
+                            writeln!(f, "{}{}", indent, line)?;
+                        }
                     }
                 }
             }
@@ -526,7 +496,6 @@ impl fmt::Display for PropBinding {
         write!(f, "{} := {};", self.name.value, self.expr)
     }
 }
-
 
 // sql expr or query
 // -----------------
