@@ -9,300 +9,271 @@ val stop: greatest(@domain[1], @domain[2]);
 val ticks_array: (select array_agg("tick_value") from @ticks);
 
 // ticks dataset
-dataset ticks: WITH
-    -- Handle basic input parameters
-    input_params AS (
+dataset ticks: WITH RECURSIVE
+    spec AS (
         SELECT
-            @start AS start_val,
-            @stop AS stop_val,
-            @count AS count_val,
-            CASE WHEN @stop < @start THEN TRUE ELSE FALSE END AS is_reverse
+            sqrt(50)::numeric                               AS e10,
+            sqrt(10)::numeric                               AS e5,
+            sqrt( 2)::numeric                               AS e2,
+
+            (@stop::numeric - @start::numeric)              AS span,
+            abs(@stop::numeric - @start::numeric)           AS span_abs,
+            greatest(@count::numeric, 0)                    AS req_cnt
     ),
 
-    -- Handle edge cases first
-    edge_check AS (
-        SELECT
-            start_val,
-            stop_val,
-            count_val,
-            is_reverse,
-            CASE
-                WHEN count_val <= 0 THEN 'empty'
-                WHEN start_val = stop_val THEN 'single'
-                ELSE 'normal'
-            END AS case_type
-        FROM input_params
+    inc_raw AS (
+        SELECT *,
+               span_abs / NULLIF(req_cnt, 0)                AS raw_step,
+               floor( log(10, span_abs / NULLIF(req_cnt,1)) ) AS pow10
+        FROM   spec
     ),
 
-    -- Prepare parameters for tick_spec based on direction
-    tick_spec_params AS (
-        SELECT
-            CASE WHEN is_reverse THEN stop_val ELSE start_val END AS tick_start,
-            CASE WHEN is_reverse THEN start_val ELSE stop_val END AS tick_stop,
-            count_val AS tick_count
-        FROM edge_check
-        WHERE case_type = 'normal'
+    nice AS (
+        SELECT *,
+               raw_step / power(10::numeric, pow10)         AS err,
+               CASE
+                    WHEN raw_step / power(10::numeric, pow10) >= e10 THEN 10
+                    WHEN raw_step / power(10::numeric, pow10) >= e5  THEN  5
+                    WHEN raw_step / power(10::numeric, pow10) >= e2  THEN  2
+                    ELSE 1
+               END                                          AS factor
+        FROM   inc_raw
     ),
 
-    -- Get the tick specifications
+    bounds AS (
+        SELECT *,
+               factor * power(10::numeric, pow10)           AS inc_abs,
+               CASE WHEN @stop >= @start THEN 1 ELSE -1 END AS dir
+        FROM   nice
+    ),
+
+    endpoints AS (
+        SELECT
+            dir,
+            inc_abs,
+            CASE WHEN dir =  1
+                 THEN ceil (@start / inc_abs) * inc_abs
+                 ELSE floor(@start / inc_abs) * inc_abs
+            END                                             AS first_tick,
+
+            CASE WHEN dir =  1
+                 THEN floor(@stop  / inc_abs) * inc_abs
+                 ELSE ceil (@stop  / inc_abs) * inc_abs
+            END                                             AS last_tick
+        FROM bounds
+    ),
+
+    steps AS (
+        SELECT *,
+               floor( abs(last_tick - first_tick) / inc_abs + 0.5 )::int AS n_steps
+        FROM   endpoints
+    ),
+
+    /*----------------  SINGLE  recursive CTE  ----------------*/
     tick_values AS (
-        SELECT
-            tsp.tick_start,
-            tsp.tick_stop,
-            tsp.tick_count,
-            ec.is_reverse,
-            ec.case_type,
-            ts.i1,
-            ts.i2,
-            ts.inc
-        FROM tick_spec_params tsp
-        CROSS JOIN edge_check ec
-        CROSS JOIN @tick_spec_ds ts
-        WHERE ec.case_type = 'normal'
-            AND @start = tsp.tick_start
-            AND @stop = tsp.tick_stop
-            AND @count = tsp.tick_count
-    ),
-
-    -- Generate number series with explicit column naming
-    number_series AS (
-        WITH RECURSIVE counter AS (
-            SELECT 0 AS index_value
-            UNION ALL
-            SELECT index_value + 1 AS index_value
-            FROM counter
-            WHERE index_value < 100
-        )
-        SELECT index_value FROM counter
-    ),
-
-    -- Calculate max index
-    max_index AS (
-        SELECT GREATEST(0, tv.i2 - tv.i1) AS max_i
-        FROM tick_values tv
-    ),
-
-    -- Generate the final tick values
-    final_ticks AS (
-        -- For single value case
-        SELECT start_val AS tick_value
-        FROM edge_check
-        WHERE case_type = 'single'
+        SELECT 0                         AS n,
+               first_tick                AS tick,
+               dir * inc_abs             AS step,
+               n_steps
+        FROM   steps
 
         UNION ALL
-
-        -- For normal case
-        SELECT
-            CASE
-                WHEN tv.is_reverse THEN
-                    CASE
-                        WHEN tv.inc < 0 THEN ((tv.i2 - ns.index_value) / (-tv.inc))
-                        ELSE ((tv.i2 - ns.index_value) * tv.inc)
-                    END
-                ELSE
-                    CASE
-                        WHEN tv.inc < 0 THEN ((tv.i1 + ns.index_value) / (-tv.inc))
-                        ELSE ((tv.i1 + ns.index_value) * tv.inc)
-                    END
-            END AS tick_value
-        FROM tick_values tv
-        CROSS JOIN number_series ns
-        CROSS JOIN max_index mi
-        WHERE ns.index_value <= mi.max_i
-            AND tv.case_type = 'normal'
+        SELECT n + 1,
+               tick + step,
+               step,
+               n_steps
+        FROM   tick_values
+        WHERE  n < n_steps
     )
 
-    -- Return results in appropriate order
-    SELECT tick_value
-        FROM final_ticks
-        WHERE tick_value IS NOT NULL
-        ORDER BY
-        CASE WHEN (SELECT is_reverse FROM input_params) THEN tick_value END DESC,
-        CASE WHEN NOT (SELECT is_reverse FROM input_params) THEN tick_value END ASC;
+SELECT tick as tick_value
+FROM   tick_values
+ORDER  BY n;
+
 
 // Internal tick spec props
-val tick_spec: (SELECT ["i1", "i2", "inc"] FROM @tick_spec_ds);
+//val tick_spec: (SELECT ["i1", "i2", "inc"] FROM @tick_spec_ds);
 
-dataset tick_spec_ds: WITH RECURSIVE
-    -- Initial computation of all parameters
-    base_params AS (
-        SELECT
-            @start AS start_input,
-            @stop AS stop_input,
-            @count AS count_input,
-            (@stop - @start) / GREATEST(0, @count) AS step,
-            FLOOR(LOG(10, (@stop - @start) / GREATEST(0, @count))) AS power
-    ),
+//dataset tick_spec_ds: WITH RECURSIVE
+//    -- Initial computation of all parameters
+//    base_params AS (
+//        SELECT
+//            @start AS start_input,
+//            @stop AS stop_input,
+//            @count AS count_input,
+//            (@stop - @start) / GREATEST(0, @count) AS step,
+//            FLOOR(LOG(10, (@stop - @start) / GREATEST(0, @count))) AS power
+//    ),
 
-    -- Calculate error and factor
-    error_factor AS (
-        SELECT
-            *,
-            step / POWER(10, power) AS error,
-            CASE
-                WHEN step / POWER(10, power) >= 7.071068 THEN 10.0
-                WHEN step / POWER(10, power) >= 3.1622777 THEN 5.0
-                WHEN step / POWER(10, power) >= 1.4142135 THEN 2.0
-                ELSE 1.0
-            END AS factor
-        FROM base_params
-    ),
+//    -- Calculate error and factor
+//    error_factor AS (
+//        SELECT
+//            *,
+//            step / POWER(10, power) AS error,
+//            CASE
+//                WHEN step / POWER(10, power) >= 7.071068 THEN 10.0
+//                WHEN step / POWER(10, power) >= 3.1622777 THEN 5.0
+//                WHEN step / POWER(10, power) >= 1.4142135 THEN 2.0
+//                ELSE 1.0
+//            END AS factor
+//        FROM base_params
+//    ),
 
-    -- Calculate i1, i2, inc based on power
-    calculations AS (
-        SELECT
-            *,
-            CASE
-                WHEN power < 0 THEN
-                    POWER(10, -power) / factor
-                ELSE
-                    NULL
-            END AS temp_inc,
-            CASE
-                WHEN power < 0 THEN
-                    -POWER(10, -power) / factor
-                ELSE
-                    POWER(10, power) * factor
-            END AS inc_val,
-            CASE
-                WHEN power < 0 THEN
-                    CASE
-                        WHEN ROUND(start_input * (POWER(10, -power) / factor)) / (POWER(10, -power) / factor) < start_input
-                        THEN ROUND(start_input * (POWER(10, -power) / factor)) + 1.0
-                        ELSE ROUND(start_input * (POWER(10, -power) / factor))
-                    END
-                ELSE
-                    CASE
-                        WHEN ROUND(start_input / (POWER(10, power) * factor)) * (POWER(10, power) * factor) < start_input
-                        THEN ROUND(start_input / (POWER(10, power) * factor)) + 1.0
-                        ELSE ROUND(start_input / (POWER(10, power) * factor))
-                    END
-            END AS calc_i1,
-            CASE
-                WHEN power < 0 THEN
-                    CASE
-                        WHEN ROUND(stop_input * (POWER(10, -power) / factor)) / (POWER(10, -power) / factor) > stop_input
-                        THEN ROUND(stop_input * (POWER(10, -power) / factor)) - 1.0
-                        ELSE ROUND(stop_input * (POWER(10, -power) / factor))
-                    END
-                ELSE
-                    CASE
-                        WHEN ROUND(stop_input / (POWER(10, power) * factor)) * (POWER(10, power) * factor) > stop_input
-                        THEN ROUND(stop_input / (POWER(10, power) * factor)) - 1.0
-                        ELSE ROUND(stop_input / (POWER(10, power) * factor))
-                    END
-            END AS calc_i2
-        FROM error_factor
-    ),
+//    -- Calculate i1, i2, inc based on power
+//    calculations AS (
+//        SELECT
+//            *,
+//            CASE
+//                WHEN power < 0 THEN
+//                    POWER(10, -power) / factor
+//                ELSE
+//                    NULL
+//            END AS temp_inc,
+//            CASE
+//                WHEN power < 0 THEN
+//                    -POWER(10, -power) / factor
+//                ELSE
+//                    POWER(10, power) * factor
+//            END AS inc_val,
+//            CASE
+//                WHEN power < 0 THEN
+//                    CASE
+//                        WHEN ROUND(start_input * (POWER(10, -power) / factor)) / (POWER(10, -power) / factor) < start_input
+//                        THEN ROUND(start_input * (POWER(10, -power) / factor)) + 1.0
+//                        ELSE ROUND(start_input * (POWER(10, -power) / factor))
+//                    END
+//                ELSE
+//                    CASE
+//                        WHEN ROUND(start_input / (POWER(10, power) * factor)) * (POWER(10, power) * factor) < start_input
+//                        THEN ROUND(start_input / (POWER(10, power) * factor)) + 1.0
+//                        ELSE ROUND(start_input / (POWER(10, power) * factor))
+//                    END
+//            END AS calc_i1,
+//            CASE
+//                WHEN power < 0 THEN
+//                    CASE
+//                        WHEN ROUND(stop_input * (POWER(10, -power) / factor)) / (POWER(10, -power) / factor) > stop_input
+//                        THEN ROUND(stop_input * (POWER(10, -power) / factor)) - 1.0
+//                        ELSE ROUND(stop_input * (POWER(10, -power) / factor))
+//                    END
+//                ELSE
+//                    CASE
+//                        WHEN ROUND(stop_input / (POWER(10, power) * factor)) * (POWER(10, power) * factor) > stop_input
+//                        THEN ROUND(stop_input / (POWER(10, power) * factor)) - 1.0
+//                        ELSE ROUND(stop_input / (POWER(10, power) * factor))
+//                    END
+//            END AS calc_i2
+//        FROM error_factor
+//    ),
 
-    -- Check if recursion is needed
-    needs_recursion_check AS (
-        SELECT
-            calc_i1,
-            calc_i2,
-            inc_val,
-            start_input,
-            stop_input,
-            count_input,
-            CASE
-                WHEN calc_i2 < calc_i1 AND count_input >= 0.5 AND count_input < 2.0 THEN TRUE
-                ELSE FALSE
-            END AS needs_recursion
-        FROM calculations
-    ),
+//    -- Check if recursion is needed
+//    needs_recursion_check AS (
+//        SELECT
+//            calc_i1,
+//            calc_i2,
+//            inc_val,
+//            start_input,
+//            stop_input,
+//            count_input,
+//            CASE
+//                WHEN calc_i2 < calc_i1 AND count_input >= 0.5 AND count_input < 2.0 THEN TRUE
+//                ELSE FALSE
+//            END AS needs_recursion
+//        FROM calculations
+//    ),
 
-    -- If recursion is needed, calculate with doubled count
-    recursion_calc AS (
-        SELECT
-            start_input,
-            stop_input,
-            count_input * 2.0 AS new_count,
-            (stop_input - start_input) / GREATEST(0, count_input * 2.0) AS new_step,
-            FLOOR(LOG(10, (stop_input - start_input) / GREATEST(0, count_input * 2.0))) AS new_power
-        FROM needs_recursion_check
-        WHERE needs_recursion = TRUE
-    ),
+//    -- If recursion is needed, calculate with doubled count
+//    recursion_calc AS (
+//        SELECT
+//            start_input,
+//            stop_input,
+//            count_input * 2.0 AS new_count,
+//            (stop_input - start_input) / GREATEST(0, count_input * 2.0) AS new_step,
+//            FLOOR(LOG(10, (stop_input - start_input) / GREATEST(0, count_input * 2.0))) AS new_power
+//        FROM needs_recursion_check
+//        WHERE needs_recursion = TRUE
+//    ),
 
-    -- Calculate error and factor for recursion
-    recursion_error_factor AS (
-        SELECT
-            *,
-            new_step / POWER(10, new_power) AS new_error,
-            CASE
-                WHEN new_step / POWER(10, new_power) >= 7.071068 THEN 10.0
-                WHEN new_step / POWER(10, new_power) >= 3.1622777 THEN 5.0
-                WHEN new_step / POWER(10, new_power) >= 1.4142135 THEN 2.0
-                ELSE 1.0
-            END AS new_factor
-        FROM recursion_calc
-    ),
+//    -- Calculate error and factor for recursion
+//    recursion_error_factor AS (
+//        SELECT
+//            *,
+//            new_step / POWER(10, new_power) AS new_error,
+//            CASE
+//                WHEN new_step / POWER(10, new_power) >= 7.071068 THEN 10.0
+//                WHEN new_step / POWER(10, new_power) >= 3.1622777 THEN 5.0
+//                WHEN new_step / POWER(10, new_power) >= 1.4142135 THEN 2.0
+//                ELSE 1.0
+//            END AS new_factor
+//        FROM recursion_calc
+//    ),
 
-    -- Calculate i1, i2, inc for recursion
-    recursion_results AS (
-        SELECT
-            CASE
-                WHEN new_power < 0 THEN
-                    CASE
-                        WHEN ROUND(start_input * (POWER(10, -new_power) / new_factor)) / (POWER(10, -new_power) / new_factor) < start_input
-                        THEN ROUND(start_input * (POWER(10, -new_power) / new_factor)) + 1.0
-                        ELSE ROUND(start_input * (POWER(10, -new_power) / new_factor))
-                    END
-                ELSE
-                    CASE
-                        WHEN ROUND(start_input / (POWER(10, new_power) * new_factor)) * (POWER(10, new_power) * new_factor) < start_input
-                        THEN ROUND(start_input / (POWER(10, new_power) * new_factor)) + 1.0
-                        ELSE ROUND(start_input / (POWER(10, new_power) * new_factor))
-                    END
-            END AS new_i1,
-            CASE
-                WHEN new_power < 0 THEN
-                    CASE
-                        WHEN ROUND(stop_input * (POWER(10, -new_power) / new_factor)) / (POWER(10, -new_power) / new_factor) > stop_input
-                        THEN ROUND(stop_input * (POWER(10, -new_power) / new_factor)) - 1.0
-                        ELSE ROUND(stop_input * (POWER(10, -new_power) / new_factor))
-                    END
-                ELSE
-                    CASE
-                        WHEN ROUND(stop_input / (POWER(10, new_power) * new_factor)) * (POWER(10, new_power) * new_factor) > stop_input
-                        THEN ROUND(stop_input / (POWER(10, new_power) * new_factor)) - 1.0
-                        ELSE ROUND(stop_input / (POWER(10, new_power) * new_factor))
-                    END
-            END AS new_i2,
-            CASE
-                WHEN new_power < 0 THEN
-                    -POWER(10, -new_power) / new_factor
-                ELSE
-                    POWER(10, new_power) * new_factor
-            END AS new_inc
-        FROM recursion_error_factor
-    ),
+//    -- Calculate i1, i2, inc for recursion
+//    recursion_results AS (
+//        SELECT
+//            CASE
+//                WHEN new_power < 0 THEN
+//                    CASE
+//                        WHEN ROUND(start_input * (POWER(10, -new_power) / new_factor)) / (POWER(10, -new_power) / new_factor) < start_input
+//                        THEN ROUND(start_input * (POWER(10, -new_power) / new_factor)) + 1.0
+//                        ELSE ROUND(start_input * (POWER(10, -new_power) / new_factor))
+//                    END
+//                ELSE
+//                    CASE
+//                        WHEN ROUND(start_input / (POWER(10, new_power) * new_factor)) * (POWER(10, new_power) * new_factor) < start_input
+//                        THEN ROUND(start_input / (POWER(10, new_power) * new_factor)) + 1.0
+//                        ELSE ROUND(start_input / (POWER(10, new_power) * new_factor))
+//                    END
+//            END AS new_i1,
+//            CASE
+//                WHEN new_power < 0 THEN
+//                    CASE
+//                        WHEN ROUND(stop_input * (POWER(10, -new_power) / new_factor)) / (POWER(10, -new_power) / new_factor) > stop_input
+//                        THEN ROUND(stop_input * (POWER(10, -new_power) / new_factor)) - 1.0
+//                        ELSE ROUND(stop_input * (POWER(10, -new_power) / new_factor))
+//                    END
+//                ELSE
+//                    CASE
+//                        WHEN ROUND(stop_input / (POWER(10, new_power) * new_factor)) * (POWER(10, new_power) * new_factor) > stop_input
+//                        THEN ROUND(stop_input / (POWER(10, new_power) * new_factor)) - 1.0
+//                        ELSE ROUND(stop_input / (POWER(10, new_power) * new_factor))
+//                    END
+//            END AS new_i2,
+//            CASE
+//                WHEN new_power < 0 THEN
+//                    -POWER(10, -new_power) / new_factor
+//                ELSE
+//                    POWER(10, new_power) * new_factor
+//            END AS new_inc
+//        FROM recursion_error_factor
+//    ),
 
-    -- Combine original and recursion results
-    combined_results AS (
-        SELECT
-            needs_recursion_check.calc_i1 AS orig_i1,
-            needs_recursion_check.calc_i2 AS orig_i2,
-            needs_recursion_check.inc_val AS orig_inc,
-            needs_recursion_check.needs_recursion,
-            recursion_results.new_i1,
-            recursion_results.new_i2,
-            recursion_results.new_inc
-        FROM needs_recursion_check
-        LEFT JOIN recursion_results ON needs_recursion_check.needs_recursion = TRUE
-    )
+//    -- Combine original and recursion results
+//    combined_results AS (
+//        SELECT
+//            needs_recursion_check.calc_i1 AS orig_i1,
+//            needs_recursion_check.calc_i2 AS orig_i2,
+//            needs_recursion_check.inc_val AS orig_inc,
+//            needs_recursion_check.needs_recursion,
+//            recursion_results.new_i1,
+//            recursion_results.new_i2,
+//            recursion_results.new_inc
+//        FROM needs_recursion_check
+//        LEFT JOIN recursion_results ON needs_recursion_check.needs_recursion = TRUE
+//    )
 
-    -- Final selection based on whether recursion was needed
-    SELECT
-        CASE
-            WHEN needs_recursion = TRUE THEN new_i1
-            ELSE orig_i1
-        END AS i1,
-        CASE
-            WHEN needs_recursion = TRUE THEN new_i2
-            ELSE orig_i2
-        END AS i2,
-        CASE
-            WHEN needs_recursion = TRUE THEN new_inc
-            ELSE orig_inc
-        END AS inc
-    FROM combined_results;
+//    -- Final selection based on whether recursion was needed
+//    SELECT
+//        CASE
+//            WHEN needs_recursion = TRUE THEN new_i1
+//            ELSE orig_i1
+//        END AS i1,
+//        CASE
+//            WHEN needs_recursion = TRUE THEN new_i2
+//            ELSE orig_i2
+//        END AS i2,
+//        CASE
+//            WHEN needs_recursion = TRUE THEN new_inc
+//            ELSE orig_inc
+//        END AS inc
+//    FROM combined_results;
