@@ -15,7 +15,7 @@ comp x_scale: LinearScale {
 
 comp y_scale: LinearScale {
     domain := (select [min("SepalWidthCm"), max("SepalWidthCm")] from @iris);
-    nice := 10;
+    nice := 5;
     range := [440, 40];
 }
 
