@@ -8,7 +8,7 @@ use datafusion_common::ScalarValue;
 use datafusion_common::tree_node::TreeNode;
 use sqlparser::ast::{Expr, Ident, ObjectName, VisitMut, Visitor, VisitorMut};
 use sqlparser::ast::{Expr as SqlExpr, Query as SqlQuery};
-use crate::ast::{AvengerScript, Block, ExprDecl, TableDecl, ValDecl, VarAssignment};
+use crate::ast::{AvengerScript, Block, ExprDecl, IfStmt, ScriptStatement, TableDecl, ValDecl, VarAssignment, WhileStmt};
 use crate::environment::Environment;
 use crate::error::AvengerLangError;
 use crate::table::ArrowTable;
@@ -30,15 +30,6 @@ impl AvengerInterpreter {
         Self {
             environment: Arc::new(Environment::new()),
             tokio_runtime,
-        }
-    }
-
-    pub fn interpret_script(&mut self, script: &AvengerScript) -> Result<(), AvengerLangError> {
-        match script.visit(self) {
-            ControlFlow::Continue(_) => Ok(()),
-            ControlFlow::Break(e) => {
-                e
-            }
         }
     }
 
@@ -122,121 +113,133 @@ impl AvengerInterpreter {
         }
         Ok(query)
     }
-
-
 }
 
-impl Visitor for AvengerInterpreter{
-    type Break = Result<(), AvengerLangError>;
-}
-impl AvengerVisitor for AvengerInterpreter {
-    fn pre_visit_block(&mut self, _block: &Block) -> ControlFlow<Self::Break> {
-        // Push new scope
-        self.environment = Arc::new(self.environment.push());
-        ControlFlow::Continue(())
-    }
-
-    fn post_visit_block(&mut self, _block: &Block) -> ControlFlow<Self::Break> {
-        // Pop scope
-        self.environment = self.environment.pop().unwrap();
-        ControlFlow::Continue(())
-    }
-
-    fn pre_visit_val_decl(&mut self, statement: &ValDecl) -> ControlFlow<Self::Break> {
+/// Interpreter traversal
+impl AvengerInterpreter {
+    fn interpret_val_decl(&mut self, statement: &ValDecl) -> Result<(), AvengerLangError> {
         // Evaluate value expression
-        let val = match self.tokio_runtime.block_on(self.evaluate_val(&statement.expr)) {
-            Ok(val) => val,
-            Err(err) => {
-                return ControlFlow::Break(Err(err));
-            }
-        };
+        let val = self.tokio_runtime.block_on(self.evaluate_val(&statement.expr))?;
 
         // Store value in environment
         self.environment.insert_val(vec![statement.name.value.clone()], val);
-
-        ControlFlow::Continue(())
+        Ok(())
     }
 
-    fn pre_visit_expr_decl(&mut self, statement: &ExprDecl) -> ControlFlow<Self::Break> {
-        let expr = match self.evaluate_expr(&statement.expr) {
-            Ok(expr) => expr,
-            Err(err) => {
-                return ControlFlow::Break(Err(err));
-            }
-        };
+    fn interpret_expr_decl(&mut self, statement: &ExprDecl) -> Result<(), AvengerLangError> {
+        let expr = self.evaluate_expr(&statement.expr)?;
 
         // Store expression in environment
         self.environment.insert_expr(vec![statement.name.value.clone()], expr);
-
-        ControlFlow::Continue(())
+        Ok(())
     }
 
-    fn pre_visit_table_decl(&mut self, statement: &TableDecl) -> ControlFlow<Self::Break> {
-        let table = match self.tokio_runtime.block_on(self.evaluate_table(&statement.query)) {
-            Ok(val) => val,
-            Err(err) => {
-                return ControlFlow::Break(Err(err));
-            }
-        };
+    fn interpret_table_decl(&mut self, statement: &TableDecl) -> Result<(), AvengerLangError> {
+        let table = self.tokio_runtime.block_on(self.evaluate_table(&statement.query))?;
 
         // Store table in environment
         self.environment.insert_table(vec![statement.name.value.clone()], table);
-
-        ControlFlow::Continue(())
+        Ok(())
     }
 
-    fn pre_visit_var_assignment(&mut self, statement: &VarAssignment) -> ControlFlow<Self::Break> {
+    fn interpret_var_assignment(&mut self, statement: &VarAssignment) -> Result<(), AvengerLangError> {
         let name = vec![statement.name.value.clone()];
         if self.environment.has_val(&name) {
-            let expr = match statement.expr.clone().into_expr() {
-                Ok(expr) => expr,
-                Err(err) => return ControlFlow::Break(Err(err)),
-            };
-            let val = match self.tokio_runtime.block_on(self.evaluate_val(&expr)) {
-                Ok(val) => val,
-                Err(err) => return ControlFlow::Break(Err(err)),
-            };
+            let expr = statement.expr.clone().into_expr()?;
+            let val = self.tokio_runtime.block_on(self.evaluate_val(&expr))?;
 
             if let Err(err) = self.environment.assign_val(name, val) {
-                return ControlFlow::Break(Err(err))
+                return Err(err)
             }
         } else if self.environment.has_expr(&name) {
-            let expr = match statement.expr.clone().into_expr() {
-                Ok(expr) => expr,
-                Err(err) => return ControlFlow::Break(Err(err)),
-            };
-            let expr = match self.evaluate_expr(&expr) {
-                Ok(expr) => expr,
-                Err(err) => return ControlFlow::Break(Err(err)),
-            };
+            let expr = statement.expr.clone().into_expr()?;
+            let expr = self.evaluate_expr(&expr)?;
+
             if let Err(err) = self.environment.assign_expr(name, expr) {
-                return ControlFlow::Break(Err(err))
+                return Err(err)
             }
         } else if self.environment.has_table(&name) {
-            let query = match statement.expr.clone().into_query() {
-                Ok(query) => query,
-                Err(err) => return ControlFlow::Break(Err(err)),
-            };
-            let table = match self.tokio_runtime.block_on(self.evaluate_table(&query)) {
-                Ok(table) => table,
-                Err(err) => return ControlFlow::Break(Err(err)),
-            };
+            let query = statement.expr.clone().into_query()?;
+            let table = self.tokio_runtime.block_on(self.evaluate_table(&query))?;
+
             if let Err(err) = self.environment.assign_table(name, table) {
-                return ControlFlow::Break(Err(err))
+                return Err(err)
             }
         } else {
-            return ControlFlow::Break(Err(AvengerLangError::InternalError(
+            return Err(AvengerLangError::InternalError(
                 format!("Variable {} not found", name.join(".")),
-            )));
+            ));
         }
-        ControlFlow::Continue(())
+        Ok(())
+    }
+
+    fn interpret_if_stmt(&mut self, if_stmt: &IfStmt) -> Result<(), AvengerLangError> {
+        for branch in &if_stmt.branches {
+            let val = self.tokio_runtime.block_on(self.evaluate_val(&branch.condition))?;
+            if !(val.is_null() || val == ScalarValue::Boolean(Some(false))) {
+                // Execute block and return
+                self.interpret_statement(&branch.body)?;
+                return Ok(());
+            }
+        }
+        // Check for else branch
+        if let Some(else_branch) = &if_stmt.else_branch {
+            // Execute else block
+            self.interpret_statement(&else_branch.body)?;
+            return Ok(());
+        }
+        Ok(())
+    }
+
+    fn interpret_while_stmt(&mut self, while_stmt: &WhileStmt) -> Result<(), AvengerLangError> {
+        loop {
+            let val = self.tokio_runtime.block_on(self.evaluate_val(&while_stmt.condition))?;
+            if val.is_null() || val == ScalarValue::Boolean(Some(false)) {
+                break;
+            }
+            // Execute block
+            self.interpret_statement(&while_stmt.body)?;
+        }
+        Ok(())
+    }
+
+    fn interpret_block(&mut self, block: &Block) -> Result<(), AvengerLangError> {
+        // Push new scope
+        self.environment = Arc::new(self.environment.push());
+
+        for statement in &block.statements {
+            if let Err(err) = self.interpret_statement(statement) {
+                return Err(err);
+            }
+        }
+
+        // Pop scope
+        self.environment = self.environment.pop().unwrap();
+
+        Ok(())
+    }
+
+    fn interpret_statement(&mut self, statement: &ScriptStatement) -> Result<(), AvengerLangError> {
+        match statement {
+            ScriptStatement::ValDecl(val_decl) => self.interpret_val_decl(val_decl),
+            ScriptStatement::ExprDecl(expr_decl) => self.interpret_expr_decl(expr_decl),
+            ScriptStatement::TableDecl(table_decl) => self.interpret_table_decl(table_decl),
+            ScriptStatement::VarAssignment(var_assignment) => self.interpret_var_assignment(var_assignment),
+            ScriptStatement::IfStmt(if_stmt) => self.interpret_if_stmt(if_stmt),
+            ScriptStatement::Block(block) => self.interpret_block(block),
+            ScriptStatement::WhileStmt(while_stmt) => self.interpret_while_stmt(while_stmt),
+        }
+    }
+
+    pub fn interpret_script(&mut self, script: &AvengerScript) -> Result<(), AvengerLangError> {
+        for statement in &script.statements {
+            if let Err(err) = self.interpret_statement(statement) {
+                return Err(err);
+            }
+        }
+        Ok(())
     }
 }
-
-
-
-
-
 
 /// Visitor that runs prior to expression/query evaluation with DataFusion
 pub struct PreEvalVisitor<'a> {
@@ -348,9 +351,32 @@ mod tests {
 val foo: 23;
 val bar: @foo + 100;
 expr abc: @bar + "colA";
-{
+if (2 > 23) {
     table my_table: SELECT @foo as c1;
     foo := @bar + 1;
+} else {
+    foo := 0;
+}
+"#;
+        let mut parser = AvengerParser::new(src).unwrap();
+        let script = parser.parse_script().unwrap();
+
+        let mut interpreter = AvengerInterpreter::new();
+        interpreter.interpret_script(&script).expect("Failed to interpret script");
+
+        println!("{:#?}", interpreter.environment);
+    }
+
+    #[test]
+    fn test_interpret_script2() {
+        let src = r#"
+val i: 0;
+val total: 0;
+while (@i < 10) {
+    if (@i % 2 == 0) {
+        total := @total + @i;
+    }
+    i := @i + 1;
 }
 "#;
         let mut parser = AvengerParser::new(src).unwrap();
