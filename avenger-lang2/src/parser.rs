@@ -8,7 +8,7 @@ use sqlparser::ast::{Expr as SqlExpr, Ident, Query as SqlQuery, Statement as Sql
 use sqlparser::dialect::{Dialect, GenericDialect, SnowflakeDialect};
 use sqlparser::parser::{Parser as SqlParser, ParserError};
 use sqlparser::tokenizer::{Span, Token, TokenWithSpan, Tokenizer};
-use crate::ast::{AvengerScript, Block, ExprDecl, KeywordExpr, KeywordTable, KeywordVal, ScriptStatement, SqlExprOrQuery, TableDecl, ValDecl, VarAssignment};
+use crate::ast::{AvengerScript, Block, ElseBranch, ExprDecl, IfBranch, IfStmt, KeywordElse, KeywordExpr, KeywordIf, KeywordTable, KeywordVal, KeywordWhile, ScriptStatement, SqlExprOrQuery, TableDecl, ValDecl, VarAssignment, WhileStmt};
 use crate::error::{AvengerLangError, PositionalParseErrorInfo};
 
 lazy_static! {
@@ -140,6 +140,8 @@ impl<'a> AvengerParser<'a> {
                 "val" => ScriptStatement::ValDecl(self.parse_val_decl(ident)?),
                 "expr" => ScriptStatement::ExprDecl(self.parse_expr_decl(ident)?),
                 "table" => ScriptStatement::TableDecl(self.parse_table_decl(ident)?),
+                "if" => ScriptStatement::IfStmt(Box::new(self.parse_if_statement(ident)?)),
+                "while" => ScriptStatement::WhileStmt(Box::new(self.parse_while_statement(ident)?)),
                 // name := query_or_expr;
                 _ if self.parser.peek_token().token == Token::Assignment => {
                     // Consume the assignment token
@@ -234,11 +236,11 @@ impl<'a> AvengerParser<'a> {
 
     fn parse_table_decl(
         &mut self,
-        statement_iden: Ident,
+        statement_ident: Ident,
     ) -> Result<TableDecl, AvengerLangError> {
         // Build dataset keyword from statement identifier
         let dataset_keyword = KeywordTable {
-            span: statement_iden.span,
+            span: statement_ident.span,
         };
 
         // Get the property name
@@ -258,6 +260,102 @@ impl<'a> AvengerParser<'a> {
             name,
             query,
         })
+    }
+
+    fn parse_if_statement(
+        &mut self,
+        statement_ident: Ident,
+    ) -> Result<IfStmt, AvengerLangError> {
+        // Build dataset keyword from statement identifier
+        let mut if_keyword = KeywordIf {
+            span: statement_ident.span,
+        };
+        let mut else_keyword = None;
+
+        let mut branches = vec![];
+
+        // Parse condition
+        let else_branch = loop {
+            self.parser.expect_token(&Token::LParen)?;
+            let condition = self.parser.parse_expr()?;
+            self.parser.expect_token(&Token::RParen)?;
+            // Parse branch body
+            let body = self.parse_statement()?;
+
+            branches.push(IfBranch {
+                else_keyword: None,
+                if_keyword: if_keyword.clone(),
+                condition,
+                body,
+            });
+            if self.peek_is_ident(0, Some("else")) {
+                // parse else
+                let else_ident = self.expect_ident(None, "else keyword")?;
+                else_keyword = Some(KeywordElse {
+                    span: else_ident.span,
+                });
+
+                // see if this is an if-else if
+                if self.peek_is_ident(0, Some("if")) {
+                    // parse else if
+                    let if_ident = self.expect_ident(None, "else if keyword")?;
+                    if_keyword = KeywordIf {
+                        span: if_ident.span,
+                    };
+                    continue;
+                } else {
+                    // parse else body
+                    let body = self.parse_statement()?;
+                    break Some(ElseBranch {
+                        else_keyword: else_keyword.clone().unwrap(),
+                        body,
+                    });
+                }
+            }
+            // Done with no else branch
+            break None;
+        };
+
+        Ok(IfStmt {
+            branches,
+            else_branch,
+        })
+    }
+
+    fn parse_while_statement(
+        &mut self,
+        statement_ident: Ident,
+    ) -> Result<WhileStmt, AvengerLangError> {
+        let mut while_keyword = KeywordWhile {
+            span: statement_ident.span,
+        };
+        // Parse condition
+        self.parser.expect_token(&Token::LParen)?;
+        let condition = self.parser.parse_expr()?;
+        self.parser.expect_token(&Token::RParen)?;
+
+        // Parse body
+        let body = self.parse_statement()?;
+        
+        Ok(WhileStmt {
+            while_keyword,
+            condition,
+            body,
+        })
+    }
+    
+
+    fn peek_is_ident(&mut self, nth: usize, expected: Option<&str>) -> bool {
+        let next_token = self.parser.peek_nth_token(nth);
+        match next_token.token {
+            Token::Word(w) => {
+                if let Some(expected) = expected {
+                    return w.value.to_lowercase() == expected.to_lowercase();
+                }
+                true
+            }
+            _ => false,
+        }
     }
 
     fn peek_ident(&mut self, nth: usize) -> Result<Ident, ParserError> {

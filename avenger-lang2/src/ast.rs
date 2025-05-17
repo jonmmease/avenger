@@ -19,14 +19,15 @@ impl fmt::Display for AvengerScript {
     }
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ScriptStatement {
     ValDecl(ValDecl),
     ExprDecl(ExprDecl),
     TableDecl(TableDecl),
     VarAssignment(VarAssignment),
-    Block(Block)
+    Block(Block),
+    IfStmt(Box<IfStmt>),
+    WhileStmt(Box<WhileStmt>),
 }
 
 impl fmt::Display for ScriptStatement {
@@ -37,6 +38,8 @@ impl fmt::Display for ScriptStatement {
             ScriptStatement::TableDecl(dataset_prop) => write!(f, "{}", dataset_prop),
             ScriptStatement::VarAssignment(var_assignment) => write!(f, "{}", var_assignment),
             ScriptStatement::Block(block) => write!(f, "{}", block),
+            ScriptStatement::IfStmt(if_statement) => write!(f, "{}", if_statement),
+            ScriptStatement::WhileStmt(while_statement) => write!(f, "{}", while_statement),
         }
     }
 }
@@ -49,6 +52,8 @@ impl Spanned for ScriptStatement {
             ScriptStatement::TableDecl(dataset_prop) => dataset_prop.span(),
             ScriptStatement::VarAssignment(var_assignment) => var_assignment.span(),
             ScriptStatement::Block(block) => block.span(),
+            ScriptStatement::IfStmt(if_statement) => if_statement.span(),
+            ScriptStatement::WhileStmt(while_statement) => while_statement.span(),
         }
     }
 }
@@ -206,6 +211,109 @@ impl fmt::Display for VarAssignment {
     }
 }
 
+// if
+// --
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct IfBranch {
+    pub else_keyword: Option<KeywordElse>,
+    pub if_keyword: KeywordIf,
+    pub condition: SqlExpr,
+    pub body: ScriptStatement
+}
+
+impl Spanned for IfBranch {
+    fn span(&self) -> Span {
+        let mut span = Span::empty();
+        span = span.union(&self.condition.span());
+        span = span.union(&self.body.span());
+        span
+    }
+}
+
+impl fmt::Display for IfBranch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.else_keyword.is_some() {
+            write!(f, "else ")?;
+        }
+        write!(f, "if {}", self.body)
+    }
+}
+
+// while
+// -----
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct WhileStmt {
+    pub while_keyword: KeywordWhile,
+    pub condition: SqlExpr,
+    pub body: ScriptStatement,
+}
+
+impl Spanned for WhileStmt {
+    fn span(&self) -> Span {
+        let mut span = Span::empty();
+        span = span.union(&self.condition.span());
+        span = span.union(&self.body.span());
+        span
+    }
+}
+
+impl fmt::Display for WhileStmt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "while {}", self.body)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ElseBranch {
+    pub else_keyword: KeywordElse,
+    pub body: ScriptStatement,
+}
+
+impl Spanned for ElseBranch {
+    fn span(&self) -> Span {
+        let span = self.else_keyword.span;
+        span.union(&self.body.span())
+    }
+}
+
+impl fmt::Display for ElseBranch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "else {}", self.body)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct IfStmt {
+    pub branches: Vec<IfBranch>,
+    pub else_branch: Option<ElseBranch>,
+}
+
+impl Spanned for IfStmt {
+    fn span(&self) -> Span {
+        let mut span = Span::empty();
+        for branch in &self.branches {
+            span = span.union(&branch.span());
+        }
+        if let Some(else_branch) = &self.else_branch {
+            span = span.union(&else_branch.span());
+        }
+        span
+    }
+}
+
+impl fmt::Display for IfStmt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for branch in &self.branches {
+            write!(f, "{}\n", branch)?;
+        }
+        if let Some(else_branch) = &self.else_branch {
+            write!(f, "{}", else_branch)?;
+        }
+        Ok(())
+    }
+}
+
 // Keywords
 // --------
 macro_rules! define_keyword {
@@ -241,6 +349,9 @@ define_keyword!(KeywordComp);
 define_keyword!(KeywordFn);
 define_keyword!(KeywordReturn);
 define_keyword!(KeywordFrom);
+define_keyword!(KeywordIf);
+define_keyword!(KeywordElse);
+define_keyword!(KeywordWhile);
 
 
 // sql expr or query
