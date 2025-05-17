@@ -641,6 +641,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-lang2"
+version = "0.1.0"
+dependencies = [
+ "ariadne",
+ "arrow",
+ "arrow-schema",
+ "async-trait",
+ "datafusion",
+ "datafusion-common",
+ "datafusion-sql",
+ "heck 0.4.1",
+ "lazy_static 1.5.0",
+ "nanoid",
+ "regex",
+ "serde",
+ "serde_json",
+ "sqlparser",
+ "sqlparser_derive",
+ "thiserror 2.0.3",
+ "tokio",
+]
+
+[[package]]
 name = "avenger-runtime"
 version = "0.1.0"
 dependencies = [
