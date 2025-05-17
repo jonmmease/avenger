@@ -1,0 +1,25 @@
+[package]
+name = "avenger-lang2"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+heck = "0.4"
+thiserror = { workspace = true }
+
+ariadne = "0.5.1"
+sqlparser = { workspace = true, features = ["visitor"] }
+sqlparser_derive = { workspace = true }
+regex = "1"
+lazy_static = { workspace = true }
+nanoid = "0.4.0"
+
+datafusion = { workspace = true }
+datafusion-common = { workspace = true }
+datafusion-sql = { workspace = true }
+arrow = { workspace = true }
+arrow-schema = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
