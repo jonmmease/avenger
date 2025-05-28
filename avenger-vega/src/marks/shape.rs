@@ -3,13 +3,14 @@ use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::CssColorOrGradient;
 use avenger_common::types::{ColorOrGradient, Gradient, PathTransform, StrokeCap, StrokeJoin};
 use avenger_common::value::ScalarOrArray;
-use avenger_scenegraph::error::AvengerSceneGraphError;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::path::ScenePathMark;
-use avenger_scenegraph::marks::symbol::parse_svg_path;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Arc;
+use lyon_extra::parser::ParseError;
+use avenger_common::lyon::parse_svg_path;
+
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VegaShapeItem {
@@ -122,7 +123,7 @@ impl VegaMarkContainer<VegaShapeItem> {
             let paths = path_str
                 .iter()
                 .map(|p| parse_svg_path(p))
-                .collect::<Result<Vec<_>, AvengerSceneGraphError>>()?;
+                .collect::<Result<Vec<_>, ParseError>>()?;
             mark.path = ScalarOrArray::new_array(paths);
         }
 

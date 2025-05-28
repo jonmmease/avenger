@@ -1,6 +1,6 @@
 use arrow::array::{ArrayRef, Float32Builder, Float64Builder, StringArray, StringBuilder};
 use avenger_app::app::{AvengerApp, SceneGraphBuilder};
-use avenger_common::types::ColorOrGradient;
+use avenger_common::types::{ColorOrGradient, SymbolShape};
 use avenger_common::value::ScalarOrArray;
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{EventStreamConfig, EventStreamFilter, UpdateStatus};
@@ -16,7 +16,7 @@ use avenger_scales::scales::ordinal::OrdinalScale;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::symbol::{SceneSymbolMark, SymbolShape};
+use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_winit_wgpu::WinitWgpuAvengerApp;
 
