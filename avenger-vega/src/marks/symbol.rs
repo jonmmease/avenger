@@ -1,15 +1,17 @@
 use crate::error::AvengerVegaError;
 use crate::marks::mark::{VegaMarkContainer, VegaMarkItem};
 use crate::marks::values::{CssColorOrGradient, StrokeDashSpec};
-use avenger_common::types::{ColorOrGradient, Gradient, StrokeCap, StrokeJoin};
+use avenger_common::types::{ColorOrGradient, Gradient, StrokeCap, StrokeJoin, SymbolShape};
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::error::AvengerSceneGraphError;
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::line::SceneLineMark;
 use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::symbol::{SceneSymbolMark, SymbolShape};
+use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use lyon_extra::parser::ParseError;
+
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VegaSymbolItem {
@@ -196,7 +198,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
             mark.shapes = shape_strings
                 .iter()
                 .map(|s| SymbolShape::from_vega_str(s))
-                .collect::<Result<Vec<SymbolShape>, AvengerSceneGraphError>>()?;
+                .collect::<Result<Vec<SymbolShape>, ParseError>>()?;
         }
 
         // Add gradients

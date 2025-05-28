@@ -16,7 +16,6 @@ use std::sync::Arc;
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::mark::{MarkInstance, SceneMark};
 use avenger_scenegraph::marks::rect::SceneRectMark;
-use avenger_scenegraph::marks::symbol::SymbolShape;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;

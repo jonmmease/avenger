@@ -13,10 +13,6 @@ members = [
     "avenger-eventstream",
     "avenger-app",
     "avenger-winit-wgpu",
-    "avenger-lang",
-    "avenger-lang2",
-    "avenger-runtime",
-    "avenger-cli",
     "examples/wgpu-scales",
     "examples/wgpu-winit",
     "examples/iris",
@@ -73,12 +69,7 @@ anyhow = { version = "1.0.98" }
 
 base64 = "0.22.1"
 urlencoding = "2.1"
-
-sqlparser = { version = "0.54.0" }
-sqlparser_derive = "0.3.0"
-datafusion = { version = "46.0.0" }
 datafusion-common = { version = "46.0.0" }
-datafusion-sql = { version = "46.0.0" }
 
 pixelmatch = "0.1"
 rstest = "0.25.0"
