@@ -21,7 +21,7 @@ svgtypes = "0.15.1"
 
 arrow = { workspace = true }
 datafusion-common = { workspace = true }
-numfmt = "1.1"
+format_num = "0.1"
 css-color-parser = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
