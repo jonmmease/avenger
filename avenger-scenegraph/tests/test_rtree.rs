@@ -1,9 +1,9 @@
-use avenger_common::{canvas::CanvasDimensions, types::AreaOrientation};
+use avenger_common::{canvas::CanvasDimensions, types::{AreaOrientation, SymbolShape}};
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::marks::{
     area::SceneAreaMark,
-    symbol::{SceneSymbolMark, SymbolShape},
+    symbol::SceneSymbolMark,
     text::SceneTextMark,
 };
 use avenger_scenegraph::scene_graph::SceneGraph;
@@ -210,8 +210,8 @@ fn test_text_rtree() {
     mark.y = vec![0.0].into();
     mark.text = vec!["0".to_string()].into();
 
-    let rasterizer = CosmicTextRasterizer::<()>::new();
-    let dimensions = CanvasDimensions {
+    let _rasterizer = CosmicTextRasterizer::<()>::new();
+    let _dimensions = CanvasDimensions {
         size: [100.0, 100.0],
         scale: 1.0,
     };

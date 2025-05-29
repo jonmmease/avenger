@@ -20,7 +20,7 @@ pub enum AvengerImageError {
     #[error("string decode error")]
     FromUtf8Error(#[from] FromUtf8Error),
 
-    #[cfg(feature = "image-request")]
+    #[cfg(feature = "reqwest")]
     #[error("css color parse error")]
     ReqwestError(#[from] reqwest::Error),
 

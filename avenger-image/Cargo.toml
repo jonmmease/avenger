@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["svg", "image-request"]
+default = ["svg", "reqwest"]
 svg = [ "resvg", "usvg", "tiny-skia",]
-image-request = [ "reqwest",]
+reqwest = [ "dep:reqwest",]
 
 [dependencies]
 thiserror = { workspace = true }

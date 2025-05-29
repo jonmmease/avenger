@@ -22,10 +22,6 @@ features = [ "serialization",]
 [dependencies.lyon_algorithms]
 workspace = true
 
-[dependencies.image]
-workspace = true
-features = [ "png",]
-
 [dependencies.pyo3]
 workspace = true
 optional = true
