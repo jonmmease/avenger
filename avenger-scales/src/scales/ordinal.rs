@@ -1,15 +1,15 @@
 use std::{collections::HashMap, sync::Arc};
 
 use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};
-use crate::{error::AvengerScaleError, utils::ScalarValueUtils};
+use crate::error::AvengerScaleError;
 
 use arrow::{
     array::{ArrayRef, AsArray, Float32Array, UInt32Array},
     compute::kernels::{cast, take},
-    datatypes::{DataType, Float32Type, UInt32Type},
+    datatypes::{DataType, UInt32Type},
 };
 use avenger_common::{
-    types::{AreaOrientation, ColorOrGradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin},
+    types::{AreaOrientation, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin},
     value::ScalarOrArray,
 };
 use datafusion_common::{DataFusionError, ScalarValue};
@@ -158,64 +158,6 @@ fn ordinal_scale_to<R: Sync + Clone>(
     Ok(ScalarOrArray::new_array(scaled_values))
 }
 
-pub(crate) fn prep_discrete_numeric_range(
-    config: &ScaleConfig,
-) -> Result<(Vec<f32>, f32), AvengerScaleError> {
-    let range = config.range.as_primitive::<Float32Type>();
-    let default_value = config.option_f32("default", f32::NAN);
-    Ok((
-        range.iter().map(|i| i.unwrap_or(default_value)).collect(),
-        default_value,
-    ))
-}
-
-pub(crate) fn prep_discrete_string_range(
-    config: &ScaleConfig,
-) -> Result<(Vec<String>, String), AvengerScaleError> {
-    // Try to convert range to Utf8
-    let range = cast(&config.range, &DataType::Utf8).map_err(|_| {
-        AvengerScaleError::ScaleOperationNotSupported(
-            "ordinal scale range is not a string array".to_string(),
-        )
-    })?;
-    let default_value = config.option_string("default", "");
-    let range_vec = range
-        .as_string::<i32>()
-        .iter()
-        .map(|i| {
-            i.map(|v| v.to_string())
-                .unwrap_or_else(|| default_value.clone())
-        })
-        .collect::<Vec<_>>();
-    Ok((range_vec, default_value))
-}
-
-pub(crate) fn prep_discrete_color_range(
-    config: &ScaleConfig,
-) -> Result<(Vec<ColorOrGradient>, ColorOrGradient), AvengerScaleError> {
-    // Get default color
-    let default_color = config
-        .options
-        .get("default")
-        .cloned()
-        .unwrap_or("transparent".into())
-        .as_rgba()?;
-
-    // Get range colors
-    let range_vec = (0..config.range.len())
-        .map(|i| {
-            let tmp = ScalarValue::try_from_array(&config.range, i)
-                .unwrap()
-                .as_rgba()
-                .unwrap();
-
-            let rgba = ScalarValue::try_from_array(&config.range, i)
-                .map(|v| v.as_rgba().unwrap_or(default_color))?;
-            Ok(ColorOrGradient::Color(rgba))
-        })
-        .collect::<Result<Vec<_>, DataFusionError>>()?;
-    Ok((range_vec, ColorOrGradient::Color(default_color)))
-}
 
 pub(crate) fn prep_discrete_enum_range<R: Sync + Clone + DeserializeOwned + Default>(
     config: &ScaleConfig,

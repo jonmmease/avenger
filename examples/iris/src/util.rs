@@ -1,4 +1,4 @@
-use arrow::array::{ArrayRef, Float32Builder, Float64Builder, StringArray, StringBuilder};
+use arrow::array::{ArrayRef, Float32Builder, StringArray, StringBuilder};
 use avenger_app::app::{AvengerApp, SceneGraphBuilder};
 use avenger_common::types::{ColorOrGradient, SymbolShape};
 use avenger_common::value::ScalarOrArray;
@@ -8,9 +8,7 @@ use avenger_eventstream::window::{MouseButton, MouseScrollDelta};
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::axis::numeric::make_numeric_axis_marks;
 use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
-use avenger_guides::error::AvengerGuidesError;
 use avenger_guides::legend::symbol::{make_symbol_legend, SymbolLegendConfig};
-use avenger_scales::error::AvengerScaleError;
 use avenger_scales::scales::linear::LinearScale;
 use avenger_scales::scales::ordinal::OrdinalScale;
 use avenger_scales::scales::ConfiguredScale;
@@ -28,7 +26,6 @@ use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
 use std::time::Instant;
-use winit::event_loop::EventLoop;
 
 #[derive(Clone)]
 pub struct PanAnchor {
@@ -39,13 +36,16 @@ pub struct PanAnchor {
 
 #[derive(Clone)]
 pub struct ChartState {
+    #[allow(dead_code)]
     pub hover_index: Option<usize>,
     pub width: f32,
     pub height: f32,
     pub domain_sepal_length: (f32, f32),
     pub domain_sepal_width: (f32, f32),
     pub sepal_length: ArrayRef,
+    #[allow(dead_code)]
     pub sepal_width: ArrayRef,
+    #[allow(dead_code)]
     pub species: ArrayRef,
     pub plot_group_name: String,
 

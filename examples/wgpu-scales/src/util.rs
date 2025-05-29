@@ -20,13 +20,8 @@ use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
 
-use avenger_scales::color_interpolator::{
-    HslaColorInterpolator, LabaColorInterpolator, SrgbaColorInterpolator,
-};
 use avenger_scales::scales::band::BandScale;
 use avenger_scales::scales::linear::LinearScale;
-use avenger_scales::scales::{ScaleConfig, ScaleImpl};
-use avenger_vega::marks::values::StrokeDashSpec::String;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 use winit::application::ApplicationHandler;

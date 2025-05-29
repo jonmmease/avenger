@@ -216,7 +216,7 @@ impl ScaleImpl for SymlogScale {
         let (range_start, range_end) = config.numeric_interval_range()?;
         let range_offset = config.option_f32("range_offset", 0.0);
         let clamp = config.option_boolean("clamp", false);
-        let round = config.option_boolean("round", false);
+        let _round = config.option_boolean("round", false);
         let constant = config.option_f32("constant", 1.0);
 
         // Handle degenerate domain case
@@ -240,7 +240,6 @@ impl ScaleImpl for SymlogScale {
 
         // Pre-compute scale and offset outside the loop
         let scale = (d1 - d0) / (range_end - range_start);
-        let range_offset = range_offset;
         let offset = d0 - scale * range_start;
 
         if clamp {

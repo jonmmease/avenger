@@ -154,6 +154,7 @@ pub(crate) fn scale_numeric_to_color2(
         .interpolate(&color_config, numeric_values.values())
 }
 
+#[allow(dead_code)]
 struct MakeSureItsObjectSafe {
     interpolator: Box<dyn ColorInterpolator>,
 }

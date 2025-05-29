@@ -1,19 +1,13 @@
 use super::mark::SceneMark;
-use crate::error::AvengerSceneGraphError;
-use avenger_common::lyon::hash_lyon_path;
 use avenger_common::types::{ColorOrGradient, Gradient, LinearScaleAdjustment, PathTransform, SymbolShape};
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use itertools::izip;
-use lyon_extra::euclid::{UnknownUnit, Vector2D};
-use lyon_extra::parser::{ParserOptions, Source};
-use lyon_path::geom::euclid::Point2D;
-use lyon_path::geom::{Angle, Box2D, Point, Scale};
-use lyon_path::PathEvent;
-use lyon_path::{Path, Winding};
+use lyon_extra::euclid::Vector2D;
+use lyon_path::geom::Angle;
+use lyon_path::Path;
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
-use std::borrow::Cow;
-use std::hash::{DefaultHasher, Hash, Hasher};
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -149,7 +143,7 @@ impl SceneSymbolMark {
         if let Some(indices) = self.indices.as_ref() {
             Box::new(indices.iter().cloned())
         } else {
-            Box::new((0..self.len as usize))
+            Box::new(0..self.len as usize)
         }
     }
 

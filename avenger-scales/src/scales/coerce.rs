@@ -1,8 +1,6 @@
 use crate::error::AvengerScaleError;
 use crate::formatter::Formatters;
 use crate::scales::ordinal::OrdinalScale;
-use crate::scales::ScaleImpl;
-use crate::utils::ScalarValueUtils;
 use arrow::array::{Array, AsArray, Float32Array, StringArray, StructArray};
 use arrow::compute::is_not_null;
 use arrow::compute::kernels::zip::zip;

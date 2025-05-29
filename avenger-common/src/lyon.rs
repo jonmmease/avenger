@@ -2,7 +2,7 @@ use lyon_extra::euclid::UnknownUnit;
 use lyon_extra::parser::{ParseError, ParserOptions, Source};
 use lyon_path::geom::euclid::Point2D;
 use lyon_path::PathEvent;
-use lyon_path::{Path, Winding};
+use lyon_path::Path;
 use ordered_float::OrderedFloat;
 use std::hash::{Hash, Hasher};
 

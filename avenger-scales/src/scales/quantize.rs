@@ -14,26 +14,6 @@ use super::{
     ScaleImpl,
 };
 
-/// Macro to generate scale_to_X trait methods for threshold enum scaling
-#[macro_export]
-macro_rules! impl_quantize_enum_scale_method {
-    ($type_name:ident) => {
-        paste::paste! {
-            fn [<scale_to_ $type_name:snake>](
-                &self,
-                config: &ScaleConfig,
-                values: &ArrayRef,
-            ) -> Result<ScalarOrArray<$type_name>, AvengerScaleError> {
-                let domain_span = QuantizeScale::apply_nice(
-                    config.numeric_interval_domain()?,
-                    config.options.get("nice"),
-                )?;
-                let (range_vec, default_value) = prep_discrete_enum_range::<$type_name>(config)?;
-                quantize_scale(values, domain_span, range_vec, default_value)
-            }
-        }
-    };
-}
 
 #[derive(Debug, Clone)]
 pub struct QuantizeScale;
@@ -102,32 +82,6 @@ impl ScaleImpl for QuantizeScale {
         Ok(take::take(&config.range, &indices, None)?)
     }
 
-    // /// Scale to numeric values
-    // fn scale_to_numeric(
-    //     &self,
-    //     config: &ScaleConfig,
-    //     values: &ArrayRef,
-    // ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
-    //     let domain_span = QuantizeScale::apply_nice(
-    //         config.numeric_interval_domain()?,
-    //         config.options.get("nice"),
-    //     )?;
-    //     let (range_vec, default_value) = prep_discrete_numeric_range(config)?;
-    //     quantize_scale(values, domain_span, range_vec, default_value)
-    // }
-
-    // fn scale_to_string(
-    //     &self,
-    //     config: &ScaleConfig,
-    //     values: &ArrayRef,
-    // ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
-    //     let domain_span = QuantizeScale::apply_nice(
-    //         config.numeric_interval_domain()?,
-    //         config.options.get("nice"),
-    //     )?;
-    //     let (range_vec, default_value) = prep_discrete_string_range(config)?;
-    //     quantize_scale(values, domain_span, range_vec, default_value)
-    // }
 
     fn ticks(
         &self,
@@ -140,36 +94,6 @@ impl ScaleImpl for QuantizeScale {
     }
 }
 
-// /// Generic helper function for evaluating quantize scales
-// fn quantize_scale<R: Sync + Clone>(
-//     values: &ArrayRef,
-//     domain_span: (f32, f32),
-//     range: Vec<R>,
-//     default_value: R,
-// ) -> Result<ScalarOrArray<R>, AvengerScaleError> {
-//     // Pre-compute scaling factors
-//     let n = range.len();
-//     let segments = range.len() as f32;
-
-//     let range_vec = values
-//         .as_primitive::<Float32Type>()
-//         .iter()
-//         .map(|x| match x {
-//             Some(x) => {
-//                 if x.is_finite() {
-//                     let normalized = (x - domain_span.0) / domain_span.1;
-//                     let idx = ((normalized * segments).floor() as usize).clamp(0, n - 1);
-//                     range[idx].clone()
-//                 } else {
-//                     default_value.clone()
-//                 }
-//             }
-//             None => default_value.clone(),
-//         })
-//         .collect::<Vec<_>>();
-
-//     Ok(ScalarOrArray::new_array(range_vec))
-// }
 
 #[cfg(test)]
 mod tests {
@@ -201,34 +125,6 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_quantize_scale_enum() -> Result<(), AvengerScaleError> {
-        let scale = QuantizeScale;
-        let config = ScaleConfig {
-            domain: Arc::from(Float32Array::from(vec![0.0, 1.0])),
-            range: Arc::from(StringArray::from(vec!["vertical", "horizontal"])),
-            options: HashMap::new(),
-            context: ScaleContext::default(),
-        };
-
-        // Test array scaling with all test cases
-        let values = Arc::from(Float32Array::from(vec![0.3, 0.5, 0.8])) as ArrayRef;
-        let result = scale
-            .scale_to_area_orientation(&config, &values)
-            .unwrap()
-            .as_vec(values.len(), None);
-
-        assert_eq!(
-            result,
-            vec![
-                AreaOrientation::Vertical,
-                AreaOrientation::Horizontal,
-                AreaOrientation::Horizontal
-            ]
-        );
-
-        Ok(())
-    }
 
     #[test]
     fn test_quantize_scale_nice() -> Result<(), AvengerScaleError> {

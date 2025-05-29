@@ -1,6 +1,5 @@
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
 use std::time::Duration;
 use std::fs;
 
@@ -14,11 +13,11 @@ use winit::event_loop::EventLoopProxy;
 /// FileWatcher manages file system monitoring and sends events to the EventLoop when files change
 pub struct FileWatcher {
     /// Files being watched
-    watched_files: Vec<PathBuf>,
+    pub watched_files: Vec<PathBuf>,
     /// The file watcher
-    watcher: RecommendedWatcher,
+    pub watcher: RecommendedWatcher,
     /// Event loop proxy for sending events
-    event_proxy: EventLoopProxy<WindowEvent>,
+    pub event_proxy: EventLoopProxy<WindowEvent>,
 }
 
 impl FileWatcher {
