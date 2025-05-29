@@ -3,7 +3,6 @@ members = [
     "avenger-scenegraph",
     "avenger-vega",
     "avenger-wgpu",
-    # "avenger-vega-test-data",
     "avenger-scales",
     "avenger-guides",
     "avenger-common",
@@ -16,6 +15,9 @@ members = [
     "examples/wgpu-scales",
     "examples/wgpu-winit",
     "examples/iris",
+]
+exclude = [
+    "avenger-vega-test-data",
 ]
 
 resolver = "2"

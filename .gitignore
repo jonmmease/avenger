@@ -22,3 +22,4 @@ examples/iris/geometry.svg
 .vscode/launch.json
 
 avenger-lang-preview/preview.avgr
+/avenger-vega-test-data/target/
