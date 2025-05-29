@@ -1,4 +1,5 @@
 use crate::error::AvengerScaleError;
+use crate::format_num::NumberFormat;
 use arrow::array::ArrayRef;
 use arrow::array::{timezone::Tz as ArrowTz, AsArray};
 use arrow::datatypes::Float32Type;
@@ -9,7 +10,6 @@ use arrow::{
 use avenger_common::value::ScalarOrArray;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use chrono_tz::Tz;
-use crate::format_num::NumberFormat;
 use std::{fmt::Debug, str::FromStr, sync::Arc};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
