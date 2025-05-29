@@ -320,7 +320,7 @@ impl NumberFormat {
                                 .unwrap()
                         )))
                     )
-                        .0
+                    .0
                 ),
                 prefix_exponent,
             )

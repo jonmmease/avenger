@@ -30,3 +30,27 @@ strum = { workspace = true }
 
 [dev-dependencies]
 float-cmp = "0.10.0"
+
+[[example]]
+name = "linear_scale"
+path = "examples/linear_scale.rs"
+
+[[example]]
+name = "color_scales"
+path = "examples/color_scales.rs"
+
+[[example]]
+name = "categorical_scales"
+path = "examples/categorical_scales.rs"
+
+[[example]]
+name = "logarithmic_scales"
+path = "examples/logarithmic_scales.rs"
+
+[[example]]
+name = "quantile_threshold"
+path = "examples/quantile_threshold.rs"
+
+[[example]]
+name = "formatting_and_ticks"
+path = "examples/formatting_and_ticks.rs"

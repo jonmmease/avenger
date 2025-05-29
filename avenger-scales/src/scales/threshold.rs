@@ -128,9 +128,9 @@ fn validate_extract_thresholds(domain: &ArrayRef) -> Result<Vec<f32>, AvengerSca
 mod tests {
     use std::{collections::HashMap, sync::Arc};
 
+    use super::*;
     use arrow::array::{Float32Array, StringArray};
     use avenger_common::types::ImageAlign;
-    use super::*;
 
     #[test]
     fn test_threshold_scale_basic() -> Result<(), AvengerScaleError> {

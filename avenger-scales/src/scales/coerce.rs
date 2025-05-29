@@ -728,11 +728,11 @@ mod tests {
     use std::str::FromStr;
 
     use super::*;
-    use svgtypes::Transform;
-    use arrow::array::{StringArray, ListArray, Float32Array};
+    use arrow::array::{Float32Array, ListArray, StringArray};
     use arrow::buffer::OffsetBuffer;
     use arrow::datatypes::Field;
     use avenger_common::types::ColorOrGradient;
+    use svgtypes::Transform;
 
     fn assert_color_approx_eq(actual: [f32; 4], expected: [f32; 4], tolerance: f32) {
         for i in 0..4 {
@@ -750,8 +750,12 @@ mod tests {
     #[test]
     fn test_css_color_parsing_basic() {
         let coercer = CssColorCoercer;
-        let colors = StringArray::from(vec!["red", "green", "blue", "#ff0000", "#00ff00", "#0000ff"]);
-        let result = coercer.coerce(&(Arc::new(colors) as ArrayRef), None).unwrap();
+        let colors = StringArray::from(vec![
+            "red", "green", "blue", "#ff0000", "#00ff00", "#0000ff",
+        ]);
+        let result = coercer
+            .coerce(&(Arc::new(colors) as ArrayRef), None)
+            .unwrap();
         let colors_vec = result.as_vec(6, None);
 
         // Test named colors
@@ -790,9 +794,11 @@ mod tests {
             "#ff000080", // 8-digit hex with alpha
             "#FF0000",   // Uppercase
         ]);
-        let result = coercer.coerce(&(Arc::new(colors) as ArrayRef), None).unwrap();
+        let result = coercer
+            .coerce(&(Arc::new(colors) as ArrayRef), None)
+            .unwrap();
         let colors_vec = result.as_vec(4, None);
-        
+
         // All should be red with different alpha values
         if let ColorOrGradient::Color(red_3) = &colors_vec[0] {
             assert_color_approx_eq(*red_3, [1.0, 0.0, 0.0, 1.0], 0.001);
@@ -808,7 +814,7 @@ mod tests {
 
         if let ColorOrGradient::Color(red_8) = &colors_vec[2] {
             // 8-digit hex colors are not supported by css_color_parser, falls back to transparent
-            assert_color_approx_eq(*red_8, [0.0, 0.0, 0.0, 0.0], 0.01); 
+            assert_color_approx_eq(*red_8, [0.0, 0.0, 0.0, 0.0], 0.01);
         } else {
             panic!("Expected Color variant");
         }
@@ -826,10 +832,12 @@ mod tests {
         let colors = StringArray::from(vec![
             "rgb(255, 0, 0)",
             "rgba(255, 0, 0, 0.5)",
-            "rgb(255,0,0)",  // No spaces
+            "rgb(255,0,0)",      // No spaces
             "rgb(100%, 0%, 0%)", // Percentage values
         ]);
-        let result = coercer.coerce(&(Arc::new(colors) as ArrayRef), None).unwrap();
+        let result = coercer
+            .coerce(&(Arc::new(colors) as ArrayRef), None)
+            .unwrap();
         let colors_vec = result.as_vec(4, None);
 
         if let ColorOrGradient::Color(rgb) = &colors_vec[0] {
@@ -861,12 +869,14 @@ mod tests {
     fn test_css_color_parsing_hsl_formats() {
         let coercer = CssColorCoercer;
         let colors = StringArray::from(vec![
-            "hsl(0, 100%, 50%)",     // Red
-            "hsl(120, 100%, 50%)",   // Green
-            "hsl(240, 100%, 50%)",   // Blue
+            "hsl(0, 100%, 50%)",       // Red
+            "hsl(120, 100%, 50%)",     // Green
+            "hsl(240, 100%, 50%)",     // Blue
             "hsla(0, 100%, 50%, 0.5)", // Semi-transparent red
         ]);
-        let result = coercer.coerce(&(Arc::new(colors) as ArrayRef), None).unwrap();
+        let result = coercer
+            .coerce(&(Arc::new(colors) as ArrayRef), None)
+            .unwrap();
         let colors_vec = result.as_vec(4, None);
 
         if let ColorOrGradient::Color(hsl_red) = &colors_vec[0] {
@@ -898,17 +908,19 @@ mod tests {
     fn test_css_color_parsing_invalid_colors() {
         let coercer = CssColorCoercer;
         let default_color = ColorOrGradient::Color([0.5, 0.5, 0.5, 1.0]); // Gray default
-        
+
         let colors = StringArray::from(vec![
             "invalid_color",
-            "#gggggg",      // Invalid hex
+            "#gggggg",        // Invalid hex
             "rgb(256, 0, 0)", // Out of range
-            "",             // Empty string
+            "",               // Empty string
             "notacolor",
         ]);
-        let result = coercer.coerce(&(Arc::new(colors) as ArrayRef), Some(default_color.clone())).unwrap();
+        let result = coercer
+            .coerce(&(Arc::new(colors) as ArrayRef), Some(default_color.clone()))
+            .unwrap();
         let colors_vec = result.as_vec(5, None);
-        
+
         // Test each invalid color individually - different behaviors based on CSS parser
         // "invalid_color" -> default
         if let ColorOrGradient::Color(c) = &colors_vec[0] {
@@ -916,28 +928,28 @@ mod tests {
         } else {
             panic!("Expected Color variant");
         }
-        
-        // "#gggggg" -> default  
+
+        // "#gggggg" -> default
         if let ColorOrGradient::Color(c) = &colors_vec[1] {
             assert_color_approx_eq(*c, [0.5, 0.5, 0.5, 1.0], 0.001);
         } else {
             panic!("Expected Color variant");
         }
-        
+
         // "rgb(256, 0, 0)" -> red (CSS parser clamps 256 to 255)
         if let ColorOrGradient::Color(c) = &colors_vec[2] {
             assert_color_approx_eq(*c, [1.0, 0.0, 0.0, 1.0], 0.001);
         } else {
             panic!("Expected Color variant");
         }
-        
+
         // "" -> default
         if let ColorOrGradient::Color(c) = &colors_vec[3] {
             assert_color_approx_eq(*c, [0.5, 0.5, 0.5, 1.0], 0.001);
         } else {
             panic!("Expected Color variant");
         }
-        
+
         // "notacolor" -> default
         if let ColorOrGradient::Color(c) = &colors_vec[4] {
             assert_color_approx_eq(*c, [0.5, 0.5, 0.5, 1.0], 0.001);
@@ -950,14 +962,16 @@ mod tests {
     fn test_css_color_parsing_null_values() {
         let coercer = CssColorCoercer;
         let default_color = ColorOrGradient::Color([0.5, 0.5, 0.5, 1.0]);
-        
+
         let mut builder = arrow::array::builder::StringBuilder::new();
         builder.append_value("red");
         builder.append_null();
         builder.append_value("blue");
         let colors = builder.finish();
-        
-        let result = coercer.coerce(&(Arc::new(colors) as ArrayRef), Some(default_color.clone())).unwrap();
+
+        let result = coercer
+            .coerce(&(Arc::new(colors) as ArrayRef), Some(default_color.clone()))
+            .unwrap();
         let colors_vec = result.as_vec(3, None);
 
         // First should be red
@@ -985,7 +999,7 @@ mod tests {
     #[test]
     fn test_color_coercion_from_numeric_arrays() {
         let coercer = CssColorCoercer;
-        
+
         // Create a ListArray with 4-element float arrays representing RGBA colors
         let values = vec![
             1.0, 0.0, 0.0, 1.0, // Red
@@ -998,8 +1012,10 @@ mod tests {
             Arc::new(Float32Array::from(values)),
             None,
         );
-        
-        let result = coercer.coerce(&(Arc::new(list_array) as ArrayRef), None).unwrap();
+
+        let result = coercer
+            .coerce(&(Arc::new(list_array) as ArrayRef), None)
+            .unwrap();
         let colors_vec = result.as_vec(3, None);
 
         if let ColorOrGradient::Color(red) = &colors_vec[0] {
@@ -1025,7 +1041,7 @@ mod tests {
     fn test_color_coercion_invalid_numeric_arrays() {
         let coercer = CssColorCoercer;
         let default_color = ColorOrGradient::Color([0.5, 0.5, 0.5, 1.0]);
-        
+
         // Create arrays with wrong number of elements
         let values = vec![
             1.0, 0.0, // Only 2 elements (should be 4)
@@ -1038,8 +1054,13 @@ mod tests {
             Arc::new(Float32Array::from(values)),
             None,
         );
-        
-        let result = coercer.coerce(&(Arc::new(list_array) as ArrayRef), Some(default_color.clone())).unwrap();
+
+        let result = coercer
+            .coerce(
+                &(Arc::new(list_array) as ArrayRef),
+                Some(default_color.clone()),
+            )
+            .unwrap();
         let colors_vec = result.as_vec(3, None);
 
         // All invalid arrays should return the default color
@@ -1055,11 +1076,11 @@ mod tests {
     #[test]
     fn test_color_coercion_unsupported_types() {
         let coercer = CssColorCoercer;
-        
+
         // Try with an unsupported data type (Int32)
         let int_array = arrow::array::Int32Array::from(vec![1, 2, 3]);
         let result = coercer.coerce(&(Arc::new(int_array) as ArrayRef), None);
-        
+
         assert!(result.is_err());
         if let Err(AvengerScaleError::InternalError(msg)) = result {
             assert!(msg.contains("Unsupported data type for coercing to color"));
@@ -1071,7 +1092,7 @@ mod tests {
     #[test]
     fn test_color_coercion_edge_cases() {
         let coercer = CssColorCoercer;
-        
+
         // Test edge cases with CSS colors
         let colors = StringArray::from(vec![
             "transparent",
@@ -1080,17 +1101,19 @@ mod tests {
             "initial",
             "unset",
         ]);
-        
-        let result = coercer.coerce(&(Arc::new(colors) as ArrayRef), None).unwrap();
+
+        let result = coercer
+            .coerce(&(Arc::new(colors) as ArrayRef), None)
+            .unwrap();
         let colors_vec = result.as_vec(5, None);
-        
+
         // "transparent" should parse correctly
         if let ColorOrGradient::Color(transparent) = &colors_vec[0] {
             assert_color_approx_eq(*transparent, [0.0, 0.0, 0.0, 0.0], 0.001);
         } else {
             panic!("Expected Color variant for transparent");
         }
-        
+
         // Other CSS keywords should fall back to default (transparent)
         for i in 1..colors_vec.len() {
             if let ColorOrGradient::Color(c) = &colors_vec[i] {
@@ -1104,45 +1127,53 @@ mod tests {
     #[test]
     fn test_color_coercion_performance() {
         let coercer = CssColorCoercer;
-        
+
         // Test with a large number of colors
         let colors: Vec<String> = (0..1000)
             .map(|i| format!("rgb({}, {}, {})", i % 256, (i * 2) % 256, (i * 3) % 256))
             .collect();
         let colors_array = StringArray::from(colors);
-        
+
         let start = std::time::Instant::now();
-        let result = coercer.coerce(&(Arc::new(colors_array) as ArrayRef), None).unwrap();
+        let result = coercer
+            .coerce(&(Arc::new(colors_array) as ArrayRef), None)
+            .unwrap();
         let duration = start.elapsed();
-        
+
         let colors_vec = result.as_vec(1000, None);
         assert_eq!(colors_vec.len(), 1000);
-        
+
         // Should complete reasonably quickly (less than 100ms for 1000 colors)
-        assert!(duration.as_millis() < 100, "Color coercion took too long: {:?}", duration);
+        assert!(
+            duration.as_millis() < 100,
+            "Color coercion took too long: {:?}",
+            duration
+        );
     }
 
     #[test]
     fn test_color_coercion_whitespace_handling() {
         let coercer = CssColorCoercer;
-        
+
         let colors = StringArray::from(vec![
-            "  red  ",           // Leading/trailing whitespace
-            "\tblue\n",          // Tab and newline
-            " rgb( 255 , 0 , 0 ) ", // Whitespace in rgb
+            "  red  ",               // Leading/trailing whitespace
+            "\tblue\n",              // Tab and newline
+            " rgb( 255 , 0 , 0 ) ",  // Whitespace in rgb
             "hsl( 120, 100%, 50% )", // Whitespace in hsl
         ]);
-        
-        let result = coercer.coerce(&(Arc::new(colors) as ArrayRef), None).unwrap();
+
+        let result = coercer
+            .coerce(&(Arc::new(colors) as ArrayRef), None)
+            .unwrap();
         let colors_vec = result.as_vec(4, None);
-        
+
         // All should parse correctly despite whitespace
         if let ColorOrGradient::Color(red) = &colors_vec[0] {
             assert_color_approx_eq(*red, [1.0, 0.0, 0.0, 1.0], 0.001);
         } else {
             panic!("Expected Color variant");
         }
-        
+
         if let ColorOrGradient::Color(blue) = &colors_vec[1] {
             assert_color_approx_eq(*blue, [0.0, 0.0, 1.0, 1.0], 0.001);
         } else {
@@ -1170,25 +1201,25 @@ mod tests {
     #[test]
     fn test_number_formatting_default() {
         use crate::formatter::{DefaultFormatter, NumberFormatter};
-        
+
         let formatter = DefaultFormatter::default();
         let values = vec![Some(1.0), Some(2.5), Some(-3.14), None, Some(0.0)];
         let result = formatter.format(&values, Some("N/A"));
-        
+
         assert_eq!(result, vec!["1", "2.5", "-3.14", "N/A", "0"]);
     }
 
     #[test]
     fn test_number_formatting_with_format_string() {
         use crate::formatter::{DefaultFormatter, NumberFormatter};
-        
+
         let formatter = DefaultFormatter {
             format_str: Some(",.2f".to_string()),
             local_tz: None,
         };
         let values = vec![Some(1234.567), Some(0.123), Some(-987.654), None];
         let result = formatter.format(&values, Some("--"));
-        
+
         // format_num correctly handles d3-style formatting
         assert_eq!(result, vec!["1,234.57", "0.12", "-987.65", "--"]);
     }
@@ -1196,14 +1227,14 @@ mod tests {
     #[test]
     fn test_number_formatting_percentage() {
         use crate::formatter::{DefaultFormatter, NumberFormatter};
-        
+
         let formatter = DefaultFormatter {
             format_str: Some(".1%".to_string()),
             local_tz: None,
         };
         let values = vec![Some(0.5), Some(0.123), Some(1.0), None];
         let result = formatter.format(&values, Some("N/A"));
-        
+
         // The [.1%] format works correctly with numfmt
         assert_eq!(result, vec!["50.0%", "12.3%", "100.0%", "N/A"]);
     }
@@ -1211,23 +1242,23 @@ mod tests {
     #[test]
     fn test_number_formatting_scientific_notation() {
         use crate::formatter::{DefaultFormatter, NumberFormatter};
-        
+
         let formatter = DefaultFormatter {
             format_str: Some(".2e".to_string()),
             local_tz: None,
         };
         let values = vec![Some(1234.0), Some(0.00123), None, Some(0.0)];
         let result = formatter.format(&values, Some("--"));
-        
+
         // format_num correctly produces scientific notation
         assert_eq!(result, vec!["1.23e+03", "1.23e-03", "--", "0.00e+00"]);
     }
 
     #[test]
     fn test_date_formatting_default() {
-        use crate::formatter::{DefaultFormatter, DateFormatter};
+        use crate::formatter::{DateFormatter, DefaultFormatter};
         use chrono::NaiveDate;
-        
+
         let formatter = DefaultFormatter::default();
         let values = vec![
             Some(NaiveDate::from_ymd_opt(2023, 12, 25).unwrap()),
@@ -1235,15 +1266,15 @@ mod tests {
             None,
         ];
         let result = formatter.format(&values, Some("Unknown"));
-        
+
         assert_eq!(result, vec!["2023-12-25", "2024-01-01", "Unknown"]);
     }
 
     #[test]
     fn test_date_formatting_with_format_string() {
-        use crate::formatter::{DefaultFormatter, DateFormatter};
+        use crate::formatter::{DateFormatter, DefaultFormatter};
         use chrono::NaiveDate;
-        
+
         let formatter = DefaultFormatter {
             format_str: Some("%B %d, %Y".to_string()),
             local_tz: None,
@@ -1254,15 +1285,15 @@ mod tests {
             None,
         ];
         let result = formatter.format(&values, Some("N/A"));
-        
+
         assert_eq!(result, vec!["December 25, 2023", "July 04, 2024", "N/A"]);
     }
 
     #[test]
     fn test_date_formatting_short_format() {
-        use crate::formatter::{DefaultFormatter, DateFormatter};
+        use crate::formatter::{DateFormatter, DefaultFormatter};
         use chrono::NaiveDate;
-        
+
         let formatter = DefaultFormatter {
             format_str: Some("%m/%d/%y".to_string()),
             local_tz: None,
@@ -1273,40 +1304,63 @@ mod tests {
             None,
         ];
         let result = formatter.format(&values, Some("--"));
-        
+
         assert_eq!(result, vec!["12/25/23", "01/05/24", "--"]);
     }
 
     #[test]
     fn test_timestamp_formatting_default() {
         use crate::formatter::{DefaultFormatter, TimestampFormatter};
-        
+
         let formatter = DefaultFormatter::default();
         let values = vec![
-            Some(chrono::NaiveDate::from_ymd_opt(2022, 1, 1).unwrap().and_hms_opt(0, 0, 0).unwrap()),
-            Some(chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap().and_hms_opt(0, 0, 0).unwrap()),
+            Some(
+                chrono::NaiveDate::from_ymd_opt(2022, 1, 1)
+                    .unwrap()
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap(),
+            ),
+            Some(
+                chrono::NaiveDate::from_ymd_opt(2024, 1, 1)
+                    .unwrap()
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap(),
+            ),
             None,
         ];
         let result = formatter.format(&values, Some("Unknown"));
-        
-        assert_eq!(result, vec!["2022-01-01 00:00:00", "2024-01-01 00:00:00", "Unknown"]);
+
+        assert_eq!(
+            result,
+            vec!["2022-01-01 00:00:00", "2024-01-01 00:00:00", "Unknown"]
+        );
     }
 
     #[test]
     fn test_timestamp_formatting_with_format_string() {
         use crate::formatter::{DefaultFormatter, TimestampFormatter};
-        
+
         let formatter = DefaultFormatter {
             format_str: Some("%Y-%m-%d %H:%M".to_string()),
             local_tz: None,
         };
         let values = vec![
-            Some(chrono::NaiveDate::from_ymd_opt(2022, 1, 1).unwrap().and_hms_opt(0, 0, 0).unwrap()),
-            Some(chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap().and_hms_opt(0, 0, 0).unwrap()),
+            Some(
+                chrono::NaiveDate::from_ymd_opt(2022, 1, 1)
+                    .unwrap()
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap(),
+            ),
+            Some(
+                chrono::NaiveDate::from_ymd_opt(2024, 1, 1)
+                    .unwrap()
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap(),
+            ),
             None,
         ];
         let result = formatter.format(&values, Some("N/A"));
-        
+
         assert_eq!(result, vec!["2022-01-01 00:00", "2024-01-01 00:00", "N/A"]);
     }
 
@@ -1314,7 +1368,7 @@ mod tests {
     fn test_timestamptz_formatting_default() {
         use crate::formatter::{DefaultFormatter, TimestamptzFormatter};
         use chrono::DateTime;
-        
+
         let formatter = DefaultFormatter::default();
         let values = vec![
             Some(DateTime::from_timestamp(1640995200, 0).unwrap()),
@@ -1322,8 +1376,15 @@ mod tests {
             None,
         ];
         let result = formatter.format(&values, Some("Unknown"));
-        
-        assert_eq!(result, vec!["2022-01-01 00:00:00 UTC", "2024-01-01 00:00:00 UTC", "Unknown"]);
+
+        assert_eq!(
+            result,
+            vec![
+                "2022-01-01 00:00:00 UTC",
+                "2024-01-01 00:00:00 UTC",
+                "Unknown"
+            ]
+        );
     }
 
     #[test]
@@ -1331,7 +1392,7 @@ mod tests {
         use crate::formatter::{DefaultFormatter, TimestamptzFormatter};
         use chrono::DateTime;
         use chrono_tz::Tz;
-        
+
         let formatter = DefaultFormatter {
             format_str: Some("%Y-%m-%d %H:%M %Z".to_string()),
             local_tz: Some(Tz::America__New_York),
@@ -1341,7 +1402,7 @@ mod tests {
             None,
         ];
         let result = formatter.format(&values, Some("N/A"));
-        
+
         // UTC midnight becomes 7 PM previous day in New York (EST)
         assert_eq!(result, vec!["2021-12-31 19:00 EST", "N/A"]);
     }
@@ -1349,12 +1410,14 @@ mod tests {
     #[test]
     fn test_formatters_integration_numbers() {
         use arrow::array::Float32Array;
-        
+
         let coercer = Coercer::default();
         let numbers = Float32Array::from(vec![Some(1234.567), Some(-0.123), None, Some(0.0)]);
-        let result = coercer.to_string(&(Arc::new(numbers) as ArrayRef), Some("N/A")).unwrap();
+        let result = coercer
+            .to_string(&(Arc::new(numbers) as ArrayRef), Some("N/A"))
+            .unwrap();
         let strings = result.as_vec(4, None);
-        
+
         assert_eq!(strings, vec!["1234.567", "-0.123", "N/A", "0"]);
     }
 
@@ -1362,51 +1425,55 @@ mod tests {
     fn test_formatters_integration_dates() {
         use arrow::array::Date32Array;
         use arrow::datatypes::Date32Type;
-        
+
         let coercer = Coercer::default();
         // Date32 stores days since epoch (1970-01-01)
-        let epoch_date = Date32Type::from_naive_date(
-            chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()
-        );
-        let test_date = Date32Type::from_naive_date(
-            chrono::NaiveDate::from_ymd_opt(2023, 12, 25).unwrap()
-        );
-        
+        let epoch_date =
+            Date32Type::from_naive_date(chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap());
+        let test_date =
+            Date32Type::from_naive_date(chrono::NaiveDate::from_ymd_opt(2023, 12, 25).unwrap());
+
         let dates = Date32Array::from(vec![Some(epoch_date), Some(test_date), None]);
-        let result = coercer.to_string(&(Arc::new(dates) as ArrayRef), Some("Unknown")).unwrap();
+        let result = coercer
+            .to_string(&(Arc::new(dates) as ArrayRef), Some("Unknown"))
+            .unwrap();
         let strings = result.as_vec(3, None);
-        
+
         assert_eq!(strings, vec!["1970-01-01", "2023-12-25", "1970-01-01"]);
     }
 
     #[test]
     fn test_formatters_integration_strings() {
         use arrow::array::StringArray;
-        
+
         let coercer = Coercer::default();
         let strings_array = StringArray::from(vec![Some("hello"), Some("world"), None]);
-        let result = coercer.to_string(&(Arc::new(strings_array) as ArrayRef), Some("N/A")).unwrap();
+        let result = coercer
+            .to_string(&(Arc::new(strings_array) as ArrayRef), Some("N/A"))
+            .unwrap();
         let strings = result.as_vec(3, None);
-        
+
         assert_eq!(strings, vec!["hello", "world", "N/A"]);
     }
 
     #[test]
     fn test_formatters_integration_booleans() {
         use arrow::array::BooleanArray;
-        
+
         let coercer = Coercer::default();
         let bools = BooleanArray::from(vec![Some(true), Some(false), None]);
-        let result = coercer.to_string(&(Arc::new(bools) as ArrayRef), Some("Unknown")).unwrap();
+        let result = coercer
+            .to_string(&(Arc::new(bools) as ArrayRef), Some("Unknown"))
+            .unwrap();
         let strings = result.as_vec(3, None);
-        
+
         assert_eq!(strings, vec!["true", "false", "Unknown"]);
     }
 
     #[test]
     fn test_number_formatting_edge_cases() {
         use crate::formatter::{DefaultFormatter, NumberFormatter};
-        
+
         let formatter = DefaultFormatter::default();
         let values = vec![
             Some(f32::INFINITY),
@@ -1416,7 +1483,7 @@ mod tests {
             Some(-0.0),
         ];
         let result = formatter.format(&values, Some("N/A"));
-        
+
         // Check for reasonable string representations
         assert_eq!(result[0], "inf");
         assert_eq!(result[1], "-inf");
@@ -1428,7 +1495,7 @@ mod tests {
     #[test]
     fn test_number_formatting_large_numbers() {
         use crate::formatter::{DefaultFormatter, NumberFormatter};
-        
+
         let formatter = DefaultFormatter {
             format_str: Some(",.0f".to_string()),
             local_tz: None,
@@ -1440,15 +1507,15 @@ mod tests {
             None,
         ];
         let result = formatter.format(&values, Some("--"));
-        
+
         assert_eq!(result, vec!["1,000,000", "1,234,568", "-1,000,000", "--"]);
     }
 
     #[test]
     fn test_date_formatting_edge_cases() {
-        use crate::formatter::{DefaultFormatter, DateFormatter};
+        use crate::formatter::{DateFormatter, DefaultFormatter};
         use chrono::NaiveDate;
-        
+
         let formatter = DefaultFormatter {
             format_str: Some("%Y-%j".to_string()), // Year and day of year
             local_tz: None,
@@ -1460,20 +1527,20 @@ mod tests {
             None,
         ];
         let result = formatter.format(&values, Some("Invalid"));
-        
+
         assert_eq!(result, vec!["2000-001", "2000-366", "1900-001", "Invalid"]);
     }
 
     #[test]
     fn test_formatting_empty_arrays() {
-        use crate::formatter::{DefaultFormatter, NumberFormatter, DateFormatter};
-        
+        use crate::formatter::{DateFormatter, DefaultFormatter, NumberFormatter};
+
         let number_formatter = DefaultFormatter::default();
         let date_formatter = DefaultFormatter::default();
-        
+
         let number_result = NumberFormatter::format(&number_formatter, &[], Some("N/A"));
         let date_result = DateFormatter::format(&date_formatter, &[], Some("N/A"));
-        
+
         assert_eq!(number_result, Vec::<String>::new());
         assert_eq!(date_result, Vec::<String>::new());
     }
