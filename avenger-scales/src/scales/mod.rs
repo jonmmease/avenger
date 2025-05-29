@@ -610,17 +610,34 @@ impl ConfiguredScale {
         let fractions = (0..=num_segments)
             .map(|i| i as f32 / num_segments as f32)
             .collect::<Vec<f32>>();
-        let fractions_array = Arc::new(Float32Array::from(fractions.clone())) as ArrayRef;
 
-        // Create a new scale with normalized domain
-        let scale = self.clone().with_domain_interval((0.0, 1.0));
-        let colors = scale
-            .scale_to_color(&fractions_array)?
-            .as_vec(num_segments + 1, None);
+        let colors = self.config.color_range()?;
+        let interpolator_config = ColorInterpolatorConfig { colors };
+        let color_result = self
+            .config
+            .context
+            .color_interpolator
+            .interpolate(&interpolator_config, &fractions)?;
+
+        // Convert the interpolated colors back to ColorOrGradient
+        let list_array = color_result.as_list::<i32>();
+        let color_or_gradients: Vec<ColorOrGradient> = list_array
+            .iter()
+            .map(|color_opt| {
+                let color = color_opt.expect("Color should not be null");
+                let values = color.as_primitive::<Float32Type>();
+                ColorOrGradient::Color([
+                    values.value(0),
+                    values.value(1),
+                    values.value(2),
+                    values.value(3),
+                ])
+            })
+            .collect();
 
         Ok(fractions
             .iter()
-            .zip(colors)
+            .zip(color_or_gradients)
             .map(|(f, c)| GradientStop {
                 offset: *f,
                 color: c.color_or_transparent(),
