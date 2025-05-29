@@ -1,0 +1,967 @@
+{
+  "width": 250,
+  "height": 210,
+  "origin": [
+    5,
+    5
+  ],
+  "scenegraph": {
+    "clip": false,
+    "interactive": true,
+    "items": [
+      {
+        "items": [
+          {
+            "clip": false,
+            "interactive": true,
+            "items": [
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": true,
+                    "items": [
+                      {
+                        "items": [
+                          {
+                            "clip": false,
+                            "interactive": true,
+                            "items": [
+                              {
+                                "fill": "#4c78a8",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Dec; Count of Records: 3; weather: drizzle",
+                                "width": 18,
+                                "y": 9.23076923076922,
+                                "y2": 13.846153846153841,
+                                "height": 4.615384615384622
+                              },
+                              {
+                                "fill": "#e45756",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Dec; Count of Records: 73; weather: rain",
+                                "width": 18,
+                                "y": 26.15384615384615,
+                                "y2": 138.46153846153845,
+                                "height": 112.3076923076923
+                              },
+                              {
+                                "fill": "#54a24b",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Dec; Count of Records: 34; weather: sun",
+                                "width": 18,
+                                "y": 147.6923076923077,
+                                "y2": 200,
+                                "height": 52.30769230769229
+                              },
+                              {
+                                "fill": "#72b7b2",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Dec; Count of Records: 6; weather: snow",
+                                "width": 18,
+                                "y": 138.46153846153845,
+                                "y2": 147.6923076923077,
+                                "height": 9.230769230769255
+                              },
+                              {
+                                "fill": "#f58518",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Dec; Count of Records: 8; weather: fog",
+                                "width": 18,
+                                "y": 13.846153846153841,
+                                "y2": 26.15384615384615,
+                                "height": 12.307692307692308
+                              }
+                            ],
+                            "marktype": "rect",
+                            "name": "marks",
+                            "role": "mark",
+                            "zindex": 0
+                          }
+                        ],
+                        "y": -9.23076923076922,
+                        "width": 18
+                      }
+                    ],
+                    "marktype": "group",
+                    "role": "scope",
+                    "zindex": 0
+                  }
+                ],
+                "x": 221,
+                "width": 18,
+                "y": 9.23076923076922,
+                "y2": 200,
+                "clip": true,
+                "cornerRadiusTopLeft": 10,
+                "cornerRadiusTopRight": 5,
+                "height": 190.76923076923077
+              },
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": true,
+                    "items": [
+                      {
+                        "items": [
+                          {
+                            "clip": false,
+                            "interactive": true,
+                            "items": [
+                              {
+                                "fill": "#e45756",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Jan; Count of Records: 65; weather: rain",
+                                "width": 18,
+                                "y": 49.23076923076923,
+                                "y2": 149.23076923076923,
+                                "height": 100
+                              },
+                              {
+                                "fill": "#54a24b",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Jan; Count of Records: 25; weather: sun",
+                                "width": 18,
+                                "y": 161.53846153846155,
+                                "y2": 200,
+                                "height": 38.46153846153845
+                              },
+                              {
+                                "fill": "#72b7b2",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Jan; Count of Records: 8; weather: snow",
+                                "width": 18,
+                                "y": 149.23076923076923,
+                                "y2": 161.53846153846155,
+                                "height": 12.30769230769232
+                              },
+                              {
+                                "fill": "#4c78a8",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Jan; Count of Records: 9; weather: drizzle",
+                                "width": 18,
+                                "y": 9.23076923076922,
+                                "y2": 23.076923076923084,
+                                "height": 13.846153846153864
+                              },
+                              {
+                                "fill": "#f58518",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Jan; Count of Records: 17; weather: fog",
+                                "width": 18,
+                                "y": 23.076923076923084,
+                                "y2": 49.23076923076923,
+                                "height": 26.15384615384615
+                              }
+                            ],
+                            "marktype": "rect",
+                            "name": "marks",
+                            "role": "mark",
+                            "zindex": 0
+                          }
+                        ],
+                        "y": -9.23076923076922,
+                        "width": 18
+                      }
+                    ],
+                    "marktype": "group",
+                    "role": "scope",
+                    "zindex": 0
+                  }
+                ],
+                "x": 1,
+                "width": 18,
+                "y": 9.23076923076922,
+                "y2": 200,
+                "clip": true,
+                "cornerRadiusTopLeft": 10,
+                "cornerRadiusTopRight": 5,
+                "height": 190.76923076923077
+              },
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": true,
+                    "items": [
+                      {
+                        "items": [
+                          {
+                            "clip": false,
+                            "interactive": true,
+                            "items": [
+                              {
+                                "fill": "#54a24b",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Feb; Count of Records: 29; weather: sun",
+                                "width": 18,
+                                "y": 155.3846153846154,
+                                "y2": 200,
+                                "height": 44.61538461538461
+                              },
+                              {
+                                "fill": "#e45756",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Feb; Count of Records: 73; weather: rain",
+                                "width": 18,
+                                "y": 36.92307692307693,
+                                "y2": 149.23076923076923,
+                                "height": 112.30769230769229
+                              },
+                              {
+                                "fill": "#4c78a8",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Feb; Count of Records: 4; weather: drizzle",
+                                "width": 18,
+                                "y": 26.15384615384615,
+                                "y2": 32.30769230769231,
+                                "height": 6.153846153846157
+                              },
+                              {
+                                "fill": "#72b7b2",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Feb; Count of Records: 4; weather: snow",
+                                "width": 18,
+                                "y": 149.23076923076923,
+                                "y2": 155.3846153846154,
+                                "height": 6.15384615384616
+                              },
+                              {
+                                "fill": "#f58518",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Feb; Count of Records: 3; weather: fog",
+                                "width": 18,
+                                "y": 32.30769230769231,
+                                "y2": 36.92307692307693,
+                                "height": 4.61538461538462
+                              }
+                            ],
+                            "marktype": "rect",
+                            "name": "marks",
+                            "role": "mark",
+                            "zindex": 0
+                          }
+                        ],
+                        "y": -26.15384615384615,
+                        "width": 18
+                      }
+                    ],
+                    "marktype": "group",
+                    "role": "scope",
+                    "zindex": 0
+                  }
+                ],
+                "x": 21,
+                "width": 18,
+                "y": 26.15384615384615,
+                "y2": 200,
+                "clip": true,
+                "cornerRadiusTopLeft": 10,
+                "cornerRadiusTopRight": 5,
+                "height": 173.84615384615384
+              },
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": true,
+                    "items": [
+                      {
+                        "items": [
+                          {
+                            "clip": false,
+                            "interactive": true,
+                            "items": [
+                              {
+                                "fill": "#e45756",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Mar; Count of Records: 73; weather: rain",
+                                "width": 18,
+                                "y": 23.076923076923084,
+                                "y2": 135.3846153846154,
+                                "height": 112.3076923076923
+                              },
+                              {
+                                "fill": "#54a24b",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Mar; Count of Records: 36; weather: sun",
+                                "width": 18,
+                                "y": 144.6153846153846,
+                                "y2": 200,
+                                "height": 55.38461538461539
+                              },
+                              {
+                                "fill": "#72b7b2",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Mar; Count of Records: 6; weather: snow",
+                                "width": 18,
+                                "y": 135.3846153846154,
+                                "y2": 144.6153846153846,
+                                "height": 9.230769230769226
+                              },
+                              {
+                                "fill": "#4c78a8",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Mar; Count of Records: 3; weather: drizzle",
+                                "width": 18,
+                                "y": 9.23076923076922,
+                                "y2": 13.846153846153841,
+                                "height": 4.615384615384622
+                              },
+                              {
+                                "fill": "#f58518",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Mar; Count of Records: 6; weather: fog",
+                                "width": 18,
+                                "y": 13.846153846153841,
+                                "y2": 23.076923076923084,
+                                "height": 9.230769230769242
+                              }
+                            ],
+                            "marktype": "rect",
+                            "name": "marks",
+                            "role": "mark",
+                            "zindex": 0
+                          }
+                        ],
+                        "y": -9.23076923076922,
+                        "width": 18
+                      }
+                    ],
+                    "marktype": "group",
+                    "role": "scope",
+                    "zindex": 0
+                  }
+                ],
+                "x": 41,
+                "width": 18,
+                "y": 9.23076923076922,
+                "y2": 200,
+                "clip": true,
+                "cornerRadiusTopLeft": 10,
+                "cornerRadiusTopRight": 5,
+                "height": 190.76923076923077
+              },
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": true,
+                    "items": [
+                      {
+                        "items": [
+                          {
+                            "clip": false,
+                            "interactive": true,
+                            "items": [
+                              {
+                                "fill": "#54a24b",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Apr; Count of Records: 53; weather: sun",
+                                "width": 18,
+                                "y": 118.46153846153847,
+                                "y2": 200,
+                                "height": 81.53846153846153
+                              },
+                              {
+                                "fill": "#e45756",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Apr; Count of Records: 60; weather: rain",
+                                "width": 18,
+                                "y": 24.615384615384617,
+                                "y2": 116.9230769230769,
+                                "height": 92.30769230769229
+                              },
+                              {
+                                "fill": "#72b7b2",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Apr; Count of Records: 1; weather: snow",
+                                "width": 18,
+                                "y": 116.9230769230769,
+                                "y2": 118.46153846153847,
+                                "height": 1.5384615384615614
+                              },
+                              {
+                                "fill": "#4c78a8",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Apr; Count of Records: 3; weather: drizzle",
+                                "width": 18,
+                                "y": 15.384615384615374,
+                                "y2": 19.999999999999996,
+                                "height": 4.615384615384622
+                              },
+                              {
+                                "fill": "#f58518",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Apr; Count of Records: 3; weather: fog",
+                                "width": 18,
+                                "y": 19.999999999999996,
+                                "y2": 24.615384615384617,
+                                "height": 4.61538461538462
+                              }
+                            ],
+                            "marktype": "rect",
+                            "name": "marks",
+                            "role": "mark",
+                            "zindex": 0
+                          }
+                        ],
+                        "y": -15.384615384615374,
+                        "width": 18
+                      }
+                    ],
+                    "marktype": "group",
+                    "role": "scope",
+                    "zindex": 0
+                  }
+                ],
+                "x": 61,
+                "width": 18,
+                "y": 15.384615384615374,
+                "y2": 200,
+                "clip": true,
+                "cornerRadiusTopLeft": 10,
+                "cornerRadiusTopRight": 5,
+                "height": 184.6153846153846
+              },
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": true,
+                    "items": [
+                      {
+                        "items": [
+                          {
+                            "clip": false,
+                            "interactive": true,
+                            "items": [
+                              {
+                                "fill": "#e45756",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): May; Count of Records: 41; weather: rain",
+                                "width": 18,
+                                "y": 18.461538461538463,
+                                "y2": 81.53846153846153,
+                                "height": 63.076923076923066
+                              },
+                              {
+                                "fill": "#54a24b",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): May; Count of Records: 77; weather: sun",
+                                "width": 18,
+                                "y": 81.53846153846153,
+                                "y2": 200,
+                                "height": 118.46153846153847
+                              },
+                              {
+                                "fill": "#4c78a8",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): May; Count of Records: 1; weather: drizzle",
+                                "width": 18,
+                                "y": 9.23076923076922,
+                                "y2": 10.769230769230775,
+                                "height": 1.538461538461556
+                              },
+                              {
+                                "fill": "#f58518",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): May; Count of Records: 5; weather: fog",
+                                "width": 18,
+                                "y": 10.769230769230775,
+                                "y2": 18.461538461538463,
+                                "height": 7.692307692307688
+                              }
+                            ],
+                            "marktype": "rect",
+                            "name": "marks",
+                            "role": "mark",
+                            "zindex": 0
+                          }
+                        ],
+                        "y": -9.23076923076922,
+                        "width": 18
+                      }
+                    ],
+                    "marktype": "group",
+                    "role": "scope",
+                    "zindex": 0
+                  }
+                ],
+                "x": 81,
+                "width": 18,
+                "y": 9.23076923076922,
+                "y2": 200,
+                "clip": true,
+                "cornerRadiusTopLeft": 10,
+                "cornerRadiusTopRight": 5,
+                "height": 190.76923076923077
+              },
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": true,
+                    "items": [
+                      {
+                        "items": [
+                          {
+                            "clip": false,
+                            "interactive": true,
+                            "items": [
+                              {
+                                "fill": "#e45756",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Jun; Count of Records: 41; weather: rain",
+                                "width": 18,
+                                "y": 19.999999999999996,
+                                "y2": 83.07692307692307,
+                                "height": 63.076923076923066
+                              },
+                              {
+                                "fill": "#54a24b",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Jun; Count of Records: 76; weather: sun",
+                                "width": 18,
+                                "y": 83.07692307692307,
+                                "y2": 200,
+                                "height": 116.92307692307693
+                              },
+                              {
+                                "fill": "#4c78a8",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Jun; Count of Records: 2; weather: drizzle",
+                                "width": 18,
+                                "y": 15.384615384615374,
+                                "y2": 18.461538461538463,
+                                "height": 3.076923076923089
+                              },
+                              {
+                                "fill": "#f58518",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Jun; Count of Records: 1; weather: fog",
+                                "width": 18,
+                                "y": 18.461538461538463,
+                                "y2": 19.999999999999996,
+                                "height": 1.538461538461533
+                              }
+                            ],
+                            "marktype": "rect",
+                            "name": "marks",
+                            "role": "mark",
+                            "zindex": 0
+                          }
+                        ],
+                        "y": -15.384615384615374,
+                        "width": 18
+                      }
+                    ],
+                    "marktype": "group",
+                    "role": "scope",
+                    "zindex": 0
+                  }
+                ],
+                "x": 101,
+                "width": 18,
+                "y": 15.384615384615374,
+                "y2": 200,
+                "clip": true,
+                "cornerRadiusTopLeft": 10,
+                "cornerRadiusTopRight": 5,
+                "height": 184.6153846153846
+              },
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": true,
+                    "items": [
+                      {
+                        "items": [
+                          {
+                            "clip": false,
+                            "interactive": true,
+                            "items": [
+                              {
+                                "fill": "#e45756",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Jul; Count of Records: 15; weather: rain",
+                                "width": 18,
+                                "y": 38.46153846153846,
+                                "y2": 61.53846153846154,
+                                "height": 23.07692307692308
+                              },
+                              {
+                                "fill": "#54a24b",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Jul; Count of Records: 90; weather: sun",
+                                "width": 18,
+                                "y": 61.53846153846154,
+                                "y2": 200,
+                                "height": 138.46153846153845
+                              },
+                              {
+                                "fill": "#4c78a8",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Jul; Count of Records: 9; weather: drizzle",
+                                "width": 18,
+                                "y": 9.23076923076922,
+                                "y2": 23.076923076923084,
+                                "height": 13.846153846153864
+                              },
+                              {
+                                "fill": "#f58518",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Jul; Count of Records: 10; weather: fog",
+                                "width": 18,
+                                "y": 23.076923076923084,
+                                "y2": 38.46153846153846,
+                                "height": 15.384615384615376
+                              }
+                            ],
+                            "marktype": "rect",
+                            "name": "marks",
+                            "role": "mark",
+                            "zindex": 0
+                          }
+                        ],
+                        "y": -9.23076923076922,
+                        "width": 18
+                      }
+                    ],
+                    "marktype": "group",
+                    "role": "scope",
+                    "zindex": 0
+                  }
+                ],
+                "x": 121,
+                "width": 18,
+                "y": 9.23076923076922,
+                "y2": 200,
+                "clip": true,
+                "cornerRadiusTopLeft": 10,
+                "cornerRadiusTopRight": 5,
+                "height": 190.76923076923077
+              },
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": true,
+                    "items": [
+                      {
+                        "items": [
+                          {
+                            "clip": false,
+                            "interactive": true,
+                            "items": [
+                              {
+                                "fill": "#54a24b",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Aug; Count of Records: 86; weather: sun",
+                                "width": 18,
+                                "y": 67.6923076923077,
+                                "y2": 200,
+                                "height": 132.30769230769232
+                              },
+                              {
+                                "fill": "#e45756",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Aug; Count of Records: 25; weather: rain",
+                                "width": 18,
+                                "y": 29.230769230769237,
+                                "y2": 67.6923076923077,
+                                "height": 38.46153846153845
+                              },
+                              {
+                                "fill": "#4c78a8",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Aug; Count of Records: 7; weather: drizzle",
+                                "width": 18,
+                                "y": 9.23076923076922,
+                                "y2": 19.999999999999996,
+                                "height": 10.769230769230777
+                              },
+                              {
+                                "fill": "#f58518",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Aug; Count of Records: 6; weather: fog",
+                                "width": 18,
+                                "y": 19.999999999999996,
+                                "y2": 29.230769230769237,
+                                "height": 9.23076923076924
+                              }
+                            ],
+                            "marktype": "rect",
+                            "name": "marks",
+                            "role": "mark",
+                            "zindex": 0
+                          }
+                        ],
+                        "y": -9.23076923076922,
+                        "width": 18
+                      }
+                    ],
+                    "marktype": "group",
+                    "role": "scope",
+                    "zindex": 0
+                  }
+                ],
+                "x": 141,
+                "width": 18,
+                "y": 9.23076923076922,
+                "y2": 200,
+                "clip": true,
+                "cornerRadiusTopLeft": 10,
+                "cornerRadiusTopRight": 5,
+                "height": 190.76923076923077
+              },
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": true,
+                    "items": [
+                      {
+                        "items": [
+                          {
+                            "clip": false,
+                            "interactive": true,
+                            "items": [
+                              {
+                                "fill": "#54a24b",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Sep; Count of Records: 64; weather: sun",
+                                "width": 18,
+                                "y": 101.53846153846153,
+                                "y2": 200,
+                                "height": 98.46153846153847
+                              },
+                              {
+                                "fill": "#e45756",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Sep; Count of Records: 36; weather: rain",
+                                "width": 18,
+                                "y": 46.153846153846146,
+                                "y2": 101.53846153846153,
+                                "height": 55.38461538461539
+                              },
+                              {
+                                "fill": "#f58518",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Sep; Count of Records: 15; weather: fog",
+                                "width": 18,
+                                "y": 23.076923076923084,
+                                "y2": 46.153846153846146,
+                                "height": 23.076923076923062
+                              },
+                              {
+                                "fill": "#4c78a8",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Sep; Count of Records: 5; weather: drizzle",
+                                "width": 18,
+                                "y": 15.384615384615374,
+                                "y2": 23.076923076923084,
+                                "height": 7.692307692307709
+                              }
+                            ],
+                            "marktype": "rect",
+                            "name": "marks",
+                            "role": "mark",
+                            "zindex": 0
+                          }
+                        ],
+                        "y": -15.384615384615374,
+                        "width": 18
+                      }
+                    ],
+                    "marktype": "group",
+                    "role": "scope",
+                    "zindex": 0
+                  }
+                ],
+                "x": 161,
+                "width": 18,
+                "y": 15.384615384615374,
+                "y2": 200,
+                "clip": true,
+                "cornerRadiusTopLeft": 10,
+                "cornerRadiusTopRight": 5,
+                "height": 184.6153846153846
+              },
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": true,
+                    "items": [
+                      {
+                        "items": [
+                          {
+                            "clip": false,
+                            "interactive": true,
+                            "items": [
+                              {
+                                "fill": "#54a24b",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Oct; Count of Records: 37; weather: sun",
+                                "width": 18,
+                                "y": 143.07692307692307,
+                                "y2": 200,
+                                "height": 56.923076923076934
+                              },
+                              {
+                                "fill": "#4c78a8",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Oct; Count of Records: 4; weather: drizzle",
+                                "width": 18,
+                                "y": 9.23076923076922,
+                                "y2": 15.384615384615374,
+                                "height": 6.153846153846155
+                              },
+                              {
+                                "fill": "#e45756",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Oct; Count of Records: 64; weather: rain",
+                                "width": 18,
+                                "y": 44.61538461538461,
+                                "y2": 143.07692307692307,
+                                "height": 98.46153846153845
+                              },
+                              {
+                                "fill": "#f58518",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Oct; Count of Records: 19; weather: fog",
+                                "width": 18,
+                                "y": 15.384615384615374,
+                                "y2": 44.61538461538461,
+                                "height": 29.23076923076924
+                              }
+                            ],
+                            "marktype": "rect",
+                            "name": "marks",
+                            "role": "mark",
+                            "zindex": 0
+                          }
+                        ],
+                        "y": -9.23076923076922,
+                        "width": 18
+                      }
+                    ],
+                    "marktype": "group",
+                    "role": "scope",
+                    "zindex": 0
+                  }
+                ],
+                "x": 181,
+                "width": 18,
+                "y": 9.23076923076922,
+                "y2": 200,
+                "clip": true,
+                "cornerRadiusTopLeft": 10,
+                "cornerRadiusTopRight": 5,
+                "height": 190.76923076923077
+              },
+              {
+                "items": [
+                  {
+                    "clip": false,
+                    "interactive": true,
+                    "items": [
+                      {
+                        "items": [
+                          {
+                            "clip": false,
+                            "interactive": true,
+                            "items": [
+                              {
+                                "fill": "#e45756",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Nov; Count of Records: 75; weather: rain",
+                                "width": 18,
+                                "y": 32.30769230769231,
+                                "y2": 147.6923076923077,
+                                "height": 115.3846153846154
+                              },
+                              {
+                                "fill": "#54a24b",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Nov; Count of Records: 33; weather: sun",
+                                "width": 18,
+                                "y": 149.23076923076923,
+                                "y2": 200,
+                                "height": 50.769230769230774
+                              },
+                              {
+                                "fill": "#4c78a8",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Nov; Count of Records: 3; weather: drizzle",
+                                "width": 18,
+                                "y": 15.384615384615374,
+                                "y2": 19.999999999999996,
+                                "height": 4.615384615384622
+                              },
+                              {
+                                "fill": "#f58518",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Nov; Count of Records: 8; weather: fog",
+                                "width": 18,
+                                "y": 19.999999999999996,
+                                "y2": 32.30769230769231,
+                                "height": 12.30769230769231
+                              },
+                              {
+                                "fill": "#72b7b2",
+                                "ariaRoleDescription": "bar",
+                                "description": "date (month): Nov; Count of Records: 1; weather: snow",
+                                "width": 18,
+                                "y": 147.6923076923077,
+                                "y2": 149.23076923076923,
+                                "height": 1.5384615384615188
+                              }
+                            ],
+                            "marktype": "rect",
+                            "name": "marks",
+                            "role": "mark",
+                            "zindex": 0
+                          }
+                        ],
+                        "y": -15.384615384615374,
+                        "width": 18
+                      }
+                    ],
+                    "marktype": "group",
+                    "role": "scope",
+                    "zindex": 0
+                  }
+                ],
+                "x": 201,
+                "width": 18,
+                "y": 15.384615384615374,
+                "y2": 200,
+                "clip": true,
+                "cornerRadiusTopLeft": 10,
+                "cornerRadiusTopRight": 5,
+                "height": 184.6153846153846
+              }
+            ],
+            "marktype": "group",
+            "role": "scope",
+            "zindex": 0
+          }
+        ],
+        "fill": "transparent",
+        "stroke": "#ddd",
+        "x": 0,
+        "y": 0,
+        "width": 240,
+        "height": 200
+      }
+    ],
+    "marktype": "group",
+    "name": "root",
+    "role": "frame",
+    "zindex": 0
+  }
+}
