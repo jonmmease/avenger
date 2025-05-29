@@ -124,9 +124,7 @@ fn interpolate_color<C: ColorSpace>(
 }
 
 /// Generic helper function to scale numeric values to color values for continuous numeric scales
-
-/// Generic helper function to scale numeric values to color values for continuous numeric scales
-pub(crate) fn scale_numeric_to_color2(
+pub(crate) fn scale_numeric_to_color(
     scale: &impl ScaleImpl,
     config: &ScaleConfig,
     values: &ArrayRef,

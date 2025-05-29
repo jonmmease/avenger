@@ -9,7 +9,7 @@ use avenger_common::{types::LinearScaleAdjustment, value::ScalarOrArray};
 use datafusion_common::ScalarValue;
 
 use crate::{
-    array, color_interpolator::scale_numeric_to_color2, error::AvengerScaleError,
+    array, color_interpolator::scale_numeric_to_color, error::AvengerScaleError,
     utils::ScalarValueUtils,
 };
 
@@ -142,7 +142,7 @@ impl ScaleImpl for LinearScale {
                 domain: Arc::new(Float32Array::from(vec![domain_start, domain_end])),
                 ..config.clone()
             };
-            return scale_numeric_to_color2(self, &config, values);
+            return scale_numeric_to_color(self, &config, values);
         }
 
         let (range_start, range_end) = config.numeric_interval_range()?;
