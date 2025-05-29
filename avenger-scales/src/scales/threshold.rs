@@ -130,7 +130,7 @@ mod tests {
 
     use arrow::array::{Float32Array, StringArray};
     use float_cmp::assert_approx_eq;
-
+    use avenger_common::types::ImageAlign;
     use super::*;
 
     #[test]
