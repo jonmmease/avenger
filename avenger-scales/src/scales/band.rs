@@ -299,8 +299,9 @@ pub fn bandspace(count: usize, padding_inner: Option<f32>, padding_outer: Option
 }
 
 mod tests {
-
-    // use float_cmp::{assert_approx_eq, F32Margin};
+    use arrow::array::{AsArray, StringArray};
+    use float_cmp::{assert_approx_eq, F32Margin};
+    use super::*;
 
     #[test]
     fn test_band_scale_basic() -> Result<(), AvengerScaleError> {
