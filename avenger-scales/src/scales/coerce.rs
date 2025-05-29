@@ -1166,4 +1166,344 @@ mod tests {
         let paths = coerer.to_path(&array).unwrap();
         println!("{:?}", paths);
     }
+
+    #[test]
+    fn test_number_formatting_default() {
+        use crate::formatter::{DefaultFormatter, NumberFormatter};
+        
+        let formatter = DefaultFormatter::default();
+        let values = vec![Some(1.0), Some(2.5), Some(-3.14), None, Some(0.0)];
+        let result = formatter.format(&values, Some("N/A"));
+        
+        assert_eq!(result, vec!["1", "2.5", "-3.14", "N/A", "0"]);
+    }
+
+    #[test]
+    fn test_format_num_direct_usage() {
+        use format_num::NumberFormat;
+        
+        // Test format_num directly to understand its behavior
+        println!("Testing format_num crate directly:");
+        
+        let formatter = NumberFormat::new();
+        
+        // Test comma-separated formatting
+        let result = formatter.format(",.2f", 1234.567);
+        println!("With ',.2f' format: {}", result);
+        
+        // Test other format strings
+        let result = formatter.format(".2f", 1234.567);
+        println!("With '.2f' format: {}", result);
+        
+        let result = formatter.format(",.0f", 1234.567);
+        println!("With ',.0f' format: {}", result);
+        
+        // Test percentage format
+        let result = formatter.format(".1%", 0.123);
+        println!("With '.1%' format (0.123): {}", result);
+        
+        // Test scientific notation
+        let result = formatter.format(".2e", 1234.0);
+        println!("With '.2e' format (1234.0): {}", result);
+    }
+
+    #[test]
+    fn test_number_formatting_with_format_string() {
+        use crate::formatter::{DefaultFormatter, NumberFormatter};
+        
+        let formatter = DefaultFormatter {
+            format_str: Some(",.2f".to_string()),
+            local_tz: None,
+        };
+        let values = vec![Some(1234.567), Some(0.123), Some(-987.654), None];
+        let result = formatter.format(&values, Some("--"));
+        
+        // format_num correctly handles d3-style formatting
+        assert_eq!(result, vec!["1,234.57", "0.12", "-987.65", "--"]);
+    }
+
+    #[test]
+    fn test_number_formatting_percentage() {
+        use crate::formatter::{DefaultFormatter, NumberFormatter};
+        
+        let formatter = DefaultFormatter {
+            format_str: Some(".1%".to_string()),
+            local_tz: None,
+        };
+        let values = vec![Some(0.5), Some(0.123), Some(1.0), None];
+        let result = formatter.format(&values, Some("N/A"));
+        
+        // The [.1%] format works correctly with numfmt
+        assert_eq!(result, vec!["50.0%", "12.3%", "100.0%", "N/A"]);
+    }
+
+    #[test]
+    fn test_number_formatting_scientific_notation() {
+        use crate::formatter::{DefaultFormatter, NumberFormatter};
+        
+        let formatter = DefaultFormatter {
+            format_str: Some(".2e".to_string()),
+            local_tz: None,
+        };
+        let values = vec![Some(1234.0), Some(0.00123), None, Some(0.0)];
+        let result = formatter.format(&values, Some("--"));
+        
+        // format_num correctly produces scientific notation
+        assert_eq!(result, vec!["1.23e+03", "1.23e-03", "--", "0.00e+00"]);
+    }
+
+    #[test]
+    fn test_date_formatting_default() {
+        use crate::formatter::{DefaultFormatter, DateFormatter};
+        use chrono::NaiveDate;
+        
+        let formatter = DefaultFormatter::default();
+        let values = vec![
+            Some(NaiveDate::from_ymd_opt(2023, 12, 25).unwrap()),
+            Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()),
+            None,
+        ];
+        let result = formatter.format(&values, Some("Unknown"));
+        
+        assert_eq!(result, vec!["2023-12-25", "2024-01-01", "Unknown"]);
+    }
+
+    #[test]
+    fn test_date_formatting_with_format_string() {
+        use crate::formatter::{DefaultFormatter, DateFormatter};
+        use chrono::NaiveDate;
+        
+        let formatter = DefaultFormatter {
+            format_str: Some("%B %d, %Y".to_string()),
+            local_tz: None,
+        };
+        let values = vec![
+            Some(NaiveDate::from_ymd_opt(2023, 12, 25).unwrap()),
+            Some(NaiveDate::from_ymd_opt(2024, 7, 4).unwrap()),
+            None,
+        ];
+        let result = formatter.format(&values, Some("N/A"));
+        
+        assert_eq!(result, vec!["December 25, 2023", "July 04, 2024", "N/A"]);
+    }
+
+    #[test]
+    fn test_date_formatting_short_format() {
+        use crate::formatter::{DefaultFormatter, DateFormatter};
+        use chrono::NaiveDate;
+        
+        let formatter = DefaultFormatter {
+            format_str: Some("%m/%d/%y".to_string()),
+            local_tz: None,
+        };
+        let values = vec![
+            Some(NaiveDate::from_ymd_opt(2023, 12, 25).unwrap()),
+            Some(NaiveDate::from_ymd_opt(2024, 1, 5).unwrap()),
+            None,
+        ];
+        let result = formatter.format(&values, Some("--"));
+        
+        assert_eq!(result, vec!["12/25/23", "01/05/24", "--"]);
+    }
+
+    #[test]
+    fn test_timestamp_formatting_default() {
+        use crate::formatter::{DefaultFormatter, TimestampFormatter};
+        
+        let formatter = DefaultFormatter::default();
+        let values = vec![
+            Some(chrono::NaiveDate::from_ymd_opt(2022, 1, 1).unwrap().and_hms_opt(0, 0, 0).unwrap()),
+            Some(chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap().and_hms_opt(0, 0, 0).unwrap()),
+            None,
+        ];
+        let result = formatter.format(&values, Some("Unknown"));
+        
+        assert_eq!(result, vec!["2022-01-01 00:00:00", "2024-01-01 00:00:00", "Unknown"]);
+    }
+
+    #[test]
+    fn test_timestamp_formatting_with_format_string() {
+        use crate::formatter::{DefaultFormatter, TimestampFormatter};
+        
+        let formatter = DefaultFormatter {
+            format_str: Some("%Y-%m-%d %H:%M".to_string()),
+            local_tz: None,
+        };
+        let values = vec![
+            Some(chrono::NaiveDate::from_ymd_opt(2022, 1, 1).unwrap().and_hms_opt(0, 0, 0).unwrap()),
+            Some(chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap().and_hms_opt(0, 0, 0).unwrap()),
+            None,
+        ];
+        let result = formatter.format(&values, Some("N/A"));
+        
+        assert_eq!(result, vec!["2022-01-01 00:00", "2024-01-01 00:00", "N/A"]);
+    }
+
+    #[test]
+    fn test_timestamptz_formatting_default() {
+        use crate::formatter::{DefaultFormatter, TimestamptzFormatter};
+        use chrono::DateTime;
+        
+        let formatter = DefaultFormatter::default();
+        let values = vec![
+            Some(DateTime::from_timestamp(1640995200, 0).unwrap()),
+            Some(DateTime::from_timestamp(1704067200, 0).unwrap()),
+            None,
+        ];
+        let result = formatter.format(&values, Some("Unknown"));
+        
+        assert_eq!(result, vec!["2022-01-01 00:00:00 UTC", "2024-01-01 00:00:00 UTC", "Unknown"]);
+    }
+
+    #[test]
+    fn test_timestamptz_formatting_with_timezone() {
+        use crate::formatter::{DefaultFormatter, TimestamptzFormatter};
+        use chrono::DateTime;
+        use chrono_tz::Tz;
+        
+        let formatter = DefaultFormatter {
+            format_str: Some("%Y-%m-%d %H:%M %Z".to_string()),
+            local_tz: Some(Tz::America__New_York),
+        };
+        let values = vec![
+            Some(DateTime::from_timestamp(1640995200, 0).unwrap()), // 2022-01-01 00:00:00 UTC
+            None,
+        ];
+        let result = formatter.format(&values, Some("N/A"));
+        
+        // UTC midnight becomes 7 PM previous day in New York (EST)
+        assert_eq!(result, vec!["2021-12-31 19:00 EST", "N/A"]);
+    }
+
+    #[test]
+    fn test_formatters_integration_numbers() {
+        use arrow::array::Float32Array;
+        
+        let coercer = Coercer::default();
+        let numbers = Float32Array::from(vec![Some(1234.567), Some(-0.123), None, Some(0.0)]);
+        let result = coercer.to_string(&(Arc::new(numbers) as ArrayRef), Some("N/A")).unwrap();
+        let strings = result.as_vec(4, None);
+        
+        assert_eq!(strings, vec!["1234.567", "-0.123", "N/A", "0"]);
+    }
+
+    #[test]
+    fn test_formatters_integration_dates() {
+        use arrow::array::Date32Array;
+        use arrow::datatypes::Date32Type;
+        
+        let coercer = Coercer::default();
+        // Date32 stores days since epoch (1970-01-01)
+        let epoch_date = Date32Type::from_naive_date(
+            chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()
+        );
+        let test_date = Date32Type::from_naive_date(
+            chrono::NaiveDate::from_ymd_opt(2023, 12, 25).unwrap()
+        );
+        
+        let dates = Date32Array::from(vec![Some(epoch_date), Some(test_date), None]);
+        let result = coercer.to_string(&(Arc::new(dates) as ArrayRef), Some("Unknown")).unwrap();
+        let strings = result.as_vec(3, None);
+        
+        assert_eq!(strings, vec!["1970-01-01", "2023-12-25", "1970-01-01"]);
+    }
+
+    #[test]
+    fn test_formatters_integration_strings() {
+        use arrow::array::StringArray;
+        
+        let coercer = Coercer::default();
+        let strings_array = StringArray::from(vec![Some("hello"), Some("world"), None]);
+        let result = coercer.to_string(&(Arc::new(strings_array) as ArrayRef), Some("N/A")).unwrap();
+        let strings = result.as_vec(3, None);
+        
+        assert_eq!(strings, vec!["hello", "world", "N/A"]);
+    }
+
+    #[test]
+    fn test_formatters_integration_booleans() {
+        use arrow::array::BooleanArray;
+        
+        let coercer = Coercer::default();
+        let bools = BooleanArray::from(vec![Some(true), Some(false), None]);
+        let result = coercer.to_string(&(Arc::new(bools) as ArrayRef), Some("Unknown")).unwrap();
+        let strings = result.as_vec(3, None);
+        
+        assert_eq!(strings, vec!["true", "false", "Unknown"]);
+    }
+
+    #[test]
+    fn test_number_formatting_edge_cases() {
+        use crate::formatter::{DefaultFormatter, NumberFormatter};
+        
+        let formatter = DefaultFormatter::default();
+        let values = vec![
+            Some(f32::INFINITY),
+            Some(f32::NEG_INFINITY),
+            Some(f32::NAN),
+            Some(0.0),
+            Some(-0.0),
+        ];
+        let result = formatter.format(&values, Some("N/A"));
+        
+        // Check for reasonable string representations
+        assert_eq!(result[0], "inf");
+        assert_eq!(result[1], "-inf");
+        assert_eq!(result[2], "NaN");
+        assert_eq!(result[3], "0");
+        assert_eq!(result[4], "-0"); // -0.0 displays as -0 in numfmt
+    }
+
+    #[test]
+    fn test_number_formatting_large_numbers() {
+        use crate::formatter::{DefaultFormatter, NumberFormatter};
+        
+        let formatter = DefaultFormatter {
+            format_str: Some(",.0f".to_string()),
+            local_tz: None,
+        };
+        let values = vec![
+            Some(1_000_000.0),
+            Some(1_234_567.89),
+            Some(-999_999.99),
+            None,
+        ];
+        let result = formatter.format(&values, Some("--"));
+        
+        assert_eq!(result, vec!["1,000,000", "1,234,568", "-1,000,000", "--"]);
+    }
+
+    #[test]
+    fn test_date_formatting_edge_cases() {
+        use crate::formatter::{DefaultFormatter, DateFormatter};
+        use chrono::NaiveDate;
+        
+        let formatter = DefaultFormatter {
+            format_str: Some("%Y-%j".to_string()), // Year and day of year
+            local_tz: None,
+        };
+        let values = vec![
+            Some(NaiveDate::from_ymd_opt(2000, 1, 1).unwrap()), // Leap year start
+            Some(NaiveDate::from_ymd_opt(2000, 12, 31).unwrap()), // Leap year end
+            Some(NaiveDate::from_ymd_opt(1900, 1, 1).unwrap()), // Non-leap year century
+            None,
+        ];
+        let result = formatter.format(&values, Some("Invalid"));
+        
+        assert_eq!(result, vec!["2000-001", "2000-366", "1900-001", "Invalid"]);
+    }
+
+    #[test]
+    fn test_formatting_empty_arrays() {
+        use crate::formatter::{DefaultFormatter, NumberFormatter, DateFormatter};
+        
+        let number_formatter = DefaultFormatter::default();
+        let date_formatter = DefaultFormatter::default();
+        
+        let number_result = NumberFormatter::format(&number_formatter, &[], Some("N/A"));
+        let date_result = DateFormatter::format(&date_formatter, &[], Some("N/A"));
+        
+        assert_eq!(number_result, Vec::<String>::new());
+        assert_eq!(date_result, Vec::<String>::new());
+    }
 }

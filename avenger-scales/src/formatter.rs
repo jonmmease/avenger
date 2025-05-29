@@ -9,7 +9,7 @@ use arrow::{
 use avenger_common::value::ScalarOrArray;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use chrono_tz::Tz;
-use numfmt::Formatter;
+use format_num::NumberFormat;
 use std::{fmt::Debug, str::FromStr, sync::Arc};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -38,12 +38,16 @@ impl NumberFormatter for DefaultFormatter {
     fn format(&self, value: &[Option<f32>], default: Option<&str>) -> Vec<String> {
         let default = default.unwrap_or("");
         if let Some(format_str) = &self.format_str {
-            let mut f: Formatter = format_str.parse().unwrap(); // Fix panic
+            // Use format_num for d3-style formatting
+            let formatter = NumberFormat::new();
             value
                 .iter()
                 .map(|&v| {
-                    v.map(|v| f.fmt2(v).to_string())
-                        .unwrap_or_else(|| default.to_string())
+                    v.map(|v| {
+                        // Use format_num for d3-style formatting
+                        formatter.format(format_str, v)
+                    })
+                    .unwrap_or_else(|| default.to_string())
                 })
                 .collect()
         } else {
