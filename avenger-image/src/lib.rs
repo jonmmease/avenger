@@ -1,7 +1,7 @@
 pub mod error;
 pub mod fetcher;
 
-#[cfg(feature = "image-request")]
+#[cfg(feature = "reqwest")]
 pub mod reqwest_fetcher;
 
 #[cfg(feature = "svg")]
@@ -50,7 +50,7 @@ impl RgbaImage {
                 if #[cfg(feature = "svg")] {
                     let decoded = BASE64_STANDARD.decode(data)?;
                     let svg_str = String::from_utf8(decoded)?;
-                    let png_data = svg::svg_to_png(&svg_str, 1.0)?;
+                    let png_data = svg::svg_to_png(&svg_str, 2.0)?;
                     let img = image::load_from_memory(&png_data)?;
                     Ok(Self::from_image(&img.into_rgba8()))
                 } else {
@@ -61,7 +61,7 @@ impl RgbaImage {
             cfg_if::cfg_if! {
                 if #[cfg(feature = "svg")] {
                     let svg_str = urlencoding::decode(data)?;
-                    let png_data = svg::svg_to_png(svg_str.as_ref(), 1.0)?;
+                    let png_data = svg::svg_to_png(svg_str.as_ref(), 2.0)?;
                     let img = image::load_from_memory(&png_data)?;
                     Ok(Self::from_image(&img.into_rgba8()))
                 } else {
@@ -73,7 +73,10 @@ impl RgbaImage {
             let img = fetcher.fetch_image(s)?;
             Ok(Self::from_image(&img.into_rgba8()))
         } else {
-            todo!()
+            Err(AvengerImageError::InternalError(format!(
+                "Unsupported image URL: {}",
+                s
+            )))
         }
     }
 }

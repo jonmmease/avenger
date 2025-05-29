@@ -516,7 +516,6 @@ dependencies = [
  "float-cmp 0.10.0",
  "geo",
  "geo-svg",
- "image",
  "itertools 0.13.0",
  "lyon_algorithms",
  "lyon_extra",

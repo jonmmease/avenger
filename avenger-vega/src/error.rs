@@ -30,7 +30,7 @@ pub enum AvengerVegaError {
     #[error("Image error: {0}")]
     AvengerImageError(#[from] avenger_image::error::AvengerImageError),
 
-    #[cfg(feature = "image-request")]
+    #[cfg(feature = "image-reqwest")]
     #[error("css color parse error")]
     ReqwestError(#[from] reqwest::Error),
 

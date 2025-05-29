@@ -6,8 +6,8 @@ description = "Utilities for importing Vega scenegraphs into Avenger"
 license = "BSD-3-Clause"
 
 [features]
-default = [ "image-request", "svg",]
-image-request = [ "reqwest",]
+default = [ "image-reqwest", "svg",]
+image-reqwest = [ "reqwest", "avenger-image/reqwest"]
 svg = [ "resvg", "usvg", "tiny-skia",]
 
 [dependencies]
