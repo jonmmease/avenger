@@ -4,8 +4,6 @@ version = "0.0.8"
 edition = "2021"
 
 [dependencies]
-vl-convert-rs = "1.7.0"
-pollster = "0.3"
-
-[dependencies.serde_json]
-workspace = true
+vl-convert-rs = "1.8.0"
+pollster = "0.4.0"
+serde_json = "1.0"
