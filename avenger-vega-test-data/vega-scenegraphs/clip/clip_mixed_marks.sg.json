@@ -168,7 +168,7 @@
                         "y": 320,
                         "width": 50,
                         "height": 50,
-                        "url": "data/ffox.png"
+                        "url": "https://raw.githubusercontent.com/vega/vega-datasets/main/data/ffox.png"
                       }
                     ],
                     "marktype": "image",
@@ -184,7 +184,7 @@
                         "y": 320,
                         "width": 50,
                         "height": 50,
-                        "url": "data/ffox.png"
+                        "url": "https://raw.githubusercontent.com/vega/vega-datasets/main/data/ffox.png"
                       }
                     ],
                     "marktype": "image",
