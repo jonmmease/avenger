@@ -25,7 +25,6 @@ pub struct SceneRuleMark {
     pub zindex: Option<i32>,
 }
 
-
 impl SceneRuleMark {
     pub fn x_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
         self.x.as_iter(self.len as usize, self.indices.as_ref())

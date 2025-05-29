@@ -27,13 +27,19 @@ impl std::hash::Hash for Clip {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
             Clip::None => state.write_u8(0),
-            Clip::Rect { x, y, width, height } => {
+            Clip::Rect {
+                x,
+                y,
+                width,
+                height,
+            } => {
                 vec![
-                    OrderedFloat::from(*x), 
+                    OrderedFloat::from(*x),
                     OrderedFloat::from(*y),
-                    OrderedFloat::from(*width), 
-                    OrderedFloat::from(*height)
-                ].hash(state);
+                    OrderedFloat::from(*width),
+                    OrderedFloat::from(*height),
+                ]
+                .hash(state);
             }
             Clip::Path(path) => {
                 hash_lyon_path(path, state);
@@ -42,14 +48,23 @@ impl std::hash::Hash for Clip {
     }
 }
 
-
 impl PartialEq for Clip {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::None, Self::None) => true,
             (
-                Self::Rect { x: x1, y: y1, width: w1, height: h1 }, 
-                Self::Rect { x: x2, y: y2, width: w2, height: h2 }
+                Self::Rect {
+                    x: x1,
+                    y: y1,
+                    width: w1,
+                    height: h1,
+                },
+                Self::Rect {
+                    x: x2,
+                    y: y2,
+                    width: w2,
+                    height: h2,
+                },
             ) => x1 == x2 && y1 == y2 && w1 == w2 && h1 == h2,
             (Self::Path(path1), Self::Path(path2)) => {
                 let mut hasher_a = DefaultHasher::new();
@@ -62,7 +77,6 @@ impl PartialEq for Clip {
         }
     }
 }
-
 
 impl Default for Clip {
     fn default() -> Self {
@@ -118,7 +132,11 @@ pub struct SceneGroup {
 impl std::hash::Hash for SceneGroup {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.name.hash(state);
-        vec![OrderedFloat::from(self.origin[0]), OrderedFloat::from(self.origin[1])].hash(state);
+        vec![
+            OrderedFloat::from(self.origin[0]),
+            OrderedFloat::from(self.origin[1]),
+        ]
+        .hash(state);
         self.clip.hash(state);
         self.gradients.hash(state);
         self.fill.hash(state);
@@ -129,7 +147,7 @@ impl std::hash::Hash for SceneGroup {
         if let Some(stroke_offset) = self.stroke_offset {
             OrderedFloat::from(stroke_offset).hash(state);
         }
-        
+
         self.zindex.hash(state);
         self.marks.hash(state);
     }

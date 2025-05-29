@@ -1,5 +1,8 @@
 use crate::scene::{
-    ModifiersState, SceneClickEvent, SceneCursorMovedEvent, SceneDoubleClickEvent, SceneFileChangedEvent, SceneGraphEvent, SceneGraphEventType, SceneKeyPressEvent, SceneKeyReleaseEvent, SceneMouseDownEvent, SceneMouseEnterEvent, SceneMouseLeaveEvent, SceneMouseUpEvent, SceneMouseWheelEvent
+    ModifiersState, SceneClickEvent, SceneCursorMovedEvent, SceneDoubleClickEvent,
+    SceneFileChangedEvent, SceneGraphEvent, SceneGraphEventType, SceneKeyPressEvent,
+    SceneKeyReleaseEvent, SceneMouseDownEvent, SceneMouseEnterEvent, SceneMouseLeaveEvent,
+    SceneMouseUpEvent, SceneMouseWheelEvent,
 };
 use crate::stream::{EventStream, EventStreamConfig, UpdateStatus};
 use crate::window::{ElementState, Key, MouseButton, NamedKey, WindowEvent, WindowKeyboardInput};
@@ -104,14 +107,21 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
 
     /// Get all file paths that are watched by registered event streams
     pub fn get_watched_files(&self) -> Vec<PathBuf> {
-        self.streams.iter().map(|stream| {
-            stream.config.types.iter().filter_map(|t| {
-                match t {
-                    SceneGraphEventType::FileChanged(file_path) => Some(file_path.clone()),
-                    _ => None,
-                }
-            }).collect::<Vec<_>>()
-        }).flatten().collect()
+        self.streams
+            .iter()
+            .map(|stream| {
+                stream
+                    .config
+                    .types
+                    .iter()
+                    .filter_map(|t| match t {
+                        SceneGraphEventType::FileChanged(file_path) => Some(file_path.clone()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .flatten()
+            .collect()
     }
 
     pub async fn dispatch_event(

@@ -158,7 +158,6 @@ fn ordinal_scale_to<R: Sync + Clone>(
     Ok(ScalarOrArray::new_array(scaled_values))
 }
 
-
 pub(crate) fn prep_discrete_enum_range<R: Sync + Clone + DeserializeOwned + Default>(
     config: &ScaleConfig,
 ) -> Result<(Vec<R>, R), AvengerScaleError> {

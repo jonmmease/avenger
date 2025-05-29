@@ -1,13 +1,12 @@
 use lyon_extra::euclid::UnknownUnit;
 use lyon_extra::parser::{ParseError, ParserOptions, Source};
 use lyon_path::geom::euclid::Point2D;
-use lyon_path::PathEvent;
 use lyon_path::Path;
+use lyon_path::PathEvent;
 use ordered_float::OrderedFloat;
 use std::hash::{Hash, Hasher};
 
 use crate::value::{ScalarOrArray, ScalarOrArrayValue};
-
 
 pub fn hash_point<H: Hasher>(point: &Point2D<f32, UnknownUnit>, hasher: &mut H) {
     OrderedFloat::from(point.x).hash(hasher);
@@ -71,4 +70,3 @@ pub fn parse_svg_path(path: &str) -> Result<Path, ParseError> {
     parser.parse(&opts, &mut source, &mut builder)?;
     Ok(builder.build())
 }
-

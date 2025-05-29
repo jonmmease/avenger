@@ -7,9 +7,9 @@ use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::line::SceneLineMark;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
+use lyon_extra::parser::ParseError;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use lyon_extra::parser::ParseError;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

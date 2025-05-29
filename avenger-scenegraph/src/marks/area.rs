@@ -48,7 +48,9 @@ impl std::hash::Hash for SceneAreaMark {
         self.zindex.hash(state);
 
         if let Some(stroke_dash) = &self.stroke_dash {
-            stroke_dash.iter().for_each(|d| OrderedFloat(*d).hash(state));
+            stroke_dash
+                .iter()
+                .for_each(|d| OrderedFloat(*d).hash(state));
         } else {
             OrderedFloat(0.0).hash(state);
         }
