@@ -402,8 +402,6 @@ impl PowerFunction {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use super::*;
     use float_cmp::assert_approx_eq;
 

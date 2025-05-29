@@ -335,7 +335,6 @@ mod tests {
 
     #[test]
     fn test_band_scale_padding() -> Result<(), AvengerScaleError> {
-        let domain = vec!["a", "b", "c"];
         let scale = BandScale;
         let config = ScaleConfig {
             domain: Arc::new(StringArray::from(vec!["a", "b", "c"])),
