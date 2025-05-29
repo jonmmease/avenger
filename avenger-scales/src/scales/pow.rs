@@ -8,7 +8,7 @@ use arrow::{
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 use datafusion_common::ScalarValue;
 
-use crate::{array, color_interpolator::scale_numeric_to_color2, error::AvengerScaleError};
+use crate::{array, color_interpolator::scale_numeric_to_color, error::AvengerScaleError};
 
 use super::{
     linear::LinearScale, ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext,
@@ -90,7 +90,7 @@ impl ScaleImpl for PowScale {
                 domain: Arc::new(Float32Array::from(vec![domain_start, domain_end])),
                 ..config.clone()
             };
-            return scale_numeric_to_color2(self, &config, values);
+            return scale_numeric_to_color(self, &config, values);
         }
 
         // If range start equals end, return constant range value

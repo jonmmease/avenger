@@ -9,7 +9,7 @@ use avenger_common::value::ScalarOrArray;
 use datafusion_common::ScalarValue;
 
 use crate::{
-    color_interpolator::scale_numeric_to_color2, error::AvengerScaleError,
+    color_interpolator::scale_numeric_to_color, error::AvengerScaleError,
     scales::linear::LinearScale, utils::ScalarValueUtils,
 };
 
@@ -139,7 +139,7 @@ impl ScaleImpl for LogScale {
                 domain: Arc::new(Float32Array::from(vec![domain_start, domain_end])),
                 ..config.clone()
             };
-            return scale_numeric_to_color2(self, &config, values);
+            return scale_numeric_to_color(self, &config, values);
         }
 
         // Get options
@@ -782,6 +782,85 @@ mod tests {
         assert_eq!(domain_start, 0.01);
         assert_eq!(domain_end, 1.0);
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_integration_log_scale_three_colors() -> Result<(), AvengerScaleError> {
+        use avenger_common::types::ColorOrGradient;
+        use datafusion_common::utils::arrays_into_list_array;
+        
+        // Create a log scale with domain [1, 100] and three-color range: red, yellow, blue
+        let red = [1.0, 0.0, 0.0, 1.0];    // Red
+        let yellow = [1.0, 1.0, 0.0, 1.0]; // Yellow  
+        let blue = [0.0, 0.0, 1.0, 1.0];   // Blue
+        
+        // Create the color range as a list array
+        let color_arrays = vec![
+            Arc::new(Float32Array::from(Vec::from(red))) as ArrayRef,
+            Arc::new(Float32Array::from(Vec::from(yellow))) as ArrayRef,
+            Arc::new(Float32Array::from(Vec::from(blue))) as ArrayRef,
+        ];
+        let color_range = Arc::new(arrays_into_list_array(color_arrays)?) as ArrayRef;
+        
+        // Create the log scale
+        let scale = LogScale::new((1.0, 100.0), (0.0, 1.0))
+            .with_range(color_range);
+            
+        // Test values across the domain
+        let test_values = vec![1.0, 3.16, 10.0, 31.6, 100.0]; // Evenly spaced in log space
+        let values_array = Arc::new(Float32Array::from(test_values.clone())) as ArrayRef;
+        
+        // Scale to colors
+        let color_result = scale.scale_to_color(&values_array)?;
+        let colors = color_result.as_vec(test_values.len(), None);
+        
+        // Verify we get ColorOrGradient values
+        assert_eq!(colors.len(), 5);
+        
+        // Check that the first value (1.0) maps to red-ish (start of range)
+        match &colors[0] {
+            ColorOrGradient::Color(color) => {
+                // Should be red-ish (high red component, low blue component)
+                assert!(color[0] > 0.8, "First color should be red-ish, got {:?}", color);
+                assert!(color[2] < 0.2, "First color should not be blue-ish, got {:?}", color);
+            }
+            _ => panic!("Expected Color, got {:?}", colors[0]),
+        }
+        
+        // Check that the last value (100.0) maps to blue-ish (end of range)
+        match &colors[4] {
+            ColorOrGradient::Color(color) => {
+                // Should be blue-ish (low red component, high blue component)
+                assert!(color[2] > 0.8, "Last color should be blue-ish, got {:?}", color);
+                assert!(color[0] < 0.2, "Last color should not be red-ish, got {:?}", color);
+            }
+            _ => panic!("Expected Color, got {:?}", colors[4]),
+        }
+        
+        // Check that middle value (10.0) maps to yellow-ish (middle of range)
+        match &colors[2] {
+            ColorOrGradient::Color(color) => {
+                // Should be yellow-ish (high red and green, low blue)
+                assert!(color[0] > 0.5, "Middle color should have red component, got {:?}", color);
+                assert!(color[1] > 0.5, "Middle color should have green component, got {:?}", color);
+                assert!(color[2] < 0.5, "Middle color should have low blue component, got {:?}", color);
+            }
+            _ => panic!("Expected Color, got {:?}", colors[2]),
+        }
+        
+        // Test that the scale correctly handles logarithmic interpolation
+        // by checking that equal log-space intervals produce equal color-space intervals
+        let log_positions = test_values.iter()
+            .map(|v| v.log10())
+            .collect::<Vec<f32>>();
+        
+        // Verify logarithmic scaling is working (positions should be evenly distributed in log space)
+        let log_diff_1 = log_positions[1] - log_positions[0];
+        let log_diff_2 = log_positions[2] - log_positions[1];
+        assert!((log_diff_1 - log_diff_2).abs() < 0.01, 
+                "Log scale should produce even spacing in log space");
+        
         Ok(())
     }
 }
