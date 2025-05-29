@@ -1,7 +1,4 @@
-use futures::Future;
-use std::f32::consts::E;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -11,7 +8,6 @@ use avenger_eventstream::stream::{EventStreamConfig, UpdateStatus};
 use avenger_eventstream::window::WindowEvent;
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::scene_graph::SceneGraph;
-use futures::future::BoxFuture;
 
 use crate::error::AvengerAppError;
 
@@ -19,17 +15,6 @@ use crate::error::AvengerAppError;
 pub trait SceneGraphBuilder<State: Clone + Send + Sync + 'static> {
     async fn build(&self, state: &mut State) -> Result<SceneGraph, AvengerAppError>;
 }
-
-// #[async_trait]
-// impl<State, F> SceneGraphBuilder<State> for F
-// where
-//     State: Clone + Send + Sync + 'static,
-//     F: Fn(&State) -> Pin<Box<dyn Future<Output = SceneGraph> + Send>> + Send + Sync + 'static,
-// {
-//     async fn build(&self, state: &State) -> Result<SceneGraph, AvengerAppError> {
-//         self(state).await
-//     }
-// }
 
 #[derive(Clone)]
 pub struct AvengerApp<State>

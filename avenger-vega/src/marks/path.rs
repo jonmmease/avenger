@@ -4,7 +4,6 @@ use crate::marks::values::CssColorOrGradient;
 use avenger_common::types::PathTransform;
 use avenger_common::types::{ColorOrGradient, Gradient, StrokeCap, StrokeJoin};
 use avenger_common::value::ScalarOrArray;
-use avenger_scenegraph::error::AvengerSceneGraphError;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::path::ScenePathMark;
 use lyon_extra::euclid::Vector2D;

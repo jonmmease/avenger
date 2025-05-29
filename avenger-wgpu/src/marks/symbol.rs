@@ -303,7 +303,7 @@ impl InstancedMarkFingerprint for SceneSymbolMark {
         self.indices.hash(&mut hasher);
 
         let res = hasher.finish();
-        let duration = start_time.elapsed();
+        let _duration = start_time.elapsed();
 
         res
     }

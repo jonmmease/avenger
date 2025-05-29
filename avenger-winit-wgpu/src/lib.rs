@@ -2,14 +2,13 @@ mod file_watcher;
 
 use avenger_app::app::AvengerApp;
 use avenger_common::canvas::CanvasDimensions;
-use avenger_eventstream::window::{WindowEvent as AvengerWindowEvent, WindowFileChangedEvent};
+use avenger_eventstream::window::{WindowEvent as AvengerWindowEvent};
 use avenger_wgpu::canvas::{Canvas, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
-use std::path::PathBuf;
 use std::time::Instant;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
+use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard;
 use winit::keyboard::NamedKey;
 use winit::window::{WindowAttributes, WindowId};
@@ -25,7 +24,7 @@ where
     pub avenger_app: AvengerApp<State>,
     render_pending: bool,
     tokio_runtime: tokio::runtime::Runtime,
-    file_watcher: Option<FileWatcher>,
+    pub file_watcher: Option<FileWatcher>,
 }
 
 impl<'a, State> WinitWgpuAvengerApp<'a, State>

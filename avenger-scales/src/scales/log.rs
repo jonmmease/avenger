@@ -46,7 +46,7 @@ impl LogScale {
         count: Option<&ScalarValue>,
     ) -> Result<(f32, f32), AvengerScaleError> {
         // Extract count, or return raw domain if no nice option
-        let count = if let Some(count) = count {
+        let _count = if let Some(count) = count {
             if count.data_type().is_numeric() {
                 count.as_f32()?
             } else if count == &ScalarValue::from(true) {
@@ -342,7 +342,7 @@ impl ScaleImpl for LogScale {
         let base = config.option_f32("base", 10.0);
         let range_offset = config.option_f32("range_offset", 0.0);
         let clamp = config.option_boolean("clamp", false);
-        let round = config.option_boolean("round", false);
+        let _round = config.option_boolean("round", false);
 
         let (range_start, range_end) = config.numeric_interval_range()?;
         let (domain_start, domain_end) = LogScale::apply_nice(
@@ -517,7 +517,7 @@ impl ScaleImpl for LogScale {
 
 /// Handles logarithmic transformations with different bases
 #[derive(Clone, Debug)]
-enum LogFunction {
+pub enum LogFunction {
     Static {
         log_fun: fn(f32) -> f32,
         pow_fun: fn(f32) -> f32,
