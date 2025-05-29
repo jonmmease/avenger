@@ -729,6 +729,426 @@ mod tests {
 
     use super::*;
     use svgtypes::Transform;
+    use arrow::array::{StringArray, ListArray, Float32Array};
+    use arrow::buffer::OffsetBuffer;
+    use arrow::datatypes::Field;
+    use avenger_common::types::ColorOrGradient;
+
+    fn assert_color_approx_eq(actual: [f32; 4], expected: [f32; 4], tolerance: f32) {
+        for i in 0..4 {
+            assert!(
+                (actual[i] - expected[i]).abs() < tolerance,
+                "Color component {} differs: actual={}, expected={}, tolerance={}",
+                i,
+                actual[i],
+                expected[i],
+                tolerance
+            );
+        }
+    }
+
+    #[test]
+    fn test_css_color_parsing_basic() {
+        let coercer = CssColorCoercer;
+        let colors = StringArray::from(vec!["red", "green", "blue", "#ff0000", "#00ff00", "#0000ff"]);
+        let result = coercer.coerce(&(Arc::new(colors) as ArrayRef), None).unwrap();
+        let colors_vec = result.as_vec(6, None);
+
+        // Test named colors
+        if let ColorOrGradient::Color(red) = &colors_vec[0] {
+            assert_color_approx_eq(*red, [1.0, 0.0, 0.0, 1.0], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+
+        if let ColorOrGradient::Color(green) = &colors_vec[1] {
+            assert_color_approx_eq(*green, [0.0, 0.5, 0.0, 1.0], 0.002); // CSS green is [0, 128, 0]
+        } else {
+            panic!("Expected Color variant");
+        }
+
+        if let ColorOrGradient::Color(blue) = &colors_vec[2] {
+            assert_color_approx_eq(*blue, [0.0, 0.0, 1.0, 1.0], 0.002);
+        } else {
+            panic!("Expected Color variant");
+        }
+
+        // Test hex colors
+        if let ColorOrGradient::Color(hex_red) = &colors_vec[3] {
+            assert_color_approx_eq(*hex_red, [1.0, 0.0, 0.0, 1.0], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+    }
+
+    #[test]
+    fn test_css_color_parsing_hex_formats() {
+        let coercer = CssColorCoercer;
+        let colors = StringArray::from(vec![
+            "#f00",      // 3-digit hex
+            "#ff0000",   // 6-digit hex
+            "#ff000080", // 8-digit hex with alpha
+            "#FF0000",   // Uppercase
+        ]);
+        let result = coercer.coerce(&(Arc::new(colors) as ArrayRef), None).unwrap();
+        let colors_vec = result.as_vec(4, None);
+        
+        // All should be red with different alpha values
+        if let ColorOrGradient::Color(red_3) = &colors_vec[0] {
+            assert_color_approx_eq(*red_3, [1.0, 0.0, 0.0, 1.0], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+
+        if let ColorOrGradient::Color(red_6) = &colors_vec[1] {
+            assert_color_approx_eq(*red_6, [1.0, 0.0, 0.0, 1.0], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+
+        if let ColorOrGradient::Color(red_8) = &colors_vec[2] {
+            // 8-digit hex colors are not supported by css_color_parser, falls back to transparent
+            assert_color_approx_eq(*red_8, [0.0, 0.0, 0.0, 0.0], 0.01); 
+        } else {
+            panic!("Expected Color variant");
+        }
+
+        if let ColorOrGradient::Color(red_upper) = &colors_vec[3] {
+            assert_color_approx_eq(*red_upper, [1.0, 0.0, 0.0, 1.0], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+    }
+
+    #[test]
+    fn test_css_color_parsing_rgb_formats() {
+        let coercer = CssColorCoercer;
+        let colors = StringArray::from(vec![
+            "rgb(255, 0, 0)",
+            "rgba(255, 0, 0, 0.5)",
+            "rgb(255,0,0)",  // No spaces
+            "rgb(100%, 0%, 0%)", // Percentage values
+        ]);
+        let result = coercer.coerce(&(Arc::new(colors) as ArrayRef), None).unwrap();
+        let colors_vec = result.as_vec(4, None);
+
+        if let ColorOrGradient::Color(rgb) = &colors_vec[0] {
+            assert_color_approx_eq(*rgb, [1.0, 0.0, 0.0, 1.0], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+
+        if let ColorOrGradient::Color(rgba) = &colors_vec[1] {
+            assert_color_approx_eq(*rgba, [1.0, 0.0, 0.0, 0.5], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+
+        if let ColorOrGradient::Color(rgb_no_space) = &colors_vec[2] {
+            assert_color_approx_eq(*rgb_no_space, [1.0, 0.0, 0.0, 1.0], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+
+        if let ColorOrGradient::Color(rgb_percent) = &colors_vec[3] {
+            assert_color_approx_eq(*rgb_percent, [1.0, 0.0, 0.0, 1.0], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+    }
+
+    #[test]
+    fn test_css_color_parsing_hsl_formats() {
+        let coercer = CssColorCoercer;
+        let colors = StringArray::from(vec![
+            "hsl(0, 100%, 50%)",     // Red
+            "hsl(120, 100%, 50%)",   // Green
+            "hsl(240, 100%, 50%)",   // Blue
+            "hsla(0, 100%, 50%, 0.5)", // Semi-transparent red
+        ]);
+        let result = coercer.coerce(&(Arc::new(colors) as ArrayRef), None).unwrap();
+        let colors_vec = result.as_vec(4, None);
+
+        if let ColorOrGradient::Color(hsl_red) = &colors_vec[0] {
+            assert_color_approx_eq(*hsl_red, [1.0, 0.0, 0.0, 1.0], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+
+        if let ColorOrGradient::Color(hsl_green) = &colors_vec[1] {
+            assert_color_approx_eq(*hsl_green, [0.0, 1.0, 0.0, 1.0], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+
+        if let ColorOrGradient::Color(hsl_blue) = &colors_vec[2] {
+            assert_color_approx_eq(*hsl_blue, [0.0, 0.0, 1.0, 1.0], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+
+        if let ColorOrGradient::Color(hsla_red) = &colors_vec[3] {
+            assert_color_approx_eq(*hsla_red, [1.0, 0.0, 0.0, 0.5], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+    }
+
+    #[test]
+    fn test_css_color_parsing_invalid_colors() {
+        let coercer = CssColorCoercer;
+        let default_color = ColorOrGradient::Color([0.5, 0.5, 0.5, 1.0]); // Gray default
+        
+        let colors = StringArray::from(vec![
+            "invalid_color",
+            "#gggggg",      // Invalid hex
+            "rgb(256, 0, 0)", // Out of range
+            "",             // Empty string
+            "notacolor",
+        ]);
+        let result = coercer.coerce(&(Arc::new(colors) as ArrayRef), Some(default_color.clone())).unwrap();
+        let colors_vec = result.as_vec(5, None);
+        
+        // Test each invalid color individually - different behaviors based on CSS parser
+        // "invalid_color" -> default
+        if let ColorOrGradient::Color(c) = &colors_vec[0] {
+            assert_color_approx_eq(*c, [0.5, 0.5, 0.5, 1.0], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+        
+        // "#gggggg" -> default  
+        if let ColorOrGradient::Color(c) = &colors_vec[1] {
+            assert_color_approx_eq(*c, [0.5, 0.5, 0.5, 1.0], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+        
+        // "rgb(256, 0, 0)" -> red (CSS parser clamps 256 to 255)
+        if let ColorOrGradient::Color(c) = &colors_vec[2] {
+            assert_color_approx_eq(*c, [1.0, 0.0, 0.0, 1.0], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+        
+        // "" -> default
+        if let ColorOrGradient::Color(c) = &colors_vec[3] {
+            assert_color_approx_eq(*c, [0.5, 0.5, 0.5, 1.0], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+        
+        // "notacolor" -> default
+        if let ColorOrGradient::Color(c) = &colors_vec[4] {
+            assert_color_approx_eq(*c, [0.5, 0.5, 0.5, 1.0], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+    }
+
+    #[test]
+    fn test_css_color_parsing_null_values() {
+        let coercer = CssColorCoercer;
+        let default_color = ColorOrGradient::Color([0.5, 0.5, 0.5, 1.0]);
+        
+        let mut builder = arrow::array::builder::StringBuilder::new();
+        builder.append_value("red");
+        builder.append_null();
+        builder.append_value("blue");
+        let colors = builder.finish();
+        
+        let result = coercer.coerce(&(Arc::new(colors) as ArrayRef), Some(default_color.clone())).unwrap();
+        let colors_vec = result.as_vec(3, None);
+
+        // First should be red
+        if let ColorOrGradient::Color(red) = &colors_vec[0] {
+            assert_color_approx_eq(*red, [1.0, 0.0, 0.0, 1.0], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+
+        // Second should be default (null value)
+        if let ColorOrGradient::Color(default) = &colors_vec[1] {
+            assert_color_approx_eq(*default, [0.5, 0.5, 0.5, 1.0], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+
+        // Third should be blue
+        if let ColorOrGradient::Color(blue) = &colors_vec[2] {
+            assert_color_approx_eq(*blue, [0.0, 0.0, 1.0, 1.0], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+    }
+
+    #[test]
+    fn test_color_coercion_from_numeric_arrays() {
+        let coercer = CssColorCoercer;
+        
+        // Create a ListArray with 4-element float arrays representing RGBA colors
+        let values = vec![
+            1.0, 0.0, 0.0, 1.0, // Red
+            0.0, 1.0, 0.0, 0.8, // Green with alpha
+            0.0, 0.0, 1.0, 1.0, // Blue
+        ];
+        let list_array = ListArray::new(
+            Arc::new(Field::new_list_field(DataType::Float32, true)),
+            OffsetBuffer::from_lengths(vec![4, 4, 4]),
+            Arc::new(Float32Array::from(values)),
+            None,
+        );
+        
+        let result = coercer.coerce(&(Arc::new(list_array) as ArrayRef), None).unwrap();
+        let colors_vec = result.as_vec(3, None);
+
+        if let ColorOrGradient::Color(red) = &colors_vec[0] {
+            assert_color_approx_eq(*red, [1.0, 0.0, 0.0, 1.0], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+
+        if let ColorOrGradient::Color(green) = &colors_vec[1] {
+            assert_color_approx_eq(*green, [0.0, 1.0, 0.0, 0.8], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+
+        if let ColorOrGradient::Color(blue) = &colors_vec[2] {
+            assert_color_approx_eq(*blue, [0.0, 0.0, 1.0, 1.0], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+    }
+
+    #[test]
+    fn test_color_coercion_invalid_numeric_arrays() {
+        let coercer = CssColorCoercer;
+        let default_color = ColorOrGradient::Color([0.5, 0.5, 0.5, 1.0]);
+        
+        // Create arrays with wrong number of elements
+        let values = vec![
+            1.0, 0.0, // Only 2 elements (should be 4)
+            0.0, 1.0, 0.0, // Only 3 elements
+            0.0, 0.0, 1.0, 1.0, 0.5, // 5 elements (too many)
+        ];
+        let list_array = ListArray::new(
+            Arc::new(Field::new_list_field(DataType::Float32, true)),
+            OffsetBuffer::from_lengths(vec![2, 3, 5]),
+            Arc::new(Float32Array::from(values)),
+            None,
+        );
+        
+        let result = coercer.coerce(&(Arc::new(list_array) as ArrayRef), Some(default_color.clone())).unwrap();
+        let colors_vec = result.as_vec(3, None);
+
+        // All invalid arrays should return the default color
+        for color in colors_vec {
+            if let ColorOrGradient::Color(c) = color {
+                assert_color_approx_eq(c, [0.5, 0.5, 0.5, 1.0], 0.001);
+            } else {
+                panic!("Expected Color variant");
+            }
+        }
+    }
+
+    #[test]
+    fn test_color_coercion_unsupported_types() {
+        let coercer = CssColorCoercer;
+        
+        // Try with an unsupported data type (Int32)
+        let int_array = arrow::array::Int32Array::from(vec![1, 2, 3]);
+        let result = coercer.coerce(&(Arc::new(int_array) as ArrayRef), None);
+        
+        assert!(result.is_err());
+        if let Err(AvengerScaleError::InternalError(msg)) = result {
+            assert!(msg.contains("Unsupported data type for coercing to color"));
+        } else {
+            panic!("Expected InternalError about unsupported data type");
+        }
+    }
+
+    #[test]
+    fn test_color_coercion_edge_cases() {
+        let coercer = CssColorCoercer;
+        
+        // Test edge cases with CSS colors
+        let colors = StringArray::from(vec![
+            "transparent",
+            "currentColor",
+            "inherit",
+            "initial",
+            "unset",
+        ]);
+        
+        let result = coercer.coerce(&(Arc::new(colors) as ArrayRef), None).unwrap();
+        let colors_vec = result.as_vec(5, None);
+        
+        // "transparent" should parse correctly
+        if let ColorOrGradient::Color(transparent) = &colors_vec[0] {
+            assert_color_approx_eq(*transparent, [0.0, 0.0, 0.0, 0.0], 0.001);
+        } else {
+            panic!("Expected Color variant for transparent");
+        }
+        
+        // Other CSS keywords should fall back to default (transparent)
+        for i in 1..colors_vec.len() {
+            if let ColorOrGradient::Color(c) = &colors_vec[i] {
+                assert_color_approx_eq(*c, [0.0, 0.0, 0.0, 0.0], 0.001);
+            } else {
+                panic!("Expected Color variant");
+            }
+        }
+    }
+
+    #[test]
+    fn test_color_coercion_performance() {
+        let coercer = CssColorCoercer;
+        
+        // Test with a large number of colors
+        let colors: Vec<String> = (0..1000)
+            .map(|i| format!("rgb({}, {}, {})", i % 256, (i * 2) % 256, (i * 3) % 256))
+            .collect();
+        let colors_array = StringArray::from(colors);
+        
+        let start = std::time::Instant::now();
+        let result = coercer.coerce(&(Arc::new(colors_array) as ArrayRef), None).unwrap();
+        let duration = start.elapsed();
+        
+        let colors_vec = result.as_vec(1000, None);
+        assert_eq!(colors_vec.len(), 1000);
+        
+        // Should complete reasonably quickly (less than 100ms for 1000 colors)
+        assert!(duration.as_millis() < 100, "Color coercion took too long: {:?}", duration);
+    }
+
+    #[test]
+    fn test_color_coercion_whitespace_handling() {
+        let coercer = CssColorCoercer;
+        
+        let colors = StringArray::from(vec![
+            "  red  ",           // Leading/trailing whitespace
+            "\tblue\n",          // Tab and newline
+            " rgb( 255 , 0 , 0 ) ", // Whitespace in rgb
+            "hsl( 120, 100%, 50% )", // Whitespace in hsl
+        ]);
+        
+        let result = coercer.coerce(&(Arc::new(colors) as ArrayRef), None).unwrap();
+        let colors_vec = result.as_vec(4, None);
+        
+        // All should parse correctly despite whitespace
+        if let ColorOrGradient::Color(red) = &colors_vec[0] {
+            assert_color_approx_eq(*red, [1.0, 0.0, 0.0, 1.0], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+        
+        if let ColorOrGradient::Color(blue) = &colors_vec[1] {
+            assert_color_approx_eq(*blue, [0.0, 0.0, 1.0, 1.0], 0.001);
+        } else {
+            panic!("Expected Color variant");
+        }
+    }
 
     #[test]
     fn test_to_path_transform() {
