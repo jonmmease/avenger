@@ -52,21 +52,22 @@ impl std::hash::Hash for ScenePathMark {
 
 impl PartialEq for ScenePathMark {
     fn eq(&self, other: &Self) -> bool {
-        if self.name != other.name || 
-           self.clip != other.clip || 
-           self.len != other.len || 
-           self.gradients != other.gradients ||
-           self.stroke_cap != other.stroke_cap ||
-           self.stroke_join != other.stroke_join ||
-           self.stroke_width != other.stroke_width ||
-           self.fill != other.fill ||
-           self.stroke != other.stroke ||
-           self.transform != other.transform ||
-           self.indices != other.indices ||
-           self.zindex != other.zindex {
+        if self.name != other.name
+            || self.clip != other.clip
+            || self.len != other.len
+            || self.gradients != other.gradients
+            || self.stroke_cap != other.stroke_cap
+            || self.stroke_join != other.stroke_join
+            || self.stroke_width != other.stroke_width
+            || self.fill != other.fill
+            || self.stroke != other.stroke
+            || self.transform != other.transform
+            || self.indices != other.indices
+            || self.zindex != other.zindex
+        {
             return false;
         }
-                
+
         match (&self.path.value(), &other.path.value()) {
             (ScalarOrArrayValue::Scalar(path1), ScalarOrArrayValue::Scalar(path2)) => {
                 let mut hash_a = DefaultHasher::new();
@@ -79,7 +80,7 @@ impl PartialEq for ScenePathMark {
                 if paths1.len() != paths2.len() {
                     return false;
                 }
-                
+
                 for (p1, p2) in paths1.iter().zip(paths2.iter()) {
                     let mut hash_a = DefaultHasher::new();
                     let mut hash_b = DefaultHasher::new();
@@ -175,4 +176,3 @@ impl From<ScenePathMark> for SceneMark {
         SceneMark::Path(mark)
     }
 }
-

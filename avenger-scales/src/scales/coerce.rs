@@ -468,7 +468,6 @@ Expected struct with fields [a(Float32), b(Float32), c(Float32), d(Float32), e(F
         &self,
         value: &ScalarValue,
     ) -> Result<Vec<SymbolShape>, AvengerScaleError> {
-
         match &value {
             ScalarValue::List(list) => {
                 let val = list.value(0);
@@ -484,16 +483,22 @@ Expected struct with fields [a(Float32), b(Float32), c(Float32), d(Float32), e(F
                             } else {
                                 result.push(SymbolShape::default());
                             }
-                        }   
+                        }
                         return Ok(result);
                     }
                     _ => {
-                        return Err(AvengerScaleError::InternalError(format!("Unsupported data type for coercing to symbol shape: {:?}", value.data_type())));
+                        return Err(AvengerScaleError::InternalError(format!(
+                            "Unsupported data type for coercing to symbol shape: {:?}",
+                            value.data_type()
+                        )));
                     }
                 }
             }
             _ => {
-                return Err(AvengerScaleError::InternalError(format!("Unsupported data type for coercing to symbol shape: {:?}", value.data_type())));
+                return Err(AvengerScaleError::InternalError(format!(
+                    "Unsupported data type for coercing to symbol shape: {:?}",
+                    value.data_type()
+                )));
             }
         }
     }

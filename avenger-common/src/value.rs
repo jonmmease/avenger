@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use avenger_image::RgbaImage;
-use avenger_text::types::{FontWeight, FontStyle, TextAlign, TextBaseline};
+use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};

@@ -1,9 +1,19 @@
-use crate::{impl_hash_for_scalar_or_array, lyon::{hash_lyon_path, parse_svg_path}, value::{ScalarOrArray, ScalarOrArrayValue}};
-use lyon_extra::{euclid::{Box2D, Point2D, Scale, Transform2D, UnknownUnit}, parser::ParseError};
+use crate::{
+    impl_hash_for_scalar_or_array,
+    lyon::{hash_lyon_path, parse_svg_path},
+    value::{ScalarOrArray, ScalarOrArrayValue},
+};
+use lyon_extra::{
+    euclid::{Box2D, Point2D, Scale, Transform2D, UnknownUnit},
+    parser::ParseError,
+};
 use lyon_path::{geom::Point, Winding};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
-use std::{borrow::Cow, hash::{DefaultHasher, Hash, Hasher}};
+use std::{
+    borrow::Cow,
+    hash::{DefaultHasher, Hash, Hasher},
+};
 use strum::VariantNames;
 
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Serialize, Deserialize, VariantNames)]
@@ -204,13 +214,13 @@ impl Hash for ScalarOrArray<PathTransform> {
         match &self.value {
             ScalarOrArrayValue::Scalar(transform) => hash_path_transform(transform, state),
             ScalarOrArrayValue::Array(transforms) => {
-                transforms.iter().for_each(|transform| hash_path_transform(transform, state));
+                transforms
+                    .iter()
+                    .for_each(|transform| hash_path_transform(transform, state));
             }
         }
     }
 }
-
-
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -405,4 +415,3 @@ impl TryInto<SymbolShape> for &str {
         SymbolShape::from_vega_str(self)
     }
 }
-

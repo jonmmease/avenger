@@ -84,12 +84,17 @@ where
 
         // Reconstruct the scene graph if the need to rerender or rebuild geometry
         if update_status.rerender || update_status.rebuild_geometry {
-
-            let scene_graph = match self.scene_graph_builder.build(self.event_stream_manager.state_mut()).await {
+            let scene_graph = match self
+                .scene_graph_builder
+                .build(self.event_stream_manager.state_mut())
+                .await
+            {
                 Ok(scene_graph) => scene_graph,
                 Err(e) => {
                     eprintln!("Failed to build scene graph: {:?}", e);
-                    return Err(AvengerAppError::InternalError("Failed to build scene graph".to_string()));
+                    return Err(AvengerAppError::InternalError(
+                        "Failed to build scene graph".to_string(),
+                    ));
                 }
             };
 

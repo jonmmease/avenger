@@ -73,7 +73,9 @@ impl SceneGraphEvent {
             Self::WindowMoved(..) => SceneGraphEventType::WindowMoved,
             Self::WindowFocused(..) => SceneGraphEventType::WindowFocused,
             Self::WindowCloseRequested => SceneGraphEventType::WindowCloseRequested,
-            Self::FileChanged(SceneFileChangedEvent{file_path, ..}) => SceneGraphEventType::FileChanged(file_path.clone()),
+            Self::FileChanged(SceneFileChangedEvent { file_path, .. }) => {
+                SceneGraphEventType::FileChanged(file_path.clone())
+            }
         }
     }
 }

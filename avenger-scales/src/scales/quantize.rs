@@ -14,7 +14,6 @@ use super::{
     ScaleImpl,
 };
 
-
 #[derive(Debug, Clone)]
 pub struct QuantizeScale;
 
@@ -82,7 +81,6 @@ impl ScaleImpl for QuantizeScale {
         Ok(take::take(&config.range, &indices, None)?)
     }
 
-
     fn ticks(
         &self,
         config: &ScaleConfig,
@@ -93,7 +91,6 @@ impl ScaleImpl for QuantizeScale {
         linear_scale.ticks(config, count)
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -124,7 +121,6 @@ mod tests {
 
         Ok(())
     }
-
 
     #[test]
     fn test_quantize_scale_nice() -> Result<(), AvengerScaleError> {

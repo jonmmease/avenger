@@ -2,7 +2,7 @@ mod file_watcher;
 
 use avenger_app::app::AvengerApp;
 use avenger_common::canvas::CanvasDimensions;
-use avenger_eventstream::window::{WindowEvent as AvengerWindowEvent};
+use avenger_eventstream::window::WindowEvent as AvengerWindowEvent;
 use avenger_wgpu::canvas::{Canvas, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
 use std::time::Instant;
@@ -36,13 +36,17 @@ where
         scale: f32,
         tokio_runtime: tokio::runtime::Runtime,
     ) -> (Self, EventLoop<AvengerWindowEvent>) {
-
         // Create event loop with AvengerWindowEvent as custom event type
         // We save a proxy and return the original event loop
-        let event_loop = EventLoop::<AvengerWindowEvent>::with_user_event().build().expect("Failed to build event loop");
+        let event_loop = EventLoop::<AvengerWindowEvent>::with_user_event()
+            .build()
+            .expect("Failed to build event loop");
         let watched_files = avenger_app.get_watched_files();
         let file_watcher = if !watched_files.is_empty() {
-            Some(FileWatcher::new(event_loop.create_proxy(), watched_files).expect("Failed to create file watcher"))
+            Some(
+                FileWatcher::new(event_loop.create_proxy(), watched_files)
+                    .expect("Failed to create file watcher"),
+            )
         } else {
             None
         };
@@ -97,7 +101,6 @@ where
         // Process file change events and other custom events
         if !self.render_pending || !event.skip_if_render_pending() {
             if let Some(canvas) = &mut self.canvas {
-
                 match self
                     .tokio_runtime
                     .block_on(self.avenger_app.update(&event, Instant::now()))
@@ -127,9 +130,9 @@ where
             Some(canvas) => canvas,
             None => return,
         };
-        
+
         // User events are handled through the application::event method
-        
+
         if window_id == canvas.window().id() && !canvas.input(&event) {
             match event {
                 WindowEvent::CloseRequested
@@ -174,7 +177,7 @@ where
                     }
 
                     let _duration = start_time.elapsed(); // Calculate elapsed time
-                                                         // println!("Render time: {:?}", _duration); // Print the duration
+                                                          // println!("Render time: {:?}", _duration); // Print the duration
                 }
                 event => {
                     if let Some(event) = AvengerWindowEvent::from_winit_event(event, self.scale) {
