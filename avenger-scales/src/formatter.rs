@@ -9,7 +9,7 @@ use arrow::{
 use avenger_common::value::ScalarOrArray;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use chrono_tz::Tz;
-use format_num::NumberFormat;
+use crate::format_num::NumberFormat;
 use std::{fmt::Debug, str::FromStr, sync::Arc};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

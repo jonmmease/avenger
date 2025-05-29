@@ -66,7 +66,7 @@ resvg = { version = "0.44.0" }
 usvg = { version = "0.44.0" }
 tiny-skia = { version = "0.11.3" }
 anyhow = { version = "1.0.98" }
-
+regex = { version = "1.11.1"}
 base64 = "0.22.1"
 urlencoding = "2.1"
 datafusion-common = { version = "46.0.0" }

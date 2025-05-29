@@ -1179,35 +1179,6 @@ mod tests {
     }
 
     #[test]
-    fn test_format_num_direct_usage() {
-        use format_num::NumberFormat;
-        
-        // Test format_num directly to understand its behavior
-        println!("Testing format_num crate directly:");
-        
-        let formatter = NumberFormat::new();
-        
-        // Test comma-separated formatting
-        let result = formatter.format(",.2f", 1234.567);
-        println!("With ',.2f' format: {}", result);
-        
-        // Test other format strings
-        let result = formatter.format(".2f", 1234.567);
-        println!("With '.2f' format: {}", result);
-        
-        let result = formatter.format(",.0f", 1234.567);
-        println!("With ',.0f' format: {}", result);
-        
-        // Test percentage format
-        let result = formatter.format(".1%", 0.123);
-        println!("With '.1%' format (0.123): {}", result);
-        
-        // Test scientific notation
-        let result = formatter.format(".2e", 1234.0);
-        println!("With '.2e' format (1234.0): {}", result);
-    }
-
-    #[test]
     fn test_number_formatting_with_format_string() {
         use crate::formatter::{DefaultFormatter, NumberFormatter};
         
