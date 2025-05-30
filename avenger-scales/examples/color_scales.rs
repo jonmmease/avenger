@@ -1,7 +1,7 @@
 use arrow::array::{ArrayRef, Float32Array};
 use avenger_common::types::ColorOrGradient;
 use avenger_scales::scales::{linear::LinearScale, log::LogScale};
-use datafusion_common::utils::arrays_into_list_array;
+use avenger_scales::scalar::Scalar;
 use std::sync::Arc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(Float32Array::from(Vec::from(blue))) as ArrayRef,
         Arc::new(Float32Array::from(Vec::from(red))) as ArrayRef,
     ];
-    let color_range = Arc::new(arrays_into_list_array(color_arrays)?) as ArrayRef;
+    let color_range = Scalar::arrays_into_list_array(color_arrays)?;
 
     let linear_color_scale = LinearScale::new((0.0, 10.0), (0.0, 1.0)).with_range(color_range);
 
@@ -50,7 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(Float32Array::from(Vec::from(yellow))) as ArrayRef,
         Arc::new(Float32Array::from(Vec::from(blue))) as ArrayRef,
     ];
-    let three_color_range = Arc::new(arrays_into_list_array(color_arrays)?) as ArrayRef;
+    let three_color_range = Scalar::arrays_into_list_array(color_arrays)?;
 
     let log_color_scale = LogScale::new((1.0, 100.0), (0.0, 1.0)).with_range(three_color_range);
 

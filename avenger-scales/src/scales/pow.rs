@@ -6,7 +6,7 @@ use arrow::{
     datatypes::{DataType, Float32Type},
 };
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
-use datafusion_common::ScalarValue;
+use crate::scalar::Scalar;
 
 use crate::{array, color_interpolator::scale_numeric_to_color, error::AvengerScaleError};
 
@@ -43,7 +43,7 @@ impl PowScale {
     pub fn apply_nice(
         domain: (f32, f32),
         exponent: f32,
-        count: Option<&ScalarValue>,
+        count: Option<&Scalar>,
     ) -> Result<(f32, f32), AvengerScaleError> {
         // Transform domain to linear space using power function
         let power_fun = PowerFunction::new(exponent);

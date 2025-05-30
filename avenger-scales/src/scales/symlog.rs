@@ -6,7 +6,7 @@ use arrow::{
     datatypes::{DataType, Float32Type},
 };
 use avenger_common::value::ScalarOrArray;
-use datafusion_common::ScalarValue;
+use crate::scalar::Scalar;
 
 use crate::{array, error::AvengerScaleError};
 
@@ -43,7 +43,7 @@ impl SymlogScale {
     pub fn apply_nice(
         domain: (f32, f32),
         constant: f32,
-        count: Option<&ScalarValue>,
+        count: Option<&Scalar>,
     ) -> Result<(f32, f32), AvengerScaleError> {
         // Create a linear scale to nice the transformed values
         let (domain_start, domain_end) = domain;

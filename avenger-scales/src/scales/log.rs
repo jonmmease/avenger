@@ -6,11 +6,10 @@ use arrow::{
     datatypes::{DataType, Float32Type},
 };
 use avenger_common::value::ScalarOrArray;
-use datafusion_common::ScalarValue;
 
 use crate::{
     color_interpolator::scale_numeric_to_color, error::AvengerScaleError,
-    scales::linear::LinearScale, utils::ScalarValueUtils,
+    scales::linear::LinearScale, scalar::Scalar,
 };
 
 use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};
@@ -43,13 +42,13 @@ impl LogScale {
     pub fn apply_nice(
         domain: (f32, f32),
         base: f32,
-        count: Option<&ScalarValue>,
+        count: Option<&Scalar>,
     ) -> Result<(f32, f32), AvengerScaleError> {
         // Extract count, or return raw domain if no nice option
         let _count = if let Some(count) = count {
-            if count.data_type().is_numeric() {
+            if count.array().data_type().is_numeric() {
                 count.as_f32()?
-            } else if count == &ScalarValue::from(true) {
+            } else if let Ok(true) = count.as_boolean() {
                 10.0
             } else {
                 return Ok(domain);
@@ -622,7 +621,7 @@ mod tests {
         let config = ScaleConfig {
             domain: Arc::new(Float32Array::from(vec![1.0, 2.0])),
             range: Arc::new(Float32Array::from(vec![0.0, 1.0])),
-            options: vec![("base".to_string(), ScalarValue::from(10.0))]
+            options: vec![("base".to_string(), Scalar::from(10.0))]
                 .into_iter()
                 .collect(),
             context: ScaleContext::default(),
@@ -645,8 +644,8 @@ mod tests {
             domain: Arc::new(Float32Array::from(vec![1.0, 2.0])),
             range: Arc::new(Float32Array::from(vec![0.0, 1.0])),
             options: vec![
-                ("base".to_string(), ScalarValue::from(10.0)),
-                ("range_offset".to_string(), ScalarValue::from(0.5)),
+                ("base".to_string(), Scalar::from(10.0)),
+                ("range_offset".to_string(), Scalar::from(0.5)),
             ]
             .into_iter()
             .collect(),
@@ -669,7 +668,7 @@ mod tests {
         let config = ScaleConfig {
             domain: Arc::new(Float32Array::from(vec![-100.0, -1.0])),
             range: Arc::new(Float32Array::from(vec![0.0, 1.0])),
-            options: vec![("base".to_string(), ScalarValue::from(10.0))]
+            options: vec![("base".to_string(), Scalar::from(10.0))]
                 .into_iter()
                 .collect(),
             context: ScaleContext::default(),
@@ -688,8 +687,8 @@ mod tests {
             domain: Arc::new(Float32Array::from(vec![1.0, 10.0])),
             range: Arc::new(Float32Array::from(vec![0.0, 1.0])),
             options: vec![
-                ("base".to_string(), ScalarValue::from(10.0)),
-                ("clamp".to_string(), ScalarValue::from(false)),
+                ("base".to_string(), Scalar::from(10.0)),
+                ("clamp".to_string(), Scalar::from(false)),
             ]
             .into_iter()
             .collect(),
@@ -707,8 +706,8 @@ mod tests {
             domain: Arc::new(Float32Array::from(vec![1.0, 10.0])),
             range: Arc::new(Float32Array::from(vec![0.0, 1.0])),
             options: vec![
-                ("base".to_string(), ScalarValue::from(10.0)),
-                ("clamp".to_string(), ScalarValue::from(true)),
+                ("base".to_string(), Scalar::from(10.0)),
+                ("clamp".to_string(), Scalar::from(true)),
             ]
             .into_iter()
             .collect(),
@@ -729,8 +728,8 @@ mod tests {
             domain: Arc::new(Float32Array::from(vec![1.0, 2.0])),
             range: Arc::new(Float32Array::from(vec![0.0, 1.0])),
             options: vec![
-                ("base".to_string(), ScalarValue::from(10.0)),
-                ("range_offset".to_string(), ScalarValue::from(0.5)),
+                ("base".to_string(), Scalar::from(10.0)),
+                ("range_offset".to_string(), Scalar::from(0.5)),
             ]
             .into_iter()
             .collect(),
@@ -788,7 +787,6 @@ mod tests {
     #[test]
     fn test_integration_log_scale_three_colors() -> Result<(), AvengerScaleError> {
         use avenger_common::types::ColorOrGradient;
-        use datafusion_common::utils::arrays_into_list_array;
 
         // Create a log scale with domain [1, 100] and three-color range: red, yellow, blue
         let red = [1.0, 0.0, 0.0, 1.0]; // Red
@@ -801,7 +799,7 @@ mod tests {
             Arc::new(Float32Array::from(Vec::from(yellow))) as ArrayRef,
             Arc::new(Float32Array::from(Vec::from(blue))) as ArrayRef,
         ];
-        let color_range = Arc::new(arrays_into_list_array(color_arrays)?) as ArrayRef;
+        let color_range = crate::scalar::Scalar::arrays_into_list_array(color_arrays)?;
 
         // Create the log scale
         let scale = LogScale::new((1.0, 100.0), (0.0, 1.0)).with_range(color_range);

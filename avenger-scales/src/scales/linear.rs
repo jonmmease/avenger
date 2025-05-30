@@ -6,11 +6,10 @@ use arrow::{
     datatypes::{DataType, Float32Type},
 };
 use avenger_common::{types::LinearScaleAdjustment, value::ScalarOrArray};
-use datafusion_common::ScalarValue;
 
 use crate::{
     array, color_interpolator::scale_numeric_to_color, error::AvengerScaleError,
-    utils::ScalarValueUtils,
+    scalar::Scalar,
 };
 
 use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};
@@ -59,13 +58,13 @@ impl LinearScale {
     /// Compute nice domain
     pub fn apply_nice(
         domain: (f32, f32),
-        count: Option<&ScalarValue>,
+        count: Option<&Scalar>,
     ) -> Result<(f32, f32), AvengerScaleError> {
         // Extract count, or return raw domain if no nice option
         let count = if let Some(count) = count {
-            if count.data_type().is_numeric() {
+            if count.array().data_type().is_numeric() {
                 count.as_f32()?
-            } else if count == &ScalarValue::from(true) {
+            } else if let Ok(true) = count.as_boolean() {
                 10.0
             } else {
                 return Ok(domain);
@@ -708,7 +707,7 @@ mod tests {
         };
 
         let niced_domain =
-            LinearScale::apply_nice(config.numeric_interval_domain()?, Some(&10.0.into()))?;
+            LinearScale::apply_nice(config.numeric_interval_domain()?, Some(&Scalar::from(10.0)))?;
         assert_eq!(niced_domain, (1.0, 11.0));
 
         Ok(())

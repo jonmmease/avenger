@@ -1,7 +1,7 @@
 use crate::error::AvengerScaleError;
 use crate::formatter::Formatters;
 use crate::scales::ordinal::OrdinalScale;
-use arrow::array::{Array, AsArray, Float32Array, StringArray, StructArray};
+use arrow::array::{Array, AsArray, Float32Array, ListArray, StringArray, StructArray};
 use arrow::compute::is_not_null;
 use arrow::compute::kernels::zip::zip;
 use arrow::datatypes::{Float32Type, UInt32Type, UInt8Type};
@@ -17,7 +17,7 @@ use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 use avenger_image::{make_image_fetcher, RgbaImage};
 use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use css_color_parser::Color;
-use datafusion_common::ScalarValue;
+use crate::scalar::Scalar;
 use lyon_extra::parser::{ParserOptions, Source};
 use lyon_path::geom::point;
 use paste::paste;
@@ -466,11 +466,13 @@ Expected struct with fields [a(Float32), b(Float32), c(Float32), d(Float32), e(F
 
     pub fn to_symbol_shapes(
         &self,
-        value: &ScalarValue,
+        value: &Scalar,
     ) -> Result<Vec<SymbolShape>, AvengerScaleError> {
-        match &value {
-            ScalarValue::List(list) => {
-                let val = list.value(0);
+        match value.data_type() {
+            DataType::List(_) => {
+                let list_array = value.array().as_any().downcast_ref::<ListArray>()
+                    .ok_or_else(|| AvengerScaleError::InternalError("Failed to downcast to ListArray".to_string()))?;
+                let val = list_array.value(0);
                 match val.data_type() {
                     DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
                         let cast_array = cast(&val, &DataType::Utf8)?;
@@ -489,7 +491,7 @@ Expected struct with fields [a(Float32), b(Float32), c(Float32), d(Float32), e(F
                     _ => {
                         return Err(AvengerScaleError::InternalError(format!(
                             "Unsupported data type for coercing to symbol shape: {:?}",
-                            value.data_type()
+                            val.data_type()
                         )));
                     }
                 }

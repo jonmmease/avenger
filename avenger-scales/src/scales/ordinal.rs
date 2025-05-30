@@ -12,7 +12,7 @@ use avenger_common::{
     types::{AreaOrientation, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin},
     value::ScalarOrArray,
 };
-use datafusion_common::{DataFusionError, ScalarValue};
+use crate::scalar::Scalar;
 use serde::de::DeserializeOwned;
 
 /// Macro to generate scale_to_X trait methods for ordinal enum scaling
@@ -92,9 +92,9 @@ fn range_indices_for_values(
         ));
     }
 
-    // Convert domain and range to vectors of ScalarValues
+    // Convert domain and range to vectors of Scalars
     let domain_values = (0..domain.len())
-        .map(|i| ScalarValue::try_from_array(domain.as_ref(), i).unwrap())
+        .map(|i| Scalar::try_from_array(domain.as_ref(), i).unwrap())
         .collect::<Vec<_>>();
 
     // Cast values to dictionary array
@@ -110,8 +110,8 @@ fn range_indices_for_values(
     // Get array of unique domain values that are observed in the values
     let observed_domain_array = dict_array.values();
     let observed_domain_values = (0..observed_domain_array.len())
-        .map(|i| ScalarValue::try_from_array(observed_domain_array, i))
-        .collect::<Result<Vec<_>, DataFusionError>>()?;
+        .map(|i| Scalar::try_from_array(observed_domain_array, i))
+        .collect::<Result<Vec<_>, AvengerScaleError>>()?;
 
     // Create a mapping from domain values to indices into range values
     let mapping = domain_values
