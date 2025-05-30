@@ -14,7 +14,7 @@ members = [
     "avenger-winit-wgpu",
     "examples/wgpu-scales",
     "examples/wgpu-winit",
-    "examples/iris",
+    "examples/iris-pan-zoom",
 ]
 exclude = [
     "avenger-vega-test-data",
