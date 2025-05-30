@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use avenger_vega::scene_graph::VegaSceneGraph;
+    use avenger_vega_scenegraph::scene_graph::VegaSceneGraph;
     use std::fs;
 
     #[test]
