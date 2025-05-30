@@ -1,3 +1,0 @@
-// A component that doesn't contain a mark
-in val v: 1;
-out val v2: @v * 10;
