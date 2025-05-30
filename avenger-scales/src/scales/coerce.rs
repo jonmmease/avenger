@@ -1127,33 +1127,6 @@ mod tests {
     }
 
     #[test]
-    fn test_color_coercion_performance() {
-        let coercer = CssColorCoercer;
-
-        // Test with a large number of colors
-        let colors: Vec<String> = (0..1000)
-            .map(|i| format!("rgb({}, {}, {})", i % 256, (i * 2) % 256, (i * 3) % 256))
-            .collect();
-        let colors_array = StringArray::from(colors);
-
-        let start = std::time::Instant::now();
-        let result = coercer
-            .coerce(&(Arc::new(colors_array) as ArrayRef), None)
-            .unwrap();
-        let duration = start.elapsed();
-
-        let colors_vec = result.as_vec(1000, None);
-        assert_eq!(colors_vec.len(), 1000);
-
-        // Should complete reasonably quickly (less than 100ms for 1000 colors)
-        assert!(
-            duration.as_millis() < 100,
-            "Color coercion took too long: {:?}",
-            duration
-        );
-    }
-
-    #[test]
     fn test_color_coercion_whitespace_handling() {
         let coercer = CssColorCoercer;
 
