@@ -8,6 +8,7 @@ default = ["winit_support"]
 winit_support = ["dep:winit"]
 
 [dependencies]
+avenger-common = { path = "../avenger-common" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-geometry = { path = "../avenger-geometry" }
 winit = { workspace = true, optional = true }

@@ -1,5 +1,4 @@
 use std::hash::{Hash, Hasher};
-use std::time::Instant;
 
 use crate::error::AvengerWgpuError;
 use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};

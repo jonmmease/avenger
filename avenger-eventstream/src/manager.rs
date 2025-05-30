@@ -11,7 +11,7 @@ use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::marks::mark::MarkInstance;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use avenger_common::time::{Duration, Instant};
 
 #[async_trait]
 pub trait EventStreamHandler<State: Clone + Send + Sync + 'static> {

@@ -394,6 +394,7 @@ name = "avenger-app"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "avenger-common",
  "avenger-eventstream",
  "avenger-geometry",
  "avenger-scenegraph",
@@ -412,6 +413,7 @@ dependencies = [
  "ordered-float",
  "serde",
  "strum",
+ "web-time",
 ]
 
 [[package]]
@@ -419,6 +421,7 @@ name = "avenger-eventstream"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "avenger-common",
  "avenger-geometry",
  "avenger-scenegraph",
  "winit",
@@ -605,10 +608,14 @@ dependencies = [
  "avenger-app",
  "avenger-common",
  "avenger-eventstream",
+ "avenger-scenegraph",
  "avenger-wgpu",
+ "cfg-if",
  "log",
  "notify",
  "tokio",
+ "wasm-bindgen-futures",
+ "web-sys",
  "wgpu 23.0.1",
  "winit",
 ]

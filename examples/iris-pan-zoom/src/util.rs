@@ -23,7 +23,6 @@ use avenger_eventstream::manager::EventStreamHandler;
 use csv::Reader;
 use rand_distr::Distribution;
 use std::sync::Arc;
-use std::time::Instant;
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
@@ -230,7 +229,8 @@ impl SceneGraphBuilder<ChartState> for IrisSceneGraphBuilder {
 }
 
 fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
-    let start_time = Instant::now(); // Start timing
+    #[cfg(not(target_arch = "wasm32"))]
+    let start_time = avenger_common::time::Instant::now();
 
     // Build scales and compute adjustments
     let x_scale = chart_state.x_scale();
@@ -342,8 +342,11 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
         origin: [0.0; 2],
     };
 
-    let duration = start_time.elapsed(); // Calculate elapsed time
-    println!("Scene construction time: {:?}", duration); // Print the duration
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let duration = start_time.elapsed(); // Calculate elapsed time
+        println!("Scene construction time: {:?}", duration); // Print the duration
+    }
 
     scene_graph
 }
@@ -416,12 +419,19 @@ pub async fn run() {
     .await
     .expect("Failed to create AvengerApp");
 
-    let tokio_runtime = tokio::runtime::Builder::new_current_thread()
-        .build()
-        .unwrap();
-
-    let (mut app, event_loop) =
-        WinitWgpuAvengerApp::new_and_event_loop(avenger_app, 2.0, tokio_runtime);
+    let (mut app, event_loop) = {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap();
+            WinitWgpuAvengerApp::new_and_event_loop(avenger_app, 2.0, tokio_runtime)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            WinitWgpuAvengerApp::new_and_event_loop(avenger_app, 2.0)
+        }
+    };
 
     event_loop
         .run_app(&mut app)
