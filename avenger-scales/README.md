@@ -41,8 +41,8 @@ let output = scale.scale_to_numeric(&input).unwrap();
 
 ```rust
 use avenger_scales::scales::log::LogScale;
+use avenger_scales::scalar::Scalar;
 use arrow::array::{ArrayRef, Float32Array};
-use datafusion_common::utils::arrays_into_list_array;
 use std::sync::Arc;
 
 // Create color range: Red → Yellow → Blue
@@ -55,7 +55,7 @@ let color_arrays = vec![
     Arc::new(Float32Array::from(Vec::from(yellow))) as ArrayRef,
     Arc::new(Float32Array::from(Vec::from(blue))) as ArrayRef,
 ];
-let color_range = Arc::new(arrays_into_list_array(color_arrays).unwrap()) as ArrayRef;
+let color_range = Scalar::arrays_into_list_array(color_arrays).unwrap();
 
 // Create log scale with domain [1, 100] and color range
 let scale = LogScale::new((1.0, 100.0), (0.0, 1.0)).with_range(color_range);

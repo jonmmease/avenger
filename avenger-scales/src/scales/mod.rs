@@ -13,7 +13,7 @@ pub mod threshold;
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use crate::{
-    color_interpolator::ColorInterpolator, error::AvengerScaleError, utils::ScalarValueUtils,
+    color_interpolator::ColorInterpolator, error::AvengerScaleError, scalar::Scalar,
 };
 use crate::{color_interpolator::ColorInterpolatorConfig, formatter::Formatters};
 use crate::{
@@ -35,7 +35,6 @@ use avenger_common::{
 use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use coerce::{CastNumericCoercer, Coercer, NumericCoercer};
-use datafusion_common::{utils::arrays_into_list_array, ScalarValue};
 
 /// Macro to generate scale_to_X trait methods that return a default error implementation
 #[macro_export]
@@ -59,7 +58,7 @@ macro_rules! declare_enum_scale_method {
 pub struct ScaleConfig {
     pub domain: ArrayRef,
     pub range: ArrayRef,
-    pub options: HashMap<String, ScalarValue>,
+    pub options: HashMap<String, Scalar>,
     pub context: ScaleContext,
 }
 
@@ -128,7 +127,7 @@ impl ScaleConfig {
         self.options
             .get(key)
             .cloned()
-            .unwrap_or(ScalarValue::from(default))
+            .unwrap_or(Scalar::from(default))
             .as_f32()
             .unwrap_or(default)
     }
@@ -137,7 +136,7 @@ impl ScaleConfig {
         self.options
             .get(key)
             .cloned()
-            .unwrap_or(ScalarValue::from(default))
+            .unwrap_or(Scalar::from(default))
             .as_boolean()
             .unwrap_or(default)
     }
@@ -146,7 +145,7 @@ impl ScaleConfig {
         self.options
             .get(key)
             .cloned()
-            .unwrap_or(ScalarValue::from(default))
+            .unwrap_or(Scalar::from(default))
             .as_i32()
             .unwrap_or(default)
     }
@@ -155,7 +154,7 @@ impl ScaleConfig {
         self.options
             .get(key)
             .cloned()
-            .unwrap_or(ScalarValue::from(default))
+            .unwrap_or(Scalar::from(default))
             .as_string()
             .unwrap_or(default.to_string())
     }
@@ -201,9 +200,9 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
     fn scale_scalar_to_numeric(
         &self,
         config: &ScaleConfig,
-        value: &ScalarValue,
+        value: &Scalar,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
-        let array = value.to_array()?;
+        let array = value.to_array();
         Ok(self
             .scale_to_numeric(config, &array)?
             .to_scalar_if_len_one())
@@ -270,9 +269,9 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
     fn scale_scalar_to_color(
         &self,
         config: &ScaleConfig,
-        value: &ScalarValue,
+        value: &Scalar,
     ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
-        let array = value.to_array()?;
+        let array = value.to_array();
         Ok(self.scale_to_color(config, &array)?.to_scalar_if_len_one())
     }
 
@@ -292,9 +291,9 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
     fn scale_scalar_to_string(
         &self,
         config: &ScaleConfig,
-        value: &ScalarValue,
+        value: &Scalar,
     ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
-        let array = value.to_array()?;
+        let array = value.to_array();
         Ok(self.scale_to_string(config, &array)?.to_scalar_if_len_one())
     }
 
@@ -405,7 +404,7 @@ impl ConfiguredScale {
             .map(|clr| Arc::new(Float32Array::from(Vec::from(clr))) as ArrayRef)
             .collect::<Vec<_>>();
 
-        let range = Arc::new(arrays_into_list_array(arrays)?) as ArrayRef;
+        let range = Scalar::arrays_into_list_array(arrays)?;
         Ok(self.with_range(range))
     }
 
@@ -423,7 +422,7 @@ impl ConfiguredScale {
         ConfiguredScale { config, ..self }
     }
 
-    pub fn with_option<S: Into<String>, V: Into<ScalarValue>>(
+    pub fn with_option<S: Into<String>, V: Into<Scalar>>(
         mut self,
         key: S,
         value: V,
@@ -448,15 +447,6 @@ impl ConfiguredScale {
         }
     }
 
-    pub fn get_domain_scalar(&self) -> ScalarValue {
-        let domain_list_array = arrays_into_list_array(vec![self.config.domain.clone()]).unwrap();
-        ScalarValue::List(Arc::new(domain_list_array))
-    }
-
-    pub fn get_range_scalar(&self) -> ScalarValue {
-        let range_list_array = arrays_into_list_array(vec![self.config.range.clone()]).unwrap();
-        ScalarValue::List(Arc::new(range_list_array))
-    }
 }
 
 // Pan / zoom methods
@@ -494,12 +484,12 @@ impl ConfiguredScale {
         self.scale_impl.scale(&self.config, values)
     }
 
-    pub fn scale_scalar<S: Into<ScalarValue> + Clone>(
+    pub fn scale_scalar<S: Into<Scalar> + Clone>(
         &self,
         value: &S,
-    ) -> Result<ScalarValue, AvengerScaleError> {
-        let scaled = self.scale(&ScalarValue::iter_to_array(vec![value.clone().into()])?)?;
-        Ok(ScalarValue::try_from_array(&scaled, 0)?)
+    ) -> Result<Scalar, AvengerScaleError> {
+        let scaled = self.scale(&Scalar::iter_to_array(vec![value.clone().into()])?)?;
+        Ok(Scalar::try_from_array(scaled.as_ref(), 0)?)
     }
 
     /// Scale to numeric values
@@ -512,7 +502,7 @@ impl ConfiguredScale {
 
     pub fn scale_scalar_to_numeric(
         &self,
-        value: &ScalarValue,
+        value: &Scalar,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
         self.scale_impl.scale_scalar_to_numeric(&self.config, value)
     }
@@ -549,7 +539,7 @@ impl ConfiguredScale {
 
     pub fn scale_scalar_to_color(
         &self,
-        value: &ScalarValue,
+        value: &Scalar,
     ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
         self.scale_impl.scale_scalar_to_color(&self.config, value)
     }
@@ -564,7 +554,7 @@ impl ConfiguredScale {
 
     pub fn scale_scalar_to_string(
         &self,
-        value: &ScalarValue,
+        value: &Scalar,
     ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
         self.scale_impl.scale_scalar_to_string(&self.config, value)
     }
@@ -645,7 +635,7 @@ impl ConfiguredScale {
             .collect())
     }
 
-    pub fn option(&self, key: &str) -> Option<ScalarValue> {
+    pub fn option(&self, key: &str) -> Option<Scalar> {
         self.config.options.get(key).cloned()
     }
 

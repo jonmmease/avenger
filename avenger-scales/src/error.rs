@@ -1,6 +1,6 @@
 use arrow::error::ArrowError;
 use avenger_image::error::AvengerImageError;
-use datafusion_common::{DataFusionError, ScalarValue};
+use crate::scalar::Scalar;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AvengerScaleError {
@@ -54,7 +54,7 @@ pub enum AvengerScaleError {
     #[error("Expected scalar value of type {expected_type}, got {scalar:?}")]
     InvalidScaleConfigScalarValue {
         expected_type: String,
-        scalar: ScalarValue,
+        scalar: Scalar,
     },
 
     #[error("Invalid {data_type} format string: {format_str}")]
@@ -68,7 +68,4 @@ pub enum AvengerScaleError {
 
     #[error("Arrow error: {0}")]
     ArrowError(#[from] ArrowError),
-
-    #[error("DataFusion error: {0}")]
-    DataFusionError(#[from] DataFusionError),
 }
