@@ -285,7 +285,6 @@ impl StrokeVertexConstructor<SymbolVertex> for VertexPositions {
 
 impl InstancedMarkFingerprint for SceneSymbolMark {
     fn instanced_fingerprint(&self) -> u64 {
-        let start_time = Instant::now();
         let mut hasher = std::hash::DefaultHasher::new();
 
         self.clip.hash(&mut hasher);
@@ -303,8 +302,6 @@ impl InstancedMarkFingerprint for SceneSymbolMark {
         self.indices.hash(&mut hasher);
 
         let res = hasher.finish();
-        let _duration = start_time.elapsed();
-
         res
     }
 }
