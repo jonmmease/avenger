@@ -8,7 +8,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 avenger-vega-scenegraph = { path = "../../avenger-vega-scenegraph" }
-avenger-wgpu = { path = "../../avenger-wgpu" }
+avenger-wgpu = { path = "../../avenger-wgpu", default-features = false }
 avenger-scenegraph = { path = "../../avenger-scenegraph" }
 avenger-common = { path = "../../avenger-common" }
 avenger-scales = { path = "../../avenger-scales" }
@@ -24,6 +24,9 @@ log = "0.4"
 wgpu = "23.0.1"
 pollster = "0.3"
 serde_json = { version = "1.0.111" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+avenger-wgpu = { path = "../../avenger-wgpu", default-features = false, features = ["cosmic-text"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.6"
