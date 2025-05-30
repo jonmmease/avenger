@@ -120,6 +120,12 @@ impl MultiMarkRenderer {
                     let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(
                         avenger_text::rasterization::cosmic::CosmicTextRasterizer::<crate::marks::text::GlyphBBoxAndAtlasCoords>::new())
                     ));
+                } else if #[cfg(target_arch = "wasm32")] {
+                    use crate::marks::text::TextAtlasBuilder;
+                    use std::sync::Arc;
+                    let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(
+                        avenger_text::rasterization::html_canvas::HtmlCanvasTextRasterizer::<crate::marks::text::GlyphBBoxAndAtlasCoords>::new())
+                    ));
                 } else {
                     use crate::marks::text::NullTextAtlasBuilder;
                     let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(NullTextAtlasBuilder);

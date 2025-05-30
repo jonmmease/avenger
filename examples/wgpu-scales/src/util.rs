@@ -354,6 +354,9 @@ pub async fn run() {
 
     let rtree = SceneGraphRTree::from_scene_graph(&scene_graph);
     let svg = rtree.to_svg();
+    
+    // Only write SVG file in native builds, not in WASM
+    #[cfg(not(target_arch = "wasm32"))]
     std::fs::write("geometry.svg", svg).expect("Failed to write SVG file");
 
     let scale = 2.0;

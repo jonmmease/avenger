@@ -22,10 +22,16 @@ use avenger_app::error::AvengerAppError;
 use avenger_eventstream::manager::EventStreamHandler;
 use csv::Reader;
 use rand_distr::Distribution;
-use std::fs::File;
-use std::io::BufReader;
 use std::sync::Arc;
 use std::time::Instant;
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::fs::File;
+#[cfg(not(target_arch = "wasm32"))]
+use std::io::BufReader;
+
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
 
 #[derive(Clone)]
 pub struct PanAnchor {
@@ -66,11 +72,20 @@ pub struct ChartState {
 impl ChartState {
     pub fn new() -> Self {
         // Load data
-        let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let data_path = format!("{}/data/Iris.csv", manifest_dir);
-        let file = File::open(data_path).expect("Failed to open Iris.csv");
-        let reader = BufReader::new(file);
-        let mut csv_reader = Reader::from_reader(reader);
+        cfg_if::cfg_if! {
+            if #[cfg(target_arch = "wasm32")] {
+                // Embed CSV data for WASM builds
+                let csv_data = include_str!("../data/Iris.csv");
+                let mut csv_reader = Reader::from_reader(csv_data.as_bytes());
+            } else {
+                // Load from file for native builds
+                let manifest_dir = env!("CARGO_MANIFEST_DIR");
+                let data_path = format!("{}/data/Iris.csv", manifest_dir);
+                let file = File::open(data_path).expect("Failed to open Iris.csv");
+                let reader = BufReader::new(file);
+                let mut csv_reader = Reader::from_reader(reader);
+            }
+        }
 
         // Initialize vectors to store the data
         let mut sepal_length: Vec<f32> = Vec::new();
