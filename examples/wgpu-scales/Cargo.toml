@@ -16,7 +16,6 @@ avenger-guides = { path = "../../avenger-guides" }
 avenger-geometry = { path = "../../avenger-geometry" }
 
 arrow = { version = "*", default-features = false, features = ["csv"] }
-datafusion-common = { version = "*", default-features = false }
 
 cfg-if = "1"
 winit = "0.30.5"
