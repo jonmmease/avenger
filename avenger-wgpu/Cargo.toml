@@ -70,7 +70,7 @@ optional = true
 [dependencies.lyon]
 workspace = true
 
-[dev-dependencies.avenger-vega]
+[dev-dependencies.avenger-vega-scenegraph]
 path = "../avenger-vega-scenegraph"
 features = [ "image-reqwest", "svg",]
 version = "0.0.8"

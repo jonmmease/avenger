@@ -21,7 +21,7 @@ float-cmp = "0.10.0"
 svgtypes = "0.15.1"
 
 arrow = { workspace = true }
-datafusion-common = { workspace = true }
+datafusion-common = { workspace = true, default-features = false }
 css-color-parser = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

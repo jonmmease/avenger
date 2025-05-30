@@ -1,7 +1,7 @@
 pub mod error;
 pub mod fetcher;
 
-#[cfg(feature = "reqwest")]
+#[cfg(all(feature = "reqwest", not(target_arch = "wasm32")))]
 pub mod reqwest_fetcher;
 
 #[cfg(feature = "svg")]

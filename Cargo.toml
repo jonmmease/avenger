@@ -71,7 +71,7 @@ anyhow = { version = "1.0.98" }
 regex = { version = "1.11.1"}
 base64 = "0.22.1"
 urlencoding = "2.1"
-datafusion-common = { version = "46.0.0" }
+datafusion-common = { version = "47.0.0", default-features = false }
 
 pixelmatch = "0.1"
 rstest = "0.25.0"

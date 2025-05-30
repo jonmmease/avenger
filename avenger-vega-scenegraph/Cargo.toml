@@ -1,5 +1,5 @@
 [package]
-name = "avenger-vega"
+name = "avenger-vega-scenegraph"
 version = "0.0.8"
 edition = "2021"
 description = "Utilities for importing Vega scenegraphs into Avenger"

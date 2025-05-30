@@ -20,7 +20,7 @@ pub fn initialize() {
 mod test_image_baselines {
     use crate::initialize;
     use avenger_scenegraph::scene_graph::SceneGraph;
-    use avenger_vega::scene_graph::VegaSceneGraph;
+    use avenger_vega_scenegraph::scene_graph::VegaSceneGraph;
     use avenger_wgpu::canvas::{Canvas, PngCanvas};
     use dssim::Dssim;
     use rstest::rstest;

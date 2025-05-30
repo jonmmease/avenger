@@ -7,8 +7,9 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-avenger-vega = { path = "../../avenger-vega-scenegraph" }
+avenger-vega-scenegraph = { path = "../../avenger-vega-scenegraph", default-features = false }
 avenger-wgpu = { path = "../../avenger-wgpu", default-features = false }
+avenger-image = { path = "../../avenger-image", default-features = false }
 avenger-scenegraph = { path = "../../avenger-scenegraph" }
 avenger-common = { path = "../../avenger-common" }
 
