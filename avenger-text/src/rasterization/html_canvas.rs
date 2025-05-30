@@ -1,7 +1,6 @@
 use crate::error::AvengerTextError;
 use crate::measurement::html_canvas::GLYPH_CACHE;
 
-use avenger_common::canvas::CanvasDimensions;
 use std::collections::HashMap;
 
 use crate::measurement::html_canvas::create_font_string;
@@ -199,11 +198,11 @@ where
         let descent = full_metrics.font_bounding_box_descent();
 
         let text_bounds = TextBounds {
-            width: buffer_width as f32 / scale.scale,
-            height: (ascent + descent) as f32 / scale.scale,
-            ascent: ascent as f32 / scale.scale,
-            descent: descent as f32 / scale.scale,
-            line_height: (ascent + descent) as f32 / scale.scale,
+            width: buffer_width as f32 / scale,
+            height: (ascent + descent) as f32 / scale,
+            ascent: ascent as f32 / scale,
+            descent: descent as f32 / scale,
+            line_height: (ascent + descent) as f32 / scale,
         };
         Ok(TextRasterizationBuffer {
             glyphs,

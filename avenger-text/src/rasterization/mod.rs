@@ -112,7 +112,7 @@ pub trait TextRasterizer: 'static {
     ) -> Result<TextRasterizationBuffer<Self::CacheKey>, AvengerTextError>;
 }
 
-#[cfg(feature = "cosmic-text")]
+#[cfg(all(feature = "cosmic-text", not(target_arch = "wasm32")))]
 pub fn default_rasterizer() -> impl TextRasterizer<CacheValue = ()> {
     crate::rasterization::cosmic::CosmicTextRasterizer::new()
 }

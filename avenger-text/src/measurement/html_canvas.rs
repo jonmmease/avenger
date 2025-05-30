@@ -1,5 +1,4 @@
 use super::{TextBounds, TextMeasurementConfig, TextMeasurer};
-use crate::measurement::CanvasDimensions;
 use crate::rasterization::GlyphData;
 use crate::types::{FontStyle, FontWeight, FontWeightNameSpec};
 use lazy_static::lazy_static;

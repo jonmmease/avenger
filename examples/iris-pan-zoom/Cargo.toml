@@ -7,7 +7,7 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-avenger-vega = { path = "../../avenger-vega-scenegraph" }
+avenger-vega-scenegraph = { path = "../../avenger-vega-scenegraph" }
 avenger-wgpu = { path = "../../avenger-wgpu" }
 avenger-scenegraph = { path = "../../avenger-scenegraph" }
 avenger-common = { path = "../../avenger-common" }

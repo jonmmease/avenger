@@ -7,7 +7,7 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-avenger-vega = { path = "../../avenger-vega-scenegraph" }
+avenger-vega-scenegraph = { path = "../../avenger-vega-scenegraph" }
 avenger-wgpu = { path = "../../avenger-wgpu" }
 avenger-scenegraph = { path = "../../avenger-scenegraph" }
 avenger-common = { path = "../../avenger-common" }
@@ -15,8 +15,8 @@ avenger-scales = { path = "../../avenger-scales" }
 avenger-guides = { path = "../../avenger-guides" }
 avenger-geometry = { path = "../../avenger-geometry" }
 
-arrow = "*"
-datafusion-common ="*"
+arrow = { version = "*", default-features = false, features = ["csv"] }
+datafusion-common = { version = "*", default-features = false }
 
 cfg-if = "1"
 winit = "0.30.5"
@@ -32,6 +32,7 @@ console_log = "1.0"
 wgpu = { version = "0.19.3", features = ["webgl", "webgpu"]}
 wasm-bindgen = "0.2.92"
 wasm-bindgen-futures = "0.4.42"
+getrandom = { version = "0.2", features = ["js"] }
 web-sys = { version = "0.3.67", features = [
     "Document",
     "Window",

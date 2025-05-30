@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-#[cfg(feature = "reqwest")]
+#[cfg(all(feature = "reqwest", not(target_arch = "wasm32")))]
 use crate::reqwest_fetcher::ReqwestImageFetcher;
 
 use crate::error::AvengerImageError;
@@ -12,7 +12,7 @@ pub trait ImageFetcher {
 
 pub fn make_image_fetcher() -> Result<Arc<dyn ImageFetcher>, AvengerImageError> {
     cfg_if::cfg_if! {
-        if #[cfg(feature = "reqwest")] {
+        if #[cfg(all(feature = "reqwest", not(target_arch = "wasm32")))] {
             Ok(Arc::new(ReqwestImageFetcher::new()))
         } else {
             Err(AvengerImageError::NoImageFetcherConfigured(

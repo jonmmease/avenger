@@ -4,8 +4,11 @@ use crate::canvas::{
     make_wgpu_adapter, request_wgpu_device, Canvas, CanvasConfig, MarkRenderer,
 };
 use crate::error::AvengerWgpuError;
+use crate::marks::instanced_mark::InstancedMarkRenderer;
 use crate::marks::multi::MultiMarkRenderer;
 use avenger_common::canvas::CanvasDimensions;
+use std::collections::HashMap;
+use std::sync::Arc;
 use web_sys::HtmlCanvasElement;
 use wgpu::{
     Device, Queue, Surface, SurfaceConfiguration, SurfaceTarget, TextureFormat, TextureUsages,
@@ -18,6 +21,7 @@ pub struct HtmlCanvasCanvas<'window> {
     dimensions: CanvasDimensions,
     marks: Vec<MarkRenderer>,
     multi_renderer: Option<MultiMarkRenderer>,
+    instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
     config: CanvasConfig,
 
     // The order of properties determines that drop order and device must be dropped after
@@ -86,6 +90,7 @@ impl<'window> HtmlCanvasCanvas<'window> {
             dimensions,
             marks: Vec::new(),
             multi_renderer: None,
+            instanced_renderers: HashMap::new(),
             config,
         })
     }
@@ -124,11 +129,27 @@ impl<'window> HtmlCanvasCanvas<'window> {
         let texture_format = self.texture_format();
         for mark in &mut self.marks {
             let command = match mark {
-                MarkRenderer::Instanced(renderer) => {
+                MarkRenderer::Instanced {
+                    renderer,
+                    x_adjustment,
+                    y_adjustment,
+                } => {
                     if self.sample_count > 1 {
-                        renderer.render(&self.device, &self.multisampled_framebuffer, Some(&view))
+                        renderer.render(
+                            &self.device,
+                            &self.multisampled_framebuffer,
+                            Some(&view),
+                            *x_adjustment,
+                            *y_adjustment,
+                        )
                     } else {
-                        renderer.render(&self.device, &view, None)
+                        renderer.render(
+                            &self.device,
+                            &view,
+                            None,
+                            *x_adjustment,
+                            *y_adjustment,
+                        )
                     }
                 }
                 MarkRenderer::Multi(renderer) => {
@@ -175,17 +196,35 @@ impl<'window> Canvas for HtmlCanvasCanvas<'window> {
         self.multi_renderer.as_mut().unwrap()
     }
 
-    fn add_mark_renderer(&mut self, mark_renderer: MarkRenderer) {
+
+    fn add_instanced_mark_renderer(
+        &mut self,
+        mark_renderer: Arc<InstancedMarkRenderer>,
+        fingerprint: u64,
+        x_adjustment: Option<avenger_common::types::LinearScaleAdjustment>,
+        y_adjustment: Option<avenger_common::types::LinearScaleAdjustment>,
+    ) {
         if let Some(multi_renderer) = self.multi_renderer.take() {
             self.marks
                 .push(MarkRenderer::Multi(Box::new(multi_renderer)));
         }
-        self.marks.push(mark_renderer);
+        self.instanced_renderers
+            .insert(fingerprint, mark_renderer.clone());
+        self.marks.push(MarkRenderer::Instanced {
+            renderer: mark_renderer,
+            x_adjustment,
+            y_adjustment,
+        });
+    }
+
+    fn get_instanced_renderer(&mut self, fingerprint: u64) -> Option<Arc<InstancedMarkRenderer>> {
+        self.instanced_renderers.get(&fingerprint).cloned()
     }
 
     fn clear_mark_renderer(&mut self) {
         self.get_multi_renderer().clear();
         self.marks.clear();
+        self.instanced_renderers.clear();
     }
 
     fn device(&self) -> &Device {

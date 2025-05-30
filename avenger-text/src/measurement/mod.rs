@@ -82,7 +82,7 @@ impl TextBounds {
     }
 }
 
-#[cfg(feature = "cosmic-text")]
+#[cfg(all(feature = "cosmic-text", not(target_arch = "wasm32")))]
 pub fn default_text_measurer() -> impl TextMeasurer {
     crate::measurement::cosmic::CosmicTextMeasurer::new()
 }
