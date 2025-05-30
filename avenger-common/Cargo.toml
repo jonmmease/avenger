@@ -15,3 +15,6 @@ ordered-float = { workspace = true}
 strum = { workspace = true }
 lyon_extra = { workspace = true }
 lyon_path = { workspace = true, features = ["serialization"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-time = "1.1.0"
