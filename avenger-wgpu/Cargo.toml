@@ -71,7 +71,7 @@ optional = true
 workspace = true
 
 [dev-dependencies.avenger-vega]
-path = "../avenger-vega"
+path = "../avenger-vega-scenegraph"
 features = [ "image-reqwest", "svg",]
 version = "0.0.8"
 
