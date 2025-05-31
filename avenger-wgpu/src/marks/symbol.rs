@@ -300,7 +300,7 @@ impl InstancedMarkFingerprint for SceneSymbolMark {
         self.angle.hash(&mut hasher);
         self.indices.hash(&mut hasher);
 
-        let res = hasher.finish();
-        res
+        
+        hasher.finish()
     }
 }

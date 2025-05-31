@@ -49,7 +49,7 @@ pub fn make_colorbar_marks(
             // Make colorbar rect
             let rect = SceneRectMark {
                 len: 1,
-                gradients: vec![gradient.into()],
+                gradients: vec![gradient],
                 x: (config.dimensions[0] + scale_x_offset - colorbar_width).into(),
                 x2: Some((config.dimensions[0] + scale_x_offset).into()),
                 y: (-0.5).into(),

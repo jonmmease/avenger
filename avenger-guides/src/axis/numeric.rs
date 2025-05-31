@@ -211,7 +211,7 @@ fn make_tick_labels(
     orientation: &AxisOrientation,
     dimensions: &[f32; 2],
 ) -> Result<SceneTextMark, AvengerGuidesError> {
-    let tick_text = scale.format(&ticks)?;
+    let tick_text = scale.format(ticks)?;
     let scaled_values = scale.scale_to_numeric(ticks)?;
 
     let (x, y, align, baseline, angle) = match orientation {
@@ -247,7 +247,7 @@ fn make_tick_labels(
 
     Ok(SceneTextMark {
         len: ticks.len() as u32,
-        text: tick_text.into(),
+        text: tick_text,
         x,
         y,
         align: align.into(),

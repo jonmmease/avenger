@@ -109,7 +109,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
     pub fn get_watched_files(&self) -> Vec<PathBuf> {
         self.streams
             .iter()
-            .map(|stream| {
+            .flat_map(|stream| {
                 stream
                     .config
                     .types
@@ -120,7 +120,6 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
                     })
                     .collect::<Vec<_>>()
             })
-            .flatten()
             .collect()
     }
 
@@ -132,7 +131,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
     ) -> UpdateStatus {
         // Update modifier state based on keyboard events
         if let WindowEvent::KeyboardInput(input) = event {
-            self.update_modifiers(&input);
+            self.update_modifiers(input);
         }
 
         // Update cursor position tracking
@@ -151,10 +150,10 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
                     if input.state == ElementState::Pressed {
                         // Store both mark and button
                         self.mousedown_mark = mark_instance.clone();
-                        self.mousedown_button = Some(input.button.clone());
+                        self.mousedown_button = Some(input.button);
                         Some(SceneGraphEvent::MouseDown(SceneMouseDownEvent {
                             position,
-                            button: input.button.clone(),
+                            button: input.button,
                             mark_instance,
                             modifiers: self.modifiers,
                         }))
@@ -180,7 +179,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
                                         .dispatch_single_event(
                                             &SceneGraphEvent::Click(SceneClickEvent {
                                                 position,
-                                                button: input.button.clone(),
+                                                button: input.button,
                                                 mark_instance: mark_instance.clone(),
                                                 modifiers: self.modifiers,
                                             }),
@@ -196,7 +195,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
                         self.mousedown_button = None;
                         Some(SceneGraphEvent::MouseUp(SceneMouseUpEvent {
                             position,
-                            button: input.button.clone(),
+                            button: input.button,
                             mark_instance,
                             modifiers: self.modifiers,
                         }))
@@ -234,14 +233,14 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
                     if e.state == ElementState::Pressed {
                         Some(SceneGraphEvent::KeyPress(SceneKeyPressEvent {
                             position,
-                            key: e.key.clone(),
+                            key: e.key,
                             mark_instance,
                             modifiers: self.modifiers,
                         }))
                     } else {
                         Some(SceneGraphEvent::KeyRelease(SceneKeyReleaseEvent {
                             position,
-                            key: e.key.clone(),
+                            key: e.key,
                             mark_instance,
                             modifiers: self.modifiers,
                         }))

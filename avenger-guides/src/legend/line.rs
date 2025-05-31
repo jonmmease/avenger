@@ -75,8 +75,8 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
 
     let all_text_mark = SceneTextMark {
         text: text_strs.into(),
-        font: config.font_family.clone().into(),
-        font_size: config.font_size.clone().into(),
+        font: config.font_family.clone(),
+        font_size: config.font_size.clone(),
         x: 0.0.into(),
         y: 0.0.into(),
         ..Default::default()
@@ -104,7 +104,7 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
             &stroke_dashes[i],
             &stroke_colors[i],
             config.stroke_cap,
-            &config,
+            config,
         );
         // let group_rtree = MarkRTree::from_scene_group(&group);
 
@@ -112,10 +112,10 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
         y += legend_group_height;
     }
 
-    return Ok(SceneGroup {
+    Ok(SceneGroup {
         marks: groups,
         ..Default::default()
-    });
+    })
 }
 
 fn make_line_group(
@@ -139,10 +139,10 @@ fn make_line_group(
         len: 2,
         x: vec![x0, x1].into(),
         y: vec![center_y, center_y].into(),
-        stroke_width: stroke_width.into(),
-        stroke_dash: stroke_dash.clone().into(),
-        stroke: stroke_color.clone().into(),
-        stroke_cap: stroke_cap.into(),
+        stroke_width,
+        stroke_dash: stroke_dash.clone(),
+        stroke: stroke_color.clone(),
+        stroke_cap,
         ..Default::default()
     };
 
@@ -158,13 +158,13 @@ fn make_line_group(
     };
 
     // Legend entry group
-    let group = SceneGroup {
+    
+    SceneGroup {
         origin: [config.inner_width + config.outer_margin, y],
         marks: vec![
             SceneMark::Line(single_line_mark),
             SceneMark::Text(Arc::new(text_mark)),
         ],
         ..Default::default()
-    };
-    group
+    }
 }

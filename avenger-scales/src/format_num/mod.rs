@@ -130,7 +130,6 @@
 //! precision will be lost.
 use regex::{Captures, Regex};
 use std::cmp::{max, min};
-use std::iter::repeat;
 
 const PREFIXES: [&str; 17] = [
     "y", "z", "a", "f", "p", "n", "µ", "m", "", "k", "M", "G", "T", "P", "E", "Z", "Y",
@@ -195,6 +194,12 @@ impl<'a> From<Captures<'a>> for FormatSpec<'a> {
     }
 }
 
+impl Default for NumberFormat {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NumberFormat {
     /// Create a new instance of HumanNumberFormat.
     pub fn new() -> Self {
@@ -206,7 +211,7 @@ impl NumberFormat {
 
     #[allow(dead_code)]
     fn get_significant_digits(input: &str) -> usize {
-        let contains_dot = input.find(".").is_some();
+        let contains_dot = input.contains(".");
         let mut dot_counted = false;
         let mut insignificant = 0;
         for char in input.chars() {
@@ -290,7 +295,7 @@ impl NumberFormat {
                 format!(
                     "{}{}",
                     coefficient,
-                    repeat("0").take((i - n) as usize).collect::<String>()
+                    std::iter::repeat_n("0", (i - n) as usize).collect::<String>()
                 ),
                 prefix_exponent,
             )
@@ -310,7 +315,7 @@ impl NumberFormat {
                 format!(
                     "0{}{}{}",
                     self.decimal,
-                    repeat("0").take(i.abs() as usize).collect::<String>(),
+                    std::iter::repeat_n("0", i.unsigned_abs()).collect::<String>(),
                     self.decompose_to_coefficient_and_exponent(
                         value,
                         precision.and(Some(max(
@@ -531,9 +536,9 @@ impl NumberFormat {
         };
 
         // Split the integer part of the value for grouping purposes and attach the decimal part as suffix.
-        let mut chars = value.chars().enumerate().into_iter();
-        while let Some((i, c)) = chars.next() {
-            if !"0123456789".find(c).is_some() {
+        let chars = value.chars().enumerate();
+        for (i, c) in chars {
+            if "0123456789".find(c).is_none() {
                 decimal_part = value[i..].to_owned();
                 value = value[..i].to_owned();
                 break;
@@ -565,7 +570,7 @@ impl NumberFormat {
         if format_spec.grouping.is_some() && format_spec.zero {
             value = self.group_value(
                 format!("{}{}", &padding, value).as_str(),
-                if padding.len() > 0 {
+                if !padding.is_empty() {
                     format_spec.width.unwrap() - suffix.len()
                 } else {
                     0
@@ -708,7 +713,7 @@ mod tests {
             "9999999999999999464902769475481793196872414789632"
         );
         assert_eq!(
-            num.format(".0f", 9.9999999999999987e+49),
+            num.format(".0f", 9.999_999_999_999_999e49),
             "99999999999999986860582406952576489172979654066176"
         );
         assert_eq!(
@@ -1084,7 +1089,7 @@ mod tests {
         assert_eq!(num.format(".3s", 1500.5), "1.50k");
         assert_eq!(num.format(".3s", 42e6), "42.0M");
         assert_eq!(num.format(".3s", 145500000), "146M");
-        assert_eq!(num.format(".3s", 145999999.999999347), "146M");
+        assert_eq!(num.format(".3s", 145_999_999.999_999_34), "146M");
         assert_eq!(num.format(".3s", 1e26), "100Y");
         assert_eq!(num.format(".3s", 0.000001), "1.00µ");
         assert_eq!(num.format(".3s", 0.009995), "10.0m");
