@@ -113,10 +113,10 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
         y += height;
     }
 
-    return Ok(SceneGroup {
+    Ok(SceneGroup {
         marks: groups,
         ..Default::default()
-    });
+    })
 }
 
 fn make_symbol_group(
@@ -149,7 +149,8 @@ fn make_symbol_group(
         ..Default::default()
     };
 
-    let group = SceneGroup {
+    
+    SceneGroup {
         origin,
         marks: vec![
             // Rect is so that bounding box calculations on group are correct
@@ -168,6 +169,5 @@ fn make_symbol_group(
 
         stroke_width: Some(1.0),
         ..Default::default()
-    };
-    group
+    }
 }

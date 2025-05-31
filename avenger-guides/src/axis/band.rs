@@ -35,12 +35,12 @@ pub fn make_band_axis_marks(
     // Get range bounds considering orientation
     let range = scale.numeric_interval_range()?;
     let (start, end) = match config.orientation {
-        AxisOrientation::Left | AxisOrientation::Right { .. } => {
+        AxisOrientation::Left | AxisOrientation::Right => {
             let upper = f32::min(range.1, range.0);
             let lower = f32::max(range.0, range.1);
             (lower, upper)
         }
-        AxisOrientation::Top | AxisOrientation::Bottom { .. } => {
+        AxisOrientation::Top | AxisOrientation::Bottom => {
             let left = f32::min(range.0, range.1);
             let right = f32::max(range.0, range.1);
             (left, right)
@@ -50,7 +50,7 @@ pub fn make_band_axis_marks(
     // Add axis line
     let is_vertical = matches!(
         config.orientation,
-        AxisOrientation::Left | AxisOrientation::Right { .. }
+        AxisOrientation::Left | AxisOrientation::Right
     );
     let offset = match config.orientation {
         AxisOrientation::Right => config.dimensions[0],
@@ -229,7 +229,7 @@ fn make_tick_labels(
 
     Ok(SceneTextMark {
         len: scale.domain().len() as u32,
-        text: scale.format(scale.domain())?.into(),
+        text: scale.format(scale.domain())?,
         x,
         y,
         align: align.into(),

@@ -490,21 +490,21 @@ Expected struct with fields [a(Float32), b(Float32), c(Float32), d(Float32), e(F
                                 result.push(SymbolShape::default());
                             }
                         }
-                        return Ok(result);
+                        Ok(result)
                     }
                     _ => {
-                        return Err(AvengerScaleError::InternalError(format!(
+                        Err(AvengerScaleError::InternalError(format!(
                             "Unsupported data type for coercing to symbol shape: {:?}",
                             val.data_type()
-                        )));
+                        )))
                     }
                 }
             }
             _ => {
-                return Err(AvengerScaleError::InternalError(format!(
+                Err(AvengerScaleError::InternalError(format!(
                     "Unsupported data type for coercing to symbol shape: {:?}",
                     value.data_type()
-                )));
+                )))
             }
         }
     }
@@ -1481,7 +1481,7 @@ mod tests {
         };
         let values = vec![
             Some(1_000_000.0),
-            Some(1_234_567.89),
+            Some(1_234_567.9),
             Some(-999_999.99),
             None,
         ];

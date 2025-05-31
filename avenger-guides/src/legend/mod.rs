@@ -6,14 +6,14 @@ use crate::error::AvengerGuidesError;
 
 fn compute_encoding_length(lengths: &[usize]) -> Result<usize, AvengerGuidesError> {
     let lengths = lengths
-        .into_iter()
+        .iter()
         .cloned()
         .filter(|&len| len > 1)
         .collect::<std::collections::HashSet<_>>();
 
     let len = if lengths.len() > 1 {
         return Err(AvengerGuidesError::InvalidLegendLength(lengths));
-    } else if lengths.len() == 0 {
+    } else if lengths.is_empty() {
         1
     } else {
         // Only one unique length greater than 1

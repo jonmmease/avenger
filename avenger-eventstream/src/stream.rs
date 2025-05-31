@@ -157,11 +157,7 @@ impl<State: Clone + Send + Sync + 'static> EventStream<State> {
         }
 
         // Check if event matches and throttling allows it
-        if self.matches_event(event, mark_instance) && self.should_handle_event(now) {
-            true
-        } else {
-            false
-        }
+        self.matches_event(event, mark_instance) && self.should_handle_event(now)
     }
 
     pub(crate) fn matches_event(

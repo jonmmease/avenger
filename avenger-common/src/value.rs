@@ -293,7 +293,7 @@ macro_rules! impl_hash_for_scalar_or_array {
                         });
                         state.write_u64(*hash_value);
                     }
-                    crate::value::ScalarOrArrayValue::Array(values) => {
+                    $crate::value::ScalarOrArrayValue::Array(values) => {
                         let hash_value = hash_cache.get_or_insert_with(|| {
                             let mut inner_hasher = std::hash::DefaultHasher::new();
                             for value in values.iter() {

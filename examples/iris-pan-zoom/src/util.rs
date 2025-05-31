@@ -68,6 +68,12 @@ pub struct ChartState {
     pub pan_anchor: Option<PanAnchor>,
 }
 
+impl Default for ChartState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ChartState {
     pub fn new() -> Self {
         // Load data
@@ -330,7 +336,7 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
             y_axis.into(),
             x_axis.into(),
             mark_group.into(),
-            chart_state.symbol_legend.clone().into(),
+            chart_state.symbol_legend.clone(),
         ],
         ..Default::default()
     });
@@ -463,7 +469,7 @@ impl EventStreamHandler<ChartState> for PanningClick {
         let normalized_x = (plot_x - range_start) / (range_end - range_start);
         let (range_start, range_end) = y_scale.numeric_interval_range().unwrap();
         let normalized_y = (plot_y - range_start) / (range_end - range_start);
-        if normalized_x < 0.0 || normalized_x > 1.0 || normalized_y < 0.0 || normalized_y > 1.0 {
+        if !(0.0..=1.0).contains(&normalized_x) || !(0.0..=1.0).contains(&normalized_y) {
             return UpdateStatus {
                 rerender: false,
                 rebuild_geometry: false,
@@ -588,7 +594,7 @@ impl EventStreamHandler<ChartState> for WheelZoom {
         let normalized_y = (plot_y - range_start) / (range_end - range_start);
 
         // Check if cursor is over the plot area
-        if normalized_x < 0.0 || normalized_x > 1.0 || normalized_y < 0.0 || normalized_y > 1.0 {
+        if !(0.0..=1.0).contains(&normalized_x) || !(0.0..=1.0).contains(&normalized_y) {
             return UpdateStatus {
                 rerender: false,
                 rebuild_geometry: false,

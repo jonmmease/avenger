@@ -486,7 +486,7 @@ impl ConfiguredScale {
         value: &S,
     ) -> Result<Scalar, AvengerScaleError> {
         let scaled = self.scale(&Scalar::iter_to_array(vec![value.clone().into()])?)?;
-        Ok(Scalar::try_from_array(scaled.as_ref(), 0)?)
+        Scalar::try_from_array(scaled.as_ref(), 0)
     }
 
     /// Scale to numeric values

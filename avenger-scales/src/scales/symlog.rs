@@ -676,9 +676,7 @@ mod tests {
         };
         let ticks = scale.ticks(&config, Some(10.0)).unwrap();
         let ticks_array = ticks.as_primitive::<Float32Type>();
-        let expected = vec![
-            -1.0f32, -0.8, -0.6, -0.4, -0.2, 0.0, 0.2, 0.4, 0.6, 0.8, 1.0,
-        ];
+        let expected = [-1.0f32, -0.8, -0.6, -0.4, -0.2, 0.0, 0.2, 0.4, 0.6, 0.8, 1.0];
 
         assert_eq!(ticks.len(), expected.len());
         for (a, b) in ticks_array.values().iter().zip(expected.iter()) {
@@ -701,7 +699,7 @@ mod tests {
 
         let ticks = scale.ticks(&config, Some(5.0)).unwrap();
         let ticks_array = ticks.as_primitive::<Float32Type>();
-        assert!(ticks.len() > 0);
+        assert!(!ticks.is_empty());
 
         // Ticks should be symmetric around zero
         let mid_idx = ticks.len() / 2;

@@ -18,7 +18,7 @@ use rstar::{PointDistance, AABB};
 fn test_symbol_rtree_single() {
     // Create a symbol mark with a single circle at (1,1) with size 2
     let mut mark = SceneSymbolMark::default();
-    mark.shapes = vec![SymbolShape::Circle].into();
+    mark.shapes = vec![SymbolShape::Circle];
     mark.x = vec![1.0].into();
     mark.y = vec![1.0].into();
     mark.size = vec![4.0].into();
@@ -58,8 +58,7 @@ fn test_symbol_rtree_multiple() {
     mark.shapes = vec![
         SymbolShape::Circle,
         SymbolShape::from_vega_str("square").unwrap(),
-    ]
-    .into();
+    ];
     mark.x = vec![0.0, 3.0].into();
     mark.y = vec![0.0, 0.0].into();
     mark.size = vec![1.0, 1.0].into();
@@ -95,7 +94,7 @@ fn test_symbol_rtree_multiple() {
 fn test_symbol_rtree_rotation() {
     // Create a symbol mark with a rotated rectangle
     let mut mark = SceneSymbolMark::default();
-    mark.shapes = vec![SymbolShape::from_vega_str("square").unwrap()].into();
+    mark.shapes = vec![SymbolShape::from_vega_str("square").unwrap()];
     mark.x = vec![1.0].into();
     mark.y = vec![1.0].into();
     mark.size = vec![4.0].into();
@@ -140,7 +139,7 @@ fn test_symbol_rtree_empty() {
 fn test_symbol_rtree_spatial_query() {
     let mut mark = SceneSymbolMark::default();
     mark.len = 3;
-    mark.shapes = vec![SymbolShape::Circle].into();
+    mark.shapes = vec![SymbolShape::Circle];
     mark.x = vec![0.0, 2.0, 4.0].into();
     mark.y = vec![0.0, 0.0, 0.0].into();
     mark.size = vec![1.0, 1.0, 1.0].into();
