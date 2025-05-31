@@ -117,6 +117,10 @@ impl<T: Sync + Clone> ScalarOrArray<T> {
             ScalarOrArrayValue::Array(values) => values.len(),
         }
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 impl ScalarOrArray<f32> {

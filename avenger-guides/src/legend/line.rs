@@ -158,7 +158,7 @@ fn make_line_group(
     };
 
     // Legend entry group
-    
+
     SceneGroup {
         origin: [config.inner_width + config.outer_margin, y],
         marks: vec![

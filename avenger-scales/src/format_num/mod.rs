@@ -129,7 +129,7 @@
 //! trait. While this covers a broad range of use cases, for big numbers (>u64::MAX) some
 //! precision will be lost.
 use regex::{Captures, Regex};
-use std::cmp::{max, min};
+use std::cmp::max;
 
 const PREFIXES: [&str; 17] = [
     "y", "z", "a", "f", "p", "n", "µ", "m", "", "k", "M", "G", "T", "P", "E", "Z", "Y",
@@ -284,7 +284,7 @@ impl NumberFormat {
     fn format_si_prefix(&self, value: f64, precision: Option<i32>) -> (String, isize) {
         let (coefficient, exponent) =
             self.decompose_to_coefficient_and_exponent(value, precision.map(|p| p as usize));
-        let prefix_exponent = max(-8, min(8, (exponent as f32 / 3_f32).floor() as isize));
+        let prefix_exponent = ((exponent as f32 / 3_f32).floor() as isize).clamp(-8, 8);
         let i: isize = exponent - prefix_exponent * 3 + 1;
         let n: isize = coefficient.len() as isize;
 

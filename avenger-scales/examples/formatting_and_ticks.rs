@@ -23,7 +23,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Format specific numbers with different precision
-    let precision_numbers = vec![Some(3.14159), Some(2.71828), None, Some(1.41421)];
+    let precision_numbers = vec![
+        Some(std::f32::consts::PI),
+        Some(std::f32::consts::E),
+        None,
+        Some(std::f32::consts::SQRT_2),
+    ];
     let formatted_precision = scale.format_numbers(&precision_numbers);
     let precision_strings = formatted_precision.as_vec(precision_numbers.len(), None);
 

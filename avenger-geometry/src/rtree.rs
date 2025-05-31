@@ -169,8 +169,6 @@ impl SceneGraphRTree {
         candidate_instance.map(|g| &g.mark_instance)
     }
 
-    /// Returns all elements contained in an envelope
-
     /// Returns a single object that covers a given point.
     ///
     /// If multiple elements contain the given point, any of them is returned.

@@ -21,7 +21,7 @@ pub fn ticks(start: f32, stop: f32, count: f32) -> Vec<f32> {
     };
 
     // JS: if (!(i2 >= i1)) return [];
-    if !(i2 >= i1) {
+    if i2 < i1 {
         return vec![];
     }
 
@@ -82,7 +82,7 @@ fn tick_spec(start: f32, stop: f32, count: f32) -> (f32, f32, f32) {
     } else if error >= 3.162_277_7 {
         // e5 = Math.sqrt(10)
         5.0
-    } else if error >= 1.414_213_5 {
+    } else if error >= std::f32::consts::SQRT_2 {
         // e2 = Math.sqrt(2)
         2.0
     } else {
@@ -126,7 +126,7 @@ fn tick_spec(start: f32, stop: f32, count: f32) -> (f32, f32, f32) {
 /// Calculate the tick increment for the given range and count
 pub fn tick_increment(start: f32, stop: f32, count: f32) -> f32 {
     // JS: if (!(count > 0)) return NaN;
-    if !(count > 0.0) {
+    if count <= 0.0 || count.is_nan() {
         return f32::NAN;
     }
 
@@ -147,7 +147,7 @@ pub fn tick_increment(start: f32, stop: f32, count: f32) -> f32 {
         10.0
     } else if error >= 3.162_277_7 {
         5.0
-    } else if error >= 1.414_213_5 {
+    } else if error >= std::f32::consts::SQRT_2 {
         2.0
     } else {
         1.0
