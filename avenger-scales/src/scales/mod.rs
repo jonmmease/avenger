@@ -12,9 +12,7 @@ pub mod threshold;
 
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
-use crate::{
-    color_interpolator::ColorInterpolator, error::AvengerScaleError, scalar::Scalar,
-};
+use crate::{color_interpolator::ColorInterpolator, error::AvengerScaleError, scalar::Scalar};
 use crate::{color_interpolator::ColorInterpolatorConfig, formatter::Formatters};
 use crate::{
     color_interpolator::SrgbaColorInterpolator,
@@ -446,7 +444,6 @@ impl ConfiguredScale {
             ..self
         }
     }
-
 }
 
 // Pan / zoom methods

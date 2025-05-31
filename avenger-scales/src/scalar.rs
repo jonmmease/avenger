@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use crate::error::AvengerScaleError;
 use arrow::{
-    array::{Array, ArrayRef, BooleanArray, Float32Array, Float64Array, Int16Array, Int32Array, Int64Array, ListArray, StringArray, AsArray},
+    array::{
+        Array, ArrayRef, AsArray, BooleanArray, Float32Array, Float64Array, Int16Array, Int32Array,
+        Int64Array, ListArray, StringArray,
+    },
     compute::kernels::cast,
     datatypes::{DataType, Float32Type},
 };
@@ -17,33 +20,25 @@ impl PartialEq for Scalar {
         if self.0.data_type() != other.0.data_type() {
             return false;
         }
-        
+
         // Compare based on data type
         match self.0.data_type() {
-            DataType::Boolean => {
-                match (self.as_boolean(), other.as_boolean()) {
-                    (Ok(a), Ok(b)) => a == b,
-                    _ => false,
-                }
-            }
-            DataType::Int32 => {
-                match (self.as_i32(), other.as_i32()) {
-                    (Ok(a), Ok(b)) => a == b,
-                    _ => false,
-                }
-            }
-            DataType::Float32 => {
-                match (self.as_f32(), other.as_f32()) {
-                    (Ok(a), Ok(b)) => a == b,
-                    _ => false,
-                }
-            }
-            DataType::Utf8 => {
-                match (self.as_string(), other.as_string()) {
-                    (Ok(a), Ok(b)) => a == b,
-                    _ => false,
-                }
-            }
+            DataType::Boolean => match (self.as_boolean(), other.as_boolean()) {
+                (Ok(a), Ok(b)) => a == b,
+                _ => false,
+            },
+            DataType::Int32 => match (self.as_i32(), other.as_i32()) {
+                (Ok(a), Ok(b)) => a == b,
+                _ => false,
+            },
+            DataType::Float32 => match (self.as_f32(), other.as_f32()) {
+                (Ok(a), Ok(b)) => a == b,
+                _ => false,
+            },
+            DataType::Utf8 => match (self.as_string(), other.as_string()) {
+                (Ok(a), Ok(b)) => a == b,
+                _ => false,
+            },
             _ => {
                 // For other types, compare the raw arrays
                 format!("{:?}", self.0) == format!("{:?}", other.0)
@@ -58,7 +53,7 @@ impl std::hash::Hash for Scalar {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         // Hash based on data type and the scalar value
         self.0.data_type().hash(state);
-        
+
         // Hash the actual value based on type
         match self.0.data_type() {
             DataType::Boolean => {
@@ -113,28 +108,63 @@ impl Scalar {
 
         match self.0.data_type() {
             DataType::Int16 => {
-                let array = self.0.as_any().downcast_ref::<Int16Array>()
-                    .ok_or_else(|| AvengerScaleError::InternalError("Failed to downcast to Int16Array".to_string()))?;
+                let array = self
+                    .0
+                    .as_any()
+                    .downcast_ref::<Int16Array>()
+                    .ok_or_else(|| {
+                        AvengerScaleError::InternalError(
+                            "Failed to downcast to Int16Array".to_string(),
+                        )
+                    })?;
                 Ok(array.value(0) as f32)
             }
             DataType::Int32 => {
-                let array = self.0.as_any().downcast_ref::<Int32Array>()
-                    .ok_or_else(|| AvengerScaleError::InternalError("Failed to downcast to Int32Array".to_string()))?;
+                let array = self
+                    .0
+                    .as_any()
+                    .downcast_ref::<Int32Array>()
+                    .ok_or_else(|| {
+                        AvengerScaleError::InternalError(
+                            "Failed to downcast to Int32Array".to_string(),
+                        )
+                    })?;
                 Ok(array.value(0) as f32)
             }
             DataType::Int64 => {
-                let array = self.0.as_any().downcast_ref::<Int64Array>()
-                    .ok_or_else(|| AvengerScaleError::InternalError("Failed to downcast to Int64Array".to_string()))?;
+                let array = self
+                    .0
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .ok_or_else(|| {
+                        AvengerScaleError::InternalError(
+                            "Failed to downcast to Int64Array".to_string(),
+                        )
+                    })?;
                 Ok(array.value(0) as f32)
             }
             DataType::Float32 => {
-                let array = self.0.as_any().downcast_ref::<Float32Array>()
-                    .ok_or_else(|| AvengerScaleError::InternalError("Failed to downcast to Float32Array".to_string()))?;
+                let array = self
+                    .0
+                    .as_any()
+                    .downcast_ref::<Float32Array>()
+                    .ok_or_else(|| {
+                        AvengerScaleError::InternalError(
+                            "Failed to downcast to Float32Array".to_string(),
+                        )
+                    })?;
                 Ok(array.value(0))
             }
             DataType::Float64 => {
-                let array = self.0.as_any().downcast_ref::<Float64Array>()
-                    .ok_or_else(|| AvengerScaleError::InternalError("Failed to downcast to Float64Array".to_string()))?;
+                let array = self
+                    .0
+                    .as_any()
+                    .downcast_ref::<Float64Array>()
+                    .ok_or_else(|| {
+                        AvengerScaleError::InternalError(
+                            "Failed to downcast to Float64Array".to_string(),
+                        )
+                    })?;
                 Ok(array.value(0) as f32)
             }
             _ => Err(AvengerScaleError::InternalError(format!(
@@ -154,8 +184,15 @@ impl Scalar {
 
         match self.0.data_type() {
             DataType::Boolean => {
-                let array = self.0.as_any().downcast_ref::<BooleanArray>()
-                    .ok_or_else(|| AvengerScaleError::InternalError("Failed to downcast to BooleanArray".to_string()))?;
+                let array = self
+                    .0
+                    .as_any()
+                    .downcast_ref::<BooleanArray>()
+                    .ok_or_else(|| {
+                        AvengerScaleError::InternalError(
+                            "Failed to downcast to BooleanArray".to_string(),
+                        )
+                    })?;
                 Ok(array.value(0))
             }
             _ => Err(AvengerScaleError::InternalError(format!(
@@ -175,18 +212,39 @@ impl Scalar {
 
         match self.0.data_type() {
             DataType::Int16 => {
-                let array = self.0.as_any().downcast_ref::<Int16Array>()
-                    .ok_or_else(|| AvengerScaleError::InternalError("Failed to downcast to Int16Array".to_string()))?;
+                let array = self
+                    .0
+                    .as_any()
+                    .downcast_ref::<Int16Array>()
+                    .ok_or_else(|| {
+                        AvengerScaleError::InternalError(
+                            "Failed to downcast to Int16Array".to_string(),
+                        )
+                    })?;
                 Ok(array.value(0) as i32)
             }
             DataType::Int32 => {
-                let array = self.0.as_any().downcast_ref::<Int32Array>()
-                    .ok_or_else(|| AvengerScaleError::InternalError("Failed to downcast to Int32Array".to_string()))?;
+                let array = self
+                    .0
+                    .as_any()
+                    .downcast_ref::<Int32Array>()
+                    .ok_or_else(|| {
+                        AvengerScaleError::InternalError(
+                            "Failed to downcast to Int32Array".to_string(),
+                        )
+                    })?;
                 Ok(array.value(0))
             }
             DataType::Int64 => {
-                let array = self.0.as_any().downcast_ref::<Int64Array>()
-                    .ok_or_else(|| AvengerScaleError::InternalError("Failed to downcast to Int64Array".to_string()))?;
+                let array = self
+                    .0
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .ok_or_else(|| {
+                        AvengerScaleError::InternalError(
+                            "Failed to downcast to Int64Array".to_string(),
+                        )
+                    })?;
                 Ok(array.value(0) as i32)
             }
             _ => Err(AvengerScaleError::InternalError(format!(
@@ -206,8 +264,15 @@ impl Scalar {
 
         match self.0.data_type() {
             DataType::Utf8 => {
-                let array = self.0.as_any().downcast_ref::<StringArray>()
-                    .ok_or_else(|| AvengerScaleError::InternalError("Failed to downcast to StringArray".to_string()))?;
+                let array = self
+                    .0
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .ok_or_else(|| {
+                        AvengerScaleError::InternalError(
+                            "Failed to downcast to StringArray".to_string(),
+                        )
+                    })?;
                 Ok(array.value(0).to_string())
             }
             _ => Err(AvengerScaleError::InternalError(format!(
@@ -227,13 +292,14 @@ impl Scalar {
 
         match self.0.data_type() {
             DataType::List(_) => {
-                let list_array = self.0.as_any().downcast_ref::<ListArray>()
-                    .ok_or_else(|| AvengerScaleError::InternalError("Failed to downcast to ListArray".to_string()))?;
-                
+                let list_array = self.0.as_any().downcast_ref::<ListArray>().ok_or_else(|| {
+                    AvengerScaleError::InternalError("Failed to downcast to ListArray".to_string())
+                })?;
+
                 let element = list_array.value(0);
                 let element = cast(&element, &DataType::Float32)?;
                 let array = element.as_primitive::<Float32Type>();
-                
+
                 if array.len() != 2 {
                     return Err(AvengerScaleError::InternalError(format!(
                         "List array length {} is not 2 for [f32; 2] conversion",
@@ -260,13 +326,14 @@ impl Scalar {
 
         match self.0.data_type() {
             DataType::List(_) => {
-                let list_array = self.0.as_any().downcast_ref::<ListArray>()
-                    .ok_or_else(|| AvengerScaleError::InternalError("Failed to downcast to ListArray".to_string()))?;
-                
+                let list_array = self.0.as_any().downcast_ref::<ListArray>().ok_or_else(|| {
+                    AvengerScaleError::InternalError("Failed to downcast to ListArray".to_string())
+                })?;
+
                 let element = list_array.value(0);
                 let element = cast(&element, &DataType::Float32)?;
                 let array = element.as_primitive::<Float32Type>();
-                
+
                 if array.len() != 4 {
                     return Err(AvengerScaleError::InternalError(format!(
                         "List array length {} is not 4 for [f32; 4] conversion",
@@ -304,9 +371,16 @@ impl Scalar {
         // Try as string color
         match self.0.data_type() {
             DataType::Utf8 => {
-                let array = self.0.as_any().downcast_ref::<StringArray>()
-                    .ok_or_else(|| AvengerScaleError::InternalError("Failed to downcast to StringArray".to_string()))?;
-                
+                let array = self
+                    .0
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .ok_or_else(|| {
+                        AvengerScaleError::InternalError(
+                            "Failed to downcast to StringArray".to_string(),
+                        )
+                    })?;
+
                 let color_str = array.value(0);
                 match color_str.parse::<Color>() {
                     Ok(color) => Ok([
@@ -380,23 +454,42 @@ impl Scalar {
 
         match array.data_type() {
             DataType::Boolean => {
-                let arr = array.as_any().downcast_ref::<BooleanArray>()
-                    .ok_or_else(|| AvengerScaleError::InternalError("Failed to downcast to BooleanArray".to_string()))?;
+                let arr = array
+                    .as_any()
+                    .downcast_ref::<BooleanArray>()
+                    .ok_or_else(|| {
+                        AvengerScaleError::InternalError(
+                            "Failed to downcast to BooleanArray".to_string(),
+                        )
+                    })?;
                 Ok(Self::from_bool(arr.value(index)))
             }
             DataType::Int32 => {
-                let arr = array.as_any().downcast_ref::<Int32Array>()
-                    .ok_or_else(|| AvengerScaleError::InternalError("Failed to downcast to Int32Array".to_string()))?;
+                let arr = array.as_any().downcast_ref::<Int32Array>().ok_or_else(|| {
+                    AvengerScaleError::InternalError("Failed to downcast to Int32Array".to_string())
+                })?;
                 Ok(Self::from_i32(arr.value(index)))
             }
             DataType::Float32 => {
-                let arr = array.as_any().downcast_ref::<Float32Array>()
-                    .ok_or_else(|| AvengerScaleError::InternalError("Failed to downcast to Float32Array".to_string()))?;
+                let arr = array
+                    .as_any()
+                    .downcast_ref::<Float32Array>()
+                    .ok_or_else(|| {
+                        AvengerScaleError::InternalError(
+                            "Failed to downcast to Float32Array".to_string(),
+                        )
+                    })?;
                 Ok(Self::from_f32(arr.value(index)))
             }
             DataType::Utf8 => {
-                let arr = array.as_any().downcast_ref::<StringArray>()
-                    .ok_or_else(|| AvengerScaleError::InternalError("Failed to downcast to StringArray".to_string()))?;
+                let arr = array
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .ok_or_else(|| {
+                        AvengerScaleError::InternalError(
+                            "Failed to downcast to StringArray".to_string(),
+                        )
+                    })?;
                 Ok(Self::from_string(arr.value(index)))
             }
             _ => Err(AvengerScaleError::InternalError(format!(
@@ -419,15 +512,16 @@ impl Scalar {
 
         let scalars: Vec<Scalar> = values.into_iter().map(|v| v.into()).collect();
         let arrays: Vec<ArrayRef> = scalars.into_iter().map(|s| s.to_array()).collect();
-        
-        arrow::compute::concat(&arrays.iter().map(|a| a.as_ref()).collect::<Vec<_>>())
-            .map_err(|e| AvengerScaleError::InternalError(format!("Failed to concatenate arrays: {}", e)))
+
+        arrow::compute::concat(&arrays.iter().map(|a| a.as_ref()).collect::<Vec<_>>()).map_err(
+            |e| AvengerScaleError::InternalError(format!("Failed to concatenate arrays: {}", e)),
+        )
     }
 
     /// Create a list array from vector of arrays (replacement for arrays_into_list_array)
     pub fn arrays_into_list_array(arrays: Vec<ArrayRef>) -> Result<ArrayRef, AvengerScaleError> {
         use arrow::array::ListArray;
-        
+
         if arrays.is_empty() {
             return Err(AvengerScaleError::InternalError(
                 "Cannot create list array from empty arrays".to_string(),
@@ -435,20 +529,29 @@ impl Scalar {
         }
 
         // Convert each array to Float32 values and create list array
-        let values: Result<Vec<_>, AvengerScaleError> = arrays.into_iter().map(|arr| {
-            // Convert array to Float32Array and extract values
-            let cast_arr = arrow::compute::cast(&arr, &DataType::Float32)
-                .map_err(|e| AvengerScaleError::InternalError(format!("Failed to cast array: {}", e)))?;
-            let float_arr = cast_arr.as_primitive::<Float32Type>();
-            let values: Vec<Option<f32>> = (0..float_arr.len()).map(|i| {
-                if float_arr.is_null(i) { None } else { Some(float_arr.value(i)) }
-            }).collect();
-            Ok(values)
-        }).collect();
+        let values: Result<Vec<_>, AvengerScaleError> = arrays
+            .into_iter()
+            .map(|arr| {
+                // Convert array to Float32Array and extract values
+                let cast_arr = arrow::compute::cast(&arr, &DataType::Float32).map_err(|e| {
+                    AvengerScaleError::InternalError(format!("Failed to cast array: {}", e))
+                })?;
+                let float_arr = cast_arr.as_primitive::<Float32Type>();
+                let values: Vec<Option<f32>> = (0..float_arr.len())
+                    .map(|i| {
+                        if float_arr.is_null(i) {
+                            None
+                        } else {
+                            Some(float_arr.value(i))
+                        }
+                    })
+                    .collect();
+                Ok(values)
+            })
+            .collect();
 
-        let list_array = ListArray::from_iter_primitive::<Float32Type, _, _>(
-            values?.into_iter().map(Some)
-        );
+        let list_array =
+            ListArray::from_iter_primitive::<Float32Type, _, _>(values?.into_iter().map(Some));
 
         Ok(Arc::new(list_array))
     }

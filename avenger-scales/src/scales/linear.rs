@@ -8,8 +8,7 @@ use arrow::{
 use avenger_common::{types::LinearScaleAdjustment, value::ScalarOrArray};
 
 use crate::{
-    array, color_interpolator::scale_numeric_to_color, error::AvengerScaleError,
-    scalar::Scalar,
+    array, color_interpolator::scale_numeric_to_color, error::AvengerScaleError, scalar::Scalar,
 };
 
 use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};

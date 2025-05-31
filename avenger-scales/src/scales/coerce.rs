@@ -1,5 +1,6 @@
 use crate::error::AvengerScaleError;
 use crate::formatter::Formatters;
+use crate::scalar::Scalar;
 use crate::scales::ordinal::OrdinalScale;
 use arrow::array::{Array, AsArray, Float32Array, ListArray, StringArray, StructArray};
 use arrow::compute::is_not_null;
@@ -17,7 +18,6 @@ use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 use avenger_image::{make_image_fetcher, RgbaImage};
 use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use css_color_parser::Color;
-use crate::scalar::Scalar;
 use lyon_extra::parser::{ParserOptions, Source};
 use lyon_path::geom::point;
 use paste::paste;
@@ -464,14 +464,18 @@ Expected struct with fields [a(Float32), b(Float32), c(Float32), d(Float32), e(F
         Ok(ScalarOrArray::new_array(result))
     }
 
-    pub fn to_symbol_shapes(
-        &self,
-        value: &Scalar,
-    ) -> Result<Vec<SymbolShape>, AvengerScaleError> {
+    pub fn to_symbol_shapes(&self, value: &Scalar) -> Result<Vec<SymbolShape>, AvengerScaleError> {
         match value.data_type() {
             DataType::List(_) => {
-                let list_array = value.array().as_any().downcast_ref::<ListArray>()
-                    .ok_or_else(|| AvengerScaleError::InternalError("Failed to downcast to ListArray".to_string()))?;
+                let list_array = value
+                    .array()
+                    .as_any()
+                    .downcast_ref::<ListArray>()
+                    .ok_or_else(|| {
+                        AvengerScaleError::InternalError(
+                            "Failed to downcast to ListArray".to_string(),
+                        )
+                    })?;
                 let val = list_array.value(0);
                 match val.data_type() {
                     DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {

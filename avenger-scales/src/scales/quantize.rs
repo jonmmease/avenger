@@ -1,11 +1,11 @@
 use std::{collections::HashMap, sync::Arc};
 
+use crate::scalar::Scalar;
 use arrow::{
     array::{ArrayRef, AsArray, Float32Array, UInt32Array},
     compute::kernels::take,
     datatypes::Float32Type,
 };
-use crate::scalar::Scalar;
 
 use crate::error::AvengerScaleError;
 
@@ -124,8 +124,7 @@ mod tests {
 
     #[test]
     fn test_quantize_scale_nice() -> Result<(), AvengerScaleError> {
-        let (start, end) =
-            QuantizeScale::apply_nice((1.1, 10.9), Some(&Scalar::from(5))).unwrap();
+        let (start, end) = QuantizeScale::apply_nice((1.1, 10.9), Some(&Scalar::from(5))).unwrap();
         assert_approx_eq!(f32, start, 0.0);
         assert_approx_eq!(f32, end, 12.0);
 

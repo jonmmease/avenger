@@ -3,14 +3,14 @@ use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_vega_scenegraph::scene_graph::VegaSceneGraph;
 use avenger_wgpu::canvas::{Canvas, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
+use std::cell::RefCell;
+use std::rc::Rc;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard;
 use winit::keyboard::NamedKey;
 use winit::window::{WindowAttributes, WindowId};
-use std::rc::Rc;
-use std::cell::RefCell;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -27,7 +27,7 @@ impl App {
     fn setup_wasm_canvas(&self, window: &winit::window::Window) {
         use winit::dpi::PhysicalSize;
         use winit::platform::web::WindowExtWebSys;
-        
+
         let _ = window.request_inner_size(PhysicalSize::new(450, 400));
 
         web_sys::window()
@@ -54,7 +54,7 @@ impl ApplicationHandler for App {
         self.window_id = Some(window.id());
         let canvas_shared = self.canvas_shared.clone();
         let scene_graph = self.scene_graph.clone();
-        
+
         let dimensions = CanvasDimensions {
             size: [self.scene_graph.width, self.scene_graph.height],
             scale: self.scale,

@@ -1,7 +1,7 @@
 use arrow::array::{ArrayRef, Float32Array};
 use avenger_common::types::ColorOrGradient;
-use avenger_scales::scales::{linear::LinearScale, log::LogScale};
 use avenger_scales::scalar::Scalar;
+use avenger_scales::scales::{linear::LinearScale, log::LogScale};
 use std::sync::Arc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
