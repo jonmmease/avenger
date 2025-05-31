@@ -7,11 +7,11 @@ use crate::scene::{
 use crate::stream::{EventStream, EventStreamConfig, UpdateStatus};
 use crate::window::{ElementState, Key, MouseButton, NamedKey, WindowEvent, WindowKeyboardInput};
 use async_trait::async_trait;
+use avenger_common::time::{Duration, Instant};
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::marks::mark::MarkInstance;
 use std::path::PathBuf;
 use std::sync::Arc;
-use avenger_common::time::{Duration, Instant};
 
 #[async_trait]
 pub trait EventStreamHandler<State: Clone + Send + Sync + 'static> {

@@ -22,8 +22,8 @@ use avenger_wgpu::error::AvengerWgpuError;
 
 use avenger_scales::scales::band::BandScale;
 use avenger_scales::scales::linear::LinearScale;
-use std::rc::Rc;
 use std::cell::RefCell;
+use std::rc::Rc;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -48,7 +48,7 @@ impl App {
     fn setup_wasm_canvas(&self, window: &winit::window::Window) {
         use winit::dpi::PhysicalSize;
         use winit::platform::web::WindowExtWebSys;
-        
+
         let _ = window.request_inner_size(PhysicalSize::new(450, 400));
 
         web_sys::window()
@@ -75,7 +75,7 @@ impl ApplicationHandler for App {
         self.window_id = Some(window.id());
         let canvas_shared = self.canvas_shared.clone();
         let scene_graph = self.scene_graph.clone();
-        
+
         let dimensions = CanvasDimensions {
             size: [self.scene_graph.width, self.scene_graph.height],
             scale: self.scale,
@@ -354,7 +354,7 @@ pub async fn run() {
 
     let rtree = SceneGraphRTree::from_scene_graph(&scene_graph);
     let svg = rtree.to_svg();
-    
+
     // Only write SVG file in native builds, not in WASM
     #[cfg(not(target_arch = "wasm32"))]
     std::fs::write("geometry.svg", svg).expect("Failed to write SVG file");

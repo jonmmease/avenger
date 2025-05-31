@@ -1,6 +1,6 @@
+use avenger_common::time::Instant;
 use std::path::PathBuf;
 use std::sync::Arc;
-use avenger_common::time::Instant;
 
 use async_trait::async_trait;
 use avenger_eventstream::manager::{EventStreamHandler, EventStreamManager};

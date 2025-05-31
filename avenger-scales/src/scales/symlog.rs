@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
+use crate::scalar::Scalar;
 use arrow::{
     array::{ArrayRef, AsArray, Float32Array},
     compute::{kernels::cast, unary},
     datatypes::{DataType, Float32Type},
 };
 use avenger_common::value::ScalarOrArray;
-use crate::scalar::Scalar;
 
 use crate::{array, error::AvengerScaleError};
 

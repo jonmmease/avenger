@@ -143,13 +143,7 @@ impl<'window> HtmlCanvasCanvas<'window> {
                             *y_adjustment,
                         )
                     } else {
-                        renderer.render(
-                            &self.device,
-                            &view,
-                            None,
-                            *x_adjustment,
-                            *y_adjustment,
-                        )
+                        renderer.render(&self.device, &view, None, *x_adjustment, *y_adjustment)
                     }
                 }
                 MarkRenderer::Multi(renderer) => {
@@ -195,7 +189,6 @@ impl<'window> Canvas for HtmlCanvasCanvas<'window> {
         }
         self.multi_renderer.as_mut().unwrap()
     }
-
 
     fn add_instanced_mark_renderer(
         &mut self,

@@ -85,7 +85,7 @@ where
     #[cfg(target_arch = "wasm32")]
     fn setup_wasm_canvas(&self, window: &winit::window::Window) {
         use winit::platform::web::WindowExtWebSys;
-        
+
         web_sys::window()
             .and_then(|win| win.document())
             .and_then(|doc| {
@@ -112,7 +112,7 @@ where
 
         self.window_id = Some(window.id());
         let canvas_shared = self.canvas.clone();
-        
+
         // Extract scene graph and dimensions in a limited scope to avoid RefCell conflicts
         let (scene_graph, dimensions) = {
             let app_borrowed = self.avenger_app.borrow();
@@ -128,7 +128,7 @@ where
         };
 
         let canvas_future = WindowCanvas::new(window, dimensions, Default::default());
-        
+
         let setup_future = async move {
             match canvas_future.await {
                 Ok(mut canvas) => {
@@ -172,7 +172,7 @@ where
                     }
                 }
             };
-            
+
             cfg_if::cfg_if! {
                 if #[cfg(target_arch = "wasm32")] {
                     spawn_local(update_future);
@@ -256,7 +256,7 @@ where
                                     let app_clone = self.avenger_app.clone();
                                     let event_clone = event.clone();
                                     let canvas_shared = self.canvas.clone();
-                                    
+
                                     let update_future = async move {
                                         match app_clone.borrow_mut().update(&event_clone, Instant::now()).await {
                                             Ok(Some(scene_graph)) => {
@@ -284,7 +284,7 @@ where
                                         .tokio_runtime
                                         .block_on(self.avenger_app.borrow_mut().update(&event, Instant::now()))
                                         .expect("Failed to update app");
-                                    
+
                                     if let Some(scene_graph) = scene_graph_opt {
                                         if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
                                             canvas.set_scene(&scene_graph).unwrap();

@@ -1,6 +1,6 @@
+use crate::scalar::Scalar;
 use arrow::error::ArrowError;
 use avenger_image::error::AvengerImageError;
-use crate::scalar::Scalar;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AvengerScaleError {

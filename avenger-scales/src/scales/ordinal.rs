@@ -3,6 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};
 use crate::error::AvengerScaleError;
 
+use crate::scalar::Scalar;
 use arrow::{
     array::{ArrayRef, AsArray, Float32Array, UInt32Array},
     compute::kernels::{cast, take},
@@ -12,7 +13,6 @@ use avenger_common::{
     types::{AreaOrientation, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin},
     value::ScalarOrArray,
 };
-use crate::scalar::Scalar;
 use serde::de::DeserializeOwned;
 
 /// Macro to generate scale_to_X trait methods for ordinal enum scaling
