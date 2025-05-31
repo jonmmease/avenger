@@ -36,8 +36,8 @@ impl SceneGraph {
 
         // Walk the path to find the nested mark
         let mut child = self.marks.get(mark_path[0])?;
-        for index in 1..mark_path.len() {
-            child = child.children().get(mark_path[index])?;
+        for &path_index in mark_path.iter().skip(1) {
+            child = child.children().get(path_index)?;
         }
 
         Some(child)
@@ -58,8 +58,8 @@ impl SceneGraph {
         origin = [origin[0] + group.origin[0], origin[1] + group.origin[1]];
 
         let mut current_group = group;
-        for index in 1..group_path.len() {
-            let SceneMark::Group(group) = current_group.marks.get(group_path[index])? else {
+        for &path_index in group_path.iter().skip(1) {
+            let SceneMark::Group(group) = current_group.marks.get(path_index)? else {
                 return None;
             };
             origin = [origin[0] + group.origin[0], origin[1] + group.origin[1]];

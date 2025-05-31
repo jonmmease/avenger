@@ -98,10 +98,10 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
 
     let text_strs = config.text.as_vec(len, None);
 
-    for i in 0..len {
+    for (i, text_str) in text_strs.iter().enumerate() {
         let group = make_symbol_group(
             &symbol_mark,
-            &text_strs[i],
+            text_str,
             center_x,
             config.text_padding,
             max_width,
@@ -149,7 +149,6 @@ fn make_symbol_group(
         ..Default::default()
     };
 
-    
     SceneGroup {
         origin,
         marks: vec![

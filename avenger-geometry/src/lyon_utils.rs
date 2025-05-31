@@ -16,7 +16,7 @@ pub trait IntoGeoType {
     ///
     /// * `tolerance` - The tolerance to use when flattening curves
     /// * `filled` - If true, treat all paths as filled polygons by forcing closure.
-    ///             If false, treat all paths as lines
+    ///   If false, treat all paths as lines
     fn as_geo_type(&self, tolerance: f32, filled: bool) -> Geometry<f32>;
 
     /// Convert a trail path with variable width into a geo-types geometry

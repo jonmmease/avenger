@@ -17,13 +17,15 @@ use rstar::{PointDistance, AABB};
 #[test]
 fn test_symbol_rtree_single() {
     // Create a symbol mark with a single circle at (1,1) with size 2
-    let mut mark = SceneSymbolMark::default();
-    mark.shapes = vec![SymbolShape::Circle];
-    mark.x = vec![1.0].into();
-    mark.y = vec![1.0].into();
-    mark.size = vec![4.0].into();
-    mark.angle = vec![0.0].into();
-    mark.shape_index = vec![0].into();
+    let mark = SceneSymbolMark {
+        shapes: vec![SymbolShape::Circle],
+        x: vec![1.0].into(),
+        y: vec![1.0].into(),
+        size: vec![4.0].into(),
+        angle: vec![0.0].into(),
+        shape_index: vec![0].into(),
+        ..Default::default()
+    };
 
     let scene_graph = SceneGraph {
         marks: vec![mark.into()],
@@ -53,17 +55,19 @@ fn test_symbol_rtree_single() {
 #[test]
 fn test_symbol_rtree_multiple() {
     // Create a symbol mark with two symbols at different locations
-    let mut mark = SceneSymbolMark::default();
-    mark.len = 2;
-    mark.shapes = vec![
-        SymbolShape::Circle,
-        SymbolShape::from_vega_str("square").unwrap(),
-    ];
-    mark.x = vec![0.0, 3.0].into();
-    mark.y = vec![0.0, 0.0].into();
-    mark.size = vec![1.0, 1.0].into();
-    mark.angle = vec![0.0, 0.0].into();
-    mark.shape_index = vec![0, 1].into();
+    let mark = SceneSymbolMark {
+        len: 2,
+        shapes: vec![
+            SymbolShape::Circle,
+            SymbolShape::from_vega_str("square").unwrap(),
+        ],
+        x: vec![0.0, 3.0].into(),
+        y: vec![0.0, 0.0].into(),
+        size: vec![1.0, 1.0].into(),
+        angle: vec![0.0, 0.0].into(),
+        shape_index: vec![0, 1].into(),
+        ..Default::default()
+    };
 
     let scene_graph = SceneGraph {
         marks: vec![mark.into()],
@@ -93,13 +97,15 @@ fn test_symbol_rtree_multiple() {
 #[test]
 fn test_symbol_rtree_rotation() {
     // Create a symbol mark with a rotated rectangle
-    let mut mark = SceneSymbolMark::default();
-    mark.shapes = vec![SymbolShape::from_vega_str("square").unwrap()];
-    mark.x = vec![1.0].into();
-    mark.y = vec![1.0].into();
-    mark.size = vec![4.0].into();
-    mark.angle = vec![45.0].into(); // 45 degree rotation
-    mark.shape_index = vec![0].into();
+    let mark = SceneSymbolMark {
+        shapes: vec![SymbolShape::from_vega_str("square").unwrap()],
+        x: vec![1.0].into(),
+        y: vec![1.0].into(),
+        size: vec![4.0].into(),
+        angle: vec![45.0].into(), // 45 degree rotation
+        shape_index: vec![0].into(),
+        ..Default::default()
+    };
 
     let scene_graph = SceneGraph {
         marks: vec![mark.into()],
@@ -120,8 +126,10 @@ fn test_symbol_rtree_rotation() {
 #[test]
 fn test_symbol_rtree_empty() {
     // Create an empty symbol mark
-    let mut mark = SceneSymbolMark::default();
-    mark.len = 0;
+    let mark = SceneSymbolMark {
+        len: 0,
+        ..Default::default()
+    };
 
     let scene_graph = SceneGraph {
         marks: vec![mark.into()],
@@ -137,14 +145,16 @@ fn test_symbol_rtree_empty() {
 
 #[test]
 fn test_symbol_rtree_spatial_query() {
-    let mut mark = SceneSymbolMark::default();
-    mark.len = 3;
-    mark.shapes = vec![SymbolShape::Circle];
-    mark.x = vec![0.0, 2.0, 4.0].into();
-    mark.y = vec![0.0, 0.0, 0.0].into();
-    mark.size = vec![1.0, 1.0, 1.0].into();
-    mark.angle = vec![0.0, 0.0, 0.0].into();
-    mark.shape_index = vec![0, 0, 0].into();
+    let mark = SceneSymbolMark {
+        len: 3,
+        shapes: vec![SymbolShape::Circle],
+        x: vec![0.0, 2.0, 4.0].into(),
+        y: vec![0.0, 0.0, 0.0].into(),
+        size: vec![1.0, 1.0, 1.0].into(),
+        angle: vec![0.0, 0.0, 0.0].into(),
+        shape_index: vec![0, 0, 0].into(),
+        ..Default::default()
+    };
 
     let scene_graph = SceneGraph {
         marks: vec![mark.into()],
@@ -166,21 +176,25 @@ fn test_symbol_rtree_spatial_query() {
 #[test]
 fn test_stacked_area_rtree() {
     // Create two area marks, stacked vertically
-    let mut upper_mark = SceneAreaMark::default();
-    upper_mark.len = 3;
-    upper_mark.stroke_width = 0.0;
-    upper_mark.x = vec![0.0, 2.0, 4.0].into();
-    upper_mark.y = vec![0.0, 0.0, 0.0].into();
-    upper_mark.y2 = vec![1.0, 2.0, 1.0].into();
-    upper_mark.orientation = AreaOrientation::Vertical;
+    let upper_mark = SceneAreaMark {
+        len: 3,
+        stroke_width: 0.0,
+        x: vec![0.0, 2.0, 4.0].into(),
+        y: vec![0.0, 0.0, 0.0].into(),
+        y2: vec![1.0, 2.0, 1.0].into(),
+        orientation: AreaOrientation::Vertical,
+        ..Default::default()
+    };
 
-    let mut lower_mark = upper_mark.clone();
-    lower_mark.len = 3;
-    lower_mark.stroke_width = 0.0;
-    lower_mark.x = vec![0.0, 2.0, 4.0].into();
-    lower_mark.y = vec![1.0, 2.0, 1.0].into();
-    lower_mark.y2 = vec![2.0, 3.0, 2.0].into();
-    lower_mark.orientation = AreaOrientation::Vertical;
+    let lower_mark = SceneAreaMark {
+        len: 3,
+        stroke_width: 0.0,
+        x: vec![0.0, 2.0, 4.0].into(),
+        y: vec![1.0, 2.0, 1.0].into(),
+        y2: vec![2.0, 3.0, 2.0].into(),
+        orientation: AreaOrientation::Vertical,
+        ..Default::default()
+    };
 
     // Create the rtree
     let scene_graph = SceneGraph {
@@ -204,11 +218,13 @@ fn test_stacked_area_rtree() {
 
 #[test]
 fn test_text_rtree() {
-    let mut mark = SceneTextMark::default();
-    mark.len = 1;
-    mark.x = vec![0.0].into();
-    mark.y = vec![0.0].into();
-    mark.text = vec!["0".to_string()].into();
+    let mark = SceneTextMark {
+        len: 1,
+        x: vec![0.0].into(),
+        y: vec![0.0].into(),
+        text: vec!["0".to_string()].into(),
+        ..Default::default()
+    };
 
     let _rasterizer = CosmicTextRasterizer::<()>::new();
     let _dimensions = CanvasDimensions {

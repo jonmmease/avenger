@@ -27,8 +27,10 @@ pub fn svg_to_png(svg: &str, scale: f32) -> Result<Vec<u8>, AvengerImageError> {
             allow_dtd: true,
             ..Default::default()
         };
-        let mut opts = usvg::Options::default();
-        opts.fontdb = Arc::new(font_database.clone());
+        let opts = usvg::Options {
+            fontdb: Arc::new(font_database.clone()),
+            ..Default::default()
+        };
         let doc = usvg::roxmltree::Document::parse_with_options(svg, xml_opt)?;
         let rtree = usvg::Tree::from_xmltree(&doc, &opts)?;
 

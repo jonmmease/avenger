@@ -21,7 +21,6 @@ use css_color_parser::Color;
 use lyon_extra::parser::{ParserOptions, Source};
 use lyon_path::geom::point;
 use paste::paste;
-use std::f32::NAN;
 use std::fmt::Debug;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -61,7 +60,8 @@ impl NumericCoercer for CastNumericCoercer {
 
         if result.null_count() > 0 {
             let mask = is_not_null(result)?;
-            let fill_array = Float32Array::from(vec![default_value.unwrap_or(NAN); result.len()]);
+            let fill_array =
+                Float32Array::from(vec![default_value.unwrap_or(f32::NAN); result.len()]);
             let filled = zip(&mask, &result, &fill_array)?;
             let result_vec = filled.as_primitive::<Float32Type>().values().to_vec();
             Ok(ScalarOrArray::new_array(result_vec))
@@ -254,11 +254,9 @@ impl Coercer {
                 let fetcher = make_image_fetcher()?;
                 let cast_array = cast(values, &DataType::Utf8)?;
                 let string_array = cast_array.as_string::<i32>();
-                for s in string_array.iter() {
-                    if let Some(s) = s {
-                        let img = RgbaImage::from_str(s, Some(fetcher.clone()))?;
-                        result.push(img);
-                    }
+                for s in string_array.iter().flatten() {
+                    let img = RgbaImage::from_str(s, Some(fetcher.clone()))?;
+                    result.push(img);
                 }
             }
             // Handle raw rgba image data
@@ -386,19 +384,17 @@ Expected struct with fields [width(UInt32), height(UInt32), data(List[UInt8])]",
                 // e.g. "rotate(-10 50 100) translate(-36 45.5) skewX(40) scale(1 0.5)"
                 let cast_array = cast(values, &DataType::Utf8)?;
                 let string_array = cast_array.as_string::<i32>();
-                for s in string_array.iter() {
-                    if let Some(s) = s {
-                        let ts = Transform::from_str(s)?;
-                        let transform = PathTransform::new(
-                            ts.a as f32,
-                            ts.b as f32,
-                            ts.c as f32,
-                            ts.d as f32,
-                            ts.e as f32,
-                            ts.f as f32,
-                        );
-                        result.push(transform);
-                    }
+                for s in string_array.iter().flatten() {
+                    let ts = Transform::from_str(s)?;
+                    let transform = PathTransform::new(
+                        ts.a as f32,
+                        ts.b as f32,
+                        ts.c as f32,
+                        ts.d as f32,
+                        ts.e as f32,
+                        ts.f as f32,
+                    );
+                    result.push(transform);
                 }
             }
             // Handle struct with fields for each transform component
@@ -492,20 +488,16 @@ Expected struct with fields [a(Float32), b(Float32), c(Float32), d(Float32), e(F
                         }
                         Ok(result)
                     }
-                    _ => {
-                        Err(AvengerScaleError::InternalError(format!(
-                            "Unsupported data type for coercing to symbol shape: {:?}",
-                            val.data_type()
-                        )))
-                    }
+                    _ => Err(AvengerScaleError::InternalError(format!(
+                        "Unsupported data type for coercing to symbol shape: {:?}",
+                        val.data_type()
+                    ))),
                 }
             }
-            _ => {
-                Err(AvengerScaleError::InternalError(format!(
-                    "Unsupported data type for coercing to symbol shape: {:?}",
-                    value.data_type()
-                )))
-            }
+            _ => Err(AvengerScaleError::InternalError(format!(
+                "Unsupported data type for coercing to symbol shape: {:?}",
+                value.data_type()
+            ))),
         }
     }
 
@@ -522,11 +514,9 @@ Expected struct with fields [a(Float32), b(Float32), c(Float32), d(Float32), e(F
                 // e.g. "M 10 10 L 100 100"
                 let cast_array = cast(values, &DataType::Utf8)?;
                 let string_array = cast_array.as_string::<i32>();
-                for s in string_array.iter() {
-                    if let Some(s) = s {
-                        let path = parse_svg_path(s)?;
-                        result.push(path);
-                    }
+                for s in string_array.iter().flatten() {
+                    let path = parse_svg_path(s)?;
+                    result.push(path);
                 }
             }
             // Handle struct with fields for path verbs and points
@@ -1121,8 +1111,8 @@ mod tests {
         }
 
         // Other CSS keywords should fall back to default (transparent)
-        for i in 1..colors_vec.len() {
-            if let ColorOrGradient::Color(c) = &colors_vec[i] {
+        for color in colors_vec.iter().skip(1) {
+            if let ColorOrGradient::Color(c) = color {
                 assert_color_approx_eq(*c, [0.0, 0.0, 0.0, 0.0], 0.001);
             } else {
                 panic!("Expected Color variant");
@@ -1182,10 +1172,16 @@ mod tests {
         use crate::formatter::{DefaultFormatter, NumberFormatter};
 
         let formatter = DefaultFormatter::default();
-        let values = vec![Some(1.0), Some(2.5), Some(-3.14), None, Some(0.0)];
+        let values = vec![
+            Some(1.0),
+            Some(2.5),
+            Some(-std::f32::consts::PI),
+            None,
+            Some(0.0),
+        ];
         let result = formatter.format(&values, Some("N/A"));
 
-        assert_eq!(result, vec!["1", "2.5", "-3.14", "N/A", "0"]);
+        assert_eq!(result, vec!["1", "2.5", "-3.1415927", "N/A", "0"]);
     }
 
     #[test]

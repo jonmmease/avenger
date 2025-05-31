@@ -633,8 +633,8 @@ mod tests {
         let values = Arc::new(Float32Array::from(vec![0.0, 0.5, 1.0])) as ArrayRef;
         let result = scale.invert_from_numeric(&config, &values).unwrap();
         let result_vec = result.as_vec(values.len(), None);
-        for i in 0..values.len() {
-            assert_approx_eq!(f32, result_vec[i], 1.0);
+        for &value in &result_vec {
+            assert_approx_eq!(f32, value, 1.0);
         }
 
         // Test degenerate range
@@ -646,8 +646,8 @@ mod tests {
         };
         let result = scale.invert_from_numeric(&config, &values).unwrap();
         let result_vec = result.as_vec(values.len(), None);
-        for i in 0..values.len() {
-            assert_approx_eq!(f32, result_vec[i], -100.0);
+        for &value in &result_vec {
+            assert_approx_eq!(f32, value, -100.0);
         }
     }
 
@@ -676,7 +676,9 @@ mod tests {
         };
         let ticks = scale.ticks(&config, Some(10.0)).unwrap();
         let ticks_array = ticks.as_primitive::<Float32Type>();
-        let expected = [-1.0f32, -0.8, -0.6, -0.4, -0.2, 0.0, 0.2, 0.4, 0.6, 0.8, 1.0];
+        let expected = [
+            -1.0f32, -0.8, -0.6, -0.4, -0.2, 0.0, 0.2, 0.4, 0.6, 0.8, 1.0,
+        ];
 
         assert_eq!(ticks.len(), expected.len());
         for (a, b) in ticks_array.values().iter().zip(expected.iter()) {

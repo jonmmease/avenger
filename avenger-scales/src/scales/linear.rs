@@ -479,8 +479,8 @@ mod tests {
             .as_vec(values.len(), None);
 
         // All values should map to range_start (d3 behavior)
-        for i in 0..result.len() {
-            assert_approx_eq!(f32, result[i], 0.0);
+        for &value in &result {
+            assert_approx_eq!(f32, value, 0.0);
         }
 
         Ok(())

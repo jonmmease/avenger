@@ -29,10 +29,10 @@ impl WindowEvent {
     }
 
     pub fn skip_if_render_pending(&self) -> bool {
-        match self {
-            Self::MouseInput(_) | Self::KeyboardInput(_) | Self::FileChanged(_) => false,
-            _ => true,
-        }
+        !matches!(
+            self,
+            Self::MouseInput(_) | Self::KeyboardInput(_) | Self::FileChanged(_)
+        )
     }
 }
 

@@ -326,7 +326,6 @@ pub async fn run() {
         &ColorbarConfig {
             orientation: ColorbarOrientation::Right,
             dimensions: [width, height],
-            ..Default::default()
         },
     )
     .unwrap();

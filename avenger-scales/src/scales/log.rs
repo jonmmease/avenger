@@ -697,7 +697,7 @@ mod tests {
         let values = Arc::new(Float32Array::from(vec![0.5, 15.0])) as ArrayRef;
         let result = scale.scale_to_numeric(&config, &values).unwrap();
         let result = result.as_vec(values.len(), None);
-        assert_approx_eq!(f32, result[0], -0.30103);
+        assert_approx_eq!(f32, result[0], -std::f32::consts::LOG10_2);
         assert_approx_eq!(f32, result[1], 1.176091);
 
         // Test clamped behavior
