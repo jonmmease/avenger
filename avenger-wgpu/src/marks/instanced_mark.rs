@@ -3,7 +3,7 @@ use avenger_scenegraph::marks::group::Clip;
 use std::ops::Range;
 
 use wgpu::util::DeviceExt;
-use wgpu::{CommandBuffer, Device, Extent3d, ImageDataLayout, TextureFormat, TextureView};
+use wgpu::{CommandBuffer, Device, Extent3d, TexelCopyBufferLayout, TextureFormat, TextureView};
 
 #[derive(Clone)]
 pub struct InstancedMarkBatch {
@@ -342,15 +342,15 @@ impl InstancedMarkRenderer {
                     usage: wgpu::BufferUsages::COPY_SRC,
                 });
                 mark_encoder.copy_buffer_to_texture(
-                    wgpu::ImageCopyBuffer {
+                    wgpu::TexelCopyBufferInfo {
                         buffer: &temp_buffer,
-                        layout: ImageDataLayout {
+                        layout: TexelCopyBufferLayout {
                             offset: 0,
                             bytes_per_row: Some(4 * self.texture_size.width),
                             rows_per_image: Some(self.texture_size.height),
                         },
                     },
-                    wgpu::ImageCopyTexture {
+                    wgpu::TexelCopyTextureInfo {
                         texture: &self.texture,
                         mip_level: 0,
                         origin: wgpu::Origin3d::ZERO,

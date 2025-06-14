@@ -1650,7 +1650,7 @@ impl MultiMarkRenderer {
 
             queue.write_texture(
                 // Tells wgpu where to copy the pixel data
-                wgpu::ImageCopyTexture {
+                wgpu::TexelCopyTextureInfo {
                     texture: &texture,
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
@@ -1659,7 +1659,7 @@ impl MultiMarkRenderer {
                 // The actual pixel data
                 image.to_rgba8().as_raw(),
                 // The layout of the texture
-                wgpu::ImageDataLayout {
+                wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(4 * image.width()),
                     rows_per_image: Some(image.height()),

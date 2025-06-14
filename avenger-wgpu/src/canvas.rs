@@ -6,11 +6,12 @@ use std::sync::Arc;
 
 use wgpu::{
     Adapter, Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandBuffer,
-    CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, ImageCopyBuffer,
-    ImageCopyTexture, ImageDataLayout, LoadOp, MapMode, Operations, Origin3d, PowerPreference,
+    CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, TexelCopyBufferInfo,
+    TexelCopyTextureInfo, TexelCopyBufferLayout, LoadOp, MapMode, Operations, Origin3d, PowerPreference,
     Queue, RenderPassColorAttachment, RenderPassDescriptor, RequestAdapterOptions, StoreOp,
     Surface, SurfaceConfiguration, Texture, TextureAspect, TextureDescriptor, TextureDimension,
     TextureFormat, TextureFormatFeatureFlags, TextureUsages, TextureView, TextureViewDescriptor,
+    Trace,
 };
 use winit::dpi::Size;
 use winit::event::WindowEvent;
@@ -359,7 +360,7 @@ pub(crate) fn make_background_command<C: Canvas>(
 }
 
 pub(crate) fn make_wgpu_instance() -> wgpu::Instance {
-    wgpu::Instance::new(wgpu::InstanceDescriptor {
+    wgpu::Instance::new(&wgpu::InstanceDescriptor {
         backends: wgpu::Backends::all(),
         ..Default::default()
     })
@@ -376,7 +377,7 @@ pub(crate) async fn make_wgpu_adapter(
             force_fallback_adapter: false,
         })
         .await
-        .ok_or(AvengerWgpuError::MakeWgpuAdapterError)
+        .map_err(|_| AvengerWgpuError::MakeWgpuAdapterError)
 }
 
 pub(crate) async fn request_wgpu_device(
@@ -395,8 +396,8 @@ pub(crate) async fn request_wgpu_device(
                     wgpu::Limits::default()
                 },
                 memory_hints: wgpu::MemoryHints::Performance,
+                trace: Trace::Off,
             },
-            None,
         )
         .await?)
 }
@@ -504,7 +505,7 @@ impl WindowCanvas<'_> {
         );
 
         // // Uncomment to capture GPU boundary
-        // device.start_capture();
+        // unsafe { device.start_graphics_debugger_capture() };
 
         Ok(Self {
             surface,
@@ -698,7 +699,7 @@ impl Canvas for WindowCanvas<'_> {
 
 // impl<'window> Drop for WindowCanvas<'window> {
 //     fn drop(&mut self) {
-//         self.device.stop_capture();
+//         unsafe { self.device.stop_graphics_debugger_capture() };
 //     }
 // }
 
@@ -885,15 +886,15 @@ impl PngCanvas {
         let u32_size = std::mem::size_of::<u32>() as u32;
 
         extract_encoder.copy_texture_to_buffer(
-            ImageCopyTexture {
+            TexelCopyTextureInfo {
                 aspect: TextureAspect::All,
                 texture: &self.texture,
                 mip_level: 0,
                 origin: Origin3d::ZERO,
             },
-            ImageCopyBuffer {
+            TexelCopyBufferInfo {
                 buffer: &self.output_buffer,
-                layout: ImageDataLayout {
+                layout: TexelCopyBufferLayout {
                     offset: 0,
                     // bytes_per_row: Some(u32_size * self.width as u32),
                     bytes_per_row: Some(u32_size * self.padded_width),
@@ -914,7 +915,7 @@ impl PngCanvas {
             buffer_slice.map_async(MapMode::Read, move |result| {
                 tx.send(result).unwrap();
             });
-            self.device.poll(wgpu::Maintain::Wait);
+            self.device.poll(wgpu::PollType::Wait).unwrap();
 
             // TODO: remove panic
             rx.receive().await.unwrap().unwrap();
