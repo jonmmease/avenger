@@ -178,7 +178,7 @@ pub fn make_cosmic_text_buffer(
     buffer.set_text(
         font_system,
         config.text,
-        attrs,
+        &attrs,
         cosmic_text::Shaping::Advanced,
     );
     buffer.set_size(font_system, Some(1024.0), Some(512.0));

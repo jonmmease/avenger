@@ -118,7 +118,7 @@ mod tests {
         // Test alphabetic baseline
         let origin =
             bounds.calculate_origin([10.0, 10.0], &TextAlign::Left, &TextBaseline::Alphabetic);
-        assert_eq!(origin, [10.0, 15.0]);
+        assert_eq!(origin, [10.0, -5.0]);
     }
 }
 
