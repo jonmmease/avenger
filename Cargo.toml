@@ -47,7 +47,7 @@ geo-types = "0.7.16"
 geo = "0.29.3"
 itertools = "0.14.0"
 rstar = { git = "https://github.com/georust/rstar.git", branch = "master" }
-cosmic-text = "0.12.1"
+cosmic-text = "0.14.2"
 geo-svg = "0.7.3"
 indexmap = "2.9.0"
 pollster = "0.4.0"
