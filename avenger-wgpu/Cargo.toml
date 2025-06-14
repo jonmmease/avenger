@@ -15,20 +15,20 @@ cosmic-text = [ "dep:cosmic-text", "lazy_static", "avenger-text/cosmic-text",]
 deno = []
 
 [dependencies]
-cfg-if = "1"
+cfg-if = "1.0.1"
 winit = { workspace = true }
 wgpu = { workspace = true }
 pollster = "0.4.0"
 itertools = { workspace = true }
 image = { workspace = true }
 futures-intrusive = "^0.5"
-etagere = "0.2.10"
-colorgrad = "0.7.0"
+etagere = "0.2.15"
+colorgrad = "0.7.2"
 ordered-float = { workspace = true }
 
 [dev-dependencies]
-dssim = "3.2.4"
-rstest = "0.23.0"
+dssim = "3.3.4"
+rstest = "0.25.0"
 
 [dependencies.avenger-scenegraph]
 path = "../avenger-scenegraph"
@@ -52,7 +52,7 @@ workspace = true
 workspace = true
 
 [dependencies.bytemuck]
-version = "1.14"
+version = "1.23.1"
 features = [ "derive",]
 
 [dependencies.lazy_static]
@@ -76,12 +76,12 @@ features = [ "image-reqwest", "svg",]
 version = "0.0.8"
 
 [dev-dependencies.serde_json]
-version = "1.0.111"
+version = "1.0.140"
 
 [target."cfg(target_arch = \"wasm32\")".dependencies.wgpu]
-version = "23.0.1"
+version = "25.0.2"
 default-features = false
 
 [target."cfg(target_arch = \"wasm32\")".dependencies.web-sys]
-version = "0.3.67"
+version = "0.3.77"
 features = [ "Document", "Window", "Element", "HtmlCanvasElement",]
