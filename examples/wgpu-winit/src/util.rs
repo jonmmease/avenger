@@ -142,6 +142,9 @@ impl ApplicationHandler for App {
                             wgpu::SurfaceError::Timeout => {
                                 log::warn!("Surface timeout");
                             }
+                            wgpu::SurfaceError::Other => {
+                                log::error!("Other surface error");
+                            }
                         },
                         Err(err) => {
                             log::error!("{:?}", err);
