@@ -60,7 +60,7 @@ arrow = { version = "*" }
 arrow-schema = { version = "*" }
 css-color-parser = "0.1.2"
 paste = "1.0.15"
-strum = { version="0.26", features = ["derive"] }
+strum = { version="0.27", features = ["derive"] }
 futures = { version = "0.3.31" }
 reqwest = { version = "0.12.20" }
 cfg-if = { version = "1.0.1" }
