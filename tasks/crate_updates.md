@@ -14,8 +14,14 @@
 **Challenge**: Major version bump in core geometry library
 - geo: 0.29.3 → 0.30.0
 - geo-types: 0.7.14 → 0.7.16 (this is just patch)
-- Check for changes in geometry algorithms and data structures
-- May affect spatial operations throughout the codebase
+- **Blocked by**: geo-svg 0.7.3 doesn't support geo 0.30 yet
+  - geo-svg main branch supports geo 0.30 but hasn't been released
+  - geo-svg is only used for debugging/visualization (not critical)
+- Breaking changes in geo 0.30:
+  - FrechetDistance, Densify, Length now defined on metric spaces
+  - Simplified traits no longer require borrowed epsilon parameter
+  - MSRV bumped to 1.82
+- The codebase doesn't use any of the breaking change methods
 
 ### 3. Ordered Float Update (4.5.0 → 5.0.0)
 **Challenge**: Major version bump, potential breaking changes in float ordering
