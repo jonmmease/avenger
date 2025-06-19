@@ -106,7 +106,7 @@
 //! # Examples
 //!
 //! ```
-//! use format_num::NumberFormat;
+//! use avenger_scales::format_num::NumberFormat;
 //!
 //! let num = NumberFormat::new();
 //!
@@ -602,7 +602,7 @@ impl NumberFormat {
 /// # Examples
 ///
 /// ```
-/// use format_num::format_num;
+/// use avenger_scales::format_num;
 ///
 /// assert_eq!(format_num!(".0%", 0.123), "12%");
 /// assert_eq!(format_num!(".2s", 0.012345), "12m");
@@ -610,7 +610,7 @@ impl NumberFormat {
 #[macro_export]
 macro_rules! format_num {
     ( $x:expr, $y:expr ) => {{
-        $crate::NumberFormat::new().format($x, $y)
+        $crate::format_num::NumberFormat::new().format($x, $y)
     }};
 }
 

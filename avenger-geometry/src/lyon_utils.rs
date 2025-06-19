@@ -80,6 +80,9 @@ impl IntoGeoType for Path {
                                     LineString::new(std::mem::take(&mut current_line)),
                                     vec![], // No interior rings
                                 ));
+                            } else {
+                                // Degenerate path with less than 3 points
+                                lines.push(LineString::new(std::mem::take(&mut current_line)));
                             }
                         } else {
                             lines.push(LineString::new(std::mem::take(&mut current_line)));
@@ -94,12 +97,17 @@ impl IntoGeoType for Path {
         // Handle the final path segment if any
         if !current_line.is_empty() {
             if filled {
-                if current_line.len() >= 3 && current_line.first() != current_line.last() {
-                    if let Some(start) = current_start {
-                        current_line.push(start);
+                if current_line.len() >= 3 {
+                    if current_line.first() != current_line.last() {
+                        if let Some(start) = current_start {
+                            current_line.push(start);
+                        }
                     }
+                    polygons.push(Polygon::new(LineString::new(current_line), vec![]));
+                } else {
+                    // Degenerate path with less than 3 points
+                    lines.push(LineString::new(current_line));
                 }
-                polygons.push(Polygon::new(LineString::new(current_line), vec![]));
             } else {
                 lines.push(LineString::new(current_line));
             }
