@@ -6,12 +6,12 @@ use std::sync::Arc;
 
 use wgpu::{
     Adapter, Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandBuffer,
-    CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, TexelCopyBufferInfo,
-    TexelCopyTextureInfo, TexelCopyBufferLayout, LoadOp, MapMode, Operations, Origin3d, PowerPreference,
-    Queue, RenderPassColorAttachment, RenderPassDescriptor, RequestAdapterOptions, StoreOp,
-    Surface, SurfaceConfiguration, Texture, TextureAspect, TextureDescriptor, TextureDimension,
-    TextureFormat, TextureFormatFeatureFlags, TextureUsages, TextureView, TextureViewDescriptor,
-    Trace,
+    CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, LoadOp, MapMode, Operations,
+    Origin3d, PowerPreference, Queue, RenderPassColorAttachment, RenderPassDescriptor,
+    RequestAdapterOptions, StoreOp, Surface, SurfaceConfiguration, TexelCopyBufferInfo,
+    TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureAspect, TextureDescriptor,
+    TextureDimension, TextureFormat, TextureFormatFeatureFlags, TextureUsages, TextureView,
+    TextureViewDescriptor, Trace,
 };
 use winit::dpi::Size;
 use winit::event::WindowEvent;
@@ -384,21 +384,19 @@ pub(crate) async fn request_wgpu_device(
     adapter: &Adapter,
 ) -> Result<(Device, Queue), AvengerWgpuError> {
     Ok(adapter
-        .request_device(
-            &DeviceDescriptor {
-                label: None,
-                required_features: wgpu::Features::empty(),
-                // WebGL doesn't support all of wgpu's features, so if
-                // we're building for the web we'll have to disable some.
-                required_limits: if cfg!(target_arch = "wasm32") {
-                    wgpu::Limits::downlevel_webgl2_defaults()
-                } else {
-                    wgpu::Limits::default()
-                },
-                memory_hints: wgpu::MemoryHints::Performance,
-                trace: Trace::Off,
+        .request_device(&DeviceDescriptor {
+            label: None,
+            required_features: wgpu::Features::empty(),
+            // WebGL doesn't support all of wgpu's features, so if
+            // we're building for the web we'll have to disable some.
+            required_limits: if cfg!(target_arch = "wasm32") {
+                wgpu::Limits::downlevel_webgl2_defaults()
+            } else {
+                wgpu::Limits::default()
             },
-        )
+            memory_hints: wgpu::MemoryHints::Performance,
+            trace: Trace::Off,
+        })
         .await?)
 }
 
