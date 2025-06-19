@@ -156,8 +156,15 @@ where
         if !self.render_pending || !event.skip_if_render_pending() {
             let app_clone = self.avenger_app.clone();
             let canvas_shared = self.canvas.clone();
+            let event_clone = event.clone();
             let update_future = async move {
-                match app_clone.borrow_mut().update(&event, Instant::now()).await {
+                #[allow(clippy::await_holding_refcell_ref)]
+                let update_result = app_clone
+                    .borrow_mut()
+                    .update(&event_clone, Instant::now())
+                    .await;
+
+                match update_result {
                     Ok(Some(scene_graph)) => {
                         if let Some(canvas) = canvas_shared.borrow_mut().as_mut() {
                             canvas.set_scene(&scene_graph).unwrap();
@@ -261,7 +268,13 @@ where
                                     let canvas_shared = self.canvas.clone();
 
                                     let update_future = async move {
-                                        match app_clone.borrow_mut().update(&event_clone, Instant::now()).await {
+                                        #[allow(clippy::await_holding_refcell_ref)]
+                                        let update_result = app_clone
+                                            .borrow_mut()
+                                            .update(&event_clone, Instant::now())
+                                            .await;
+
+                                        match update_result {
                                             Ok(Some(scene_graph)) => {
                                                 let mut canvas_borrowed = canvas_shared.borrow_mut();
                                                 if let Some(canvas) = canvas_borrowed.as_mut() {
@@ -283,10 +296,12 @@ where
                                     spawn_local(update_future);
                                 } else {
                                     // For non-WASM, maintain the original precise render_pending logic
-                                    let scene_graph_opt = self
-                                        .tokio_runtime
-                                        .block_on(self.avenger_app.borrow_mut().update(&event, Instant::now()))
-                                        .expect("Failed to update app");
+                                    let scene_graph_opt = {
+                                        let mut app = self.avenger_app.borrow_mut();
+                                        self.tokio_runtime
+                                            .block_on(app.update(&event, Instant::now()))
+                                            .expect("Failed to update app")
+                                    };
 
                                     if let Some(scene_graph) = scene_graph_opt {
                                         if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
