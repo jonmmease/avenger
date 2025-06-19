@@ -37,8 +37,10 @@ jobs:
           cd avenger-vega-test-data && cargo build && cd ..
           pushd examples/scatter-panning && cargo build && popd
           pushd examples/wgpu-winit && cargo build && popd
-      - name: Run tests
-        run: cargo test --workspace --verbose
+      - name: Run tests (excluding GPU tests)
+        run: |
+          cargo test --workspace --verbose \
+            --exclude avenger-wgpu
       - name: Run doc tests
         run: cargo test --workspace --doc --verbose
 
