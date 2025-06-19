@@ -157,8 +157,8 @@ where
             let app_clone = self.avenger_app.clone();
             let canvas_shared = self.canvas.clone();
             let event_clone = event.clone();
+            #[allow(clippy::await_holding_refcell_ref)]
             let update_future = async move {
-                #[allow(clippy::await_holding_refcell_ref)]
                 let update_result = app_clone
                     .borrow_mut()
                     .update(&event_clone, Instant::now())
@@ -267,8 +267,8 @@ where
                                     let event_clone = event.clone();
                                     let canvas_shared = self.canvas.clone();
 
+                                    #[allow(clippy::await_holding_refcell_ref)]
                                     let update_future = async move {
-                                        #[allow(clippy::await_holding_refcell_ref)]
                                         let update_result = app_clone
                                             .borrow_mut()
                                             .update(&event_clone, Instant::now())
