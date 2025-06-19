@@ -19,6 +19,7 @@ use super::{
 pub struct PowScale;
 
 impl PowScale {
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(domain: (f32, f32), range: (f32, f32)) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
