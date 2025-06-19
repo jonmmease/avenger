@@ -37,10 +37,10 @@ jobs:
           cd avenger-vega-test-data && cargo build && cd ..
           pushd examples/scatter-panning && cargo build && popd
           pushd examples/wgpu-winit && cargo build && popd
-
-#  # Tests currently fail with `MakeWgpuAdapterError`
-#      - name: Run tests
-#        run: cargo test --verbose
+      - name: Run tests
+        run: cargo test --workspace --verbose
+      - name: Run doc tests
+        run: cargo test --workspace --doc --verbose
 
 # # Cleanup fails with: [__NSCFString bytes]: unrecognized selector sent to instance 0x600002fc62c0
 #  test-rs-macos:
