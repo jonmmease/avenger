@@ -7,47 +7,24 @@ channels = ["conda-forge"]
 platforms = ["osx-arm64", "osx-64", "linux-64", "win-64"]
 
 [tasks]
-dev-py = { cmd = ["maturin", "develop", "-m", "avenger-python/Cargo.toml", "--release"]}
-build-py = { cmd = ["maturin", "build", "-m", "avenger-python/Cargo.toml", "--sdist", "--release"]}
 bump-version = { cmd = ["python", "automation/bump_version.py"] }
-
-[tasks.build-vega-renderer]
-cwd = "avenger-vega-renderer"
-cmd = """
-npm install &&
-rm -rf lib/ &&
-
-wasm-pack build --target web --out-dir lib &&
-
-rm -rf dist/ &&
-mkdir -p dist/ &&
-cp -r js dist/js &&
-cp -r lib dist/ &&
-cp package.json dist/
-"""
-
-[tasks.pack-vega-renderer]
-depends-on = ["build-vega-renderer"]
-cwd = "avenger-vega-renderer"
-cmd = """
-rm -rf packed/ &&
-mkdir -p packed/ &&
-npm pack &&
-mv avenger-vega-renderer-*.tgz packed
-"""
-
-[tasks.test-vega-renderer]
-depends-on = ["build-vega-renderer"]
-cwd = "avenger-vega-renderer"
-cmd = """
-pytest
-"""
+fmt-rs = { cmd = ["cargo", "fmt", "--all"] }
+clippy = { cmd = ["cargo", "clippy", "--all-targets"] }
 
 [tasks.publish-rs]
 cmd = """
-cargo publish -p avenger &&
-cargo publish -p avenger-vega &&
-cargo publish -p avenger-wgpu
+cargo publish -p avenger-common &&
+cargo publish -p avenger-geometry &&
+cargo publish -p avenger-text &&
+cargo publish -p avenger-image &&
+cargo publish -p avenger-scales &&
+cargo publish -p avenger-scenegraph &&
+cargo publish -p avenger-eventstream &&
+cargo publish -p avenger-wgpu &&
+cargo publish -p avenger-guides &&
+cargo publish -p avenger-vega-scenegraph &&
+cargo publish -p avenger-app &&
+cargo publish -p avenger-winit-wgpu
 """
 
 [dependencies]
