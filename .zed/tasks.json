@@ -1,6 +1,0 @@
-[
-  {
-    "label": "Preview Avenger File",
-    "command": "RUST_BACKTRACE=1 cargo run -p avenger-cli preview $ZED_FILE"
-  }
-]
