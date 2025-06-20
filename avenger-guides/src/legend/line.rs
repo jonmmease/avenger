@@ -118,6 +118,7 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn make_line_group(
     y: f32,
     center_y: f32,
