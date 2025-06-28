@@ -175,7 +175,7 @@ macro_rules! define_enum_coercer {
                 values: &ArrayRef,
             ) -> Result<ScalarOrArray<$enum_type>, AvengerScaleError> {
                 let domain = Arc::new(StringArray::from(Vec::from(<$enum_type>::VARIANTS))) as ArrayRef;
-                let scale = OrdinalScale::new(domain.clone()).with_range(domain);
+                let scale = OrdinalScale::configured(domain.clone()).with_range(domain);
                 scale.[<scale_to_ $enum_type:snake>](values)
             }
         }

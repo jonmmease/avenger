@@ -14,8 +14,7 @@ use super::{
 pub struct PointScale;
 
 impl PointScale {
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new(domain: ArrayRef, range: (f32, f32)) -> ConfiguredScale {
+    pub fn configured(domain: ArrayRef, range: (f32, f32)) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
             config: ScaleConfig {

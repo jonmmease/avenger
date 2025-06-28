@@ -17,8 +17,7 @@ use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContex
 pub struct LinearScale;
 
 impl LinearScale {
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new(domain: (f32, f32), range: (f32, f32)) -> ConfiguredScale {
+    pub fn configured(domain: (f32, f32), range: (f32, f32)) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
             config: ScaleConfig {
@@ -37,7 +36,7 @@ impl LinearScale {
         }
     }
 
-    pub fn new_color<I>(domain: (f32, f32), range: I) -> ConfiguredScale
+    pub fn configured_color<I>(domain: (f32, f32), range: I) -> ConfiguredScale
     where
         I: IntoIterator,
         I::Item: Into<String>,
