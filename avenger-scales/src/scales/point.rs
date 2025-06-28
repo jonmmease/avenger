@@ -10,6 +10,26 @@ use super::{
     ScaleImpl,
 };
 
+/// Point scale that maps discrete domain values to evenly-spaced points along a continuous range.
+///
+/// This scale is implemented as a special case of band scale where the band width is zero,
+/// resulting in points instead of bands. It's useful for scatter plots and other visualizations
+/// where discrete categories need to be positioned at specific points.
+///
+/// # Config Options
+///
+/// - **align** (f32, default: 0.5): Alignment of the point layout within the range [0, 1].
+///   0 aligns points to the start, 0.5 centers them, and 1 aligns to the end.
+///
+/// - **padding** (f32, default: 0.0): Padding before the first and after the last point
+///   as a fraction of the spacing between points. A value of 0.5 adds half the step
+///   distance as padding on each end.
+///
+/// - **round** (boolean, default: false): When true, point positions are rounded to
+///   integer pixel values for crisp rendering.
+///
+/// - **range_offset** (f32, default: 0.0): Additional offset applied to all point positions
+///   after computing their base positions. Useful for fine-tuning placement.
 #[derive(Debug, Clone)]
 pub struct PointScale;
 

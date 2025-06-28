@@ -13,6 +13,17 @@ use crate::error::AvengerScaleError;
 
 use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};
 
+/// Quantile scale that maps continuous numeric input values to discrete range values
+/// using quantile boundaries computed from the domain.
+///
+/// The domain should contain sample data values. The scale computes n-1 quantile
+/// thresholds that divide the sorted domain into n equal-sized groups, where n is
+/// the number of values in the range. Each input value is then mapped to the
+/// corresponding range value based on which quantile it falls into.
+///
+/// # Config Options
+///
+/// This scale does not currently support any configuration options.
 #[derive(Debug, Clone)]
 pub struct QuantileScale;
 

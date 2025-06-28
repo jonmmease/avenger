@@ -15,6 +15,34 @@ use super::{
     ScaleImpl,
 };
 
+/// Power scale that maps a continuous numeric domain to a continuous numeric range
+/// using power (exponential) transformation.
+///
+/// The scale applies x^exponent transformation to input values. It supports negative
+/// values by preserving the sign: sign(x) * |x|^exponent. Common exponents include
+/// 0.5 (square root) for area-based encodings and 2 (square) for emphasizing differences.
+///
+/// # Config Options
+///
+/// - **exponent** (f32, default: 1.0): The power exponent. When 1.0, behaves like a
+///   linear scale. Values < 1 compress large values and expand small values.
+///   Values > 1 expand large values and compress small values. Must not be 0.
+///
+/// - **clamp** (boolean, default: false): When true, values outside the domain are
+///   clamped to the domain extent before transformation. For inversion, values
+///   outside the range are clamped first.
+///
+/// - **range_offset** (f32, default: 0.0): An offset applied to the final scaled
+///   values. This is added after the power transformation and linear mapping.
+///   Note: In inversion, this is subtracted from the output, not the input.
+///
+/// - **round** (boolean, default: false): When true, output values from scaling
+///   are rounded to the nearest integer. Useful for pixel-perfect rendering.
+///   Does not affect inversion.
+///
+/// - **nice** (boolean or f32, default: false): When true or a number, extends
+///   the domain to nice round values in the transformed space. If true, uses
+///   a default count of 10. If a number, uses that as the target tick count.
 #[derive(Debug)]
 pub struct PowScale;
 

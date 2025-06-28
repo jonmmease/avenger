@@ -15,6 +15,32 @@ use super::{
     ScaleImpl,
 };
 
+/// Symmetric log scale that provides smooth linear-to-logarithmic transitions for data
+/// that includes zero or spans both positive and negative values.
+///
+/// The symlog transformation is defined as: sign(x) * log(1 + |x|/C) where C is the constant.
+/// This provides linear behavior near zero (within [-C, C]) and logarithmic behavior for
+/// larger absolute values, making it ideal for data with values near zero or crossing zero.
+///
+/// # Config Options
+///
+/// - **constant** (f32, default: 1.0): The linear threshold that controls the transition
+///   between linear and logarithmic behavior. Within the range [-constant, constant],
+///   the scale behaves approximately linearly. Must be positive.
+///
+/// - **clamp** (boolean, default: false): When true, values outside the domain are clamped
+///   to the domain extent. For scaling, this means values outside domain map to the
+///   corresponding range extent. For inversion, values outside range are clamped first.
+///
+/// - **range_offset** (f32, default: 0.0): An offset applied to the final scaled values.
+///   This is added after the transformation. When inverting, this offset is subtracted first.
+///
+/// - **round** (boolean, default: false): When true, output values from scaling are rounded
+///   to the nearest integer. This is useful for pixel-perfect rendering. Does not affect inversion.
+///
+/// - **nice** (boolean or f32, default: false): When true or a number, extends the domain to
+///   nice round values in the transformed space. If true, uses a default count of 10.
+///   If a number, uses that as the target tick count for determining nice values.
 #[derive(Debug)]
 pub struct SymlogScale;
 
