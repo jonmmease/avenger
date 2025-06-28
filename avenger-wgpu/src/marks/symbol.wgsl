@@ -1,5 +1,5 @@
 // Vertex shader
-struct ChartUniform {
+struct SymbolUniform {
     size: vec2<f32>,
     origin: vec2<f32>,
     scale: f32,
@@ -7,7 +7,16 @@ struct ChartUniform {
 };
 
 @group(0) @binding(0)
-var<uniform> chart_uniforms: ChartUniform;
+var<uniform> chart_uniforms: SymbolUniform;
+
+// Instance renderer uniforms (managed by instanced renderer)
+struct MarkUniform {
+    adjustment_scale: vec2<f32>,
+    adjustment_offset: vec2<f32>,
+}
+
+@group(0) @binding(1)
+var<uniform> mark_uniforms: MarkUniform;
 
 struct VertexInput {
     @location(0) position: vec2<f32>,
@@ -55,7 +64,9 @@ fn vs_main(
     let size_scale = sqrt(instance.relative_scale);
 
     // Compute absolute position
-    let position = instance.position + chart_uniforms.origin;
+    let position = (
+        instance.position * mark_uniforms.adjustment_scale + mark_uniforms.adjustment_offset
+    ) + chart_uniforms.origin;
 
     // Compute scenegraph x and y coordinates
     let angle_rad = PI * instance.angle / 180.0;

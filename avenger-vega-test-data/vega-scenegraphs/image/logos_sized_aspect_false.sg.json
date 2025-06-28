@@ -348,29 +348,29 @@
             "interactive": true,
             "items": [
               {
-                "description": "x: 0.5; y: 0.5; img: data/ffox.png",
+                "description": "x: 0.5; y: 0.5; img: https://raw.githubusercontent.com/vega/vega-datasets/main/data/ffox.png",
                 "aspect": false,
                 "width": 40,
                 "height": 60,
-                "url": "data/ffox.png",
+                "url": "https://raw.githubusercontent.com/vega/vega-datasets/main/data/ffox.png",
                 "x": 18.46153846153846,
                 "y": 131.53846153846155
               },
               {
-                "description": "x: 1.5; y: 1.5; img: data/gimp.png",
+                "description": "x: 1.5; y: 1.5; img: https://raw.githubusercontent.com/vega/vega-datasets/main/data/gimp.png",
                 "aspect": false,
                 "width": 150,
                 "height": 100,
-                "url": "data/gimp.png",
+                "url": "https://raw.githubusercontent.com/vega/vega-datasets/main/data/gimp.png",
                 "x": 40.38461538461537,
                 "y": 34.61538461538463
               },
               {
-                "description": "x: 2.5; y: 2.5; img: data/7zip.png",
+                "description": "x: 2.5; y: 2.5; img: https://raw.githubusercontent.com/vega/vega-datasets/main/data/7zip.png",
                 "aspect": false,
                 "width": 30,
                 "height": 30,
-                "url": "data/7zip.png",
+                "url": "https://raw.githubusercontent.com/vega/vega-datasets/main/data/7zip.png",
                 "x": 177.3076923076923,
                 "y": -7.307692307692291
               }

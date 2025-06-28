@@ -1,7 +1,9 @@
-use crate::canvas::CanvasDimensions;
+use std::hash::{Hash, Hasher};
+
 use crate::error::AvengerWgpuError;
 use crate::marks::instanced_mark::{InstancedMarkBatch, InstancedMarkShader};
-use avenger_scenegraph::marks::path::PathTransform;
+use avenger_common::canvas::CanvasDimensions;
+use avenger_common::types::PathTransform;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use itertools::izip;
 use lyon::lyon_tessellation::{
@@ -9,7 +11,10 @@ use lyon::lyon_tessellation::{
 };
 use lyon::tessellation::geometry_builder::VertexBuffers;
 use lyon::tessellation::{FillOptions, FillTessellator, StrokeOptions, StrokeTessellator};
+use ordered_float::OrderedFloat;
 use wgpu::{Extent3d, VertexBufferLayout};
+
+use super::instanced_mark::InstancedMarkFingerprint;
 
 const FILL_KIND: u32 = 0;
 const STROKE_KIND: u32 = 1;
@@ -93,8 +98,12 @@ impl SymbolInstance {
         let stroke_width = mark.stroke_width.unwrap_or(0.0);
         let mut instances: Vec<SymbolInstance> = Vec::new();
         for (x, y, fill, size, stroke, angle, shape_index) in izip!(
-            mark.x_iter(),
-            mark.y_iter(),
+            // Un-adjust x
+            mark.x
+                .as_iter_owned(mark.len as usize, mark.indices.as_ref()),
+            // Un-adjust y
+            mark.y
+                .as_iter_owned(mark.len as usize, mark.indices.as_ref()),
             mark.fill_iter(),
             mark.size_iter(),
             mark.stroke_iter(),
@@ -102,7 +111,7 @@ impl SymbolInstance {
             mark.shape_index_iter(),
         ) {
             instances.push(SymbolInstance {
-                position: [*x, *y],
+                position: [x, y],
                 fill_color: fill.color_or_transparent(),
                 stroke_color: stroke.color_or_transparent(),
                 stroke_width,
@@ -270,5 +279,27 @@ impl StrokeVertexConstructor<SymbolVertex> for VertexPositions {
             kind: STROKE_KIND,
             shape_index: self.shape_index,
         }
+    }
+}
+
+impl InstancedMarkFingerprint for SceneSymbolMark {
+    fn instanced_fingerprint(&self) -> u64 {
+        let mut hasher = std::hash::DefaultHasher::new();
+
+        self.clip.hash(&mut hasher);
+        self.len.hash(&mut hasher);
+        self.gradients.hash(&mut hasher);
+        self.shapes.hash(&mut hasher);
+        self.stroke_width.map(OrderedFloat::from).hash(&mut hasher);
+        self.shape_index.hash(&mut hasher);
+        self.x.hash(&mut hasher);
+        self.y.hash(&mut hasher);
+        self.fill.hash(&mut hasher);
+        self.size.hash(&mut hasher);
+        self.stroke.hash(&mut hasher);
+        self.angle.hash(&mut hasher);
+        self.indices.hash(&mut hasher);
+
+        hasher.finish()
     }
 }

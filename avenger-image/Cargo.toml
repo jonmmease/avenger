@@ -1,0 +1,23 @@
+[package]
+name = "avenger-image"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["svg", "reqwest"]
+svg = [ "resvg", "usvg", "tiny-skia",]
+reqwest = [ "dep:reqwest",]
+
+[dependencies]
+thiserror = { workspace = true }
+image = { workspace = true }
+serde = { workspace = true }
+cfg-if = { workspace = true }
+lazy_static = { workspace = true }
+base64 = { workspace = true }
+urlencoding = { workspace = true }
+
+reqwest = { workspace = true, optional = true, features = ["blocking"] }
+resvg = { workspace = true, optional = true }
+usvg = { workspace = true, optional = true }
+tiny-skia = { workspace = true, optional = true }

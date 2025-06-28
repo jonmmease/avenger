@@ -26,17 +26,9 @@ jobs:
       - name: Check cargo fmt compliance
         run: cargo fmt --all -- --check
       - name: Check no rustc warnings
-        run: |
-          cd avenger-scenegraph && cargo check --tests && cd ..
-          cd avenger-vega && cargo check --tests && cd ..
-          cd avenger-wgpu && cargo check --tests && cd ..
-          cd avenger-vega-test-data && cargo check --tests && cd ..
+        run: cargo check --tests
       - name: Check for clippy warnings
-        run: |
-          cd avenger-scenegraph && cargo clippy && cd ..
-          cd avenger-vega && cargo clippy && cd ..
-          cd avenger-wgpu && cargo clippy && cd ..
-          cd avenger-vega-test-data && cargo clippy && cd ..
+        run: cargo clippy
       - name: Build
         run: |
           cd avenger-scenegraph && cargo build && cd ..
@@ -45,10 +37,12 @@ jobs:
           cd avenger-vega-test-data && cargo build && cd ..
           pushd examples/scatter-panning && cargo build && popd
           pushd examples/wgpu-winit && cargo build && popd
-
-#  # Tests currently fail with `MakeWgpuAdapterError`
-#      - name: Run tests
-#        run: cargo test --verbose
+      - name: Run tests (excluding GPU tests)
+        run: |
+          cargo test --workspace --verbose \
+            --exclude avenger-wgpu
+      - name: Run doc tests
+        run: cargo test --workspace --doc --verbose
 
 # # Cleanup fails with: [__NSCFString bytes]: unrecognized selector sent to instance 0x600002fc62c0
 #  test-rs-macos:

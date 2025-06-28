@@ -1,0 +1,40 @@
+[package]
+name = "avenger-text"
+version = "0.0.8"
+edition = "2021"
+
+[features]
+serde = ["dep:serde"]
+cosmic-text = ["dep:cosmic-text", "lazy_static"]
+default = ["serde", "cosmic-text"]
+
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true, optional = true }
+image = { workspace = true }
+unicode-segmentation = "1.12.0"
+lyon_path = { workspace = true }
+strum = { workspace = true }
+ordered-float = { workspace = true }
+
+[dependencies.cosmic-text]
+workspace = true
+optional = true
+
+[dependencies.lazy_static]
+workspace = true
+optional = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.92"
+web-sys = { version = "0.3.67", features = [
+    "Document",
+    "Window",
+    "Element",
+    "Performance",
+    "OffscreenCanvas",
+    "OffscreenCanvasRenderingContext2d",
+    "TextMetrics",
+    "ImageData"
+]}
+

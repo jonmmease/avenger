@@ -1,9 +1,14 @@
+use std::hash::{DefaultHasher, Hasher};
+
 use crate::marks::mark::SceneMark;
-use crate::marks::path::{PathTransform, ScenePathMark};
-use crate::marks::value::{ColorOrGradient, EncodingValue, Gradient};
+use crate::marks::path::ScenePathMark;
+use avenger_common::lyon::hash_lyon_path;
+use avenger_common::types::{ColorOrGradient, Gradient, PathTransform};
+use avenger_common::value::ScalarOrArray;
 use lyon_path::geom::euclid::Point2D;
 use lyon_path::geom::Box2D;
 use lyon_path::Winding;
+use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,6 +21,61 @@ pub enum Clip {
         height: f32,
     },
     Path(lyon_path::Path),
+}
+
+impl std::hash::Hash for Clip {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Clip::None => state.write_u8(0),
+            Clip::Rect {
+                x,
+                y,
+                width,
+                height,
+            } => {
+                vec![
+                    OrderedFloat::from(*x),
+                    OrderedFloat::from(*y),
+                    OrderedFloat::from(*width),
+                    OrderedFloat::from(*height),
+                ]
+                .hash(state);
+            }
+            Clip::Path(path) => {
+                hash_lyon_path(path, state);
+            }
+        }
+    }
+}
+
+impl PartialEq for Clip {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::None, Self::None) => true,
+            (
+                Self::Rect {
+                    x: x1,
+                    y: y1,
+                    width: w1,
+                    height: h1,
+                },
+                Self::Rect {
+                    x: x2,
+                    y: y2,
+                    width: w2,
+                    height: h2,
+                },
+            ) => x1 == x2 && y1 == y2 && w1 == w2 && h1 == h2,
+            (Self::Path(path1), Self::Path(path2)) => {
+                let mut hasher_a = DefaultHasher::new();
+                let mut hasher_b = DefaultHasher::new();
+                hash_lyon_path(path1, &mut hasher_a);
+                hash_lyon_path(path2, &mut hasher_b);
+                hasher_a.finish() == hasher_b.finish()
+            }
+            _ => false,
+        }
+    }
 }
 
 impl Default for Clip {
@@ -55,7 +115,7 @@ impl Clip {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SceneGroup {
     pub name: String,
     pub origin: [f32; 2],
@@ -67,6 +127,30 @@ pub struct SceneGroup {
     pub stroke_width: Option<f32>,
     pub stroke_offset: Option<f32>,
     pub zindex: Option<i32>,
+}
+
+impl std::hash::Hash for SceneGroup {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        vec![
+            OrderedFloat::from(self.origin[0]),
+            OrderedFloat::from(self.origin[1]),
+        ]
+        .hash(state);
+        self.clip.hash(state);
+        self.gradients.hash(state);
+        self.fill.hash(state);
+        self.stroke.hash(state);
+        if let Some(stroke_width) = self.stroke_width {
+            OrderedFloat::from(stroke_width).hash(state);
+        }
+        if let Some(stroke_offset) = self.stroke_offset {
+            OrderedFloat::from(stroke_offset).hash(state);
+        }
+
+        self.zindex.hash(state);
+        self.marks.hash(state);
+    }
 }
 
 impl SceneGroup {
@@ -117,28 +201,40 @@ impl SceneGroup {
             clip: false,
             len: 1,
             gradients: self.gradients.clone(),
-            path: EncodingValue::Scalar { value: path },
-            fill: EncodingValue::Scalar {
-                value: self
-                    .fill
+            path: ScalarOrArray::new_scalar(path),
+            fill: ScalarOrArray::new_scalar(
+                self.fill
                     .clone()
                     .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
-            },
-            stroke: EncodingValue::Scalar {
-                value: self
-                    .stroke
+            ),
+            stroke: ScalarOrArray::new_scalar(
+                self.stroke
                     .clone()
                     .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
-            },
+            ),
             stroke_width: Some(stroke_width),
             stroke_cap: Default::default(),
             stroke_join: Default::default(),
-            transform: EncodingValue::Scalar {
-                value: PathTransform::identity(),
-            },
+            transform: ScalarOrArray::new_scalar(PathTransform::identity()),
             indices: None,
             zindex: self.zindex,
         })
+    }
+
+    pub fn group_paths(&self) -> Vec<Vec<usize>> {
+        let mut paths = vec![];
+        for (index, mark) in self.marks.iter().enumerate() {
+            let SceneMark::Group(group) = mark else {
+                continue;
+            };
+            paths.push(vec![index]);
+            for sub_path in group.group_paths() {
+                let mut path = vec![index];
+                path.extend(sub_path);
+                paths.push(path);
+            }
+        }
+        paths
     }
 }
 
@@ -156,5 +252,11 @@ impl Default for SceneGroup {
             stroke_offset: None,
             zindex: None,
         }
+    }
+}
+
+impl From<SceneGroup> for SceneMark {
+    fn from(mark: SceneGroup) -> Self {
+        SceneMark::Group(mark)
     }
 }

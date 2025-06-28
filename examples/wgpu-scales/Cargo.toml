@@ -1,0 +1,42 @@
+[package]
+name = "wgpu-scales"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+avenger-vega-scenegraph = { path = "../../avenger-vega-scenegraph" }
+avenger-wgpu = { path = "../../avenger-wgpu", default-features = false }
+avenger-scenegraph = { path = "../../avenger-scenegraph" }
+avenger-common = { path = "../../avenger-common" }
+avenger-scales = { path = "../../avenger-scales" }
+avenger-guides = { path = "../../avenger-guides" }
+avenger-geometry = { path = "../../avenger-geometry" }
+
+arrow = { version = "*", default-features = false, features = ["csv"] }
+
+cfg-if = "1"
+winit = "0.30.5"
+env_logger = "0.10"
+log = "0.4"
+wgpu = "25.0.2"
+pollster = "0.3"
+serde_json = { version = "1.0.111" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+avenger-wgpu = { path = "../../avenger-wgpu", default-features = false, features = ["cosmic-text"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1.6"
+console_log = "1.0"
+wgpu = { version = "25.0.2", features = ["webgl", "webgpu"]}
+wasm-bindgen = "0.2.92"
+wasm-bindgen-futures = "0.4.42"
+getrandom = { version = "0.2", features = ["js"] }
+web-sys = { version = "0.3.77", features = [
+    "Document",
+    "Window",
+    "Element",
+]}

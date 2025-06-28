@@ -1,13 +1,18 @@
-use crate::error::AvengerError;
-use crate::marks::value::{ColorOrGradient, EncodingValue, Gradient};
-use lyon_extra::parser::{ParserOptions, Source};
-use lyon_path::geom::euclid::Point2D;
-use lyon_path::geom::{Box2D, Point, Scale};
-use lyon_path::{Path, Winding};
+use super::mark::SceneMark;
+use avenger_common::types::{
+    ColorOrGradient, Gradient, LinearScaleAdjustment, PathTransform, SymbolShape,
+};
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
+use itertools::izip;
+use lyon_extra::euclid::Vector2D;
+use lyon_path::geom::Angle;
+use lyon_path::Path;
+use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
-use std::borrow::Cow;
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneSymbolMark {
     pub name: String,
@@ -16,32 +21,81 @@ pub struct SceneSymbolMark {
     pub gradients: Vec<Gradient>,
     pub shapes: Vec<SymbolShape>,
     pub stroke_width: Option<f32>,
-    pub shape_index: EncodingValue<usize>,
-    pub x: EncodingValue<f32>,
-    pub y: EncodingValue<f32>,
-    pub fill: EncodingValue<ColorOrGradient>,
-    pub size: EncodingValue<f32>,
-    pub stroke: EncodingValue<ColorOrGradient>,
-    pub angle: EncodingValue<f32>,
-    pub indices: Option<Vec<usize>>,
+    pub shape_index: ScalarOrArray<usize>,
+    pub x: ScalarOrArray<f32>,
+    pub y: ScalarOrArray<f32>,
+    pub fill: ScalarOrArray<ColorOrGradient>,
+    pub size: ScalarOrArray<f32>,
+    pub stroke: ScalarOrArray<ColorOrGradient>,
+    pub angle: ScalarOrArray<f32>,
+    pub indices: Option<Arc<Vec<usize>>>,
     pub zindex: Option<i32>,
+    pub x_adjustment: Option<LinearScaleAdjustment>,
+    pub y_adjustment: Option<LinearScaleAdjustment>,
+}
+
+impl Hash for SceneSymbolMark {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.clip.hash(state);
+        self.len.hash(state);
+        self.gradients.hash(state);
+        self.shapes.hash(state);
+        if let Some(stroke_width) = self.stroke_width {
+            OrderedFloat(stroke_width).hash(state);
+        } else {
+            OrderedFloat(0.0).hash(state);
+        }
+        self.x.hash(state);
+        self.y.hash(state);
+        self.fill.hash(state);
+        self.size.hash(state);
+        self.stroke.hash(state);
+        self.angle.hash(state);
+        self.indices.hash(state);
+        self.zindex.hash(state);
+        self.x_adjustment.hash(state);
+        self.y_adjustment.hash(state);
+    }
 }
 
 impl SceneSymbolMark {
-    pub fn x_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.x.as_iter(self.len as usize, self.indices.as_ref())
+    pub fn x_iter(&self) -> Box<dyn Iterator<Item = f32> + '_> {
+        if let Some(adjustment) = self.x_adjustment {
+            let scale = adjustment.scale;
+            let offset = adjustment.offset;
+            Box::new(
+                self.x
+                    .as_iter(self.len as usize, self.indices.as_ref())
+                    .map(move |x| scale * x + offset),
+            )
+        } else {
+            self.x
+                .as_iter_owned(self.len as usize, self.indices.as_ref())
+        }
     }
 
     pub fn x_vec(&self) -> Vec<f32> {
-        self.x.as_vec(self.len as usize, self.indices.as_ref())
+        self.x_iter().collect()
     }
 
-    pub fn y_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
-        self.y.as_iter(self.len as usize, self.indices.as_ref())
+    pub fn y_iter(&self) -> Box<dyn Iterator<Item = f32> + '_> {
+        if let Some(adjustment) = self.y_adjustment {
+            let scale = adjustment.scale;
+            let offset = adjustment.offset;
+            Box::new(
+                self.y
+                    .as_iter(self.len as usize, self.indices.as_ref())
+                    .map(move |y| scale * y + offset),
+            )
+        } else {
+            self.y
+                .as_iter_owned(self.len as usize, self.indices.as_ref())
+        }
     }
 
     pub fn y_vec(&self) -> Vec<f32> {
-        self.y.as_vec(self.len as usize, self.indices.as_ref())
+        self.y_iter().collect()
     }
 
     pub fn fill_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
@@ -87,14 +141,52 @@ impl SceneSymbolMark {
             .as_vec(self.len as usize, self.indices.as_ref())
     }
 
+    pub fn indices_iter(&self) -> Box<dyn Iterator<Item = usize> + '_> {
+        if let Some(indices) = self.indices.as_ref() {
+            Box::new(indices.iter().cloned())
+        } else {
+            Box::new(0..self.len as usize)
+        }
+    }
+
+    pub fn transformed_path_iter(&self, origin: [f32; 2]) -> Box<dyn Iterator<Item = Path> + '_> {
+        let paths = self.shapes.iter().map(|s| s.as_path()).collect::<Vec<_>>();
+        Box::new(
+            izip!(
+                self.x_iter(),
+                self.y_iter(),
+                self.size_iter(),
+                self.angle_iter(),
+                self.shape_index_iter()
+            )
+            .map(move |(x, y, size, angle, shape_idx)| {
+                let scale = size.sqrt();
+                let angle = Angle::degrees(*angle);
+                let transform = PathTransform::scale(scale, scale)
+                    .then_rotate(angle)
+                    .then_translate(Vector2D::new(x + origin[0], y + origin[1]));
+
+                paths[*shape_idx].as_ref().clone().transformed(&transform)
+            }),
+        )
+    }
+
     pub fn max_size(&self) -> f32 {
-        match &self.size {
-            EncodingValue::Scalar { value: size } => *size,
-            EncodingValue::Array { values } => *values
+        match self.size.value() {
+            ScalarOrArrayValue::Scalar(size) => *size,
+            ScalarOrArrayValue::Array(values) => values
                 .iter()
                 .max_by(|a, b| a.partial_cmp(b).unwrap())
-                .unwrap_or(&1.0),
+                .cloned()
+                .unwrap_or(1.0),
         }
+    }
+
+    pub fn single_symbol_mark(&self, index: usize) -> SceneSymbolMark {
+        let mut mark = self.clone();
+        mark.len = 1;
+        mark.indices = Some(Arc::new(vec![index]));
+        mark
     }
 }
 
@@ -106,190 +198,24 @@ impl Default for SceneSymbolMark {
             shapes: vec![Default::default()],
             stroke_width: None,
             len: 1,
-            x: EncodingValue::Scalar { value: 0.0 },
-            y: EncodingValue::Scalar { value: 0.0 },
-            shape_index: EncodingValue::Scalar { value: 0 },
-            fill: EncodingValue::Scalar {
-                value: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
-            },
-            size: EncodingValue::Scalar { value: 20.0 },
-            stroke: EncodingValue::Scalar {
-                value: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
-            },
-            angle: EncodingValue::Scalar { value: 0.0 },
+            x: ScalarOrArray::new_scalar(0.0),
+            y: ScalarOrArray::new_scalar(0.0),
+            shape_index: ScalarOrArray::new_scalar(0),
+            fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+            size: ScalarOrArray::new_scalar(20.0),
+            stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+            angle: ScalarOrArray::new_scalar(0.0),
             indices: None,
             gradients: vec![],
             zindex: None,
+            x_adjustment: None,
+            y_adjustment: None,
         }
     }
 }
 
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum SymbolShape {
-    #[default]
-    Circle,
-    /// Path with origin top-left
-    Path(lyon_path::Path),
-}
-
-impl SymbolShape {
-    pub fn from_vega_str(shape: &str) -> Result<SymbolShape, AvengerError> {
-        let tan30: f32 = (30.0 * std::f32::consts::PI / 180.0).tan();
-        let sqrt3: f32 = 3.0f32.sqrt();
-
-        // See https://github.com/vega/vega/blob/main/packages/vega-scenegraph/src/path/symbols.js
-        Ok(match shape.to_ascii_lowercase().as_str() {
-            "circle" => SymbolShape::Circle,
-            "square" => {
-                let mut builder = lyon_path::Path::builder();
-                builder.add_rectangle(
-                    &Box2D::new(Point2D::new(-0.5, -0.5), Point2D::new(0.5, 0.5)),
-                    Winding::Negative,
-                );
-                let path = builder.build();
-                SymbolShape::Path(path)
-            }
-            "cross" => {
-                let r = 0.5;
-                let s = r / 2.5;
-
-                let mut builder = lyon_path::Path::builder().with_svg();
-                builder.move_to(Point::new(-r, -s));
-                builder.line_to(Point::new(-r, s));
-                builder.line_to(Point::new(-s, s));
-                builder.line_to(Point::new(-s, r));
-                builder.line_to(Point::new(s, r));
-                builder.line_to(Point::new(s, s));
-                builder.line_to(Point::new(r, s));
-                builder.line_to(Point::new(r, -s));
-                builder.line_to(Point::new(s, -s));
-                builder.line_to(Point::new(s, -r));
-                builder.line_to(Point::new(-s, -r));
-                builder.line_to(Point::new(-s, -s));
-                builder.close();
-                SymbolShape::Path(builder.build())
-            }
-            "diamond" => {
-                let r = 0.5;
-                let mut builder = lyon_path::Path::builder().with_svg();
-                builder.move_to(Point::new(-r, 0.0));
-                builder.line_to(Point::new(0.0, -r));
-                builder.line_to(Point::new(r, 0.0));
-                builder.line_to(Point::new(0.0, r));
-                builder.close();
-                SymbolShape::Path(builder.build())
-            }
-            "triangle-up" => {
-                let r = 0.5;
-                let h = r * sqrt3 / 2.0;
-                let mut builder = lyon_path::Path::builder().with_svg();
-                builder.move_to(Point::new(0.0, -h));
-                builder.line_to(Point::new(-r, h));
-                builder.line_to(Point::new(r, h));
-                builder.close();
-                SymbolShape::Path(builder.build())
-            }
-            "triangle-down" => {
-                let r = 0.5;
-                let h = r * sqrt3 / 2.0;
-                let mut builder = lyon_path::Path::builder().with_svg();
-                builder.move_to(Point::new(0.0, h));
-                builder.line_to(Point::new(-r, -h));
-                builder.line_to(Point::new(r, -h));
-                builder.close();
-                SymbolShape::Path(builder.build())
-            }
-            "triangle-right" => {
-                let r = 0.5;
-                let h = r * sqrt3 / 2.0;
-                let mut builder = lyon_path::Path::builder().with_svg();
-                builder.move_to(Point::new(h, 0.0));
-                builder.line_to(Point::new(-h, -r));
-                builder.line_to(Point::new(-h, r));
-                builder.close();
-                SymbolShape::Path(builder.build())
-            }
-            "triangle-left" => {
-                let r = 0.5;
-                let h = r * sqrt3 / 2.0;
-                let mut builder = lyon_path::Path::builder().with_svg();
-                builder.move_to(Point::new(-h, 0.0));
-                builder.line_to(Point::new(h, -r));
-                builder.line_to(Point::new(h, r));
-                builder.close();
-                SymbolShape::Path(builder.build())
-            }
-            "arrow" => {
-                let r = 0.5;
-                let s = r / 7.0;
-                let t = r / 2.5;
-                let v = r / 8.0;
-
-                let mut builder = lyon_path::Path::builder().with_svg();
-                builder.move_to(Point::new(-s, r));
-                builder.line_to(Point::new(s, r));
-                builder.line_to(Point::new(s, -v));
-                builder.line_to(Point::new(t, -v));
-                builder.line_to(Point::new(0.0, -r));
-                builder.line_to(Point::new(-t, -v));
-                builder.line_to(Point::new(-s, -v));
-                builder.close();
-                SymbolShape::Path(builder.build())
-            }
-            "wedge" => {
-                let r = 0.5;
-                let h = r * sqrt3 / 2.0;
-                let o = h - r * tan30;
-                let b = r / 4.0;
-
-                let mut builder = lyon_path::Path::builder().with_svg();
-                builder.move_to(Point::new(0.0, -h - o));
-                builder.line_to(Point::new(-b, h - o));
-                builder.line_to(Point::new(b, h - o));
-                builder.close();
-                SymbolShape::Path(builder.build())
-            }
-            "triangle" => {
-                let r = 0.5;
-                let h = r * sqrt3 / 2.0;
-                let o = h - r * tan30;
-                let mut builder = lyon_path::Path::builder().with_svg();
-                builder.move_to(Point::new(0.0, -h - o));
-                builder.line_to(Point::new(-r, h - o));
-                builder.line_to(Point::new(r, h - o));
-                builder.close();
-                SymbolShape::Path(builder.build())
-            }
-            _ => {
-                // General SVG string
-                let path = parse_svg_path(shape)?;
-
-                // - Coordinates are divided by 2 to match Vega
-                let path = path.transformed(&Scale::new(0.5));
-
-                SymbolShape::Path(path)
-            }
-        })
+impl From<SceneSymbolMark> for SceneMark {
+    fn from(mark: SceneSymbolMark) -> Self {
+        SceneMark::Symbol(mark)
     }
-
-    pub fn as_path(&self) -> Cow<lyon_path::Path> {
-        match self {
-            SymbolShape::Circle => {
-                let mut builder = lyon_path::Path::builder();
-                builder.add_circle(lyon_path::geom::point(0.0, 0.0), 0.5, Winding::Positive);
-                Cow::Owned(builder.build())
-            }
-            SymbolShape::Path(path) => Cow::Borrowed(path),
-        }
-    }
-}
-
-pub fn parse_svg_path(path: &str) -> Result<Path, AvengerError> {
-    let mut source = Source::new(path.chars());
-    let mut parser = lyon_extra::parser::PathParser::new();
-    let opts = ParserOptions::DEFAULT;
-    let mut builder = lyon_path::Path::builder();
-    parser.parse(&opts, &mut source, &mut builder)?;
-    Ok(builder.build())
 }

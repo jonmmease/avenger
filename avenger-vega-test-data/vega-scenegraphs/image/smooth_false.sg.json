@@ -668,11 +668,11 @@
             "interactive": true,
             "items": [
               {
-                "description": "x: 1.5; y: 1.5; img: data/ffox.png",
+                "description": "x: 1.5; y: 1.5; img: https://raw.githubusercontent.com/vega/vega-datasets/main/data/ffox.png",
                 "width": 600,
                 "height": 600,
                 "smooth": false,
-                "url": "data/ffox.png",
+                "url": "https://raw.githubusercontent.com/vega/vega-datasets/main/data/ffox.png",
                 "x": 0,
                 "y": 0
               }

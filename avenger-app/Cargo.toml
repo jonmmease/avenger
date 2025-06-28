@@ -1,0 +1,13 @@
+[package]
+name = "avenger-app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+avenger-common = { path = "../avenger-common" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-eventstream = { path = "../avenger-eventstream" }
+avenger-geometry = { path = "../avenger-geometry" }
+async-trait = { workspace = true }
+futures = { workspace = true }
+thiserror = { workspace = true }

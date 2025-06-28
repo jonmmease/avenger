@@ -1,7 +1,10 @@
+use avenger_common::canvas::CanvasDimensions;
 use avenger_scenegraph::scene_graph::SceneGraph;
-use avenger_vega::scene_graph::VegaSceneGraph;
-use avenger_wgpu::canvas::{Canvas, CanvasDimensions, WindowCanvas};
+use avenger_vega_scenegraph::scene_graph::VegaSceneGraph;
+use avenger_wgpu::canvas::{Canvas, WindowCanvas};
 use avenger_wgpu::error::AvengerWgpuError;
+use std::cell::RefCell;
+use std::rc::Rc;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
@@ -12,52 +15,80 @@ use winit::window::{WindowAttributes, WindowId};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-struct App<'a> {
-    canvas: Option<WindowCanvas<'a>>,
+struct App {
+    canvas_shared: Rc<RefCell<Option<WindowCanvas<'static>>>>,
     scene_graph: SceneGraph,
     scale: f32,
+    window_id: Option<WindowId>,
 }
 
-impl<'a> ApplicationHandler for App<'a> {
+impl App {
+    #[cfg(target_arch = "wasm32")]
+    fn setup_wasm_canvas(&self, window: &winit::window::Window) {
+        use winit::dpi::PhysicalSize;
+        use winit::platform::web::WindowExtWebSys;
+
+        let _ = window.request_inner_size(PhysicalSize::new(450, 400));
+
+        web_sys::window()
+            .and_then(|win| win.document())
+            .and_then(|doc| {
+                let dst = doc.get_element_by_id("wasm-example")?;
+                let canvas = web_sys::Element::from(window.canvas().expect("Failed to get canvas"));
+                dst.append_child(&canvas).ok()?;
+                Some(())
+            })
+            .expect("Couldn't append canvas to document body.");
+    }
+}
+
+impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = event_loop
             .create_window(WindowAttributes::default())
             .expect("Failed to create window");
 
         #[cfg(target_arch = "wasm32")]
-        {
-            use winit::dpi::PhysicalSize;
-            let _ = window.request_inner_size(PhysicalSize::new(450, 400));
+        self.setup_wasm_canvas(&window);
 
-            use winit::platform::web::WindowExtWebSys;
-            web_sys::window()
-                .and_then(|win| win.document())
-                .and_then(|doc| {
-                    let dst = doc.get_element_by_id("wasm-example")?;
-                    let canvas = web_sys::Element::from(window.canvas().expect("Failed to get canvas"));
-                    dst.append_child(&canvas).ok()?;
-                    Some(())
-                })
-                .expect("Couldn't append canvas to document body.");
-        }
+        self.window_id = Some(window.id());
+        let canvas_shared = self.canvas_shared.clone();
+        let scene_graph = self.scene_graph.clone();
 
         let dimensions = CanvasDimensions {
             size: [self.scene_graph.width, self.scene_graph.height],
             scale: self.scale,
         };
-        
-        let mut canvas = pollster::block_on(WindowCanvas::new(
-            window, 
-            dimensions,
-            Default::default()
-        )).expect("Failed to create canvas");
 
-        canvas.set_scene(&self.scene_graph).unwrap();
-        
-        // Request initial redraw
-        canvas.window().request_redraw();
-        
-        self.canvas = Some(canvas);
+        let canvas_future = WindowCanvas::new(window, dimensions, Default::default());
+
+        cfg_if::cfg_if! {
+            if #[cfg(target_arch = "wasm32")] {
+                wasm_bindgen_futures::spawn_local(async move {
+                    match canvas_future.await {
+                        Ok(mut canvas) => {
+                            canvas.set_scene(&scene_graph).unwrap();
+                            canvas.window().request_redraw();
+                            *canvas_shared.borrow_mut() = Some(canvas);
+                        }
+                        Err(e) => {
+                            log::error!("Failed to create canvas: {:?}", e);
+                        }
+                    }
+                });
+            } else {
+                match pollster::block_on(canvas_future) {
+                    Ok(mut canvas) => {
+                        canvas.set_scene(&scene_graph).unwrap();
+                        canvas.window().request_redraw();
+                        *canvas_shared.borrow_mut() = Some(canvas);
+                    }
+                    Err(e) => {
+                        log::error!("Failed to create canvas: {:?}", e);
+                    }
+                }
+            }
+        }
     }
 
     fn window_event(
@@ -66,12 +97,19 @@ impl<'a> ApplicationHandler for App<'a> {
         window_id: WindowId,
         event: WindowEvent,
     ) {
-        let canvas = match &mut self.canvas {
+        // Check if this is the correct window
+        if Some(window_id) != self.window_id {
+            return;
+        }
+
+        // Try to get canvas from shared reference
+        let mut canvas_borrowed = self.canvas_shared.borrow_mut();
+        let canvas = match canvas_borrowed.as_mut() {
             Some(canvas) => canvas,
-            None => return,
+            None => return, // Canvas not ready yet
         };
 
-        if window_id == canvas.window().id() && !canvas.input(&event) {
+        if !canvas.input(&event) {
             match event {
                 WindowEvent::CloseRequested
                 | WindowEvent::KeyboardInput {
@@ -83,7 +121,7 @@ impl<'a> ApplicationHandler for App<'a> {
                         },
                     ..
                 } => {
-                    self.canvas.take();
+                    *canvas_borrowed = None;
                     _event_loop.exit();
                 }
                 WindowEvent::Resized(physical_size) => {
@@ -103,6 +141,9 @@ impl<'a> ApplicationHandler for App<'a> {
                             }
                             wgpu::SurfaceError::Timeout => {
                                 log::warn!("Surface timeout");
+                            }
+                            wgpu::SurfaceError::Other => {
+                                log::error!("Other surface error");
                             }
                         },
                         Err(err) => {
@@ -139,11 +180,14 @@ pub async fn run() {
         .expect("Failed to parse scene graph");
 
     let event_loop = EventLoop::new().expect("Failed to build event loop");
-    let mut app = App { 
-        canvas: None,
+    let mut app = App {
+        canvas_shared: Rc::new(RefCell::new(None)),
         scene_graph,
         scale,
+        window_id: None,
     };
-    
-    event_loop.run_app(&mut app).expect("Failed to run event loop");
+
+    event_loop
+        .run_app(&mut app)
+        .expect("Failed to run event loop");
 }

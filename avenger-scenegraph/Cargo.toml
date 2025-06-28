@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies.serde]
 workspace = true
+features = [ "rc",]
 
 [dependencies.lyon_extra]
 workspace = true
@@ -18,10 +19,43 @@ workspace = true
 workspace = true
 features = [ "serialization",]
 
-[dependencies.image]
+[dependencies.lyon_algorithms]
 workspace = true
-features = [ "png",]
 
 [dependencies.pyo3]
 workspace = true
 optional = true
+
+[dependencies.itertools]
+workspace = true
+
+[dependencies.rstar]
+workspace = true
+
+[dependencies.ordered-float]
+workspace = true
+
+[dependencies.avenger-common]
+path = "../avenger-common"
+
+[dependencies.avenger-image]
+path = "../avenger-image"
+default-features = false
+
+[dependencies.avenger-text]
+path = "../avenger-text"
+default-features = false
+features = ["serde"]
+
+[dev-dependencies]
+float-cmp = "0.10.0"
+geo = { workspace = true }
+geo-svg = { workspace = true }
+
+[dev-dependencies.avenger-text]
+path = "../avenger-text"
+default-features = false
+features = ["cosmic-text"]
+
+[dev-dependencies.avenger-geometry]
+path = "../avenger-geometry"
