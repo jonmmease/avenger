@@ -244,29 +244,6 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
     let y_scale = chart_state.y_scale();
     let y_adjustment = chart_state.base_y_scale.adjust(&y_scale).unwrap();
 
-    // // lift hover point to the top with indices
-    // let indices = if let Some(hover) = chart_state.hover_index {
-    //     (0..chart_state.species.len())
-    //         .map(|i| {
-    //             if i < hover {
-    //                 i // before hover: keep same
-    //             } else if i < chart_state.species.len() - 1 {
-    //                 i + 1 // after hover: shift up by 1
-    //             } else {
-    //                 hover // last position: put hover index
-    //             }
-    //         })
-    //         .collect()
-    // } else {
-    //     Vec::from_iter(0..chart_state.species.len())
-    // };
-
-    // // Build size array, taking the hover index into account
-    // let mut size = vec![20.0; chart_state.species.len()];
-    // if let Some(index) = chart_state.hover_index {
-    //     size[index] = 60.0;
-    // }
-
     // Make symbol mark
     // let shape = SymbolShape::from_vega_str("square").unwrap();
     let shape = SymbolShape::from_vega_str("circle").unwrap();
@@ -281,9 +258,6 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
         shape_index: 0.into(),
         fill: chart_state.fill.clone(),
         size: 20.0.into(),
-        // size: ScalarOrArray::new_array(size),
-        // indices: Some(Arc::new(indices)),
-        // stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
         stroke_width: 0.0f32.into(),
         ..Default::default()
     };

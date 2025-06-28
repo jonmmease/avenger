@@ -23,21 +23,6 @@ pub trait EventStreamHandler<State: Clone + Send + Sync + 'static> {
     ) -> UpdateStatus;
 }
 
-// impl<State, F> EventStreamHandler<State> for F
-// where
-//     State: Clone + Send + Sync + 'static,
-//     F: Fn(&SceneGraphEvent, &mut State, &SceneGraphRTree) -> UpdateStatus + 'static,
-// {
-//     async fn handle(
-//         &self,
-//         event: &SceneGraphEvent,
-//         state: &mut State,
-//         rtree: &SceneGraphRTree,
-//     ) -> UpdateStatus {
-//         self(event, state, rtree)
-//     }
-// }
-
 #[derive(Clone)]
 pub struct EventStreamManager<State: Clone + Send + Sync + 'static> {
     state: State,

@@ -10,23 +10,6 @@ use crate::error::AvengerScaleError;
 
 use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};
 
-/// Macro to generate scale_to_X trait methods for threshold enum scaling
-#[macro_export]
-macro_rules! impl_threshold_enum_scale_method {
-    ($type_name:ident) => {
-        paste::paste! {
-            fn [<scale_to_ $type_name:snake>](
-                &self,
-                config: &ScaleConfig,
-                values: &ArrayRef,
-            ) -> Result<ScalarOrArray<$type_name>, AvengerScaleError> {
-                let (range_vec, default_value) = prep_discrete_enum_range::<$type_name>(config)?;
-                threshold_scale(values, &config.domain, range_vec, default_value)
-            }
-        }
-    };
-}
-
 #[derive(Debug, Clone)]
 pub struct ThresholdScale;
 
