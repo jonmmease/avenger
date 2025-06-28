@@ -1,0 +1,55 @@
+[package]
+name = "avenger-scales"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+avenger-common = { path = "../avenger-common" }
+avenger-text = { path = "../avenger-text" }
+avenger-image = { path = "../avenger-image" }
+thiserror = { workspace = true }
+palette = { workspace = true }
+chrono = { workspace = true }
+chrono-tz = { workspace = true }
+indexmap = { workspace = true }
+ordered-float = { workspace = true }
+lyon_path = { workspace = true }
+lyon_extra = { workspace = true }
+regex = { workspace = true }
+
+float-cmp = "0.10.0"
+svgtypes = "0.15.1"
+
+arrow = { workspace = true }
+css-color-parser = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+paste = { workspace = true }
+strum = { workspace = true }
+
+[dev-dependencies]
+float-cmp = "0.10.0"
+
+[[example]]
+name = "linear_scale"
+path = "examples/linear_scale.rs"
+
+[[example]]
+name = "color_scales"
+path = "examples/color_scales.rs"
+
+[[example]]
+name = "categorical_scales"
+path = "examples/categorical_scales.rs"
+
+[[example]]
+name = "logarithmic_scales"
+path = "examples/logarithmic_scales.rs"
+
+[[example]]
+name = "quantile_threshold"
+path = "examples/quantile_threshold.rs"
+
+[[example]]
+name = "formatting_and_ticks"
+path = "examples/formatting_and_ticks.rs"

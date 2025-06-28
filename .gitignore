@@ -2,10 +2,8 @@
 /.idea
 /avenger-wgpu/tests/output/
 .DS_Store
-examples/wgpu-winit/pkg/
-examples/wgpu-winit/target/
-examples/scatter-panning/pkg/
-examples/scatter-panning/target/
+examples/*/pkg/
+examples/*/target/
 scratch/
 
 # pixi environments
@@ -19,3 +17,9 @@ __pycache__/
 /avenger-vega-renderer/lib/
 /avenger-vega-renderer/packed/*
 /avenger-vega-renderer/dist-deno/
+examples/wgpu-scales/geometry.svg
+examples/iris-pan-zoom/geometry.svg
+.vscode/launch.json
+
+avenger-lang-preview/preview.avgr
+/avenger-vega-test-data/target/

@@ -1,0 +1,20 @@
+[package]
+name = "avenger-common"
+version = "0.0.8"
+edition = "2021"
+
+[features]
+serde = ["dep:serde"]
+default = ["serde"]
+
+[dependencies]
+avenger-image = { path = "../avenger-image" }
+avenger-text = { path = "../avenger-text" }
+serde = { workspace = true, optional = true, features = ["rc"] }
+ordered-float = { workspace = true}
+strum = { workspace = true }
+lyon_extra = { workspace = true }
+lyon_path = { workspace = true, features = ["serialization"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-time = "1.1.0"

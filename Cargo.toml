@@ -1,11 +1,23 @@
 [workspace]
 members = [
     "avenger-scenegraph",
-    "avenger-vega",
+    "avenger-vega-scenegraph",
     "avenger-wgpu",
+    "avenger-scales",
+    "avenger-guides",
+    "avenger-common",
+    "avenger-geometry",
+    "avenger-text",
+    "avenger-image",
+    "avenger-eventstream",
+    "avenger-app",
+    "avenger-winit-wgpu",
+    "examples/wgpu-scales",
+    "examples/wgpu-winit",
+    "examples/iris-pan-zoom",
+]
+exclude = [
     "avenger-vega-test-data",
-    "avenger-python",
-    "avenger-vega-renderer",
 ]
 
 resolver = "2"
@@ -13,17 +25,52 @@ resolver = "2"
 [workspace.dependencies]
 serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
-thiserror = "2.0.3"
-lyon_path = "1.0.1"
-lyon_extra = "1.0.1"
+thiserror = "2.0.12"
+lyon_path = "1.0.7"
+lyon_extra = "1.0.3"
+lyon_algorithms = "1.0.5"
+lyon_tessellation = "1.0.15"
 lyon = "1.0.1"
-image = { version = "0.25.5", default-features = false, features = ["png"] }
-lazy_static = "1.4.0"
-pyo3 = "0.23.2"
-pythonize = "0.23.0"
-tracing = "0.1.40"
-tracing-subscriber = "0.3.18"
-rayon = "1.8.1"
-winit = "0.30.5"
-wgpu = "23.0.1"
+image = { version = "0.25.6", default-features = false, features = ["png"] }
+lazy_static = "1.5.0"
+pyo3 = "0.25.1"
+pythonize = "0.25.0"
+tracing = "0.1.41"
+tracing-subscriber = "0.3.19"
+rayon = "1.10.0"
+winit = "0.30.11"
+wgpu = "25.0.2"
+palette = "0.7.6"
+chrono = "0.4.41"
+chrono-tz = "0.10.3"
+geo-types = "0.7.16"
+geo = "0.29.3"
+itertools = "0.14.0"
+rstar = { git = "https://github.com/georust/rstar.git", branch = "master" }
+cosmic-text = "0.14.2"
+geo-svg = "0.7.3"
+indexmap = "2.9.0"
+pollster = "0.4.0"
+log = "0.4.27"
+ordered-float = "5.0.0"
+tokio = { version = "*" }
+async-trait = "0.1"
+async-recursion = "1.1.1"
+arrow = { version = "*" }
+arrow-schema = { version = "*" }
+css-color-parser = "0.1.2"
+paste = "1.0.15"
+strum = { version="0.27", features = ["derive"] }
+futures = { version = "0.3.31" }
+reqwest = { version = "0.12.20" }
+cfg-if = { version = "1.0.1" }
+resvg = { version = "0.45.1" }
+usvg = { version = "0.45.1" }
+tiny-skia = { version = "0.11.4" }
+anyhow = { version = "1.0.98" }
+regex = { version = "1.11.1"}
+base64 = "0.22.1"
+urlencoding = "2.1.3"
 
+pixelmatch = "0.1"
+rstest = "0.25.0"

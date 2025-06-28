@@ -1,0 +1,79 @@
+[package]
+name = "avenger-vega-scenegraph"
+version = "0.0.8"
+edition = "2021"
+description = "Utilities for importing Vega scenegraphs into Avenger"
+license = "BSD-3-Clause"
+
+[features]
+default = [ "image-reqwest", "svg",]
+image-reqwest = [ "reqwest", "avenger-image/reqwest"]
+svg = [ "resvg", "usvg", "tiny-skia",]
+
+[dependencies]
+cfg-if = "1"
+csscolorparser = "0.7.0"
+
+[dependencies.resvg]
+workspace = true
+optional = true
+
+[dependencies.usvg]
+workspace = true
+optional = true
+
+[dependencies.tiny-skia]
+workspace = true
+optional = true
+
+[dependencies.lazy_static]
+workspace = true
+
+[dependencies.tracing]
+workspace = true
+
+[dependencies.avenger-scenegraph]
+path = "../avenger-scenegraph"
+version = "0.0.8"
+
+[dependencies.avenger-common]
+path = "../avenger-common"
+version = "0.0.8"
+
+[dependencies.avenger-text]
+path = "../avenger-text"
+default-features = false
+version = "0.0.8"
+
+[dependencies.avenger-image]
+path = "../avenger-image"
+
+[dependencies.thiserror]
+workspace = true
+
+[dependencies.serde]
+workspace = true
+
+[dependencies.serde_json]
+version = "1.0.111"
+
+[dependencies.lyon_extra]
+workspace = true
+
+[dependencies.lyon_path]
+workspace = true
+features = [ "serialization",]
+
+[dependencies.image]
+workspace = true
+default-features = false
+features = [ "png",]
+
+[dependencies.reqwest]
+workspace = true
+features = [ "blocking", "rustls-tls",]
+optional = true
+
+[dependencies.pyo3]
+workspace = true
+optional = true
