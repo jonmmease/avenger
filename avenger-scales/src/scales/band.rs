@@ -13,6 +13,33 @@ use super::{
     ordinal::OrdinalScale, ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleImpl,
 };
 
+/// Band scale that maps discrete domain values to continuous numeric bands with optional padding.
+///
+/// This scale is useful for bar charts and other visualizations where each discrete value
+/// needs a dedicated band of space. Each domain value is assigned a band of equal width,
+/// with configurable padding between and around the bands.
+///
+/// # Config Options
+///
+/// - **align** (f32, default: 0.5): Alignment of the band layout within the range [0, 1].
+///   0 aligns to the start, 0.5 centers, and 1 aligns to the end.
+///
+/// - **band** (f32, default: 0.0): Position within each band where the value is placed [0, 1].
+///   0 places at band start, 0.5 at band center, and 1 at band end. This effectively
+///   controls where within its allocated band each mark is positioned.
+///
+/// - **padding_inner** (f32, default: 0.0): Padding between adjacent bands as a fraction [0, 1]
+///   of the step size. A value of 0.2 means 20% of the step is used for padding.
+///
+/// - **padding_outer** (f32, default: 0.0): Padding before the first and after the last band
+///   as a multiple of the step size. Must be non-negative. A value of 0.5 adds half a step
+///   of padding on each end.
+///
+/// - **round** (boolean, default: false): When true, band positions and widths are rounded
+///   to integer pixel values for crisp rendering.
+///
+/// - **range_offset** (f32, default: 0.0): Additional offset applied to all band positions
+///   after computing their base positions. Useful for fine-tuning placement.
 #[derive(Debug, Clone)]
 pub struct BandScale;
 

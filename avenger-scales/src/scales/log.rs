@@ -14,6 +14,32 @@ use crate::{
 
 use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};
 
+/// Logarithmic scale that maps a continuous numeric domain to a continuous numeric range
+/// using logarithmic transformation.
+///
+/// The scale applies log(x) transformation to input values, making it useful for data
+/// that spans several orders of magnitude. The scale supports negative domains by
+/// applying -log(-x) for negative values. Zero values produce NaN outputs.
+///
+/// # Config Options
+///
+/// - **base** (f32, default: 10.0): The logarithm base. Common values are 10 (common log),
+///   2 (binary log), and e (natural log, use 2.718281828). Must be positive and not 1.
+///
+/// - **clamp** (boolean, default: false): When true, values outside the domain are clamped
+///   to the domain extent before transformation. For inversion, values outside the range
+///   are clamped first.
+///
+/// - **range_offset** (f32, default: 0.0): An offset applied to the final scaled values.
+///   This is added after the logarithmic transformation and linear mapping.
+///
+/// - **round** (boolean, default: false): When true, output values from scaling are rounded
+///   to the nearest integer. Useful for pixel-perfect rendering. Does not affect inversion.
+///
+/// - **nice** (boolean or f32, default: false): When true or a number, extends the domain
+///   to nice round values in logarithmic space (powers of the base). If true, uses a
+///   default count of 10. If a number, uses that as the target tick count. For example,
+///   with base 10, a domain of [8, 95] might become [1, 100].
 #[derive(Debug)]
 pub struct LogScale;
 

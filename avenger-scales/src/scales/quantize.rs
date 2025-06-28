@@ -14,6 +14,18 @@ use super::{
     ScaleImpl,
 };
 
+/// Quantize scale that divides a continuous numeric domain into uniform segments,
+/// mapping each segment to a discrete value from the range.
+///
+/// The scale divides the domain into n equal-sized bins where n is the number of
+/// values in the range array. Each input value is mapped to the range value
+/// corresponding to its bin.
+///
+/// # Config Options
+///
+/// - **nice** (boolean or f32, default: false): When true or a number, extends the domain to nice round values
+///   before quantization. If true, uses a default count of 10. If a number, uses that as the target tick count
+///   for determining nice values. This ensures bins align with human-friendly boundaries.
 #[derive(Debug, Clone)]
 pub struct QuantizeScale;
 

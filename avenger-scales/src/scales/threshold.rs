@@ -10,6 +10,18 @@ use crate::error::AvengerScaleError;
 
 use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};
 
+/// Threshold scale that maps continuous numeric input values to discrete range values
+/// based on a set of threshold boundaries.
+///
+/// The domain must contain threshold values in ascending order. The range must contain
+/// n+1 values where n is the number of thresholds. Input values are mapped as follows:
+/// - Values < first threshold → first range value
+/// - Values >= threshold[i] and < threshold[i+1] → range[i+1]
+/// - Values >= last threshold → last range value
+///
+/// # Config Options
+///
+/// This scale does not currently support any configuration options.
 #[derive(Debug, Clone)]
 pub struct ThresholdScale;
 

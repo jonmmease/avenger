@@ -13,6 +13,23 @@ use crate::{
 
 use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};
 
+/// Linear scale that maps a continuous numeric domain to a continuous numeric range.
+///
+/// # Config Options
+///
+/// - **clamp** (boolean, default: false): When true, values outside the domain are clamped to the domain extent.
+///   For scaling, this means values below the domain minimum map to the range minimum, and values above
+///   the domain maximum map to the range maximum. For inversion, the clamping is applied to the range.
+///
+/// - **range_offset** (f32, default: 0.0): An offset applied to the final scaled values. This is added
+///   after the linear transformation. When inverting, this offset is subtracted from input values first.
+///
+/// - **round** (boolean, default: false): When true, output values from scaling are rounded to the nearest
+///   integer. This is useful for pixel-perfect rendering. Does not affect inversion.
+///
+/// - **nice** (boolean or f32, default: false): When true or a number, extends the domain to nice round values.
+///   If true, uses a default count of 10. If a number, uses that as the target tick count for determining
+///   nice values. Nice domains are computed to align with human-friendly values (multiples of 1, 2, 5, 10, etc.).
 #[derive(Debug)]
 pub struct LinearScale;
 
