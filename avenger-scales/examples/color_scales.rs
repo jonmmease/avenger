@@ -19,7 +19,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ];
     let color_range = Scalar::arrays_into_list_array(color_arrays)?;
 
-    let linear_color_scale = LinearScale::new((0.0, 10.0), (0.0, 1.0)).with_range(color_range);
+    let linear_color_scale =
+        LinearScale::configured((0.0, 10.0), (0.0, 1.0)).with_range(color_range);
 
     let test_values = vec![0.0, 2.5, 5.0, 7.5, 10.0];
     let values_array = Arc::new(Float32Array::from(test_values.clone())) as ArrayRef;
@@ -52,7 +53,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ];
     let three_color_range = Scalar::arrays_into_list_array(color_arrays)?;
 
-    let log_color_scale = LogScale::new((1.0, 100.0), (0.0, 1.0)).with_range(three_color_range);
+    let log_color_scale =
+        LogScale::configured((1.0, 100.0), (0.0, 1.0)).with_range(three_color_range);
 
     let log_test_values = vec![1.0, 3.16, 10.0, 31.6, 100.0]; // Evenly spaced in log space
     let log_values_array = Arc::new(Float32Array::from(log_test_values.clone())) as ArrayRef;

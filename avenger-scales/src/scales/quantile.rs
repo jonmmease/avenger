@@ -17,8 +17,7 @@ use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContex
 pub struct QuantileScale;
 
 impl QuantileScale {
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new(domain: Vec<f32>, range: ArrayRef) -> ConfiguredScale {
+    pub fn configured(domain: Vec<f32>, range: ArrayRef) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
             config: ScaleConfig {

@@ -18,8 +18,7 @@ use super::{
 pub struct QuantizeScale;
 
 impl QuantizeScale {
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new(domain: (f32, f32), range: ArrayRef) -> ConfiguredScale {
+    pub fn configured(domain: (f32, f32), range: ArrayRef) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
             config: ScaleConfig {

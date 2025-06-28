@@ -36,8 +36,7 @@ macro_rules! impl_ordinal_enum_scale_method {
 pub struct OrdinalScale;
 
 impl OrdinalScale {
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new(domain: ArrayRef) -> ConfiguredScale {
+    pub fn configured(domain: ArrayRef) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
             config: ScaleConfig {

@@ -8,7 +8,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 1: Basic Log Scale
     println!("1. Log Scale (base 10, domain [1, 1000]):");
 
-    let log_scale = LogScale::new((1.0, 1000.0), (0.0, 300.0)).with_option("base", 10.0);
+    let log_scale = LogScale::configured((1.0, 1000.0), (0.0, 300.0)).with_option("base", 10.0);
 
     let test_values = vec![1.0, 10.0, 100.0, 1000.0];
     let values_array = Arc::new(Float32Array::from(test_values.clone())) as ArrayRef;
@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 2: Log Scale with Different Base
     println!("\n2. Log Scale (base 2, for computer science applications):");
 
-    let log2_scale = LogScale::new((1.0, 64.0), (0.0, 200.0)).with_option("base", 2.0);
+    let log2_scale = LogScale::configured((1.0, 64.0), (0.0, 200.0)).with_option("base", 2.0);
 
     let powers_of_2 = vec![1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0];
     let pow2_array = Arc::new(Float32Array::from(powers_of_2.clone())) as ArrayRef;
@@ -49,7 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n3. Symlog Scale (handles negative values and zero):");
 
     let symlog_scale =
-        SymlogScale::new((-1000.0, 1000.0), (0.0, 400.0)).with_option("constant", 100.0); // Linear region around zero: [-100, 100]
+        SymlogScale::configured((-1000.0, 1000.0), (0.0, 400.0)).with_option("constant", 100.0); // Linear region around zero: [-100, 100]
 
     let symlog_values = vec![-1000.0, -100.0, -10.0, 0.0, 10.0, 100.0, 1000.0];
     let symlog_array = Arc::new(Float32Array::from(symlog_values.clone())) as ArrayRef;
@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 4: Power Scale (square root, good for area mappings)
     println!("\n4. Power Scale (square root, for area-based visualizations):");
 
-    let sqrt_scale = PowScale::new((0.0, 100.0), (0.0, 200.0)).with_option("exponent", 0.5); // Square root
+    let sqrt_scale = PowScale::configured((0.0, 100.0), (0.0, 200.0)).with_option("exponent", 0.5); // Square root
 
     let area_values = vec![
         0.0, 1.0, 4.0, 9.0, 16.0, 25.0, 36.0, 49.0, 64.0, 81.0, 100.0,

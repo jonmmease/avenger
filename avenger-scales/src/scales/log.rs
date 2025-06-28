@@ -18,8 +18,7 @@ use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContex
 pub struct LogScale;
 
 impl LogScale {
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new(domain: (f32, f32), range: (f32, f32)) -> ConfiguredScale {
+    pub fn configured(domain: (f32, f32), range: (f32, f32)) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
             config: ScaleConfig {
@@ -803,7 +802,7 @@ mod tests {
         let color_range = crate::scalar::Scalar::arrays_into_list_array(color_arrays)?;
 
         // Create the log scale
-        let scale = LogScale::new((1.0, 100.0), (0.0, 1.0)).with_range(color_range);
+        let scale = LogScale::configured((1.0, 100.0), (0.0, 1.0)).with_range(color_range);
 
         // Test values across the domain
         let test_values = vec![1.0, 3.16, 10.0, 31.6, 100.0]; // Evenly spaced in log space
