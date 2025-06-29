@@ -55,6 +55,10 @@ impl PointScale {
 }
 
 impl ScaleImpl for PointScale {
+    fn scale_type(&self) -> &'static str {
+        "point"
+    }
+
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
     }

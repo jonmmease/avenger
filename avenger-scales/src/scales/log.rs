@@ -143,6 +143,10 @@ impl LogScale {
 }
 
 impl ScaleImpl for LogScale {
+    fn scale_type(&self) -> &'static str {
+        "log"
+    }
+
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Interval
     }

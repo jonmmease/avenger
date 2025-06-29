@@ -75,6 +75,10 @@ impl BandScale {
 }
 
 impl ScaleImpl for BandScale {
+    fn scale_type(&self) -> &'static str {
+        "band"
+    }
+
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
     }

@@ -62,6 +62,10 @@ impl OrdinalScale {
 }
 
 impl ScaleImpl for OrdinalScale {
+    fn scale_type(&self) -> &'static str {
+        "ordinal"
+    }
+
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
     }

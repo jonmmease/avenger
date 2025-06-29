@@ -173,6 +173,9 @@ pub enum InferDomainFromDataMethod {
 }
 
 pub trait ScaleImpl: Debug + Send + Sync + 'static {
+    /// Return the scale type name for this scale implementation
+    fn scale_type(&self) -> &'static str;
+
     /// Method that should be used to infer a scale's domain from the data that it will scale
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod;
 

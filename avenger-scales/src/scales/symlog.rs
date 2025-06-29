@@ -86,6 +86,10 @@ impl SymlogScale {
 }
 
 impl ScaleImpl for SymlogScale {
+    fn scale_type(&self) -> &'static str {
+        "symlog"
+    }
+
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Interval
     }
