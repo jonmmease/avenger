@@ -42,6 +42,10 @@ impl QuantileScale {
 }
 
 impl ScaleImpl for QuantileScale {
+    fn scale_type(&self) -> &'static str {
+        "quantile"
+    }
+
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
     }

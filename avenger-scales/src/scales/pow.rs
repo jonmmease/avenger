@@ -89,6 +89,10 @@ impl PowScale {
 }
 
 impl ScaleImpl for PowScale {
+    fn scale_type(&self) -> &'static str {
+        "pow"
+    }
+
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Interval
     }

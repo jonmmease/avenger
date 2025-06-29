@@ -40,6 +40,10 @@ impl ThresholdScale {
 }
 
 impl ScaleImpl for ThresholdScale {
+    fn scale_type(&self) -> &'static str {
+        "threshold"
+    }
+
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
     }

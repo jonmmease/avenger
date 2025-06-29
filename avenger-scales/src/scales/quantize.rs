@@ -53,6 +53,10 @@ impl QuantizeScale {
 }
 
 impl ScaleImpl for QuantizeScale {
+    fn scale_type(&self) -> &'static str {
+        "quantize"
+    }
+
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
     }

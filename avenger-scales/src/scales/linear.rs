@@ -136,6 +136,10 @@ impl LinearScale {
 }
 
 impl ScaleImpl for LinearScale {
+    fn scale_type(&self) -> &'static str {
+        "linear"
+    }
+
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Interval
     }
