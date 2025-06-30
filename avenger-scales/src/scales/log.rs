@@ -5,7 +5,7 @@ use arrow::{
     compute::{kernels::cast, unary},
     datatypes::{DataType, Float32Type},
 };
-use avenger_common::value::ScalarOrArray;
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 
 use crate::{
     color_interpolator::scale_numeric_to_color, error::AvengerScaleError, scalar::Scalar,
@@ -149,6 +149,30 @@ impl ScaleImpl for LogScale {
 
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Interval
+    }
+
+    fn invert(
+        &self,
+        config: &ScaleConfig,
+        values: &ArrayRef,
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        // Cast input to Float32 if needed
+        let float_values = cast(values, &DataType::Float32)?;
+
+        // Call existing invert_from_numeric
+        let result = self.invert_from_numeric(config, &float_values)?;
+
+        // Convert ScalarOrArray<f32> to ArrayRef
+        match result.value() {
+            ScalarOrArrayValue::Scalar(s) => {
+                // If scalar, create array with single value repeated for input length
+                Ok(Arc::new(Float32Array::from(vec![*s; values.len()])) as ArrayRef)
+            }
+            ScalarOrArrayValue::Array(arr) => {
+                // If array, convert to ArrayRef
+                Ok(Arc::new(Float32Array::from(arr.as_ref().clone())) as ArrayRef)
+            }
+        }
     }
 
     fn scale(

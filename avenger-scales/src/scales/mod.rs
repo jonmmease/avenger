@@ -185,6 +185,21 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
         _values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError>;
 
+    /// Invert an array of numeric values from range to domain.
+    ///
+    /// This method provides array-based inverse transformation that parallels
+    /// the `scale()` method. It accepts an ArrayRef of numeric values in the range
+    /// and returns an ArrayRef of the corresponding domain values.
+    fn invert(
+        &self,
+        _config: &ScaleConfig,
+        _values: &ArrayRef,
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        Err(AvengerScaleError::ScaleOperationNotSupported(
+            "invert".to_string(),
+        ))
+    }
+
     /// Scale to numeric values
     fn scale_to_numeric(
         &self,
@@ -512,6 +527,33 @@ impl ConfiguredScale {
         values: &ArrayRef,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
         self.scale_impl.invert_from_numeric(&self.config, values)
+    }
+
+    /// Invert an array of numeric values from range to domain.
+    ///
+    /// This method provides array-based inverse transformation that matches the pattern
+    /// of the `scale()` method. It accepts an ArrayRef of numeric values in the range
+    /// and returns an ArrayRef of the corresponding domain values.
+    ///
+    /// # Arguments
+    /// * `values` - ArrayRef containing numeric values to invert
+    ///
+    /// # Returns
+    /// * `Result<ArrayRef, AvengerScaleError>` - Array of inverted domain values
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use arrow::array::{ArrayRef, Float32Array};
+    /// # use std::sync::Arc;
+    /// # use avenger_scales::LinearScale;
+    /// let scale = LinearScale::configured((0.0, 100.0), (0.0, 1.0));
+    /// let range_values = Arc::new(Float32Array::from(vec![0.0, 0.5, 1.0])) as ArrayRef;
+    /// let domain_values = scale.invert(&range_values)?;
+    /// // domain_values will contain [0.0, 50.0, 100.0]
+    /// # Ok::<(), avenger_scales::error::AvengerScaleError>(())
+    /// ```
+    pub fn invert(&self, values: &ArrayRef) -> Result<ArrayRef, AvengerScaleError> {
+        self.scale_impl.invert(&self.config, values)
     }
 
     pub fn invert_scalar(&self, value: f32) -> Result<f32, AvengerScaleError> {

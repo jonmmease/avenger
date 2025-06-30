@@ -6,7 +6,10 @@ use arrow::{
     compute::{kernels::cast, unary},
     datatypes::{DataType, Float32Type},
 };
-use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
+use avenger_common::{
+    types::ColorOrGradient,
+    value::{ScalarOrArray, ScalarOrArrayValue},
+};
 
 use crate::{array, color_interpolator::scale_numeric_to_color, error::AvengerScaleError};
 
@@ -95,6 +98,30 @@ impl ScaleImpl for PowScale {
 
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Interval
+    }
+
+    fn invert(
+        &self,
+        config: &ScaleConfig,
+        values: &ArrayRef,
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        // Cast input to Float32 if needed
+        let float_values = cast(values, &DataType::Float32)?;
+
+        // Call existing invert_from_numeric
+        let result = self.invert_from_numeric(config, &float_values)?;
+
+        // Convert ScalarOrArray<f32> to ArrayRef
+        match result.value() {
+            ScalarOrArrayValue::Scalar(s) => {
+                // If scalar, create array with single value repeated for input length
+                Ok(Arc::new(Float32Array::from(vec![*s; values.len()])) as ArrayRef)
+            }
+            ScalarOrArrayValue::Array(arr) => {
+                // If array, convert to ArrayRef
+                Ok(Arc::new(Float32Array::from(arr.as_ref().clone())) as ArrayRef)
+            }
+        }
     }
 
     fn scale(
@@ -757,6 +784,26 @@ mod tests {
         let niced_domain =
             PowScale::apply_nice(config.numeric_interval_domain()?, 1.0, Some(&10.0.into()))?;
         assert_eq!(niced_domain, (1.0, 11.0));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_configured_scale_invert_pow() -> Result<(), AvengerScaleError> {
+        // Test the new invert() method with pow scale
+        // Using exponent=2, domain [0,4], range [0,16]
+        let scale = PowScale::configured((0.0, 4.0), (0.0, 16.0)).with_option("exponent", 2.0);
+
+        // Test with Float32 values
+        let values = Arc::new(Float32Array::from(vec![0.0, 4.0, 9.0, 16.0])) as ArrayRef;
+        let result = scale.invert(&values)?;
+        let result_array = result.as_primitive::<Float32Type>();
+
+        assert_eq!(result.len(), 4);
+        assert_approx_eq!(f32, result_array.value(0), 0.0); // 0^2 = 0 -> 0
+        assert_approx_eq!(f32, result_array.value(1), 2.0); // 2^2 = 4 -> 2
+        assert_approx_eq!(f32, result_array.value(2), 3.0); // 3^2 = 9 -> 3
+        assert_approx_eq!(f32, result_array.value(3), 4.0); // 4^2 = 16 -> 4
 
         Ok(())
     }

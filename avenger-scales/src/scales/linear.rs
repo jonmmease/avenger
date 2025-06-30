@@ -5,7 +5,10 @@ use arrow::{
     compute::{kernels::cast, unary},
     datatypes::{DataType, Float32Type},
 };
-use avenger_common::{types::LinearScaleAdjustment, value::ScalarOrArray};
+use avenger_common::{
+    types::LinearScaleAdjustment,
+    value::{ScalarOrArray, ScalarOrArrayValue},
+};
 
 use crate::{
     array, color_interpolator::scale_numeric_to_color, error::AvengerScaleError, scalar::Scalar,
@@ -142,6 +145,30 @@ impl ScaleImpl for LinearScale {
 
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Interval
+    }
+
+    fn invert(
+        &self,
+        config: &ScaleConfig,
+        values: &ArrayRef,
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        // Cast input to Float32 if needed
+        let float_values = cast(values, &DataType::Float32)?;
+
+        // Call existing invert_from_numeric
+        let result = self.invert_from_numeric(config, &float_values)?;
+
+        // Convert ScalarOrArray<f32> to ArrayRef
+        match result.value() {
+            ScalarOrArrayValue::Scalar(s) => {
+                // If scalar, create array with single value repeated for input length
+                Ok(Arc::new(Float32Array::from(vec![*s; values.len()])) as ArrayRef)
+            }
+            ScalarOrArrayValue::Array(arr) => {
+                // If array, convert to ArrayRef
+                Ok(Arc::new(Float32Array::from(arr.as_ref().clone())) as ArrayRef)
+            }
+        }
     }
 
     fn scale(
@@ -729,6 +756,45 @@ mod tests {
         let niced_domain =
             LinearScale::apply_nice(config.numeric_interval_domain()?, Some(&Scalar::from(10.0)))?;
         assert_eq!(niced_domain, (1.0, 11.0));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_configured_scale_invert() -> Result<(), AvengerScaleError> {
+        use arrow::array::Int32Array;
+        // Test the new invert() method that returns ArrayRef
+        let scale = LinearScale::configured((10.0, 30.0), (0.0, 100.0));
+
+        // Test with Float32 values
+        let values = Arc::new(Float32Array::from(vec![0.0, 25.0, 50.0, 75.0, 100.0])) as ArrayRef;
+        let result = scale.invert(&values)?;
+        let result_array = result.as_primitive::<Float32Type>();
+
+        assert_approx_eq!(f32, result_array.value(0), 10.0); // range start -> domain start
+        assert_approx_eq!(f32, result_array.value(1), 15.0); // 25% -> 15
+        assert_approx_eq!(f32, result_array.value(2), 20.0); // 50% -> 20
+        assert_approx_eq!(f32, result_array.value(3), 25.0); // 75% -> 25
+        assert_approx_eq!(f32, result_array.value(4), 30.0); // range end -> domain end
+
+        // Test with Int32 values (should be cast to Float32 internally)
+        let values = Arc::new(Int32Array::from(vec![0, 50, 100])) as ArrayRef;
+        let result = scale.invert(&values)?;
+        let result_array = result.as_primitive::<Float32Type>();
+
+        assert_eq!(result.len(), 3);
+        assert_approx_eq!(f32, result_array.value(0), 10.0);
+        assert_approx_eq!(f32, result_array.value(1), 20.0);
+        assert_approx_eq!(f32, result_array.value(2), 30.0);
+
+        // Test with clamping
+        let scale = scale.with_option("clamp", true);
+        let values = Arc::new(Float32Array::from(vec![-50.0, 150.0])) as ArrayRef;
+        let result = scale.invert(&values)?;
+        let result_array = result.as_primitive::<Float32Type>();
+
+        assert_approx_eq!(f32, result_array.value(0), 10.0); // clamped to domain start
+        assert_approx_eq!(f32, result_array.value(1), 30.0); // clamped to domain end
 
         Ok(())
     }
