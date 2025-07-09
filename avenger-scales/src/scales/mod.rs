@@ -341,6 +341,13 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
         ))
     }
 
+    /// Compute the nice domain for this scale given the current configuration
+    /// For scales that don't support nice transformations, this returns the original domain
+    fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
+        // Default implementation returns the original domain for scales that don't support nice transformations
+        Ok(config.domain.clone())
+    }
+
     // Scale to enums
     declare_enum_scale_method!(StrokeCap);
     declare_enum_scale_method!(StrokeJoin);
@@ -486,6 +493,40 @@ impl ConfiguredScale {
     ) -> Result<LinearScaleAdjustment, AvengerScaleError> {
         self.scale_impl.adjust(&self.config, &to_scale.config)
     }
+
+    /// Returns a new scale with the nice domain applied and the nice option disabled.
+    ///
+    /// This method applies the nice transformation to the current domain based on the
+    /// nice option setting, then returns a new scale with the transformed domain and
+    /// the nice option set to false.
+    ///
+    /// # Returns
+    /// * `Result<ConfiguredScale, AvengerScaleError>` - New scale with nice domain applied
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use avenger_scales::scales::linear::LinearScale;
+    /// let scale = LinearScale::configured((1.1, 10.9), (0.0, 100.0))
+    ///     .with_option("nice", true);
+    /// let normalized = scale.normalize()?;
+    /// // normalized now has domain (1.0, 11.0) and nice option disabled
+    /// # Ok::<(), avenger_scales::error::AvengerScaleError>(())
+    /// ```
+    pub fn normalize(self) -> Result<ConfiguredScale, AvengerScaleError> {
+        let nice_domain = self.scale_impl.compute_nice_domain(&self.config)?;
+        let mut new_options = self.config.options.clone();
+        new_options.insert("nice".to_string(), false.into());
+
+        Ok(ConfiguredScale {
+            scale_impl: self.scale_impl,
+            config: ScaleConfig {
+                domain: nice_domain,
+                range: self.config.range,
+                options: new_options,
+                context: self.config.context,
+            },
+        })
+    }
 }
 
 // Pass through methods
@@ -545,7 +586,7 @@ impl ConfiguredScale {
     /// ```no_run
     /// # use arrow::array::{ArrayRef, Float32Array};
     /// # use std::sync::Arc;
-    /// # use avenger_scales::LinearScale;
+    /// # use avenger_scales::scales::linear::LinearScale;
     /// let scale = LinearScale::configured((0.0, 100.0), (0.0, 1.0));
     /// let range_values = Arc::new(Float32Array::from(vec![0.0, 0.5, 1.0])) as ArrayRef;
     /// let domain_values = scale.invert(&range_values)?;

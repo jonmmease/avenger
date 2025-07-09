@@ -375,6 +375,17 @@ impl ScaleImpl for SymlogScale {
         let ticks_array = Float32Array::from(array::ticks(domain_start, domain_end, count));
         Ok(Arc::new(ticks_array) as ArrayRef)
     }
+
+    fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
+        let constant = config.option_f32("constant", 1.0);
+        let (domain_start, domain_end) = SymlogScale::apply_nice(
+            config.numeric_interval_domain()?,
+            constant,
+            config.options.get("nice"),
+        )?;
+
+        Ok(Arc::new(Float32Array::from(vec![domain_start, domain_end])) as ArrayRef)
+    }
 }
 
 /// Applies the symlog transform to a single value
