@@ -7,10 +7,7 @@ use arrow::{
 };
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 
-use crate::{
-    color_interpolator::scale_numeric_to_color, error::AvengerScaleError, scalar::Scalar,
-    scales::linear::LinearScale,
-};
+use crate::{color_interpolator::scale_numeric_to_color, error::AvengerScaleError, scalar::Scalar};
 
 use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};
 
@@ -40,6 +37,9 @@ use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContex
 ///   to nice round values in logarithmic space (powers of the base). If true, uses a
 ///   default count of 10. If a number, uses that as the target tick count. For example,
 ///   with base 10, a domain of [8, 95] might become [1, 100].
+///
+/// - **zero** (boolean, default: false): When true, ensures that the domain includes zero. However, zero
+///   is invalid for logarithmic scales, so this option is ignored for log scales.
 #[derive(Debug)]
 pub struct LogScale;
 
@@ -56,6 +56,7 @@ impl LogScale {
                     ("range_offset".to_string(), 0.0.into()),
                     ("round".to_string(), false.into()),
                     ("nice".to_string(), false.into()),
+                    ("zero".to_string(), false.into()),
                 ]
                 .into_iter()
                 .collect(),
@@ -140,6 +141,18 @@ impl LogScale {
         }
         Ok((domain_start, domain_end))
     }
+
+    /// Apply normalization (zero and nice) to domain
+    /// For log scales, zero is ignored since it's invalid in logarithmic space
+    pub fn apply_normalization(
+        domain: (f32, f32),
+        base: f32,
+        _zero: Option<&Scalar>, // Zero is ignored for log scales
+        nice: Option<&Scalar>,
+    ) -> Result<(f32, f32), AvengerScaleError> {
+        // For log scales, zero is invalid, so we only apply nice transformation
+        Self::apply_nice(domain, base, nice)
+    }
 }
 
 impl ScaleImpl for LogScale {
@@ -180,8 +193,11 @@ impl ScaleImpl for LogScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError> {
-        let (domain_start, domain_end) = LinearScale::apply_nice(
+        let base = config.option_f32("base", 10.0);
+        let (domain_start, domain_end) = LogScale::apply_normalization(
             config.numeric_interval_domain()?,
+            base,
+            config.options.get("zero"),
             config.options.get("nice"),
         )?;
 
@@ -569,9 +585,10 @@ impl ScaleImpl for LogScale {
 
     fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
         let base = config.option_f32("base", 10.0);
-        let (domain_start, domain_end) = LogScale::apply_nice(
+        let (domain_start, domain_end) = LogScale::apply_normalization(
             config.numeric_interval_domain()?,
             base,
+            config.options.get("zero"),
             config.options.get("nice"),
         )?;
 
