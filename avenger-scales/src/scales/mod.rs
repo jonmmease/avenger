@@ -494,11 +494,11 @@ impl ConfiguredScale {
         self.scale_impl.adjust(&self.config, &to_scale.config)
     }
 
-    /// Returns a new scale with the nice domain applied and the nice option disabled.
+    /// Returns a new scale with zero and nice domain transformations applied and those options disabled.
     ///
-    /// This method applies the nice transformation to the current domain based on the
-    /// nice option setting, then returns a new scale with the transformed domain and
-    /// the nice option set to false.
+    /// This method applies zero and nice transformations to the current domain based on the
+    /// zero and nice option settings, then returns a new scale with the transformed domain and
+    /// both options set to false. Zero extension is applied before nice calculations.
     ///
     /// # Returns
     /// * `Result<ConfiguredScale, AvengerScaleError>` - New scale with nice domain applied
@@ -507,20 +507,22 @@ impl ConfiguredScale {
     /// ```no_run
     /// # use avenger_scales::scales::linear::LinearScale;
     /// let scale = LinearScale::configured((1.1, 10.9), (0.0, 100.0))
+    ///     .with_option("zero", true)
     ///     .with_option("nice", true);
     /// let normalized = scale.normalize()?;
-    /// // normalized now has domain (1.0, 11.0) and nice option disabled
+    /// // normalized now has domain (0.0, 11.0) and both zero and nice options disabled
     /// # Ok::<(), avenger_scales::error::AvengerScaleError>(())
     /// ```
     pub fn normalize(self) -> Result<ConfiguredScale, AvengerScaleError> {
-        let nice_domain = self.scale_impl.compute_nice_domain(&self.config)?;
+        let normalized_domain = self.scale_impl.compute_nice_domain(&self.config)?;
         let mut new_options = self.config.options.clone();
+        new_options.insert("zero".to_string(), false.into());
         new_options.insert("nice".to_string(), false.into());
 
         Ok(ConfiguredScale {
             scale_impl: self.scale_impl,
             config: ScaleConfig {
-                domain: nice_domain,
+                domain: normalized_domain,
                 range: self.config.range,
                 options: new_options,
                 context: self.config.context,

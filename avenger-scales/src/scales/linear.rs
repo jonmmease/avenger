@@ -33,6 +33,10 @@ use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContex
 /// - **nice** (boolean or f32, default: false): When true or a number, extends the domain to nice round values.
 ///   If true, uses a default count of 10. If a number, uses that as the target tick count for determining
 ///   nice values. Nice domains are computed to align with human-friendly values (multiples of 1, 2, 5, 10, etc.).
+///
+/// - **zero** (boolean, default: false): When true, ensures that the domain includes zero. If both min and max
+///   are positive, sets min to zero. If both min and max are negative, sets max to zero. If the domain already
+///   spans zero, no change is made. Zero extension is applied before nice calculations.
 #[derive(Debug)]
 pub struct LinearScale;
 
@@ -48,6 +52,7 @@ impl LinearScale {
                     ("range_offset".to_string(), 0.0.into()),
                     ("round".to_string(), false.into()),
                     ("nice".to_string(), false.into()),
+                    ("zero".to_string(), false.into()),
                 ]
                 .into_iter()
                 .collect(),
@@ -74,24 +79,62 @@ impl LinearScale {
         }
     }
 
-    /// Compute nice domain
-    pub fn apply_nice(
+    /// Apply normalization (zero and nice) to domain
+    pub fn apply_normalization(
         domain: (f32, f32),
-        count: Option<&Scalar>,
+        zero: Option<&Scalar>,
+        nice: Option<&Scalar>,
     ) -> Result<(f32, f32), AvengerScaleError> {
-        // Extract count, or return raw domain if no nice option
-        let count = if let Some(count) = count {
+        let (mut domain_start, mut domain_end) = domain;
+
+        // Early return for degenerate cases
+        if domain_start == domain_end || domain_start.is_nan() || domain_end.is_nan() {
+            return Ok(domain);
+        }
+
+        // Step 1: Apply zero extension if requested
+        if let Some(zero_option) = zero {
+            if let Ok(true) = zero_option.as_boolean() {
+                if domain_start > 0.0 && domain_end > 0.0 {
+                    // Both positive, extend to include zero at start
+                    domain_start = 0.0;
+                } else if domain_start < 0.0 && domain_end < 0.0 {
+                    // Both negative, extend to include zero at end
+                    domain_end = 0.0;
+                }
+                // If domain spans zero, no change needed
+            }
+        }
+
+        // Step 2: Apply nice transformation if requested
+        let nice_count = if let Some(count) = nice {
             if count.array().data_type().is_numeric() {
-                count.as_f32()?
+                Some(count.as_f32()?)
             } else if let Ok(true) = count.as_boolean() {
-                10.0
+                Some(10.0)
             } else {
-                return Ok(domain);
+                None
             }
         } else {
-            return Ok(domain);
+            None
         };
 
+        if let Some(count) = nice_count {
+            // Apply nice transformation to the zero-extended domain
+            let (nice_start, nice_end) =
+                Self::apply_nice_internal((domain_start, domain_end), count)?;
+            domain_start = nice_start;
+            domain_end = nice_end;
+        }
+
+        Ok((domain_start, domain_end))
+    }
+
+    /// Internal nice calculation (kept for backward compatibility and internal use)
+    fn apply_nice_internal(
+        domain: (f32, f32),
+        count: f32,
+    ) -> Result<(f32, f32), AvengerScaleError> {
         let (domain_start, domain_end) = domain;
 
         if domain_start == domain_end || domain_start.is_nan() || domain_end.is_nan() {
@@ -136,6 +179,14 @@ impl LinearScale {
             Ok((stop, start))
         }
     }
+
+    /// Compute nice domain (backward compatibility wrapper)
+    pub fn apply_nice(
+        domain: (f32, f32),
+        count: Option<&Scalar>,
+    ) -> Result<(f32, f32), AvengerScaleError> {
+        Self::apply_normalization(domain, None, count)
+    }
 }
 
 impl ScaleImpl for LinearScale {
@@ -176,8 +227,9 @@ impl ScaleImpl for LinearScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError> {
-        let (domain_start, domain_end) = LinearScale::apply_nice(
+        let (domain_start, domain_end) = LinearScale::apply_normalization(
             config.numeric_interval_domain()?,
+            config.options.get("zero"),
             config.options.get("nice"),
         )?;
 
@@ -256,8 +308,9 @@ impl ScaleImpl for LinearScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
-        let (domain_start, domain_end) = LinearScale::apply_nice(
+        let (domain_start, domain_end) = LinearScale::apply_normalization(
             config.numeric_interval_domain()?,
+            config.options.get("zero"),
             config.options.get("nice"),
         )?;
 
@@ -316,8 +369,9 @@ impl ScaleImpl for LinearScale {
         config: &ScaleConfig,
         count: Option<f32>,
     ) -> Result<ArrayRef, AvengerScaleError> {
-        let (domain_start, domain_end) = LinearScale::apply_nice(
+        let (domain_start, domain_end) = LinearScale::apply_normalization(
             config.numeric_interval_domain()?,
+            config.options.get("zero"),
             config.options.get("nice"),
         )?;
 
@@ -431,8 +485,9 @@ impl ScaleImpl for LinearScale {
     }
 
     fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
-        let (domain_start, domain_end) = LinearScale::apply_nice(
+        let (domain_start, domain_end) = LinearScale::apply_normalization(
             config.numeric_interval_domain()?,
+            config.options.get("zero"),
             config.options.get("nice"),
         )?;
 
@@ -857,6 +912,120 @@ mod tests {
 
         // Check that the nice option is disabled
         assert!(!normalized.option_boolean("nice", true));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_normalize_with_zero_both_positive() -> Result<(), AvengerScaleError> {
+        let scale = LinearScale::configured((2.0, 10.0), (0.0, 100.0)).with_option("zero", true);
+
+        let normalized = scale.normalize()?;
+
+        // Check that zero is included (min should be 0)
+        let domain = normalized.numeric_interval_domain()?;
+        assert_approx_eq!(f32, domain.0, 0.0);
+        assert_approx_eq!(f32, domain.1, 10.0);
+
+        // Check that the zero option is disabled
+        assert!(!normalized.option_boolean("zero", true));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_normalize_with_zero_both_negative() -> Result<(), AvengerScaleError> {
+        let scale = LinearScale::configured((-10.0, -2.0), (0.0, 100.0)).with_option("zero", true);
+
+        let normalized = scale.normalize()?;
+
+        // Check that zero is included (max should be 0)
+        let domain = normalized.numeric_interval_domain()?;
+        assert_approx_eq!(f32, domain.0, -10.0);
+        assert_approx_eq!(f32, domain.1, 0.0);
+
+        // Check that the zero option is disabled
+        assert!(!normalized.option_boolean("zero", true));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_normalize_with_zero_spans_zero() -> Result<(), AvengerScaleError> {
+        let scale = LinearScale::configured((-5.0, 5.0), (0.0, 100.0)).with_option("zero", true);
+
+        let normalized = scale.normalize()?;
+
+        // Check that domain is unchanged (already spans zero)
+        let domain = normalized.numeric_interval_domain()?;
+        assert_approx_eq!(f32, domain.0, -5.0);
+        assert_approx_eq!(f32, domain.1, 5.0);
+
+        // Check that the zero option is disabled
+        assert!(!normalized.option_boolean("zero", true));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_normalize_with_zero_and_nice() -> Result<(), AvengerScaleError> {
+        let scale = LinearScale::configured((2.1, 9.9), (0.0, 100.0))
+            .with_option("zero", true)
+            .with_option("nice", true);
+
+        let normalized = scale.normalize()?;
+
+        // Check that zero is applied first, then nice
+        let domain = normalized.numeric_interval_domain()?;
+        // Should be (0.0, 9.9) after zero, then (0.0, 10.0) after nice
+        assert_approx_eq!(f32, domain.0, 0.0);
+        assert_approx_eq!(f32, domain.1, 10.0);
+
+        // Check that both options are disabled
+        assert!(!normalized.option_boolean("zero", true));
+        assert!(!normalized.option_boolean("nice", true));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_normalize_with_zero_false() -> Result<(), AvengerScaleError> {
+        let scale = LinearScale::configured((2.0, 10.0), (0.0, 100.0)).with_option("zero", false);
+
+        let normalized = scale.normalize()?;
+
+        // Check that domain is unchanged
+        let domain = normalized.numeric_interval_domain()?;
+        assert_approx_eq!(f32, domain.0, 2.0);
+        assert_approx_eq!(f32, domain.1, 10.0);
+
+        // Check that the zero option is disabled
+        assert!(!normalized.option_boolean("zero", true));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_apply_normalization_zero_only() -> Result<(), AvengerScaleError> {
+        // Both positive
+        let result = LinearScale::apply_normalization((2.0, 10.0), Some(&true.into()), None)?;
+        assert_approx_eq!(f32, result.0, 0.0);
+        assert_approx_eq!(f32, result.1, 10.0);
+
+        // Both negative
+        let result = LinearScale::apply_normalization((-10.0, -2.0), Some(&true.into()), None)?;
+        assert_approx_eq!(f32, result.0, -10.0);
+        assert_approx_eq!(f32, result.1, 0.0);
+
+        // Spans zero (no change)
+        let result = LinearScale::apply_normalization((-5.0, 5.0), Some(&true.into()), None)?;
+        assert_approx_eq!(f32, result.0, -5.0);
+        assert_approx_eq!(f32, result.1, 5.0);
+
+        // Zero false (no change)
+        let result = LinearScale::apply_normalization((2.0, 10.0), Some(&false.into()), None)?;
+        assert_approx_eq!(f32, result.0, 2.0);
+        assert_approx_eq!(f32, result.1, 10.0);
 
         Ok(())
     }

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use crate::scalar::Scalar;
 use arrow::{
@@ -26,6 +26,10 @@ use super::{
 /// - **nice** (boolean or f32, default: false): When true or a number, extends the domain to nice round values
 ///   before quantization. If true, uses a default count of 10. If a number, uses that as the target tick count
 ///   for determining nice values. This ensures bins align with human-friendly boundaries.
+///
+/// - **zero** (boolean, default: false): When true, ensures that the domain includes zero. If both min and max
+///   are positive, sets min to zero. If both min and max are negative, sets max to zero. If the domain already
+///   spans zero, no change is made. Zero extension is applied before nice calculations.
 #[derive(Debug, Clone)]
 pub struct QuantizeScale;
 
@@ -36,7 +40,12 @@ impl QuantizeScale {
             config: ScaleConfig {
                 domain: Arc::new(Float32Array::from(vec![domain.0, domain.1])),
                 range,
-                options: HashMap::new(),
+                options: vec![
+                    ("nice".to_string(), false.into()),
+                    ("zero".to_string(), false.into()),
+                ]
+                .into_iter()
+                .collect(),
                 context: ScaleContext::default(),
             },
         }
@@ -49,6 +58,16 @@ impl QuantizeScale {
     ) -> Result<(f32, f32), AvengerScaleError> {
         // Use nice method from linear scale
         LinearScale::apply_nice(domain, count)
+    }
+
+    /// Apply normalization (zero and nice) to domain
+    pub fn apply_normalization(
+        domain: (f32, f32),
+        zero: Option<&Scalar>,
+        nice: Option<&Scalar>,
+    ) -> Result<(f32, f32), AvengerScaleError> {
+        // Use LinearScale normalization since quantize scale works with linear domains
+        LinearScale::apply_normalization(domain, zero, nice)
     }
 }
 
@@ -108,8 +127,9 @@ impl ScaleImpl for QuantizeScale {
     }
 
     fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
-        let (domain_start, domain_end) = QuantizeScale::apply_nice(
+        let (domain_start, domain_end) = QuantizeScale::apply_normalization(
             config.numeric_interval_domain()?,
+            config.options.get("zero"),
             config.options.get("nice"),
         )?;
 

@@ -41,6 +41,10 @@ use super::{
 /// - **nice** (boolean or f32, default: false): When true or a number, extends the domain to
 ///   nice round values in the transformed space. If true, uses a default count of 10.
 ///   If a number, uses that as the target tick count for determining nice values.
+///
+/// - **zero** (boolean, default: false): When true, ensures that the domain includes zero. If both min and max
+///   are positive, sets min to zero. If both min and max are negative, sets max to zero. If the domain already
+///   spans zero, no change is made. Zero extension is applied before nice calculations.
 #[derive(Debug)]
 pub struct SymlogScale;
 
@@ -57,6 +61,7 @@ impl SymlogScale {
                     ("range_offset".to_string(), 0.0.into()),
                     ("round".to_string(), false.into()),
                     ("nice".to_string(), false.into()),
+                    ("zero".to_string(), false.into()),
                 ]
                 .into_iter()
                 .collect(),
@@ -82,6 +87,19 @@ impl SymlogScale {
         let domain_start = symlog_invert(nice_d0, constant);
         let domain_end = symlog_invert(nice_d1, constant);
         Ok((domain_start, domain_end))
+    }
+
+    /// Apply normalization (zero and nice) to domain
+    pub fn apply_normalization(
+        domain: (f32, f32),
+        _constant: f32,
+        zero: Option<&Scalar>,
+        nice: Option<&Scalar>,
+    ) -> Result<(f32, f32), AvengerScaleError> {
+        // Use LinearScale normalization since symlog transformation preserves zero
+        let (normalized_start, normalized_end) =
+            LinearScale::apply_normalization(domain, zero, nice)?;
+        Ok((normalized_start, normalized_end))
     }
 }
 
@@ -378,9 +396,10 @@ impl ScaleImpl for SymlogScale {
 
     fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
         let constant = config.option_f32("constant", 1.0);
-        let (domain_start, domain_end) = SymlogScale::apply_nice(
+        let (domain_start, domain_end) = SymlogScale::apply_normalization(
             config.numeric_interval_domain()?,
             constant,
+            config.options.get("zero"),
             config.options.get("nice"),
         )?;
 
