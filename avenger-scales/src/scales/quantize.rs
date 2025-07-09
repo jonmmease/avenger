@@ -106,6 +106,15 @@ impl ScaleImpl for QuantizeScale {
         let linear_scale = LinearScale;
         linear_scale.ticks(config, count)
     }
+
+    fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
+        let (domain_start, domain_end) = QuantizeScale::apply_nice(
+            config.numeric_interval_domain()?,
+            config.options.get("nice"),
+        )?;
+
+        Ok(Arc::new(Float32Array::from(vec![domain_start, domain_end])) as ArrayRef)
+    }
 }
 
 #[cfg(test)]

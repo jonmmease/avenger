@@ -406,6 +406,17 @@ impl ScaleImpl for PowScale {
         let ticks_array = Float32Array::from(array::ticks(domain_start, domain_end, count));
         Ok(Arc::new(ticks_array) as ArrayRef)
     }
+
+    fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
+        let exponent = config.option_f32("exponent", 1.0);
+        let (domain_start, domain_end) = PowScale::apply_nice(
+            config.numeric_interval_domain()?,
+            exponent,
+            config.options.get("nice"),
+        )?;
+
+        Ok(Arc::new(Float32Array::from(vec![domain_start, domain_end])) as ArrayRef)
+    }
 }
 
 /// Handles power transformations with different exponents

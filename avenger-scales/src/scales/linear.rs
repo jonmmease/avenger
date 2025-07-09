@@ -429,6 +429,15 @@ impl ScaleImpl for LinearScale {
             / ((from_range_end - from_range_start) * (to_domain_end - to_domain_start));
         Ok(LinearScaleAdjustment { scale, offset })
     }
+
+    fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
+        let (domain_start, domain_end) = LinearScale::apply_nice(
+            config.numeric_interval_domain()?,
+            config.options.get("nice"),
+        )?;
+
+        Ok(Arc::new(Float32Array::from(vec![domain_start, domain_end])) as ArrayRef)
+    }
 }
 
 #[cfg(test)]
@@ -795,6 +804,59 @@ mod tests {
 
         assert_approx_eq!(f32, result_array.value(0), 10.0); // clamped to domain start
         assert_approx_eq!(f32, result_array.value(1), 30.0); // clamped to domain end
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_normalize_with_nice_true() -> Result<(), AvengerScaleError> {
+        let scale = LinearScale::configured((1.1, 10.9), (0.0, 100.0)).with_option("nice", true);
+
+        let normalized = scale.normalize()?;
+
+        // Check that the domain has been niced
+        let domain = normalized.numeric_interval_domain()?;
+        assert_approx_eq!(f32, domain.0, 1.0);
+        assert_approx_eq!(f32, domain.1, 11.0);
+
+        // Check that the nice option is disabled
+        assert!(!normalized.option_boolean("nice", true));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_normalize_with_nice_false() -> Result<(), AvengerScaleError> {
+        let scale = LinearScale::configured((1.1, 10.9), (0.0, 100.0)).with_option("nice", false);
+
+        let normalized = scale.normalize()?;
+
+        // Check that the domain is unchanged
+        let domain = normalized.numeric_interval_domain()?;
+        assert_approx_eq!(f32, domain.0, 1.1);
+        assert_approx_eq!(f32, domain.1, 10.9);
+
+        // Check that the nice option is still false
+        assert!(!normalized.option_boolean("nice", true));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_normalize_with_nice_count() -> Result<(), AvengerScaleError> {
+        let scale = LinearScale::configured((1.1, 10.9), (0.0, 100.0)).with_option("nice", 5.0);
+
+        let normalized = scale.normalize()?;
+
+        // Check that the domain has been niced
+        let domain = normalized.numeric_interval_domain()?;
+        let expected_nice = LinearScale::apply_nice((1.1, 10.9), Some(&5.0.into()))?;
+
+        assert_approx_eq!(f32, domain.0, expected_nice.0);
+        assert_approx_eq!(f32, domain.1, expected_nice.1);
+
+        // Check that the nice option is disabled
+        assert!(!normalized.option_boolean("nice", true));
 
         Ok(())
     }

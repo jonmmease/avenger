@@ -566,6 +566,17 @@ impl ScaleImpl for LogScale {
         }
         Ok(Arc::new(Float32Array::from(z)))
     }
+
+    fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
+        let base = config.option_f32("base", 10.0);
+        let (domain_start, domain_end) = LogScale::apply_nice(
+            config.numeric_interval_domain()?,
+            base,
+            config.options.get("nice"),
+        )?;
+
+        Ok(Arc::new(Float32Array::from(vec![domain_start, domain_end])) as ArrayRef)
+    }
 }
 
 /// Handles logarithmic transformations with different bases
