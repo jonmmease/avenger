@@ -8,10 +8,12 @@ use arrow::array::{
 use arrow::compute::kernels::cast;
 use arrow::datatypes::{DataType, TimeUnit};
 use avenger_common::types::LinearScaleAdjustment;
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Timelike, Utc};
 use chrono_tz::Tz;
 
 use crate::error::AvengerScaleError;
+use crate::formatter::{DateFormatter, TimestampFormatter, TimestamptzFormatter};
 
 use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};
 
@@ -43,6 +45,101 @@ use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContex
 /// - **locale** (string, default: "en-US"): Locale for formatting dates and times.
 #[derive(Debug)]
 pub struct TimeScale;
+
+/// Temporal tick formatter that adapts format based on interval
+#[derive(Debug, Clone)]
+struct TemporalTickFormatter {
+    interval: TimeInterval,
+    timezone: Tz,
+}
+
+impl TemporalTickFormatter {
+    fn new(interval: TimeInterval, timezone: Tz) -> Self {
+        Self { interval, timezone }
+    }
+    
+    /// Get format string based on interval type
+    fn get_format_string(&self) -> &'static str {
+        match &self.interval {
+            TimeInterval::Millisecond(_) => "%H:%M:%S%.3f",
+            TimeInterval::Second(_) => "%H:%M:%S",
+            TimeInterval::Minute(n) if *n < 60 => "%H:%M",
+            TimeInterval::Hour(n) if *n < 24 => "%H:%M",
+            TimeInterval::Day(_) => "%b %d",
+            TimeInterval::Week(_) => "%b %d",
+            TimeInterval::Month(n) if *n < 12 => "%B",
+            TimeInterval::Year(_) => "%Y",
+            _ => "%Y-%m-%d %H:%M:%S",
+        }
+    }
+}
+
+impl DateFormatter for TemporalTickFormatter {
+    fn format(&self, values: &[Option<NaiveDate>], default: Option<&str>) -> Vec<String> {
+        let default = default.unwrap_or("");
+        let format_str = self.get_format_string();
+        
+        values
+            .iter()
+            .map(|v| {
+                v.map(|date| {
+                    // Convert to datetime at midnight in the target timezone
+                    match self.timezone.from_local_datetime(&date.and_hms_opt(0, 0, 0).unwrap()) {
+                        chrono::LocalResult::Single(dt) => dt.format(format_str).to_string(),
+                        chrono::LocalResult::None => {
+                            // Handle DST gap by trying next hours
+                            self.timezone
+                                .from_local_datetime(&date.and_hms_opt(3, 0, 0).unwrap())
+                                .single()
+                                .unwrap()
+                                .format(format_str)
+                                .to_string()
+                        }
+                        chrono::LocalResult::Ambiguous(dt, _) => dt.format(format_str).to_string(),
+                    }
+                })
+                .unwrap_or_else(|| default.to_string())
+            })
+            .collect()
+    }
+}
+
+impl TimestampFormatter for TemporalTickFormatter {
+    fn format(&self, values: &[Option<chrono::NaiveDateTime>], default: Option<&str>) -> Vec<String> {
+        let default = default.unwrap_or("");
+        let format_str = self.get_format_string();
+        
+        values
+            .iter()
+            .map(|v| {
+                v.map(|naive_dt| {
+                    // Convert to timezone-aware datetime
+                    let local_dt = self.timezone.from_utc_datetime(&naive_dt);
+                    local_dt.format(format_str).to_string()
+                })
+                .unwrap_or_else(|| default.to_string())
+            })
+            .collect()
+    }
+}
+
+impl TimestamptzFormatter for TemporalTickFormatter {
+    fn format(&self, values: &[Option<DateTime<Utc>>], default: Option<&str>) -> Vec<String> {
+        let default = default.unwrap_or("");
+        let format_str = self.get_format_string();
+        
+        values
+            .iter()
+            .map(|v| {
+                v.map(|utc_dt| {
+                    let local_dt = utc_dt.with_timezone(&self.timezone);
+                    local_dt.format(format_str).to_string()
+                })
+                .unwrap_or_else(|| default.to_string())
+            })
+            .collect()
+    }
+}
 
 impl TimeScale {
     /// Create a new time scale with the specified domain and range.
@@ -638,6 +735,168 @@ impl ScaleImpl for TimeScale {
         Err(AvengerScaleError::NotImplementedError(
             "Adjust for time scale not yet implemented".to_string(),
         ))
+    }
+    
+    fn scale_to_string(
+        &self,
+        config: &ScaleConfig,
+        values: &ArrayRef,
+    ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
+        // Get timezone for formatting
+        let tz_str = config.option_string("timezone", "UTC");
+        let tz = parse_timezone(&tz_str)?;
+        
+        // Determine the tick interval based on domain span and nice settings
+        let domain_type = config.domain.data_type();
+        let handler = TemporalHandler::from_data_type(domain_type)?;
+        let domain_start = get_temporal_value(&config.domain, 0, &handler)?;
+        let domain_end = get_temporal_value(&config.domain, 1, &handler)?;
+        let span = domain_end - domain_start;
+        
+        // Get target tick count from nice option or default
+        let target_count = match config.options.get("nice") {
+            Some(scalar) => {
+                if let Ok(true) = scalar.as_boolean() {
+                    10.0
+                } else if let Ok(count) = scalar.as_f32() {
+                    count
+                } else {
+                    10.0
+                }
+            }
+            None => 10.0,
+        };
+        
+        // Select appropriate interval for formatting
+        let interval = select_time_interval(span, target_count);
+        
+        // Create custom formatter
+        let formatter = TemporalTickFormatter::new(interval, tz);
+        let default = config.option_string("default", "");
+        
+        // Format based on the input data type
+        match values.data_type() {
+            DataType::Date32 => {
+                let values = values.as_any().downcast_ref::<Date32Array>().unwrap();
+                let dates: Vec<_> = (0..values.len())
+                    .map(|i| {
+                        if values.is_null(i) {
+                            None
+                        } else {
+                            let days = values.value(i);
+                            NaiveDate::from_num_days_from_ce_opt(days + 719_163)
+                        }
+                    })
+                    .collect();
+                Ok(ScalarOrArray::new_array(
+                    DateFormatter::format(&formatter, &dates, Some(&default)),
+                ))
+            }
+            DataType::Date64 => {
+                let values = values.as_any().downcast_ref::<Date64Array>().unwrap();
+                let dates: Vec<_> = (0..values.len())
+                    .map(|i| {
+                        if values.is_null(i) {
+                            None
+                        } else {
+                            let millis = values.value(i);
+                            DateTime::from_timestamp(millis / 1000, ((millis % 1000) * 1_000_000) as u32)
+                                .map(|dt| dt.naive_utc())
+                        }
+                    })
+                    .collect();
+                Ok(ScalarOrArray::new_array(
+                    TimestampFormatter::format(&formatter, &dates, Some(&default)),
+                ))
+            }
+            DataType::Timestamp(unit, tz_opt) => {
+                // Convert to NaiveDateTime first
+                let timestamps = match unit {
+                    TimeUnit::Second => {
+                        let array = values.as_any().downcast_ref::<TimestampSecondArray>().unwrap();
+                        (0..array.len())
+                            .map(|i| {
+                                if array.is_null(i) {
+                                    None
+                                } else {
+                                    DateTime::from_timestamp(array.value(i), 0)
+                                        .map(|dt| dt.naive_utc())
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                    }
+                    TimeUnit::Millisecond => {
+                        let array = values.as_any().downcast_ref::<TimestampMillisecondArray>().unwrap();
+                        (0..array.len())
+                            .map(|i| {
+                                if array.is_null(i) {
+                                    None
+                                } else {
+                                    let millis = array.value(i);
+                                    DateTime::from_timestamp(
+                                        millis / 1000,
+                                        ((millis % 1000) * 1_000_000) as u32,
+                                    ).map(|dt| dt.naive_utc())
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                    }
+                    TimeUnit::Microsecond => {
+                        let array = values.as_any().downcast_ref::<TimestampMicrosecondArray>().unwrap();
+                        (0..array.len())
+                            .map(|i| {
+                                if array.is_null(i) {
+                                    None
+                                } else {
+                                    let micros = array.value(i);
+                                    DateTime::from_timestamp(
+                                        micros / 1_000_000,
+                                        ((micros % 1_000_000) * 1_000) as u32,
+                                    ).map(|dt| dt.naive_utc())
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                    }
+                    TimeUnit::Nanosecond => {
+                        let array = values.as_any().downcast_ref::<TimestampNanosecondArray>().unwrap();
+                        (0..array.len())
+                            .map(|i| {
+                                if array.is_null(i) {
+                                    None
+                                } else {
+                                    let nanos = array.value(i);
+                                    DateTime::from_timestamp(
+                                        nanos / 1_000_000_000,
+                                        (nanos % 1_000_000_000) as u32,
+                                    ).map(|dt| dt.naive_utc())
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                    }
+                };
+                
+                if tz_opt.is_some() {
+                    // Convert to UTC DateTime for timestamptz
+                    let utc_timestamps: Vec<_> = timestamps
+                        .iter()
+                        .map(|opt| opt.map(|naive| Utc.from_utc_datetime(&naive)))
+                        .collect();
+                    Ok(ScalarOrArray::new_array(
+                        TimestamptzFormatter::format(&formatter, &utc_timestamps, Some(&default)),
+                    ))
+                } else {
+                    // Use NaiveDateTime for timestamp without timezone
+                    Ok(ScalarOrArray::new_array(
+                        TimestampFormatter::format(&formatter, &timestamps, Some(&default)),
+                    ))
+                }
+            }
+            _ => {
+                // Fallback to default formatting
+                let scaled = self.scale(config, values)?;
+                config.context.formatters.format(&scaled, Some(&default))
+            }
+        }
     }
 }
 
@@ -1746,6 +2005,84 @@ mod tests {
         assert!((scaled_array.value(3) - 60.0).abs() < 1.0);   // 3/5 = 60%
         assert!((scaled_array.value(4) - 80.0).abs() < 1.0);   // 4/5 = 80%
         assert_eq!(scaled_array.value(5), 100.0);     // End
+        
+        Ok(())
+    }
+    
+    #[test]
+    fn test_time_scale_tick_formatting() -> Result<(), AvengerScaleError> {
+        // Test formatting with different intervals
+        let tz_str = "America/New_York";
+        
+        // Test daily ticks
+        let start = Arc::new(Date32Array::from(vec![19723])) as ArrayRef; // 2024-01-01
+        let end = Arc::new(Date32Array::from(vec![19730])) as ArrayRef;   // 2024-01-08
+        
+        let scale = TimeScale::configured((start, end), (0.0, 100.0))
+            .with_option("timezone", tz_str)
+            .with_option("nice", 7.0); // ~7 daily ticks
+        
+        let ticks = scale.ticks(Some(7.0))?;
+        let formatted = scale.scale_to_string(&ticks)?;
+        
+        match formatted.value() {
+            ScalarOrArrayValue::Array(strings) => {
+                // Should show month and day for daily ticks
+                assert!(strings[0].contains("Jan"));
+                assert!(strings[0].contains("01") || strings[0].contains(" 1"));
+            }
+            _ => panic!("Expected array of strings"),
+        }
+        
+        // Test hourly ticks with timestamps
+        let start_ts = chrono_tz::America::New_York
+            .with_ymd_and_hms(2024, 1, 1, 0, 0, 0)
+            .unwrap()
+            .timestamp_millis();
+        let end_ts = chrono_tz::America::New_York
+            .with_ymd_and_hms(2024, 1, 1, 12, 0, 0)
+            .unwrap()
+            .timestamp_millis();
+            
+        let start = Arc::new(TimestampMillisecondArray::from(vec![start_ts])) as ArrayRef;
+        let end = Arc::new(TimestampMillisecondArray::from(vec![end_ts])) as ArrayRef;
+        
+        let scale = TimeScale::configured((start, end), (0.0, 100.0))
+            .with_option("timezone", tz_str)
+            .with_option("nice", 6.0); // ~6 hourly ticks
+        
+        let ticks = scale.ticks(Some(6.0))?;
+        let formatted = scale.scale_to_string(&ticks)?;
+        
+        match formatted.value() {
+            ScalarOrArrayValue::Array(strings) => {
+                // Should show hours for hourly ticks
+                assert!(strings[0].contains(":"));
+                // Should not show seconds for hourly ticks
+                assert!(!strings[0].contains(":00:00"));
+            }
+            _ => panic!("Expected array of strings"),
+        }
+        
+        // Test yearly ticks
+        let start = Arc::new(Date32Array::from(vec![18262])) as ArrayRef; // 2020-01-01
+        let end = Arc::new(Date32Array::from(vec![20088])) as ArrayRef;   // 2024-12-31
+        
+        let scale = TimeScale::configured((start, end), (0.0, 100.0))
+            .with_option("timezone", tz_str)
+            .with_option("nice", 5.0); // ~5 yearly ticks
+        
+        let ticks = scale.ticks(Some(5.0))?;
+        let formatted = scale.scale_to_string(&ticks)?;
+        
+        match formatted.value() {
+            ScalarOrArrayValue::Array(strings) => {
+                // Should show only years for yearly ticks
+                assert!(strings[0].starts_with("20")); // Year 20XX
+                assert!(!strings[0].contains("Jan")); // No month
+            }
+            _ => panic!("Expected array of strings"),
+        }
         
         Ok(())
     }
