@@ -9,6 +9,7 @@ pub mod quantile;
 pub mod quantize;
 pub mod symlog;
 pub mod threshold;
+pub mod time;
 
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
