@@ -45,6 +45,15 @@ pub enum AvengerScaleError {
     #[error("Invalid timezone: {0}")]
     InvalidTimezone(String),
 
+    #[error("Invalid timezone: {0}")]
+    InvalidTimezoneError(String),
+
+    #[error("Invalid data type {0} for {1} scale")]
+    InvalidDataTypeError(arrow::datatypes::DataType, String),
+
+    #[error("Not implemented: {0}")]
+    NotImplementedError(String),
+
     #[error("Invalid SVG transform string: {0}")]
     InvalidSvgTransformString(#[from] svgtypes::Error),
 
