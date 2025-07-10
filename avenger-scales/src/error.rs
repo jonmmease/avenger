@@ -54,6 +54,9 @@ pub enum AvengerScaleError {
     #[error("Not implemented: {0}")]
     NotImplementedError(String),
 
+    #[error("DST transition error: {0}")]
+    DstTransitionError(String),
+
     #[error("Invalid SVG transform string: {0}")]
     InvalidSvgTransformString(#[from] svgtypes::Error),
 

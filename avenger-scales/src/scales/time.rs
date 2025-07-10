@@ -8,7 +8,7 @@ use arrow::array::{
 use arrow::compute::kernels::cast;
 use arrow::datatypes::{DataType, TimeUnit};
 use avenger_common::types::LinearScaleAdjustment;
-use chrono::{DateTime, Datelike, TimeZone, Timelike, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Timelike, Utc};
 use chrono_tz::Tz;
 
 use crate::error::AvengerScaleError;
@@ -167,6 +167,192 @@ fn convert_to_timezone(timestamp_millis: i64, tz: &Tz) -> DateTime<Tz> {
     utc_dt.with_timezone(tz)
 }
 
+/// DST transition types
+#[derive(Debug, Clone, PartialEq)]
+enum DstTransition {
+    None,
+    SpringForward {
+        missing_start: u32,
+        missing_end: u32,
+    },
+    FallBack {
+        repeated_start: u32,
+        repeated_end: u32,
+    },
+}
+
+/// DST resolution strategy for ambiguous times
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[allow(dead_code)]
+enum DstStrategy {
+    #[default]
+    Earliest, // For fall-back, use first occurrence
+    Latest,         // For fall-back, use second occurrence
+    PreferStandard, // Prefer standard time over DST
+    PreferDaylight, // Prefer DST over standard time
+}
+
+/// Safe time construction that handles DST transitions
+mod safe_time {
+    use super::*;
+
+    /// Safely set hour on a DateTime, handling DST transitions
+    pub fn safe_with_hour(dt: DateTime<Tz>, hour: u32) -> Result<DateTime<Tz>, AvengerScaleError> {
+        match dt.with_hour(hour) {
+            Some(new_dt) => Ok(new_dt),
+            None => {
+                // Hour doesn't exist (spring forward gap)
+                // Try the next hour
+                if hour < 23 {
+                    dt.with_hour(hour + 1).ok_or_else(|| {
+                        AvengerScaleError::DstTransitionError(format!(
+                            "Cannot set hour {} during DST transition",
+                            hour
+                        ))
+                    })
+                } else {
+                    // If we're at hour 23 and it doesn't exist, go to next day
+                    let next_day = dt.date_naive() + chrono::Duration::days(1);
+                    next_day
+                        .and_hms_opt(0, dt.minute(), dt.second())
+                        .and_then(|naive_dt| dt.timezone().from_local_datetime(&naive_dt).single())
+                        .ok_or_else(|| {
+                            AvengerScaleError::DstTransitionError(format!(
+                                "Cannot set hour {} during DST transition",
+                                hour
+                            ))
+                        })
+                }
+            }
+        }
+    }
+
+    /// Safely set time components, handling DST transitions
+    #[allow(dead_code)]
+    pub fn safe_with_time(
+        dt: DateTime<Tz>,
+        hour: u32,
+        min: u32,
+        sec: u32,
+        strategy: DstStrategy,
+    ) -> Result<DateTime<Tz>, AvengerScaleError> {
+        let date = dt.date_naive();
+        safe_and_hms(date, &dt.timezone(), hour, min, sec, strategy)
+    }
+
+    /// Safely create DateTime from date and time components
+    pub fn safe_and_hms(
+        date: NaiveDate,
+        tz: &Tz,
+        hour: u32,
+        min: u32,
+        sec: u32,
+        strategy: DstStrategy,
+    ) -> Result<DateTime<Tz>, AvengerScaleError> {
+        match date.and_hms_opt(hour, min, sec) {
+            None => Err(AvengerScaleError::DstTransitionError(format!(
+                "Invalid time components: {}:{}:{}",
+                hour, min, sec
+            ))),
+            Some(naive_dt) => {
+                match tz.from_local_datetime(&naive_dt) {
+                    chrono::LocalResult::Single(dt) => Ok(dt),
+                    chrono::LocalResult::None => {
+                        // Time doesn't exist (spring forward)
+                        // Jump forward an hour
+                        if hour < 23 {
+                            safe_and_hms(date, tz, hour + 1, min, sec, strategy)
+                        } else {
+                            // Jump to next day
+                            let next_date = date + chrono::Duration::days(1);
+                            safe_and_hms(next_date, tz, 0, min, sec, strategy)
+                        }
+                    }
+                    chrono::LocalResult::Ambiguous(early, late) => {
+                        // Time is ambiguous (fall back)
+                        match strategy {
+                            DstStrategy::Earliest => Ok(early),
+                            DstStrategy::Latest => Ok(late),
+                            DstStrategy::PreferStandard => {
+                                // Standard time has the larger UTC offset in fall-back
+                                // Compare using timestamps since we can't compare offsets directly
+                                if early.timestamp() > late.timestamp() {
+                                    Ok(late) // Later timestamp has standard time
+                                } else {
+                                    Ok(early)
+                                }
+                            }
+                            DstStrategy::PreferDaylight => {
+                                // DST has the smaller UTC offset in fall-back
+                                // Earlier timestamp has DST
+                                if early.timestamp() < late.timestamp() {
+                                    Ok(early)
+                                } else {
+                                    Ok(late)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Detect DST transitions for a given date
+    pub fn find_dst_transition(date: NaiveDate, tz: &Tz) -> DstTransition {
+        let mut spring_forward_start = None;
+        let mut spring_forward_end = None;
+        let mut fall_back_start = None;
+        let mut fall_back_end = None;
+
+        // Check each hour of the day
+        for hour in 0..24 {
+            match date.and_hms_opt(hour, 0, 0) {
+                None => continue,
+                Some(naive_dt) => {
+                    match tz.from_local_datetime(&naive_dt) {
+                        chrono::LocalResult::None => {
+                            // Spring forward gap
+                            if spring_forward_start.is_none() {
+                                spring_forward_start = Some(hour);
+                            }
+                            spring_forward_end = Some(hour + 1);
+                        }
+                        chrono::LocalResult::Ambiguous(_, _) => {
+                            // Fall back overlap
+                            if fall_back_start.is_none() {
+                                fall_back_start = Some(hour);
+                            }
+                            fall_back_end = Some(hour + 1);
+                        }
+                        chrono::LocalResult::Single(_) => {}
+                    }
+                }
+            }
+        }
+
+        if let (Some(start), Some(end)) = (spring_forward_start, spring_forward_end) {
+            DstTransition::SpringForward {
+                missing_start: start,
+                missing_end: end,
+            }
+        } else if let (Some(start), Some(end)) = (fall_back_start, fall_back_end) {
+            DstTransition::FallBack {
+                repeated_start: start,
+                repeated_end: end,
+            }
+        } else {
+            DstTransition::None
+        }
+    }
+
+    /// Check if a date has a DST transition
+    #[allow(dead_code)]
+    pub fn is_dst_transition_date(date: NaiveDate, tz: &Tz) -> bool {
+        !matches!(find_dst_transition(date, tz), DstTransition::None)
+    }
+}
+
 impl ScaleImpl for TimeScale {
     fn scale_type(&self) -> &'static str {
         "time"
@@ -256,21 +442,24 @@ impl ScaleImpl for TimeScale {
         // Get domain and range bounds
         let domain_type = config.domain.data_type();
         let handler = TemporalHandler::from_data_type(domain_type)?;
-        
+
         let domain_start = get_temporal_value(&config.domain, 0, &handler)?;
         let domain_end = get_temporal_value(&config.domain, 1, &handler)?;
-        
+
         let (range_start, range_end) = config.numeric_interval_range()?;
-        
+
         // Ensure values are numeric
         let numeric_values = match values.data_type() {
             DataType::Float32 => values.clone(),
             _ => Arc::new(cast::cast(values, &DataType::Float32)?),
         };
-        
-        let float_array = numeric_values.as_any().downcast_ref::<Float32Array>().unwrap();
+
+        let float_array = numeric_values
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .unwrap();
         let mut result_millis = Vec::with_capacity(float_array.len());
-        
+
         // Invert each value
         for i in 0..float_array.len() {
             if float_array.is_null(i) {
@@ -279,11 +468,12 @@ impl ScaleImpl for TimeScale {
                 let value = float_array.value(i);
                 // Reverse the scaling operation
                 let normalized = (value - range_start) / (range_end - range_start);
-                let millis = domain_start + ((domain_end - domain_start) as f32 * normalized) as i64;
+                let millis =
+                    domain_start + ((domain_end - domain_start) as f32 * normalized) as i64;
                 result_millis.push(Some(millis));
             }
         }
-        
+
         // Convert milliseconds back to temporal array
         create_temporal_array_from_optional_millis(&result_millis, domain_type)
     }
@@ -625,25 +815,41 @@ impl TimeInterval {
                 dt.timezone().timestamp_millis_opt(floored).unwrap()
             }
             TimeInterval::Second(n) => {
-                let base = dt.with_nanosecond(0).unwrap();
+                let base = dt.with_nanosecond(0).unwrap_or(dt);
                 let secs = base.second() as i32;
-                base.with_second(((secs / n) * n) as u32).unwrap()
+                let target_sec = ((secs / n) * n) as u32;
+                base.with_second(target_sec).unwrap_or(base)
             }
             TimeInterval::Minute(n) => {
-                let base = dt.with_second(0).unwrap().with_nanosecond(0).unwrap();
+                let base = dt
+                    .with_second(0)
+                    .unwrap_or(dt)
+                    .with_nanosecond(0)
+                    .unwrap_or(dt);
                 let mins = base.minute() as i32;
-                base.with_minute(((mins / n) * n) as u32).unwrap()
+                let target_min = ((mins / n) * n) as u32;
+                base.with_minute(target_min).unwrap_or(base)
             }
             TimeInterval::Hour(n) => {
                 let base = dt
                     .with_minute(0)
-                    .unwrap()
+                    .unwrap_or(dt)
                     .with_second(0)
-                    .unwrap()
+                    .unwrap_or(dt)
                     .with_nanosecond(0)
-                    .unwrap();
+                    .unwrap_or(dt);
                 let hours = base.hour() as i32;
-                base.with_hour(((hours / n) * n) as u32).unwrap()
+                let target_hour = ((hours / n) * n) as u32;
+
+                // Use safe hour setting for DST
+                safe_time::safe_with_hour(base, target_hour).unwrap_or_else(|_| {
+                    // If we can't set the hour due to DST, try the next valid hour
+                    if target_hour < 23 {
+                        safe_time::safe_with_hour(base, target_hour + 1).unwrap_or(base)
+                    } else {
+                        base
+                    }
+                })
             }
             TimeInterval::Day(_) => dt
                 .date_naive()
@@ -710,7 +916,21 @@ impl TimeInterval {
             }
             TimeInterval::Second(n) => dt + chrono::Duration::seconds((*n as i64) * (count as i64)),
             TimeInterval::Minute(n) => dt + chrono::Duration::minutes((*n as i64) * (count as i64)),
-            TimeInterval::Hour(n) => dt + chrono::Duration::hours((*n as i64) * (count as i64)),
+            TimeInterval::Hour(n) => {
+                // For hours, use calendar arithmetic to handle DST properly
+                let total_hours = *n * count;
+                let current_hour = dt.hour() as i32;
+                let new_hour = current_hour + total_hours;
+
+                if (0..24).contains(&new_hour) {
+                    // Same day
+                    safe_time::safe_with_hour(dt, new_hour as u32)
+                        .unwrap_or_else(|_| dt + chrono::Duration::hours(total_hours as i64))
+                } else {
+                    // Spans days, use duration addition
+                    dt + chrono::Duration::hours(total_hours as i64)
+                }
+            }
             TimeInterval::Day(n) => dt + chrono::Duration::days((*n as i64) * (count as i64)),
             TimeInterval::Week(n) => dt + chrono::Duration::weeks((*n as i64) * (count as i64)),
             TimeInterval::Month(n) => {
@@ -735,6 +955,13 @@ impl TimeInterval {
                 dt.with_year(dt.year() + years).unwrap()
             }
         }
+    }
+
+    /// Get actual duration of interval at a specific time (accounting for DST)
+    #[allow(dead_code)]
+    fn actual_duration(&self, start: DateTime<Tz>) -> chrono::Duration {
+        let end = self.offset(start, 1);
+        end - start
     }
 }
 
@@ -858,6 +1085,12 @@ fn compute_nice_temporal_bounds(
     let nice_start = interval.floor(start_dt);
     let nice_end = interval.ceil(end_dt);
 
+    // Validate that we didn't create an invalid range
+    if nice_end <= nice_start {
+        // This shouldn't happen, but if it does, fall back to original bounds
+        return Ok((start_millis, end_millis));
+    }
+
     Ok((nice_start.timestamp_millis(), nice_end.timestamp_millis()))
 }
 
@@ -877,11 +1110,27 @@ fn generate_temporal_ticks(
     // Start from floored first tick
     let mut current = interval.ceil(start_dt);
     let mut ticks = Vec::new();
+    let mut prev_millis = None;
 
     // Generate ticks within domain
     while current <= end_dt {
-        ticks.push(current.timestamp_millis());
-        current = interval.offset(current, 1);
+        let current_millis = current.timestamp_millis();
+
+        // Ensure we're not generating duplicate ticks (can happen during fall-back)
+        if prev_millis.is_none_or(|prev| current_millis > prev) {
+            ticks.push(current_millis);
+            prev_millis = Some(current_millis);
+        }
+
+        // Safe offset that handles DST
+        let next = interval.offset(current, 1);
+
+        // Safety check: ensure we're making progress
+        if next <= current {
+            break;
+        }
+
+        current = next;
     }
 
     Ok(ticks)
@@ -953,9 +1202,7 @@ fn create_temporal_array_from_optional_millis(
                 .collect();
             Ok(Arc::new(Date32Array::from(days)))
         }
-        DataType::Date64 => {
-            Ok(Arc::new(Date64Array::from(millis_vec.to_vec())))
-        }
+        DataType::Date64 => Ok(Arc::new(Date64Array::from(millis_vec.to_vec()))),
         DataType::Timestamp(TimeUnit::Second, tz) => {
             let secs: Vec<Option<i64>> = millis_vec
                 .iter()
@@ -965,12 +1212,9 @@ fn create_temporal_array_from_optional_millis(
                 TimestampSecondArray::from(secs).with_timezone_opt(tz.clone()),
             ))
         }
-        DataType::Timestamp(TimeUnit::Millisecond, tz) => {
-            Ok(Arc::new(
-                TimestampMillisecondArray::from(millis_vec.to_vec())
-                    .with_timezone_opt(tz.clone()),
-            ))
-        }
+        DataType::Timestamp(TimeUnit::Millisecond, tz) => Ok(Arc::new(
+            TimestampMillisecondArray::from(millis_vec.to_vec()).with_timezone_opt(tz.clone()),
+        )),
         DataType::Timestamp(TimeUnit::Microsecond, tz) => {
             let micros: Vec<Option<i64>> = millis_vec
                 .iter()
@@ -1146,7 +1390,7 @@ mod tests {
     fn test_time_scale_invert() -> Result<(), AvengerScaleError> {
         // Create domain from 2024-01-01 to 2024-12-31
         let start_date = 19723; // 2024-01-01 in days since epoch
-        let end_date = 20088;   // 2024-12-31 in days since epoch
+        let end_date = 20088; // 2024-12-31 in days since epoch
 
         let domain_start = Arc::new(Date32Array::from(vec![start_date])) as ArrayRef;
         let domain_end = Arc::new(Date32Array::from(vec![end_date])) as ArrayRef;
@@ -1162,7 +1406,134 @@ mod tests {
         assert_eq!(inverted_array.value(0), start_date); // 0.0 -> start
         assert!((inverted_array.value(1) - 19905).abs() <= 1); // 50.0 -> mid-year (approximately)
         assert_eq!(inverted_array.value(2), end_date); // 100.0 -> end
-        assert!(inverted_array.value(3) > start_date && inverted_array.value(3) < inverted_array.value(1)); // 25.0 -> Q1
+        assert!(
+            inverted_array.value(3) > start_date
+                && inverted_array.value(3) < inverted_array.value(1)
+        ); // 25.0 -> Q1
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_dst_spring_forward() -> Result<(), AvengerScaleError> {
+        // Test spring forward DST transition (2024-03-10 in US Eastern)
+        let et = parse_timezone("America/New_York")?;
+
+        // Test safe hour construction during spring forward
+        let date = NaiveDate::from_ymd_opt(2024, 3, 10).unwrap();
+        let _dt_before = safe_time::safe_and_hms(date, &et, 1, 30, 0, DstStrategy::Earliest)?;
+
+        // Try to create 2:30 AM which doesn't exist (should jump to 3:30 AM)
+        let dt_gap = safe_time::safe_and_hms(date, &et, 2, 30, 0, DstStrategy::Earliest)?;
+        assert_eq!(dt_gap.hour(), 3); // Should have jumped forward
+        assert_eq!(dt_gap.minute(), 30);
+
+        // Check DST detection
+        let transition = safe_time::find_dst_transition(date, &et);
+        match transition {
+            DstTransition::SpringForward {
+                missing_start,
+                missing_end,
+            } => {
+                assert_eq!(missing_start, 2);
+                assert_eq!(missing_end, 3);
+            }
+            _ => panic!("Expected spring forward transition"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_dst_fall_back() -> Result<(), AvengerScaleError> {
+        // Test fall back DST transition (2024-11-03 in US Eastern)
+        let et = parse_timezone("America/New_York")?;
+
+        let date = NaiveDate::from_ymd_opt(2024, 11, 3).unwrap();
+
+        // Test both occurrences of 1:30 AM
+        let dt_early = safe_time::safe_and_hms(date, &et, 1, 30, 0, DstStrategy::Earliest)?;
+        let dt_late = safe_time::safe_and_hms(date, &et, 1, 30, 0, DstStrategy::Latest)?;
+
+        // Both should be valid but different instants
+        assert_eq!(dt_early.hour(), 1);
+        assert_eq!(dt_late.hour(), 1);
+        assert!(dt_early < dt_late); // Early occurrence comes before late
+
+        // Check DST detection
+        let transition = safe_time::find_dst_transition(date, &et);
+        match transition {
+            DstTransition::FallBack {
+                repeated_start,
+                repeated_end,
+            } => {
+                assert_eq!(repeated_start, 1);
+                assert_eq!(repeated_end, 2);
+            }
+            _ => panic!("Expected fall back transition"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_dst_tick_generation() -> Result<(), AvengerScaleError> {
+        // Test tick generation across DST boundary
+        let et = parse_timezone("America/New_York")?;
+
+        // Domain spans spring forward (2024-03-10 00:00 to 06:00 ET)
+        let start_ts = et
+            .with_ymd_and_hms(2024, 3, 10, 0, 0, 0)
+            .unwrap()
+            .timestamp();
+        let end_ts = et
+            .with_ymd_and_hms(2024, 3, 10, 6, 0, 0)
+            .unwrap()
+            .timestamp();
+
+        let domain_start = Arc::new(TimestampSecondArray::from(vec![start_ts])) as ArrayRef;
+        let domain_end = Arc::new(TimestampSecondArray::from(vec![end_ts])) as ArrayRef;
+
+        let mut scale = TimeScale::configured((domain_start, domain_end), (0.0, 100.0));
+        scale = scale.with_option("timezone", "America/New_York");
+
+        // Generate hourly ticks
+        let ticks = scale.ticks(Some(6.0))?;
+        let tick_array = ticks
+            .as_any()
+            .downcast_ref::<TimestampSecondArray>()
+            .unwrap();
+
+        // Should have ticks at 0:00, 1:00, 3:00, 4:00, 5:00, 6:00 (skipping 2:00)
+        let mut tick_hours = Vec::new();
+        for i in 0..tick_array.len() {
+            let ts = tick_array.value(i);
+            let dt = et.timestamp_opt(ts, 0).unwrap();
+            tick_hours.push(dt.hour());
+        }
+
+        // Verify 2:00 AM is skipped
+        assert!(!tick_hours.contains(&2));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_no_dst_timezone() -> Result<(), AvengerScaleError> {
+        // Test timezone without DST (UTC)
+        let utc = parse_timezone("UTC")?;
+
+        let date = NaiveDate::from_ymd_opt(2024, 3, 10).unwrap();
+
+        // All hours should be valid in UTC
+        for hour in 0..24 {
+            let dt = safe_time::safe_and_hms(date, &utc, hour, 0, 0, DstStrategy::Earliest)?;
+            assert_eq!(dt.hour(), hour);
+        }
+
+        // No transitions
+        let transition = safe_time::find_dst_transition(date, &utc);
+        assert_eq!(transition, DstTransition::None);
 
         Ok(())
     }
