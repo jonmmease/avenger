@@ -353,6 +353,43 @@ mod safe_time {
     }
 }
 
+/// Compute actual duration between two timestamps considering DST transitions
+fn compute_actual_duration_millis(
+    start_millis: i64,
+    end_millis: i64,
+    tz: &Tz,
+) -> Result<i64, AvengerScaleError> {
+    // If both timestamps are in UTC or the same timezone, just subtract
+    if tz == &chrono_tz::UTC {
+        return Ok(end_millis - start_millis);
+    }
+    
+    // Convert to timezone-aware datetimes
+    let start = tz
+        .timestamp_opt(start_millis / 1000, ((start_millis % 1000) * 1_000_000) as u32)
+        .single()
+        .ok_or_else(|| {
+            AvengerScaleError::DstTransitionError(format!(
+                "Ambiguous start timestamp: {}",
+                start_millis
+            ))
+        })?;
+    
+    let end = tz
+        .timestamp_opt(end_millis / 1000, ((end_millis % 1000) * 1_000_000) as u32)
+        .single()
+        .ok_or_else(|| {
+            AvengerScaleError::DstTransitionError(format!(
+                "Ambiguous end timestamp: {}",
+                end_millis
+            ))
+        })?;
+    
+    // Compute actual duration
+    let duration = end - start;
+    Ok(duration.num_milliseconds())
+}
+
 impl ScaleImpl for TimeScale {
     fn scale_type(&self) -> &'static str {
         "time"
@@ -377,6 +414,14 @@ impl ScaleImpl for TimeScale {
 
         // Get range bounds
         let (range_start, range_end) = config.numeric_interval_range()?;
+        
+        // Get timezone for DST-aware duration calculations
+        let tz_str = config.option_string("timezone", "UTC");
+        let tz = parse_timezone(&tz_str)?;
+        
+        // Compute actual duration (accounting for DST)
+        let actual_duration = compute_actual_duration_millis(domain_start, domain_end, &tz)?;
+        let use_actual_duration = actual_duration != (domain_end - domain_start);
 
         // Scale values
         let result = match values.data_type() {
@@ -389,8 +434,14 @@ impl ScaleImpl for TimeScale {
                         output.push(None);
                     } else {
                         let value = handler.to_timestamp_millis(values.value(i) as i64);
-                        let normalized =
-                            (value - domain_start) as f32 / (domain_end - domain_start) as f32;
+                        let normalized = if use_actual_duration {
+                            // Use actual duration for DST-aware scaling
+                            let value_duration = compute_actual_duration_millis(domain_start, value, &tz)?;
+                            value_duration as f32 / actual_duration as f32
+                        } else {
+                            // Use nominal duration for performance when no DST
+                            (value - domain_start) as f32 / (domain_end - domain_start) as f32
+                        };
                         output.push(Some(range_start + normalized * (range_end - range_start)));
                     }
                 }
@@ -406,8 +457,14 @@ impl ScaleImpl for TimeScale {
                         output.push(None);
                     } else {
                         let value = handler.to_timestamp_millis(values.value(i));
-                        let normalized =
-                            (value - domain_start) as f32 / (domain_end - domain_start) as f32;
+                        let normalized = if use_actual_duration {
+                            // Use actual duration for DST-aware scaling
+                            let value_duration = compute_actual_duration_millis(domain_start, value, &tz)?;
+                            value_duration as f32 / actual_duration as f32
+                        } else {
+                            // Use nominal duration for performance when no DST
+                            (value - domain_start) as f32 / (domain_end - domain_start) as f32
+                        };
                         output.push(Some(range_start + normalized * (range_end - range_start)));
                     }
                 }
@@ -422,6 +479,9 @@ impl ScaleImpl for TimeScale {
                 domain_end,
                 range_start,
                 range_end,
+                &tz,
+                use_actual_duration,
+                actual_duration,
             )?,
             _ => {
                 return Err(AvengerScaleError::InvalidDataTypeError(
@@ -447,6 +507,14 @@ impl ScaleImpl for TimeScale {
         let domain_end = get_temporal_value(&config.domain, 1, &handler)?;
 
         let (range_start, range_end) = config.numeric_interval_range()?;
+        
+        // Get timezone for DST-aware duration calculations
+        let tz_str = config.option_string("timezone", "UTC");
+        let tz = parse_timezone(&tz_str)?;
+        
+        // Compute actual duration (accounting for DST)
+        let actual_duration = compute_actual_duration_millis(domain_start, domain_end, &tz)?;
+        let use_actual_duration = actual_duration != (domain_end - domain_start);
 
         // Ensure values are numeric
         let numeric_values = match values.data_type() {
@@ -468,8 +536,31 @@ impl ScaleImpl for TimeScale {
                 let value = float_array.value(i);
                 // Reverse the scaling operation
                 let normalized = (value - range_start) / (range_end - range_start);
-                let millis =
-                    domain_start + ((domain_end - domain_start) as f32 * normalized) as i64;
+                
+                let millis = if use_actual_duration {
+                    // For DST-aware inversion, we need to find the timestamp
+                    // whose actual duration from domain_start equals the target
+                    let target_duration = (actual_duration as f32 * normalized) as i64;
+                    
+                    // Start with a nominal estimate
+                    let mut estimate = domain_start + target_duration;
+                    
+                    // Refine the estimate by checking actual duration
+                    // This handles DST transitions correctly
+                    for _ in 0..3 {  // Usually converges in 1-2 iterations
+                        let actual = compute_actual_duration_millis(domain_start, estimate, &tz)?;
+                        let error = target_duration - actual;
+                        if error.abs() < 1000 {  // Within 1 second is good enough
+                            break;
+                        }
+                        estimate += error;
+                    }
+                    estimate
+                } else {
+                    // No DST transitions, use simple linear interpolation
+                    domain_start + ((domain_end - domain_start) as f32 * normalized) as i64
+                };
+                
                 result_millis.push(Some(millis));
             }
         }
@@ -705,6 +796,9 @@ fn scale_timestamp_values(
     domain_end: i64,
     range_start: f32,
     range_end: f32,
+    tz: &Tz,
+    use_actual_duration: bool,
+    actual_duration: i64,
 ) -> Result<ArrayRef, AvengerScaleError> {
     let mut output = Vec::with_capacity(values.len());
 
@@ -719,8 +813,14 @@ fn scale_timestamp_values(
                     output.push(None);
                 } else {
                     let value = handler.to_timestamp_millis(values.value(i));
-                    let normalized =
-                        (value - domain_start) as f32 / (domain_end - domain_start) as f32;
+                    let normalized = if use_actual_duration {
+                        // Use actual duration for DST-aware scaling
+                        let value_duration = compute_actual_duration_millis(domain_start, value, tz)?;
+                        value_duration as f32 / actual_duration as f32
+                    } else {
+                        // Use nominal duration for performance when no DST
+                        (value - domain_start) as f32 / (domain_end - domain_start) as f32
+                    };
                     output.push(Some(range_start + normalized * (range_end - range_start)));
                 }
             }
@@ -735,8 +835,14 @@ fn scale_timestamp_values(
                     output.push(None);
                 } else {
                     let value = handler.to_timestamp_millis(values.value(i));
-                    let normalized =
-                        (value - domain_start) as f32 / (domain_end - domain_start) as f32;
+                    let normalized = if use_actual_duration {
+                        // Use actual duration for DST-aware scaling
+                        let value_duration = compute_actual_duration_millis(domain_start, value, tz)?;
+                        value_duration as f32 / actual_duration as f32
+                    } else {
+                        // Use nominal duration for performance when no DST
+                        (value - domain_start) as f32 / (domain_end - domain_start) as f32
+                    };
                     output.push(Some(range_start + normalized * (range_end - range_start)));
                 }
             }
@@ -751,8 +857,14 @@ fn scale_timestamp_values(
                     output.push(None);
                 } else {
                     let value = handler.to_timestamp_millis(values.value(i));
-                    let normalized =
-                        (value - domain_start) as f32 / (domain_end - domain_start) as f32;
+                    let normalized = if use_actual_duration {
+                        // Use actual duration for DST-aware scaling
+                        let value_duration = compute_actual_duration_millis(domain_start, value, tz)?;
+                        value_duration as f32 / actual_duration as f32
+                    } else {
+                        // Use nominal duration for performance when no DST
+                        (value - domain_start) as f32 / (domain_end - domain_start) as f32
+                    };
                     output.push(Some(range_start + normalized * (range_end - range_start)));
                 }
             }
@@ -767,8 +879,14 @@ fn scale_timestamp_values(
                     output.push(None);
                 } else {
                     let value = handler.to_timestamp_millis(values.value(i));
-                    let normalized =
-                        (value - domain_start) as f32 / (domain_end - domain_start) as f32;
+                    let normalized = if use_actual_duration {
+                        // Use actual duration for DST-aware scaling
+                        let value_duration = compute_actual_duration_millis(domain_start, value, tz)?;
+                        value_duration as f32 / actual_duration as f32
+                    } else {
+                        // Use nominal duration for performance when no DST
+                        (value - domain_start) as f32 / (domain_end - domain_start) as f32
+                    };
                     output.push(Some(range_start + normalized * (range_end - range_start)));
                 }
             }
@@ -1535,6 +1653,100 @@ mod tests {
         let transition = safe_time::find_dst_transition(date, &utc);
         assert_eq!(transition, DstTransition::None);
 
+        Ok(())
+    }
+    
+    #[test]
+    fn test_dst_scale_operations() -> Result<(), AvengerScaleError> {
+        // Test scaling across DST transitions
+        let tz_str = "America/New_York";
+        let et = parse_timezone(tz_str)?;
+        
+        // Create domain spanning spring-forward DST transition
+        // 2024-03-10 00:00 to 04:00 ET (2:00 AM doesn't exist)
+        let start = et.with_ymd_and_hms(2024, 3, 10, 0, 0, 0).unwrap();
+        let end = et.with_ymd_and_hms(2024, 3, 10, 4, 0, 0).unwrap();
+        
+        let domain_start = Arc::new(TimestampMillisecondArray::from(vec![start.timestamp_millis()])) as ArrayRef;
+        let domain_end = Arc::new(TimestampMillisecondArray::from(vec![end.timestamp_millis()])) as ArrayRef;
+        
+        let scale = TimeScale::configured((domain_start, domain_end), (0.0, 100.0))
+            .with_option("timezone", tz_str);
+        
+        // Test scaling values across the DST gap
+        let test_times = vec![
+            et.with_ymd_and_hms(2024, 3, 10, 0, 0, 0).unwrap(),  // Start
+            et.with_ymd_and_hms(2024, 3, 10, 1, 0, 0).unwrap(),  // Before gap
+            et.with_ymd_and_hms(2024, 3, 10, 3, 0, 0).unwrap(),  // After gap (2AM skipped)
+            et.with_ymd_and_hms(2024, 3, 10, 4, 0, 0).unwrap(),  // End
+        ];
+        
+        let values = Arc::new(TimestampMillisecondArray::from(
+            test_times.iter().map(|dt| dt.timestamp_millis()).collect::<Vec<_>>()
+        )) as ArrayRef;
+        
+        let scaled = scale.scale(&values)?;
+        let scaled_array = scaled.as_any().downcast_ref::<Float32Array>().unwrap();
+        
+        // The actual duration is 3 hours (not 4) due to DST
+        // So scaling should reflect this
+        assert_eq!(scaled_array.value(0), 0.0);       // Start
+        assert!((scaled_array.value(1) - 33.33).abs() < 1.0);  // 1 hour / 3 hours ≈ 33.33%
+        assert!((scaled_array.value(2) - 66.67).abs() < 1.0);  // 2 hours / 3 hours ≈ 66.67%
+        assert_eq!(scaled_array.value(3), 100.0);     // End
+        
+        // Test inversion
+        let range_values = Arc::new(Float32Array::from(vec![0.0, 33.33, 66.67, 100.0])) as ArrayRef;
+        let inverted = scale.invert(&range_values)?;
+        let inverted_array = inverted.as_any().downcast_ref::<TimestampMillisecondArray>().unwrap();
+        
+        // Check that inverted values match original times (approximately)
+        for i in 0..test_times.len() {
+            let diff = (inverted_array.value(i) - test_times[i].timestamp_millis()).abs();
+            assert!(diff < 60000, "Inverted time differs by more than 1 minute");  // Within 1 minute
+        }
+        
+        Ok(())
+    }
+    
+    #[test]
+    fn test_dst_fall_back_scale() -> Result<(), AvengerScaleError> {
+        // Test scaling across fall-back DST transition
+        let tz_str = "America/New_York";
+        let et = parse_timezone(tz_str)?;
+        
+        // Create domain spanning fall-back DST transition
+        // 2024-11-03 00:00 to 04:00 ET (1:00 AM happens twice)
+        let start = et.with_ymd_and_hms(2024, 11, 3, 0, 0, 0).unwrap();
+        let end = et.with_ymd_and_hms(2024, 11, 3, 4, 0, 0).unwrap();
+        
+        let domain_start = Arc::new(TimestampMillisecondArray::from(vec![start.timestamp_millis()])) as ArrayRef;
+        let domain_end = Arc::new(TimestampMillisecondArray::from(vec![end.timestamp_millis()])) as ArrayRef;
+        
+        let scale = TimeScale::configured((domain_start, domain_end), (0.0, 100.0))
+            .with_option("timezone", tz_str);
+        
+        // The actual duration is 5 hours (not 4) due to DST fall-back
+        let values = Arc::new(TimestampMillisecondArray::from(vec![
+            start.timestamp_millis(),
+            start.timestamp_millis() + 3600 * 1000,     // 1 hour later
+            start.timestamp_millis() + 2 * 3600 * 1000, // 2 hours later (first 1 AM)
+            start.timestamp_millis() + 3 * 3600 * 1000, // 3 hours later (second 1 AM)
+            start.timestamp_millis() + 4 * 3600 * 1000, // 4 hours later
+            end.timestamp_millis(),
+        ])) as ArrayRef;
+        
+        let scaled = scale.scale(&values)?;
+        let scaled_array = scaled.as_any().downcast_ref::<Float32Array>().unwrap();
+        
+        // Check scaling accounts for the extra hour
+        assert_eq!(scaled_array.value(0), 0.0);       // Start
+        assert!((scaled_array.value(1) - 20.0).abs() < 1.0);   // 1/5 = 20%
+        assert!((scaled_array.value(2) - 40.0).abs() < 1.0);   // 2/5 = 40%
+        assert!((scaled_array.value(3) - 60.0).abs() < 1.0);   // 3/5 = 60%
+        assert!((scaled_array.value(4) - 80.0).abs() < 1.0);   // 4/5 = 80%
+        assert_eq!(scaled_array.value(5), 100.0);     // End
+        
         Ok(())
     }
 }
