@@ -5,6 +5,7 @@ use arrow::array::{
     TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
     TimestampSecondArray,
 };
+use arrow::compute::kernels::cast;
 use arrow::datatypes::{DataType, TimeUnit};
 use avenger_common::types::LinearScaleAdjustment;
 use chrono::{DateTime, Datelike, TimeZone, Timelike, Utc};
@@ -249,13 +250,42 @@ impl ScaleImpl for TimeScale {
 
     fn invert(
         &self,
-        _config: &ScaleConfig,
-        _values: &ArrayRef,
+        config: &ScaleConfig,
+        values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError> {
-        // TODO: Implement inversion from numeric to temporal
-        Err(AvengerScaleError::NotImplementedError(
-            "Inversion for time scale not yet implemented".to_string(),
-        ))
+        // Get domain and range bounds
+        let domain_type = config.domain.data_type();
+        let handler = TemporalHandler::from_data_type(domain_type)?;
+        
+        let domain_start = get_temporal_value(&config.domain, 0, &handler)?;
+        let domain_end = get_temporal_value(&config.domain, 1, &handler)?;
+        
+        let (range_start, range_end) = config.numeric_interval_range()?;
+        
+        // Ensure values are numeric
+        let numeric_values = match values.data_type() {
+            DataType::Float32 => values.clone(),
+            _ => Arc::new(cast::cast(values, &DataType::Float32)?),
+        };
+        
+        let float_array = numeric_values.as_any().downcast_ref::<Float32Array>().unwrap();
+        let mut result_millis = Vec::with_capacity(float_array.len());
+        
+        // Invert each value
+        for i in 0..float_array.len() {
+            if float_array.is_null(i) {
+                result_millis.push(None);
+            } else {
+                let value = float_array.value(i);
+                // Reverse the scaling operation
+                let normalized = (value - range_start) / (range_end - range_start);
+                let millis = domain_start + ((domain_end - domain_start) as f32 * normalized) as i64;
+                result_millis.push(Some(millis));
+            }
+        }
+        
+        // Convert milliseconds back to temporal array
+        create_temporal_array_from_optional_millis(&result_millis, domain_type)
     }
 
     fn ticks(
@@ -909,6 +939,63 @@ fn create_temporal_domain_from_millis(
     create_temporal_array_from_millis_vec(&[start_millis, end_millis], data_type)
 }
 
+/// Create temporal array from optional millisecond timestamps (for invert)
+fn create_temporal_array_from_optional_millis(
+    millis_vec: &[Option<i64>],
+    data_type: &DataType,
+) -> Result<ArrayRef, AvengerScaleError> {
+    match data_type {
+        DataType::Date32 => {
+            // Convert milliseconds to days
+            let days: Vec<Option<i32>> = millis_vec
+                .iter()
+                .map(|opt_ms| opt_ms.map(|ms| (ms / (24 * 60 * 60 * 1000)) as i32))
+                .collect();
+            Ok(Arc::new(Date32Array::from(days)))
+        }
+        DataType::Date64 => {
+            Ok(Arc::new(Date64Array::from(millis_vec.to_vec())))
+        }
+        DataType::Timestamp(TimeUnit::Second, tz) => {
+            let secs: Vec<Option<i64>> = millis_vec
+                .iter()
+                .map(|opt_ms| opt_ms.map(|ms| ms / 1000))
+                .collect();
+            Ok(Arc::new(
+                TimestampSecondArray::from(secs).with_timezone_opt(tz.clone()),
+            ))
+        }
+        DataType::Timestamp(TimeUnit::Millisecond, tz) => {
+            Ok(Arc::new(
+                TimestampMillisecondArray::from(millis_vec.to_vec())
+                    .with_timezone_opt(tz.clone()),
+            ))
+        }
+        DataType::Timestamp(TimeUnit::Microsecond, tz) => {
+            let micros: Vec<Option<i64>> = millis_vec
+                .iter()
+                .map(|opt_ms| opt_ms.map(|ms| ms * 1000))
+                .collect();
+            Ok(Arc::new(
+                TimestampMicrosecondArray::from(micros).with_timezone_opt(tz.clone()),
+            ))
+        }
+        DataType::Timestamp(TimeUnit::Nanosecond, tz) => {
+            let nanos: Vec<Option<i64>> = millis_vec
+                .iter()
+                .map(|opt_ms| opt_ms.map(|ms| ms * 1_000_000))
+                .collect();
+            Ok(Arc::new(
+                TimestampNanosecondArray::from(nanos).with_timezone_opt(tz.clone()),
+            ))
+        }
+        _ => Err(AvengerScaleError::InvalidDataTypeError(
+            data_type.clone(),
+            "temporal array".to_string(),
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1053,5 +1140,30 @@ mod tests {
         // Test day-level selection
         let interval = select_time_interval(864_000_000, 10.0); // 10 days
         assert_eq!(interval, TimeInterval::Day(1));
+    }
+
+    #[test]
+    fn test_time_scale_invert() -> Result<(), AvengerScaleError> {
+        // Create domain from 2024-01-01 to 2024-12-31
+        let start_date = 19723; // 2024-01-01 in days since epoch
+        let end_date = 20088;   // 2024-12-31 in days since epoch
+
+        let domain_start = Arc::new(Date32Array::from(vec![start_date])) as ArrayRef;
+        let domain_end = Arc::new(Date32Array::from(vec![end_date])) as ArrayRef;
+
+        let scale = TimeScale::configured((domain_start, domain_end), (0.0, 100.0));
+
+        // Test inverting some range values
+        let range_values = Arc::new(Float32Array::from(vec![0.0, 50.0, 100.0, 25.0])) as ArrayRef;
+        let inverted = scale.invert(&range_values)?;
+        let inverted_array = inverted.as_any().downcast_ref::<Date32Array>().unwrap();
+
+        // Check results
+        assert_eq!(inverted_array.value(0), start_date); // 0.0 -> start
+        assert!((inverted_array.value(1) - 19905).abs() <= 1); // 50.0 -> mid-year (approximately)
+        assert_eq!(inverted_array.value(2), end_date); // 100.0 -> end
+        assert!(inverted_array.value(3) > start_date && inverted_array.value(3) < inverted_array.value(1)); // 25.0 -> Q1
+
+        Ok(())
     }
 }
