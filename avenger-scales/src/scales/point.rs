@@ -2,12 +2,13 @@ use std::sync::Arc;
 
 use arrow::array::{ArrayRef, Float32Array};
 use avenger_common::value::ScalarOrArray;
+use lazy_static::lazy_static;
 
 use crate::error::AvengerScaleError;
 
 use super::{
-    band::BandScale, ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext,
-    ScaleImpl,
+    band::BandScale, ConfiguredScale, InferDomainFromDataMethod, OptionConstraint,
+    OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl,
 };
 
 /// Point scale that maps discrete domain values to evenly-spaced points along a continuous range.
@@ -61,6 +62,22 @@ impl ScaleImpl for PointScale {
 
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
+    }
+
+    fn option_definitions(&self) -> &[OptionDefinition] {
+        lazy_static! {
+            static ref DEFINITIONS: Vec<OptionDefinition> = vec![
+                OptionDefinition::optional(
+                    "align",
+                    OptionConstraint::FloatRange { min: 0.0, max: 1.0 }
+                ),
+                OptionDefinition::optional("padding", OptionConstraint::NonNegativeFloat),
+                OptionDefinition::optional("round", OptionConstraint::Boolean),
+                OptionDefinition::optional("range_offset", OptionConstraint::Float),
+            ];
+        }
+
+        &DEFINITIONS
     }
 
     fn scale(

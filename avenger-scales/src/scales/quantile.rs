@@ -8,10 +8,14 @@ use arrow::{
     },
     datatypes::{DataType, Float32Type},
 };
+use lazy_static::lazy_static;
 
 use crate::error::AvengerScaleError;
 
-use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};
+use super::{
+    ConfiguredScale, InferDomainFromDataMethod, OptionDefinition, ScaleConfig, ScaleContext,
+    ScaleImpl,
+};
 
 /// Quantile scale that maps continuous numeric input values to discrete range values
 /// using quantile boundaries computed from the domain.
@@ -48,6 +52,18 @@ impl ScaleImpl for QuantileScale {
 
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
+    }
+
+    fn option_definitions(&self) -> &[OptionDefinition] {
+        lazy_static! {
+            static ref DEFINITIONS: Vec<OptionDefinition> = vec![
+                // Quantile scale supports no custom options currently
+                // But default option is allowed for consistency
+                OptionDefinition::optional("default", super::OptionConstraint::String),
+            ];
+        }
+
+        &DEFINITIONS
     }
 
     fn scale(
