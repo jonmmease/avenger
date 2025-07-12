@@ -230,7 +230,17 @@ fn build_range_values(config: &ScaleConfig) -> Result<Vec<f32>, AvengerScaleErro
     let step = if round { step.floor() } else { step };
 
     let start = start + (stop - start - step * (n as f32 - padding_inner)) * align;
-    let start = if round { start.round() } else { start };
+    let start = if round {
+        // When rounding is enabled and the original range starts at 0 with no padding,
+        // keep the start at 0 to avoid sub-pixel shifts (matches Vega behavior)
+        if range_start == 0.0 && !reverse && padding_inner == 0.0 && padding_outer == 0.0 {
+            0.0
+        } else {
+            start.round()
+        }
+    } else {
+        start
+    };
 
     // Generate range values
     let range_values: Vec<f32> = (0..n).map(|i| start + step * i as f32).collect::<Vec<_>>();
@@ -277,6 +287,11 @@ pub fn bandwidth(config: &ScaleConfig) -> Result<f32, AvengerScaleError> {
     };
 
     let step = (stop - start) / 1.0_f32.max(bandspace(n, Some(padding_inner), Some(padding_outer)));
+    let step = if config.option_boolean("round", false) {
+        step.floor()
+    } else {
+        step
+    };
     let bandwidth = step * (1.0 - padding_inner);
 
     if config.option_boolean("round", false) {
@@ -415,11 +430,12 @@ mod tests {
             .scale_to_numeric(&config, &values)?
             .as_vec(values.len(), None);
 
-        // With rounding, values should be integers
-        assert_eq!(result[0], 1.0); // "a"
-        assert_eq!(result[1], 34.0); // "b"
-        assert_eq!(result[2], 34.0); // "b"
-        assert_eq!(result[3], 67.0); // "c"
+        // With rounding and range starting at 0 (no padding),
+        // positions start at 0 to match Vega behavior
+        assert_eq!(result[0], 0.0); // "a"
+        assert_eq!(result[1], 33.0); // "b"
+        assert_eq!(result[2], 33.0); // "b"
+        assert_eq!(result[3], 66.0); // "c"
         assert!(result[4].is_nan()); // "f"
         assert_eq!(bandwidth(&config)?, 33.0);
 
@@ -564,6 +580,134 @@ mod tests {
         assert!(scale
             .invert_range_interval(&config, (f32::NAN, 50.0))?
             .is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_band_scale_round_various_ranges() -> Result<(), AvengerScaleError> {
+        // Test rounding behavior across various ranges to ensure consistency with Vega
+        let domain = Arc::new(StringArray::from(vec!["A", "B", "C", "D", "E"]));
+        let scale = BandScale;
+
+        // Test with various ranges to check rounding behavior
+        let test_cases = vec![
+            // (range_start, range_stop, expected_positions, expected_bandwidth)
+            (0.0, 300.0, vec![0.0, 60.0, 120.0, 180.0, 240.0], 60.0),
+            (0.0, 295.0, vec![0.0, 59.0, 118.0, 177.0, 236.0], 59.0),
+            (10.0, 290.0, vec![10.0, 66.0, 122.0, 178.0, 234.0], 56.0),
+            (0.0, 100.0, vec![0.0, 20.0, 40.0, 60.0, 80.0], 20.0),
+            // When range starts at 0 with no padding, positions start at 0 to match Vega
+            (0.0, 97.0, vec![0.0, 19.0, 38.0, 57.0, 76.0], 19.0),
+        ];
+
+        for (start, stop, expected_positions, expected_bandwidth) in test_cases {
+            let config = ScaleConfig {
+                domain: domain.clone(),
+                range: Arc::new(Float32Array::from(vec![start, stop])),
+                options: vec![
+                    ("round".to_string(), true.into()),
+                    ("align".to_string(), 0.5.into()),
+                ]
+                .into_iter()
+                .collect(),
+                context: ScaleContext::default(),
+            };
+
+            let values = Arc::new(StringArray::from(vec!["A", "B", "C", "D", "E"])) as ArrayRef;
+            let result = scale
+                .scale_to_numeric(&config, &values)?
+                .as_vec(values.len(), None);
+
+            // Check positions
+            for (i, (actual, expected)) in result.iter().zip(expected_positions.iter()).enumerate()
+            {
+                assert_eq!(
+                    *actual, *expected,
+                    "Position mismatch at index {} for range [{}, {}]: expected {}, got {}",
+                    i, start, stop, expected, actual
+                );
+            }
+
+            // Check bandwidth
+            assert_eq!(
+                bandwidth(&config)?,
+                expected_bandwidth,
+                "Bandwidth mismatch for range [{}, {}]",
+                start,
+                stop
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_band_scale_round_with_padding_detailed() -> Result<(), AvengerScaleError> {
+        // Test rounding with padding to ensure proper calculation
+        let domain = Arc::new(StringArray::from(vec!["A", "B", "C"]));
+        let scale = BandScale;
+
+        let config = ScaleConfig {
+            domain: domain.clone(),
+            range: Arc::new(Float32Array::from(vec![0.0, 300.0])),
+            options: vec![
+                ("round".to_string(), true.into()),
+                ("padding_inner".to_string(), 0.1.into()),
+                ("padding_outer".to_string(), 0.1.into()),
+                ("align".to_string(), 0.5.into()),
+            ]
+            .into_iter()
+            .collect(),
+            context: ScaleContext::default(),
+        };
+
+        let values = Arc::new(StringArray::from(vec!["A", "B", "C"])) as ArrayRef;
+        let result = scale
+            .scale_to_numeric(&config, &values)?
+            .as_vec(values.len(), None);
+
+        // With padding, the calculation follows:
+        // step = floor(300 / (3 - 0.1 + 0.2)) = floor(96.774) = 96
+        // bandwidth = round(96 * 0.9) = round(86.4) = 86
+        // start = round(0 + (300 - 96 * 2.9) * 0.5) = round(10.8) = 11
+
+        // Expected positions: [11, 107, 203]
+        assert_eq!(result[0], 11.0, "First position should be 11");
+        assert_eq!(result[1], 107.0, "Second position should be 107");
+        assert_eq!(result[2], 203.0, "Third position should be 203");
+        assert_eq!(bandwidth(&config)?, 86.0, "Bandwidth should be 86");
+        assert_eq!(step(&config)?, 96.0, "Step should be 96");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_band_scale_round_fractional_step() -> Result<(), AvengerScaleError> {
+        // Test edge case where step calculation results in fractional value
+        let domain = Arc::new(StringArray::from(vec!["A", "B"]));
+        let scale = BandScale;
+
+        // Case where step = 101 / 2 = 50.5, which floors to 50
+        let config = ScaleConfig {
+            domain: domain.clone(),
+            range: Arc::new(Float32Array::from(vec![0.0, 101.0])),
+            options: vec![("round".to_string(), true.into())]
+                .into_iter()
+                .collect(),
+            context: ScaleContext::default(),
+        };
+
+        let values = Arc::new(StringArray::from(vec!["A", "B"])) as ArrayRef;
+        let result = scale
+            .scale_to_numeric(&config, &values)?
+            .as_vec(values.len(), None);
+
+        // With Vega-matching behavior: when round=true and range starts at 0 with no padding,
+        // start position is kept at 0 to avoid sub-pixel shifts
+        assert_eq!(result[0], 0.0, "First position should be 0");
+        assert_eq!(result[1], 50.0, "Second position should be 50");
+        assert_eq!(bandwidth(&config)?, 50.0, "Bandwidth should be 50");
 
         Ok(())
     }
