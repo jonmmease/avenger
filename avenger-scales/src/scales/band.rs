@@ -28,12 +28,16 @@ use super::{
 ///   0 places at band start, 0.5 at band center, and 1 at band end. This effectively
 ///   controls where within its allocated band each mark is positioned.
 ///
-/// - **padding_inner** (f32, default: 0.0): Padding between adjacent bands as a fraction [0, 1]
-///   of the step size. A value of 0.2 means 20% of the step is used for padding.
+/// - **padding** (f32, default: 0.0): Sets both padding_inner and padding_outer to the same value.
+///   This is a convenience option for uniform padding.
 ///
-/// - **padding_outer** (f32, default: 0.0): Padding before the first and after the last band
-///   as a multiple of the step size. Must be non-negative. A value of 0.5 adds half a step
-///   of padding on each end.
+/// - **padding_inner** / **paddingInner** (f32, default: 0.0): Padding between adjacent bands 
+///   as a fraction [0, 1] of the step size. A value of 0.2 means 20% of the step is used for padding.
+///   Accepts both snake_case and camelCase names.
+///
+/// - **padding_outer** / **paddingOuter** (f32, default: 0.0): Padding before the first and after 
+///   the last band as a multiple of the step size. Must be non-negative. A value of 0.5 adds half 
+///   a step of padding on each end. Accepts both snake_case and camelCase names.
 ///
 /// - **round** (boolean, default: false): When true, band positions and widths are rounded
 ///   to integer pixel values for crisp rendering.
@@ -178,8 +182,15 @@ fn build_range_values(config: &ScaleConfig) -> Result<Vec<f32>, AvengerScaleErro
 
     let align = config.option_f32("align", 0.5);
     let band = config.option_f32("band", 0.0);
-    let padding_inner = config.option_f32("padding_inner", 0.0);
-    let padding_outer = config.option_f32("padding_outer", 0.0);
+    
+    // Check for generic padding option first (sets both inner and outer)
+    let default_padding = config.option_f32("padding", 0.0);
+    
+    // Support both camelCase (VegaFusion) and snake_case option names
+    let padding_inner = config.option_f32("padding_inner", 
+        config.option_f32("paddingInner", default_padding));
+    let padding_outer = config.option_f32("padding_outer", 
+        config.option_f32("paddingOuter", default_padding));
     let round = config.option_boolean("round", false);
     let range_offset = config.option_f32("range_offset", 0.0);
     let (range_start, range_stop) = config.numeric_interval_range()?;
@@ -267,8 +278,15 @@ pub fn bandwidth(config: &ScaleConfig) -> Result<f32, AvengerScaleError> {
     }
 
     let (range_start, range_stop) = config.numeric_interval_range()?;
-    let padding_inner = config.option_f32("padding_inner", 0.0);
-    let padding_outer = config.option_f32("padding_outer", 0.0);
+    
+    // Check for generic padding option first (sets both inner and outer)
+    let default_padding = config.option_f32("padding", 0.0);
+    
+    // Support both camelCase (VegaFusion) and snake_case option names
+    let padding_inner = config.option_f32("padding_inner", 
+        config.option_f32("paddingInner", default_padding));
+    let padding_outer = config.option_f32("padding_outer", 
+        config.option_f32("paddingOuter", default_padding));
 
     let (start, stop) = if range_stop < range_start {
         (range_stop, range_start)
