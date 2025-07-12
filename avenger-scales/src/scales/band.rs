@@ -230,17 +230,7 @@ fn build_range_values(config: &ScaleConfig) -> Result<Vec<f32>, AvengerScaleErro
     let step = if round { step.floor() } else { step };
 
     let start = start + (stop - start - step * (n as f32 - padding_inner)) * align;
-    let start = if round {
-        // When rounding is enabled and the original range starts at 0 with no padding,
-        // keep the start at 0 to avoid sub-pixel shifts (matches Vega behavior)
-        if range_start == 0.0 && !reverse && padding_inner == 0.0 && padding_outer == 0.0 {
-            0.0
-        } else {
-            start.round()
-        }
-    } else {
-        start
-    };
+    let start = if round { start.round() } else { start };
 
     // Generate range values
     let range_values: Vec<f32> = (0..n).map(|i| start + step * i as f32).collect::<Vec<_>>();
@@ -430,12 +420,11 @@ mod tests {
             .scale_to_numeric(&config, &values)?
             .as_vec(values.len(), None);
 
-        // With rounding and range starting at 0 (no padding),
-        // positions start at 0 to match Vega behavior
-        assert_eq!(result[0], 0.0); // "a"
-        assert_eq!(result[1], 33.0); // "b"
-        assert_eq!(result[2], 33.0); // "b"
-        assert_eq!(result[3], 66.0); // "c"
+        // With rounding, positions are offset by alignment
+        assert_eq!(result[0], 1.0); // "a"
+        assert_eq!(result[1], 34.0); // "b"
+        assert_eq!(result[2], 34.0); // "b"
+        assert_eq!(result[3], 67.0); // "c"
         assert!(result[4].is_nan()); // "f"
         assert_eq!(bandwidth(&config)?, 33.0);
 
@@ -597,8 +586,8 @@ mod tests {
             (0.0, 295.0, vec![0.0, 59.0, 118.0, 177.0, 236.0], 59.0),
             (10.0, 290.0, vec![10.0, 66.0, 122.0, 178.0, 234.0], 56.0),
             (0.0, 100.0, vec![0.0, 20.0, 40.0, 60.0, 80.0], 20.0),
-            // When range starts at 0 with no padding, positions start at 0 to match Vega
-            (0.0, 97.0, vec![0.0, 19.0, 38.0, 57.0, 76.0], 19.0),
+            // With remainder of 2, offset = round(2 * 0.5) = 1
+            (0.0, 97.0, vec![1.0, 20.0, 39.0, 58.0, 77.0], 19.0),
         ];
 
         for (start, stop, expected_positions, expected_bandwidth) in test_cases {
@@ -703,11 +692,50 @@ mod tests {
             .scale_to_numeric(&config, &values)?
             .as_vec(values.len(), None);
 
-        // With Vega-matching behavior: when round=true and range starts at 0 with no padding,
-        // start position is kept at 0 to avoid sub-pixel shifts
-        assert_eq!(result[0], 0.0, "First position should be 0");
-        assert_eq!(result[1], 50.0, "Second position should be 50");
+        // With rounding, positions include alignment offset
+        assert_eq!(result[0], 1.0, "First position should be 1");
+        assert_eq!(result[1], 51.0, "Second position should be 51");
         assert_eq!(bandwidth(&config)?, 50.0, "Bandwidth should be 50");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_band_scale_matches_vega_positions() -> Result<(), AvengerScaleError> {
+        // Test that positions match Vega exactly for a typical scenario
+        let domain = Arc::new(StringArray::from(vec![
+            "A", "B", "C", "D", "E", "F", "G", "H",
+        ]));
+        let scale = BandScale;
+
+        let config = ScaleConfig {
+            domain: domain.clone(),
+            range: Arc::new(Float32Array::from(vec![0.0, 300.0])),
+            options: vec![
+                ("round".to_string(), true.into()),
+                ("align".to_string(), 0.5.into()),
+            ]
+            .into_iter()
+            .collect(),
+            context: ScaleContext::default(),
+        };
+
+        let values = Arc::new(StringArray::from(vec![
+            "A", "B", "C", "D", "E", "F", "G", "H",
+        ])) as ArrayRef;
+        let result = scale
+            .scale_to_numeric(&config, &values)?
+            .as_vec(values.len(), None);
+
+        // Vega positions: with step=37, remainder=4, offset=2
+        let expected = vec![2.0, 39.0, 76.0, 113.0, 150.0, 187.0, 224.0, 261.0];
+
+        for i in 0..8 {
+            assert_eq!(result[i], expected[i], "Position mismatch at index {}", i);
+        }
+
+        assert_eq!(bandwidth(&config)?, 37.0, "Bandwidth should be 37");
+        assert_eq!(step(&config)?, 37.0, "Step should be 37");
 
         Ok(())
     }
