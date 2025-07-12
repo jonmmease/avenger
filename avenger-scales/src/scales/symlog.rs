@@ -7,12 +7,13 @@ use arrow::{
     datatypes::{DataType, Float32Type},
 };
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
+use lazy_static::lazy_static;
 
 use crate::{array, error::AvengerScaleError};
 
 use super::{
-    linear::LinearScale, ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext,
-    ScaleImpl,
+    linear::LinearScale, ConfiguredScale, InferDomainFromDataMethod, OptionConstraint,
+    OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl,
 };
 
 /// Symmetric log scale that provides smooth linear-to-logarithmic transitions for data
@@ -110,6 +111,22 @@ impl ScaleImpl for SymlogScale {
 
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Interval
+    }
+
+    fn option_definitions(&self) -> &[OptionDefinition] {
+        lazy_static! {
+            static ref DEFINITIONS: Vec<OptionDefinition> = vec![
+                OptionDefinition::optional("constant", OptionConstraint::PositiveFloat),
+                OptionDefinition::optional("clamp", OptionConstraint::Boolean),
+                OptionDefinition::optional("range_offset", OptionConstraint::Float),
+                OptionDefinition::optional("round", OptionConstraint::Boolean),
+                OptionDefinition::optional("nice", OptionConstraint::nice()),
+                OptionDefinition::optional("zero", OptionConstraint::Boolean),
+                OptionDefinition::optional("default", OptionConstraint::Float),
+            ];
+        }
+
+        &DEFINITIONS
     }
 
     fn invert(

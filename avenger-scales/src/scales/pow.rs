@@ -10,12 +10,13 @@ use avenger_common::{
     types::ColorOrGradient,
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
+use lazy_static::lazy_static;
 
 use crate::{array, color_interpolator::scale_numeric_to_color, error::AvengerScaleError};
 
 use super::{
-    linear::LinearScale, ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext,
-    ScaleImpl,
+    linear::LinearScale, ConfiguredScale, InferDomainFromDataMethod, OptionConstraint,
+    OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl,
 };
 
 /// Power scale that maps a continuous numeric domain to a continuous numeric range
@@ -116,6 +117,22 @@ impl ScaleImpl for PowScale {
 
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Interval
+    }
+
+    fn option_definitions(&self) -> &[OptionDefinition] {
+        lazy_static! {
+            static ref DEFINITIONS: Vec<OptionDefinition> = vec![
+                OptionDefinition::optional("exponent", OptionConstraint::Float),
+                OptionDefinition::optional("clamp", OptionConstraint::Boolean),
+                OptionDefinition::optional("range_offset", OptionConstraint::Float),
+                OptionDefinition::optional("round", OptionConstraint::Boolean),
+                OptionDefinition::optional("nice", OptionConstraint::nice()),
+                OptionDefinition::optional("zero", OptionConstraint::Boolean),
+                OptionDefinition::optional("default", OptionConstraint::Float),
+            ];
+        }
+
+        &DEFINITIONS
     }
 
     fn invert(

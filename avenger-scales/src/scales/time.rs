@@ -11,11 +11,15 @@ use avenger_common::types::LinearScaleAdjustment;
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Timelike, Utc};
 use chrono_tz::Tz;
+use lazy_static::lazy_static;
 
 use crate::error::AvengerScaleError;
 use crate::formatter::{DateFormatter, TimestampFormatter, TimestamptzFormatter};
 
-use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};
+use super::{
+    ConfiguredScale, InferDomainFromDataMethod, OptionConstraint, OptionDefinition, ScaleConfig,
+    ScaleContext, ScaleImpl,
+};
 
 /// Time scale for temporal data visualization.
 ///
@@ -506,6 +510,34 @@ impl ScaleImpl for TimeScale {
         InferDomainFromDataMethod::Interval
     }
 
+    fn option_definitions(&self) -> &[OptionDefinition] {
+        lazy_static! {
+            static ref DEFINITIONS: Vec<OptionDefinition> = vec![
+                OptionDefinition::optional("timezone", OptionConstraint::String),
+                OptionDefinition::optional("nice", OptionConstraint::nice()),
+                OptionDefinition::optional("interval", OptionConstraint::String),
+                OptionDefinition::optional(
+                    "week_start",
+                    OptionConstraint::StringEnum {
+                        values: vec![
+                            "sunday".to_string(),
+                            "monday".to_string(),
+                            "tuesday".to_string(),
+                            "wednesday".to_string(),
+                            "thursday".to_string(),
+                            "friday".to_string(),
+                            "saturday".to_string()
+                        ]
+                    }
+                ),
+                OptionDefinition::optional("locale", OptionConstraint::String),
+                OptionDefinition::optional("default", OptionConstraint::String),
+            ];
+        }
+
+        &DEFINITIONS
+    }
+
     fn scale(
         &self,
         config: &ScaleConfig,
@@ -772,10 +804,8 @@ impl ScaleImpl for TimeScale {
             Some(scalar) => {
                 if let Ok(true) = scalar.as_boolean() {
                     10.0
-                } else if let Ok(count) = scalar.as_f32() {
-                    count
                 } else {
-                    10.0
+                    scalar.as_f32().unwrap_or(10.0)
                 }
             }
             None => 10.0,
@@ -1981,7 +2011,7 @@ mod tests {
             .with_option("timezone", tz_str);
 
         // Test scaling values across the DST gap
-        let test_times = vec![
+        let test_times = [
             et.with_ymd_and_hms(2024, 3, 10, 0, 0, 0).unwrap(), // Start
             et.with_ymd_and_hms(2024, 3, 10, 1, 0, 0).unwrap(), // Before gap
             et.with_ymd_and_hms(2024, 3, 10, 3, 0, 0).unwrap(), // After gap (2AM skipped)
@@ -2014,8 +2044,8 @@ mod tests {
             .unwrap();
 
         // Check that inverted values match original times (approximately)
-        for i in 0..test_times.len() {
-            let diff = (inverted_array.value(i) - test_times[i].timestamp_millis()).abs();
+        for (i, test_time) in test_times.iter().enumerate() {
+            let diff = (inverted_array.value(i) - test_time.timestamp_millis()).abs();
             assert!(diff < 60000, "Inverted time differs by more than 1 minute");
             // Within 1 minute
         }

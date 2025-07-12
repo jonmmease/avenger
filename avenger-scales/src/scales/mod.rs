@@ -35,6 +35,355 @@ use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use coerce::{CastNumericCoercer, Coercer, NumericCoercer};
 
+/// Validation constraint for a scale option.
+///
+/// This enum defines various validation rules that can be applied to scale options.
+/// Scale implementations use these constraints to validate their configuration options
+/// before processing data.
+///
+/// # Example
+/// ```ignore
+/// // In a scale implementation:
+/// fn validate_options(&self, config: &ScaleConfig) -> Result<(), AvengerScaleError> {
+///     let definitions = vec![
+///         OptionDefinition::optional("base", OptionConstraint::PositiveFloat),
+///         OptionDefinition::optional("clamp", OptionConstraint::Boolean),
+///         OptionDefinition::optional("nice", OptionConstraint::nice()),
+///     ];
+///     
+///     OptionDefinition::validate_all(&definitions, &config.options)
+/// }
+/// ```
+#[derive(Debug, Clone)]
+pub enum OptionConstraint {
+    /// Option must be a boolean
+    Boolean,
+    /// Option must be a float
+    Float,
+    /// Option must be an integer
+    Integer,
+    /// Option must be a string
+    String,
+    /// Option must be a float within a range (inclusive)
+    FloatRange { min: f32, max: f32 },
+    /// Option must be an integer within a range (inclusive)
+    IntegerRange { min: i32, max: i32 },
+    /// Option must be one of the specified string values
+    StringEnum { values: Vec<String> },
+    /// Option must be a positive float (> 0)
+    PositiveFloat,
+    /// Option must be a non-negative float (>= 0)
+    NonNegativeFloat,
+    /// Option must be a positive integer (> 0)
+    PositiveInteger,
+    /// Option must be a non-negative integer (>= 0)
+    NonNegativeInteger,
+    /// Custom validation function
+    Custom {
+        description: String,
+        validator: fn(&Scalar) -> Result<(), String>,
+    },
+}
+
+impl OptionConstraint {
+    /// Constraint for 'nice' option that accepts boolean or numeric values
+    pub fn nice() -> Self {
+        Self::Custom {
+            description: "boolean or number".to_string(),
+            validator: |value| {
+                if value.as_boolean().is_ok() || value.as_f32().is_ok() {
+                    Ok(())
+                } else {
+                    Err("must be a boolean or numeric value".to_string())
+                }
+            },
+        }
+    }
+
+    /// Constraint for base option in logarithmic scales (must be positive and not 1)
+    pub fn log_base() -> Self {
+        Self::Custom {
+            description: "positive number not equal to 1".to_string(),
+            validator: |value| match value.as_f32() {
+                Ok(v) if v > 0.0 && v != 1.0 => Ok(()),
+                Ok(v) => Err(format!("must be positive and not equal to 1 (got {})", v)),
+                Err(_) => Err("must be a numeric value".to_string()),
+            },
+        }
+    }
+}
+
+/// Definition of a scale option with its name and validation constraints.
+///
+/// This struct represents a single configuration option for a scale, including
+/// its name, validation constraint, and whether it's required. Scale implementations
+/// use these definitions to automatically validate their configuration options.
+///
+/// # Example
+/// ```ignore
+/// let definitions = vec![
+///     OptionDefinition::required("domain", OptionConstraint::Float),
+///     OptionDefinition::optional("clamp", OptionConstraint::Boolean),
+///     OptionDefinition::optional("nice", OptionConstraint::nice()),
+/// ];
+/// ```
+#[derive(Debug, Clone)]
+pub struct OptionDefinition {
+    pub name: String,
+    pub constraint: OptionConstraint,
+    pub required: bool,
+}
+
+impl OptionDefinition {
+    /// Create a new required option definition.
+    ///
+    /// # Arguments
+    /// * `name` - The name of the option
+    /// * `constraint` - The validation constraint to apply
+    ///
+    /// # Returns
+    /// A new `OptionDefinition` with `required` set to `true`
+    pub fn required(name: impl Into<String>, constraint: OptionConstraint) -> Self {
+        Self {
+            name: name.into(),
+            constraint,
+            required: true,
+        }
+    }
+
+    /// Create a new optional option definition.
+    ///
+    /// # Arguments
+    /// * `name` - The name of the option
+    /// * `constraint` - The validation constraint to apply
+    ///
+    /// # Returns
+    /// A new `OptionDefinition` with `required` set to `false`
+    pub fn optional(name: impl Into<String>, constraint: OptionConstraint) -> Self {
+        Self {
+            name: name.into(),
+            constraint,
+            required: false,
+        }
+    }
+
+    /// Validate a set of options against a list of option definitions.
+    ///
+    /// This method checks that:
+    /// 1. All provided options are defined in the definitions list
+    /// 2. All required options are present
+    /// 3. All option values satisfy their constraints
+    ///
+    /// # Arguments
+    /// * `definitions` - The list of valid option definitions
+    /// * `options` - The options to validate
+    ///
+    /// # Returns
+    /// * `Ok(())` if all validations pass
+    /// * `Err(AvengerScaleError)` if any validation fails
+    ///
+    /// # Example
+    /// ```ignore
+    /// let definitions = vec![
+    ///     OptionDefinition::optional("clamp", OptionConstraint::Boolean),
+    ///     OptionDefinition::optional("round", OptionConstraint::Boolean),
+    /// ];
+    /// OptionDefinition::validate_all(&definitions, &config.options)?;
+    /// ```
+    pub fn validate_all(
+        definitions: &[OptionDefinition],
+        options: &HashMap<String, Scalar>,
+    ) -> Result<(), AvengerScaleError> {
+        // Check for unknown options
+        for key in options.keys() {
+            if !definitions.iter().any(|def| def.name == *key) {
+                return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
+                    "Unknown option '{}'. Valid options are: {}",
+                    key,
+                    definitions
+                        .iter()
+                        .map(|d| d.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )));
+            }
+        }
+
+        // Validate each defined option
+        for def in definitions {
+            if let Some(value) = options.get(&def.name) {
+                def.validate(value)?;
+            } else if def.required {
+                return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
+                    "Required option '{}' is missing",
+                    def.name
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Validate a value against this option's constraint.
+    ///
+    /// # Arguments
+    /// * `value` - The value to validate
+    ///
+    /// # Returns
+    /// * `Ok(())` if the value satisfies the constraint
+    /// * `Err(AvengerScaleError)` if the value doesn't satisfy the constraint
+    pub fn validate(&self, value: &Scalar) -> Result<(), AvengerScaleError> {
+        match &self.constraint {
+            OptionConstraint::Boolean => value.as_boolean().map(|_| ()).map_err(|_| {
+                AvengerScaleError::InvalidScalePropertyValue(format!(
+                    "Option '{}' must be a boolean value",
+                    self.name
+                ))
+            }),
+            OptionConstraint::Float => value.as_f32().map(|_| ()).map_err(|_| {
+                AvengerScaleError::InvalidScalePropertyValue(format!(
+                    "Option '{}' must be a float value",
+                    self.name
+                ))
+            }),
+            OptionConstraint::Integer => value.as_i32().map(|_| ()).map_err(|_| {
+                AvengerScaleError::InvalidScalePropertyValue(format!(
+                    "Option '{}' must be an integer value",
+                    self.name
+                ))
+            }),
+            OptionConstraint::String => value.as_string().map(|_| ()).map_err(|_| {
+                AvengerScaleError::InvalidScalePropertyValue(format!(
+                    "Option '{}' must be a string value",
+                    self.name
+                ))
+            }),
+            OptionConstraint::FloatRange { min, max } => {
+                let v = value.as_f32().map_err(|_| {
+                    AvengerScaleError::InvalidScalePropertyValue(format!(
+                        "Option '{}' must be a float value",
+                        self.name
+                    ))
+                })?;
+                if v < *min || v > *max {
+                    Err(AvengerScaleError::InvalidScalePropertyValue(format!(
+                        "Option '{}' must be between {} and {} (got {})",
+                        self.name, min, max, v
+                    )))
+                } else {
+                    Ok(())
+                }
+            }
+            OptionConstraint::IntegerRange { min, max } => {
+                let v = value.as_i32().map_err(|_| {
+                    AvengerScaleError::InvalidScalePropertyValue(format!(
+                        "Option '{}' must be an integer value",
+                        self.name
+                    ))
+                })?;
+                if v < *min || v > *max {
+                    Err(AvengerScaleError::InvalidScalePropertyValue(format!(
+                        "Option '{}' must be between {} and {} (got {})",
+                        self.name, min, max, v
+                    )))
+                } else {
+                    Ok(())
+                }
+            }
+            OptionConstraint::StringEnum { values } => {
+                let v = value.as_string().map_err(|_| {
+                    AvengerScaleError::InvalidScalePropertyValue(format!(
+                        "Option '{}' must be a string value",
+                        self.name
+                    ))
+                })?;
+                if !values.contains(&v) {
+                    Err(AvengerScaleError::InvalidScalePropertyValue(format!(
+                        "Option '{}' must be one of: {} (got '{}')",
+                        self.name,
+                        values.join(", "),
+                        v
+                    )))
+                } else {
+                    Ok(())
+                }
+            }
+            OptionConstraint::PositiveFloat => {
+                let v = value.as_f32().map_err(|_| {
+                    AvengerScaleError::InvalidScalePropertyValue(format!(
+                        "Option '{}' must be a float value",
+                        self.name
+                    ))
+                })?;
+                if v <= 0.0 {
+                    Err(AvengerScaleError::InvalidScalePropertyValue(format!(
+                        "Option '{}' must be positive (got {})",
+                        self.name, v
+                    )))
+                } else {
+                    Ok(())
+                }
+            }
+            OptionConstraint::NonNegativeFloat => {
+                let v = value.as_f32().map_err(|_| {
+                    AvengerScaleError::InvalidScalePropertyValue(format!(
+                        "Option '{}' must be a float value",
+                        self.name
+                    ))
+                })?;
+                if v < 0.0 {
+                    Err(AvengerScaleError::InvalidScalePropertyValue(format!(
+                        "Option '{}' must be non-negative (got {})",
+                        self.name, v
+                    )))
+                } else {
+                    Ok(())
+                }
+            }
+            OptionConstraint::PositiveInteger => {
+                let v = value.as_i32().map_err(|_| {
+                    AvengerScaleError::InvalidScalePropertyValue(format!(
+                        "Option '{}' must be an integer value",
+                        self.name
+                    ))
+                })?;
+                if v <= 0 {
+                    Err(AvengerScaleError::InvalidScalePropertyValue(format!(
+                        "Option '{}' must be positive (got {})",
+                        self.name, v
+                    )))
+                } else {
+                    Ok(())
+                }
+            }
+            OptionConstraint::NonNegativeInteger => {
+                let v = value.as_i32().map_err(|_| {
+                    AvengerScaleError::InvalidScalePropertyValue(format!(
+                        "Option '{}' must be an integer value",
+                        self.name
+                    ))
+                })?;
+                if v < 0 {
+                    Err(AvengerScaleError::InvalidScalePropertyValue(format!(
+                        "Option '{}' must be non-negative (got {})",
+                        self.name, v
+                    )))
+                } else {
+                    Ok(())
+                }
+            }
+            OptionConstraint::Custom {
+                description,
+                validator,
+            } => validator(value).map_err(|err| {
+                AvengerScaleError::InvalidScalePropertyValue(format!(
+                    "Option '{}' validation failed ({}): {}",
+                    self.name, description, err
+                ))
+            }),
+        }
+    }
+}
+
 /// Macro to generate scale_to_X trait methods that return a default error implementation
 #[macro_export]
 macro_rules! declare_enum_scale_method {
@@ -180,6 +529,62 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
     /// Method that should be used to infer a scale's domain from the data that it will scale
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod;
 
+    /// Return the option definitions for this scale.
+    ///
+    /// This method should return a slice of `OptionDefinition` structs that describe
+    /// all valid options for this scale type. The default implementation returns
+    /// an empty slice, indicating that the scale has no configurable options.
+    ///
+    /// Scale implementations should override this method to define their supported
+    /// options. The `validate_options` method will automatically use these definitions
+    /// to validate the scale configuration.
+    ///
+    /// # Example
+    /// ```ignore
+    /// fn option_definitions(&self) -> &[OptionDefinition] {
+    ///     static DEFINITIONS: &[OptionDefinition] = &[
+    ///         OptionDefinition::optional("clamp", OptionConstraint::Boolean),
+    ///         OptionDefinition::optional("round", OptionConstraint::Boolean),
+    ///         OptionDefinition::optional("nice", OptionConstraint::nice()),
+    ///     ];
+    ///     DEFINITIONS
+    /// }
+    /// ```
+    fn option_definitions(&self) -> &[OptionDefinition] {
+        &[]
+    }
+
+    /// Validate scale options.
+    ///
+    /// The default implementation automatically validates options against the
+    /// definitions returned by `option_definitions()`. Scale implementations
+    /// typically don't need to override this method unless they have special
+    /// validation requirements beyond what `OptionDefinition` provides.
+    ///
+    /// This method is automatically called before scaling operations.
+    ///
+    /// # Implementation Note
+    /// If you need custom validation beyond what `OptionDefinition` provides,
+    /// you can override this method, but make sure to call the default
+    /// implementation first:
+    /// ```ignore
+    /// fn validate_options(&self, config: &ScaleConfig) -> Result<(), AvengerScaleError> {
+    ///     // First run the standard validation
+    ///     OptionDefinition::validate_all(self.option_definitions(), &config.options)?;
+    ///     
+    ///     // Then add custom validation
+    ///     if some_custom_condition {
+    ///         return Err(AvengerScaleError::InvalidScalePropertyValue(
+    ///             "Custom validation failed".to_string()
+    ///         ));
+    ///     }
+    ///     Ok(())
+    /// }
+    /// ```
+    fn validate_options(&self, config: &ScaleConfig) -> Result<(), AvengerScaleError> {
+        OptionDefinition::validate_all(self.option_definitions(), &config.options)
+    }
+
     fn scale(
         &self,
         _config: &ScaleConfig,
@@ -207,6 +612,9 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+        // Validate options before scaling
+        self.validate_options(config)?;
+
         let scaled = self.scale(config, values)?;
         let coercer = &config.context.numeric_coercer;
         let default = config.option_f32("default", f32::NAN);
@@ -272,6 +680,9 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerScaleError> {
+        // Validate options before scaling
+        self.validate_options(config)?;
+
         let scaled = self.scale(config, values)?;
         let coercer = &config.context.color_coercer;
         let default = config
@@ -298,6 +709,9 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ScalarOrArray<String>, AvengerScaleError> {
+        // Validate options before scaling
+        self.validate_options(config)?;
+
         let scaled = self.scale(config, values)?;
         let formatter = &config.context.formatters;
         let default = config.option_string("default", "");
@@ -540,6 +954,8 @@ impl ConfiguredScale {
     }
 
     pub fn scale(&self, values: &ArrayRef) -> Result<ArrayRef, AvengerScaleError> {
+        // Validate options before scaling
+        self.scale_impl.validate_options(&self.config)?;
         self.scale_impl.scale(&self.config, values)
     }
 

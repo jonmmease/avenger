@@ -1,7 +1,11 @@
 use std::{collections::HashMap, sync::Arc};
 
-use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};
+use super::{
+    ConfiguredScale, InferDomainFromDataMethod, OptionDefinition, ScaleConfig, ScaleContext,
+    ScaleImpl,
+};
 use crate::error::AvengerScaleError;
+use lazy_static::lazy_static;
 
 use crate::scalar::Scalar;
 use arrow::{
@@ -68,6 +72,18 @@ impl ScaleImpl for OrdinalScale {
 
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
+    }
+
+    fn option_definitions(&self) -> &[OptionDefinition] {
+        lazy_static! {
+            static ref DEFINITIONS: Vec<OptionDefinition> = vec![
+                // Ordinal scale supports no custom options currently
+                // But default option is allowed for consistency
+                OptionDefinition::optional("default", super::OptionConstraint::String),
+            ];
+        }
+
+        &DEFINITIONS
     }
 
     fn scale(
