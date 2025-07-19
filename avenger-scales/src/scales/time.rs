@@ -8,7 +8,7 @@ use arrow::array::{
 use arrow::compute::kernels::cast;
 use arrow::datatypes::{DataType, TimeUnit};
 use avenger_common::types::LinearScaleAdjustment;
-use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
+use avenger_common::value::ScalarOrArray;
 use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Timelike, Utc};
 use chrono_tz::Tz;
 use lazy_static::lazy_static;
@@ -1117,6 +1117,7 @@ fn get_temporal_value(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn scale_timestamp_values(
     values: &ArrayRef,
     unit: &TimeUnit,
@@ -1695,6 +1696,7 @@ fn create_temporal_array_from_optional_millis(
 mod tests {
     use super::*;
     use arrow::array::TimestampSecondArray;
+    use avenger_common::value::ScalarOrArrayValue;
 
     #[test]
     fn test_time_scale_date32() -> Result<(), AvengerScaleError> {

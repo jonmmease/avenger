@@ -68,7 +68,8 @@ impl QuantizeScale {
         nice: Option<&Scalar>,
     ) -> Result<(f32, f32), AvengerScaleError> {
         // Use LinearScale normalization since quantize scale works with linear domains
-        LinearScale::apply_normalization(domain, zero, nice)
+        // Quantize scale doesn't use padding, so we pass dummy range and None for padding
+        LinearScale::apply_normalization(domain, (0.0, 1.0), None, zero, nice)
     }
 }
 
