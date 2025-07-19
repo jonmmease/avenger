@@ -70,8 +70,8 @@ fn test_band_scale_normalize_no_unsupported_options() -> Result<(), AvengerScale
 fn test_ordinal_scale_normalize_no_unsupported_options() -> Result<(), AvengerScaleError> {
     // Create an ordinal scale
     let domain = Arc::new(StringArray::from(vec!["red", "green", "blue"]));
-    let range = Arc::new(Float32Array::from(vec![0.0, 0.5, 1.0]));
-    let scale = OrdinalScale::configured(domain, range);
+    let scale = OrdinalScale::configured(domain)
+        .with_range(Arc::new(Float32Array::from(vec![0.0, 0.5, 1.0])));
 
     // Normalize the scale
     let normalized = scale.normalize()?;
@@ -152,8 +152,8 @@ fn test_normalized_scale_validates_successfully() -> Result<(), AvengerScaleErro
 
     // Test ordinal scale
     let ordinal_domain = Arc::new(StringArray::from(vec!["red", "green", "blue"]));
-    let ordinal_range = Arc::new(Float32Array::from(vec![0.0, 0.5, 1.0]));
-    let ordinal_scale = OrdinalScale::configured(ordinal_domain, ordinal_range);
+    let ordinal_scale = OrdinalScale::configured(ordinal_domain)
+        .with_range(Arc::new(Float32Array::from(vec![0.0, 0.5, 1.0])));
     let normalized_ordinal = ordinal_scale.normalize()?;
     // This should not error with "Unknown option 'zero'"
     normalized_ordinal
