@@ -935,7 +935,7 @@ impl ConfiguredScale {
         // Only set normalization options that are supported by this scale type
         let option_definitions = self.scale_impl.option_definitions();
         let supported_options: std::collections::HashSet<&str> =
-            option_definitions.iter().map(|def| def.name).collect();
+            option_definitions.iter().map(|def| def.name.as_str()).collect();
 
         // Only set these options if they're supported by the scale
         if supported_options.contains("zero") {
