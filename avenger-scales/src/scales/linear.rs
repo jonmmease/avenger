@@ -41,6 +41,10 @@ use super::{
 /// - **zero** (boolean, default: false): When true, ensures that the domain includes zero. If both min and max
 ///   are positive, sets min to zero. If both min and max are negative, sets max to zero. If the domain already
 ///   spans zero, no change is made. Zero extension is applied before nice calculations.
+///
+/// - **padding** (f32, default: 0.0): Expands the scale domain to accommodate the specified number of pixels
+///   on each of the scale range. The scale range must represent pixels for this parameter to function as intended.
+///   Padding adjustment is performed prior to all other adjustments, including the effects of the zero and nice properties.
 #[derive(Debug)]
 pub struct LinearScale;
 
@@ -83,9 +87,11 @@ impl LinearScale {
         }
     }
 
-    /// Apply normalization (zero and nice) to domain
+    /// Apply normalization (padding, zero and nice) to domain
     pub fn apply_normalization(
         domain: (f32, f32),
+        range: (f32, f32),
+        padding: Option<&Scalar>,
         zero: Option<&Scalar>,
         nice: Option<&Scalar>,
     ) -> Result<(f32, f32), AvengerScaleError> {
@@ -96,7 +102,18 @@ impl LinearScale {
             return Ok(domain);
         }
 
-        // Step 1: Apply zero extension if requested
+        // Step 1: Apply padding if requested (before all other adjustments)
+        if let Some(padding_option) = padding {
+            let padding_value = padding_option.as_f32()?;
+            if padding_value > 0.0 {
+                let (padded_start, padded_end) =
+                    Self::apply_padding((domain_start, domain_end), range, padding_value)?;
+                domain_start = padded_start;
+                domain_end = padded_end;
+            }
+        }
+
+        // Step 2: Apply zero extension if requested
         if let Some(zero_option) = zero {
             if let Ok(true) = zero_option.as_boolean() {
                 if domain_start > 0.0 && domain_end > 0.0 {
@@ -110,7 +127,7 @@ impl LinearScale {
             }
         }
 
-        // Step 2: Apply nice transformation if requested
+        // Step 3: Apply nice transformation if requested
         let nice_count = if let Some(count) = nice {
             if count.array().data_type().is_numeric() {
                 Some(count.as_f32()?)
@@ -189,7 +206,38 @@ impl LinearScale {
         domain: (f32, f32),
         count: Option<&Scalar>,
     ) -> Result<(f32, f32), AvengerScaleError> {
-        Self::apply_normalization(domain, None, count)
+        Self::apply_normalization(domain, (0.0, 1.0), None, None, count)
+    }
+
+    /// Apply padding to domain based on pixel values
+    pub fn apply_padding(
+        domain: (f32, f32),
+        range: (f32, f32),
+        padding: f32,
+    ) -> Result<(f32, f32), AvengerScaleError> {
+        let (domain_start, domain_end) = domain;
+        let (range_start, range_end) = range;
+
+        // Early return for degenerate cases
+        if domain_start == domain_end || range_start == range_end || padding <= 0.0 {
+            return Ok(domain);
+        }
+
+        // Calculate the span of the range in pixels
+        let span = (range_end - range_start).abs();
+
+        // Calculate scale factor: frac = span / (span - 2 * pad)
+        // This represents how much to expand the domain
+        let frac = span / (span - 2.0 * padding);
+
+        // For linear scale, zoom from center (anchor = 0.5)
+        let domain_center = (domain_start + domain_end) / 2.0;
+
+        // Expand domain by scale factor
+        let new_start = domain_center + (domain_start - domain_center) * frac;
+        let new_end = domain_center + (domain_end - domain_center) * frac;
+
+        Ok((new_start, new_end))
     }
 }
 
@@ -211,6 +259,7 @@ impl ScaleImpl for LinearScale {
                 OptionDefinition::optional("nice", OptionConstraint::nice()),
                 OptionDefinition::optional("zero", OptionConstraint::Boolean),
                 OptionDefinition::optional("default", OptionConstraint::Float),
+                OptionDefinition::optional("padding", OptionConstraint::NonNegativeFloat),
             ];
         }
 
@@ -246,8 +295,11 @@ impl ScaleImpl for LinearScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError> {
+        let (range_start, range_end) = config.numeric_interval_range()?;
         let (domain_start, domain_end) = LinearScale::apply_normalization(
             config.numeric_interval_domain()?,
+            (range_start, range_end),
+            config.options.get("padding"),
             config.options.get("zero"),
             config.options.get("nice"),
         )?;
@@ -261,8 +313,6 @@ impl ScaleImpl for LinearScale {
             };
             return scale_numeric_to_color(self, &config, values);
         }
-
-        let (range_start, range_end) = config.numeric_interval_range()?;
 
         // Handle degenerate domain/range cases
         if domain_start == domain_end
@@ -327,13 +377,14 @@ impl ScaleImpl for LinearScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+        let (range_start, range_end) = config.numeric_interval_range()?;
         let (domain_start, domain_end) = LinearScale::apply_normalization(
             config.numeric_interval_domain()?,
+            (range_start, range_end),
+            config.options.get("padding"),
             config.options.get("zero"),
             config.options.get("nice"),
         )?;
-
-        let (range_start, range_end) = config.numeric_interval_range()?;
         let range_offset = config.option_f32("range_offset", 0.0);
         let clamp = config.option_boolean("clamp", false);
 
@@ -388,8 +439,11 @@ impl ScaleImpl for LinearScale {
         config: &ScaleConfig,
         count: Option<f32>,
     ) -> Result<ArrayRef, AvengerScaleError> {
+        let (range_start, range_end) = config.numeric_interval_range()?;
         let (domain_start, domain_end) = LinearScale::apply_normalization(
             config.numeric_interval_domain()?,
+            (range_start, range_end),
+            config.options.get("padding"),
             config.options.get("zero"),
             config.options.get("nice"),
         )?;
@@ -504,8 +558,11 @@ impl ScaleImpl for LinearScale {
     }
 
     fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
+        let (range_start, range_end) = config.numeric_interval_range()?;
         let (domain_start, domain_end) = LinearScale::apply_normalization(
             config.numeric_interval_domain()?,
+            (range_start, range_end),
+            config.options.get("padding"),
             config.options.get("zero"),
             config.options.get("nice"),
         )?;
@@ -1027,24 +1084,148 @@ mod tests {
     #[test]
     fn test_apply_normalization_zero_only() -> Result<(), AvengerScaleError> {
         // Both positive
-        let result = LinearScale::apply_normalization((2.0, 10.0), Some(&true.into()), None)?;
+        let result = LinearScale::apply_normalization(
+            (2.0, 10.0),
+            (0.0, 1.0),
+            None,
+            Some(&true.into()),
+            None,
+        )?;
         assert_approx_eq!(f32, result.0, 0.0);
         assert_approx_eq!(f32, result.1, 10.0);
 
         // Both negative
-        let result = LinearScale::apply_normalization((-10.0, -2.0), Some(&true.into()), None)?;
+        let result = LinearScale::apply_normalization(
+            (-10.0, -2.0),
+            (0.0, 1.0),
+            None,
+            Some(&true.into()),
+            None,
+        )?;
         assert_approx_eq!(f32, result.0, -10.0);
         assert_approx_eq!(f32, result.1, 0.0);
 
         // Spans zero (no change)
-        let result = LinearScale::apply_normalization((-5.0, 5.0), Some(&true.into()), None)?;
+        let result = LinearScale::apply_normalization(
+            (-5.0, 5.0),
+            (0.0, 1.0),
+            None,
+            Some(&true.into()),
+            None,
+        )?;
         assert_approx_eq!(f32, result.0, -5.0);
         assert_approx_eq!(f32, result.1, 5.0);
 
         // Zero false (no change)
-        let result = LinearScale::apply_normalization((2.0, 10.0), Some(&false.into()), None)?;
+        let result = LinearScale::apply_normalization(
+            (2.0, 10.0),
+            (0.0, 1.0),
+            None,
+            Some(&false.into()),
+            None,
+        )?;
         assert_approx_eq!(f32, result.0, 2.0);
         assert_approx_eq!(f32, result.1, 10.0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_apply_padding() -> Result<(), AvengerScaleError> {
+        // Test basic padding
+        let result = LinearScale::apply_padding((0.0, 10.0), (0.0, 100.0), 10.0)?;
+        // With padding of 10 pixels on each side and range of 100, scale factor = 100 / 80 = 1.25
+        // Domain expands from center (5.0) by factor 1.25
+        assert_approx_eq!(f32, result.0, -1.25); // 5 + (0 - 5) * 1.25 = -1.25
+        assert_approx_eq!(f32, result.1, 11.25); // 5 + (10 - 5) * 1.25 = 11.25
+
+        // Test with negative domain
+        let result = LinearScale::apply_padding((-20.0, -10.0), (0.0, 100.0), 10.0)?;
+        // Center is -15, scale factor = 1.25
+        assert_approx_eq!(f32, result.0, -21.25); // -15 + (-20 - -15) * 1.25 = -21.25
+        assert_approx_eq!(f32, result.1, -8.75); // -15 + (-10 - -15) * 1.25 = -8.75
+
+        // Test with reversed range
+        let result = LinearScale::apply_padding((0.0, 10.0), (100.0, 0.0), 10.0)?;
+        // Range span is still 100, so same scale factor
+        assert_approx_eq!(f32, result.0, -1.25);
+        assert_approx_eq!(f32, result.1, 11.25);
+
+        // Test with zero padding (no change)
+        let result = LinearScale::apply_padding((0.0, 10.0), (0.0, 100.0), 0.0)?;
+        assert_approx_eq!(f32, result.0, 0.0);
+        assert_approx_eq!(f32, result.1, 10.0);
+
+        // Test with degenerate domain (no change)
+        let result = LinearScale::apply_padding((5.0, 5.0), (0.0, 100.0), 10.0)?;
+        assert_approx_eq!(f32, result.0, 5.0);
+        assert_approx_eq!(f32, result.1, 5.0);
+
+        // Test with degenerate range (no change)
+        let result = LinearScale::apply_padding((0.0, 10.0), (50.0, 50.0), 10.0)?;
+        assert_approx_eq!(f32, result.0, 0.0);
+        assert_approx_eq!(f32, result.1, 10.0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_linear_scale_with_padding() -> Result<(), AvengerScaleError> {
+        // Create a linear scale with padding
+        let scale = LinearScale::configured((0.0, 10.0), (0.0, 100.0)).with_option("padding", 10.0);
+
+        // Normalize the scale to apply padding
+        let normalized = scale.normalize()?;
+
+        // Check that domain has been expanded
+        let domain = normalized.numeric_interval_domain()?;
+        assert_approx_eq!(f32, domain.0, -1.25);
+        assert_approx_eq!(f32, domain.1, 11.25);
+
+        // Test scaling values
+        let values = Arc::new(Float32Array::from(vec![0.0, 5.0, 10.0])) as ArrayRef;
+        let result = normalized.scale(&values)?;
+        let result_array = result.as_primitive::<Float32Type>();
+
+        // With expanded domain, the original values should map differently
+        // Domain is [-1.25, 11.25], range is [0, 100]
+        // Scale factor = 100 / 12.5 = 8
+        // 0.0 -> (0 - -1.25) * 8 = 10
+        // 5.0 -> (5 - -1.25) * 8 = 50
+        // 10.0 -> (10 - -1.25) * 8 = 90
+
+        // The scale operation with expanded domain:
+        // Domain is [-1.25, 11.25], range is [0, 100]
+        // Scale factor = 100 / 12.5 = 8
+        // 0.0 -> (0 - -1.25) * 8 = 10
+        // 5.0 -> (5 - -1.25) * 8 = 50
+        // 10.0 -> (10 - -1.25) * 8 = 90
+        assert_approx_eq!(f32, result_array.value(0), 10.0);
+        assert_approx_eq!(f32, result_array.value(1), 50.0);
+        assert_approx_eq!(f32, result_array.value(2), 90.0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_padding_with_zero_and_nice() -> Result<(), AvengerScaleError> {
+        // Test that transformations are applied in order: padding -> zero -> nice
+        let scale = LinearScale::configured((2.0, 10.0), (0.0, 100.0))
+            .with_option("padding", 9.0)
+            .with_option("zero", true)
+            .with_option("nice", true);
+
+        let normalized = scale.normalize()?;
+        let domain = normalized.numeric_interval_domain()?;
+
+        // Expected transformations:
+        assert_approx_eq!(f32, domain.0, 0.0);
+        assert_approx_eq!(f32, domain.1, 11.0);
+
+        // Verify all normalization options are disabled
+        assert_eq!(normalized.option_f32("padding", -1.0), 0.0);
+        assert!(!normalized.option_boolean("zero", true));
+        assert!(!normalized.option_boolean("nice", true));
 
         Ok(())
     }

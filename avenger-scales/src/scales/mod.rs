@@ -933,6 +933,7 @@ impl ConfiguredScale {
         let mut new_options = self.config.options.clone();
         new_options.insert("zero".to_string(), false.into());
         new_options.insert("nice".to_string(), false.into());
+        new_options.insert("padding".to_string(), 0.0.into());
 
         Ok(ConfiguredScale {
             scale_impl: self.scale_impl,
