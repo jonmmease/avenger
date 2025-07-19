@@ -931,9 +931,22 @@ impl ConfiguredScale {
     pub fn normalize(self) -> Result<ConfiguredScale, AvengerScaleError> {
         let normalized_domain = self.scale_impl.compute_nice_domain(&self.config)?;
         let mut new_options = self.config.options.clone();
-        new_options.insert("zero".to_string(), false.into());
-        new_options.insert("nice".to_string(), false.into());
-        new_options.insert("padding".to_string(), 0.0.into());
+
+        // Only set normalization options that are supported by this scale type
+        let option_definitions = self.scale_impl.option_definitions();
+        let supported_options: std::collections::HashSet<&str> =
+            option_definitions.iter().map(|def| def.name).collect();
+
+        // Only set these options if they're supported by the scale
+        if supported_options.contains("zero") {
+            new_options.insert("zero".to_string(), false.into());
+        }
+        if supported_options.contains("nice") {
+            new_options.insert("nice".to_string(), false.into());
+        }
+        if supported_options.contains("padding") {
+            new_options.insert("padding".to_string(), 0.0.into());
+        }
 
         Ok(ConfiguredScale {
             scale_impl: self.scale_impl,
