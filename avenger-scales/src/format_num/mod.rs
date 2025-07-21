@@ -252,9 +252,9 @@ impl NumberFormat {
             } else {
                 significant_digits.unwrap() - 1
             };
-            format!("{:.1$e}", value, precision)
+            format!("{value:.precision$e}")
         } else {
-            format!("{:e}", value)
+            format!("{value:e}")
         };
 
         let exp_tokens: Vec<&str> = formatted_value.split('e').collect::<Vec<&str>>();
@@ -402,7 +402,7 @@ impl NumberFormat {
         precision: usize,
         include_decimal_point: bool,
     ) -> String {
-        let formatted = format!("{:.1$e}", value, precision);
+        let formatted = format!("{value:.precision$e}");
         let tokens = formatted.split(format_type).collect::<Vec<&str>>();
 
         let exp_suffix = if &tokens[1][0..1] == "-" {
@@ -546,11 +546,8 @@ impl NumberFormat {
         }
 
         // Compute the prefix and suffix.
-        let prefix = format!("{}{}", sign_prefix, leading_part);
-        let suffix = format!(
-            "{}{}{}",
-            decimal_part, si_prefix_exponent, unit_of_measurement
-        );
+        let prefix = format!("{sign_prefix}{leading_part}");
+        let suffix = format!("{decimal_part}{si_prefix_exponent}{unit_of_measurement}");
 
         // If should group and filling character is different than "0",
         // group digits before applying padding.
@@ -580,8 +577,8 @@ impl NumberFormat {
         };
 
         match format_spec.align {
-            Some("<") => format!("{}{}{}{}", prefix, value, suffix, padding),
-            Some("=") => format!("{}{}{}{}", prefix, padding, value, suffix),
+            Some("<") => format!("{prefix}{value}{suffix}{padding}"),
+            Some("=") => format!("{prefix}{padding}{value}{suffix}"),
             Some("^") => format!(
                 "{}{}{}{}{}",
                 &padding[..padding.len() / 2],
@@ -590,7 +587,7 @@ impl NumberFormat {
                 suffix,
                 &padding[padding.len() / 2..]
             ),
-            _ => format!("{}{}{}{}", padding, prefix, value, suffix),
+            _ => format!("{padding}{prefix}{value}{suffix}"),
         }
     }
 }

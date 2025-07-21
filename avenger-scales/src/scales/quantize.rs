@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use crate::scalar::Scalar;
 use arrow::{
@@ -6,26 +6,47 @@ use arrow::{
     compute::kernels::take,
     datatypes::Float32Type,
 };
+use lazy_static::lazy_static;
 
 use crate::error::AvengerScaleError;
 
 use super::{
-    linear::LinearScale, ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext,
-    ScaleImpl,
+    linear::LinearScale, ConfiguredScale, InferDomainFromDataMethod, OptionConstraint,
+    OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl,
 };
 
+/// Quantize scale that divides a continuous numeric domain into uniform segments,
+/// mapping each segment to a discrete value from the range.
+///
+/// The scale divides the domain into n equal-sized bins where n is the number of
+/// values in the range array. Each input value is mapped to the range value
+/// corresponding to its bin.
+///
+/// # Config Options
+///
+/// - **nice** (boolean or f32, default: false): When true or a number, extends the domain to nice round values
+///   before quantization. If true, uses a default count of 10. If a number, uses that as the target tick count
+///   for determining nice values. This ensures bins align with human-friendly boundaries.
+///
+/// - **zero** (boolean, default: false): When true, ensures that the domain includes zero. If both min and max
+///   are positive, sets min to zero. If both min and max are negative, sets max to zero. If the domain already
+///   spans zero, no change is made. Zero extension is applied before nice calculations.
 #[derive(Debug, Clone)]
 pub struct QuantizeScale;
 
 impl QuantizeScale {
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new(domain: (f32, f32), range: ArrayRef) -> ConfiguredScale {
+    pub fn configured(domain: (f32, f32), range: ArrayRef) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
             config: ScaleConfig {
                 domain: Arc::new(Float32Array::from(vec![domain.0, domain.1])),
                 range,
-                options: HashMap::new(),
+                options: vec![
+                    ("nice".to_string(), false.into()),
+                    ("zero".to_string(), false.into()),
+                ]
+                .into_iter()
+                .collect(),
                 context: ScaleContext::default(),
             },
         }
@@ -39,11 +60,38 @@ impl QuantizeScale {
         // Use nice method from linear scale
         LinearScale::apply_nice(domain, count)
     }
+
+    /// Apply normalization (zero and nice) to domain
+    pub fn apply_normalization(
+        domain: (f32, f32),
+        zero: Option<&Scalar>,
+        nice: Option<&Scalar>,
+    ) -> Result<(f32, f32), AvengerScaleError> {
+        // Use LinearScale normalization since quantize scale works with linear domains
+        // Quantize scale doesn't use padding, so we pass dummy range and None for padding
+        LinearScale::apply_normalization(domain, (0.0, 1.0), None, zero, nice)
+    }
 }
 
 impl ScaleImpl for QuantizeScale {
+    fn scale_type(&self) -> &'static str {
+        "quantize"
+    }
+
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
+    }
+
+    fn option_definitions(&self) -> &[OptionDefinition] {
+        lazy_static! {
+            static ref DEFINITIONS: Vec<OptionDefinition> = vec![
+                OptionDefinition::optional("nice", OptionConstraint::nice()),
+                OptionDefinition::optional("zero", OptionConstraint::Boolean),
+                OptionDefinition::optional("default", OptionConstraint::String),
+            ];
+        }
+
+        &DEFINITIONS
     }
 
     fn scale(
@@ -90,6 +138,16 @@ impl ScaleImpl for QuantizeScale {
         // Ticks are the same as for a linear scale
         let linear_scale = LinearScale;
         linear_scale.ticks(config, count)
+    }
+
+    fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
+        let (domain_start, domain_end) = QuantizeScale::apply_normalization(
+            config.numeric_interval_domain()?,
+            config.options.get("zero"),
+            config.options.get("nice"),
+        )?;
+
+        Ok(Arc::new(Float32Array::from(vec![domain_start, domain_end])) as ArrayRef)
     }
 }
 

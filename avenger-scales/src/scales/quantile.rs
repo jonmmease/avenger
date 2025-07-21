@@ -8,17 +8,31 @@ use arrow::{
     },
     datatypes::{DataType, Float32Type},
 };
+use lazy_static::lazy_static;
 
 use crate::error::AvengerScaleError;
 
-use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};
+use super::{
+    ConfiguredScale, InferDomainFromDataMethod, OptionDefinition, ScaleConfig, ScaleContext,
+    ScaleImpl,
+};
 
+/// Quantile scale that maps continuous numeric input values to discrete range values
+/// using quantile boundaries computed from the domain.
+///
+/// The domain should contain sample data values. The scale computes n-1 quantile
+/// thresholds that divide the sorted domain into n equal-sized groups, where n is
+/// the number of values in the range. Each input value is then mapped to the
+/// corresponding range value based on which quantile it falls into.
+///
+/// # Config Options
+///
+/// This scale does not currently support any configuration options.
 #[derive(Debug, Clone)]
 pub struct QuantileScale;
 
 impl QuantileScale {
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new(domain: Vec<f32>, range: ArrayRef) -> ConfiguredScale {
+    pub fn configured(domain: Vec<f32>, range: ArrayRef) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
             config: ScaleConfig {
@@ -32,8 +46,24 @@ impl QuantileScale {
 }
 
 impl ScaleImpl for QuantileScale {
+    fn scale_type(&self) -> &'static str {
+        "quantile"
+    }
+
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
+    }
+
+    fn option_definitions(&self) -> &[OptionDefinition] {
+        lazy_static! {
+            static ref DEFINITIONS: Vec<OptionDefinition> = vec![
+                // Quantile scale supports no custom options currently
+                // But default option is allowed for consistency
+                OptionDefinition::optional("default", super::OptionConstraint::String),
+            ];
+        }
+
+        &DEFINITIONS
     }
 
     fn scale(

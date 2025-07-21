@@ -75,7 +75,7 @@ impl FileWatcher {
                                         .send_event(WindowEvent::FileChanged(file_event));
                                 }
                             } else {
-                                error!("Failed to canonicalize event path: {:?}", path);
+                                error!("Failed to canonicalize event path: {path:?}");
                             }
                         }
                     }

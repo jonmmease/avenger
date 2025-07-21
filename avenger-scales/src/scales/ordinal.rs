@@ -1,7 +1,11 @@
 use std::{collections::HashMap, sync::Arc};
 
-use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};
+use super::{
+    ConfiguredScale, InferDomainFromDataMethod, OptionDefinition, ScaleConfig, ScaleContext,
+    ScaleImpl,
+};
 use crate::error::AvengerScaleError;
+use lazy_static::lazy_static;
 
 use crate::scalar::Scalar;
 use arrow::{
@@ -32,12 +36,23 @@ macro_rules! impl_ordinal_enum_scale_method {
     };
 }
 
+/// Ordinal scale that maps discrete domain values to discrete range values by position.
+///
+/// Each unique value in the domain is mapped to the corresponding value in the range
+/// array by index. The first domain value maps to the first range value, the second
+/// to the second, and so on. Values not present in the domain produce null/default outputs.
+///
+/// The range can contain any type of values: numbers, strings, colors, or even enum
+/// values like StrokeCap or ImageAlign. The domain and range must have the same length.
+///
+/// # Config Options
+///
+/// This scale does not currently support any configuration options.
 #[derive(Debug, Clone)]
 pub struct OrdinalScale;
 
 impl OrdinalScale {
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new(domain: ArrayRef) -> ConfiguredScale {
+    pub fn configured(domain: ArrayRef) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
             config: ScaleConfig {
@@ -51,8 +66,24 @@ impl OrdinalScale {
 }
 
 impl ScaleImpl for OrdinalScale {
+    fn scale_type(&self) -> &'static str {
+        "ordinal"
+    }
+
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
+    }
+
+    fn option_definitions(&self) -> &[OptionDefinition] {
+        lazy_static! {
+            static ref DEFINITIONS: Vec<OptionDefinition> = vec![
+                // Ordinal scale supports no custom options currently
+                // But default option is allowed for consistency
+                OptionDefinition::optional("default", super::OptionConstraint::String),
+            ];
+        }
+
+        &DEFINITIONS
     }
 
     fn scale(

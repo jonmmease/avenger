@@ -85,7 +85,7 @@ impl ChartState {
             } else {
                 // Load from file for native builds
                 let manifest_dir = env!("CARGO_MANIFEST_DIR");
-                let data_path = format!("{}/data/Iris.csv", manifest_dir);
+                let data_path = format!("{manifest_dir}/data/Iris.csv");
                 let file = File::open(data_path).expect("Failed to open Iris.csv");
                 let reader = BufReader::new(file);
                 let mut csv_reader = Reader::from_reader(reader);
@@ -147,7 +147,7 @@ impl ChartState {
         // println!("data length: {:?}", sepal_length_array.len());
 
         let fill_opacity = 0.1;
-        let color_scale = OrdinalScale::new(Arc::new(StringArray::from(vec![
+        let color_scale = OrdinalScale::configured(Arc::new(StringArray::from(vec![
             "Iris-setosa",
             "Iris-versicolor",
             "Iris-virginica",
@@ -171,8 +171,8 @@ impl ChartState {
         let domain_sepal_length = (4.0, 8.5);
         let domain_sepal_width = (1.5, 5.0);
 
-        let base_x_scale = LinearScale::new(domain_sepal_length, (0.0, width));
-        let base_y_scale = LinearScale::new(domain_sepal_width, (height, 0.0));
+        let base_x_scale = LinearScale::configured(domain_sepal_length, (0.0, width));
+        let base_y_scale = LinearScale::configured(domain_sepal_width, (height, 0.0));
 
         let x = base_x_scale.scale_to_numeric(&sepal_length_array).unwrap();
         let y = base_y_scale.scale_to_numeric(&sepal_width_array).unwrap();
@@ -215,12 +215,12 @@ impl ChartState {
 
     /// Scale for current x domain
     pub fn x_scale(&self) -> ConfiguredScale {
-        LinearScale::new(self.domain_sepal_length, (0.0, self.width))
+        LinearScale::configured(self.domain_sepal_length, (0.0, self.width))
     }
 
     /// Scale for current y domain
     pub fn y_scale(&self) -> ConfiguredScale {
-        LinearScale::new(self.domain_sepal_width, (self.height, 0.0))
+        LinearScale::configured(self.domain_sepal_width, (self.height, 0.0))
     }
 }
 
@@ -325,7 +325,7 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
     #[cfg(not(target_arch = "wasm32"))]
     {
         let duration = start_time.elapsed(); // Calculate elapsed time
-        println!("Scene construction time: {:?}", duration); // Print the duration
+        println!("Scene construction time: {duration:?}"); // Print the duration
     }
 
     scene_graph

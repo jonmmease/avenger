@@ -91,7 +91,7 @@ where
             {
                 Ok(scene_graph) => scene_graph,
                 Err(e) => {
-                    eprintln!("Failed to build scene graph: {:?}", e);
+                    eprintln!("Failed to build scene graph: {e:?}");
                     return Err(AvengerAppError::InternalError(
                         "Failed to build scene graph".to_string(),
                     ));

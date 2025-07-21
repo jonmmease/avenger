@@ -11,7 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let categories = vec!["Category A", "Category B", "Category C", "Category D"];
     let domain = Arc::new(StringArray::from(categories.clone())) as ArrayRef;
 
-    let band_scale = BandScale::new(domain.clone(), (0.0, 400.0))
+    let band_scale = BandScale::configured(domain.clone(), (0.0, 400.0))
         .with_option("padding", 0.1) // 10% padding between bands
         .with_option("padding_outer", 0.05); // 5% padding on outer edges
 
@@ -33,7 +33,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 2: Point Scale for Scatter Plots
     println!("\n2. Point Scale (for scatter plots, no bandwidth):");
 
-    let point_scale = PointScale::new(domain.clone(), (0.0, 300.0)).with_option("padding", 0.5); // Space around the points
+    let point_scale =
+        PointScale::configured(domain.clone(), (0.0, 300.0)).with_option("padding", 0.5); // Space around the points
 
     let point_positions = point_scale.scale_to_numeric(&test_array)?;
     let point_values = point_positions.as_vec(categories.len(), None);
@@ -53,7 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stroke_cap_values = vec!["round", "square", "butt"];
     let stroke_range = Arc::new(StringArray::from(stroke_cap_values)) as ArrayRef;
 
-    let ordinal_scale = OrdinalScale::new(cat_domain).with_range(stroke_range);
+    let ordinal_scale = OrdinalScale::configured(cat_domain).with_range(stroke_range);
 
     let test_categories = Arc::new(StringArray::from(categories.clone())) as ArrayRef;
     let stroke_result = ordinal_scale.scale_to_stroke_cap(&test_categories)?;

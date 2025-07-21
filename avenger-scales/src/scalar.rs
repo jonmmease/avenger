@@ -390,8 +390,7 @@ impl Scalar {
                         color.a,
                     ]),
                     Err(e) => Err(AvengerScaleError::InternalError(format!(
-                        "Scalar string is not a valid color: {}\n{:?}",
-                        color_str, e
+                        "Scalar string is not a valid color: {color_str}\n{e:?}"
                     ))),
                 }
             }
@@ -514,7 +513,7 @@ impl Scalar {
         let arrays: Vec<ArrayRef> = scalars.into_iter().map(|s| s.to_array()).collect();
 
         arrow::compute::concat(&arrays.iter().map(|a| a.as_ref()).collect::<Vec<_>>()).map_err(
-            |e| AvengerScaleError::InternalError(format!("Failed to concatenate arrays: {}", e)),
+            |e| AvengerScaleError::InternalError(format!("Failed to concatenate arrays: {e}")),
         )
     }
 
@@ -534,7 +533,7 @@ impl Scalar {
             .map(|arr| {
                 // Convert array to Float32Array and extract values
                 let cast_arr = arrow::compute::cast(&arr, &DataType::Float32).map_err(|e| {
-                    AvengerScaleError::InternalError(format!("Failed to cast array: {}", e))
+                    AvengerScaleError::InternalError(format!("Failed to cast array: {e}"))
                 })?;
                 let float_arr = cast_arr.as_primitive::<Float32Type>();
                 let values: Vec<Option<f32>> = (0..float_arr.len())

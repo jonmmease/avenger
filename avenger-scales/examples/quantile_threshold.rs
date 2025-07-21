@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let grade_range = Arc::new(StringArray::from(vec!["F", "D", "C", "B", "A"])) as ArrayRef;
 
-    let quantile_scale = QuantileScale::new(test_scores.clone(), grade_range);
+    let quantile_scale = QuantileScale::configured(test_scores.clone(), grade_range);
 
     // Test with some sample scores
     let sample_scores = vec![50.0, 65.0, 75.0, 85.0, 95.0];
@@ -38,7 +38,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n2. Quantize Scale (uniform intervals):");
 
     let grade_range2 = Arc::new(StringArray::from(vec!["F", "D", "C", "B", "A"])) as ArrayRef;
-    let quantize_scale = QuantizeScale::new((0.0, 100.0), grade_range2).with_option("nice", true);
+    let quantize_scale =
+        QuantizeScale::configured((0.0, 100.0), grade_range2).with_option("nice", true);
 
     let quantize_result = quantize_scale.scale_to_string(&sample_array)?;
     let quantize_grades = quantize_result.as_vec(sample_scores.len(), None);
@@ -55,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let thresholds = vec![60.0, 70.0, 80.0, 90.0];
     let grade_range3 = Arc::new(StringArray::from(vec!["F", "D", "C", "B", "A"])) as ArrayRef;
 
-    let threshold_scale = ThresholdScale::new(thresholds, grade_range3);
+    let threshold_scale = ThresholdScale::configured(thresholds, grade_range3);
 
     let threshold_result = threshold_scale.scale_to_string(&sample_array)?;
     let threshold_grades = threshold_result.as_vec(sample_scores.len(), None);
@@ -76,7 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let risk_categories =
         Arc::new(StringArray::from(vec!["Low", "Medium", "High", "Critical"])) as ArrayRef;
 
-    let risk_scale = ThresholdScale::new(risk_thresholds, risk_categories);
+    let risk_scale = ThresholdScale::configured(risk_thresholds, risk_categories);
 
     let risk_result = risk_scale.scale_to_string(&risk_array)?;
     let risk_labels = risk_result.as_vec(risk_values.len(), None);

@@ -160,8 +160,7 @@ impl ColorCoercer for CssColorCoercer {
                 Ok(ScalarOrArray::new_array(result))
             }
             _ => Err(AvengerScaleError::InternalError(format!(
-                "Unsupported data type for coercing to color: {:?}",
-                dtype
+                "Unsupported data type for coercing to color: {dtype:?}"
             ))),
         }
     }
@@ -175,7 +174,7 @@ macro_rules! define_enum_coercer {
                 values: &ArrayRef,
             ) -> Result<ScalarOrArray<$enum_type>, AvengerScaleError> {
                 let domain = Arc::new(StringArray::from(Vec::from(<$enum_type>::VARIANTS))) as ArrayRef;
-                let scale = OrdinalScale::new(domain.clone()).with_range(domain);
+                let scale = OrdinalScale::configured(domain.clone()).with_range(domain);
                 scale.[<scale_to_ $enum_type:snake>](values)
             }
         }
@@ -264,9 +263,8 @@ impl Coercer {
                 let field_names = fields.iter().map(|f| f.name().as_str()).collect::<Vec<_>>();
 
                 let msg = format!(
-                    "Unsupported struct data type for coercing to image: {:?}\n
-Expected struct with fields [width(UInt32), height(UInt32), data(List[UInt8])]",
-                    field_names
+                    "Unsupported struct data type for coercing to image: {field_names:?}\n
+Expected struct with fields [width(UInt32), height(UInt32), data(List[UInt8])]"
                 );
 
                 // Check field names and order
@@ -313,8 +311,7 @@ Expected struct with fields [width(UInt32), height(UInt32), data(List[UInt8])]",
             }
             _ => {
                 return Err(AvengerScaleError::InternalError(format!(
-                    "Unsupported data type for coercing to image: {:?}",
-                    dtype
+                    "Unsupported data type for coercing to image: {dtype:?}"
                 )))
             }
         }
@@ -364,8 +361,7 @@ Expected struct with fields [width(UInt32), height(UInt32), data(List[UInt8])]",
             }
             _ => {
                 return Err(AvengerScaleError::InternalError(format!(
-                    "Unsupported data type for coercing to color: {:?}",
-                    dtype
+                    "Unsupported data type for coercing to color: {dtype:?}"
                 )))
             }
         }
@@ -402,9 +398,8 @@ Expected struct with fields [width(UInt32), height(UInt32), data(List[UInt8])]",
                 let field_names = fields.iter().map(|f| f.name().as_str()).collect::<Vec<_>>();
 
                 let msg = format!(
-                    "Unsupported struct data type for coercing to path transform: {:?}\n
-Expected struct with fields [a(Float32), b(Float32), c(Float32), d(Float32), e(Float32), f(Float32)]",
-                    field_names
+                    "Unsupported struct data type for coercing to path transform: {field_names:?}\n
+Expected struct with fields [a(Float32), b(Float32), c(Float32), d(Float32), e(Float32), f(Float32)]"
                 );
 
                 // Check field names and order
@@ -452,8 +447,7 @@ Expected struct with fields [a(Float32), b(Float32), c(Float32), d(Float32), e(F
             }
             _ => {
                 return Err(AvengerScaleError::InternalError(format!(
-                    "Unsupported data type for coercing to path transform: {:?}",
-                    dtype
+                    "Unsupported data type for coercing to path transform: {dtype:?}"
                 )))
             }
         }
@@ -523,9 +517,8 @@ Expected struct with fields [a(Float32), b(Float32), c(Float32), d(Float32), e(F
             DataType::Struct(fields) => {
                 let field_names = fields.iter().map(|f| f.name().as_str()).collect::<Vec<_>>();
                 let msg = format!(
-                    "Unsupported struct data type for coercing to path: {:?}\n
-Expected struct with fields [verbs(List[UInt8]), points(List[Float32])]",
-                    field_names
+                    "Unsupported struct data type for coercing to path: {field_names:?}\n
+Expected struct with fields [verbs(List[UInt8]), points(List[Float32])]"
                 );
 
                 // Check field names and order
@@ -549,8 +542,7 @@ Expected struct with fields [verbs(List[UInt8]), points(List[Float32])]",
             }
             _ => {
                 return Err(AvengerScaleError::InternalError(format!(
-                    "Unsupported data type for coercing to path transform: {:?}",
-                    dtype
+                    "Unsupported data type for coercing to path transform: {dtype:?}"
                 )))
             }
         }
