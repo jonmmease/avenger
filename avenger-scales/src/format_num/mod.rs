@@ -547,9 +547,7 @@ impl NumberFormat {
 
         // Compute the prefix and suffix.
         let prefix = format!("{sign_prefix}{leading_part}");
-        let suffix = format!(
-            "{decimal_part}{si_prefix_exponent}{unit_of_measurement}"
-        );
+        let suffix = format!("{decimal_part}{si_prefix_exponent}{unit_of_measurement}");
 
         // If should group and filling character is different than "0",
         // group digits before applying padding.
