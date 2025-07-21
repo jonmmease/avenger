@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo:*)",
+      "Bash(rg:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(sed:*)",
+      "WebFetch(domain:docs.rs)",
+      "Bash(wasm-pack build:*)",
+      "WebFetch(domain:crates.io)",
+      "Bash(git add:*)",
+      "Bash(pixi run:*)",
+      "Bash(sg:*)",
+      "Bash(ls:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh run view:*)",
+      "Bash(RUSTFLAGS=\"-D warnings\" cargo clippy)",
+      "Bash(git submodule:*)",
+      "mcp__rust-analyzer__rename",
+      "Bash(RUSTFLAGS=\"-D warnings\" cargo check --tests)",
+      "WebFetch(domain:github.com)",
+      "Bash(gh pr view:*)"
+    ]
+  },
+  "enableAllProjectMcpServers": false
+}

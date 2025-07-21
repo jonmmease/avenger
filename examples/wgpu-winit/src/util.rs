@@ -72,7 +72,7 @@ impl ApplicationHandler for App {
                             *canvas_shared.borrow_mut() = Some(canvas);
                         }
                         Err(e) => {
-                            log::error!("Failed to create canvas: {:?}", e);
+                            log::error!("Failed to create canvas: {e:?}");
                         }
                     }
                 });
@@ -84,7 +84,7 @@ impl ApplicationHandler for App {
                         *canvas_shared.borrow_mut() = Some(canvas);
                     }
                     Err(e) => {
-                        log::error!("Failed to create canvas: {:?}", e);
+                        log::error!("Failed to create canvas: {e:?}");
                     }
                 }
             }
@@ -147,7 +147,7 @@ impl ApplicationHandler for App {
                             }
                         },
                         Err(err) => {
-                            log::error!("{:?}", err);
+                            log::error!("{err:?}");
                         }
                     }
                 }
