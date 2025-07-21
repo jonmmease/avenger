@@ -9,7 +9,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 1: Numeric Formatting
     println!("1. Number Formatting:");
 
-    let scale = LinearScale::new((0.0, 1000.0), (0.0, 500.0));
+    let scale = LinearScale::configured((0.0, 1000.0), (0.0, 500.0));
 
     let numbers = vec![0.0, 123.456, 1000.0, 10000.0, 0.00123];
     let number_array = Arc::new(Float32Array::from(numbers.clone())) as ArrayRef;
@@ -110,7 +110,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n5. Tick Generation:");
 
     // Linear scale ticks
-    let tick_scale = LinearScale::new((0.0, 100.0), (0.0, 400.0));
+    let tick_scale = LinearScale::configured((0.0, 100.0), (0.0, 400.0));
 
     println!("Linear scale ticks (different counts):");
     for tick_count in [5.0, 10.0, 15.0] {
@@ -123,7 +123,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 6: Scale with Custom Options
     println!("\n6. Scale with Custom Options:");
 
-    let custom_scale = LinearScale::new((0.0, 1000.0), (0.0, 500.0))
+    let custom_scale = LinearScale::configured((0.0, 1000.0), (0.0, 500.0))
         .with_option("clamp", true)
         .with_option("round", true)
         .with_option("nice", true);

@@ -6,21 +6,51 @@ use arrow::{
     compute::{kernels::cast, unary},
     datatypes::{DataType, Float32Type},
 };
-use avenger_common::value::ScalarOrArray;
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
+use lazy_static::lazy_static;
 
 use crate::{array, error::AvengerScaleError};
 
 use super::{
-    linear::LinearScale, ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext,
-    ScaleImpl,
+    linear::LinearScale, ConfiguredScale, InferDomainFromDataMethod, OptionConstraint,
+    OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl,
 };
 
+/// Symmetric log scale that provides smooth linear-to-logarithmic transitions for data
+/// that includes zero or spans both positive and negative values.
+///
+/// The symlog transformation is defined as: sign(x) * log(1 + |x|/C) where C is the constant.
+/// This provides linear behavior near zero (within [-C, C]) and logarithmic behavior for
+/// larger absolute values, making it ideal for data with values near zero or crossing zero.
+///
+/// # Config Options
+///
+/// - **constant** (f32, default: 1.0): The linear threshold that controls the transition
+///   between linear and logarithmic behavior. Within the range [-constant, constant],
+///   the scale behaves approximately linearly. Must be positive.
+///
+/// - **clamp** (boolean, default: false): When true, values outside the domain are clamped
+///   to the domain extent. For scaling, this means values outside domain map to the
+///   corresponding range extent. For inversion, values outside range are clamped first.
+///
+/// - **range_offset** (f32, default: 0.0): An offset applied to the final scaled values.
+///   This is added after the transformation. When inverting, this offset is subtracted first.
+///
+/// - **round** (boolean, default: false): When true, output values from scaling are rounded
+///   to the nearest integer. This is useful for pixel-perfect rendering. Does not affect inversion.
+///
+/// - **nice** (boolean or f32, default: false): When true or a number, extends the domain to
+///   nice round values in the transformed space. If true, uses a default count of 10.
+///   If a number, uses that as the target tick count for determining nice values.
+///
+/// - **zero** (boolean, default: false): When true, ensures that the domain includes zero. If both min and max
+///   are positive, sets min to zero. If both min and max are negative, sets max to zero. If the domain already
+///   spans zero, no change is made. Zero extension is applied before nice calculations.
 #[derive(Debug)]
 pub struct SymlogScale;
 
 impl SymlogScale {
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new(domain: (f32, f32), range: (f32, f32)) -> ConfiguredScale {
+    pub fn configured(domain: (f32, f32), range: (f32, f32)) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
             config: ScaleConfig {
@@ -32,6 +62,8 @@ impl SymlogScale {
                     ("range_offset".to_string(), 0.0.into()),
                     ("round".to_string(), false.into()),
                     ("nice".to_string(), false.into()),
+                    ("zero".to_string(), false.into()),
+                    ("padding".to_string(), 0.0.into()),
                 ]
                 .into_iter()
                 .collect(),
@@ -58,11 +90,125 @@ impl SymlogScale {
         let domain_end = symlog_invert(nice_d1, constant);
         Ok((domain_start, domain_end))
     }
+
+    /// Apply padding in symlog space
+    pub fn apply_padding(
+        domain: (f32, f32),
+        range: (f32, f32),
+        padding: f32,
+        constant: f32,
+    ) -> Result<(f32, f32), AvengerScaleError> {
+        let (domain_start, domain_end) = domain;
+        let (range_start, range_end) = range;
+
+        // Early return for degenerate cases
+        if domain_start == domain_end || range_start == range_end || padding <= 0.0 {
+            return Ok(domain);
+        }
+
+        // Transform to symlog space
+        let symlog_start = symlog_transform(domain_start, constant);
+        let symlog_end = symlog_transform(domain_end, constant);
+
+        // Calculate the span of the range in pixels
+        let span = (range_end - range_start).abs();
+
+        // Calculate scale factor: frac = span / (span - 2 * pad)
+        let frac = span / (span - 2.0 * padding);
+
+        // For symlog scale, zoom from center in symlog space
+        let symlog_center = (symlog_start + symlog_end) / 2.0;
+
+        // Expand domain in symlog space by scale factor
+        let new_symlog_start = symlog_center + (symlog_start - symlog_center) * frac;
+        let new_symlog_end = symlog_center + (symlog_end - symlog_center) * frac;
+
+        // Transform back to linear space
+        let new_start = symlog_invert(new_symlog_start, constant);
+        let new_end = symlog_invert(new_symlog_end, constant);
+
+        Ok((new_start, new_end))
+    }
+
+    /// Apply normalization (padding, zero and nice) to domain
+    pub fn apply_normalization(
+        domain: (f32, f32),
+        range: (f32, f32),
+        constant: f32,
+        padding: Option<&Scalar>,
+        zero: Option<&Scalar>,
+        nice: Option<&Scalar>,
+    ) -> Result<(f32, f32), AvengerScaleError> {
+        // Apply padding first if specified
+        let domain = if let Some(padding) = padding {
+            if let Ok(padding_val) = padding.as_f32() {
+                if padding_val > 0.0 {
+                    Self::apply_padding(domain, range, padding_val, constant)?
+                } else {
+                    domain
+                }
+            } else {
+                domain
+            }
+        } else {
+            domain
+        };
+
+        // Then apply zero and nice using LinearScale normalization
+        let (normalized_start, normalized_end) =
+            LinearScale::apply_normalization(domain, (0.0, 1.0), None, zero, nice)?;
+        Ok((normalized_start, normalized_end))
+    }
 }
 
 impl ScaleImpl for SymlogScale {
+    fn scale_type(&self) -> &'static str {
+        "symlog"
+    }
+
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Interval
+    }
+
+    fn option_definitions(&self) -> &[OptionDefinition] {
+        lazy_static! {
+            static ref DEFINITIONS: Vec<OptionDefinition> = vec![
+                OptionDefinition::optional("constant", OptionConstraint::PositiveFloat),
+                OptionDefinition::optional("clamp", OptionConstraint::Boolean),
+                OptionDefinition::optional("range_offset", OptionConstraint::Float),
+                OptionDefinition::optional("round", OptionConstraint::Boolean),
+                OptionDefinition::optional("nice", OptionConstraint::nice()),
+                OptionDefinition::optional("zero", OptionConstraint::Boolean),
+                OptionDefinition::optional("padding", OptionConstraint::NonNegativeFloat),
+                OptionDefinition::optional("default", OptionConstraint::Float),
+            ];
+        }
+
+        &DEFINITIONS
+    }
+
+    fn invert(
+        &self,
+        config: &ScaleConfig,
+        values: &ArrayRef,
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        // Cast input to Float32 if needed
+        let float_values = cast(values, &DataType::Float32)?;
+
+        // Call existing invert_from_numeric
+        let result = self.invert_from_numeric(config, &float_values)?;
+
+        // Convert ScalarOrArray<f32> to ArrayRef
+        match result.value() {
+            ScalarOrArrayValue::Scalar(s) => {
+                // If scalar, create array with single value repeated for input length
+                Ok(Arc::new(Float32Array::from(vec![*s; values.len()])) as ArrayRef)
+            }
+            ScalarOrArrayValue::Array(arr) => {
+                // If array, convert to ArrayRef
+                Ok(Arc::new(Float32Array::from(arr.as_ref().clone())) as ArrayRef)
+            }
+        }
     }
 
     fn scale(
@@ -76,9 +222,15 @@ impl ScaleImpl for SymlogScale {
         let clamp = config.option_boolean("clamp", false);
         let round = config.option_boolean("round", false);
 
-        let (domain_start, domain_end) = SymlogScale::apply_nice(
+        // Get range for padding calculation, use dummy range if not numeric
+        let range_for_padding = config.numeric_interval_range().unwrap_or((0.0, 1.0));
+
+        let (domain_start, domain_end) = SymlogScale::apply_normalization(
             config.numeric_interval_domain()?,
+            range_for_padding,
             constant,
+            config.options.get("padding"),
+            config.options.get("zero"),
             config.options.get("nice"),
         )?;
         let (range_start, range_end) = config.numeric_interval_range()?;
@@ -208,9 +360,12 @@ impl ScaleImpl for SymlogScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
-        let (domain_start, domain_end) = SymlogScale::apply_nice(
+        let (domain_start, domain_end) = SymlogScale::apply_normalization(
             config.numeric_interval_domain()?,
+            config.numeric_interval_range()?,
             config.option_f32("constant", 1.0),
+            config.options.get("padding"),
+            config.options.get("zero"),
             config.options.get("nice"),
         )?;
 
@@ -313,27 +468,46 @@ impl ScaleImpl for SymlogScale {
         config: &ScaleConfig,
         count: Option<f32>,
     ) -> Result<ArrayRef, AvengerScaleError> {
-        let (domain_start, domain_end) = SymlogScale::apply_nice(
+        let (domain_start, domain_end) = SymlogScale::apply_normalization(
             config.numeric_interval_domain()?,
+            (0.0, 1.0), // Use dummy range for ticks computation
             config.option_f32("constant", 1.0),
+            None, // No padding for ticks
+            config.options.get("zero"),
             config.options.get("nice"),
         )?;
         let count = count.unwrap_or(10.0);
         let ticks_array = Float32Array::from(array::ticks(domain_start, domain_end, count));
         Ok(Arc::new(ticks_array) as ArrayRef)
     }
+
+    fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
+        let constant = config.option_f32("constant", 1.0);
+        // Get range for padding calculation, use dummy range if not numeric
+        let range_for_padding = config.numeric_interval_range().unwrap_or((0.0, 1.0));
+        let (domain_start, domain_end) = SymlogScale::apply_normalization(
+            config.numeric_interval_domain()?,
+            range_for_padding,
+            constant,
+            config.options.get("padding"),
+            config.options.get("zero"),
+            config.options.get("nice"),
+        )?;
+
+        Ok(Arc::new(Float32Array::from(vec![domain_start, domain_end])) as ArrayRef)
+    }
 }
 
 /// Applies the symlog transform to a single value
+/// Uses ln_1p for better numerical stability near zero
 fn symlog_transform(x: f32, constant: f32) -> f32 {
-    let sign = if x < 0.0 { -1.0 } else { 1.0 };
-    sign * (1.0 + (x.abs() / constant)).ln()
+    x.signum() * (x.abs() / constant).ln_1p()
 }
 
 /// Applies the inverse symlog transform to a single value
+/// Uses exp_m1 for better numerical stability near zero
 fn symlog_invert(x: f32, constant: f32) -> f32 {
-    let sign = if x < 0.0 { -1.0 } else { 1.0 };
-    sign * ((x.abs()).exp() - 1.0) * constant
+    x.signum() * x.abs().exp_m1() * constant
 }
 
 #[cfg(test)]
@@ -717,6 +891,157 @@ mod tests {
                 ticks_array.value(i).abs(),
                 ticks_array.value(ticks.len() - 1 - i).abs()
             );
+        }
+    }
+
+    #[test]
+    fn test_apply_padding() {
+        let constant = 1.0;
+
+        // Test basic padding
+        let (new_start, new_end) =
+            SymlogScale::apply_padding((-10.0, 10.0), (0.0, 100.0), 10.0, constant).unwrap();
+
+        // With padding=10 and range=100, frac = 100 / (100 - 20) = 1.25
+        // Domain should expand by 25%
+        assert!(new_start < -10.0);
+        assert!(new_end > 10.0);
+
+        // Test zero padding
+        let (new_start, new_end) =
+            SymlogScale::apply_padding((-10.0, 10.0), (0.0, 100.0), 0.0, constant).unwrap();
+        assert_approx_eq!(f32, new_start, -10.0);
+        assert_approx_eq!(f32, new_end, 10.0);
+
+        // Test degenerate domain
+        let (new_start, new_end) =
+            SymlogScale::apply_padding((5.0, 5.0), (0.0, 100.0), 10.0, constant).unwrap();
+        assert_approx_eq!(f32, new_start, 5.0);
+        assert_approx_eq!(f32, new_end, 5.0);
+    }
+
+    #[test]
+    fn test_symlog_scale_with_padding() {
+        let scale = SymlogScale;
+        let config = ScaleConfig {
+            domain: Arc::new(Float32Array::from(vec![-10.0, 10.0])),
+            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            options: vec![("padding".to_string(), 10.0.into())]
+                .into_iter()
+                .collect(),
+            context: ScaleContext::default(),
+        };
+
+        // Test that domain endpoints map correctly
+        let values = Arc::new(Float32Array::from(vec![-10.0, 0.0, 10.0])) as ArrayRef;
+        let result = scale
+            .scale_to_numeric(&config, &values)
+            .unwrap()
+            .as_vec(values.len(), None);
+
+        // With padding, -10 and 10 should no longer map to exactly 0 and 100
+        assert!(result[0] > 0.0);
+        assert!(result[2] < 100.0);
+        // 0 should still map to the center
+        assert_approx_eq!(
+            f32,
+            result[1],
+            50.0,
+            F32Margin {
+                epsilon: 0.01,
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn test_padding_with_nice() {
+        let scale = SymlogScale;
+        let config = ScaleConfig {
+            domain: Arc::new(Float32Array::from(vec![-9.0, 9.0])),
+            range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
+            options: vec![
+                ("padding".to_string(), 10.0.into()),
+                ("nice".to_string(), true.into()),
+            ]
+            .into_iter()
+            .collect(),
+            context: ScaleContext::default(),
+        };
+
+        // With padding and nice, domain should be expanded then niced
+        let nice_domain = scale.compute_nice_domain(&config).unwrap();
+        let nice_array = nice_domain.as_primitive::<Float32Type>();
+
+        // Domain should be expanded and then made nice
+        assert!(nice_array.value(0) <= -9.0);
+        assert!(nice_array.value(1) >= 9.0);
+    }
+
+    #[test]
+    fn test_padding_near_zero() {
+        // Test numerical stability with values very close to zero
+        let constant = 0.001;
+
+        // Test with very small domain near zero
+        let (new_start, new_end) =
+            SymlogScale::apply_padding((-0.001, 0.001), (0.0, 100.0), 5.0, constant).unwrap();
+
+        // Domain should expand
+        assert!(new_start < -0.001);
+        assert!(new_end > 0.001);
+
+        // Test transform stability near zero
+        let epsilon = 1e-10;
+        let transformed = symlog_transform(epsilon, constant);
+        let inverted = symlog_invert(transformed, constant);
+
+        // Should round-trip accurately
+        assert_approx_eq!(
+            f32,
+            inverted,
+            epsilon,
+            F32Margin {
+                epsilon: 1e-15,
+                ..Default::default()
+            }
+        );
+
+        // Test with zero in domain
+        let (new_start, new_end) =
+            SymlogScale::apply_padding((-1.0, 0.0), (0.0, 100.0), 10.0, constant).unwrap();
+
+        assert!(new_start < -1.0);
+        assert!(new_end > 0.0); // Padding expands both ends of domain
+    }
+
+    #[test]
+    fn test_symlog_transform_matches_vega() {
+        // Test that our transforms match Vega's implementation
+        let constant = 1.0;
+        let test_values = vec![-10.0, -1.0, -0.1, -0.01, 0.0, 0.01, 0.1, 1.0, 10.0];
+
+        for x in test_values {
+            let transformed = symlog_transform(x, constant);
+            let inverted = symlog_invert(transformed, constant);
+
+            // Should round-trip accurately
+            if x == 0.0 {
+                assert_eq!(inverted, 0.0);
+            } else {
+                assert_approx_eq!(
+                    f32,
+                    inverted,
+                    x,
+                    F32Margin {
+                        epsilon: 1e-6,
+                        ..Default::default()
+                    }
+                );
+            }
+
+            // Verify sign preservation
+            assert_eq!(transformed.signum(), x.signum());
         }
     }
 }

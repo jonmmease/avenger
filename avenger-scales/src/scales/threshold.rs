@@ -5,17 +5,32 @@ use arrow::{
     compute::kernels::{cast, take},
     datatypes::{DataType, Float32Type},
 };
+use lazy_static::lazy_static;
 
 use crate::error::AvengerScaleError;
 
-use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};
+use super::{
+    ConfiguredScale, InferDomainFromDataMethod, OptionDefinition, ScaleConfig, ScaleContext,
+    ScaleImpl,
+};
 
+/// Threshold scale that maps continuous numeric input values to discrete range values
+/// based on a set of threshold boundaries.
+///
+/// The domain must contain threshold values in ascending order. The range must contain
+/// n+1 values where n is the number of thresholds. Input values are mapped as follows:
+/// - Values < first threshold → first range value
+/// - Values >= threshold[i] and < threshold[i+1] → range[i+1]
+/// - Values >= last threshold → last range value
+///
+/// # Config Options
+///
+/// This scale does not currently support any configuration options.
 #[derive(Debug, Clone)]
 pub struct ThresholdScale;
 
 impl ThresholdScale {
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new(domain: Vec<f32>, range: ArrayRef) -> ConfiguredScale {
+    pub fn configured(domain: Vec<f32>, range: ArrayRef) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
             config: ScaleConfig {
@@ -29,8 +44,24 @@ impl ThresholdScale {
 }
 
 impl ScaleImpl for ThresholdScale {
+    fn scale_type(&self) -> &'static str {
+        "threshold"
+    }
+
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
+    }
+
+    fn option_definitions(&self) -> &[OptionDefinition] {
+        lazy_static! {
+            static ref DEFINITIONS: Vec<OptionDefinition> = vec![
+                // Threshold scale supports no custom options currently
+                // But default option is allowed for consistency
+                OptionDefinition::optional("default", super::OptionConstraint::String),
+            ];
+        }
+
+        &DEFINITIONS
     }
 
     fn scale(

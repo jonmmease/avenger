@@ -137,7 +137,7 @@ where
                     *canvas_shared.borrow_mut() = Some(canvas);
                 }
                 Err(e) => {
-                    log::error!("Failed to create canvas: {:?}", e);
+                    log::error!("Failed to create canvas: {e:?}");
                 }
             }
         };
@@ -175,7 +175,7 @@ where
                         // No update needed
                     }
                     Err(e) => {
-                        eprintln!("Failed to update app with user event: {:?}", e);
+                        eprintln!("Failed to update app with user event: {e:?}");
                     }
                 }
             };
@@ -253,7 +253,7 @@ where
                                 }
                             },
                             Err(err) => {
-                                log::error!("{:?}", err);
+                                log::error!("{err:?}");
                             }
                         }
                     }

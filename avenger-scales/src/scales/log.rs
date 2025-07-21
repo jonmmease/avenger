@@ -5,21 +5,54 @@ use arrow::{
     compute::{kernels::cast, unary},
     datatypes::{DataType, Float32Type},
 };
-use avenger_common::value::ScalarOrArray;
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
+use lazy_static::lazy_static;
 
-use crate::{
-    color_interpolator::scale_numeric_to_color, error::AvengerScaleError, scalar::Scalar,
-    scales::linear::LinearScale,
+use crate::{color_interpolator::scale_numeric_to_color, error::AvengerScaleError, scalar::Scalar};
+
+use super::{
+    ConfiguredScale, InferDomainFromDataMethod, OptionConstraint, OptionDefinition, ScaleConfig,
+    ScaleContext, ScaleImpl,
 };
 
-use super::{ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleContext, ScaleImpl};
-
+/// Logarithmic scale that maps a continuous numeric domain to a continuous numeric range
+/// using logarithmic transformation.
+///
+/// The scale applies log(x) transformation to input values, making it useful for data
+/// that spans several orders of magnitude. The scale supports negative domains by
+/// applying -log(-x) for negative values. Zero values produce NaN outputs.
+///
+/// # Config Options
+///
+/// - **base** (f32, default: 10.0): The logarithm base. Common values are 10 (common log),
+///   2 (binary log), and e (natural log, use 2.718281828). Must be positive and not 1.
+///
+/// - **clamp** (boolean, default: false): When true, values outside the domain are clamped
+///   to the domain extent before transformation. For inversion, values outside the range
+///   are clamped first.
+///
+/// - **range_offset** (f32, default: 0.0): An offset applied to the final scaled values.
+///   This is added after the logarithmic transformation and linear mapping.
+///
+/// - **round** (boolean, default: false): When true, output values from scaling are rounded
+///   to the nearest integer. Useful for pixel-perfect rendering. Does not affect inversion.
+///
+/// - **nice** (boolean or f32, default: false): When true or a number, extends the domain
+///   to nice round values in logarithmic space (powers of the base). If true, uses a
+///   default count of 10. If a number, uses that as the target tick count. For example,
+///   with base 10, a domain of [8, 95] might become [1, 100].
+///
+/// - **padding** (f32, default: 0.0): Expands the scale domain by the specified number of pixels
+///   on each side of the scale range. The domain expansion is computed in logarithmic space.
+///   Applied before zero and nice transformations. Must be non-negative.
+///
+/// - **zero** (boolean, default: false): When true, ensures that the domain includes zero. However, zero
+///   is invalid for logarithmic scales, so this option is ignored for log scales.
 #[derive(Debug)]
 pub struct LogScale;
 
 impl LogScale {
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new(domain: (f32, f32), range: (f32, f32)) -> ConfiguredScale {
+    pub fn configured(domain: (f32, f32), range: (f32, f32)) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
             config: ScaleConfig {
@@ -31,6 +64,8 @@ impl LogScale {
                     ("range_offset".to_string(), 0.0.into()),
                     ("round".to_string(), false.into()),
                     ("nice".to_string(), false.into()),
+                    ("zero".to_string(), false.into()),
+                    ("padding".to_string(), 0.0.into()),
                 ]
                 .into_iter()
                 .collect(),
@@ -115,11 +150,130 @@ impl LogScale {
         }
         Ok((domain_start, domain_end))
     }
+
+    /// Apply padding to a log scale domain
+    /// Transforms to log space, applies linear padding, then transforms back
+    pub fn apply_padding(
+        domain: (f32, f32),
+        range: (f32, f32),
+        padding: f32,
+        base: f32,
+    ) -> Result<(f32, f32), AvengerScaleError> {
+        let (domain_start, domain_end) = domain;
+        let (range_start, range_end) = range;
+
+        // Early return for degenerate cases
+        if domain_start == domain_end || range_start == range_end || padding <= 0.0 {
+            return Ok(domain);
+        }
+
+        // Handle domains that include zero or negative values
+        if domain_start <= 0.0 || domain_end <= 0.0 {
+            // Can't apply padding to domains that include zero for log scales
+            return Ok(domain);
+        }
+
+        let log_fun = LogFunction::new(base);
+
+        // Transform to log space
+        let log_start = log_fun.log(domain_start);
+        let log_end = log_fun.log(domain_end);
+
+        // Calculate the span of the range in pixels
+        let span = (range_end - range_start).abs();
+
+        // Calculate scale factor: frac = span / (span - 2 * pad)
+        let frac = span / (span - 2.0 * padding);
+
+        // For log scale, zoom from center in log space
+        let log_center = (log_start + log_end) / 2.0;
+
+        // Expand domain in log space by scale factor
+        let new_log_start = log_center + (log_start - log_center) * frac;
+        let new_log_end = log_center + (log_end - log_center) * frac;
+
+        // Transform back to linear space
+        let new_start = log_fun.pow(new_log_start);
+        let new_end = log_fun.pow(new_log_end);
+
+        Ok((new_start, new_end))
+    }
+
+    /// Apply normalization (padding, zero and nice) to domain
+    /// For log scales, zero is ignored since it's invalid in logarithmic space
+    pub fn apply_normalization(
+        domain: (f32, f32),
+        range: (f32, f32),
+        padding: Option<&Scalar>,
+        base: f32,
+        _zero: Option<&Scalar>, // Zero is ignored for log scales
+        nice: Option<&Scalar>,
+    ) -> Result<(f32, f32), AvengerScaleError> {
+        let mut current_domain = domain;
+
+        // Apply padding first
+        if let Some(padding) = padding {
+            if let Ok(padding_value) = padding.as_f32() {
+                if padding_value > 0.0 {
+                    current_domain =
+                        Self::apply_padding(current_domain, range, padding_value, base)?;
+                }
+            }
+        }
+
+        // For log scales, zero is invalid, so we only apply nice transformation
+        Self::apply_nice(current_domain, base, nice)
+    }
 }
 
 impl ScaleImpl for LogScale {
+    fn scale_type(&self) -> &'static str {
+        "log"
+    }
+
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Interval
+    }
+
+    fn option_definitions(&self) -> &[OptionDefinition] {
+        lazy_static! {
+            static ref DEFINITIONS: Vec<OptionDefinition> = vec![
+                OptionDefinition::optional("base", OptionConstraint::log_base()),
+                OptionDefinition::optional("clamp", OptionConstraint::Boolean),
+                OptionDefinition::optional("range_offset", OptionConstraint::Float),
+                OptionDefinition::optional("round", OptionConstraint::Boolean),
+                OptionDefinition::optional("nice", OptionConstraint::nice()),
+                OptionDefinition::optional("padding", OptionConstraint::NonNegativeFloat),
+                OptionDefinition::optional("zero", OptionConstraint::Boolean),
+                OptionDefinition::optional("default", OptionConstraint::Float),
+            ];
+        }
+
+        &DEFINITIONS
+    }
+
+    fn invert(
+        &self,
+        config: &ScaleConfig,
+        values: &ArrayRef,
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        // Cast input to Float32 if needed
+        let float_values = cast(values, &DataType::Float32)?;
+
+        // Call existing invert_from_numeric
+        let result = self.invert_from_numeric(config, &float_values)?;
+
+        // Convert ScalarOrArray<f32> to ArrayRef
+        match result.value() {
+            ScalarOrArrayValue::Scalar(s) => {
+                // If scalar, create array with single value repeated for input length
+                Ok(Arc::new(Float32Array::from(vec![*s; values.len()])) as ArrayRef)
+            }
+            ScalarOrArrayValue::Array(arr) => {
+                // If array, convert to ArrayRef
+                Ok(Arc::new(Float32Array::from(arr.as_ref().clone())) as ArrayRef)
+            }
+        }
     }
 
     fn scale(
@@ -127,14 +281,23 @@ impl ScaleImpl for LogScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError> {
-        let (domain_start, domain_end) = LinearScale::apply_nice(
+        let base = config.option_f32("base", 10.0);
+
+        // Get range for padding calculation, use dummy range if not numeric
+        let range_for_padding = config.numeric_interval_range().unwrap_or((0.0, 1.0));
+
+        let (domain_start, domain_end) = LogScale::apply_normalization(
             config.numeric_interval_domain()?,
+            range_for_padding,
+            config.options.get("padding"),
+            base,
+            config.options.get("zero"),
             config.options.get("nice"),
         )?;
 
         // Check if color interpolation is needed
         if config.color_range().is_ok() {
-            // Create new config with niced domain
+            // Create new config with normalized domain
             let config = ScaleConfig {
                 domain: Arc::new(Float32Array::from(vec![domain_start, domain_end])),
                 ..config.clone()
@@ -142,19 +305,12 @@ impl ScaleImpl for LogScale {
             return scale_numeric_to_color(self, &config, values);
         }
 
+        let (range_start, range_end) = config.numeric_interval_range()?;
+
         // Get options
-        let base = config.option_f32("base", 10.0);
         let range_offset = config.option_f32("range_offset", 0.0);
         let clamp = config.option_boolean("clamp", false);
         let round = config.option_boolean("round", false);
-
-        // Get options
-        let (range_start, range_end) = config.numeric_interval_range()?;
-        let (domain_start, domain_end) = LogScale::apply_nice(
-            config.numeric_interval_domain()?,
-            base,
-            config.options.get("nice"),
-        )?;
 
         // Handle degenerate domain and range cases
         if domain_start == domain_end || range_start == range_end {
@@ -345,9 +501,12 @@ impl ScaleImpl for LogScale {
         let _round = config.option_boolean("round", false);
 
         let (range_start, range_end) = config.numeric_interval_range()?;
-        let (domain_start, domain_end) = LogScale::apply_nice(
+        let (domain_start, domain_end) = LogScale::apply_normalization(
             config.numeric_interval_domain()?,
+            (range_start, range_end),
+            config.options.get("padding"),
             base,
+            config.options.get("zero"),
             config.options.get("nice"),
         )?;
         let (range_min, range_max) = if range_start <= range_end {
@@ -513,6 +672,22 @@ impl ScaleImpl for LogScale {
         }
         Ok(Arc::new(Float32Array::from(z)))
     }
+
+    fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
+        let base = config.option_f32("base", 10.0);
+        // Get range for padding calculation, use dummy range if not numeric
+        let range_for_padding = config.numeric_interval_range().unwrap_or((0.0, 1.0));
+        let (domain_start, domain_end) = LogScale::apply_normalization(
+            config.numeric_interval_domain()?,
+            range_for_padding,
+            config.options.get("padding"),
+            base,
+            config.options.get("zero"),
+            config.options.get("nice"),
+        )?;
+
+        Ok(Arc::new(Float32Array::from(vec![domain_start, domain_end])) as ArrayRef)
+    }
 }
 
 /// Handles logarithmic transformations with different bases
@@ -588,7 +763,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use float_cmp::assert_approx_eq;
+    use float_cmp::{assert_approx_eq, F32Margin};
 
     #[test]
     fn test_basic_scale_invert() {
@@ -803,7 +978,7 @@ mod tests {
         let color_range = crate::scalar::Scalar::arrays_into_list_array(color_arrays)?;
 
         // Create the log scale
-        let scale = LogScale::new((1.0, 100.0), (0.0, 1.0)).with_range(color_range);
+        let scale = LogScale::configured((1.0, 100.0), (0.0, 1.0)).with_range(color_range);
 
         // Test values across the domain
         let test_values = vec![1.0, 3.16, 10.0, 31.6, 100.0]; // Evenly spaced in log space
@@ -886,6 +1061,177 @@ mod tests {
             (log_diff_1 - log_diff_2).abs() < 0.01,
             "Log scale should produce even spacing in log space"
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_apply_padding() -> Result<(), AvengerScaleError> {
+        // Test basic padding with base 10
+        let result = LogScale::apply_padding((10.0, 100.0), (0.0, 100.0), 10.0, 10.0)?;
+        // Domain [10, 100] in log space is [1, 2]
+        // With padding 10 on range 100, scale factor = 100 / 80 = 1.25
+        // Center in log space is 1.5
+        // New log domain: [1.5 + (1 - 1.5) * 1.25, 1.5 + (2 - 1.5) * 1.25] = [0.875, 2.125]
+        // Back to linear: [10^0.875, 10^2.125] ≈ [7.498, 133.35]
+        assert_approx_eq!(
+            f32,
+            result.0,
+            7.498942,
+            F32Margin {
+                epsilon: 0.001,
+                ..Default::default()
+            }
+        );
+        assert_approx_eq!(
+            f32,
+            result.1,
+            133.35214,
+            F32Margin {
+                epsilon: 0.001,
+                ..Default::default()
+            }
+        );
+
+        // Test with base 2
+        let result = LogScale::apply_padding((4.0, 16.0), (0.0, 100.0), 10.0, 2.0)?;
+        // Domain [4, 16] in log2 space is [2, 4]
+        // Center in log2 space is 3
+        // New log domain: [3 + (2 - 3) * 1.25, 3 + (4 - 3) * 1.25] = [1.75, 4.25]
+        // Back to linear: [2^1.75, 2^4.25] = [3.364, 19.027]
+        assert_approx_eq!(
+            f32,
+            result.0,
+            3.3635857,
+            F32Margin {
+                epsilon: 0.001,
+                ..Default::default()
+            }
+        );
+        assert_approx_eq!(
+            f32,
+            result.1,
+            19.027313,
+            F32Margin {
+                epsilon: 0.001,
+                ..Default::default()
+            }
+        );
+
+        // Test with zero padding (no change)
+        let result = LogScale::apply_padding((10.0, 100.0), (0.0, 100.0), 0.0, 10.0)?;
+        assert_approx_eq!(f32, result.0, 10.0);
+        assert_approx_eq!(f32, result.1, 100.0);
+
+        // Test with domain including zero (no change)
+        let result = LogScale::apply_padding((0.0, 100.0), (0.0, 100.0), 10.0, 10.0)?;
+        assert_approx_eq!(f32, result.0, 0.0);
+        assert_approx_eq!(f32, result.1, 100.0);
+
+        // Test with negative domain (no change)
+        let result = LogScale::apply_padding((-100.0, -10.0), (0.0, 100.0), 10.0, 10.0)?;
+        assert_approx_eq!(f32, result.0, -100.0);
+        assert_approx_eq!(f32, result.1, -10.0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_log_scale_with_padding() -> Result<(), AvengerScaleError> {
+        // Create a log scale with padding
+        let scale = LogScale::configured((10.0, 100.0), (0.0, 100.0))
+            .with_option("padding", 10.0)
+            .with_option("base", 10.0);
+
+        // Normalize the scale to apply padding
+        let normalized = scale.normalize()?;
+
+        // Check that domain has been expanded
+        let domain = normalized.numeric_interval_domain()?;
+        assert_approx_eq!(
+            f32,
+            domain.0,
+            7.498942,
+            F32Margin {
+                epsilon: 0.001,
+                ..Default::default()
+            }
+        );
+        assert_approx_eq!(
+            f32,
+            domain.1,
+            133.35214,
+            F32Margin {
+                epsilon: 0.001,
+                ..Default::default()
+            }
+        );
+
+        // Test scaling values
+        let values = Arc::new(Float32Array::from(vec![10.0, 31.622776, 100.0])) as ArrayRef;
+        let result = normalized.scale(&values)?;
+        let result_array = result.as_primitive::<Float32Type>();
+
+        // With expanded domain, the original values should map differently
+        // 10 should map to slightly above 0 (around 10)
+        // 31.622776 (10^1.5) should map to around 50
+        // 100 should map to slightly below 100 (around 90)
+        assert_approx_eq!(
+            f32,
+            result_array.value(0),
+            10.0,
+            F32Margin {
+                epsilon: 0.5,
+                ..Default::default()
+            }
+        );
+        assert_approx_eq!(
+            f32,
+            result_array.value(1),
+            50.0,
+            F32Margin {
+                epsilon: 0.5,
+                ..Default::default()
+            }
+        );
+        assert_approx_eq!(
+            f32,
+            result_array.value(2),
+            90.0,
+            F32Margin {
+                epsilon: 0.5,
+                ..Default::default()
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_padding_with_nice() -> Result<(), AvengerScaleError> {
+        // Test that transformations are applied in order: padding -> nice
+        let scale = LogScale::configured((10.0, 100.0), (0.0, 100.0))
+            .with_option("padding", 10.0)
+            .with_option("nice", true)
+            .with_option("base", 10.0);
+
+        let normalized = scale.normalize()?;
+        let domain = normalized.numeric_interval_domain()?;
+
+        // Expected transformations:
+        // 1. Padding: [10, 100] → expanded in log space
+        //    - log10(10) = 1, log10(100) = 2
+        //    - center = 1.5, span = 1
+        //    - frac = 100 / (100 - 20) = 1.25
+        //    - new log domain: [1.5 - 0.5*1.25, 1.5 + 0.5*1.25] = [0.875, 2.125]
+        //    - linear domain: [10^0.875, 10^2.125] ≈ [7.5, 133.35]
+        // 2. Nice: [7.5, 133.35] → [1, 1000] (nice powers of 10)
+        assert_approx_eq!(f32, domain.0, 1.0);
+        assert_approx_eq!(f32, domain.1, 1000.0);
+
+        // Verify all normalization options are disabled
+        assert_eq!(normalized.option_f32("padding", -1.0), 0.0);
+        assert!(!normalized.option_boolean("nice", true));
 
         Ok(())
     }

@@ -483,6 +483,7 @@ dependencies = [
  "css-color-parser",
  "float-cmp 0.10.0",
  "indexmap",
+ "lazy_static 1.5.0",
  "lyon_extra",
  "lyon_path",
  "ordered-float 5.0.0",

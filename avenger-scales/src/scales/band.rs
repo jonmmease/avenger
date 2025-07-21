@@ -5,20 +5,50 @@ use arrow::{
     array::{ArrayRef, Float32Array, UInt32Array},
     compute::kernels::take,
 };
+use lazy_static::lazy_static;
 
 use super::point::make_band_config;
 use super::ScaleContext;
-// use super::point::make_band_config;
 use super::{
-    ordinal::OrdinalScale, ConfiguredScale, InferDomainFromDataMethod, ScaleConfig, ScaleImpl,
+    ordinal::OrdinalScale, ConfiguredScale, InferDomainFromDataMethod, OptionConstraint,
+    OptionDefinition, ScaleConfig, ScaleImpl,
 };
 
+/// Band scale that maps discrete domain values to continuous numeric bands with optional padding.
+///
+/// This scale is useful for bar charts and other visualizations where each discrete value
+/// needs a dedicated band of space. Each domain value is assigned a band of equal width,
+/// with configurable padding between and around the bands.
+///
+/// # Config Options
+///
+/// - **align** (f32, default: 0.5): Alignment of the band layout within the range [0, 1].
+///   0 aligns to the start, 0.5 centers, and 1 aligns to the end.
+///
+/// - **band** (f32, default: 0.0): Position within each band where the value is placed [0, 1].
+///   0 places at band start, 0.5 at band center, and 1 at band end. This effectively
+///   controls where within its allocated band each mark is positioned.
+///
+/// - **padding** (f32, default: 0.0): Sets both padding_inner and padding_outer to the same value.
+///   This is a convenience option for uniform padding.
+///
+/// - **padding_inner** (f32, default: 0.0): Padding between adjacent bands
+///   as a fraction [0, 1] of the step size. A value of 0.2 means 20% of the step is used for padding.
+///
+/// - **padding_outer** (f32, default: 0.0): Padding before the first and after
+///   the last band as a multiple of the step size. Must be non-negative. A value of 0.5 adds half
+///   a step of padding on each end.
+///
+/// - **round** (boolean, default: false): When true, band positions and widths are rounded
+///   to integer pixel values for crisp rendering.
+///
+/// - **range_offset** (f32, default: 0.0): Additional offset applied to all band positions
+///   after computing their base positions. Useful for fine-tuning placement.
 #[derive(Debug, Clone)]
 pub struct BandScale;
 
 impl BandScale {
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new(domain: ArrayRef, range: (f32, f32)) -> ConfiguredScale {
+    pub fn configured(domain: ArrayRef, range: (f32, f32)) -> ConfiguredScale {
         ConfiguredScale {
             scale_impl: Arc::new(Self),
             config: ScaleConfig {
@@ -49,8 +79,37 @@ impl BandScale {
 }
 
 impl ScaleImpl for BandScale {
+    fn scale_type(&self) -> &'static str {
+        "band"
+    }
+
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
+    }
+
+    fn option_definitions(&self) -> &[OptionDefinition] {
+        lazy_static! {
+            static ref DEFINITIONS: Vec<OptionDefinition> = vec![
+                OptionDefinition::optional(
+                    "align",
+                    OptionConstraint::FloatRange { min: 0.0, max: 1.0 }
+                ),
+                OptionDefinition::optional(
+                    "band",
+                    OptionConstraint::FloatRange { min: 0.0, max: 1.0 }
+                ),
+                OptionDefinition::optional("padding", OptionConstraint::NonNegativeFloat),
+                OptionDefinition::optional(
+                    "padding_inner",
+                    OptionConstraint::FloatRange { min: 0.0, max: 1.0 }
+                ),
+                OptionDefinition::optional("padding_outer", OptionConstraint::NonNegativeFloat),
+                OptionDefinition::optional("round", OptionConstraint::Boolean),
+                OptionDefinition::optional("range_offset", OptionConstraint::Float),
+            ];
+        }
+
+        &DEFINITIONS
     }
 
     fn scale(
@@ -148,44 +207,43 @@ fn build_range_values(config: &ScaleConfig) -> Result<Vec<f32>, AvengerScaleErro
 
     let align = config.option_f32("align", 0.5);
     let band = config.option_f32("band", 0.0);
-    let padding_inner = config.option_f32("padding_inner", 0.0);
-    let padding_outer = config.option_f32("padding_outer", 0.0);
+
+    // Check for generic padding option first (sets both inner and outer)
+    let default_padding = config.option_f32("padding", 0.0);
+
+    let padding_inner = config.option_f32("padding_inner", default_padding);
+    let padding_outer = config.option_f32("padding_outer", default_padding);
     let round = config.option_boolean("round", false);
     let range_offset = config.option_f32("range_offset", 0.0);
     let (range_start, range_stop) = config.numeric_interval_range()?;
 
     if !(0.0..=1.0).contains(&align) || !align.is_finite() {
         return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
-            "align is {} but must be between 0 and 1",
-            align
+            "align is {align} but must be between 0 and 1"
         )));
     }
 
     if !(0.0..=1.0).contains(&band) || !band.is_finite() {
         return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
-            "band is {} but must be between 0 and 1",
-            band
+            "band is {band} but must be between 0 and 1"
         )));
     }
 
     if !(0.0..=1.0).contains(&padding_inner) || !padding_inner.is_finite() {
         return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
-            "padding_inner is {} but must be between 0 and 1",
-            padding_inner
+            "padding_inner is {padding_inner} but must be between 0 and 1"
         )));
     }
 
     if padding_outer < 0.0 || !padding_outer.is_finite() {
         return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
-            "padding_outer is {} but must be non-negative",
-            padding_outer
+            "padding_outer is {padding_outer} but must be non-negative"
         )));
     }
 
     if !range_start.is_finite() || !range_stop.is_finite() {
         return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
-            "range is ({}, {}) but both ends must be finite",
-            range_start, range_stop
+            "range is ({range_start}, {range_stop}) but both ends must be finite"
         )));
     }
 
@@ -237,8 +295,12 @@ pub fn bandwidth(config: &ScaleConfig) -> Result<f32, AvengerScaleError> {
     }
 
     let (range_start, range_stop) = config.numeric_interval_range()?;
-    let padding_inner = config.option_f32("padding_inner", 0.0);
-    let padding_outer = config.option_f32("padding_outer", 0.0);
+
+    // Check for generic padding option first (sets both inner and outer)
+    let default_padding = config.option_f32("padding", 0.0);
+
+    let padding_inner = config.option_f32("padding_inner", default_padding);
+    let padding_outer = config.option_f32("padding_outer", default_padding);
 
     let (start, stop) = if range_stop < range_start {
         (range_stop, range_start)
@@ -247,6 +309,11 @@ pub fn bandwidth(config: &ScaleConfig) -> Result<f32, AvengerScaleError> {
     };
 
     let step = (stop - start) / 1.0_f32.max(bandspace(n, Some(padding_inner), Some(padding_outer)));
+    let step = if config.option_boolean("round", false) {
+        step.floor()
+    } else {
+        step
+    };
     let bandwidth = step * (1.0 - padding_inner);
 
     if config.option_boolean("round", false) {
@@ -385,7 +452,7 @@ mod tests {
             .scale_to_numeric(&config, &values)?
             .as_vec(values.len(), None);
 
-        // With rounding, values should be integers
+        // With rounding, positions are offset by alignment
         assert_eq!(result[0], 1.0); // "a"
         assert_eq!(result[1], 34.0); // "b"
         assert_eq!(result[2], 34.0); // "b"
@@ -534,6 +601,173 @@ mod tests {
         assert!(scale
             .invert_range_interval(&config, (f32::NAN, 50.0))?
             .is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_band_scale_round_various_ranges() -> Result<(), AvengerScaleError> {
+        // Test rounding behavior across various ranges to ensure consistency with Vega
+        let domain = Arc::new(StringArray::from(vec!["A", "B", "C", "D", "E"]));
+        let scale = BandScale;
+
+        // Test with various ranges to check rounding behavior
+        let test_cases = vec![
+            // (range_start, range_stop, expected_positions, expected_bandwidth)
+            (0.0, 300.0, vec![0.0, 60.0, 120.0, 180.0, 240.0], 60.0),
+            (0.0, 295.0, vec![0.0, 59.0, 118.0, 177.0, 236.0], 59.0),
+            (10.0, 290.0, vec![10.0, 66.0, 122.0, 178.0, 234.0], 56.0),
+            (0.0, 100.0, vec![0.0, 20.0, 40.0, 60.0, 80.0], 20.0),
+            // With remainder of 2, offset = round(2 * 0.5) = 1
+            (0.0, 97.0, vec![1.0, 20.0, 39.0, 58.0, 77.0], 19.0),
+        ];
+
+        for (start, stop, expected_positions, expected_bandwidth) in test_cases {
+            let config = ScaleConfig {
+                domain: domain.clone(),
+                range: Arc::new(Float32Array::from(vec![start, stop])),
+                options: vec![
+                    ("round".to_string(), true.into()),
+                    ("align".to_string(), 0.5.into()),
+                ]
+                .into_iter()
+                .collect(),
+                context: ScaleContext::default(),
+            };
+
+            let values = Arc::new(StringArray::from(vec!["A", "B", "C", "D", "E"])) as ArrayRef;
+            let result = scale
+                .scale_to_numeric(&config, &values)?
+                .as_vec(values.len(), None);
+
+            // Check positions
+            for (i, (actual, expected)) in result.iter().zip(expected_positions.iter()).enumerate()
+            {
+                assert_eq!(
+                    *actual, *expected,
+                    "Position mismatch at index {} for range [{}, {}]: expected {}, got {}",
+                    i, start, stop, expected, actual
+                );
+            }
+
+            // Check bandwidth
+            assert_eq!(
+                bandwidth(&config)?,
+                expected_bandwidth,
+                "Bandwidth mismatch for range [{}, {}]",
+                start,
+                stop
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_band_scale_round_with_padding_detailed() -> Result<(), AvengerScaleError> {
+        // Test rounding with padding to ensure proper calculation
+        let domain = Arc::new(StringArray::from(vec!["A", "B", "C"]));
+        let scale = BandScale;
+
+        let config = ScaleConfig {
+            domain: domain.clone(),
+            range: Arc::new(Float32Array::from(vec![0.0, 300.0])),
+            options: vec![
+                ("round".to_string(), true.into()),
+                ("padding_inner".to_string(), 0.1.into()),
+                ("padding_outer".to_string(), 0.1.into()),
+                ("align".to_string(), 0.5.into()),
+            ]
+            .into_iter()
+            .collect(),
+            context: ScaleContext::default(),
+        };
+
+        let values = Arc::new(StringArray::from(vec!["A", "B", "C"])) as ArrayRef;
+        let result = scale
+            .scale_to_numeric(&config, &values)?
+            .as_vec(values.len(), None);
+
+        // With padding, the calculation follows:
+        // step = floor(300 / (3 - 0.1 + 0.2)) = floor(96.774) = 96
+        // bandwidth = round(96 * 0.9) = round(86.4) = 86
+        // start = round(0 + (300 - 96 * 2.9) * 0.5) = round(10.8) = 11
+
+        // Expected positions: [11, 107, 203]
+        assert_eq!(result[0], 11.0, "First position should be 11");
+        assert_eq!(result[1], 107.0, "Second position should be 107");
+        assert_eq!(result[2], 203.0, "Third position should be 203");
+        assert_eq!(bandwidth(&config)?, 86.0, "Bandwidth should be 86");
+        assert_eq!(step(&config)?, 96.0, "Step should be 96");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_band_scale_round_fractional_step() -> Result<(), AvengerScaleError> {
+        // Test edge case where step calculation results in fractional value
+        let domain = Arc::new(StringArray::from(vec!["A", "B"]));
+        let scale = BandScale;
+
+        // Case where step = 101 / 2 = 50.5, which floors to 50
+        let config = ScaleConfig {
+            domain: domain.clone(),
+            range: Arc::new(Float32Array::from(vec![0.0, 101.0])),
+            options: vec![("round".to_string(), true.into())]
+                .into_iter()
+                .collect(),
+            context: ScaleContext::default(),
+        };
+
+        let values = Arc::new(StringArray::from(vec!["A", "B"])) as ArrayRef;
+        let result = scale
+            .scale_to_numeric(&config, &values)?
+            .as_vec(values.len(), None);
+
+        // With rounding, positions include alignment offset
+        assert_eq!(result[0], 1.0, "First position should be 1");
+        assert_eq!(result[1], 51.0, "Second position should be 51");
+        assert_eq!(bandwidth(&config)?, 50.0, "Bandwidth should be 50");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_band_scale_matches_vega_positions() -> Result<(), AvengerScaleError> {
+        // Test that positions match Vega exactly for a typical scenario
+        let domain = Arc::new(StringArray::from(vec![
+            "A", "B", "C", "D", "E", "F", "G", "H",
+        ]));
+        let scale = BandScale;
+
+        let config = ScaleConfig {
+            domain: domain.clone(),
+            range: Arc::new(Float32Array::from(vec![0.0, 300.0])),
+            options: vec![
+                ("round".to_string(), true.into()),
+                ("align".to_string(), 0.5.into()),
+            ]
+            .into_iter()
+            .collect(),
+            context: ScaleContext::default(),
+        };
+
+        let values = Arc::new(StringArray::from(vec![
+            "A", "B", "C", "D", "E", "F", "G", "H",
+        ])) as ArrayRef;
+        let result = scale
+            .scale_to_numeric(&config, &values)?
+            .as_vec(values.len(), None);
+
+        // Vega positions: with step=37, remainder=4, offset=2
+        let expected = [2.0, 39.0, 76.0, 113.0, 150.0, 187.0, 224.0, 261.0];
+
+        for i in 0..8 {
+            assert_eq!(result[i], expected[i], "Position mismatch at index {}", i);
+        }
+
+        assert_eq!(bandwidth(&config)?, 37.0, "Bandwidth should be 37");
+        assert_eq!(step(&config)?, 37.0, "Step should be 37");
 
         Ok(())
     }

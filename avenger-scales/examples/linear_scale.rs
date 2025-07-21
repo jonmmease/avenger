@@ -6,7 +6,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Simple Linear Scale Example ===\n");
 
     // Create a linear scale that maps domain [0, 100] to range [0, 500]
-    let scale = LinearScale::new((0.0, 100.0), (0.0, 500.0));
+    let scale = LinearScale::configured((0.0, 100.0), (0.0, 500.0));
 
     // Test data: some values in our domain
     let test_values = vec![0.0, 25.0, 50.0, 75.0, 100.0];

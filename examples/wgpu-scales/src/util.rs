@@ -87,7 +87,7 @@ impl ApplicationHandler for App {
                             *canvas_shared.borrow_mut() = Some(canvas);
                         }
                         Err(e) => {
-                            log::error!("Failed to create canvas: {:?}", e);
+                            log::error!("Failed to create canvas: {e:?}");
                         }
                     }
                 });
@@ -99,7 +99,7 @@ impl ApplicationHandler for App {
                         *canvas_shared.borrow_mut() = Some(canvas);
                     }
                     Err(e) => {
-                        log::error!("Failed to create canvas: {:?}", e);
+                        log::error!("Failed to create canvas: {e:?}");
                     }
                 }
             }
@@ -148,7 +148,7 @@ impl ApplicationHandler for App {
                         self.rtree.pick_top_mark_at_point(&point).cloned();
 
                     if top_mark != self.last_hover_mark {
-                        println!("hover: {:?}", top_mark);
+                        println!("hover: {top_mark:?}");
                     }
                     self.last_hover_mark = top_mark;
                 }
@@ -175,7 +175,7 @@ impl ApplicationHandler for App {
                             }
                         },
                         Err(err) => {
-                            log::error!("{:?}", err);
+                            log::error!("{err:?}");
                         }
                     }
                 }
@@ -211,16 +211,16 @@ pub async fn run() {
     let height = 200.0;
 
     // Make x scales
-    let x_scale = BandScale::new(x_array.clone(), (0.0, width))
+    let x_scale = BandScale::configured(x_array.clone(), (0.0, width))
         .with_option("padding_inner", 0.2)
         .with_option("padding_outer", 0.2)
         .with_option("band", 0.0);
     let x2_scale = x_scale.clone().with_option("band", 1.0);
 
-    let y_scale = LinearScale::new((0.0, 100.0), (height, 0.0));
+    let y_scale = LinearScale::configured((0.0, 100.0), (height, 0.0));
 
-    let color_scale =
-        LinearScale::new_color((0.0, 100.0), vec!["white", "blue"]).with_option("nice", 10.0);
+    let color_scale = LinearScale::configured_color((0.0, 100.0), vec!["white", "blue"])
+        .with_option("nice", 10.0);
 
     // Make rect mark
     let rect = SceneRectMark {
