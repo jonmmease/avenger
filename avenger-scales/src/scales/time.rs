@@ -314,8 +314,7 @@ mod safe_time {
                 if hour < 23 {
                     dt.with_hour(hour + 1).ok_or_else(|| {
                         AvengerScaleError::DstTransitionError(format!(
-                            "Cannot set hour {} during DST transition",
-                            hour
+                            "Cannot set hour {hour} during DST transition"
                         ))
                     })
                 } else {
@@ -326,8 +325,7 @@ mod safe_time {
                         .and_then(|naive_dt| dt.timezone().from_local_datetime(&naive_dt).single())
                         .ok_or_else(|| {
                             AvengerScaleError::DstTransitionError(format!(
-                                "Cannot set hour {} during DST transition",
-                                hour
+                                "Cannot set hour {hour} during DST transition"
                             ))
                         })
                 }
@@ -359,8 +357,7 @@ mod safe_time {
     ) -> Result<DateTime<Tz>, AvengerScaleError> {
         match date.and_hms_opt(hour, min, sec) {
             None => Err(AvengerScaleError::DstTransitionError(format!(
-                "Invalid time components: {}:{}:{}",
-                hour, min, sec
+                "Invalid time components: {hour}:{min}:{sec}"
             ))),
             Some(naive_dt) => {
                 match tz.from_local_datetime(&naive_dt) {
@@ -481,8 +478,7 @@ fn compute_actual_duration_millis(
         .single()
         .ok_or_else(|| {
             AvengerScaleError::DstTransitionError(format!(
-                "Ambiguous start timestamp: {}",
-                start_millis
+                "Ambiguous start timestamp: {start_millis}"
             ))
         })?;
 
@@ -491,8 +487,7 @@ fn compute_actual_duration_millis(
         .single()
         .ok_or_else(|| {
             AvengerScaleError::DstTransitionError(format!(
-                "Ambiguous end timestamp: {}",
-                end_millis
+                "Ambiguous end timestamp: {end_millis}"
             ))
         })?;
 
@@ -1456,7 +1451,7 @@ fn days_in_month(year: i32, month: u32) -> u32 {
                 28
             }
         }
-        _ => panic!("Invalid month: {}", month),
+        _ => panic!("Invalid month: {month}"),
     }
 }
 

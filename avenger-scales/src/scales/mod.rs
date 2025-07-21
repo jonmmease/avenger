@@ -106,7 +106,7 @@ impl OptionConstraint {
             description: "positive number not equal to 1".to_string(),
             validator: |value| match value.as_f32() {
                 Ok(v) if v > 0.0 && v != 1.0 => Ok(()),
-                Ok(v) => Err(format!("must be positive and not equal to 1 (got {})", v)),
+                Ok(v) => Err(format!("must be positive and not equal to 1 (got {v})")),
                 Err(_) => Err("must be a numeric value".to_string()),
             },
         }

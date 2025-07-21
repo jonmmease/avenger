@@ -219,36 +219,31 @@ fn build_range_values(config: &ScaleConfig) -> Result<Vec<f32>, AvengerScaleErro
 
     if !(0.0..=1.0).contains(&align) || !align.is_finite() {
         return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
-            "align is {} but must be between 0 and 1",
-            align
+            "align is {align} but must be between 0 and 1"
         )));
     }
 
     if !(0.0..=1.0).contains(&band) || !band.is_finite() {
         return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
-            "band is {} but must be between 0 and 1",
-            band
+            "band is {band} but must be between 0 and 1"
         )));
     }
 
     if !(0.0..=1.0).contains(&padding_inner) || !padding_inner.is_finite() {
         return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
-            "padding_inner is {} but must be between 0 and 1",
-            padding_inner
+            "padding_inner is {padding_inner} but must be between 0 and 1"
         )));
     }
 
     if padding_outer < 0.0 || !padding_outer.is_finite() {
         return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
-            "padding_outer is {} but must be non-negative",
-            padding_outer
+            "padding_outer is {padding_outer} but must be non-negative"
         )));
     }
 
     if !range_start.is_finite() || !range_stop.is_finite() {
         return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
-            "range is ({}, {}) but both ends must be finite",
-            range_start, range_stop
+            "range is ({range_start}, {range_stop}) but both ends must be finite"
         )));
     }
 
