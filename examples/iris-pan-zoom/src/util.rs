@@ -85,7 +85,7 @@ impl ChartState {
             } else {
                 // Load from file for native builds
                 let manifest_dir = env!("CARGO_MANIFEST_DIR");
-                let data_path = format!("{}/data/Iris.csv", manifest_dir);
+                let data_path = format!("{manifest_dir}/data/Iris.csv");
                 let file = File::open(data_path).expect("Failed to open Iris.csv");
                 let reader = BufReader::new(file);
                 let mut csv_reader = Reader::from_reader(reader);
@@ -325,7 +325,7 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
     #[cfg(not(target_arch = "wasm32"))]
     {
         let duration = start_time.elapsed(); // Calculate elapsed time
-        println!("Scene construction time: {:?}", duration); // Print the duration
+        println!("Scene construction time: {duration:?}"); // Print the duration
     }
 
     scene_graph
