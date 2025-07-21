@@ -486,9 +486,7 @@ fn compute_actual_duration_millis(
         .timestamp_opt(end_millis / 1000, ((end_millis % 1000) * 1_000_000) as u32)
         .single()
         .ok_or_else(|| {
-            AvengerScaleError::DstTransitionError(format!(
-                "Ambiguous end timestamp: {end_millis}"
-            ))
+            AvengerScaleError::DstTransitionError(format!("Ambiguous end timestamp: {end_millis}"))
         })?;
 
     // Compute actual duration
