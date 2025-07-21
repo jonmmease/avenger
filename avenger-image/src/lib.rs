@@ -74,8 +74,7 @@ impl RgbaImage {
             Ok(Self::from_image(&img.into_rgba8()))
         } else {
             Err(AvengerImageError::InternalError(format!(
-                "Unsupported image URL: {}",
-                s
+                "Unsupported image URL: {s}"
             )))
         }
     }
