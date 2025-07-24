@@ -1,22 +1,22 @@
 //! Derive marks from parent marks' scaled data
 
-use datafusion::dataframe::DataFrame;
+use crate::adjust::TransformContext;
+use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::marks::Mark;
-use crate::coords::CoordinateSystem;
-use crate::adjust::TransformContext;
+use datafusion::dataframe::DataFrame;
 
 /// Trait for deriving child marks from parent marks' scaled data
 pub trait Derive<C: CoordinateSystem>: Send + Sync {
     /// Generate child marks from parent's scaled data
-    /// 
+    ///
     /// # Arguments
     /// * `df` - DataFrame with:
     ///   - Scaled encoding channels (x, y, size, etc.)
     ///   - Bounding box struct column
     ///   - Original data columns
     /// * `context` - Transform context with plot dimensions and session
-    /// 
+    ///
     /// # Returns
     /// A mark instance configured with the parent's data
     fn derive(
@@ -35,10 +35,12 @@ pub struct DeriveFn<C, F> {
 impl<C, F> DeriveFn<C, F>
 where
     C: CoordinateSystem,
-    F: Fn(DataFrame, &TransformContext) -> Result<Box<dyn Mark<C>>, AvengerChartError> + Send + Sync,
+    F: Fn(DataFrame, &TransformContext) -> Result<Box<dyn Mark<C>>, AvengerChartError>
+        + Send
+        + Sync,
 {
     pub fn new(f: F) -> Self {
-        Self { 
+        Self {
             f,
             _phantom: std::marker::PhantomData,
         }
@@ -48,7 +50,9 @@ where
 impl<C, F> Derive<C> for DeriveFn<C, F>
 where
     C: CoordinateSystem,
-    F: Fn(DataFrame, &TransformContext) -> Result<Box<dyn Mark<C>>, AvengerChartError> + Send + Sync,
+    F: Fn(DataFrame, &TransformContext) -> Result<Box<dyn Mark<C>>, AvengerChartError>
+        + Send
+        + Sync,
 {
     fn derive(
         &self,
@@ -86,22 +90,22 @@ impl LabelPoints {
     pub fn new(text_column: impl Into<String>) -> Self {
         Self {
             text_column: text_column.into(),
-            offset_y: -5.0,  // 5 pixels above by default
+            offset_y: -5.0, // 5 pixels above by default
             align: TextAlign::Center,
             font_size: None,
         }
     }
-    
+
     pub fn offset_y(mut self, offset: f64) -> Self {
         self.offset_y = offset;
         self
     }
-    
+
     pub fn align(mut self, align: TextAlign) -> Self {
         self.align = align;
         self
     }
-    
+
     pub fn font_size(mut self, size: f64) -> Self {
         self.font_size = Some(size);
         self
@@ -122,10 +126,10 @@ impl<C: CoordinateSystem> Derive<C> for LabelPoints {
             // Below: use bottom of bbox
             col("bbox.y_max") + lit(self.offset_y)
         };
-        
+
         // Create derived DataFrame with label positions
         let _label_df = df.with_column("label_y", label_y)?;
-        
+
         // In a real implementation, this would create a Text mark
         // The context.session can be used for DataFrame operations
         // For now, return a placeholder

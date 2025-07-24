@@ -1,7 +1,7 @@
-use datafusion::dataframe::DataFrame;
 use crate::coords::{Cartesian, CoordinateSystem, Polar};
 use crate::marks::{Mark, MarkConfig, channel::ChannelValue};
-use crate::{impl_mark_common, encoding_methods};
+use crate::{encoding_methods, impl_mark_common};
+use datafusion::dataframe::DataFrame;
 
 pub struct Line<C: CoordinateSystem> {
     config: MarkConfig<C>,

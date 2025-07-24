@@ -96,15 +96,15 @@ impl Default for Legend {
 #[cfg(test)]
 mod tests {
     use crate::coords::Cartesian;
+    use crate::legend::{LegendOrientation, LegendPosition};
     use crate::plot::Plot;
-    use crate::legend::{LegendPosition, LegendOrientation};
 
     #[test]
     fn test_legend_fill_with_configuration() {
         let plot = Plot::new(Cartesian)
             .scale_fill(|scale| scale)
             .legend_fill(|legend| legend.title("Temperature").position(LegendPosition::Right));
-        
+
         // Should have legend configured
         assert!(plot.legends.contains_key("fill"));
         let legend = &plot.legends["fill"];
@@ -117,7 +117,7 @@ mod tests {
         let plot = Plot::new(Cartesian)
             .scale_fill(|scale| scale)
             .legend_fill(|legend| legend.visible(false));
-        
+
         // Legend exists but is marked invisible
         assert!(plot.legends.contains_key("fill"));
         let legend = &plot.legends["fill"];
@@ -128,11 +128,13 @@ mod tests {
     fn test_legend_stroke_with_orientation() {
         let plot = Plot::new(Cartesian)
             .scale_stroke(|scale| scale)
-            .legend_stroke(|legend| legend
-                .title("Category")
-                .orientation(LegendOrientation::Horizontal)
-                .columns(3));
-        
+            .legend_stroke(|legend| {
+                legend
+                    .title("Category")
+                    .orientation(LegendOrientation::Horizontal)
+                    .columns(3)
+            });
+
         assert!(plot.legends.contains_key("stroke"));
         let legend = &plot.legends["stroke"];
         assert_eq!(legend.title, Some("Category".to_string()));
@@ -144,10 +146,8 @@ mod tests {
     fn test_legend_size_with_symbol_size() {
         let plot = Plot::new(Cartesian)
             .scale_size(|scale| scale)
-            .legend_size(|legend| legend
-                .title("Population")
-                .symbol_size(20.0));
-        
+            .legend_size(|legend| legend.title("Population").symbol_size(20.0));
+
         assert!(plot.legends.contains_key("size"));
         let legend = &plot.legends["size"];
         assert_eq!(legend.title, Some("Population".to_string()));
@@ -158,11 +158,13 @@ mod tests {
     fn test_legend_opacity_with_gradient() {
         let plot = Plot::new(Cartesian)
             .scale_opacity(|scale| scale)
-            .legend_opacity(|legend| legend
-                .title("Confidence")
-                .gradient_length(150.0)
-                .gradient_thickness(15.0));
-        
+            .legend_opacity(|legend| {
+                legend
+                    .title("Confidence")
+                    .gradient_length(150.0)
+                    .gradient_thickness(15.0)
+            });
+
         assert!(plot.legends.contains_key("opacity"));
         let legend = &plot.legends["opacity"];
         assert_eq!(legend.title, Some("Confidence".to_string()));
@@ -177,7 +179,7 @@ mod tests {
             .scale_size(|scale| scale)
             .legend_fill(|legend| legend.title("Temperature").position(LegendPosition::Right))
             .legend_size(|legend| legend.title("Population").position(LegendPosition::Left));
-        
+
         assert_eq!(plot.legends.len(), 2);
         assert!(plot.legends.contains_key("fill"));
         assert!(plot.legends.contains_key("size"));
@@ -189,7 +191,7 @@ mod tests {
             .scale_fill(|scale| scale)
             .legend_fill(|legend| legend.title("First Title"))
             .legend_fill(|legend| legend.title("Updated Title"));
-        
+
         // Second call should update the existing legend
         assert_eq!(plot.legends.len(), 1);
         let legend = &plot.legends["fill"];

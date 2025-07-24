@@ -1,12 +1,12 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use crate::error::AvengerChartError;
+use avenger_scales::scales::ScaleImpl;
 use datafusion::arrow::datatypes::DataType;
 use datafusion::dataframe::DataFrame;
-use datafusion::logical_expr::{lit, Expr, ExprSchemable};
+use datafusion::logical_expr::{Expr, ExprSchemable, lit};
 use datafusion_common::{DFSchema, ScalarValue};
-use avenger_scales::scales::ScaleImpl;
 use palette::Srgba;
-use crate::error::AvengerChartError;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct Scale {
@@ -36,10 +36,10 @@ impl Scale {
 
     // Domain builders
     pub fn domain<D: Into<ScaleDomain>>(self, domain: D) -> Self {
-        Self { 
-            domain: domain.into(), 
+        Self {
+            domain: domain.into(),
             domain_explicit: true,
-            ..self 
+            ..self
         }
     }
 
@@ -71,10 +71,10 @@ impl Scale {
 
     // Range builders
     pub fn range(self, range: ScaleRange) -> Self {
-        Self { 
-            range, 
+        Self {
+            range,
             range_explicit: true,
-            ..self 
+            ..self
         }
     }
 
@@ -238,7 +238,6 @@ pub enum ScaleRange {
     Color(Vec<Srgba>),
 }
 
-
 impl ScaleRange {
     pub fn new_interval<E: Into<Expr>, F: Into<Expr>>(start: E, end: F) -> Self {
         Self::Numeric(start.into(), end.into())
@@ -264,5 +263,47 @@ impl ScaleRange {
             }
             ScaleRange::Color(_) => Ok(DataType::new_list(DataType::Float32, true)),
         }
+    }
+}
+
+/// Registry for accessing scales in a plot
+#[derive(Debug, Clone, Default)]
+pub struct ScaleRegistry {
+    scales: HashMap<String, Scale>,
+}
+
+impl ScaleRegistry {
+    /// Create a new empty registry
+    pub fn new() -> Self {
+        Self {
+            scales: HashMap::new(),
+        }
+    }
+
+    /// Add a scale to the registry
+    pub fn add(&mut self, name: impl Into<String>, scale: Scale) -> &mut Self {
+        self.scales.insert(name.into(), scale);
+        self
+    }
+
+    /// Get a scale by name
+    pub fn get(&self, name: &str) -> Option<&Scale> {
+        self.scales.get(name)
+    }
+
+    /// Get all scales
+    pub fn scales(&self) -> &HashMap<String, Scale> {
+        &self.scales
+    }
+
+    /// Get scales for specific channels
+    pub fn get_scales_for_channels<'a>(
+        &'a self,
+        channels: &'a [&'a str],
+    ) -> Vec<(&'a str, &'a Scale)> {
+        channels
+            .iter()
+            .filter_map(|&channel| self.scales.get(channel).map(|scale| (channel, scale)))
+            .collect()
     }
 }
