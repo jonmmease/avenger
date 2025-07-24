@@ -1,0 +1,34 @@
+[package]
+name = "avenger-chart"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+avenger-common = { path = "../avenger-common" }
+avenger-scales = { path = "../avenger-scales" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-app = { path = "../avenger-app"}
+avenger-geometry = { path = "../avenger-geometry" }
+avenger-text = { path = "../avenger-text" }
+avenger-guides = { path = "../avenger-guides" }
+avenger-eventstream = { path = "../avenger-eventstream" }
+avenger-wgpu = { path = "../avenger-wgpu" }
+
+lazy_static = { workspace = true }
+async-trait = { workspace = true }
+datafusion = { workspace = true }
+datafusion-common = { workspace = true }
+arrow = { workspace = true }
+tokio = { workspace = true, default-features = false }
+palette = { workspace = true }
+thiserror = { workspace = true }
+image = { workspace = true }
+indexmap = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[[example]]
+name = "transform_demo"
+required-features = []
