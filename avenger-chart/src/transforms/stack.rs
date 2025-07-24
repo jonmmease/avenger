@@ -1,9 +1,9 @@
 //! Stack transform for creating stacked visualizations
 
-use std::marker::PhantomData;
-use crate::coords::{CoordinateSystem, Cartesian, Polar};
+use super::core::{ChannelInfo, DataContext, Transform};
+use crate::coords::{Cartesian, CoordinateSystem, Polar};
 use crate::error::AvengerChartError;
-use super::core::{Transform, DataContext, ChannelInfo};
+use std::marker::PhantomData;
 
 /// Ordering options for stacking
 #[derive(Debug, Clone, Copy)]
@@ -33,25 +33,25 @@ pub enum StackOffset {
 pub struct Stack<C: CoordinateSystem> {
     /// Channel to stack (e.g., "y" for vertical stacking)
     stack_channel: String,
-    
+
     /// Channel to group by (e.g., "x" for vertical stacking)
     group_channel: String,
-    
+
     /// Optional explicit column for stack values (overrides channel)
     stack_column: Option<String>,
-    
+
     /// Optional explicit column for grouping (overrides channel)
     group_column: Option<String>,
-    
+
     /// Optional explicit column for series/ordering (overrides fill/color)
     series_column: Option<String>,
-    
+
     /// How to order the stack segments
     order: StackOrder,
-    
+
     /// How to calculate stack offsets
     offset: StackOffset,
-    
+
     /// Phantom type for coordinate system
     _phantom: PhantomData<C>,
 }
@@ -71,31 +71,31 @@ impl<C: CoordinateSystem> Stack<C> {
             _phantom: PhantomData,
         }
     }
-    
+
     /// Override the column used for stacking
     pub fn stack(mut self, column: impl Into<String>) -> Self {
         self.stack_column = Some(column.into());
         self
     }
-    
+
     /// Override the column used for grouping
     pub fn by(mut self, column: impl Into<String>) -> Self {
         self.group_column = Some(column.into());
         self
     }
-    
+
     /// Specify the series column for ordering
     pub fn series(mut self, column: impl Into<String>) -> Self {
         self.series_column = Some(column.into());
         self
     }
-    
+
     /// Set the ordering method
     pub fn order(mut self, order: StackOrder) -> Self {
         self.order = order;
         self
     }
-    
+
     /// Set the offset algorithm
     pub fn offset(mut self, offset: StackOffset) -> Self {
         self.offset = offset;
@@ -109,7 +109,7 @@ impl Stack<Cartesian> {
     pub fn y() -> Self {
         Self::new("y", "x")
     }
-    
+
     /// Create a horizontal stack transform (stack x values within y groups)
     pub fn x() -> Self {
         Self::new("x", "y")
@@ -122,7 +122,7 @@ impl Stack<Polar> {
     pub fn r() -> Self {
         Self::new("r", "theta")
     }
-    
+
     /// Create an angular stack transform (stack theta values within r groups)
     pub fn theta() -> Self {
         Self::new("theta", "r")
@@ -132,70 +132,75 @@ impl Stack<Polar> {
 impl<C: CoordinateSystem> Transform for Stack<C> {
     fn transform(&self, ctx: DataContext) -> Result<DataContext, AvengerChartError> {
         // Resolve columns from encodings or use explicit columns
-        let _stack_col = self.stack_column.as_ref()
+        let _stack_col = self
+            .stack_column
+            .as_ref()
             .cloned()
             .or_else(|| ctx.encoding(&self.stack_channel));
-        
-        let group_col = self.group_column.as_ref()
+
+        let group_col = self
+            .group_column
+            .as_ref()
             .cloned()
             .or_else(|| ctx.encoding(&self.group_channel));
-        
+
         // Try to find series column for ordering - check encodings
-        let series_col = self.series_column.as_ref()
-            .map(|c| c.clone())
-            .or_else(|| {
-                // Check if fill, color, or stroke encodings exist
-                if ctx.encoding("fill").is_some() {
-                    ctx.encoding("fill")
-                } else if ctx.encoding("color").is_some() {
-                    ctx.encoding("color")
-                } else if ctx.encoding("stroke").is_some() {
-                    ctx.encoding("stroke")
-                } else {
-                    None
-                }
-            });
-        
+        let series_col = self.series_column.as_ref().map(|c| c.clone()).or_else(|| {
+            // Check if fill, color, or stroke encodings exist
+            if ctx.encoding("fill").is_some() {
+                ctx.encoding("fill")
+            } else if ctx.encoding("color").is_some() {
+                ctx.encoding("color")
+            } else if ctx.encoding("stroke").is_some() {
+                ctx.encoding("stroke")
+            } else {
+                None
+            }
+        });
+
         // TODO: Implement actual stacking logic
         // This would:
         // 1. Group by group_col (and series_col if present)
         // 2. Calculate cumulative sums within each group
         // 3. Create new columns for stack boundaries
-        
+
         let df = ctx.dataframe().clone();
-        
+
         // For now, create stub output columns
         let stack_start_col = format!("{}_stack_start", self.stack_channel);
         let stack_end_col = format!("{}_stack_end", self.stack_channel);
-        
+
         // Build result context
         let mut result = DataContext::new(df);
-        
+
         // Preserve existing encodings
         for channel in ctx.channels() {
             if let Some(column) = ctx.encoding(channel) {
                 result = result.with_encoding(channel, &column);
             }
         }
-        
+
         // Update stack channel encodings
         result = result
             .with_encoding(&format!("{}1", self.stack_channel), &stack_start_col)
             .with_encoding(&format!("{}2", self.stack_channel), &stack_end_col)
-            .with_channel_metadata(&self.stack_channel, serde_json::json!({
-                "transform": "stack",
-                "order": format!("{:?}", self.order),
-                "offset": format!("{:?}", self.offset),
-                "group_by": group_col,
-                "series": series_col,
-            }));
-        
+            .with_channel_metadata(
+                &self.stack_channel,
+                serde_json::json!({
+                    "transform": "stack",
+                    "order": format!("{:?}", self.order),
+                    "offset": format!("{:?}", self.offset),
+                    "group_by": group_col,
+                    "series": series_col,
+                }),
+            );
+
         // Also keep midpoint for labels
         result = result.with_encoding(&self.stack_channel, &format!("{}_mid", self.stack_channel));
-        
+
         Ok(result)
     }
-    
+
     fn output_channels(&self) -> Vec<ChannelInfo> {
         vec![
             ChannelInfo {

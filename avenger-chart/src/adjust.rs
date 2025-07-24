@@ -1,8 +1,8 @@
 //! Post-scale adjustment transforms for marks
 
+use crate::error::AvengerChartError;
 use datafusion::dataframe::DataFrame;
 use datafusion::prelude::SessionContext;
-use crate::error::AvengerChartError;
 
 /// Dimensions of the plot area
 #[derive(Debug, Clone, Copy)]
@@ -22,14 +22,17 @@ pub struct TransformContext {
 
 impl TransformContext {
     pub fn new(dimensions: PlotDimensions, session: SessionContext) -> Self {
-        Self { dimensions, session }
+        Self {
+            dimensions,
+            session,
+        }
     }
-    
+
     /// Convenience accessor for width
     pub fn width(&self) -> f64 {
         self.dimensions.width
     }
-    
+
     /// Convenience accessor for height
     pub fn height(&self) -> f64 {
         self.dimensions.height
@@ -39,13 +42,13 @@ impl TransformContext {
 /// Trait for post-scale adjustments that operate on scaled mark data
 pub trait Adjust: Send + Sync {
     /// Adjust mark positions/properties after scaling
-    /// 
+    ///
     /// # Arguments
     /// * `df` - DataFrame with columns:
     ///   - Encoding channels (x, y, size, etc.) with scaled visual values
     ///   - "bbox" - Struct column with {x_min, y_min, x_max, y_max}
     /// * `context` - Transform context with plot dimensions and session
-    /// 
+    ///
     /// # Returns
     /// Modified DataFrame with same schema but adjusted values
     fn adjust(
@@ -100,17 +103,17 @@ impl Jitter {
             seed: None,
         }
     }
-    
+
     pub fn x(mut self, amount: f64) -> Self {
         self.x_amount = Some(amount);
         self
     }
-    
+
     pub fn y(mut self, amount: f64) -> Self {
         self.y_amount = Some(amount);
         self
     }
-    
+
     pub fn seed(mut self, seed: u64) -> Self {
         self.seed = Some(seed);
         self
@@ -124,9 +127,9 @@ impl Adjust for Jitter {
         _context: &TransformContext,
     ) -> Result<DataFrame, AvengerChartError> {
         use datafusion::logical_expr::{col, lit};
-        
+
         let mut result = df;
-        
+
         // Add jitter to x if specified
         if let Some(amount) = self.x_amount {
             // For now, use a simple offset instead of random
@@ -134,13 +137,13 @@ impl Adjust for Jitter {
             let jitter_expr = col("x") + lit(amount * 0.5);
             result = result.with_column("x", jitter_expr)?;
         }
-        
+
         // Add jitter to y if specified
         if let Some(amount) = self.y_amount {
             let jitter_expr = col("y") + lit(amount * 0.5);
             result = result.with_column("y", jitter_expr)?;
         }
-        
+
         Ok(result)
     }
 }
@@ -159,12 +162,12 @@ impl Dodge {
             group_by: None,
         }
     }
-    
+
     pub fn padding(mut self, padding: f64) -> Self {
         self.padding = padding;
         self
     }
-    
+
     pub fn by(mut self, column: impl Into<String>) -> Self {
         self.group_by = Some(column.into());
         self
@@ -183,7 +186,7 @@ impl Adjust for Dodge {
         // 2. Calculate positions within each group
         // 3. Offset marks to avoid overlap
         // The context.session can be used for DataFrame operations
-        
+
         Ok(df)
     }
 }

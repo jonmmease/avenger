@@ -1,7 +1,7 @@
 use std::any::Any;
 
 /// Trait for all axis types
-/// 
+///
 /// The clone_box, as_any, and into_any methods enable storing different
 /// axis types in a type-erased collection while preserving the ability
 /// to downcast back to concrete types when needed.
@@ -84,11 +84,11 @@ impl AxisTrait for CartesianAxis {
     fn clone_box(&self) -> Box<dyn AxisTrait> {
         Box::new(self.clone())
     }
-    
+
     fn as_any(&self) -> &dyn Any {
         self
     }
-    
+
     fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
@@ -104,7 +104,7 @@ mod tests {
         let plot = Plot::new(Cartesian)
             .scale_x(|scale| scale)
             .axis_x(|axis| axis.title("Temperature").grid(true));
-        
+
         // Should have axis configured
         assert!(plot.axes.contains_key("x"));
     }
@@ -114,7 +114,7 @@ mod tests {
         let plot = Plot::new(Cartesian)
             .scale_x(|scale| scale)
             .axis_x(|axis| axis.visible(false));
-        
+
         // Axis still exists but is marked invisible
         assert!(plot.axes.contains_key("x"));
     }
@@ -124,9 +124,8 @@ mod tests {
         let plot = Plot::new(Cartesian)
             .scale_x(|scale| scale)
             .axis_x(|axis| axis.title("Modified"));
-        
+
         // Should have axis with defaults modified
         assert!(plot.axes.contains_key("x"));
     }
 }
-

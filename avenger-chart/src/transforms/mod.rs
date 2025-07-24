@@ -1,18 +1,18 @@
 //! Transform system for data visualization
-//! 
+//!
 //! This module provides a Transform trait and associated types that work
 //! similar to Observable Plot's transform system.
 
-pub mod core;
 pub mod bin;
+pub mod core;
 pub mod group;
 pub mod stack;
 
 // Re-export commonly used types
-pub use core::{Transform, TransformInput, DataContext, ChannelInfo};
 pub use bin::{Bin, BinNd};
+pub use core::{ChannelInfo, DataContext, Transform, TransformInput};
 pub use group::Group;
-pub use stack::{Stack, StackOrder, StackOffset};
+pub use stack::{Stack, StackOffset, StackOrder};
 
 // Example usage:
 // ```rust
@@ -21,7 +21,7 @@ pub use stack::{Stack, StackOrder, StackOffset};
 // use avenger_chart::transforms::{Bin, BinNd, Group};
 // use avenger_chart::coords::{Cartesian, Polar};
 // use avenger_chart::marks::{Rect, Arc, Symbol};
-// 
+//
 // // Single-dimensional binning with simple API
 // Rect::<Cartesian>::new()
 //     .data(df.clone())
@@ -37,7 +37,7 @@ pub use stack::{Stack, StackOrder, StackOffset};
 //     .y(col("count"))               // Aggregation column preserves name
 //     // The following would be set automatically by the transform:
 //     // .fill(col("avg_value"))    // Automatically mapped from AVG(value)
-// 
+//
 // // Multi-dimensional binning (2D histogram)
 // Rect::<Cartesian>::new()
 //     .data(df.clone())
@@ -56,7 +56,7 @@ pub use stack::{Stack, StackOrder, StackOffset};
 //     .fill(col("count"))         // Color by count
 //     // The following would be set automatically by the transform:
 //     // .opacity(col("avg_quality"))  // Automatically mapped from AVG(quality)
-// 
+//
 // // Alternative: using index-based configuration
 // Rect::<Cartesian>::new()
 //     .data(df.clone())
@@ -66,7 +66,7 @@ pub use stack::{Stack, StackOrder, StackOffset};
 //             .bins_for(1, 20)        // Second field (weight)
 //             .aggregate(count(lit(1)))
 //     )?
-// 
+//
 // // Bar chart with single field grouping
 // Rect::<Cartesian>::new()
 //     .data(df.clone())
@@ -76,7 +76,7 @@ pub use stack::{Stack, StackOrder, StackOffset};
 //     )?
 //     .x(col("category"))           // Original column name preserved
 //     .y(col("sum_quantity"))       // Automatically mapped from aggregate
-// 
+//
 // // Grouped bar chart preparation (for future stacking)
 // Rect::<Cartesian>::new()
 //     .data(df.clone())
@@ -87,7 +87,7 @@ pub use stack::{Stack, StackOrder, StackOffset};
 //     .x(col("month"))
 //     .y(col("sum_sales"))          // Aggregated sales
 //     .fill(col("product"))          // Color by product
-// 
+//
 // // Scatter plot with multi-field grouping
 // Symbol::<Cartesian>::new()
 //     .data(df.clone())
@@ -101,7 +101,7 @@ pub use stack::{Stack, StackOrder, StackOffset};
 //     .size(col("count"))           // Count mapped to size channel
 //     // The following would be set automatically by the transform:
 //     // .fill(col("avg_price"))    // Automatically mapped from AVG(price)
-// 
+//
 // // Polar binning with simple API
 // Arc::<Polar>::new()
 //     .data(df.clone())
@@ -113,7 +113,7 @@ pub use stack::{Stack, StackOrder, StackOffset};
 //     .r(col("magnitude_bin_start"))
 //     .r2(col("magnitude_bin_end"))
 //     .theta(col("count"))
-// 
+//
 // // Multi-dimensional polar binning
 // Arc::<Polar>::new()
 //     .data(df.clone())

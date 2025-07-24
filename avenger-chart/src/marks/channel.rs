@@ -1,4 +1,4 @@
-use datafusion::logical_expr::{ident, Expr};
+use datafusion::logical_expr::{Expr, ident};
 
 /// Specifies which scale to use for a channel
 #[derive(Debug, Clone)]
@@ -22,19 +22,19 @@ pub struct ChannelValue {
 
 impl ChannelValue {
     pub fn new(expr: Expr) -> Self {
-        Self { 
-            expr, 
+        Self {
+            expr,
             scale: ScaleSpec::Default,
         }
     }
-    
+
     pub fn with_scale(expr: Expr, scale: impl Into<String>) -> Self {
         Self {
             expr,
             scale: ScaleSpec::Custom(scale.into()),
         }
     }
-    
+
     /// Disable scaling for this channel
     pub fn no_scale(expr: Expr) -> Self {
         Self {
@@ -42,7 +42,7 @@ impl ChannelValue {
             scale: ScaleSpec::None,
         }
     }
-    
+
     /// Get the scale name for this channel
     pub fn scale_name(&self, channel_name: &str) -> Option<String> {
         match &self.scale {
@@ -54,7 +54,7 @@ impl ChannelValue {
             ScaleSpec::None => None,
         }
     }
-    
+
     /// Extract column name if this is a simple column reference
     pub fn as_column_name(&self) -> Option<String> {
         // Check if expr is a simple column identifier
@@ -125,7 +125,7 @@ impl From<(Expr, Option<String>)> for ChannelValue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_strip_trailing_numbers() {
         assert_eq!(strip_trailing_numbers("x"), "x");
