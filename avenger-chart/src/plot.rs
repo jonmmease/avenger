@@ -1,3 +1,4 @@
+use crate::axis::{AxisPosition, CartesianAxis};
 use crate::controllers::Controller;
 use crate::coords::{Cartesian, CoordinateSystem, Polar};
 use crate::legend::Legend;
@@ -48,6 +49,13 @@ pub struct Plot<C: CoordinateSystem> {
     /// Size hints for layout system
     preferred_size: Option<(f64, f64)>,
     aspect_ratio: Option<f64>,
+
+    /// Mapping from scale names to their coordinate channel
+    /// e.g., "y_squared" -> "y", "y_temperature" -> "y"
+    scale_to_coord_channel: HashMap<String, String>,
+
+    /// Track count of axes per coordinate channel for defaulting positions
+    axis_counts: HashMap<String, usize>,
 }
 
 /// Enhanced resolution options with row/column specificity
@@ -364,6 +372,8 @@ impl<C: CoordinateSystem> Plot<C> {
             scale_specs: HashMap::new(),
             preferred_size: None,
             aspect_ratio: None,
+            scale_to_coord_channel: HashMap::new(),
+            axis_counts: HashMap::new(),
         }
     }
 
@@ -475,9 +485,16 @@ impl<C: CoordinateSystem> Plot<C> {
                 let inner_width = self.width - self.padding.left - self.padding.right;
                 let inner_height = self.height - self.padding.top - self.padding.bottom;
 
+                // Check if this scale is mapped to a coordinate channel
+                let coord_channel = self
+                    .scale_to_coord_channel
+                    .get(name)
+                    .map(|s| s.as_str())
+                    .unwrap_or(name);
+
                 if let Some(default_range) =
                     self.coord_system
-                        .default_range(name, inner_width, inner_height)
+                        .default_range(coord_channel, inner_width, inner_height)
                 {
                     scale = scale.range(default_range);
                 }
@@ -559,14 +576,101 @@ impl Plot<Cartesian> {
     where
         F: FnOnce(<Cartesian as CoordinateSystem>::Axis) -> <Cartesian as CoordinateSystem>::Axis,
     {
+        // Get count for x axes (this is the primary one, so index 0)
+        let index = 0;
+
         // Get existing axis or create default
         let current = self
             .axes
             .remove("x")
-            .unwrap_or_else(|| Cartesian::default_axis("x").unwrap());
+            .unwrap_or_else(|| Cartesian::default_axis("x", index).unwrap());
 
         let axis = f(current);
         self.axes.insert("x".to_string(), axis);
+        self
+    }
+
+    pub fn axis_y<F>(mut self, f: F) -> Self
+    where
+        F: FnOnce(<Cartesian as CoordinateSystem>::Axis) -> <Cartesian as CoordinateSystem>::Axis,
+    {
+        // Get count for y axes (this is the primary one, so index 0)
+        let index = 0;
+
+        // Get existing axis or create default
+        let current = self
+            .axes
+            .remove("y")
+            .unwrap_or_else(|| Cartesian::default_axis("y", index).unwrap());
+
+        let axis = f(current);
+        self.axes.insert("y".to_string(), axis);
+        self
+    }
+
+    /// Add an alternative y-axis scale with a custom name
+    pub fn scale_y_alt<S: Into<String>, F>(mut self, name: S, f: F) -> Self
+    where
+        F: FnOnce(Scale) -> Scale,
+    {
+        let scale = f(Scale::new(LinearScale));
+        let name = name.into();
+        self.scales.insert(name.clone(), scale.clone());
+        self.scale_specs
+            .insert(name.clone(), ScaleSpec::Local(scale));
+        // Map this scale to the y coordinate channel
+        self.scale_to_coord_channel.insert(name, "y".to_string());
+        self
+    }
+
+    /// Add an alternative x-axis scale with a custom name
+    pub fn scale_x_alt<S: Into<String>, F>(mut self, name: S, f: F) -> Self
+    where
+        F: FnOnce(Scale) -> Scale,
+    {
+        let scale = f(Scale::new(LinearScale));
+        let name = name.into();
+        self.scales.insert(name.clone(), scale.clone());
+        self.scale_specs
+            .insert(name.clone(), ScaleSpec::Local(scale));
+        // Map this scale to the x coordinate channel
+        self.scale_to_coord_channel.insert(name, "x".to_string());
+        self
+    }
+
+    /// Configure an axis for a named y scale
+    pub fn axis_y_alt<S: Into<String>, F>(mut self, scale_name: S, f: F) -> Self
+    where
+        F: FnOnce(<Cartesian as CoordinateSystem>::Axis) -> <Cartesian as CoordinateSystem>::Axis,
+    {
+        let scale_name = scale_name.into();
+        // Get existing axis or create default with right position for alt axes
+        let current = self.axes.remove(&scale_name).unwrap_or_else(|| {
+            CartesianAxis::new()
+                .position(AxisPosition::Right)
+                .label_angle(0.0)
+        });
+
+        let axis = f(current);
+        self.axes.insert(scale_name, axis);
+        self
+    }
+
+    /// Configure an axis for a named x scale
+    pub fn axis_x_alt<S: Into<String>, F>(mut self, scale_name: S, f: F) -> Self
+    where
+        F: FnOnce(<Cartesian as CoordinateSystem>::Axis) -> <Cartesian as CoordinateSystem>::Axis,
+    {
+        let scale_name = scale_name.into();
+        // Get existing axis or create default with top position for alt axes
+        let current = self.axes.remove(&scale_name).unwrap_or_else(|| {
+            CartesianAxis::new()
+                .position(AxisPosition::Top)
+                .label_angle(0.0)
+        });
+
+        let axis = f(current);
+        self.axes.insert(scale_name, axis);
         self
     }
 }

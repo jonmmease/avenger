@@ -40,7 +40,9 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     ) -> Result<TransformResult, AvengerChartError>;
 
     /// Get default axis configuration for a channel
-    fn default_axis(channel: &str) -> Option<Self::Axis>;
+    /// The index parameter indicates which instance of this channel type this is
+    /// (e.g., 0 for primary y-axis, 1 for first alternative y-axis, etc.)
+    fn default_axis(channel: &str, index: usize) -> Option<Self::Axis>;
 }
 
 pub struct Cartesian;
@@ -76,16 +78,24 @@ impl CoordinateSystem for Cartesian {
         Ok(TransformResult { x, y, depth: None })
     }
 
-    fn default_axis(channel: &str) -> Option<Self::Axis> {
+    fn default_axis(channel: &str, index: usize) -> Option<Self::Axis> {
         match channel {
             "x" => Some(
                 CartesianAxis::new()
-                    .position(AxisPosition::Bottom)
+                    .position(if index % 2 == 0 {
+                        AxisPosition::Bottom
+                    } else {
+                        AxisPosition::Top
+                    })
                     .label_angle(0.0),
             ),
             "y" => Some(
                 CartesianAxis::new()
-                    .position(AxisPosition::Left)
+                    .position(if index % 2 == 0 {
+                        AxisPosition::Left
+                    } else {
+                        AxisPosition::Right
+                    })
                     .label_angle(0.0),
             ),
             _ => None,
@@ -138,7 +148,7 @@ impl CoordinateSystem for Polar {
         Ok(TransformResult { x, y, depth: None })
     }
 
-    fn default_axis(channel: &str) -> Option<Self::Axis> {
+    fn default_axis(channel: &str, _index: usize) -> Option<Self::Axis> {
         match channel {
             "r" => Some(CartesianAxis::new()), // TODO: Implement PolarAxis for radial axis
             "theta" => Some(CartesianAxis::new()), // TODO: Implement PolarAxis for angular axis

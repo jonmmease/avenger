@@ -1,5 +1,5 @@
 pub mod adjust;
-mod axis;
+pub mod axis;
 pub mod controllers;
 pub mod coords;
 pub mod derive;
