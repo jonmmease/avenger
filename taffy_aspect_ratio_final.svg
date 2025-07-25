@@ -1,0 +1,32 @@
+<svg width="800" height="500" xmlns="http://www.w3.org/2000/svg">
+<style>
+        .root { fill: #f0f0f0; stroke: #333; stroke-width: 2; }
+        .title { fill: #d0d0ff; stroke: #666; stroke-width: 1; }
+        .chart-area { fill: #fff; stroke: #999; stroke-width: 2; }
+        .y-axis { fill: #ffe0e0; stroke: #999; stroke-width: 1; }
+        .x-axis { fill: #e0ffe0; stroke: #999; stroke-width: 1; }
+        .legend { fill: #ffffe0; stroke: #999; stroke-width: 1; }
+        .label { font-family: Arial, sans-serif; font-size: 12px; text-anchor: middle; }
+        .small { font-size: 10px; }
+        .grid-cell { fill: none; stroke: #ddd; stroke-width: 1; stroke-dasharray: 3,3; }
+    </style>
+<rect x="0" y="0" width="800" height="500" class="root" />
+<rect x="100" y="50" width="260" height="370" class="grid-cell" />
+<rect x="420" y="50" width="260" height="370" class="grid-cell" />
+<rect x="20.0" y="20.0" width="738.0" height="30.0" class="title" />
+<text x="389.0" y="35.0" class="label">Title 1 (16:9)</text>
+<rect x="778.0" y="20.0" width="140.0" height="30.0" class="title" />
+<text x="848.0" y="35.0" class="label">Title 2 (4:3)</text>
+<rect x="20.0" y="50.0" width="80.0" height="370.0" class="y-axis" />
+<text x="60.0" y="235.0" class="label">Y-Axis 1</text>
+<rect x="778.0" y="50.0" width="40.0" height="370.0" class="y-axis" />
+<text x="798.0" y="235.0" class="label">Y-Axis 2</text>
+<rect x="100.0" y="50.0" width="658.0" height="370.0" class="chart-area" />
+<text x="429.0" y="229.0" class="label">Chart 1</text>
+<text x="429.0" y="241.0" class="label">658x370</text>
+<text x="429.0" y="415.0" class="label small">ratio: 1.78</text>
+<rect x="100.0" y="420.0" width="658.0" height="20.0" class="x-axis" />
+<text x="429.0" y="430.0" class="label">X-Axis 1</text>
+<rect x="818.0" y="50.0" width="100.0" height="80.0" class="legend" />
+<text x="868.0" y="90.0" class="label">Legend</text>
+</svg>

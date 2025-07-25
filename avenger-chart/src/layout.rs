@@ -4,77 +4,217 @@ use crate::coords::CoordinateSystem;
 use crate::plot::Plot;
 use crate::scales::Scale;
 use std::collections::HashMap;
-use taffy::prelude::*;
 
 /// Unique identifier for plots within a layout
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PlotId(usize);
 
+/// Represents a rectangular area with position and size
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Rect {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+impl Rect {
+    pub fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+}
+
+/// Padding around a plot area
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Padding {
+    pub left: f32,
+    pub right: f32,
+    pub top: f32,
+    pub bottom: f32,
+}
+
+impl Padding {
+    pub fn uniform(value: f32) -> Self {
+        Self {
+            left: value,
+            right: value,
+            top: value,
+            bottom: value,
+        }
+    }
+}
+
+impl Default for Padding {
+    fn default() -> Self {
+        Self {
+            left: 0.0,
+            right: 0.0,
+            top: 0.0,
+            bottom: 0.0,
+        }
+    }
+}
+
+/// Size preferences for layout
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SizeConstraints {
+    pub min_width: Option<f32>,
+    pub max_width: Option<f32>,
+    pub min_height: Option<f32>,
+    pub max_height: Option<f32>,
+    pub preferred_width: Option<f32>,
+    pub preferred_height: Option<f32>,
+    pub aspect_ratio: Option<f32>,
+}
+
+impl Default for SizeConstraints {
+    fn default() -> Self {
+        Self {
+            min_width: None,
+            max_width: None,
+            min_height: None,
+            max_height: None,
+            preferred_width: None,
+            preferred_height: None,
+            aspect_ratio: None,
+        }
+    }
+}
+
+/// Alignment options for layout
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Alignment {
+    Start,
+    Center,
+    End,
+    /// Align plot areas (not container bounds)
+    PlotArea,
+}
+
 /// Trait that all plots must implement to participate in layouts
 pub trait PlotTrait: Send + Sync {
-    /// Get the preferred size of this plot
-    fn preferred_size(&self) -> Option<(f32, f32)>;
+    /// Get the size constraints for this plot
+    fn size_constraints(&self) -> SizeConstraints;
 
-    /// Get the aspect ratio constraint
-    fn aspect_ratio(&self) -> Option<f32>;
+    /// Measure components (labels, titles, etc) for the given plot area size
+    /// Returns the required padding to accommodate all components
+    fn measure_padding(&self, plot_width: f32, plot_height: f32) -> Padding;
 
     /// Render the plot at the given position and size
-    fn render(&self, x: f32, y: f32, width: f32, height: f32);
+    fn render(&self, bounds: Rect);
 }
 
 /// Type-erased wrapper for plots
 struct AnyPlot(Box<dyn PlotTrait>);
 
 impl<C: CoordinateSystem + 'static> PlotTrait for Plot<C> {
-    fn preferred_size(&self) -> Option<(f32, f32)> {
-        // TODO: Implement based on Plot's width/height
-        None
+    fn size_constraints(&self) -> SizeConstraints {
+        // TODO: Implement based on Plot's constraints
+        SizeConstraints::default()
     }
 
-    fn aspect_ratio(&self) -> Option<f32> {
-        // TODO: Implement if Plot has aspect ratio constraint
-        None
+    fn measure_padding(&self, _plot_width: f32, _plot_height: f32) -> Padding {
+        // TODO: Measure actual component sizes
+        Padding::uniform(20.0)
     }
 
-    fn render(&self, _x: f32, _y: f32, _width: f32, _height: f32) {
-        // TODO: Implement rendering at specified position/size
+    fn render(&self, _bounds: Rect) {
+        // TODO: Implement rendering at specified bounds
     }
+}
+
+/// Layout arrangement types
+#[derive(Debug, Clone, Copy)]
+pub enum LayoutMode {
+    /// Horizontal concatenation
+    Horizontal,
+    /// Vertical concatenation  
+    Vertical,
+    /// Grid layout
+    Grid { rows: usize, cols: usize },
+}
+
+/// Computed layout information for a plot
+#[derive(Debug, Clone)]
+pub struct PlotLayout {
+    /// The plot ID
+    pub id: PlotId,
+    /// Total bounds including padding
+    pub bounds: Rect,
+    /// Plot area bounds (excluding padding)
+    pub plot_area: Rect,
+    /// Applied padding
+    pub padding: Padding,
 }
 
 /// A layout that arranges multiple plots
 pub struct Layout {
-    /// Taffy tree for layout computation
-    tree: TaffyTree<PlotId>,
+    /// Layout mode
+    mode: LayoutMode,
 
     /// Plots stored by ID
     plots: HashMap<PlotId, AnyPlot>,
 
+    /// Computed layouts
+    computed_layouts: Vec<PlotLayout>,
+
     /// Shared scales accessible by name
     shared_scales: HashMap<String, Scale>,
 
-    /// Root node of the layout tree
-    root: Option<NodeId>,
+    /// Layout properties
+    gap: f32,
+    container_padding: Padding,
+    alignment: Alignment,
 
     /// Next plot ID
     next_id: usize,
 }
 
 impl Layout {
-    /// Create a new empty layout
-    pub fn new() -> Self {
+    /// Create a new layout with the specified mode
+    pub fn new(mode: LayoutMode) -> Self {
         Self {
-            tree: TaffyTree::new(),
+            mode,
             plots: HashMap::new(),
+            computed_layouts: Vec::new(),
             shared_scales: HashMap::new(),
-            root: None,
+            gap: 0.0,
+            container_padding: Padding::default(),
+            alignment: Alignment::PlotArea,
             next_id: 0,
         }
     }
 
+    /// Create a horizontal concatenation layout
+    pub fn horizontal() -> Self {
+        Self::new(LayoutMode::Horizontal)
+    }
+
+    /// Create a vertical concatenation layout
+    pub fn vertical() -> Self {
+        Self::new(LayoutMode::Vertical)
+    }
+
+    /// Create a grid layout
+    pub fn grid(rows: usize, cols: usize) -> Self {
+        Self::new(LayoutMode::Grid { rows, cols })
+    }
+
+    /// Add a plot to the layout
+    pub fn add_plot<P: PlotTrait + 'static>(&mut self, plot: P) -> PlotId {
+        let id = self.next_plot_id();
+        self.plots.insert(id, AnyPlot(Box::new(plot)));
+        id
+    }
+
     /// Add a named scale that can be referenced by plots
-    pub fn scale<S: Into<String>>(mut self, name: S, scale: Scale) -> Self {
+    pub fn add_scale<S: Into<String>>(&mut self, name: S, scale: Scale) {
         self.shared_scales.insert(name.into(), scale);
-        self
     }
 
     /// Get a shared scale by name
@@ -82,39 +222,48 @@ impl Layout {
         self.shared_scales.get(name)
     }
 
-    /// Create a horizontal concatenation layout
-    pub fn hconcat<P: PlotTrait + 'static>(plots: Vec<P>) -> LayoutBuilder {
-        LayoutBuilder::new(LayoutType::HConcat).plots(plots)
+    /// Set the gap between items
+    pub fn set_gap(&mut self, gap: f32) {
+        self.gap = gap;
     }
 
-    /// Create a vertical concatenation layout
-    pub fn vconcat<P: PlotTrait + 'static>(plots: Vec<P>) -> LayoutBuilder {
-        LayoutBuilder::new(LayoutType::VConcat).plots(plots)
+    /// Set container padding
+    pub fn set_padding(&mut self, padding: Padding) {
+        self.container_padding = padding;
     }
 
-    /// Create a grid layout
-    pub fn grid(rows: usize, cols: usize) -> GridBuilder {
-        GridBuilder::new(rows, cols)
+    /// Set alignment mode
+    pub fn set_alignment(&mut self, alignment: Alignment) {
+        self.alignment = alignment;
     }
 
     /// Compute the layout with the given available space
-    pub fn compute(&mut self, width: f32, height: f32) -> Result<(), taffy::TaffyError> {
-        if let Some(root) = self.root {
-            self.tree.compute_layout(
-                root,
-                Size {
-                    width: AvailableSpace::Definite(width),
-                    height: AvailableSpace::Definite(height),
-                },
-            )?;
+    pub fn compute(&mut self, width: f32, height: f32) -> Result<(), String> {
+        // This is where we'll implement the constraint-based layout
+        // For now, we'll implement a simple version
+
+        let available_width = width - self.container_padding.left - self.container_padding.right;
+        let available_height = height - self.container_padding.top - self.container_padding.bottom;
+
+        match self.mode {
+            LayoutMode::Horizontal => {
+                self.compute_horizontal_layout(available_width, available_height)
+            }
+            LayoutMode::Vertical => self.compute_vertical_layout(available_width, available_height),
+            LayoutMode::Grid { rows, cols } => {
+                self.compute_grid_layout(available_width, available_height, rows, cols)
+            }
         }
-        Ok(())
     }
 
-    /// Get the computed layout for a plot
-    pub fn get_layout(&self, _plot_id: PlotId) -> Option<taffy::Layout> {
-        // TODO: Need to track node_id -> plot_id mapping
-        None
+    /// Get the computed layouts
+    pub fn get_layouts(&self) -> &[PlotLayout] {
+        &self.computed_layouts
+    }
+
+    /// Get the computed layout for a specific plot
+    pub fn get_plot_layout(&self, plot_id: PlotId) -> Option<&PlotLayout> {
+        self.computed_layouts.iter().find(|l| l.id == plot_id)
     }
 
     /// Internal: Generate next plot ID
@@ -123,218 +272,208 @@ impl Layout {
         self.next_id += 1;
         id
     }
-}
 
-impl Default for Layout {
-    fn default() -> Self {
-        Self::new()
+    /// Compute horizontal layout
+    fn compute_horizontal_layout(&mut self, width: f32, height: f32) -> Result<(), String> {
+        // TODO: Implement proper constraint-based layout
+        // For now, simple equal distribution
+        let plot_count = self.plots.len();
+        if plot_count == 0 {
+            return Ok(());
+        }
+
+        let total_gap = self.gap * (plot_count - 1) as f32;
+        let plot_width = (width - total_gap) / plot_count as f32;
+
+        self.computed_layouts.clear();
+        let mut x = self.container_padding.left;
+
+        for (id, plot) in &self.plots {
+            let padding = plot.0.measure_padding(plot_width, height);
+            let plot_area = Rect::new(
+                x + padding.left,
+                self.container_padding.top + padding.top,
+                plot_width - padding.left - padding.right,
+                height - padding.top - padding.bottom,
+            );
+
+            self.computed_layouts.push(PlotLayout {
+                id: *id,
+                bounds: Rect::new(x, self.container_padding.top, plot_width, height),
+                plot_area,
+                padding,
+            });
+
+            x += plot_width + self.gap;
+        }
+
+        Ok(())
+    }
+
+    /// Compute vertical layout
+    fn compute_vertical_layout(&mut self, width: f32, height: f32) -> Result<(), String> {
+        // TODO: Implement proper constraint-based layout
+        // For now, simple equal distribution
+        let plot_count = self.plots.len();
+        if plot_count == 0 {
+            return Ok(());
+        }
+
+        let total_gap = self.gap * (plot_count - 1) as f32;
+        let plot_height = (height - total_gap) / plot_count as f32;
+
+        self.computed_layouts.clear();
+        let mut y = self.container_padding.top;
+
+        for (id, plot) in &self.plots {
+            let padding = plot.0.measure_padding(width, plot_height);
+            let plot_area = Rect::new(
+                self.container_padding.left + padding.left,
+                y + padding.top,
+                width - padding.left - padding.right,
+                plot_height - padding.top - padding.bottom,
+            );
+
+            self.computed_layouts.push(PlotLayout {
+                id: *id,
+                bounds: Rect::new(self.container_padding.left, y, width, plot_height),
+                plot_area,
+                padding,
+            });
+
+            y += plot_height + self.gap;
+        }
+
+        Ok(())
+    }
+
+    /// Compute grid layout
+    fn compute_grid_layout(
+        &mut self,
+        width: f32,
+        height: f32,
+        rows: usize,
+        cols: usize,
+    ) -> Result<(), String> {
+        // TODO: Implement proper constraint-based layout
+        // For now, simple equal distribution
+        if rows == 0 || cols == 0 {
+            return Ok(());
+        }
+
+        let h_gap_total = self.gap * (cols - 1) as f32;
+        let v_gap_total = self.gap * (rows - 1) as f32;
+        let cell_width = (width - h_gap_total) / cols as f32;
+        let cell_height = (height - v_gap_total) / rows as f32;
+
+        self.computed_layouts.clear();
+
+        for (idx, (id, plot)) in self.plots.iter().enumerate() {
+            let row = idx / cols;
+            let col = idx % cols;
+
+            if row >= rows {
+                break; // More plots than grid cells
+            }
+
+            let x = self.container_padding.left + col as f32 * (cell_width + self.gap);
+            let y = self.container_padding.top + row as f32 * (cell_height + self.gap);
+
+            let padding = plot.0.measure_padding(cell_width, cell_height);
+            let plot_area = Rect::new(
+                x + padding.left,
+                y + padding.top,
+                cell_width - padding.left - padding.right,
+                cell_height - padding.top - padding.bottom,
+            );
+
+            self.computed_layouts.push(PlotLayout {
+                id: *id,
+                bounds: Rect::new(x, y, cell_width, cell_height),
+                plot_area,
+                padding,
+            });
+        }
+
+        Ok(())
     }
 }
 
-/// Types of layout arrangements
-#[derive(Debug, Clone, Copy)]
-pub enum LayoutType {
-    HConcat,
-    VConcat,
-    Grid { rows: usize, cols: usize },
-}
-
-/// Builder for creating layouts
+/// Builder for creating layouts with a fluent API
 pub struct LayoutBuilder {
-    layout_type: LayoutType,
-    style: Style,
-    children: Vec<LayoutNode>,
-}
-
-/// A node in the layout tree
-enum LayoutNode {
-    Plot(Box<dyn PlotTrait>),
-    Layout(LayoutBuilder),
+    layout: Layout,
 }
 
 impl LayoutBuilder {
-    /// Create a new layout builder
-    pub fn new(layout_type: LayoutType) -> Self {
-        let style = match layout_type {
-            LayoutType::HConcat => Style {
-                display: Display::Flex,
-                flex_direction: FlexDirection::Row,
-                ..Default::default()
-            },
-            LayoutType::VConcat => Style {
-                display: Display::Flex,
-                flex_direction: FlexDirection::Column,
-                ..Default::default()
-            },
-            LayoutType::Grid { .. } => Style {
-                display: Display::Grid,
-                ..Default::default()
-            },
-        };
-
+    /// Create a horizontal layout builder
+    pub fn horizontal() -> Self {
         Self {
-            layout_type,
-            style,
-            children: Vec::new(),
+            layout: Layout::horizontal(),
         }
     }
 
-    /// Add plots to this layout
+    /// Create a vertical layout builder
+    pub fn vertical() -> Self {
+        Self {
+            layout: Layout::vertical(),
+        }
+    }
+
+    /// Create a grid layout builder
+    pub fn grid(rows: usize, cols: usize) -> Self {
+        Self {
+            layout: Layout::grid(rows, cols),
+        }
+    }
+
+    /// Add a plot to the layout
+    pub fn plot<P: PlotTrait + 'static>(mut self, plot: P) -> Self {
+        self.layout.add_plot(plot);
+        self
+    }
+
+    /// Add multiple plots
     pub fn plots<P: PlotTrait + 'static>(mut self, plots: Vec<P>) -> Self {
         for plot in plots {
-            self.children.push(LayoutNode::Plot(Box::new(plot)));
+            self.layout.add_plot(plot);
         }
         self
     }
 
     /// Set the gap between items
     pub fn gap(mut self, gap: f32) -> Self {
-        self.style.gap = Size {
-            width: LengthPercentage::length(gap),
-            height: LengthPercentage::length(gap),
-        };
-        self
-    }
-
-    /// Set the size of this layout
-    pub fn size(mut self, width: f32, height: f32) -> Self {
-        self.style.size = Size {
-            width: length(width),
-            height: length(height),
-        };
-        self
-    }
-
-    /// Set minimum size constraints
-    pub fn min_size(mut self, width: f32, height: f32) -> Self {
-        self.style.min_size = Size {
-            width: length(width),
-            height: length(height),
-        };
-        self
-    }
-
-    /// Set maximum size constraints
-    pub fn max_size(mut self, width: f32, height: f32) -> Self {
-        self.style.max_size = Size {
-            width: length(width),
-            height: length(height),
-        };
+        self.layout.set_gap(gap);
         self
     }
 
     /// Set padding
-    pub fn padding(mut self, padding: f32) -> Self {
-        self.style.padding = Rect {
-            left: LengthPercentage::length(padding),
-            right: LengthPercentage::length(padding),
-            top: LengthPercentage::length(padding),
-            bottom: LengthPercentage::length(padding),
-        };
+    pub fn padding(mut self, padding: Padding) -> Self {
+        self.layout.set_padding(padding);
         self
     }
 
-    /// Set alignment for flex layouts
-    pub fn align_items(mut self, align: AlignItems) -> Self {
-        self.style.align_items = Some(align);
+    /// Set uniform padding
+    pub fn padding_uniform(mut self, value: f32) -> Self {
+        self.layout.set_padding(Padding::uniform(value));
         self
     }
 
-    /// Set justification for flex layouts
-    pub fn justify_content(mut self, justify: JustifyContent) -> Self {
-        self.style.justify_content = Some(justify);
+    /// Set alignment
+    pub fn align(mut self, alignment: Alignment) -> Self {
+        self.layout.set_alignment(alignment);
+        self
+    }
+
+    /// Add a shared scale
+    pub fn scale<S: Into<String>>(mut self, name: S, scale: Scale) -> Self {
+        self.layout.add_scale(name, scale);
         self
     }
 
     /// Build the layout
     pub fn build(self) -> Layout {
-        let layout = Layout::new();
-        // TODO: Convert LayoutBuilder into Layout with proper Taffy tree
-        layout
+        self.layout
     }
-}
-
-/// Builder for grid layouts
-pub struct GridBuilder {
-    rows: usize,
-    cols: usize,
-    style: Style,
-    cells: HashMap<(usize, usize), Box<dyn PlotTrait>>,
-}
-
-impl GridBuilder {
-    /// Create a new grid builder
-    pub fn new(rows: usize, cols: usize) -> Self {
-        Self {
-            rows,
-            cols,
-            style: Style {
-                display: Display::Grid,
-                grid_template_columns: vec![fr(1.0); cols],
-                grid_template_rows: vec![fr(1.0); rows],
-                ..Default::default()
-            },
-            cells: HashMap::new(),
-        }
-    }
-
-    /// Add a plot to a specific cell
-    pub fn cell<P: PlotTrait + 'static>(mut self, row: usize, col: usize, plot: P) -> Self {
-        self.cells.insert((row, col), Box::new(plot));
-        self
-    }
-
-    /// Set the gap between cells
-    pub fn gap(mut self, gap: f32) -> Self {
-        self.style.gap = Size {
-            width: LengthPercentage::length(gap),
-            height: LengthPercentage::length(gap),
-        };
-        self
-    }
-
-    /// Set explicit column widths
-    pub fn column_widths(mut self, widths: Vec<TrackSizingFunction>) -> Self {
-        self.style.grid_template_columns = widths;
-        self
-    }
-
-    /// Set explicit row heights
-    pub fn row_heights(mut self, heights: Vec<TrackSizingFunction>) -> Self {
-        self.style.grid_template_rows = heights;
-        self
-    }
-
-    /// Build the grid layout
-    pub fn build(self) -> Layout {
-        let layout = Layout::new();
-        // TODO: Convert GridBuilder into Layout with proper Taffy tree
-        layout
-    }
-}
-
-/// Helper functions for creating Taffy dimensions
-pub fn length(value: f32) -> Dimension {
-    Dimension::length(value)
-}
-
-pub fn percent(value: f32) -> Dimension {
-    Dimension::percent(value)
-}
-
-pub fn auto() -> Dimension {
-    Dimension::auto()
-}
-
-pub fn fr(value: f32) -> TrackSizingFunction {
-    taffy::style_helpers::fr(value)
-}
-
-pub fn minmax(min: f32, max: f32) -> TrackSizingFunction {
-    taffy::style_helpers::minmax(
-        taffy::MinTrackSizingFunction::length(min),
-        taffy::MaxTrackSizingFunction::length(max),
-    )
 }
 
 #[cfg(test)]
@@ -342,7 +481,6 @@ mod examples {
     use super::*;
     use crate::coords::Cartesian;
     use crate::marks::line::Line;
-    use crate::marks::rect::Rect;
     use crate::marks::symbol::Symbol;
     use crate::plot::Plot;
     use crate::scales::Scale;
@@ -363,166 +501,64 @@ mod examples {
             .scale_x(|s| s.domain((0.0, 50.0)))
             .mark(Line::new().x("x").y("y"));
 
-        let _layout = Layout::hconcat(vec![plot1, plot2]).gap(20.0).build();
-
-        // Example 2: Vertical layout with constraints
-        // Note: Can't reuse plot1 and plot2 as they were moved
-        let plot3 = Plot::new(Cartesian)
-            .width(400.0)
-            .height(300.0)
-            .scale_x(|s| s.domain((0.0, 100.0)))
-            .mark(Symbol::new().x("x").y("y"));
-
-        let plot4 = Plot::new(Cartesian)
-            .width(400.0)
-            .height(300.0)
-            .scale_x(|s| s.domain((0.0, 50.0)))
-            .mark(Line::new().x("x").y("y"));
-
-        let _layout2 = Layout::vconcat(vec![plot3, plot4])
-            .gap(10.0)
-            .min_size(800.0, 600.0)
-            .padding(20.0)
+        let mut layout = LayoutBuilder::horizontal()
+            .plot(plot1)
+            .plot(plot2)
+            .gap(20.0)
+            .padding_uniform(10.0)
             .build();
+
+        // Compute layout
+        layout.compute(840.0, 320.0).unwrap();
     }
 
     #[allow(dead_code)]
-    fn example_shared_scales() {
-        // Example: Two plots sharing the same y-scale
+    fn example_aspect_ratio_layout() {
+        // Example: Plots with different aspect ratios
         let plot1 = Plot::new(Cartesian)
-            .scale_x(|s| s.domain((0.0, 100.0)))
-            .scale_y_ref("shared_y") // Reference shared scale
-            .mark(Symbol::new().x("x").y("y"));
+            .aspect_ratio(16.0 / 9.0)
+            .mark(Line::new().x("time").y("value"));
 
         let plot2 = Plot::new(Cartesian)
-            .scale_x(|s| s.domain((0.0, 50.0)))
-            .scale_y_ref("shared_y") // Same shared scale
-            .mark(Line::new().x("x").y("y"));
+            .aspect_ratio(4.0 / 3.0)
+            .mark(Symbol::new().x("x").y("y"));
 
-        let layout = Layout::hconcat(vec![plot1, plot2]).gap(20.0).build();
-        let _layout = layout.scale("shared_y", Scale::new(LinearScale).domain((0.0, 200.0)));
-    }
+        let plot3 = Plot::new(Cartesian)
+            .aspect_ratio(1.0)
+            .mark(Symbol::new().x("x").y("y"));
 
-    #[allow(dead_code)]
-    fn example_grid_layout() {
-        // Example: 2x2 grid layout
-        let _layout = Layout::grid(2, 2)
-            .cell(
-                0,
-                0,
-                Plot::new(Cartesian)
-                    .preferred_size(300.0, 300.0)
-                    .mark(Symbol::new().x("x").y("y")),
-            )
-            .cell(
-                0,
-                1,
-                Plot::new(Cartesian)
-                    .preferred_size(300.0, 300.0)
-                    .mark(Symbol::new().x("x").y("y")),
-            )
-            .cell(
-                1,
-                0,
-                Plot::new(Cartesian)
-                    .preferred_size(300.0, 300.0)
-                    .mark(Symbol::new().x("x").y("y")),
-            )
-            .cell(
-                1,
-                1,
-                Plot::new(Cartesian)
-                    .preferred_size(300.0, 300.0)
-                    .mark(Symbol::new().x("x").y("y")),
-            )
+        let mut layout = LayoutBuilder::horizontal()
+            .plots(vec![plot1, plot2, plot3])
             .gap(10.0)
+            .align(Alignment::PlotArea) // Align plot areas, not containers
             .build();
 
-        // Grid with different column widths
-        let _layout2 = Layout::grid(2, 3)
-            .column_widths(vec![fr(2.0), fr(1.0), fr(1.0)]) // First column twice as wide
-            .row_heights(vec![minmax(100.0, 100.0), fr(1.0)]) // Fixed height first row
-            .build();
+        // When computed with constraints, this would:
+        // 1. Respect aspect ratios
+        // 2. Align plot area bottoms
+        // 3. Adjust padding as needed
+        layout.compute(1200.0, 400.0).unwrap();
     }
 
     #[allow(dead_code)]
-    fn example_splom() {
-        // Example: Scatter Plot Matrix (SPLOM)
-        let variables = vec!["sepal_length", "sepal_width", "petal_length", "petal_width"];
-        let n = variables.len();
+    fn example_grid_with_shared_scales() {
+        // Example: Grid layout with shared scales
+        let mut layout = LayoutBuilder::grid(2, 2)
+            .gap(5.0)
+            .scale("x_scale", Scale::new(LinearScale).domain((0.0, 100.0)))
+            .scale("y_scale", Scale::new(LinearScale).domain((0.0, 50.0)))
+            .build();
 
-        // Create grid builder
-        let mut grid = Layout::grid(n, n);
+        // Add plots that reference shared scales
+        for _i in 0..4 {
+            let plot = Plot::new(Cartesian)
+                .scale_x_ref("x_scale")
+                .scale_y_ref("y_scale")
+                .mark(Symbol::new().x("x").y("y"));
 
-        // Create plots for each cell
-        for (i, var_y) in variables.iter().enumerate() {
-            for (j, var_x) in variables.iter().enumerate() {
-                let plot = if i == j {
-                    // Diagonal: histogram
-                    Plot::new(Cartesian)
-                        .scale_x_ref(*var_x)
-                        .mark(Rect::new().x(*var_x))
-                } else {
-                    // Off-diagonal: scatter plot
-                    Plot::new(Cartesian)
-                        .scale_x_ref(*var_x)
-                        .scale_y_ref(*var_y)
-                        .mark(Symbol::new().x(*var_x).y(*var_y))
-                };
-
-                grid = grid.cell(i, j, plot);
-            }
+            layout.add_plot(plot);
         }
 
-        let mut splom = grid.gap(5.0).build();
-
-        // Add shared scales for each variable
-        for var in &variables {
-            splom = splom.scale(
-                *var,
-                Scale::new(LinearScale).domain((0.0, 100.0)), // Example domain
-            );
-        }
-    }
-
-    #[allow(dead_code)]
-    fn example_nested_layout() {
-        // Example: Complex dashboard with nested layouts
-        let _overview_plot = Plot::new(Cartesian)
-            .preferred_size(800.0, 200.0)
-            .mark(Line::new().x("date").y("value"));
-
-        let detail_plot1 = Plot::new(Cartesian)
-            .scale_x_ref("time") // Shared time scale
-            .mark(Symbol::new().x("time").y("metric1"));
-
-        let detail_plot2 = Plot::new(Cartesian)
-            .scale_x_ref("time") // Same shared time scale
-            .mark(Symbol::new().x("time").y("metric2"));
-
-        let _detail_section = Layout::hconcat(vec![detail_plot1, detail_plot2]).gap(20.0);
-
-        // Build the dashboard as a nested layout
-        // (Note: nested layouts would require LayoutBuilder to implement PlotTrait)
-        let _dashboard = Layout::new().scale("time", Scale::new(LinearScale).domain((0.0, 24.0)));
-    }
-
-    #[allow(dead_code)]
-    fn example_responsive_layout() {
-        // Example: Layout with responsive constraints
-        let plot1 = Plot::new(Cartesian)
-            .aspect_ratio(16.0 / 9.0) // Maintain aspect ratio
-            .mark(Line::new().x("x").y("y"));
-
-        let _plot2 = Plot::new(Cartesian).mark(Symbol::new().x("x").y("y"));
-
-        let sidebar = Plot::new(Cartesian).mark(Rect::new().x("category").y("count"));
-
-        // Responsive layout with flexible sizing
-        let _layout = Layout::hconcat(vec![sidebar, plot1])
-            .gap(20.0)
-            .min_size(800.0, 600.0)
-            .max_size(1920.0, 1080.0)
-            .build();
+        layout.compute(800.0, 800.0).unwrap();
     }
 }
