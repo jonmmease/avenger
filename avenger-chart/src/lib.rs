@@ -4,6 +4,7 @@ pub mod controllers;
 pub mod coords;
 pub mod derive;
 pub mod error;
+pub mod layout;
 mod legend;
 pub mod marks;
 pub mod params;

@@ -14,6 +14,15 @@ pub struct Padding {
     pub left: f64,
 }
 
+/// How a scale is defined for a channel
+#[derive(Debug, Clone)]
+pub enum ScaleSpec {
+    /// Scale defined locally on this plot
+    Local(Scale),
+    /// Reference to a scale defined in parent layout
+    Reference(String),
+}
+
 pub struct Plot<C: CoordinateSystem> {
     coord_system: C,
     width: f64,
@@ -32,6 +41,13 @@ pub struct Plot<C: CoordinateSystem> {
 
     /// Controllers for interactivity (using type erasure)
     controllers: Vec<Box<dyn std::any::Any + Send + Sync>>,
+
+    /// Scale specifications (local or referenced)
+    scale_specs: HashMap<String, ScaleSpec>,
+
+    /// Size hints for layout system
+    preferred_size: Option<(f64, f64)>,
+    aspect_ratio: Option<f64>,
 }
 
 /// Enhanced resolution options with row/column specificity
@@ -345,6 +361,9 @@ impl<C: CoordinateSystem> Plot<C> {
             data: None,
             facet_spec: None,
             controllers: Vec::new(),
+            scale_specs: HashMap::new(),
+            preferred_size: None,
+            aspect_ratio: None,
         }
     }
 
@@ -483,6 +502,18 @@ impl<C: CoordinateSystem> Plot<C> {
         self.controllers.push(Box::new(controller));
         self
     }
+
+    /// Set preferred size hint for layout system
+    pub fn preferred_size(mut self, width: f64, height: f64) -> Self {
+        self.preferred_size = Some((width, height));
+        self
+    }
+
+    /// Set aspect ratio constraint for layout system
+    pub fn aspect_ratio(mut self, ratio: f64) -> Self {
+        self.aspect_ratio = Some(ratio);
+        self
+    }
 }
 
 impl Plot<Cartesian> {
@@ -492,7 +523,16 @@ impl Plot<Cartesian> {
     {
         let scale = self.get_or_create_scale("x");
         let scale = f(scale);
-        self.scales.insert("x".to_string(), scale);
+        self.scales.insert("x".to_string(), scale.clone());
+        self.scale_specs
+            .insert("x".to_string(), ScaleSpec::Local(scale));
+        self
+    }
+
+    /// Reference a named scale from parent layout for x channel
+    pub fn scale_x_ref<S: Into<String>>(mut self, name: S) -> Self {
+        self.scale_specs
+            .insert("x".to_string(), ScaleSpec::Reference(name.into()));
         self
     }
 
@@ -502,7 +542,16 @@ impl Plot<Cartesian> {
     {
         let scale = self.get_or_create_scale("y");
         let scale = f(scale);
-        self.scales.insert("y".to_string(), scale);
+        self.scales.insert("y".to_string(), scale.clone());
+        self.scale_specs
+            .insert("y".to_string(), ScaleSpec::Local(scale));
+        self
+    }
+
+    /// Reference a named scale from parent layout for y channel
+    pub fn scale_y_ref<S: Into<String>>(mut self, name: S) -> Self {
+        self.scale_specs
+            .insert("y".to_string(), ScaleSpec::Reference(name.into()));
         self
     }
 
@@ -529,7 +578,16 @@ impl Plot<Polar> {
     {
         let scale = self.get_or_create_scale("r");
         let scale = f(scale);
-        self.scales.insert("r".to_string(), scale);
+        self.scales.insert("r".to_string(), scale.clone());
+        self.scale_specs
+            .insert("r".to_string(), ScaleSpec::Local(scale));
+        self
+    }
+
+    /// Reference a named scale from parent layout for r channel
+    pub fn scale_r_ref<S: Into<String>>(mut self, name: S) -> Self {
+        self.scale_specs
+            .insert("r".to_string(), ScaleSpec::Reference(name.into()));
         self
     }
 
@@ -539,7 +597,16 @@ impl Plot<Polar> {
     {
         let scale = self.get_or_create_scale("theta");
         let scale = f(scale);
-        self.scales.insert("theta".to_string(), scale);
+        self.scales.insert("theta".to_string(), scale.clone());
+        self.scale_specs
+            .insert("theta".to_string(), ScaleSpec::Local(scale));
+        self
+    }
+
+    /// Reference a named scale from parent layout for theta channel
+    pub fn scale_theta_ref<S: Into<String>>(mut self, name: S) -> Self {
+        self.scale_specs
+            .insert("theta".to_string(), ScaleSpec::Reference(name.into()));
         self
     }
 }
