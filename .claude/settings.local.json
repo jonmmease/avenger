@@ -20,7 +20,19 @@
       "mcp__rust-analyzer__rename",
       "Bash(RUSTFLAGS=\"-D warnings\" cargo check --tests)",
       "WebFetch(domain:github.com)",
-      "Bash(gh pr view:*)"
+      "Bash(gh pr view:*)",
+      "WebFetch(domain:ggplot2-book.org)",
+      "WebFetch(domain:observablehq.com)",
+      "WebFetch(domain:ggplot2.tidyverse.org)",
+      "WebFetch(domain:plotly.com)",
+      "mcp__ide__getDiagnostics",
+      "WebFetch(domain:vega.github.io)",
+      "WebFetch(domain:vizgpt.ai)",
+      "WebFetch(domain:talk.observablehq.com)",
+      "WebFetch(domain:rdrr.io)",
+      "WebFetch(domain:datafusion.apache.org)",
+      "WebFetch(domain:patchwork.data-imaginist.com)",
+      "WebFetch(domain:pop-os.github.io)"
     ]
   },
   "enableAllProjectMcpServers": false
