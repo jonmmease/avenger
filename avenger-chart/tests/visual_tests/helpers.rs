@@ -62,7 +62,7 @@ pub async fn render_plot_with_size<C: CoordinateSystem>(
 pub trait PlotTestExt: Sized {
     /// Render this plot to an image using default test dimensions
     async fn to_image(self) -> RgbaImage;
-    
+
     /// Render this plot to an image with custom dimensions
     async fn to_image_with_size(self, size: (f32, f32), scale: f32) -> RgbaImage;
 }
@@ -71,7 +71,7 @@ impl<C: CoordinateSystem> PlotTestExt for Plot<C> {
     async fn to_image(self) -> RgbaImage {
         render_plot(&self).await
     }
-    
+
     async fn to_image_with_size(self, size: (f32, f32), scale: f32) -> RgbaImage {
         render_plot_with_size(&self, size, scale).await
     }
@@ -115,20 +115,20 @@ pub fn compare_images(
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("unknown");
-            
+
             // Extract category from path (e.g., "tests/baselines/bar/simple_bar_chart.png" -> "bar")
             let category = path
                 .parent()
                 .and_then(|p| p.file_name())
                 .and_then(|s| s.to_str())
                 .unwrap_or("");
-            
+
             let failures_dir = if category.is_empty() {
                 "tests/failures".to_string()
             } else {
                 format!("tests/failures/{}", category)
             };
-            
+
             let diff_path = format!("{}/{}_diff.png", failures_dir, test_name);
             let actual_path = format!("{}/{}_actual.png", failures_dir, test_name);
 
@@ -168,12 +168,12 @@ pub async fn assert_visual_match<C: CoordinateSystem>(
 ) {
     let rendered = plot.to_image().await;
     let baseline_path = get_baseline_path(category, baseline_name);
-    
+
     let config = VisualTestConfig {
         threshold: tolerance,
         save_diff_on_failure: true,
     };
-    
+
     if let Err(msg) = compare_images(&baseline_path, rendered, &config) {
         panic!("Visual test '{}' failed: {}", baseline_name, msg);
     }
