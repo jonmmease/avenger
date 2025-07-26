@@ -28,6 +28,7 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+image-compare = "0.4"
 
 [[example]]
 name = "transform_demo"
@@ -39,8 +40,4 @@ required-features = []
 
 [[example]]
 name = "simple_bar_chart"
-required-features = []
-
-[[example]]
-name = "bar_chart_render_plan"
 required-features = []
