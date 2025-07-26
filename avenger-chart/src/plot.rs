@@ -8,13 +8,6 @@ use avenger_scales::scales::linear::LinearScale;
 use datafusion::dataframe::DataFrame;
 use std::collections::HashMap;
 
-pub struct Padding {
-    pub top: f64,
-    pub right: f64,
-    pub bottom: f64,
-    pub left: f64,
-}
-
 /// How a scale is defined for a channel
 #[derive(Debug, Clone)]
 pub enum ScaleSpec {
@@ -26,9 +19,6 @@ pub enum ScaleSpec {
 
 pub struct Plot<C: CoordinateSystem> {
     coord_system: C,
-    width: f64,
-    height: f64,
-    padding: Padding,
     pub(crate) scales: HashMap<String, Scale>,
     pub(crate) axes: HashMap<String, C::Axis>,
     pub(crate) legends: HashMap<String, Legend>,
@@ -53,9 +43,6 @@ pub struct Plot<C: CoordinateSystem> {
     /// Mapping from scale names to their coordinate channel
     /// e.g., "y_squared" -> "y", "y_temperature" -> "y"
     scale_to_coord_channel: HashMap<String, String>,
-
-    /// Track count of axes per coordinate channel for defaulting positions
-    axis_counts: HashMap<String, usize>,
 }
 
 /// Enhanced resolution options with row/column specificity
@@ -354,14 +341,6 @@ impl<C: CoordinateSystem> Plot<C> {
     pub fn new(coord_system: C) -> Self {
         Plot {
             coord_system,
-            width: 800.0,
-            height: 600.0,
-            padding: Padding {
-                top: 20.0,
-                right: 20.0,
-                bottom: 20.0,
-                left: 20.0,
-            },
             scales: HashMap::new(),
             axes: HashMap::new(),
             legends: HashMap::new(),
@@ -373,7 +352,6 @@ impl<C: CoordinateSystem> Plot<C> {
             preferred_size: None,
             aspect_ratio: None,
             scale_to_coord_channel: HashMap::new(),
-            axis_counts: HashMap::new(),
         }
     }
 
@@ -400,21 +378,6 @@ impl<C: CoordinateSystem> Plot<C> {
                 _ => Scale::new(LinearScale),
             }
         })
-    }
-
-    pub fn width(mut self, width: f64) -> Self {
-        self.width = width;
-        self
-    }
-
-    pub fn height(mut self, height: f64) -> Self {
-        self.height = height;
-        self
-    }
-
-    pub fn padding(mut self, padding: Padding) -> Self {
-        self.padding = padding;
-        self
     }
 
     pub fn mark<M: Mark<C> + 'static>(mut self, mark: M) -> Self {
@@ -474,44 +437,37 @@ impl<C: CoordinateSystem> Plot<C> {
         self.facet_spec.is_some()
     }
 
-    /// Get a copy of a scale by name, applying default range if not explicitly set
+    /// Get a copy of a scale by name
+    /// Note: Default range will be applied during rendering when actual dimensions are known
     pub fn get_scale(&self, name: &str) -> Option<Scale> {
-        self.scales.get(name).map(|scale| {
-            let mut scale = scale.clone();
+        self.scales.get(name).cloned()
+    }
 
-            // If this is a coordinate system channel and range hasn't been set explicitly,
-            // apply the default range
-            if !scale.has_explicit_range() {
-                let inner_width = self.width - self.padding.left - self.padding.right;
-                let inner_height = self.height - self.padding.top - self.padding.bottom;
+    /// Apply default range to a scale based on plot area dimensions
+    /// This is called during rendering when actual plot area dimensions are known
+    /// (i.e., after padding has been subtracted by the layout/rendering system)
+    pub fn apply_default_range(
+        &self,
+        scale: &mut Scale,
+        name: &str,
+        plot_area_width: f64,
+        plot_area_height: f64,
+    ) {
+        if !scale.has_explicit_range() {
+            // Check if this scale is mapped to a coordinate channel
+            let coord_channel = self
+                .scale_to_coord_channel
+                .get(name)
+                .map(|s| s.as_str())
+                .unwrap_or(name);
 
-                // Check if this scale is mapped to a coordinate channel
-                let coord_channel = self
-                    .scale_to_coord_channel
-                    .get(name)
-                    .map(|s| s.as_str())
-                    .unwrap_or(name);
-
-                if let Some(default_range) =
-                    self.coord_system
-                        .default_range(coord_channel, inner_width, inner_height)
-                {
-                    scale = scale.range(default_range);
-                }
+            if let Some(default_range) =
+                self.coord_system
+                    .default_range(coord_channel, plot_area_width, plot_area_height)
+            {
+                *scale = scale.clone().range(default_range);
             }
-
-            scale
-        })
-    }
-
-    /// Get the inner width after padding
-    pub fn inner_width(&self) -> f64 {
-        self.width - self.padding.left - self.padding.right
-    }
-
-    /// Get the inner height after padding
-    pub fn inner_height(&self) -> f64 {
-        self.height - self.padding.top - self.padding.bottom
+        }
     }
 
     /// Add a controller for interactivity
@@ -530,6 +486,24 @@ impl<C: CoordinateSystem> Plot<C> {
     pub fn aspect_ratio(mut self, ratio: f64) -> Self {
         self.aspect_ratio = Some(ratio);
         self
+    }
+
+    /// Render this plot at a specific size (for standalone use without layout)
+    pub fn render_at(&self, width: f64, height: f64) {
+        use crate::layout::{PlotTrait, Rect};
+
+        let bounds = Rect::new(0.0, 0.0, width as f32, height as f32);
+        self.render(bounds);
+    }
+
+    /// Get the preferred size if set
+    pub fn get_preferred_size(&self) -> Option<(f64, f64)> {
+        self.preferred_size
+    }
+
+    /// Get the aspect ratio if set
+    pub fn get_aspect_ratio(&self) -> Option<f64> {
+        self.aspect_ratio
     }
 }
 
@@ -738,8 +712,7 @@ mod examples {
 
         // Create plot with explicit axis configuration
         let _plot = Plot::new(Cartesian)
-            .width(800.0)
-            .height(600.0)
+            .preferred_size(800.0, 600.0)
             .scale_x(|scale| scale.domain((0.0, 100.0)))
             .scale_y(|scale| scale.domain((0.0, 100.0)))
             .axis_x(|axis| axis.title("Date").grid(true))
@@ -756,22 +729,19 @@ mod examples {
 
         // Using lambda to change defaults
         let _plot2 = Plot::new(Cartesian)
-            .width(800.0)
-            .height(600.0)
+            .preferred_size(800.0, 600.0)
             .scale_x(|scale| scale) // Use default linear scale
             .axis_x(|axis| axis.title("Modified Title"));
 
         // Disable axis using visible(false)
         let _plot3 = Plot::new(Cartesian)
-            .width(800.0)
-            .height(600.0)
+            .preferred_size(800.0, 600.0)
             .scale_x(|scale| scale) // Use default linear scale
             .axis_x(|axis| axis.visible(false));
 
         // Example with legends
         let _plot4 = Plot::new(Cartesian)
-            .width(800.0)
-            .height(600.0)
+            .preferred_size(800.0, 600.0)
             .scale_y(|scale| scale.domain((0.0, 50.0)))
             .scale_fill(|scale| scale.domain((0.0, 100.0)))
             .scale_size(|scale| scale.domain((0.0, 1000.0)))
@@ -790,8 +760,7 @@ mod examples {
 
         // Create plot
         let _plot = Plot::new(Polar)
-            .width(800.0)
-            .height(600.0)
+            .preferred_size(800.0, 600.0)
             .scale_r(|scale| scale.domain((0.0, 100.0)))
             .scale_theta(|scale| scale.domain((0.0, 360.0)))
             .mark(
@@ -818,7 +787,7 @@ mod examples {
 
         // Example 1: Simple histogram with binning
         // The Bin transform sets x/x2 encodings in DataContext
-        let _histogram = Plot::new(Cartesian).width(800.0).height(400.0).mark(
+        let _histogram = Plot::new(Cartesian).preferred_size(800.0, 400.0).mark(
             Rect::new()
                 .data(df.clone())
                 .transform(Bin::x("price").width(10.0).aggregate(count(col("*"))))?
@@ -835,7 +804,7 @@ mod examples {
 
         // Example 2: Grouped bar chart with stacking
         // Demonstrates how transforms build on each other via DataContext
-        let _stacked_bars = Plot::new(Cartesian).width(800.0).height(400.0).mark(
+        let _stacked_bars = Plot::new(Cartesian).preferred_size(800.0, 400.0).mark(
             Rect::new()
                 .data(df.clone())
                 // First transform: group and aggregate
@@ -857,7 +826,7 @@ mod examples {
         );
 
         // Example 3: 2D histogram (heatmap)
-        let _heatmap = Plot::new(Cartesian).width(600.0).height(600.0).mark(
+        let _heatmap = Plot::new(Cartesian).preferred_size(600.0, 600.0).mark(
             Rect::new()
                 .data(df.clone())
                 .transform(
@@ -910,8 +879,7 @@ mod examples {
 
         // Plot-level data with faceting API
         let _faceted_plot = Plot::new(Cartesian)
-            .width(800.0)
-            .height(600.0)
+            .preferred_size(800.0, 600.0)
             .data(df.clone()) // Plot-level data
             .facet_wrap("continent") // Simple wrap faceting
             .mark(
@@ -938,7 +906,7 @@ mod examples {
             .mark(Symbol::new().x("gdp_per_capita").y("life_expectancy"));
 
         // Backward compatibility: existing mark-level data continues to work
-        let _existing_pattern = Plot::new(Cartesian).width(800.0).height(600.0).mark(
+        let _existing_pattern = Plot::new(Cartesian).preferred_size(800.0, 600.0).mark(
             Symbol::new()
                 .data(df.clone()) // Mark-level data (existing)
                 .x("gdp_per_capita")
@@ -948,8 +916,7 @@ mod examples {
 
         // Advanced data inheritance patterns
         let _mixed_data_sources = Plot::new(Cartesian)
-            .width(800.0)
-            .height(600.0)
+            .preferred_size(800.0, 600.0)
             .data(df.clone()) // Default data for faceting
             .facet_wrap("continent") // Facet on main data
             .mark(
@@ -974,8 +941,7 @@ mod examples {
 
         // Enhanced resolution system examples
         let _enhanced_resolution = Plot::new(Cartesian)
-            .width(800.0)
-            .height(600.0)
+            .preferred_size(800.0, 600.0)
             .data(df.clone())
             .facet(
                 Facet::wrap("continent")
@@ -1036,24 +1002,21 @@ mod examples {
 
         // Example 1: Simple pan/zoom controller
         let _interactive_scatter = Plot::new(Cartesian)
-            .width(800.0)
-            .height(600.0)
+            .preferred_size(800.0, 600.0)
             .data(df.clone())
             .controller(PanZoom::new()) // Declarative controller!
             .mark(Symbol::new().x("x").y("y").size("size"));
 
         // Example 2: Box selection controller
         let _box_select_plot = Plot::new(Cartesian)
-            .width(800.0)
-            .height(600.0)
+            .preferred_size(800.0, 600.0)
             .data(df.clone())
             .controller(BoxSelect::new())
             .mark(Symbol::new().x("x").y("y").fill(lit("#4682b4")));
 
         // Example 3: Multiple controllers
         let _multi_controller = Plot::new(Cartesian)
-            .width(800.0)
-            .height(600.0)
+            .preferred_size(800.0, 600.0)
             .data(df.clone())
             .controller(PanZoom::new())
             .controller(BoxSelect::new())
@@ -1061,8 +1024,7 @@ mod examples {
 
         // Example 4: Controllers with faceting
         let _faceted_interactive = Plot::new(Cartesian)
-            .width(800.0)
-            .height(600.0)
+            .preferred_size(800.0, 600.0)
             .data(df.clone())
             .facet(
                 Facet::wrap("category")

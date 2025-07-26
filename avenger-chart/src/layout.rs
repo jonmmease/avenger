@@ -114,17 +114,33 @@ struct AnyPlot(Box<dyn PlotTrait>);
 
 impl<C: CoordinateSystem + 'static> PlotTrait for Plot<C> {
     fn size_constraints(&self) -> SizeConstraints {
-        // TODO: Implement based on Plot's constraints
-        SizeConstraints::default()
+        SizeConstraints {
+            preferred_width: self.get_preferred_size().map(|(w, _)| w as f32),
+            preferred_height: self.get_preferred_size().map(|(_, h)| h as f32),
+            aspect_ratio: self.get_aspect_ratio().map(|r| r as f32),
+            ..Default::default()
+        }
     }
 
     fn measure_padding(&self, _plot_width: f32, _plot_height: f32) -> Padding {
-        // TODO: Measure actual component sizes
-        Padding::uniform(20.0)
+        // TODO: Calculate padding dynamically based on plot components
+        // For now, return default padding
+        // In the future, this should:
+        // 1. Measure axis label and tick sizes for each configured axis
+        // 2. Measure title height if present
+        // 3. Measure legend dimensions if present
+        // 4. Calculate required padding to accommodate all components
+        Padding {
+            left: 50.0,   // Space for y-axis labels and ticks
+            right: 20.0,  // Space for right-side elements
+            top: 20.0,    // Space for title
+            bottom: 40.0, // Space for x-axis labels and ticks
+        }
     }
 
     fn render(&self, _bounds: Rect) {
         // TODO: Implement rendering at specified bounds
+        // This will use bounds.width and bounds.height instead of self.width/height
     }
 }
 
@@ -490,14 +506,12 @@ mod examples {
     fn example_simple_layout() {
         // Example 1: Simple horizontal concatenation
         let plot1 = Plot::new(Cartesian)
-            .width(400.0)
-            .height(300.0)
+            .preferred_size(400.0, 300.0)
             .scale_x(|s| s.domain((0.0, 100.0)))
             .mark(Symbol::new().x("x").y("y"));
 
         let plot2 = Plot::new(Cartesian)
-            .width(400.0)
-            .height(300.0)
+            .preferred_size(400.0, 300.0)
             .scale_x(|s| s.domain((0.0, 50.0)))
             .mark(Line::new().x("x").y("y"));
 
