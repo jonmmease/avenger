@@ -6,11 +6,28 @@ use avenger_chart::render::CanvasExt;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{CanvasConfig, PngCanvas};
 use image::RgbaImage;
-use super::{compare_images, get_baseline_path, VisualTestConfig};
+use std::path::Path;
 
 /// Default dimensions for test charts
 pub const DEFAULT_SIZE: (f32, f32) = (400.0, 300.0);
 pub const DEFAULT_SCALE: f32 = 2.0;
+
+/// Configuration for visual tests
+pub struct VisualTestConfig {
+    /// Similarity threshold (0.0 to 1.0, where 1.0 is identical)
+    pub threshold: f64,
+    /// Whether to save difference images on failure
+    pub save_diff_on_failure: bool,
+}
+
+impl Default for VisualTestConfig {
+    fn default() -> Self {
+        Self {
+            threshold: 0.95, // 95% similarity required by default
+            save_diff_on_failure: true,
+        }
+    }
+}
 
 /// Render a plot to an image with default dimensions
 pub async fn render_plot<C: CoordinateSystem>(plot: &Plot<C>) -> RgbaImage {
@@ -57,6 +74,88 @@ impl<C: CoordinateSystem> PlotTestExt for Plot<C> {
     
     async fn to_image_with_size(self, size: (f32, f32), scale: f32) -> RgbaImage {
         render_plot_with_size(&self, size, scale).await
+    }
+}
+
+/// Helper to get platform-specific baseline path
+pub fn get_baseline_path(category: &str, base_name: &str) -> String {
+    format!("tests/baselines/{}/{}.png", category, base_name)
+}
+
+/// Compare a rendered image against a baseline
+pub fn compare_images(
+    baseline_path: &str,
+    actual: RgbaImage,
+    config: &VisualTestConfig,
+) -> Result<(), String> {
+    // Load baseline image
+    let expected = image::open(baseline_path)
+        .map_err(|e| format!("Failed to load baseline image '{}': {}", baseline_path, e))?
+        .into_rgba8();
+
+    // Ensure dimensions match
+    if expected.dimensions() != actual.dimensions() {
+        return Err(format!(
+            "Image dimensions don't match. Expected: {:?}, Actual: {:?}",
+            expected.dimensions(),
+            actual.dimensions()
+        ));
+    }
+
+    // Compare images using hybrid algorithm (best for visualization)
+    let result = image_compare::rgba_hybrid_compare(&expected, &actual)
+        .map_err(|e| format!("Image comparison failed: {}", e))?;
+
+    // Check if similarity meets threshold
+    if result.score < config.threshold {
+        // Save difference image if requested
+        if config.save_diff_on_failure {
+            let path = Path::new(baseline_path);
+            let test_name = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown");
+            
+            // Extract category from path (e.g., "tests/baselines/bar/simple_bar_chart.png" -> "bar")
+            let category = path
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|s| s.to_str())
+                .unwrap_or("");
+            
+            let failures_dir = if category.is_empty() {
+                "tests/failures".to_string()
+            } else {
+                format!("tests/failures/{}", category)
+            };
+            
+            let diff_path = format!("{}/{}_diff.png", failures_dir, test_name);
+            let actual_path = format!("{}/{}_actual.png", failures_dir, test_name);
+
+            // Save the actual image
+            actual
+                .save(&actual_path)
+                .map_err(|e| format!("Failed to save actual image: {}", e))?;
+
+            // Save the difference map
+            result
+                .image
+                .to_color_map()
+                .save(&diff_path)
+                .map_err(|e| format!("Failed to save diff image: {}", e))?;
+
+            Err(format!(
+                "Image similarity {:.4} is below threshold {:.4}. Diff saved to: {}, Actual saved to: {}",
+                result.score, config.threshold, diff_path, actual_path
+            ))
+        } else {
+            Err(format!(
+                "Image similarity {:.4} is below threshold {:.4}",
+                result.score, config.threshold
+            ))
+        }
+    } else {
+        Ok(())
     }
 }
 

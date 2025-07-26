@@ -5,8 +5,8 @@ use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
 use datafusion::logical_expr::lit;
 
-use super::helpers::{assert_visual_match, assert_visual_match_default};
 use super::datasets;
+use super::helpers::{assert_visual_match, assert_visual_match_default};
 
 #[tokio::test]
 async fn test_simple_bar_chart() {
