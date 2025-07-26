@@ -3,9 +3,9 @@
 //! This module provides utilities for comparing rendered charts against baseline images,
 //! with support for fuzzy matching to handle cross-platform rendering differences.
 
-pub mod bar_charts;
+pub mod test_bar;
 pub mod helpers;
-pub mod test_data;
+pub mod datasets;
 
 use image::RgbaImage;
 use std::path::Path;
@@ -149,26 +149,3 @@ pub fn update_baseline(category: &str, baseline_name: &str, image: &RgbaImage) -
     Ok(())
 }
 
-/// Macro to simplify visual test creation
-#[macro_export]
-macro_rules! visual_test {
-    ($name:ident, $render_fn:expr) => {
-        #[test]
-        fn $name() {
-            visual_test!($name, $render_fn, Default::default());
-        }
-    };
-    ($name:ident, $render_fn:expr, $config:expr) => {
-        #[test]
-        fn $name() {
-            use $crate::visual_tests::{compare_images, get_baseline_path};
-
-            let baseline_path = get_baseline_path(stringify!($name));
-            let rendered = $render_fn;
-            let config = $config;
-
-            compare_images(&baseline_path, rendered, &config)
-                .expect(&format!("Visual test '{}' failed", stringify!($name)));
-        }
-    };
-}
