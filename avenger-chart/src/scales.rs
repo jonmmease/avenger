@@ -51,8 +51,14 @@ impl Scale {
         self.domain(ScaleDomain::new_interval(start, end))
     }
 
-    pub fn domain_discrete<T: Into<Expr>>(self, values: Vec<T>) -> Self {
+    pub fn domain_discrete<T: Into<Expr>>(mut self, values: Vec<T>) -> Self {
         let exprs: Vec<Expr> = values.into_iter().map(|v| v.into()).collect();
+
+        // Switch to BandScale for discrete domains
+        if self.scale_impl.scale_type() == "linear" {
+            self.scale_impl = Arc::new(avenger_scales::scales::band::BandScale);
+        }
+
         self.domain(ScaleDomain::new_discrete(exprs))
     }
 

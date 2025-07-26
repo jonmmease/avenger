@@ -11,5 +11,6 @@ pub mod params;
 pub mod plot;
 mod plot_legends;
 mod plot_scales;
+pub mod render;
 pub mod scales;
 pub mod transforms;
