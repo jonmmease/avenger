@@ -19,16 +19,16 @@ Tests are incredibly concise with our helper functions:
 ```rust
 #[tokio::test]
 async fn test_my_chart() {
+    let df = test_data::simple_categories();
+    
     let plot = Plot::new(Cartesian)
         .preferred_size(400.0, 300.0)
-        .data(test_data::simple_categories().unwrap())
+        .data(df)
         // ... configure your plot ...
         .mark(/* ... */);
     
     // Test with default 95% tolerance
-    assert_visual_match_default(plot, "my_chart_baseline")
-        .await
-        .expect("Visual test failed");
+    assert_visual_match_default(plot, "my_chart_baseline").await;
 }
 ```
 
@@ -36,10 +36,10 @@ Or with custom tolerance:
 
 ```rust
 // Use 90% tolerance for tests with more expected variation
-assert_visual_match(plot, "my_chart_baseline", 0.90)
-    .await
-    .expect("Visual test failed");
+assert_visual_match(plot, "my_chart_baseline", 0.90).await;
 ```
+
+The assertion functions will panic with a descriptive message if the test fails.
 
 ## Updating Baselines
 

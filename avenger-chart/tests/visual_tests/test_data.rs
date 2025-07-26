@@ -7,7 +7,7 @@ use datafusion::prelude::*;
 use std::sync::Arc;
 
 /// Create a simple categorical bar chart dataset
-pub fn simple_categories() -> Result<DataFrame, Box<dyn std::error::Error>> {
+pub fn simple_categories() -> DataFrame {
     let categories = StringArray::from(vec!["A", "B", "C", "D", "E", "F", "G", "H", "I"]);
     let values = Float64Array::from(vec![28.0, 55.0, 43.0, 91.0, 81.0, 53.0, 19.0, 87.0, 52.0]);
 
@@ -16,14 +16,15 @@ pub fn simple_categories() -> Result<DataFrame, Box<dyn std::error::Error>> {
         Field::new("value", DataType::Float64, false),
     ]));
 
-    let batch = RecordBatch::try_new(schema, vec![Arc::new(categories), Arc::new(values)])?;
+    let batch = RecordBatch::try_new(schema, vec![Arc::new(categories), Arc::new(values)])
+        .expect("Failed to create RecordBatch");
 
     let ctx = SessionContext::new();
-    Ok(ctx.read_batch(batch)?)
+    ctx.read_batch(batch).expect("Failed to read batch into DataFrame")
 }
 
 /// Create a time series dataset
-pub fn time_series() -> Result<DataFrame, Box<dyn std::error::Error>> {
+pub fn time_series() -> DataFrame {
     let dates = StringArray::from(vec![
         "2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05",
         "2024-01-06", "2024-01-07", "2024-01-08", "2024-01-09", "2024-01-10",
@@ -35,14 +36,15 @@ pub fn time_series() -> Result<DataFrame, Box<dyn std::error::Error>> {
         Field::new("value", DataType::Float64, false),
     ]));
 
-    let batch = RecordBatch::try_new(schema, vec![Arc::new(dates), Arc::new(values)])?;
+    let batch = RecordBatch::try_new(schema, vec![Arc::new(dates), Arc::new(values)])
+        .expect("Failed to create RecordBatch");
 
     let ctx = SessionContext::new();
-    Ok(ctx.read_batch(batch)?)
+    ctx.read_batch(batch).expect("Failed to read batch into DataFrame")
 }
 
 /// Create a grouped bar chart dataset
-pub fn grouped_categories() -> Result<DataFrame, Box<dyn std::error::Error>> {
+pub fn grouped_categories() -> DataFrame {
     let categories = StringArray::from(vec![
         "A", "A", "B", "B", "C", "C", "D", "D", "E", "E",
     ]);
@@ -63,14 +65,14 @@ pub fn grouped_categories() -> Result<DataFrame, Box<dyn std::error::Error>> {
     let batch = RecordBatch::try_new(
         schema,
         vec![Arc::new(categories), Arc::new(groups), Arc::new(values)],
-    )?;
+    ).expect("Failed to create RecordBatch");
 
     let ctx = SessionContext::new();
-    Ok(ctx.read_batch(batch)?)
+    ctx.read_batch(batch).expect("Failed to read batch into DataFrame")
 }
 
 /// Create a scatter plot dataset
-pub fn scatter_data() -> Result<DataFrame, Box<dyn std::error::Error>> {
+pub fn scatter_data() -> DataFrame {
     let n = 50;
     let mut x_values = Vec::with_capacity(n);
     let mut y_values = Vec::with_capacity(n);
@@ -100,8 +102,8 @@ pub fn scatter_data() -> Result<DataFrame, Box<dyn std::error::Error>> {
             Arc::new(Float64Array::from(y_values)),
             Arc::new(Float64Array::from(sizes)),
         ],
-    )?;
+    ).expect("Failed to create RecordBatch");
 
     let ctx = SessionContext::new();
-    Ok(ctx.read_batch(batch)?)
+    ctx.read_batch(batch).expect("Failed to read batch into DataFrame")
 }
