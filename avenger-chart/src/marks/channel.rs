@@ -18,6 +18,8 @@ pub struct ChannelValue {
     pub expr: Expr,
     /// Which scale to use for this channel
     pub scale: ScaleSpec,
+    /// Band parameter for band scales (0.0 = start of band, 1.0 = end of band)
+    pub band: Option<f64>,
 }
 
 impl ChannelValue {
@@ -25,13 +27,19 @@ impl ChannelValue {
         Self {
             expr,
             scale: ScaleSpec::Default,
+            band: None,
         }
+    }
+    
+    pub fn column(column: impl Into<String>) -> Self {
+        Self::new(ident(column.into()))
     }
 
     pub fn with_scale(expr: Expr, scale: impl Into<String>) -> Self {
         Self {
             expr,
             scale: ScaleSpec::Custom(scale.into()),
+            band: None,
         }
     }
 
@@ -40,7 +48,14 @@ impl ChannelValue {
         Self {
             expr,
             scale: ScaleSpec::None,
+            band: None,
         }
+    }
+
+    /// Set the band parameter for this channel
+    pub fn with_band(mut self, band: f64) -> Self {
+        self.band = Some(band);
+        self
     }
 
     /// Get the scale name for this channel
@@ -70,6 +85,15 @@ impl ChannelValue {
 /// e.g., "x1" -> "x", "color2" -> "color", "x" -> "x"
 fn strip_trailing_numbers(name: &str) -> &str {
     name.trim_end_matches(char::is_numeric)
+}
+
+// Helper constructors for common patterns
+impl ChannelValue {
+    /// Create a ChannelValue from a column name with band=1.0
+    /// Useful for x2/y2 encodings that should use the full band width
+    pub fn band_end(column: &str) -> Self {
+        Self::new(ident(column)).with_band(1.0)
+    }
 }
 
 // Conversions for ergonomic API
