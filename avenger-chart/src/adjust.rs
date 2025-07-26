@@ -120,6 +120,12 @@ impl Jitter {
     }
 }
 
+impl Default for Jitter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Adjust for Jitter {
     fn adjust(
         &self,
@@ -171,6 +177,12 @@ impl Dodge {
     pub fn by(mut self, column: impl Into<String>) -> Self {
         self.group_by = Some(column.into());
         self
+    }
+}
+
+impl Default for Dodge {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

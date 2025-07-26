@@ -30,7 +30,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     ///
     /// # Arguments
     /// * `channels` - Map from channel name (e.g., "r", "theta") to expressions
-    ///                that compute the scaled values for those channels
+    ///   that compute the scaled values for those channels
     ///
     /// # Returns
     /// Result containing TransformResult or error if required channels are missing

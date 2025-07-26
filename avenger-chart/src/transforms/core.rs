@@ -27,6 +27,18 @@ pub struct DataContext {
     transform_metadata: Vec<Value>,
 }
 
+impl Default for DataContext {
+    fn default() -> Self {
+        use datafusion::prelude::SessionContext;
+
+        // Create a unit DataFrame (single row, no columns)
+        let ctx = SessionContext::new();
+        let df = ctx.read_empty().unwrap();
+
+        Self::new(df)
+    }
+}
+
 impl DataContext {
     /// Create from a DataFrame
     pub fn new(dataframe: DataFrame) -> Self {
@@ -36,17 +48,6 @@ impl DataContext {
             channel_metadata: HashMap::new(),
             transform_metadata: Vec::new(),
         }
-    }
-
-    /// Create a default DataContext with a unit DataFrame
-    pub fn default() -> Self {
-        use datafusion::prelude::SessionContext;
-
-        // Create a unit DataFrame (single row, no columns)
-        let ctx = SessionContext::new();
-        let df = ctx.read_empty().unwrap();
-
-        Self::new(df)
     }
 
     /// Get the underlying DataFrame
@@ -113,9 +114,8 @@ impl DataContext {
     /// - If starts with ':', treats as channel reference and looks up encoding
     /// - Otherwise returns the string as-is (direct column name)
     pub fn resolve(&self, channel_or_column: &str) -> Option<String> {
-        if channel_or_column.starts_with(':') {
+        if let Some(channel_name) = channel_or_column.strip_prefix(':') {
             // Channel reference - look up the encoding
-            let channel_name = &channel_or_column[1..];
             self.encoding(channel_name)
         } else {
             // Direct column name

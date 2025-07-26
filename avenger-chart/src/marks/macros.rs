@@ -2,6 +2,12 @@
 #[macro_export]
 macro_rules! impl_mark_common {
     ($mark_type:ident, $mark_name:literal) => {
+        impl<C: CoordinateSystem> Default for $mark_type<C> {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+
         impl<C: CoordinateSystem> $mark_type<C> {
             pub fn new() -> Self {
                 Self {
@@ -49,10 +55,7 @@ macro_rules! impl_mark_common {
                 transform: impl $crate::transforms::Transform,
             ) -> Result<Self, $crate::error::AvengerChartError> {
                 // Apply transform to existing data context
-                let ctx = std::mem::replace(
-                    &mut self.config.data,
-                    $crate::transforms::DataContext::default(),
-                );
+                let ctx = std::mem::take(&mut self.config.data);
 
                 self.config.data = transform.transform(ctx)?;
                 Ok(self)
