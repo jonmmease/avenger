@@ -6,6 +6,7 @@ use avenger_chart::render::CanvasExt;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{CanvasConfig, PngCanvas};
 use image::RgbaImage;
+use super::{compare_images, get_baseline_path, VisualTestConfig};
 
 /// Default dimensions for test charts
 pub const DEFAULT_SIZE: (f32, f32) = (400.0, 300.0);
@@ -57,4 +58,29 @@ impl<C: CoordinateSystem> PlotTestExt for Plot<C> {
     async fn to_image_with_size(self, size: (f32, f32), scale: f32) -> RgbaImage {
         render_plot_with_size(&self, size, scale).await
     }
+}
+
+/// Test a plot against its baseline with a given name and tolerance
+pub async fn assert_visual_match<C: CoordinateSystem>(
+    plot: Plot<C>,
+    baseline_name: &str,
+    tolerance: f64,
+) -> Result<(), String> {
+    let rendered = plot.to_image().await;
+    let baseline_path = get_baseline_path(baseline_name);
+    
+    let config = VisualTestConfig {
+        threshold: tolerance,
+        save_diff_on_failure: true,
+    };
+    
+    compare_images(&baseline_path, rendered, &config)
+}
+
+/// Test a plot against its baseline with default tolerance (95%)
+pub async fn assert_visual_match_default<C: CoordinateSystem>(
+    plot: Plot<C>,
+    baseline_name: &str,
+) -> Result<(), String> {
+    assert_visual_match(plot, baseline_name, 0.95).await
 }
