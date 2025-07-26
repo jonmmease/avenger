@@ -6,11 +6,11 @@ use avenger_chart::plot::Plot;
 use datafusion::logical_expr::lit;
 
 use super::helpers::{assert_visual_match, assert_visual_match_default};
-use super::test_data;
+use super::datasets;
 
 #[tokio::test]
 async fn test_simple_bar_chart() {
-    let df = test_data::simple_categories();
+    let df = datasets::simple_categories();
 
     let plot = Plot::new(Cartesian)
         .preferred_size(400.0, 300.0)
@@ -40,7 +40,7 @@ async fn test_simple_bar_chart() {
 
 #[tokio::test]
 async fn test_bar_chart_with_custom_colors() {
-    let df = test_data::simple_categories();
+    let df = datasets::simple_categories();
     
     let plot = Plot::new(Cartesian)
         .preferred_size(400.0, 300.0)
@@ -67,7 +67,7 @@ async fn test_bar_chart_with_custom_colors() {
 
 #[tokio::test]
 async fn test_bar_chart_with_lower_tolerance() {
-    let df = test_data::simple_categories();
+    let df = datasets::simple_categories();
     
     let plot = Plot::new(Cartesian)
         .preferred_size(400.0, 300.0)
