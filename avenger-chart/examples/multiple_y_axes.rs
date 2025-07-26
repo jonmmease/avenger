@@ -31,8 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create plot with multiple y-axes
     let _plot = Plot::new(Cartesian)
-        .width(800.0)
-        .height(600.0)
+        .preferred_size(800.0, 600.0)
         .data(df)
         // Configure primary x scale
         .scale_x(|scale| scale.domain((0.0, 6.0)))

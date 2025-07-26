@@ -162,7 +162,7 @@ async fn main() -> datafusion::error::Result<()> {
     println!("\n7. Complete histogram plot:");
 
     // Create a histogram of price distribution
-    let _histogram_plot = Plot::new(Cartesian).width(800.0).height(600.0).mark(
+    let _histogram_plot = Plot::new(Cartesian).preferred_size(800.0, 600.0).mark(
         Rect::new()
             .data(df.clone())
             .transform(
