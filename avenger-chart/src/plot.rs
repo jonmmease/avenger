@@ -12,7 +12,7 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub enum ScaleSpec {
     /// Scale defined locally on this plot
-    Local(Scale),
+    Local(Box<Scale>),
     /// Reference to a scale defined in parent layout
     Reference(String),
 }
@@ -46,9 +46,10 @@ pub struct Plot<C: CoordinateSystem> {
 }
 
 /// Enhanced resolution options with row/column specificity
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Resolution {
     /// Completely shared across all facets (same domain/range)
+    #[default]
     Shared,
 
     /// Independent per facet (each facet has its own domain/range)
@@ -61,12 +62,6 @@ pub enum Resolution {
     /// Shared within columns, independent across columns  
     /// (facet_grid: each column has consistent domain, different columns can differ)
     SharedCols,
-}
-
-impl Default for Resolution {
-    fn default() -> Self {
-        Resolution::Shared // Matches ggplot2/Vega-Lite statistical graphics defaults
-    }
 }
 
 /// Fine-grained resolution control for faceted plots
@@ -516,7 +511,7 @@ impl Plot<Cartesian> {
         let scale = f(scale);
         self.scales.insert("x".to_string(), scale.clone());
         self.scale_specs
-            .insert("x".to_string(), ScaleSpec::Local(scale));
+            .insert("x".to_string(), ScaleSpec::Local(Box::new(scale)));
         self
     }
 
@@ -535,7 +530,7 @@ impl Plot<Cartesian> {
         let scale = f(scale);
         self.scales.insert("y".to_string(), scale.clone());
         self.scale_specs
-            .insert("y".to_string(), ScaleSpec::Local(scale));
+            .insert("y".to_string(), ScaleSpec::Local(Box::new(scale)));
         self
     }
 
@@ -591,7 +586,7 @@ impl Plot<Cartesian> {
         let name = name.into();
         self.scales.insert(name.clone(), scale.clone());
         self.scale_specs
-            .insert(name.clone(), ScaleSpec::Local(scale));
+            .insert(name.clone(), ScaleSpec::Local(Box::new(scale)));
         // Map this scale to the y coordinate channel
         self.scale_to_coord_channel.insert(name, "y".to_string());
         self
@@ -606,7 +601,7 @@ impl Plot<Cartesian> {
         let name = name.into();
         self.scales.insert(name.clone(), scale.clone());
         self.scale_specs
-            .insert(name.clone(), ScaleSpec::Local(scale));
+            .insert(name.clone(), ScaleSpec::Local(Box::new(scale)));
         // Map this scale to the x coordinate channel
         self.scale_to_coord_channel.insert(name, "x".to_string());
         self
@@ -658,7 +653,7 @@ impl Plot<Polar> {
         let scale = f(scale);
         self.scales.insert("r".to_string(), scale.clone());
         self.scale_specs
-            .insert("r".to_string(), ScaleSpec::Local(scale));
+            .insert("r".to_string(), ScaleSpec::Local(Box::new(scale)));
         self
     }
 
@@ -677,7 +672,7 @@ impl Plot<Polar> {
         let scale = f(scale);
         self.scales.insert("theta".to_string(), scale.clone());
         self.scale_specs
-            .insert("theta".to_string(), ScaleSpec::Local(scale));
+            .insert("theta".to_string(), ScaleSpec::Local(Box::new(scale)));
         self
     }
 

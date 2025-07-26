@@ -1,12 +1,12 @@
 pub mod udf;
 
 use crate::error::AvengerChartError;
-use avenger_scales::scales::{ScaleImpl, InferDomainFromDataMethod};
+use avenger_scales::scales::{InferDomainFromDataMethod, ScaleImpl};
 use datafusion::arrow::datatypes::DataType;
 use datafusion::dataframe::DataFrame;
-use datafusion::logical_expr::{Expr, ExprSchemable, lit, when};
 use datafusion::functions_array::expr_fn::make_array;
-use datafusion::functions::core::named_struct;
+use datafusion::logical_expr::{Expr, ExprSchemable, lit, when};
+use datafusion::prelude::named_struct;
 use datafusion_common::{DFSchema, ScalarValue};
 use palette::Srgba;
 use std::collections::HashMap;
@@ -61,6 +61,17 @@ impl Scale {
         // Switch to BandScale for discrete domains
         if self.scale_impl.scale_type() == "linear" {
             self.scale_impl = Arc::new(avenger_scales::scales::band::BandScale);
+
+            // Set default band scale options if not already set
+            if !self.options.contains_key("padding_inner") {
+                self.options.insert("padding_inner".to_string(), lit(0.1));
+            }
+            if !self.options.contains_key("padding_outer") {
+                self.options.insert("padding_outer".to_string(), lit(0.1));
+            }
+            if !self.options.contains_key("align") {
+                self.options.insert("align".to_string(), lit(0.5));
+            }
         }
 
         self.domain(ScaleDomain::new_discrete(exprs))
@@ -124,23 +135,25 @@ impl Scale {
         let domain_expr = self.compile_domain()?;
         let range_expr = self.compile_range()?;
         let options_expr = self.compile_options()?;
-        
+
         let domain_type = self.domain.data_type()?;
         let range_type = self.range.data_type()?;
-        
+        let options_type = options_expr.get_type(&DFSchema::empty())?;
+
         let udf = udf::create_scale_udf(
-            &format!("scale_{}", self.scale_impl.scale_type()),
             self.scale_impl.clone(),
             domain_type,
             range_type,
+            options_type,
         )?;
-        
+
         Ok(udf.call(vec![domain_expr, range_expr, options_expr, values]))
     }
 
     /// Compile domain to an expression that evaluates to a list
     fn compile_domain(&self) -> Result<Expr, AvengerChartError> {
-        self.domain.compile(self.scale_impl.infer_domain_from_data_method())
+        self.domain
+            .compile(self.scale_impl.infer_domain_from_data_method())
     }
 
     /// Compile range to an expression that evaluates to a list
@@ -150,17 +163,21 @@ impl Scale {
 
     /// Compile options to an expression that evaluates to a struct
     fn compile_options(&self) -> Result<Expr, AvengerChartError> {
-        let mut struct_args = self.options
-            .iter()
-            .flat_map(|(key, value)| vec![lit(key), value.clone()])
-            .collect::<Vec<_>>();
+        use datafusion::arrow::array::StructArray;
 
-        // Add dummy field if empty to create valid struct
-        if struct_args.is_empty() {
-            struct_args.extend(vec![lit("_dummy"), lit(0.0f32)]);
+        if self.options.is_empty() {
+            // Create an empty struct with 1 row for scalar
+            let empty_struct = StructArray::new_empty_fields(1, None);
+            Ok(lit(ScalarValue::Struct(Arc::new(empty_struct))))
+        } else {
+            let struct_args = self
+                .options
+                .iter()
+                .flat_map(|(key, value)| vec![lit(key), value.clone()])
+                .collect::<Vec<_>>();
+
+            Ok(named_struct(struct_args))
         }
-
-        Ok(named_struct(struct_args))
     }
 }
 
@@ -173,7 +190,7 @@ pub struct ScaleDomain {
 #[derive(Debug, Clone)]
 pub enum ScaleDefaultDomain {
     // Intervals
-    Interval(Expr, Expr),
+    Interval(Expr, Box<Expr>),
     // Discrete values
     Discrete(Vec<Expr>),
 
@@ -185,7 +202,7 @@ pub enum ScaleDefaultDomain {
 impl ScaleDomain {
     pub fn new_interval<E: Into<Expr>>(start: E, end: E) -> Self {
         Self {
-            default_domain: ScaleDefaultDomain::Interval(start.into(), end.into()),
+            default_domain: ScaleDefaultDomain::Interval(start.into(), Box::new(end.into())),
             raw_domain: None,
         }
     }
@@ -236,7 +253,7 @@ impl ScaleDomain {
             ScaleDefaultDomain::Discrete(exprs) => Ok(exprs[0].get_type(&schema)?),
             ScaleDefaultDomain::DataField(DataField { dataframe, field }) => Ok(dataframe
                 .schema()
-                .field_with_name(None, &field)?
+                .field_with_name(None, field)?
                 .data_type()
                 .clone()),
             ScaleDefaultDomain::DataFields(fields) => {
@@ -247,7 +264,7 @@ impl ScaleDomain {
                 })?;
                 Ok(dataframe
                     .schema()
-                    .field_with_name(None, &field)?
+                    .field_with_name(None, field)?
                     .data_type()
                     .clone())
             }
@@ -268,19 +285,17 @@ impl ScaleDomain {
             ScaleDefaultDomain::Interval(start, end) => {
                 if method != InferDomainFromDataMethod::Interval {
                     return Err(AvengerChartError::InternalError(
-                        "Scale does not support interval domain".to_string()
+                        "Scale does not support interval domain".to_string(),
                     ));
                 }
-                make_array(vec![start.clone(), end.clone()])
+                make_array(vec![start.clone(), end.as_ref().clone()])
             }
-            ScaleDefaultDomain::Discrete(values) => {
-                make_array(values.clone())
-            }
+            ScaleDefaultDomain::Discrete(values) => make_array(values.clone()),
             ScaleDefaultDomain::DataField(_) | ScaleDefaultDomain::DataFields(_) => {
                 // TODO: Implement data field domain inference
                 // For now, return a placeholder
                 return Err(AvengerChartError::InternalError(
-                    "DataField domain inference not yet implemented for UDF scales".to_string()
+                    "DataField domain inference not yet implemented for UDF scales".to_string(),
                 ));
             }
         };
@@ -322,14 +337,14 @@ pub struct DataField {
 
 #[derive(Debug, Clone)]
 pub enum ScaleRange {
-    Numeric(Expr, Expr),
+    Numeric(Expr, Box<Expr>),
     Enum(Vec<ScalarValue>),
     Color(Vec<Srgba>),
 }
 
 impl ScaleRange {
     pub fn new_interval<E: Into<Expr>, F: Into<Expr>>(start: E, end: F) -> Self {
-        Self::Numeric(start.into(), end.into())
+        Self::Numeric(start.into(), Box::new(end.into()))
     }
 
     pub fn new_color(colors: Vec<Srgba>) -> Self {
@@ -344,7 +359,7 @@ impl ScaleRange {
         match self {
             ScaleRange::Numeric(_, _) => Ok(DataType::Float32),
             ScaleRange::Enum(vals) => {
-                vals.get(0)
+                vals.first()
                     .map(|v| v.data_type().clone())
                     .ok_or(AvengerChartError::InternalError(
                         "Enum range may not be empty".to_string(),
@@ -358,25 +373,20 @@ impl ScaleRange {
     pub fn compile(&self) -> Result<Expr, AvengerChartError> {
         match self {
             ScaleRange::Numeric(start, end) => {
-                Ok(make_array(vec![start.clone(), end.clone()]))
+                Ok(make_array(vec![start.clone(), end.as_ref().clone()]))
             }
             ScaleRange::Enum(values) => {
-                let exprs = values.iter()
-                    .map(|v| lit(v.clone()))
-                    .collect::<Vec<_>>();
+                let exprs = values.iter().map(|v| lit(v.clone())).collect::<Vec<_>>();
                 Ok(make_array(exprs))
             }
             ScaleRange::Color(colors) => {
                 // Convert colors to RGBA array expressions
-                let color_exprs = colors.iter()
+                // TODO: Implement proper struct creation with the new datafusion API
+                let color_exprs = colors
+                    .iter()
                     .map(|c| {
-                        // Create struct with RGBA components
-                        named_struct(vec![
-                            lit("r"), lit(c.red),
-                            lit("g"), lit(c.green),
-                            lit("b"), lit(c.blue),
-                            lit("a"), lit(c.alpha),
-                        ])
+                        // For now, create a simple array instead of struct
+                        make_array(vec![lit(c.red), lit(c.green), lit(c.blue), lit(c.alpha)])
                     })
                     .collect::<Vec<_>>();
                 Ok(make_array(color_exprs))

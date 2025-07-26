@@ -193,8 +193,8 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         &self,
         mark_config: &MarkConfig<C>,
         scales: &crate::scales::ScaleRegistry,
-        plot_width: f32,
-        plot_height: f32,
+        _plot_width: f32,
+        _plot_height: f32,
     ) -> Result<SceneMark, AvengerChartError> {
         // Get the data - either from mark or inherit from plot
         let df = match &mark_config.data_source {
@@ -240,7 +240,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
             select_exprs.push(scaled_expr.alias("x"));
             channel_names.push("x");
         }
-        
+
         if let Some(expr) = x2_expr {
             let scaled_expr = if let Some(x_scale) = scales.get("x") {
                 // For x2 with band scale, we need to handle band parameter
@@ -262,7 +262,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
             select_exprs.push(scaled_expr.alias("x2"));
             channel_names.push("x2");
         }
-        
+
         if let Some(expr) = y_expr {
             let scaled_expr = if let Some(y_scale) = scales.get("y") {
                 y_scale.to_expr(expr.clone())?
@@ -272,7 +272,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
             select_exprs.push(scaled_expr.alias("y"));
             channel_names.push("y");
         }
-        
+
         if let Some(expr) = y2_expr {
             let scaled_expr = if let Some(y_scale) = scales.get("y") {
                 y_scale.to_expr(expr.clone())?
@@ -282,7 +282,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
             select_exprs.push(scaled_expr.alias("y2"));
             channel_names.push("y2");
         }
-        
+
         // Color and size channels typically don't use plot-level scales in our current design
         if let Some(expr) = fill_expr {
             select_exprs.push(expr.clone().alias("fill"));
@@ -341,7 +341,9 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
             if let Some(float_array) = x_array.as_any().downcast_ref::<Float32Array>() {
                 x_values = (0..num_rows).map(|i| float_array.value(i)).collect();
             } else if let Some(float64_array) = x_array.as_any().downcast_ref::<Float64Array>() {
-                x_values = (0..num_rows).map(|i| float64_array.value(i) as f32).collect();
+                x_values = (0..num_rows)
+                    .map(|i| float64_array.value(i) as f32)
+                    .collect();
             }
         }
 
@@ -352,27 +354,9 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
             if let Some(float_array) = x2_array.as_any().downcast_ref::<Float32Array>() {
                 x2_values = (0..num_rows).map(|i| float_array.value(i)).collect();
             } else if let Some(float64_array) = x2_array.as_any().downcast_ref::<Float64Array>() {
-                x2_values = (0..num_rows).map(|i| float64_array.value(i) as f32).collect();
-            }
-        }
-
-        // For band scales without x2, we need to generate x2 values
-        // This happens when only x is specified but we need rectangles
-        if !x_values.is_empty() && x2_values.is_empty() {
-            // Check if we have a band scale
-            if let Some(x_scale) = scales.get("x") {
-                if x_scale.get_scale_impl().scale_type() == "band" {
-                    // For band scales, x2 should be x + bandwidth
-                    // The bandwidth is encoded in the scale configuration
-                    // For now, we'll use a simple heuristic
-                    // TODO: Get bandwidth from scale configuration
-                    let estimated_bandwidth = if x_values.len() > 1 {
-                        (x_values[1] - x_values[0]) * 0.9 // 90% of distance between points
-                    } else {
-                        plot_width / 10.0 // Fallback
-                    };
-                    x2_values = x_values.iter().map(|&x| x + estimated_bandwidth).collect();
-                }
+                x2_values = (0..num_rows)
+                    .map(|i| float64_array.value(i) as f32)
+                    .collect();
             }
         }
 
@@ -383,7 +367,9 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
             if let Some(float_array) = y_array.as_any().downcast_ref::<Float32Array>() {
                 y_values = (0..num_rows).map(|i| float_array.value(i)).collect();
             } else if let Some(float64_array) = y_array.as_any().downcast_ref::<Float64Array>() {
-                y_values = (0..num_rows).map(|i| float64_array.value(i) as f32).collect();
+                y_values = (0..num_rows)
+                    .map(|i| float64_array.value(i) as f32)
+                    .collect();
             }
         }
 
@@ -394,7 +380,9 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
             if let Some(float_array) = y2_array.as_any().downcast_ref::<Float32Array>() {
                 y2_values = (0..num_rows).map(|i| float_array.value(i)).collect();
             } else if let Some(float64_array) = y2_array.as_any().downcast_ref::<Float64Array>() {
-                y2_values = (0..num_rows).map(|i| float64_array.value(i) as f32).collect();
+                y2_values = (0..num_rows)
+                    .map(|i| float64_array.value(i) as f32)
+                    .collect();
             }
         }
 
@@ -661,7 +649,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                 if let (
                     datafusion::logical_expr::Expr::Literal(start_val, _),
                     datafusion::logical_expr::Expr::Literal(end_val, _),
-                ) = (start, end)
+                ) = (start, end.as_ref())
                 {
                     // Convert literals to f32 values
                     let start_f32 = match start_val {
@@ -701,10 +689,12 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                 // Extract string literals from the expressions
                 let mut strings = Vec::new();
                 for expr in values {
-                    if let datafusion::logical_expr::Expr::Literal(scalar, _) = expr {
-                        if let datafusion_common::ScalarValue::Utf8(Some(s)) = scalar {
-                            strings.push(s.clone());
-                        }
+                    if let datafusion::logical_expr::Expr::Literal(
+                        datafusion_common::ScalarValue::Utf8(Some(s)),
+                        _,
+                    ) = expr
+                    {
+                        strings.push(s.clone());
                     }
                 }
                 Arc::new(StringArray::from(strings)) as datafusion::arrow::array::ArrayRef
@@ -771,6 +761,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
 }
 
 /// Extension trait for Canvas to render Plot objects
+#[allow(async_fn_in_trait)]
 pub trait CanvasExt {
     /// Render a plot to this canvas
     async fn render_plot<C: CoordinateSystem>(

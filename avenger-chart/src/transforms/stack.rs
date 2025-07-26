@@ -145,7 +145,7 @@ impl<C: CoordinateSystem> Transform for Stack<C> {
             .or_else(|| ctx.encoding(&self.group_channel));
 
         // Try to find series column for ordering - check encodings
-        let series_col = self.series_column.as_ref().map(|c| c.clone()).or_else(|| {
+        let series_col = self.series_column.clone().or_else(|| {
             // Check if fill, color, or stroke encodings exist
             if ctx.encoding("fill").is_some() {
                 ctx.encoding("fill")

@@ -30,7 +30,7 @@ impl ChannelValue {
             band: None,
         }
     }
-    
+
     pub fn column(column: impl Into<String>) -> Self {
         Self::new(ident(column.into()))
     }
@@ -86,7 +86,6 @@ impl ChannelValue {
 fn strip_trailing_numbers(name: &str) -> &str {
     name.trim_end_matches(char::is_numeric)
 }
-
 
 // Conversions for ergonomic API
 

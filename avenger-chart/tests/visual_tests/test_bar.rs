@@ -1,8 +1,8 @@
 //! Visual tests for bar charts
 
 use avenger_chart::coords::Cartesian;
-use avenger_chart::marks::rect::Rect;
 use avenger_chart::marks::ChannelValue;
+use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
 use datafusion::logical_expr::lit;
 
@@ -72,9 +72,10 @@ async fn test_bar_chart_with_custom_colors() {
         .mark(
             Rect::new()
                 .x("category")
+                .x2(ChannelValue::column("category").with_band(1.0))
                 .y(lit(0.0))
                 .y2("value")
-                .fill(lit("#e74c3c")) 
+                .fill(lit("#e74c3c"))
                 .stroke(lit("#c0392b"))
                 .stroke_width(lit(2.0)),
         );
@@ -108,7 +109,7 @@ async fn test_bar_chart_with_narrow_bars() {
         .mark(
             Rect::new()
                 .x("category")
-                .x2(ChannelValue::column("category").with_band(0.7))  // 70% of band width
+                .x2(ChannelValue::column("category").with_band(0.7)) // 70% of band width
                 .y(lit(0.0))
                 .y2("value")
                 .fill(lit("#3498db"))

@@ -61,7 +61,7 @@ impl Default for Padding {
 }
 
 /// Size preferences for layout
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct SizeConstraints {
     pub min_width: Option<f32>,
     pub max_width: Option<f32>,
@@ -70,20 +70,6 @@ pub struct SizeConstraints {
     pub preferred_width: Option<f32>,
     pub preferred_height: Option<f32>,
     pub aspect_ratio: Option<f32>,
-}
-
-impl Default for SizeConstraints {
-    fn default() -> Self {
-        Self {
-            min_width: None,
-            max_width: None,
-            min_height: None,
-            max_height: None,
-            preferred_width: None,
-            preferred_height: None,
-            aspect_ratio: None,
-        }
-    }
 }
 
 /// Alignment options for layout

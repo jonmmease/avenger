@@ -70,7 +70,7 @@ use datafusion::logical_expr::{col, lit};
 #[derive(Debug, Clone)]
 pub struct LabelPoints {
     /// Column to use for label text
-    text_column: String,
+    _text_column: String,
     /// Vertical offset from point (negative = above)
     offset_y: f64,
     /// Horizontal alignment
@@ -89,7 +89,7 @@ pub enum TextAlign {
 impl LabelPoints {
     pub fn new(text_column: impl Into<String>) -> Self {
         Self {
-            text_column: text_column.into(),
+            _text_column: text_column.into(),
             offset_y: -5.0, // 5 pixels above by default
             align: TextAlign::Center,
             font_size: None,

@@ -118,15 +118,9 @@ pub trait Controller: Debug + Send + Sync + 'static {
 }
 
 /// Pan/zoom controller for 2D navigation
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PanZoom {
     // Configuration fields would go here
-}
-
-impl Default for PanZoom {
-    fn default() -> Self {
-        Self {}
-    }
 }
 
 impl PanZoom {
@@ -170,15 +164,9 @@ impl Controller for PanZoom {
 }
 
 /// Box selection controller
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct BoxSelect {
     // Configuration fields would go here
-}
-
-impl Default for BoxSelect {
-    fn default() -> Self {
-        Self {}
-    }
 }
 
 impl BoxSelect {
