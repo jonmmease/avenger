@@ -35,7 +35,7 @@ async fn test_simple_bar_chart() {
                 .stroke_width(lit(1.0)),
         );
 
-    assert_visual_match_default(plot, "simple_bar_chart").await;
+    assert_visual_match_default(plot, "bar", "simple_bar_chart").await;
 }
 
 #[tokio::test]
@@ -62,7 +62,7 @@ async fn test_bar_chart_with_custom_colors() {
                 .stroke_width(lit(2.0)),
         );
     
-    assert_visual_match_default(plot, "bar_chart_custom_colors").await;
+    assert_visual_match_default(plot, "bar", "bar_chart_custom_colors").await;
 }
 
 #[tokio::test]
@@ -90,5 +90,5 @@ async fn test_bar_chart_with_lower_tolerance() {
         );
     
     // Use 90% tolerance for this test (more lenient)
-    assert_visual_match(plot, "bar_chart_lower_tolerance", 0.90).await;
+    assert_visual_match(plot, "bar", "bar_chart_lower_tolerance", 0.90).await;
 }

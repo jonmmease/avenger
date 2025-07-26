@@ -28,7 +28,8 @@ async fn test_my_chart() {
         .mark(/* ... */);
     
     // Test with default 95% tolerance
-    assert_visual_match_default(plot, "my_chart_baseline").await;
+    // "bar" is the category subdirectory
+    assert_visual_match_default(plot, "bar", "my_chart_baseline").await;
 }
 ```
 
@@ -36,7 +37,7 @@ Or with custom tolerance:
 
 ```rust
 // Use 90% tolerance for tests with more expected variation
-assert_visual_match(plot, "my_chart_baseline", 0.90).await;
+assert_visual_match(plot, "bar", "my_chart_baseline", 0.90).await;
 ```
 
 The assertion functions will panic with a descriptive message if the test fails.
@@ -45,7 +46,7 @@ The assertion functions will panic with a descriptive message if the test fails.
 
 When visual changes are intentional:
 
-1. Run the failing test - it will generate files in `tests/failures/`:
+1. Run the failing test - it will generate files in `tests/failures/{category}/`:
    - `{test_name}_actual.png` - The new rendering
    - `{test_name}_diff.png` - Visual diff showing changes
 
@@ -53,7 +54,7 @@ When visual changes are intentional:
 
 3. Copy the actual image to baselines:
    ```bash
-   cp tests/failures/my_test_actual.png tests/baselines/my_test.png
+   cp tests/failures/bar/my_test_actual.png tests/baselines/bar/my_test.png
    ```
 
 4. Re-run the test to confirm it passes
@@ -62,11 +63,22 @@ When visual changes are intentional:
 
 ## Directory Structure
 
-- `baselines/` - Expected images (committed to git)
-- `failures/` - Test failures and diffs (gitignored)
-- `helpers.rs` - Rendering and comparison utilities
-- `test_data.rs` - Reusable data generation functions
-- `*_tests.rs` - Test files organized by chart type
+```
+visual_tests/
+├── baselines/           # Expected images (committed to git)
+│   ├── bar/            # Bar chart baselines
+│   ├── line/           # Line chart baselines (future)
+│   └── scatter/        # Scatter plot baselines (future)
+├── failures/           # Test failures and diffs (gitignored)
+│   ├── bar/
+│   ├── line/
+│   └── scatter/
+├── helpers.rs          # Rendering and comparison utilities
+├── test_data.rs        # Reusable data generation functions
+├── bar_charts.rs       # Bar chart tests
+├── line_charts.rs      # Line chart tests (future)
+└── scatter_plots.rs    # Scatter plot tests (future)
+```
 
 ## Tolerance Levels
 

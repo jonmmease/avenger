@@ -81,12 +81,27 @@ pub fn compare_images(
     if result.score < config.threshold {
         // Save difference image if requested
         if config.save_diff_on_failure {
-            let test_name = Path::new(baseline_path)
+            let path = Path::new(baseline_path);
+            let test_name = path
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("unknown");
-            let diff_path = format!("tests/failures/{}_diff.png", test_name);
-            let actual_path = format!("tests/failures/{}_actual.png", test_name);
+            
+            // Extract category from path (e.g., "tests/baselines/bar/simple_bar_chart.png" -> "bar")
+            let category = path
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|s| s.to_str())
+                .unwrap_or("");
+            
+            let failures_dir = if category.is_empty() {
+                "tests/failures".to_string()
+            } else {
+                format!("tests/failures/{}", category)
+            };
+            
+            let diff_path = format!("{}/{}_diff.png", failures_dir, test_name);
+            let actual_path = format!("{}/{}_actual.png", failures_dir, test_name);
 
             // Save the actual image
             actual
@@ -116,17 +131,17 @@ pub fn compare_images(
 }
 
 /// Helper to get platform-specific baseline path
-pub fn get_baseline_path(base_name: &str) -> String {
+pub fn get_baseline_path(category: &str, base_name: &str) -> String {
     // For now, use the same baseline for all platforms
     // Can be extended to use platform-specific baselines if needed
-    format!("tests/baselines/{}.png", base_name)
+    format!("tests/baselines/{}/{}.png", category, base_name)
 }
 
 /// Helper to update baselines when visual changes are intentional
 /// This should only be run manually, not in CI
 #[allow(dead_code)]
-pub fn update_baseline(baseline_name: &str, image: &RgbaImage) -> Result<(), String> {
-    let baseline_path = get_baseline_path(baseline_name);
+pub fn update_baseline(category: &str, baseline_name: &str, image: &RgbaImage) -> Result<(), String> {
+    let baseline_path = get_baseline_path(category, baseline_name);
     image
         .save(&baseline_path)
         .map_err(|e| format!("Failed to update baseline '{}': {}", baseline_path, e))?;
