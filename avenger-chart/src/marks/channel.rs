@@ -87,14 +87,6 @@ fn strip_trailing_numbers(name: &str) -> &str {
     name.trim_end_matches(char::is_numeric)
 }
 
-// Helper constructors for common patterns
-impl ChannelValue {
-    /// Create a ChannelValue from a column name with band=1.0
-    /// Useful for x2/y2 encodings that should use the full band width
-    pub fn band_end(column: &str) -> Self {
-        Self::new(ident(column)).with_band(1.0)
-    }
-}
 
 // Conversions for ergonomic API
 
