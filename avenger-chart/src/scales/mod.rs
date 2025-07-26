@@ -85,6 +85,10 @@ impl Scale {
         self.domain(ScaleDomain::new_data_fields(fields))
     }
 
+    pub fn domain_expressions(self, expressions: Vec<Expr>) -> Self {
+        self.domain(ScaleDomain::new_expressions(expressions))
+    }
+
     pub fn raw_domain<E: Clone + Into<Expr>>(self, raw_domain: E) -> Self {
         let new_domain = self.domain.clone().with_raw(raw_domain.into());
         self.domain(new_domain)
@@ -197,6 +201,8 @@ pub enum ScaleDefaultDomain {
     // Domain derived from data
     DataField(DataField),
     DataFields(Vec<DataField>),
+    // Domain derived from encoding expressions
+    Expressions(Vec<Expr>),
 }
 
 impl ScaleDomain {
@@ -239,6 +245,13 @@ impl ScaleDomain {
         }
     }
 
+    pub fn new_expressions(expressions: Vec<Expr>) -> Self {
+        Self {
+            default_domain: ScaleDefaultDomain::Expressions(expressions),
+            raw_domain: None,
+        }
+    }
+
     pub fn with_raw(self, raw_domain: Expr) -> Self {
         Self {
             default_domain: self.default_domain,
@@ -268,6 +281,14 @@ impl ScaleDomain {
                     .data_type()
                     .clone())
             }
+            ScaleDefaultDomain::Expressions(exprs) => {
+                if exprs.is_empty() {
+                    return Err(AvengerChartError::InternalError(
+                        "Expressions domain may not be empty".to_string(),
+                    ));
+                }
+                Ok(exprs[0].get_type(&schema)?)
+            }
         }
     }
 
@@ -291,11 +312,48 @@ impl ScaleDomain {
                 make_array(vec![start.clone(), end.as_ref().clone()])
             }
             ScaleDefaultDomain::Discrete(values) => make_array(values.clone()),
-            ScaleDefaultDomain::DataField(_) | ScaleDefaultDomain::DataFields(_) => {
-                // TODO: Implement data field domain inference
-                // For now, return a placeholder
+            ScaleDefaultDomain::DataField(DataField { dataframe, field }) => {
+                use crate::utils::DataFrameChartUtils;
+                let df_with_field = dataframe.as_ref().clone().select_columns(&[field])?;
+
+                match method {
+                    InferDomainFromDataMethod::Interval => df_with_field.span()?,
+                    InferDomainFromDataMethod::Unique => df_with_field.unique_values()?,
+                    InferDomainFromDataMethod::All => df_with_field.all_values()?,
+                }
+            }
+            ScaleDefaultDomain::DataFields(data_fields) => {
+                use crate::utils::DataFrameChartUtils;
+                let mut single_col_dfs: Vec<DataFrame> = Vec::new();
+
+                for DataField { dataframe, field } in data_fields {
+                    let df = dataframe.clone();
+                    let df_with_field = df.as_ref().clone().select_columns(&[field])?;
+                    single_col_dfs.push(df_with_field);
+                }
+
+                // Union all of the single column dataframes
+                let union_df = single_col_dfs
+                    .iter()
+                    .skip(1)
+                    .fold(single_col_dfs[0].clone(), |acc, df| {
+                        acc.union(df.clone()).unwrap()
+                    });
+
+                match method {
+                    InferDomainFromDataMethod::Interval => union_df.span()?,
+                    InferDomainFromDataMethod::Unique => union_df.unique_values()?,
+                    InferDomainFromDataMethod::All => union_df.all_values()?,
+                }
+            }
+            ScaleDefaultDomain::Expressions(_expressions) => {
+                // For expressions, we can't create a DataFrame here since we don't have
+                // the actual data. Instead, we'll return a placeholder that will be
+                // evaluated at runtime when we have the actual DataFrames.
+                // This is a limitation we'll need to address by passing DataFrames
+                // to the compile method or deferring compilation.
                 return Err(AvengerChartError::InternalError(
-                    "DataField domain inference not yet implemented for UDF scales".to_string(),
+                    "Expression-based domain inference requires runtime evaluation".to_string(),
                 ));
             }
         };

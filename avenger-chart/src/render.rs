@@ -63,6 +63,15 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         // Copy scales from plot and apply default ranges
         for (name, scale) in &self.plot.scales {
             let mut scale_copy = scale.clone();
+            
+            // Apply default domain if needed
+            if !scale_copy.has_explicit_domain() {
+                let data_fields = self.plot.gather_scale_domain_data(name);
+                if !data_fields.is_empty() {
+                    scale_copy = scale_copy.domain_data_fields(data_fields);
+                }
+            }
+            
             self.plot.apply_default_range(
                 &mut scale_copy,
                 name,
