@@ -5,6 +5,8 @@ pub mod symbol;
 #[macro_use]
 pub mod macros;
 
+pub use channel::ChannelValue;
+
 use crate::adjust::Adjust;
 use crate::coords::CoordinateSystem;
 use crate::derive::Derive;

@@ -88,6 +88,54 @@ pub fn compare_images(
     actual: RgbaImage,
     config: &VisualTestConfig,
 ) -> Result<(), String> {
+    // Check if baseline exists
+    if !std::path::Path::new(baseline_path).exists() {
+        // Save the actual image to failures directory for review
+        let path = Path::new(baseline_path);
+        let test_name = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown");
+        
+        // Extract category from path
+        let category = path
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        
+        let failures_dir = if category.is_empty() {
+            "tests/failures".to_string()
+        } else {
+            format!("tests/failures/{}", category)
+        };
+        
+        // Create failures directory if it doesn't exist
+        std::fs::create_dir_all(&failures_dir)
+            .map_err(|e| format!("Failed to create failures directory: {}", e))?;
+        
+        let actual_path = format!("{}/{}_actual.png", failures_dir, test_name);
+        actual
+            .save(&actual_path)
+            .map_err(|e| format!("Failed to save actual image: {}", e))?;
+        
+        // Ensure baseline directory exists for the copy command
+        if let Some(baseline_dir) = Path::new(baseline_path).parent() {
+            let mkdir_cmd = format!("mkdir -p {}", baseline_dir.display());
+            return Err(format!(
+                "No baseline image found at '{}'. Generated image saved to '{}'. \
+                To accept this as the baseline, run:\n  {}\n  cp {} {}",
+                baseline_path, actual_path, mkdir_cmd, actual_path, baseline_path
+            ));
+        } else {
+            return Err(format!(
+                "No baseline image found at '{}'. Generated image saved to '{}'. \
+                To accept this as the baseline, run: cp {} {}",
+                baseline_path, actual_path, actual_path, baseline_path
+            ));
+        }
+    }
+    
     // Load baseline image
     let expected = image::open(baseline_path)
         .map_err(|e| format!("Failed to load baseline image '{}': {}", baseline_path, e))?

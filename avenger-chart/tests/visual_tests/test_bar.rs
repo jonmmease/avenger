@@ -2,11 +2,12 @@
 
 use avenger_chart::coords::Cartesian;
 use avenger_chart::marks::rect::Rect;
+use avenger_chart::marks::ChannelValue;
 use avenger_chart::plot::Plot;
 use datafusion::logical_expr::lit;
 
 use super::datasets;
-use super::helpers::{assert_visual_match, assert_visual_match_default};
+use super::helpers::assert_visual_match_default;
 
 #[tokio::test]
 async fn test_simple_bar_chart() {
@@ -34,7 +35,7 @@ async fn test_simple_bar_chart() {
         .mark(
             Rect::new()
                 .x("category")
-                .x2("category")
+                .x2(ChannelValue::column("category").with_band(1.0))
                 .y(lit(0.0))
                 .y2("value")
                 .fill(lit("#4682b4"))
@@ -73,7 +74,7 @@ async fn test_bar_chart_with_custom_colors() {
                 .x("category")
                 .y(lit(0.0))
                 .y2("value")
-                .fill(lit("#e74c3c")) // Different color
+                .fill(lit("#e74c3c")) 
                 .stroke(lit("#c0392b"))
                 .stroke_width(lit(2.0)),
         );
@@ -82,7 +83,7 @@ async fn test_bar_chart_with_custom_colors() {
 }
 
 #[tokio::test]
-async fn test_bar_chart_with_lower_tolerance() {
+async fn test_bar_chart_with_narrow_bars() {
     let df = datasets::simple_categories();
 
     let plot = Plot::new(Cartesian)
@@ -107,6 +108,7 @@ async fn test_bar_chart_with_lower_tolerance() {
         .mark(
             Rect::new()
                 .x("category")
+                .x2(ChannelValue::column("category").with_band(0.7))  // 70% of band width
                 .y(lit(0.0))
                 .y2("value")
                 .fill(lit("#3498db"))
@@ -114,6 +116,5 @@ async fn test_bar_chart_with_lower_tolerance() {
                 .stroke_width(lit(1.5)),
         );
 
-    // Use 90% tolerance for this test (more lenient)
-    assert_visual_match(plot, "bar", "bar_chart_lower_tolerance", 0.90).await;
+    assert_visual_match_default(plot, "bar", "bar_chart_narrow_bars").await;
 }

@@ -211,11 +211,16 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         // Get channel mappings from DataContext
         let encodings = mark_config.data.encodings();
 
-        // Extract expressions for rect channels
-        let x_expr = encodings.get("x").map(|ch| &ch.expr);
-        let x2_expr = encodings.get("x2").map(|ch| &ch.expr);
-        let y_expr = encodings.get("y").map(|ch| &ch.expr);
-        let y2_expr = encodings.get("y2").map(|ch| &ch.expr);
+        // Extract expressions and band parameters for rect channels
+        let x_channel = encodings.get("x");
+        let x2_channel = encodings.get("x2");
+        let y_channel = encodings.get("y");
+        let y2_channel = encodings.get("y2");
+        let x_expr = x_channel.map(|ch| &ch.expr);
+        let x2_expr = x2_channel.map(|ch| &ch.expr);
+        let x2_band = x2_channel.and_then(|ch| ch.band);
+        let y_expr = y_channel.map(|ch| &ch.expr);
+        let y2_expr = y2_channel.map(|ch| &ch.expr);
         let fill_expr = encodings.get("fill").map(|ch| &ch.expr);
         let stroke_expr = encodings.get("stroke").map(|ch| &ch.expr);
         let stroke_width_expr = encodings.get("stroke_width").map(|ch| &ch.expr);
@@ -284,10 +289,10 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         let num_rows = batch.num_rows();
 
         // Apply scales to the data
-        let mut x_values = vec![];
-        let mut x2_values = vec![];
-        let mut y_values = vec![];
-        let mut y2_values = vec![];
+        let mut x_values: Vec<f32> = vec![];
+        let mut x2_values: Vec<f32> = vec![];
+        let mut y_values: Vec<f32> = vec![];
+        let mut y2_values: Vec<f32> = vec![];
 
         // Get x and y scales
         let x_scale = scales.get("x");
@@ -296,6 +301,9 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         // For band scale, we need to evaluate the x positions using the scale
         if let Some(x_scale) = x_scale {
             if x_scale.get_scale_impl().scale_type() == "band" {
+                // Check if both x and x2 are specified (indicating override of band width)
+                let has_x2_encoding = channel_names.contains(&"x2");
+                
                 // For band scale, we need to scale the category values
                 if channel_names.contains(&"x") {
                     let col_idx = channel_names.iter().position(|&c| c == "x").unwrap();
@@ -305,6 +313,12 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                         let configured_scale =
                             self.create_configured_scale(x_scale, "x", plot_width, plot_height)?;
 
+                        // Get band width from scale
+                        let bandwidth = avenger_scales::scales::band::bandwidth(
+                            &configured_scale.config,
+                        )
+                        .unwrap_or(plot_width / 10.0);
+
                         // Scale each category value
                         for i in 0..num_rows {
                             let category = str_array.value(i);
@@ -313,19 +327,20 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                             let scaled = configured_scale.scale_to_numeric(&category_array)?;
                             let scaled_vec = scaled.as_vec(1, None);
                             if !scaled_vec.is_empty() {
-                                let x_center = scaled_vec[0];
+                                let x_band_start = scaled_vec[0];
 
-                                // Get band width from scale using the bandwidth function
-                                let bandwidth = avenger_scales::scales::band::bandwidth(
-                                    &configured_scale.config,
-                                )
-                                .unwrap_or(plot_width / 10.0);
-
-                                // For band scales, the returned position is already the start of the band
-                                // when band option is set to 0 (which is the default)
-                                // So we should use x_center as x and x_center + bandwidth as x2
-                                x_values.push(x_center);
-                                x2_values.push(x_center + bandwidth);
+                                if has_x2_encoding {
+                                    // x2 is specified, so we use band parameter to position
+                                    x_values.push(x_band_start);
+                                    
+                                    // Use band parameter for x2 (default to 1.0 if not specified)
+                                    let band_offset = x2_band.unwrap_or(1.0) as f32;
+                                    x2_values.push(x_band_start + bandwidth * band_offset);
+                                } else {
+                                    // No x2 specified, use full band width
+                                    x_values.push(x_band_start);
+                                    x2_values.push(x_band_start + bandwidth);
+                                }
                             }
                         }
                     }
