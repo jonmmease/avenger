@@ -4,6 +4,8 @@
 //! with support for fuzzy matching to handle cross-platform rendering differences.
 
 pub mod bar_charts;
+pub mod helpers;
+pub mod test_data;
 
 use image::RgbaImage;
 use std::path::Path;
