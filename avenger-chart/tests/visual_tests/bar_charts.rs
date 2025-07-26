@@ -8,11 +8,11 @@ use datafusion::logical_expr::lit;
 use super::helpers::{assert_visual_match, assert_visual_match_default};
 use super::test_data;
 
-/// Create a simple bar chart plot
-fn simple_bar_chart() -> Plot<Cartesian> {
-    let df = test_data::simple_categories().expect("Failed to create test data");
+#[tokio::test]
+async fn test_simple_bar_chart() {
+    let df = test_data::simple_categories();
 
-    Plot::new(Cartesian)
+    let plot = Plot::new(Cartesian)
         .preferred_size(400.0, 300.0)
         .data(df)
         .scale_x(|scale| {
@@ -33,20 +33,14 @@ fn simple_bar_chart() -> Plot<Cartesian> {
                 .fill(lit("#4682b4"))
                 .stroke(lit("#000000"))
                 .stroke_width(lit(1.0)),
-        )
+        );
+
+    assert_visual_match_default(plot, "simple_bar_chart").await;
 }
 
-#[tokio::test]
-async fn test_simple_bar_chart() {
-    assert_visual_match_default(simple_bar_chart(), "simple_bar_chart")
-        .await
-        .expect("Visual test 'simple_bar_chart' failed");
-}
-
-/// Example of how concise a new test can be with our helpers!
 #[tokio::test]
 async fn test_bar_chart_with_custom_colors() {
-    let df = test_data::simple_categories().expect("Failed to create test data");
+    let df = test_data::simple_categories();
     
     let plot = Plot::new(Cartesian)
         .preferred_size(400.0, 300.0)
@@ -68,15 +62,12 @@ async fn test_bar_chart_with_custom_colors() {
                 .stroke_width(lit(2.0)),
         );
     
-    assert_visual_match_default(plot, "bar_chart_custom_colors")
-        .await
-        .expect("Visual test 'bar_chart_custom_colors' failed");
+    assert_visual_match_default(plot, "bar_chart_custom_colors").await;
 }
 
-/// Test with custom tolerance for cases where more variation is expected
 #[tokio::test]
 async fn test_bar_chart_with_lower_tolerance() {
-    let df = test_data::simple_categories().expect("Failed to create test data");
+    let df = test_data::simple_categories();
     
     let plot = Plot::new(Cartesian)
         .preferred_size(400.0, 300.0)
@@ -99,7 +90,5 @@ async fn test_bar_chart_with_lower_tolerance() {
         );
     
     // Use 90% tolerance for this test (more lenient)
-    assert_visual_match(plot, "bar_chart_lower_tolerance", 0.90)
-        .await
-        .expect("Visual test 'bar_chart_lower_tolerance' failed");
+    assert_visual_match(plot, "bar_chart_lower_tolerance", 0.90).await;
 }

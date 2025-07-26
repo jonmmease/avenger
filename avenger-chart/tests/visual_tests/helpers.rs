@@ -65,7 +65,7 @@ pub async fn assert_visual_match<C: CoordinateSystem>(
     plot: Plot<C>,
     baseline_name: &str,
     tolerance: f64,
-) -> Result<(), String> {
+) {
     let rendered = plot.to_image().await;
     let baseline_path = get_baseline_path(baseline_name);
     
@@ -74,13 +74,15 @@ pub async fn assert_visual_match<C: CoordinateSystem>(
         save_diff_on_failure: true,
     };
     
-    compare_images(&baseline_path, rendered, &config)
+    if let Err(msg) = compare_images(&baseline_path, rendered, &config) {
+        panic!("Visual test '{}' failed: {}", baseline_name, msg);
+    }
 }
 
 /// Test a plot against its baseline with default tolerance (95%)
 pub async fn assert_visual_match_default<C: CoordinateSystem>(
     plot: Plot<C>,
     baseline_name: &str,
-) -> Result<(), String> {
+) {
     assert_visual_match(plot, baseline_name, 0.95).await
 }
