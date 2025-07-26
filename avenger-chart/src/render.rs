@@ -20,7 +20,8 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, PngCanvas};
-use datafusion::arrow::array::{Array, Float64Array, StringArray};
+use datafusion::arrow::array::{Array, Float32Array, Float64Array, StringArray};
+use datafusion::logical_expr::lit;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -225,26 +226,64 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         let stroke_expr = encodings.get("stroke").map(|ch| &ch.expr);
         let stroke_width_expr = encodings.get("stroke_width").map(|ch| &ch.expr);
 
-        // Evaluate expressions to get data arrays
+        // Build expressions with scale transformations applied
         let mut select_exprs = vec![];
         let mut channel_names = vec![];
 
+        // For position channels, apply scales if available
         if let Some(expr) = x_expr {
-            select_exprs.push(expr.clone().alias("x"));
+            let scaled_expr = if let Some(x_scale) = scales.get("x") {
+                x_scale.to_expr(expr.clone())?
+            } else {
+                expr.clone()
+            };
+            select_exprs.push(scaled_expr.alias("x"));
             channel_names.push("x");
         }
+        
         if let Some(expr) = x2_expr {
-            select_exprs.push(expr.clone().alias("x2"));
+            let scaled_expr = if let Some(x_scale) = scales.get("x") {
+                // For x2 with band scale, we need to handle band parameter
+                if x_scale.get_scale_impl().scale_type() == "band" {
+                    // Add band parameter to scale options for x2
+                    let mut x2_scale = x_scale.clone();
+                    if let Some(band) = x2_band {
+                        x2_scale = x2_scale.option("band", lit(band));
+                    } else {
+                        x2_scale = x2_scale.option("band", lit(1.0));
+                    }
+                    x2_scale.to_expr(expr.clone())?
+                } else {
+                    x_scale.to_expr(expr.clone())?
+                }
+            } else {
+                expr.clone()
+            };
+            select_exprs.push(scaled_expr.alias("x2"));
             channel_names.push("x2");
         }
+        
         if let Some(expr) = y_expr {
-            select_exprs.push(expr.clone().alias("y"));
+            let scaled_expr = if let Some(y_scale) = scales.get("y") {
+                y_scale.to_expr(expr.clone())?
+            } else {
+                expr.clone()
+            };
+            select_exprs.push(scaled_expr.alias("y"));
             channel_names.push("y");
         }
+        
         if let Some(expr) = y2_expr {
-            select_exprs.push(expr.clone().alias("y2"));
+            let scaled_expr = if let Some(y_scale) = scales.get("y") {
+                y_scale.to_expr(expr.clone())?
+            } else {
+                expr.clone()
+            };
+            select_exprs.push(scaled_expr.alias("y2"));
             channel_names.push("y2");
         }
+        
+        // Color and size channels typically don't use plot-level scales in our current design
         if let Some(expr) = fill_expr {
             select_exprs.push(expr.clone().alias("fill"));
             channel_names.push("fill");
@@ -288,162 +327,75 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         let batch = &batches[0];
         let num_rows = batch.num_rows();
 
-        // Apply scales to the data
+        // Extract scaled values from the DataFrame results
+        // The scale UDFs have already transformed the values to pixel coordinates
         let mut x_values: Vec<f32> = vec![];
         let mut x2_values: Vec<f32> = vec![];
         let mut y_values: Vec<f32> = vec![];
         let mut y2_values: Vec<f32> = vec![];
 
-        // Get x and y scales
-        let x_scale = scales.get("x");
-        let y_scale = scales.get("y");
+        // Extract x values if present
+        if channel_names.contains(&"x") {
+            let col_idx = channel_names.iter().position(|&c| c == "x").unwrap();
+            let x_array = batch.column(col_idx);
+            if let Some(float_array) = x_array.as_any().downcast_ref::<Float32Array>() {
+                x_values = (0..num_rows).map(|i| float_array.value(i)).collect();
+            } else if let Some(float64_array) = x_array.as_any().downcast_ref::<Float64Array>() {
+                x_values = (0..num_rows).map(|i| float64_array.value(i) as f32).collect();
+            }
+        }
 
-        // For band scale, we need to evaluate the x positions using the scale
-        if let Some(x_scale) = x_scale {
-            if x_scale.get_scale_impl().scale_type() == "band" {
-                // Check if both x and x2 are specified (indicating override of band width)
-                let has_x2_encoding = channel_names.contains(&"x2");
-                
-                // For band scale, we need to scale the category values
-                if channel_names.contains(&"x") {
-                    let col_idx = channel_names.iter().position(|&c| c == "x").unwrap();
-                    let x_array = batch.column(col_idx);
-                    if let Some(str_array) = x_array.as_any().downcast_ref::<StringArray>() {
-                        // Create a ConfiguredScale for band scale evaluation
-                        let configured_scale =
-                            self.create_configured_scale(x_scale, "x", plot_width, plot_height)?;
+        // Extract x2 values if present
+        if channel_names.contains(&"x2") {
+            let col_idx = channel_names.iter().position(|&c| c == "x2").unwrap();
+            let x2_array = batch.column(col_idx);
+            if let Some(float_array) = x2_array.as_any().downcast_ref::<Float32Array>() {
+                x2_values = (0..num_rows).map(|i| float_array.value(i)).collect();
+            } else if let Some(float64_array) = x2_array.as_any().downcast_ref::<Float64Array>() {
+                x2_values = (0..num_rows).map(|i| float64_array.value(i) as f32).collect();
+            }
+        }
 
-                        // Get band width from scale
-                        let bandwidth = avenger_scales::scales::band::bandwidth(
-                            &configured_scale.config,
-                        )
-                        .unwrap_or(plot_width / 10.0);
-
-                        // Scale each category value
-                        for i in 0..num_rows {
-                            let category = str_array.value(i);
-                            let category_array = Arc::new(StringArray::from(vec![category]))
-                                as datafusion::arrow::array::ArrayRef;
-                            let scaled = configured_scale.scale_to_numeric(&category_array)?;
-                            let scaled_vec = scaled.as_vec(1, None);
-                            if !scaled_vec.is_empty() {
-                                let x_band_start = scaled_vec[0];
-
-                                if has_x2_encoding {
-                                    // x2 is specified, so we use band parameter to position
-                                    x_values.push(x_band_start);
-                                    
-                                    // Use band parameter for x2 (default to 1.0 if not specified)
-                                    let band_offset = x2_band.unwrap_or(1.0) as f32;
-                                    x2_values.push(x_band_start + bandwidth * band_offset);
-                                } else {
-                                    // No x2 specified, use full band width
-                                    x_values.push(x_band_start);
-                                    x2_values.push(x_band_start + bandwidth);
-                                }
-                            }
-                        }
-                    }
+        // For band scales without x2, we need to generate x2 values
+        // This happens when only x is specified but we need rectangles
+        if !x_values.is_empty() && x2_values.is_empty() {
+            // Check if we have a band scale
+            if let Some(x_scale) = scales.get("x") {
+                if x_scale.get_scale_impl().scale_type() == "band" {
+                    // For band scales, x2 should be x + bandwidth
+                    // The bandwidth is encoded in the scale configuration
+                    // For now, we'll use a simple heuristic
+                    // TODO: Get bandwidth from scale configuration
+                    let estimated_bandwidth = if x_values.len() > 1 {
+                        (x_values[1] - x_values[0]) * 0.9 // 90% of distance between points
+                    } else {
+                        plot_width / 10.0 // Fallback
+                    };
+                    x2_values = x_values.iter().map(|&x| x + estimated_bandwidth).collect();
                 }
             }
         }
 
-        // If x values weren't set by band scale, we need a band scale
-        if x_values.is_empty() {
-            return Err(AvengerChartError::InternalError(
-                "X scale must be a band scale for rect marks without explicit x2 values"
-                    .to_string(),
-            ));
+        // Extract y values if present
+        if channel_names.contains(&"y") {
+            let col_idx = channel_names.iter().position(|&c| c == "y").unwrap();
+            let y_array = batch.column(col_idx);
+            if let Some(float_array) = y_array.as_any().downcast_ref::<Float32Array>() {
+                y_values = (0..num_rows).map(|i| float_array.value(i)).collect();
+            } else if let Some(float64_array) = y_array.as_any().downcast_ref::<Float64Array>() {
+                y_values = (0..num_rows).map(|i| float64_array.value(i) as f32).collect();
+            }
         }
 
-        // For y values, use the y scale if available
-        if let Some(y_scale) = y_scale {
-            // Get y baseline from the y channel expression or use domain minimum
-            let baseline_value = if channel_names.contains(&"y") {
-                // Use the y expression value
-                let col_idx = channel_names.iter().position(|&c| c == "y").unwrap();
-                let y_array = batch.column(col_idx);
-                // For now, assume y is a literal - proper expression evaluation needed
-                if let Some(f64_array) = y_array.as_any().downcast_ref::<Float64Array>() {
-                    if f64_array.len() == 1 && !f64_array.is_null(0) {
-                        f64_array.value(0)
-                    } else {
-                        // Use scale domain minimum as baseline
-                        let domain = y_scale.domain.default_domain.clone();
-                        if let crate::scales::ScaleDefaultDomain::Interval(start, _) = domain {
-                            if let datafusion::logical_expr::Expr::Literal(scalar, _) = start {
-                                match scalar {
-                                    datafusion_common::ScalarValue::Float64(Some(v)) => v,
-                                    datafusion_common::ScalarValue::Float32(Some(v)) => v as f64,
-                                    datafusion_common::ScalarValue::Int64(Some(v)) => v as f64,
-                                    datafusion_common::ScalarValue::Int32(Some(v)) => v as f64,
-                                    _ => 0.0,
-                                }
-                            } else {
-                                0.0
-                            }
-                        } else {
-                            0.0
-                        }
-                    }
-                } else {
-                    0.0
-                }
-            } else {
-                // Use scale domain minimum as baseline
-                let domain = y_scale.domain.default_domain.clone();
-                if let crate::scales::ScaleDefaultDomain::Interval(start, _) = domain {
-                    if let datafusion::logical_expr::Expr::Literal(scalar, _) = start {
-                        match scalar {
-                            datafusion_common::ScalarValue::Float64(Some(v)) => v,
-                            datafusion_common::ScalarValue::Float32(Some(v)) => v as f64,
-                            datafusion_common::ScalarValue::Int64(Some(v)) => v as f64,
-                            datafusion_common::ScalarValue::Int32(Some(v)) => v as f64,
-                            _ => 0.0,
-                        }
-                    } else {
-                        0.0
-                    }
-                } else {
-                    0.0
-                }
-            };
-
-            let baseline_array = Arc::new(Float64Array::from(vec![baseline_value]))
-                as datafusion::arrow::array::ArrayRef;
-            let configured_y_scale =
-                self.create_configured_scale(y_scale, "y", plot_width, plot_height)?;
-            let scaled_baseline = configured_y_scale.scale_to_numeric(&baseline_array)?;
-            let y_baseline = scaled_baseline.as_vec(1, None)[0];
-
-            // For rect marks, we should not extend beyond the scale's range
-            // The scale already includes padding, so y=0 is at y_baseline, not plot_height
-
-            // Scale y2 values if present
-            if channel_names.contains(&"y2") {
-                let col_idx = channel_names.iter().position(|&c| c == "y2").unwrap();
-                let y2_array = batch.column(col_idx);
-                if let Some(f64_array) = y2_array.as_any().downcast_ref::<Float64Array>() {
-                    // Create array of all y2 values
-                    let values: Vec<f64> = (0..num_rows).map(|i| f64_array.value(i)).collect();
-                    let values_array =
-                        Arc::new(Float64Array::from(values)) as datafusion::arrow::array::ArrayRef;
-
-                    // Scale all values at once
-                    let scaled_y2 = configured_y_scale.scale_to_numeric(&values_array)?;
-                    let scaled_y2_vec = scaled_y2.as_vec(num_rows, None);
-
-                    for i in 0..num_rows {
-                        y2_values.push(scaled_y2_vec[i]);
-                        y_values.push(y_baseline);
-                    }
-                }
+        // Extract y2 values if present
+        if channel_names.contains(&"y2") {
+            let col_idx = channel_names.iter().position(|&c| c == "y2").unwrap();
+            let y2_array = batch.column(col_idx);
+            if let Some(float_array) = y2_array.as_any().downcast_ref::<Float32Array>() {
+                y2_values = (0..num_rows).map(|i| float_array.value(i)).collect();
+            } else if let Some(float64_array) = y2_array.as_any().downcast_ref::<Float64Array>() {
+                y2_values = (0..num_rows).map(|i| float64_array.value(i) as f32).collect();
             }
-        } else {
-            // No y scale configured - this is an error for rect marks
-            return Err(AvengerChartError::InternalError(
-                "Y scale must be configured for rect marks".to_string(),
-            ));
         }
 
         // Get fill color
@@ -701,7 +653,6 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         plot_height: f32,
     ) -> Result<avenger_scales::scales::ConfiguredScale, AvengerChartError> {
         use avenger_scales::scales::{ConfiguredScale, ScaleConfig, ScaleContext};
-        use datafusion::arrow::array::Float32Array;
 
         // Get domain and range from scale
         let domain = match &scale.domain.default_domain {

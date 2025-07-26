@@ -1,8 +1,12 @@
+pub mod udf;
+
 use crate::error::AvengerChartError;
-use avenger_scales::scales::ScaleImpl;
+use avenger_scales::scales::{ScaleImpl, InferDomainFromDataMethod};
 use datafusion::arrow::datatypes::DataType;
 use datafusion::dataframe::DataFrame;
-use datafusion::logical_expr::{Expr, ExprSchemable, lit};
+use datafusion::logical_expr::{Expr, ExprSchemable, lit, when};
+use datafusion::functions_array::expr_fn::make_array;
+use datafusion::functions::core::named_struct;
 use datafusion_common::{DFSchema, ScalarValue};
 use palette::Srgba;
 use std::collections::HashMap;
@@ -114,6 +118,50 @@ impl Scale {
     pub fn has_explicit_range(&self) -> bool {
         self.range_explicit
     }
+
+    /// Create a scale expression that transforms values using this scale
+    pub fn to_expr(&self, values: Expr) -> Result<Expr, AvengerChartError> {
+        let domain_expr = self.compile_domain()?;
+        let range_expr = self.compile_range()?;
+        let options_expr = self.compile_options()?;
+        
+        let domain_type = self.domain.data_type()?;
+        let range_type = self.range.data_type()?;
+        
+        let udf = udf::create_scale_udf(
+            &format!("scale_{}", self.scale_impl.scale_type()),
+            self.scale_impl.clone(),
+            domain_type,
+            range_type,
+        )?;
+        
+        Ok(udf.call(vec![domain_expr, range_expr, options_expr, values]))
+    }
+
+    /// Compile domain to an expression that evaluates to a list
+    fn compile_domain(&self) -> Result<Expr, AvengerChartError> {
+        self.domain.compile(self.scale_impl.infer_domain_from_data_method())
+    }
+
+    /// Compile range to an expression that evaluates to a list
+    fn compile_range(&self) -> Result<Expr, AvengerChartError> {
+        self.range.compile()
+    }
+
+    /// Compile options to an expression that evaluates to a struct
+    fn compile_options(&self) -> Result<Expr, AvengerChartError> {
+        let mut struct_args = self.options
+            .iter()
+            .flat_map(|(key, value)| vec![lit(key), value.clone()])
+            .collect::<Vec<_>>();
+
+        // Add dummy field if empty to create valid struct
+        if struct_args.is_empty() {
+            struct_args.extend(vec![lit("_dummy"), lit(0.0f32)]);
+        }
+
+        Ok(named_struct(struct_args))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -205,6 +253,41 @@ impl ScaleDomain {
             }
         }
     }
+
+    /// Compile domain to an expression that evaluates to a list
+    pub fn compile(&self, method: InferDomainFromDataMethod) -> Result<Expr, AvengerChartError> {
+        // If raw domain is provided, use it when not null
+        let raw_expr = if let Some(raw) = &self.raw_domain {
+            raw.clone()
+        } else {
+            lit(ScalarValue::Null)
+        };
+
+        // Compile default domain based on type
+        let default_expr = match &self.default_domain {
+            ScaleDefaultDomain::Interval(start, end) => {
+                if method != InferDomainFromDataMethod::Interval {
+                    return Err(AvengerChartError::InternalError(
+                        "Scale does not support interval domain".to_string()
+                    ));
+                }
+                make_array(vec![start.clone(), end.clone()])
+            }
+            ScaleDefaultDomain::Discrete(values) => {
+                make_array(values.clone())
+            }
+            ScaleDefaultDomain::DataField(_) | ScaleDefaultDomain::DataFields(_) => {
+                // TODO: Implement data field domain inference
+                // For now, return a placeholder
+                return Err(AvengerChartError::InternalError(
+                    "DataField domain inference not yet implemented for UDF scales".to_string()
+                ));
+            }
+        };
+
+        // Use raw domain if not null, otherwise use default
+        Ok(when(raw_expr.clone().is_not_null(), raw_expr).otherwise(default_expr)?)
+    }
 }
 
 impl From<(f32, f32)> for ScaleDomain {
@@ -268,6 +351,36 @@ impl ScaleRange {
                     ))
             }
             ScaleRange::Color(_) => Ok(DataType::new_list(DataType::Float32, true)),
+        }
+    }
+
+    /// Compile range to an expression that evaluates to a list
+    pub fn compile(&self) -> Result<Expr, AvengerChartError> {
+        match self {
+            ScaleRange::Numeric(start, end) => {
+                Ok(make_array(vec![start.clone(), end.clone()]))
+            }
+            ScaleRange::Enum(values) => {
+                let exprs = values.iter()
+                    .map(|v| lit(v.clone()))
+                    .collect::<Vec<_>>();
+                Ok(make_array(exprs))
+            }
+            ScaleRange::Color(colors) => {
+                // Convert colors to RGBA array expressions
+                let color_exprs = colors.iter()
+                    .map(|c| {
+                        // Create struct with RGBA components
+                        named_struct(vec![
+                            lit("r"), lit(c.red),
+                            lit("g"), lit(c.green),
+                            lit("b"), lit(c.blue),
+                            lit("a"), lit(c.alpha),
+                        ])
+                    })
+                    .collect::<Vec<_>>();
+                Ok(make_array(color_exprs))
+            }
         }
     }
 }
