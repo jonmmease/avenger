@@ -93,3 +93,38 @@ async fn test_bar_chart_with_custom_colors() {
     compare_images(&baseline_path, rendered, &VisualTestConfig::default())
         .expect("Visual test 'bar_chart_custom_colors' failed");
 }
+
+#[tokio::test]
+#[ignore]
+async fn update_bar_chart_custom_colors_baseline() {
+    let df = test_data::simple_categories().expect("Failed to create test data");
+    
+    let plot = Plot::new(Cartesian)
+        .preferred_size(400.0, 300.0)
+        .data(df)
+        .scale_x(|s| s.domain_discrete(vec![
+            lit("A"), lit("B"), lit("C"), lit("D"), lit("E"),
+            lit("F"), lit("G"), lit("H"), lit("I")
+        ]))
+        .scale_y(|s| s.domain((0.0, 100.0)))
+        .axis_x(|a| a.title("Category"))
+        .axis_y(|a| a.title("Value"))
+        .mark(
+            Rect::new()
+                .x("category")
+                .y(lit(0.0))
+                .y2("value")
+                .fill(lit("#e74c3c"))
+                .stroke(lit("#c0392b"))
+                .stroke_width(lit(2.0)),
+        );
+    
+    let rendered = plot.to_image().await;
+    let baseline_path = get_baseline_path("bar_chart_custom_colors");
+    
+    rendered
+        .save(&baseline_path)
+        .expect("Failed to update baseline");
+    
+    println!("Updated baseline: {}", baseline_path);
+}
