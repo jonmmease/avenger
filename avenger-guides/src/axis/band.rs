@@ -27,8 +27,9 @@ pub fn make_band_axis_marks(
     // Unwrap is safe because this band value is always valid
     let scale = scale.clone().with_option("band", 0.5);
 
+    // Build group with origin [0, 0] to get local bounding box
     let mut group = SceneGroup {
-        origin,
+        origin: [0.0, 0.0],
         ..Default::default()
     };
 
@@ -36,13 +37,13 @@ pub fn make_band_axis_marks(
     let range = scale.numeric_interval_range()?;
     let (start, end) = match config.orientation {
         AxisOrientation::Left | AxisOrientation::Right => {
-            let upper = f32::min(range.1, range.0);
-            let lower = f32::max(range.0, range.1);
+            let upper = f32::min(range.1, range.0) - PIXEL_OFFSET;
+            let lower = f32::max(range.0, range.1) + PIXEL_OFFSET;
             (lower, upper)
         }
         AxisOrientation::Top | AxisOrientation::Bottom => {
-            let left = f32::min(range.0, range.1);
-            let right = f32::max(range.0, range.1);
+            let left = f32::min(range.0, range.1) - PIXEL_OFFSET;
+            let right = f32::max(range.0, range.1) + PIXEL_OFFSET;
             (left, right)
         }
     };
@@ -84,7 +85,10 @@ pub fn make_band_axis_marks(
     // Add title
     group
         .marks
-        .push(make_title(title, &scale, &group.bounding_box(), &config.orientation)?.into());
+        .push(make_title(title, &scale, &group.bounding_box(), config)?.into());
+
+    // Now set the actual origin
+    group.origin = origin;
 
     Ok(group)
 }
@@ -164,15 +168,15 @@ fn make_tick_grid_marks(
     let (x0, x1, y0, y1) = match orientation {
         AxisOrientation::Left | AxisOrientation::Right => (
             ScalarOrArray::new_scalar(0.0),
-            ScalarOrArray::new_scalar(dimensions[0] + PIXEL_OFFSET),
+            ScalarOrArray::new_scalar(dimensions[0]),
             scaled_values.clone(),
             scaled_values,
         ),
         AxisOrientation::Top | AxisOrientation::Bottom => (
             scaled_values.clone(),
             scaled_values,
-            ScalarOrArray::new_scalar(PIXEL_OFFSET),
-            ScalarOrArray::new_scalar(dimensions[1] + PIXEL_OFFSET),
+            ScalarOrArray::new_scalar(0.0),
+            ScalarOrArray::new_scalar(dimensions[1]),
         ),
     };
 
@@ -213,14 +217,14 @@ fn make_tick_labels(
         ),
         AxisOrientation::Top => (
             scaled_values,
-            ScalarOrArray::new_scalar(-TICK_LENGTH - TEXT_MARGIN + PIXEL_OFFSET),
+            ScalarOrArray::new_scalar(-TICK_LENGTH - TEXT_MARGIN),
             TextAlign::Center,
             TextBaseline::Bottom,
             0.0,
         ),
         AxisOrientation::Bottom => (
             scaled_values,
-            ScalarOrArray::new_scalar(dimensions[1] + PIXEL_OFFSET + TICK_LENGTH + TEXT_MARGIN),
+            ScalarOrArray::new_scalar(dimensions[1] + TICK_LENGTH + TEXT_MARGIN),
             TextAlign::Center,
             TextBaseline::Top,
             0.0,
@@ -245,40 +249,60 @@ fn make_title(
     title: &str,
     scale: &ConfiguredScale,
     envelope: &AABB<[f32; 2]>,
-    orientation: &AxisOrientation,
+    config: &AxisConfig,
 ) -> Result<SceneTextMark, AvengerScaleError> {
     let range = scale.numeric_interval_range()?;
     let mid = (range.0 + range.1) / 2.0;
 
-    let (x, y, align, baseline, angle) = match orientation {
-        AxisOrientation::Left => (
-            (envelope.lower()[0] - TITLE_MARGIN).into(),
-            mid.into(),
-            TextAlign::Center,
-            TextBaseline::LineBottom,
-            -90.0,
-        ),
-        AxisOrientation::Right => (
-            (envelope.upper()[0] + TITLE_MARGIN).into(),
-            mid.into(),
-            TextAlign::Center,
-            TextBaseline::LineBottom,
-            90.0,
-        ),
-        AxisOrientation::Top => (
-            mid.into(),
-            (envelope.lower()[1] - TITLE_MARGIN).into(),
-            TextAlign::Center,
-            TextBaseline::Bottom,
-            0.0,
-        ),
-        AxisOrientation::Bottom => (
-            mid.into(),
-            (envelope.upper()[1] + TITLE_MARGIN).into(),
-            TextAlign::Center,
-            TextBaseline::Top,
-            0.0,
-        ),
+    // Now the envelope is in the group's local coordinate system (origin = [0, 0])
+    // For left/top axes, labels extend into negative coordinates
+    // For right/bottom axes, labels extend beyond the axis dimensions
+
+    let (x, y, align, baseline, angle) = match config.orientation {
+        AxisOrientation::Left => {
+            // Labels are right-aligned and extend left from the axis
+            // envelope.lower()[0] gives us the leftmost edge of the labels
+            (
+                (envelope.lower()[0] - TITLE_MARGIN).into(),
+                mid.into(),
+                TextAlign::Center,
+                TextBaseline::LineBottom,
+                -90.0,
+            )
+        }
+        AxisOrientation::Right => {
+            // Labels are left-aligned and extend right from the axis
+            // envelope.upper()[0] gives us the rightmost edge of the labels
+            (
+                (envelope.upper()[0] + TITLE_MARGIN).into(),
+                mid.into(),
+                TextAlign::Center,
+                TextBaseline::LineBottom,
+                90.0,
+            )
+        }
+        AxisOrientation::Top => {
+            // Labels are bottom-aligned and extend up from the axis
+            // envelope.lower()[1] gives us the topmost edge of the labels
+            (
+                mid.into(),
+                (envelope.lower()[1] - TITLE_MARGIN).into(),
+                TextAlign::Center,
+                TextBaseline::Bottom,
+                0.0,
+            )
+        }
+        AxisOrientation::Bottom => {
+            // Labels are top-aligned and extend down from the axis
+            // envelope.upper()[1] gives us the bottommost edge of the labels
+            (
+                mid.into(),
+                (envelope.upper()[1] + TITLE_MARGIN).into(),
+                TextAlign::Center,
+                TextBaseline::Top,
+                0.0,
+            )
+        }
     };
 
     Ok(SceneTextMark {

@@ -7,9 +7,9 @@ macro_rules! impl_mark_common {
                 Self {
                     config: MarkConfig {
                         mark_type: $mark_name.to_string(),
-                        data: crate::transforms::DataContext::default(),
-                        data_source: crate::marks::DataSource::Inherited,
-                        facet_strategy: crate::marks::FacetStrategy::Filter,
+                        data: $crate::transforms::DataContext::default(),
+                        data_source: $crate::marks::DataSource::Inherited,
+                        facet_strategy: $crate::marks::FacetStrategy::Filter,
                         details: None,
                         zindex: None,
                         shapes: None,
@@ -21,37 +21,37 @@ macro_rules! impl_mark_common {
             }
 
             pub fn data(mut self, dataframe: DataFrame) -> Self {
-                self.config.data = crate::transforms::DataContext::new(dataframe);
-                self.config.data_source = crate::marks::DataSource::Explicit; // Mark as explicit data
+                self.config.data = $crate::transforms::DataContext::new(dataframe);
+                self.config.data_source = $crate::marks::DataSource::Explicit; // Mark as explicit data
                 self
             }
 
             /// Explicitly specify to use plot data (useful for clarity)
             pub fn use_plot_data(mut self) -> Self {
-                self.config.data_source = crate::marks::DataSource::Inherited;
+                self.config.data_source = $crate::marks::DataSource::Inherited;
                 self
             }
 
             /// Control faceting behavior
-            pub fn facet_strategy(mut self, strategy: crate::marks::FacetStrategy) -> Self {
+            pub fn facet_strategy(mut self, strategy: $crate::marks::FacetStrategy) -> Self {
                 self.config.facet_strategy = strategy;
                 self
             }
 
             /// Convenience method for reference marks that should span all facets
             pub fn broadcast_to_facets(mut self) -> Self {
-                self.config.facet_strategy = crate::marks::FacetStrategy::Broadcast;
+                self.config.facet_strategy = $crate::marks::FacetStrategy::Broadcast;
                 self
             }
 
             pub fn transform(
                 mut self,
-                transform: impl crate::transforms::Transform,
-            ) -> Result<Self, crate::error::AvengerChartError> {
+                transform: impl $crate::transforms::Transform,
+            ) -> Result<Self, $crate::error::AvengerChartError> {
                 // Apply transform to existing data context
                 let ctx = std::mem::replace(
                     &mut self.config.data,
-                    crate::transforms::DataContext::default(),
+                    $crate::transforms::DataContext::default(),
                 );
 
                 self.config.data = transform.transform(ctx)?;
@@ -69,13 +69,13 @@ macro_rules! impl_mark_common {
             }
 
             /// Add an adjustment that will be applied to this mark's scaled data
-            pub fn adjust(mut self, adjustment: impl crate::adjust::Adjust + 'static) -> Self {
+            pub fn adjust(mut self, adjustment: impl $crate::adjust::Adjust + 'static) -> Self {
                 self.config.adjustments.push(Box::new(adjustment));
                 self
             }
 
             /// Add a derived mark that will be created from this mark's scaled data
-            pub fn derive(mut self, deriver: impl crate::derive::Derive<C> + 'static) -> Self {
+            pub fn derive(mut self, deriver: impl $crate::derive::Derive<C> + 'static) -> Self {
                 self.config.derived_marks.push(Box::new(deriver));
                 self
             }

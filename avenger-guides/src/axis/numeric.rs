@@ -29,9 +29,11 @@ pub fn make_numeric_axis_marks(
     } else {
         scale.clone()
     };
-    
+
+    // Build group with origin [0, 0] so we can work in local coordinate.
+    // Then set final original at the end
     let mut group = SceneGroup {
-        origin,
+        origin: [0.0, 0.0],
         ..Default::default()
     };
 
@@ -90,7 +92,10 @@ pub fn make_numeric_axis_marks(
     // Add title
     group
         .marks
-        .push(make_title(title, &scale, &group.bounding_box(), &config.orientation)?.into());
+        .push(make_title(title, &scale, &group.bounding_box(), config)?.into());
+
+    // Now set the actual origin
+    group.origin = origin;
 
     Ok(group)
 }
@@ -267,40 +272,60 @@ fn make_title(
     title: &str,
     scale: &ConfiguredScale,
     envelope: &AABB<[f32; 2]>,
-    orientation: &AxisOrientation,
+    config: &AxisConfig,
 ) -> Result<SceneTextMark, AvengerGuidesError> {
     let range = scale.numeric_interval_range()?;
     let mid = (range.0 + range.1) / 2.0;
 
-    let (x, y, align, baseline, angle) = match orientation {
-        AxisOrientation::Left => (
-            (envelope.lower()[0] - TITLE_MARGIN).into(),
-            mid.into(),
-            TextAlign::Center,
-            TextBaseline::LineBottom,
-            -90.0,
-        ),
-        AxisOrientation::Right => (
-            (envelope.upper()[0] + TITLE_MARGIN).into(),
-            mid.into(),
-            TextAlign::Center,
-            TextBaseline::LineBottom,
-            90.0,
-        ),
-        AxisOrientation::Top => (
-            mid.into(),
-            (envelope.lower()[1] - TITLE_MARGIN).into(),
-            TextAlign::Center,
-            TextBaseline::Bottom,
-            0.0,
-        ),
-        AxisOrientation::Bottom => (
-            mid.into(),
-            (envelope.upper()[1] + TITLE_MARGIN).into(),
-            TextAlign::Center,
-            TextBaseline::Top,
-            0.0,
-        ),
+    // Now the envelope is in the group's local coordinate system (origin = [0, 0])
+    // For left/top axes, labels extend into negative coordinates
+    // For right/bottom axes, labels extend beyond the axis dimensions
+
+    let (x, y, align, baseline, angle) = match config.orientation {
+        AxisOrientation::Left => {
+            // Labels are right-aligned and extend left from the axis
+            // envelope.lower()[0] gives us the leftmost edge of the labels
+            (
+                (envelope.lower()[0] - TITLE_MARGIN).into(),
+                mid.into(),
+                TextAlign::Center,
+                TextBaseline::LineBottom,
+                -90.0,
+            )
+        }
+        AxisOrientation::Right => {
+            // Labels are left-aligned and extend right from the axis
+            // envelope.upper()[0] gives us the rightmost edge of the labels
+            (
+                (envelope.upper()[0] + TITLE_MARGIN).into(),
+                mid.into(),
+                TextAlign::Center,
+                TextBaseline::LineBottom,
+                90.0,
+            )
+        }
+        AxisOrientation::Top => {
+            // Labels are bottom-aligned and extend up from the axis
+            // envelope.lower()[1] gives us the topmost edge of the labels
+            (
+                mid.into(),
+                (envelope.lower()[1] - TITLE_MARGIN).into(),
+                TextAlign::Center,
+                TextBaseline::Bottom,
+                0.0,
+            )
+        }
+        AxisOrientation::Bottom => {
+            // Labels are top-aligned and extend down from the axis
+            // envelope.upper()[1] gives us the bottommost edge of the labels
+            (
+                mid.into(),
+                (envelope.upper()[1] + TITLE_MARGIN).into(),
+                TextAlign::Center,
+                TextBaseline::Top,
+                0.0,
+            )
+        }
     };
 
     Ok(SceneTextMark {

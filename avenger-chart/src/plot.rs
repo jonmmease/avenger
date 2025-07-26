@@ -2,7 +2,7 @@ use crate::axis::{AxisPosition, CartesianAxis};
 use crate::controllers::Controller;
 use crate::coords::{Cartesian, CoordinateSystem, Polar};
 use crate::legend::Legend;
-use crate::marks::Mark;
+use crate::marks::{Mark, MarkConfig};
 use crate::scales::Scale;
 use avenger_scales::scales::linear::LinearScale;
 use datafusion::dataframe::DataFrame;
@@ -22,10 +22,10 @@ pub struct Plot<C: CoordinateSystem> {
     pub(crate) scales: HashMap<String, Scale>,
     pub(crate) axes: HashMap<String, C::Axis>,
     pub(crate) legends: HashMap<String, Legend>,
-    marks: Vec<Box<dyn Mark<C>>>,
+    pub(crate) marks: Vec<MarkConfig<C>>,
 
     /// Plot-level data for faceting and mark inheritance
-    data: Option<DataFrame>,
+    pub(crate) data: Option<DataFrame>,
 
     /// Faceting configuration
     facet_spec: Option<FacetSpec>,
@@ -360,7 +360,7 @@ impl<C: CoordinateSystem> Plot<C> {
         self.scales.remove(channel).unwrap_or_else(|| {
             // Create default scale based on channel type
             match channel {
-                // Position channels default to linear
+                // Position channels default to linear (can be overridden by domain_discrete)
                 "x" | "y" | "r" | "theta" => Scale::new(LinearScale),
 
                 // Size channels default to linear
@@ -381,7 +381,7 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     pub fn mark<M: Mark<C> + 'static>(mut self, mark: M) -> Self {
-        self.marks.push(Box::new(mark));
+        self.marks.push(mark.into_config());
         self
     }
 

@@ -32,3 +32,15 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 [[example]]
 name = "transform_demo"
 required-features = []
+
+[[example]]
+name = "multiple_y_axes"
+required-features = []
+
+[[example]]
+name = "simple_bar_chart"
+required-features = []
+
+[[example]]
+name = "bar_chart_render_plan"
+required-features = []

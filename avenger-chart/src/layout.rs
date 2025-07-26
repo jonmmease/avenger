@@ -131,10 +131,10 @@ impl<C: CoordinateSystem + 'static> PlotTrait for Plot<C> {
         // 3. Measure legend dimensions if present
         // 4. Calculate required padding to accommodate all components
         Padding {
-            left: 50.0,   // Space for y-axis labels and ticks
+            left: 60.0,   // Space for y-axis labels, ticks, and title
             right: 20.0,  // Space for right-side elements
             top: 20.0,    // Space for title
-            bottom: 40.0, // Space for x-axis labels and ticks
+            bottom: 45.0, // Space for x-axis labels, ticks, and title
         }
     }
 
