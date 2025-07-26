@@ -14,7 +14,7 @@ __pycache__/
 /avenger-wasm/dist/
 /examples/deno_png/chart.png
 /avenger-vega-renderer/test/failures/
-/avenger-chart/tests/failures/*.png
+/avenger-chart/tests/failures/
 /avenger-vega-renderer/lib/
 /avenger-vega-renderer/packed/*
 /avenger-vega-renderer/dist-deno/

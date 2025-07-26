@@ -14,3 +14,4 @@ mod plot_scales;
 pub mod render;
 pub mod scales;
 pub mod transforms;
+pub mod utils;

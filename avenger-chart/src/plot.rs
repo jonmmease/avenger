@@ -7,6 +7,7 @@ use crate::scales::Scale;
 use avenger_scales::scales::linear::LinearScale;
 use datafusion::dataframe::DataFrame;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// How a scale is defined for a channel
 #[derive(Debug, Clone)]
@@ -436,6 +437,62 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Note: Default range will be applied during rendering when actual dimensions are known
     pub fn get_scale(&self, name: &str) -> Option<Scale> {
         self.scales.get(name).cloned()
+    }
+
+    /// Gather mark data and encoding expressions that use this scale
+    pub fn gather_scale_domain_data(&self, scale_name: &str) -> Vec<(Arc<DataFrame>, String)> {
+        use datafusion::logical_expr::Expr;
+        
+        let mut data_fields = Vec::new();
+        
+        for mark in &self.marks {
+            let df = Arc::new(mark.data.dataframe().clone());
+            
+            // Check all encodings in the mark's data context
+            for (channel, channel_value) in mark.data.encodings() {
+                // Check if this channel uses our scale
+                if channel == scale_name || self.scale_to_coord_channel.get(channel) == Some(&scale_name.to_string()) {
+                    // For simple column references, use the column name
+                    if let Expr::Column(column) = &channel_value.expr {
+                        data_fields.push((df.clone(), column.name.clone()));
+                    }
+                    // For more complex expressions, we'd need to handle them differently
+                    // For now, we'll skip complex expressions
+                }
+            }
+            
+            // For band scales on x/y, also check x2/y2
+            if scale_name == "x" || scale_name == "y" {
+                let secondary_channel = format!("{}2", scale_name);
+                if let Some(channel_value) = mark.data.encodings().get(&secondary_channel) {
+                    if let Expr::Column(column) = &channel_value.expr {
+                        data_fields.push((df.clone(), column.name.clone()));
+                    }
+                }
+            }
+        }
+        
+        data_fields
+    }
+
+    /// Apply default domain to a scale if it doesn't have an explicit domain
+    pub fn apply_default_domain(&mut self, scale_name: &str) {
+        // First check if we need to update
+        let needs_update = self.scales.get(scale_name)
+            .map(|s| !s.has_explicit_domain())
+            .unwrap_or(false);
+            
+        if needs_update {
+            // Gather data fields from mark encodings
+            let data_fields = self.gather_scale_domain_data(scale_name);
+            
+            if !data_fields.is_empty() {
+                // Update scale with data fields domain
+                if let Some(scale) = self.scales.get_mut(scale_name) {
+                    *scale = scale.clone().domain_data_fields(data_fields);
+                }
+            }
+        }
     }
 
     /// Apply default range to a scale based on plot area dimensions
