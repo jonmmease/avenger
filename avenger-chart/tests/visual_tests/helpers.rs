@@ -63,11 +63,12 @@ impl<C: CoordinateSystem> PlotTestExt for Plot<C> {
 /// Test a plot against its baseline with a given name and tolerance
 pub async fn assert_visual_match<C: CoordinateSystem>(
     plot: Plot<C>,
+    category: &str,
     baseline_name: &str,
     tolerance: f64,
 ) {
     let rendered = plot.to_image().await;
-    let baseline_path = get_baseline_path(baseline_name);
+    let baseline_path = get_baseline_path(category, baseline_name);
     
     let config = VisualTestConfig {
         threshold: tolerance,
@@ -82,7 +83,8 @@ pub async fn assert_visual_match<C: CoordinateSystem>(
 /// Test a plot against its baseline with default tolerance (95%)
 pub async fn assert_visual_match_default<C: CoordinateSystem>(
     plot: Plot<C>,
+    category: &str,
     baseline_name: &str,
 ) {
-    assert_visual_match(plot, baseline_name, 0.95).await
+    assert_visual_match(plot, category, baseline_name, 0.95).await
 }
