@@ -404,48 +404,20 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         }
 
         // Get fill color
-        let fill_value = if channel_names.contains(&"fill") {
-            let col_idx = channel_names.iter().position(|&c| c == "fill").unwrap();
-            let fill_array = batch.column(col_idx);
-            if let Some(str_array) = fill_array.as_any().downcast_ref::<StringArray>() {
-                if str_array.len() == 1 && !str_array.is_null(0) {
-                    let color_str = str_array.value(0);
-                    if let Ok(color) = self.parse_color(color_str) {
-                        ScalarOrArray::new_scalar(ColorOrGradient::Color(color))
-                    } else {
-                        ScalarOrArray::new_scalar(ColorOrGradient::Color([0.27, 0.51, 0.71, 1.0])) // Default steel blue
-                    }
-                } else {
-                    ScalarOrArray::new_scalar(ColorOrGradient::Color([0.27, 0.51, 0.71, 1.0]))
-                }
-            } else {
-                ScalarOrArray::new_scalar(ColorOrGradient::Color([0.27, 0.51, 0.71, 1.0]))
-            }
-        } else {
-            ScalarOrArray::new_scalar(ColorOrGradient::Color([0.27, 0.51, 0.71, 1.0]))
-        };
+        let fill_value = self.process_color_channel(
+            batch,
+            &channel_names,
+            "fill",
+            [0.27, 0.51, 0.71, 1.0], // Default steel blue
+        );
 
         // Get stroke color
-        let stroke_value = if channel_names.contains(&"stroke") {
-            let col_idx = channel_names.iter().position(|&c| c == "stroke").unwrap();
-            let stroke_array = batch.column(col_idx);
-            if let Some(str_array) = stroke_array.as_any().downcast_ref::<StringArray>() {
-                if str_array.len() == 1 && !str_array.is_null(0) {
-                    let color_str = str_array.value(0);
-                    if let Ok(color) = self.parse_color(color_str) {
-                        ScalarOrArray::new_scalar(ColorOrGradient::Color(color))
-                    } else {
-                        ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])) // Default black
-                    }
-                } else {
-                    ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]))
-                }
-            } else {
-                ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]))
-            }
-        } else {
-            ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]))
-        };
+        let stroke_value = self.process_color_channel(
+            batch,
+            &channel_names,
+            "stroke",
+            [0.0, 0.0, 0.0, 1.0], // Default black
+        );
 
         // Get stroke width
         let stroke_width_value = if channel_names.contains(&"stroke_width") {
@@ -510,6 +482,65 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                 "Unsupported color format: {}",
                 color_str
             )))
+        }
+    }
+
+    /// Process a color channel from the batch, handling both scalar and array cases
+    fn process_color_channel(
+        &self,
+        batch: &datafusion::arrow::record_batch::RecordBatch,
+        channel_names: &[&str],
+        channel_name: &str,
+        default_color: [f32; 4],
+    ) -> ScalarOrArray<ColorOrGradient> {
+        if channel_names.contains(&channel_name) {
+            let col_idx = channel_names
+                .iter()
+                .position(|&c| c == channel_name)
+                .unwrap();
+            let color_array = batch.column(col_idx);
+
+            if let Some(str_array) = color_array.as_any().downcast_ref::<StringArray>() {
+                if str_array.len() == 1 && !str_array.is_null(0) {
+                    // Single color for all instances
+                    let color_str = str_array.value(0);
+                    if let Ok(color) = self.parse_color(color_str) {
+                        ScalarOrArray::new_scalar(ColorOrGradient::Color(color))
+                    } else {
+                        ScalarOrArray::new_scalar(ColorOrGradient::Color(default_color))
+                    }
+                } else if str_array.len() > 1 {
+                    // Multiple colors - one per instance
+                    let mut colors = Vec::with_capacity(str_array.len());
+                    for i in 0..str_array.len() {
+                        if str_array.is_null(i) {
+                            colors.push(default_color);
+                        } else {
+                            let color_str = str_array.value(i);
+                            if let Ok(color) = self.parse_color(color_str) {
+                                colors.push(color);
+                            } else {
+                                colors.push(default_color);
+                            }
+                        }
+                    }
+                    // Convert to ColorOrGradient array
+                    let color_gradients: Vec<ColorOrGradient> = colors
+                        .into_iter()
+                        .map(ColorOrGradient::Color)
+                        .collect();
+                    ScalarOrArray::new_array(color_gradients)
+                } else {
+                    // Empty array or all nulls
+                    ScalarOrArray::new_scalar(ColorOrGradient::Color(default_color))
+                }
+            } else {
+                // Not a string array
+                ScalarOrArray::new_scalar(ColorOrGradient::Color(default_color))
+            }
+        } else {
+            // Channel not present
+            ScalarOrArray::new_scalar(ColorOrGradient::Color(default_color))
         }
     }
 
