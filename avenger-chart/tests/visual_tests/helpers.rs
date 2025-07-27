@@ -161,6 +161,10 @@ pub fn compare_images(
                 format!("tests/failures/{}", category)
             };
 
+            // Create failures directory if it doesn't exist
+            std::fs::create_dir_all(&failures_dir)
+                .map_err(|e| format!("Failed to create failures directory: {}", e))?;
+
             let diff_path = format!("{}/{}_diff.png", failures_dir, test_name);
             let actual_path = format!("{}/{}.png", failures_dir, test_name);
 
