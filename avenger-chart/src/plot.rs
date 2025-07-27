@@ -355,6 +355,8 @@ impl<C: CoordinateSystem> Plot<C> {
     pub(crate) fn get_or_create_scale(&mut self, channel: &str) -> Scale {
         self.scales.remove(channel).unwrap_or_else(|| {
             // Create default scale based on channel type
+            // Don't apply defaults here - they'll be applied during rendering
+            // when we know the final scale type (after domain_discrete etc.)
             match channel {
                 // Position channels default to linear (can be overridden by domain_discrete)
                 "x" | "y" | "r" | "theta" => Scale::new(LinearScale),
@@ -440,56 +442,99 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     /// Gather mark data and encoding expressions that use this scale
-    pub fn gather_scale_domain_data(&self, scale_name: &str) -> Vec<(Arc<DataFrame>, String)> {
-        use datafusion::logical_expr::Expr;
-        
-        let mut data_fields = Vec::new();
-        
+    pub fn gather_scale_domain_expressions(
+        &self,
+        scale_name: &str,
+    ) -> Vec<(Arc<DataFrame>, datafusion::logical_expr::Expr)> {
+        use crate::marks::DataSource;
+
+        let mut data_expressions = Vec::new();
+
         for mark in &self.marks {
-            let df = Arc::new(mark.data.dataframe().clone());
-            
+            // Get the appropriate DataFrame based on data source
+            let df = match &mark.data_source {
+                DataSource::Explicit => Arc::new(mark.data.dataframe().clone()),
+                DataSource::Inherited => {
+                    // Use plot-level data if available
+                    if let Some(plot_data) = &self.data {
+                        Arc::new(plot_data.clone())
+                    } else {
+                        // Skip this mark if no plot data is available
+                        continue;
+                    }
+                }
+            };
+
             // Check all encodings in the mark's data context
             for (channel, channel_value) in mark.data.encodings() {
                 // Check if this channel uses our scale
-                if channel == scale_name || self.scale_to_coord_channel.get(channel) == Some(&scale_name.to_string()) {
-                    // For simple column references, use the column name
-                    if let Expr::Column(column) = &channel_value.expr {
-                        data_fields.push((df.clone(), column.name.clone()));
-                    }
-                    // For more complex expressions, we'd need to handle them differently
-                    // For now, we'll skip complex expressions
+                if channel == scale_name
+                    || self.scale_to_coord_channel.get(channel) == Some(&scale_name.to_string())
+                {
+                    // Add the expression directly
+                    data_expressions.push((df.clone(), channel_value.expr.clone()));
                 }
             }
-            
+
             // For band scales on x/y, also check x2/y2
             if scale_name == "x" || scale_name == "y" {
                 let secondary_channel = format!("{}2", scale_name);
                 if let Some(channel_value) = mark.data.encodings().get(&secondary_channel) {
-                    if let Expr::Column(column) = &channel_value.expr {
-                        data_fields.push((df.clone(), column.name.clone()));
-                    }
+                    data_expressions.push((df.clone(), channel_value.expr.clone()));
                 }
             }
         }
-        
-        data_fields
+
+        data_expressions
     }
 
     /// Apply default domain to a scale if it doesn't have an explicit domain
     pub fn apply_default_domain(&mut self, scale_name: &str) {
         // First check if we need to update
-        let needs_update = self.scales.get(scale_name)
+        let needs_update = self
+            .scales
+            .get(scale_name)
             .map(|s| !s.has_explicit_domain())
             .unwrap_or(false);
-            
+
         if needs_update {
-            // Gather data fields from mark encodings
-            let data_fields = self.gather_scale_domain_data(scale_name);
-            
-            if !data_fields.is_empty() {
-                // Update scale with data fields domain
-                if let Some(scale) = self.scales.get_mut(scale_name) {
-                    *scale = scale.clone().domain_data_fields(data_fields);
+            // Gather data expressions from mark encodings
+            let data_expressions = self.gather_scale_domain_expressions(scale_name);
+
+            if !data_expressions.is_empty() {
+                // Remove the scale temporarily to update it
+                if let Some(mut scale) = self.scales.remove(scale_name) {
+                    // For now, convert expressions to data fields by evaluating them as columns
+                    // This is a simplified approach that works for many common cases
+                    let mut data_fields = Vec::new();
+
+                    for (df, expr) in data_expressions {
+                        // Try to extract column name from simple expressions
+                        match &expr {
+                            datafusion::logical_expr::Expr::Column(col) => {
+                                data_fields.push((df, col.name.clone()));
+                            }
+                            _ => {
+                                // For complex expressions, create a derived column
+                                // Generate a unique column name for the expression
+                                let expr_col_name = format!("__scale_domain_expr_{}", scale_name);
+
+                                // Create a new dataframe with the expression as a column
+                                if let Ok(df_with_expr) = df
+                                    .as_ref()
+                                    .clone()
+                                    .with_column(&expr_col_name, expr.clone())
+                                {
+                                    data_fields.push((Arc::new(df_with_expr), expr_col_name));
+                                }
+                            }
+                        }
+                    }
+
+                    if !data_fields.is_empty() {
+                        scale = scale.domain_data_fields(data_fields);
+                        self.scales.insert(scale_name.to_string(), scale);
+                    }
                 }
             }
         }

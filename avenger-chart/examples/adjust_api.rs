@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 1: Using a built-in adjustment
     // Note: In a real implementation, marks would have an adjust method
-    let jitter_adjustment = Jitter::new()
+    let _jitter_adjustment = Jitter::new()
         .x(10.0) // ±10 pixels horizontal jitter
         .seed(42);
 
@@ -59,8 +59,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Example 5: Combining multiple adjustments
-    let dodge_adjustment = Dodge::new().by("group");
-    let jitter_y = Jitter::new().y(3.0);
+    let _dodge_adjustment = Dodge::new().by("group");
+    let _jitter_y = Jitter::new().y(3.0);
 
     println!("Created dodge and jitter adjustments");
 

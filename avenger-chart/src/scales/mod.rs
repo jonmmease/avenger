@@ -1,7 +1,10 @@
+pub mod defaults;
 pub mod udf;
 
 use crate::error::AvengerChartError;
+use crate::utils::DataFrameChartUtils;
 use avenger_scales::scales::{InferDomainFromDataMethod, ScaleImpl};
+use datafusion::arrow::array::{Array, AsArray};
 use datafusion::arrow::datatypes::DataType;
 use datafusion::dataframe::DataFrame;
 use datafusion::functions_array::expr_fn::make_array;
@@ -11,6 +14,16 @@ use datafusion_common::{DFSchema, ScalarValue};
 use palette::Srgba;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+/// Helper function to evaluate constant expressions to scalar values
+fn eval_to_scalar(expr: &Expr) -> Result<ScalarValue, AvengerChartError> {
+    match expr {
+        Expr::Literal(scalar, _) => Ok(scalar.clone()),
+        _ => Err(AvengerChartError::InternalError(
+            "Cannot evaluate non-literal expression to scalar value".to_string(),
+        )),
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Scale {
@@ -144,6 +157,15 @@ impl Scale {
         let range_type = self.range.data_type()?;
         let options_type = options_expr.get_type(&DFSchema::empty())?;
 
+        // Cast values to match the domain type if needed
+        let values = if domain_type == DataType::Float32 {
+            // For numeric scales with Float32 domain, cast values to Float32
+            use datafusion::logical_expr::cast;
+            cast(values, DataType::Float32)
+        } else {
+            values
+        };
+
         let udf = udf::create_scale_udf(
             self.scale_impl.clone(),
             domain_type,
@@ -152,6 +174,265 @@ impl Scale {
         )?;
 
         Ok(udf.call(vec![domain_expr, range_expr, options_expr, values]))
+    }
+
+    /// Infer domain from data fields and return a new scale with the inferred domain
+    pub async fn infer_domain_from_data(mut self) -> Result<Self, AvengerChartError> {
+        use datafusion::prelude::SessionContext;
+
+        if let ScaleDefaultDomain::DataFields(data_fields) = &self.domain.default_domain {
+            let mut single_col_dfs: Vec<DataFrame> = Vec::new();
+
+            for DataField { dataframe, field } in data_fields {
+                let df = dataframe.clone();
+                let df_with_field = df.as_ref().clone().select_columns(&[field])?;
+                single_col_dfs.push(df_with_field);
+            }
+
+            // Union all of the single column dataframes
+            let union_df = if single_col_dfs.len() > 1 {
+                single_col_dfs
+                    .iter()
+                    .skip(1)
+                    .fold(single_col_dfs[0].clone(), |acc, df| {
+                        acc.union(df.clone()).unwrap()
+                    })
+            } else {
+                single_col_dfs[0].clone()
+            };
+
+            // Determine the data type by checking the first field
+            let first_field = &data_fields[0];
+            let field_type = first_field
+                .dataframe
+                .schema()
+                .field_with_name(None, &first_field.field)?
+                .data_type();
+
+            // Convert to band scale if we have string data and current scale is linear
+            if field_type == &DataType::Utf8 && self.scale_impl.scale_type() == "linear" {
+                // Convert to band scale for string data
+                let data_fields_for_scale: Vec<(Arc<DataFrame>, String)> = data_fields
+                    .iter()
+                    .map(|field| (field.dataframe.clone(), field.field.clone()))
+                    .collect();
+
+                self = Scale::new(avenger_scales::scales::band::BandScale)
+                    .domain_data_fields(data_fields_for_scale);
+
+                // Set default band scale options if not already set
+                if !self.options.contains_key("padding_inner") {
+                    self = self.option("padding_inner", lit(0.1));
+                }
+                if !self.options.contains_key("padding_outer") {
+                    self = self.option("padding_outer", lit(0.1));
+                }
+                if !self.options.contains_key("align") {
+                    self = self.option("align", lit(0.5));
+                }
+            }
+
+            // Determine the appropriate method based on scale type
+            let method = self.scale_impl.infer_domain_from_data_method();
+
+            // Use DataFrameChartUtils methods to get domain expression
+            let domain_expr = match method {
+                InferDomainFromDataMethod::Interval => union_df.span()?,
+                InferDomainFromDataMethod::Unique => union_df.unique_values()?,
+                InferDomainFromDataMethod::All => union_df.all_values()?,
+            };
+
+            // Now evaluate the domain expression
+            let ctx = SessionContext::new();
+            let empty_df = ctx.read_empty()?;
+            let result_df = empty_df.select(vec![domain_expr.alias("domain")])?;
+            let batches = result_df.collect().await?;
+            let domain_array = batches[0].column_by_name("domain").unwrap().clone();
+
+            // Convert the array to expressions based on the scale type
+            if method == InferDomainFromDataMethod::Interval {
+                // For interval domains, we expect a list array with a 2-element inner array
+                if let Some(list_array) = domain_array.as_list_opt::<i32>() {
+                    if list_array.len() > 0 {
+                        let inner_array = list_array.value(0);
+                        if inner_array.len() >= 2 {
+                            // Extract min and max values
+                            let min_val =
+                                datafusion_common::ScalarValue::try_from_array(&inner_array, 0)?;
+                            let max_val = datafusion_common::ScalarValue::try_from_array(
+                                &inner_array,
+                                inner_array.len() - 1,
+                            )?;
+                            self = self.domain_interval(lit(min_val), lit(max_val));
+                        }
+                    }
+                }
+            } else {
+                // For unique/all domains, array_agg returns a ListArray
+                if let Some(list_array) = domain_array.as_list_opt::<i32>() {
+                    if list_array.len() > 0 {
+                        let inner_array = list_array.value(0);
+                        let mut values = Vec::new();
+                        for i in 0..inner_array.len() {
+                            let val =
+                                datafusion_common::ScalarValue::try_from_array(&inner_array, i)?;
+                            values.push(lit(val));
+                        }
+                        self = self.domain_discrete(values);
+                    }
+                } else {
+                    // Fallback: treat as a simple array
+                    let mut values = Vec::new();
+                    for i in 0..domain_array.len() {
+                        let val = datafusion_common::ScalarValue::try_from_array(&domain_array, i)?;
+                        values.push(lit(val));
+                    }
+                    self = self.domain_discrete(values);
+                }
+            }
+        }
+
+        Ok(self)
+    }
+
+    /// Apply normalization (zero, nice, padding) to the scale domain
+    pub fn normalize_domain(
+        mut self,
+        plot_area_width: f32,
+        plot_area_height: f32,
+    ) -> Result<Self, AvengerChartError> {
+        // Create a ConfiguredScale to apply normalization
+        let configured_scale = self.create_configured_scale(plot_area_width, plot_area_height)?;
+
+        // Convert back to avenger-chart Scale with the normalized domain
+        if let ScaleDefaultDomain::Interval(_start, _end) = &self.domain.default_domain {
+            // Get the normalized domain from ConfiguredScale
+            if let Ok((min, max)) = configured_scale.numeric_interval_domain() {
+                self = self.domain_interval(lit(min as f64), lit(max as f64));
+            }
+        }
+
+        Ok(self)
+    }
+
+    /// Create a ConfiguredScale from this Scale
+    pub fn create_configured_scale(
+        &self,
+        plot_area_width: f32,
+        _plot_area_height: f32,
+    ) -> Result<avenger_scales::scales::ConfiguredScale, AvengerChartError> {
+        use avenger_scales::scales::{ConfiguredScale, ScaleConfig, ScaleContext};
+        use datafusion::arrow::array::{Float32Array, StringArray};
+
+        // Extract domain values as arrow array
+        let domain = match &self.domain.default_domain {
+            ScaleDefaultDomain::Interval(start, end) => {
+                let start_val = eval_to_scalar(start)?;
+                let end_val = eval_to_scalar(end)?;
+
+                // Convert to f32 values
+                let start_f32 = match start_val {
+                    ScalarValue::Float64(Some(v)) => v as f32,
+                    ScalarValue::Float32(Some(v)) => v,
+                    ScalarValue::Int64(Some(v)) => v as f32,
+                    ScalarValue::Int32(Some(v)) => v as f32,
+                    _ => {
+                        return Err(AvengerChartError::InternalError(
+                            "Scale domain must be numeric literals".to_string(),
+                        ));
+                    }
+                };
+                let end_f32 = match end_val {
+                    ScalarValue::Float64(Some(v)) => v as f32,
+                    ScalarValue::Float32(Some(v)) => v,
+                    ScalarValue::Int64(Some(v)) => v as f32,
+                    ScalarValue::Int32(Some(v)) => v as f32,
+                    _ => {
+                        return Err(AvengerChartError::InternalError(
+                            "Scale domain must be numeric literals".to_string(),
+                        ));
+                    }
+                };
+                Arc::new(Float32Array::from(vec![start_f32, end_f32]))
+                    as datafusion::arrow::array::ArrayRef
+            }
+            ScaleDefaultDomain::Discrete(values) => {
+                // Extract string literals from the expressions
+                let mut strings = Vec::new();
+                for expr in values {
+                    let scalar = eval_to_scalar(expr)?;
+                    if let ScalarValue::Utf8(Some(s)) = scalar {
+                        strings.push(s);
+                    }
+                }
+                Arc::new(StringArray::from(strings)) as datafusion::arrow::array::ArrayRef
+            }
+            _ => {
+                return Err(AvengerChartError::InternalError(
+                    "Scale domain must be explicitly set".to_string(),
+                ));
+            }
+        };
+
+        // Extract range values as arrow array
+        let range = match &self.range {
+            ScaleRange::Numeric(start, end) => {
+                let start_val = eval_to_scalar(start)?;
+                let end_val = eval_to_scalar(end)?;
+
+                let start_f32 = match start_val {
+                    ScalarValue::Float64(Some(v)) => v as f32,
+                    ScalarValue::Float32(Some(v)) => v,
+                    ScalarValue::Int64(Some(v)) => v as f32,
+                    ScalarValue::Int32(Some(v)) => v as f32,
+                    _ => 0.0,
+                };
+                let end_f32 = match end_val {
+                    ScalarValue::Float64(Some(v)) => v as f32,
+                    ScalarValue::Float32(Some(v)) => v,
+                    ScalarValue::Int64(Some(v)) => v as f32,
+                    ScalarValue::Int32(Some(v)) => v as f32,
+                    _ => plot_area_width,
+                };
+                Arc::new(Float32Array::from(vec![start_f32, end_f32]))
+                    as datafusion::arrow::array::ArrayRef
+            }
+            _ => {
+                return Err(AvengerChartError::InternalError(
+                    "Cannot create ConfiguredScale from non-numeric range".to_string(),
+                ));
+            }
+        };
+
+        // Convert options to avenger_scales::scalar::Scalar
+        let mut options = HashMap::new();
+        for (key, expr) in &self.options {
+            let scalar_val = eval_to_scalar(expr)?;
+            let scalar = match scalar_val {
+                ScalarValue::Float64(Some(v)) => avenger_scales::scalar::Scalar::from_f32(v as f32),
+                ScalarValue::Float32(Some(v)) => avenger_scales::scalar::Scalar::from_f32(v),
+                ScalarValue::Int64(Some(v)) => avenger_scales::scalar::Scalar::from_f32(v as f32),
+                ScalarValue::Int32(Some(v)) => avenger_scales::scalar::Scalar::from_f32(v as f32),
+                ScalarValue::Boolean(Some(v)) => avenger_scales::scalar::Scalar::from_bool(v),
+                _ => continue,
+            };
+            options.insert(key.clone(), scalar);
+        }
+
+        let config = ScaleConfig {
+            domain,
+            range,
+            options,
+            context: ScaleContext::default(),
+        };
+
+        let configured_scale = ConfiguredScale {
+            scale_impl: self.scale_impl.clone(),
+            config,
+        };
+
+        // Normalize the scale to apply zero and nice transformations
+        Ok(configured_scale.normalize()?)
     }
 
     /// Compile domain to an expression that evaluates to a list

@@ -3,3 +3,5 @@
 pub mod datasets;
 pub mod helpers;
 pub mod test_bar;
+pub mod test_bar_defaults;
+pub mod test_data_domain;

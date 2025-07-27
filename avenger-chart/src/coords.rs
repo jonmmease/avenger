@@ -56,8 +56,8 @@ impl CoordinateSystem for Cartesian {
 
     fn default_range(&self, channel: &str, width: f64, height: f64) -> Option<ScaleRange> {
         match channel {
-            "x" => Some(ScaleRange::new_interval(lit(0.0), lit(width))),
-            "y" => Some(ScaleRange::new_interval(lit(height), lit(0.0))), // Inverted for screen coords
+            "x" => Some(ScaleRange::new_interval(lit(0.0f32), lit(width as f32))),
+            "y" => Some(ScaleRange::new_interval(lit(height as f32), lit(0.0f32))), // Inverted for screen coords
             _ => None,
         }
     }
@@ -115,12 +115,15 @@ impl CoordinateSystem for Polar {
     fn default_range(&self, channel: &str, width: f64, height: f64) -> Option<ScaleRange> {
         match channel {
             "theta" => Some(ScaleRange::new_interval(
-                lit(0.0),
-                lit(2.0 * std::f64::consts::PI),
+                lit(0.0f32),
+                lit((2.0 * std::f64::consts::PI) as f32),
             )),
             "r" => {
                 let max_radius = f64::min(width, height) / 2.0;
-                Some(ScaleRange::new_interval(lit(0.0), lit(max_radius)))
+                Some(ScaleRange::new_interval(
+                    lit(0.0f32),
+                    lit(max_radius as f32),
+                ))
             }
             _ => None,
         }

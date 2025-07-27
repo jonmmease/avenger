@@ -31,18 +31,9 @@ impl Default for VisualTestConfig {
 
 /// Render a plot to an image with default dimensions
 pub async fn render_plot<C: CoordinateSystem>(plot: &Plot<C>) -> RgbaImage {
-    render_plot_with_size(plot, DEFAULT_SIZE, DEFAULT_SCALE).await
-}
-
-/// Render a plot to an image with custom dimensions
-pub async fn render_plot_with_size<C: CoordinateSystem>(
-    plot: &Plot<C>,
-    size: (f32, f32),
-    scale: f32,
-) -> RgbaImage {
     let dimensions = CanvasDimensions {
-        size: [size.0, size.1],
-        scale,
+        size: [DEFAULT_SIZE.0, DEFAULT_SIZE.1],
+        scale: DEFAULT_SCALE,
     };
     let config = CanvasConfig::default();
 
@@ -62,18 +53,11 @@ pub async fn render_plot_with_size<C: CoordinateSystem>(
 pub trait PlotTestExt: Sized {
     /// Render this plot to an image using default test dimensions
     async fn to_image(self) -> RgbaImage;
-
-    /// Render this plot to an image with custom dimensions
-    async fn to_image_with_size(self, size: (f32, f32), scale: f32) -> RgbaImage;
 }
 
 impl<C: CoordinateSystem> PlotTestExt for Plot<C> {
     async fn to_image(self) -> RgbaImage {
         render_plot(&self).await
-    }
-
-    async fn to_image_with_size(self, size: (f32, f32), scale: f32) -> RgbaImage {
-        render_plot_with_size(&self, size, scale).await
     }
 }
 
@@ -114,7 +98,7 @@ pub fn compare_images(
         std::fs::create_dir_all(&failures_dir)
             .map_err(|e| format!("Failed to create failures directory: {}", e))?;
 
-        let actual_path = format!("{}/{}_actual.png", failures_dir, test_name);
+        let actual_path = format!("{}/{}.png", failures_dir, test_name);
         actual
             .save(&actual_path)
             .map_err(|e| format!("Failed to save actual image: {}", e))?;
@@ -178,7 +162,7 @@ pub fn compare_images(
             };
 
             let diff_path = format!("{}/{}_diff.png", failures_dir, test_name);
-            let actual_path = format!("{}/{}_actual.png", failures_dir, test_name);
+            let actual_path = format!("{}/{}.png", failures_dir, test_name);
 
             // Save the actual image
             actual

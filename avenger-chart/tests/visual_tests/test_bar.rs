@@ -119,3 +119,29 @@ async fn test_bar_chart_with_narrow_bars() {
 
     assert_visual_match_default(plot, "bar", "bar_chart_narrow_bars").await;
 }
+
+#[tokio::test]
+async fn test_bar_chart_inferred_domains() {
+    let df = datasets::simple_categories();
+
+    let plot = Plot::new(Cartesian)
+        .preferred_size(400.0, 300.0)
+        .data(df)
+        // No explicit domains - should be inferred from data
+        .scale_x(|s| s)
+        .scale_y(|s| s.option("zero", lit(true)).option("nice", lit(true)))
+        .axis_x(|a| a.title("Category").grid(false))
+        .axis_y(|a| a.title("Value").grid(true))
+        .mark(
+            Rect::new()
+                .x("category")
+                .x2(ChannelValue::column("category").with_band(1.0))
+                .y(lit(0.0))
+                .y2("value")
+                .fill(lit("#4682b4"))
+                .stroke(lit("#000000"))
+                .stroke_width(lit(1.0)),
+        );
+
+    assert_visual_match_default(plot, "bar", "bar_chart_inferred_domains").await;
+}
