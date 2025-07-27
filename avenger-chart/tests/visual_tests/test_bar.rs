@@ -152,8 +152,8 @@ async fn test_bar_chart_with_gradient_colors() {
 
     let df = datasets::simple_categories();
 
-    // Create a plot where bar colors are calculated based on the value
-    // Using a simple formula to interpolate between light grey and blue
+    // Create a bar chart where each bar's color depends on its value
+    // This demonstrates data-driven color encoding using conditional expressions
     let plot = Plot::new(Cartesian)
         .preferred_size(400.0, 300.0)
         .data(df)
@@ -179,14 +179,14 @@ async fn test_bar_chart_with_gradient_colors() {
                 .x2(ChannelValue::column("category").with_band(1.0))
                 .y(lit(0.0))
                 .y2("value")
-                // Use a conditional expression to vary color based on value
-                // This creates a gradient effect from light colors for low values to dark for high values
+                // Use conditional expressions to create a gradient effect
+                // Colors range from light blue-grey for low values to dark blue for high values
                 .fill(
-                    when(col("value").lt(lit(30.0)), lit("#c8d6e5")) // Light blue-grey for low values
+                    when(col("value").lt(lit(30.0)), lit("#c8d6e5")) // Light blue-grey
                         .when(col("value").lt(lit(50.0)), lit("#8395a7")) // Medium blue-grey
                         .when(col("value").lt(lit(70.0)), lit("#576574")) // Darker blue-grey
                         .when(col("value").lt(lit(85.0)), lit("#2e86ab")) // Blue
-                        .otherwise(lit("#0a3d62")) // Dark blue for highest values
+                        .otherwise(lit("#0a3d62")) // Dark blue
                         .unwrap(),
                 )
                 .stroke(lit("#222222"))
