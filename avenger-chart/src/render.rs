@@ -22,7 +22,6 @@ use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, PngCanvas};
 use datafusion::arrow::array::{Array, Float32Array, Float64Array, StringArray};
 use datafusion::logical_expr::lit;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Result of rendering a plot to scene graph components
@@ -60,60 +59,69 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         // Create scale registry with default ranges applied
         let mut scales = crate::scales::ScaleRegistry::new();
 
-        // Copy scales from plot and apply default ranges
+        // Process scales: infer domains, apply defaults, and normalize
         for (name, scale) in &self.plot.scales {
             let mut scale_copy = scale.clone();
-            
+
             // Apply default domain if needed
             if !scale_copy.has_explicit_domain() {
-                let data_fields = self.plot.gather_scale_domain_data(name);
-                if !data_fields.is_empty() {
-                    scale_copy = scale_copy.domain_data_fields(data_fields);
+                let data_expressions = self.plot.gather_scale_domain_expressions(name);
+                if !data_expressions.is_empty() {
+                    // Convert expressions to data fields
+                    let mut data_fields = Vec::new();
+
+                    for (df, expr) in data_expressions {
+                        match &expr {
+                            datafusion::logical_expr::Expr::Column(col) => {
+                                data_fields.push((df, col.name.clone()));
+                            }
+                            _ => {
+                                // For complex expressions, create a derived column
+                                let expr_col_name = format!("__scale_domain_expr_{}", name);
+
+                                if let Ok(df_with_expr) = df
+                                    .as_ref()
+                                    .clone()
+                                    .with_column(&expr_col_name, expr.clone())
+                                {
+                                    data_fields.push((Arc::new(df_with_expr), expr_col_name));
+                                }
+                            }
+                        }
+                    }
+
+                    if !data_fields.is_empty() {
+                        scale_copy = scale_copy.domain_data_fields(data_fields);
+                    }
                 }
             }
-            
+
+            // Infer domain from data if needed
+            if matches!(
+                &scale_copy.domain.default_domain,
+                crate::scales::ScaleDefaultDomain::DataFields(_)
+            ) {
+                scale_copy = scale_copy.infer_domain_from_data().await?;
+            }
+
+            // Apply default range
             self.plot.apply_default_range(
                 &mut scale_copy,
                 name,
                 plot_area_width as f64,
                 plot_area_height as f64,
             );
+
+            // Normalize the scale to apply zero and nice transformations
+            // This ensures data and axes use the same normalized domain
+            scale_copy = scale_copy.normalize_domain(plot_area_width, plot_area_height)?;
+
             scales.add(name.clone(), scale_copy);
         }
 
-        // Calculate the actual data bounds based on scale ranges
-        // The scales may have padding, so the data area is slightly smaller than plot area
-        let (clip_y_offset, clip_height) = if let Some(y_scale) = scales.get("y") {
-            // Get the actual y range from the scale domain
-            let configured_y_scale =
-                self.create_configured_scale(y_scale, "y", plot_area_width, plot_area_height)?;
-
-            // Get domain bounds from the scale
-            let domain = configured_y_scale.domain();
-            if domain.len() >= 2 {
-                // Scale the domain min and max to screen coordinates
-                let first = domain.slice(0, 1);
-                let last = domain.slice(domain.len() - 1, 1);
-                let domain_refs: &[&dyn datafusion::arrow::array::Array] = &[&*first, &*last];
-                let domain_array = datafusion::arrow::compute::concat(domain_refs)?;
-                let scaled_domain = configured_y_scale
-                    .scale_to_numeric(&domain_array)?
-                    .as_vec(2, None);
-
-                if scaled_domain.len() >= 2 {
-                    let y_min = scaled_domain[0];
-                    let y_max = scaled_domain[1];
-                    let clip_height = (y_min - y_max).abs();
-                    (y_max.min(y_min), clip_height)
-                } else {
-                    (0.0, plot_area_height)
-                }
-            } else {
-                (0.0, plot_area_height)
-            }
-        } else {
-            (0.0, plot_area_height)
-        };
+        // Use the full plot area for clipping
+        // Marks should be clipped to the plot area bounds, not the data bounds
+        let (clip_y_offset, clip_height) = (0.0, plot_area_height);
 
         // Process each mark
         let mut mark_groups = Vec::new();
@@ -596,8 +604,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                 };
 
                 // Create configured scale for avenger-guides
-                let configured_scale =
-                    self.create_configured_scale(scale, channel, plot_width, plot_height)?;
+                let configured_scale = scale.create_configured_scale(plot_width, plot_height)?;
 
                 // Generate axis marks based on scale type
                 let scale_type = scale.get_scale_impl().scale_type();
@@ -639,123 +646,6 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         }
 
         Ok(axis_marks)
-    }
-
-    /// Create a ConfiguredScale for avenger-guides
-    fn create_configured_scale(
-        &self,
-        scale: &crate::scales::Scale,
-        channel: &str,
-        plot_width: f32,
-        plot_height: f32,
-    ) -> Result<avenger_scales::scales::ConfiguredScale, AvengerChartError> {
-        use avenger_scales::scales::{ConfiguredScale, ScaleConfig, ScaleContext};
-
-        // Get domain and range from scale
-        let domain = match &scale.domain.default_domain {
-            crate::scales::ScaleDefaultDomain::Interval(start, end) => {
-                // Try to evaluate literal expressions
-                if let (
-                    datafusion::logical_expr::Expr::Literal(start_val, _),
-                    datafusion::logical_expr::Expr::Literal(end_val, _),
-                ) = (start, end.as_ref())
-                {
-                    // Convert literals to f32 values
-                    let start_f32 = match start_val {
-                        datafusion_common::ScalarValue::Float64(Some(v)) => *v as f32,
-                        datafusion_common::ScalarValue::Float32(Some(v)) => *v,
-                        datafusion_common::ScalarValue::Int64(Some(v)) => *v as f32,
-                        datafusion_common::ScalarValue::Int32(Some(v)) => *v as f32,
-                        _ => {
-                            return Err(AvengerChartError::InternalError(
-                                "Scale domain must be numeric literals or expressions".to_string(),
-                            ));
-                        }
-                    };
-                    let end_f32 = match end_val {
-                        datafusion_common::ScalarValue::Float64(Some(v)) => *v as f32,
-                        datafusion_common::ScalarValue::Float32(Some(v)) => *v,
-                        datafusion_common::ScalarValue::Int64(Some(v)) => *v as f32,
-                        datafusion_common::ScalarValue::Int32(Some(v)) => *v as f32,
-                        _ => {
-                            return Err(AvengerChartError::InternalError(
-                                "Scale domain must be numeric literals or expressions".to_string(),
-                            ));
-                        }
-                    };
-                    Arc::new(Float32Array::from(vec![start_f32, end_f32]))
-                        as datafusion::arrow::array::ArrayRef
-                } else {
-                    // TODO: Evaluate expressions against data
-                    return Err(AvengerChartError::InternalError(
-                        "Scale domain expressions not yet implemented. Please use literal values."
-                            .to_string(),
-                    ));
-                }
-            }
-            crate::scales::ScaleDefaultDomain::Discrete(values) => {
-                // For discrete domains, evaluate the expressions to get string values
-                // Extract string literals from the expressions
-                let mut strings = Vec::new();
-                for expr in values {
-                    if let datafusion::logical_expr::Expr::Literal(
-                        datafusion_common::ScalarValue::Utf8(Some(s)),
-                        _,
-                    ) = expr
-                    {
-                        strings.push(s.clone());
-                    }
-                }
-                Arc::new(StringArray::from(strings)) as datafusion::arrow::array::ArrayRef
-            }
-            _ => {
-                // Return error for undefined domain
-                return Err(AvengerChartError::InternalError(
-                    "Scale domain must be explicitly set".to_string(),
-                ));
-            }
-        };
-
-        // Set range based on channel and plot dimensions
-        let range = match channel {
-            "x" => Arc::new(Float32Array::from(vec![0.0, plot_width]))
-                as datafusion::arrow::array::ArrayRef,
-            "y" => Arc::new(Float32Array::from(vec![plot_height, 0.0]))
-                as datafusion::arrow::array::ArrayRef, // Inverted for screen coords
-            _ => {
-                Arc::new(Float32Array::from(vec![0.0, 100.0])) as datafusion::arrow::array::ArrayRef
-            }
-        };
-
-        // Configure band scale options if this is a band scale
-        let mut options = HashMap::new();
-        if scale.get_scale_impl().scale_type() == "band" {
-            // Set default band scale options
-            options.insert(
-                "padding_inner".to_string(),
-                avenger_scales::scalar::Scalar::from_f32(0.1),
-            );
-            options.insert(
-                "padding_outer".to_string(),
-                avenger_scales::scalar::Scalar::from_f32(0.1),
-            ); // Increase outer padding
-            options.insert(
-                "align".to_string(),
-                avenger_scales::scalar::Scalar::from_f32(0.5),
-            );
-        }
-
-        let config = ScaleConfig {
-            domain,
-            range,
-            options,
-            context: ScaleContext::default(),
-        };
-
-        Ok(ConfiguredScale {
-            scale_impl: scale.get_scale_impl().clone(),
-            config,
-        })
     }
 
     /// Create title mark if configured
