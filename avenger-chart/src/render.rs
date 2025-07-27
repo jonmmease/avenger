@@ -20,7 +20,7 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, PngCanvas};
-use datafusion::arrow::array::{Array, Float32Array, Float64Array, StringArray};
+use datafusion::arrow::array::{Array, Float32Array, Float64Array};
 use datafusion::logical_expr::lit;
 use std::sync::Arc;
 
@@ -300,17 +300,55 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
             channel_names.push("y2");
         }
 
-        // Color and size channels typically don't use plot-level scales in our current design
+        // Apply scales to color and size channels if available
         if let Some(expr) = fill_expr {
-            select_exprs.push(expr.clone().alias("fill"));
+            let fill_channel = encodings.get("fill").unwrap();
+            if let Some(scale_name) = fill_channel.scale_name("fill") {
+                if let Some(fill_scale) = scales.get(&scale_name) {
+                    let scaled_expr = fill_scale.to_expr(expr.clone())?;
+                    select_exprs.push(scaled_expr.alias("fill"));
+                } else {
+                    // No scale found, use raw expression
+                    select_exprs.push(expr.clone().alias("fill"));
+                }
+            } else {
+                // No scaling requested (ScaleSpec::None)
+                select_exprs.push(expr.clone().alias("fill"));
+            }
             channel_names.push("fill");
         }
+
         if let Some(expr) = stroke_expr {
-            select_exprs.push(expr.clone().alias("stroke"));
+            let stroke_channel = encodings.get("stroke").unwrap();
+            if let Some(scale_name) = stroke_channel.scale_name("stroke") {
+                if let Some(stroke_scale) = scales.get(&scale_name) {
+                    let scaled_expr = stroke_scale.to_expr(expr.clone())?;
+                    select_exprs.push(scaled_expr.alias("stroke"));
+                } else {
+                    // No scale found, use raw expression
+                    select_exprs.push(expr.clone().alias("stroke"));
+                }
+            } else {
+                // No scaling requested (ScaleSpec::None)
+                select_exprs.push(expr.clone().alias("stroke"));
+            }
             channel_names.push("stroke");
         }
+
         if let Some(expr) = stroke_width_expr {
-            select_exprs.push(expr.clone().alias("stroke_width"));
+            let stroke_width_channel = encodings.get("stroke_width").unwrap();
+            if let Some(scale_name) = stroke_width_channel.scale_name("stroke_width") {
+                if let Some(stroke_width_scale) = scales.get(&scale_name) {
+                    let scaled_expr = stroke_width_scale.to_expr(expr.clone())?;
+                    select_exprs.push(scaled_expr.alias("stroke_width"));
+                } else {
+                    // No scale found, use raw expression
+                    select_exprs.push(expr.clone().alias("stroke_width"));
+                }
+            } else {
+                // No scaling requested (ScaleSpec::None)
+                select_exprs.push(expr.clone().alias("stroke_width"));
+            }
             channel_names.push("stroke_width");
         }
 
@@ -462,29 +500,6 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         Ok(SceneMark::Rect(rect_mark))
     }
 
-    /// Parse a color string to RGBA values
-    fn parse_color(&self, color_str: &str) -> Result<[f32; 4], AvengerChartError> {
-        // Simple hex color parser
-        if color_str.starts_with('#') && color_str.len() == 7 {
-            let r = u8::from_str_radix(&color_str[1..3], 16).map_err(|_| {
-                AvengerChartError::InvalidArgument(format!("Invalid color: {}", color_str))
-            })?;
-            let g = u8::from_str_radix(&color_str[3..5], 16).map_err(|_| {
-                AvengerChartError::InvalidArgument(format!("Invalid color: {}", color_str))
-            })?;
-            let b = u8::from_str_radix(&color_str[5..7], 16).map_err(|_| {
-                AvengerChartError::InvalidArgument(format!("Invalid color: {}", color_str))
-            })?;
-
-            Ok([r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0])
-        } else {
-            Err(AvengerChartError::InvalidArgument(format!(
-                "Unsupported color format: {}",
-                color_str
-            )))
-        }
-    }
-
     /// Process a color channel from the batch, handling both scalar and array cases
     fn process_color_channel(
         &self,
@@ -500,42 +515,67 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                 .unwrap();
             let color_array = batch.column(col_idx);
 
-            if let Some(str_array) = color_array.as_any().downcast_ref::<StringArray>() {
-                if str_array.len() == 1 && !str_array.is_null(0) {
+            if let Some(list_array) = color_array
+                .as_any()
+                .downcast_ref::<datafusion::arrow::array::ListArray>()
+            {
+                // Handle ListArray output from color scales (e.g., threshold scale)
+                // Each element should be a Float32Array with RGBA values
+                if list_array.len() == 1 && !list_array.is_null(0) {
                     // Single color for all instances
-                    let color_str = str_array.value(0);
-                    if let Ok(color) = self.parse_color(color_str) {
-                        ScalarOrArray::new_scalar(ColorOrGradient::Color(color))
+                    let rgba_array = list_array.value(0);
+                    if let Some(f32_array) = rgba_array.as_any().downcast_ref::<Float32Array>() {
+                        if f32_array.len() >= 4 {
+                            let color = [
+                                f32_array.value(0),
+                                f32_array.value(1),
+                                f32_array.value(2),
+                                f32_array.value(3),
+                            ];
+                            ScalarOrArray::new_scalar(ColorOrGradient::Color(color))
+                        } else {
+                            ScalarOrArray::new_scalar(ColorOrGradient::Color(default_color))
+                        }
                     } else {
                         ScalarOrArray::new_scalar(ColorOrGradient::Color(default_color))
                     }
-                } else if str_array.len() > 1 {
+                } else if list_array.len() > 1 {
                     // Multiple colors - one per instance
-                    let mut colors = Vec::with_capacity(str_array.len());
-                    for i in 0..str_array.len() {
-                        if str_array.is_null(i) {
+                    let mut colors = Vec::with_capacity(list_array.len());
+                    for i in 0..list_array.len() {
+                        if list_array.is_null(i) {
                             colors.push(default_color);
                         } else {
-                            let color_str = str_array.value(i);
-                            if let Ok(color) = self.parse_color(color_str) {
-                                colors.push(color);
+                            let rgba_array = list_array.value(i);
+                            if let Some(f32_array) =
+                                rgba_array.as_any().downcast_ref::<Float32Array>()
+                            {
+                                if f32_array.len() >= 4 {
+                                    let color = [
+                                        f32_array.value(0),
+                                        f32_array.value(1),
+                                        f32_array.value(2),
+                                        f32_array.value(3),
+                                    ];
+                                    colors.push(color);
+                                } else {
+                                    colors.push(default_color);
+                                }
                             } else {
                                 colors.push(default_color);
                             }
                         }
                     }
                     // Convert to ColorOrGradient array
-                    let color_gradients: Vec<ColorOrGradient> = colors
-                        .into_iter()
-                        .map(ColorOrGradient::Color)
-                        .collect();
+                    let color_gradients: Vec<ColorOrGradient> =
+                        colors.into_iter().map(ColorOrGradient::Color).collect();
                     ScalarOrArray::new_array(color_gradients)
                 } else {
                     // Empty array or all nulls
                     ScalarOrArray::new_scalar(ColorOrGradient::Color(default_color))
                 }
             } else {
-                // Not a string array
+                // Not a string array or list array
                 ScalarOrArray::new_scalar(ColorOrGradient::Color(default_color))
             }
         } else {
