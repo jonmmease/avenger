@@ -295,6 +295,26 @@ impl ScaleImpl for LinearScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError> {
+        // Check if color interpolation is needed FIRST
+        if config.color_range().is_ok() {
+            // Get domain normalization without needing numeric range
+            let (domain_start, domain_end) = LinearScale::apply_normalization(
+                config.numeric_interval_domain()?,
+                (0.0, 1.0), // dummy range for padding calculation
+                config.options.get("padding"),
+                config.options.get("zero"),
+                config.options.get("nice"),
+            )?;
+
+            // Create new config with niced domain
+            let config = ScaleConfig {
+                domain: Arc::new(Float32Array::from(vec![domain_start, domain_end])),
+                ..config.clone()
+            };
+            return scale_numeric_to_color(self, &config, values);
+        }
+
+        // For numeric ranges, get the actual range values
         let (range_start, range_end) = config.numeric_interval_range()?;
         let (domain_start, domain_end) = LinearScale::apply_normalization(
             config.numeric_interval_domain()?,
@@ -303,16 +323,6 @@ impl ScaleImpl for LinearScale {
             config.options.get("zero"),
             config.options.get("nice"),
         )?;
-
-        // Check if color interpolation is needed
-        if config.color_range().is_ok() {
-            // Create new config with niced domain
-            let config = ScaleConfig {
-                domain: Arc::new(Float32Array::from(vec![domain_start, domain_end])),
-                ..config.clone()
-            };
-            return scale_numeric_to_color(self, &config, values);
-        }
 
         // Handle degenerate domain/range cases
         if domain_start == domain_end

@@ -17,7 +17,7 @@ async fn test_simple_bar_chart() {
         .preferred_size(400.0, 300.0)
         .data(df)
         .scale_x(|scale| {
-            scale.domain_discrete(vec![
+            scale.scale_type("band").domain_discrete(vec![
                 lit("A"),
                 lit("B"),
                 lit("C"),
@@ -54,7 +54,7 @@ async fn test_bar_chart_with_custom_colors() {
         .preferred_size(400.0, 300.0)
         .data(df)
         .scale_x(|s| {
-            s.domain_discrete(vec![
+            s.scale_type("band").domain_discrete(vec![
                 lit("A"),
                 lit("B"),
                 lit("C"),
@@ -91,7 +91,7 @@ async fn test_bar_chart_with_narrow_bars() {
         .preferred_size(400.0, 300.0)
         .data(df)
         .scale_x(|s| {
-            s.domain_discrete(vec![
+            s.scale_type("band").domain_discrete(vec![
                 lit("A"),
                 lit("B"),
                 lit("C"),
@@ -147,7 +147,7 @@ async fn test_bar_chart_inferred_domains() {
 }
 
 #[tokio::test]
-async fn test_bar_chart_with_gradient_colors() {
+async fn test_bar_chart_color_case_expression() {
     use datafusion::prelude::*;
 
     let df = datasets::simple_categories();
@@ -158,7 +158,7 @@ async fn test_bar_chart_with_gradient_colors() {
         .preferred_size(400.0, 300.0)
         .data(df)
         .scale_x(|s| {
-            s.domain_discrete(vec![
+            s.scale_type("band").domain_discrete(vec![
                 lit("A"),
                 lit("B"),
                 lit("C"),
@@ -181,18 +181,18 @@ async fn test_bar_chart_with_gradient_colors() {
                 .y2("value")
                 // Use conditional expressions to create a gradient effect
                 // Colors range from light blue-grey for low values to dark blue for high values
-                .fill(
+                .fill(ChannelValue::no_scale(
                     when(col("value").lt(lit(30.0)), lit("#c8d6e5")) // Light blue-grey
                         .when(col("value").lt(lit(50.0)), lit("#8395a7")) // Medium blue-grey
                         .when(col("value").lt(lit(70.0)), lit("#576574")) // Darker blue-grey
                         .when(col("value").lt(lit(85.0)), lit("#2e86ab")) // Blue
                         .otherwise(lit("#0a3d62")) // Dark blue
                         .unwrap(),
-                )
+                ))
                 .stroke(lit("#222222"))
                 .stroke_width(lit(1.0))
                 .opacity(lit(0.9)),
         );
 
-    assert_visual_match_default(plot, "bar", "bar_chart_gradient_colors").await;
+    assert_visual_match_default(plot, "bar", "bar_chart_color_case_expression").await;
 }

@@ -486,7 +486,6 @@ mod examples {
     use crate::marks::symbol::Symbol;
     use crate::plot::Plot;
     use crate::scales::Scale;
-    use avenger_scales::scales::linear::LinearScale;
 
     #[allow(dead_code)]
     fn example_simple_layout() {
@@ -545,8 +544,8 @@ mod examples {
         // Example: Grid layout with shared scales
         let mut layout = LayoutBuilder::grid(2, 2)
             .gap(5.0)
-            .scale("x_scale", Scale::new(LinearScale).domain((0.0, 100.0)))
-            .scale("y_scale", Scale::new(LinearScale).domain((0.0, 50.0)))
+            .scale("x_scale", Scale::with_type("linear").domain((0.0, 100.0)))
+            .scale("y_scale", Scale::with_type("linear").domain((0.0, 50.0)))
             .build();
 
         // Add plots that reference shared scales

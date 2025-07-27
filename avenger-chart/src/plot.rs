@@ -4,8 +4,8 @@ use crate::coords::{Cartesian, CoordinateSystem, Polar};
 use crate::legend::Legend;
 use crate::marks::{Mark, MarkConfig};
 use crate::scales::Scale;
-use avenger_scales::scales::linear::LinearScale;
 use datafusion::dataframe::DataFrame;
+use datafusion::logical_expr::lit;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -355,25 +355,32 @@ impl<C: CoordinateSystem> Plot<C> {
     pub(crate) fn get_or_create_scale(&mut self, channel: &str) -> Scale {
         self.scales.remove(channel).unwrap_or_else(|| {
             // Create default scale based on channel type
-            // Don't apply defaults here - they'll be applied during rendering
-            // when we know the final scale type (after domain_discrete etc.)
             match channel {
-                // Position channels default to linear (can be overridden by domain_discrete)
-                "x" | "y" | "r" | "theta" => Scale::new(LinearScale),
+                // Position channels default to linear
+                "x" | "y" | "r" | "theta" => Scale::with_type("linear"),
 
-                // Size channels default to linear
-                "size" | "stroke_width" | "font_size" | "width" | "height" | "outer_radius"
-                | "inner_radius" | "corner_radius" => Scale::new(LinearScale),
+                // Size channels default to linear with appropriate ranges
+                "size" => Scale::with_type("linear").range_interval(lit(0.0), lit(20.0)),
+
+                "stroke_width" | "font_size" => {
+                    Scale::with_type("linear").range_interval(lit(0.0), lit(10.0))
+                }
+
+                "width" | "height" | "outer_radius" | "inner_radius" => Scale::with_type("linear"),
+
+                "corner_radius" => Scale::with_type("linear").range_interval(lit(0.0), lit(10.0)),
 
                 // Angle channels default to linear
-                "angle" | "start_angle" | "end_angle" | "pad_angle" => Scale::new(LinearScale),
+                "angle" | "start_angle" | "end_angle" | "pad_angle" => Scale::with_type("linear"),
 
-                // Opacity defaults to linear
-                "opacity" => Scale::new(LinearScale),
+                // Opacity defaults to linear with 0-1 range
+                "opacity" => Scale::with_type("linear").range_interval(lit(0.0), lit(1.0)),
 
-                // For now, default everything else to linear
-                // In the future, we could look at data types to choose ordinal vs linear
-                _ => Scale::new(LinearScale),
+                // Color channels default to ordinal
+                "fill" | "stroke" | "color" => Scale::with_type("ordinal"),
+
+                // Default to linear for unknown channels
+                _ => Scale::with_type("linear"),
             }
         })
     }
@@ -468,19 +475,12 @@ impl<C: CoordinateSystem> Plot<C> {
             // Check all encodings in the mark's data context
             for (channel, channel_value) in mark.data.encodings() {
                 // Check if this channel uses our scale
-                if channel == scale_name
-                    || self.scale_to_coord_channel.get(channel) == Some(&scale_name.to_string())
-                {
-                    // Add the expression directly
-                    data_expressions.push((df.clone(), channel_value.expr.clone()));
-                }
-            }
-
-            // For band scales on x/y, also check x2/y2
-            if scale_name == "x" || scale_name == "y" {
-                let secondary_channel = format!("{}2", scale_name);
-                if let Some(channel_value) = mark.data.encodings().get(&secondary_channel) {
-                    data_expressions.push((df.clone(), channel_value.expr.clone()));
+                // Get the scale name this channel would use
+                if let Some(channel_scale_name) = channel_value.scale_name(channel) {
+                    if channel_scale_name == scale_name {
+                        // Add the expression directly
+                        data_expressions.push((df.clone(), channel_value.expr.clone()));
+                    }
                 }
             }
         }
@@ -684,7 +684,7 @@ impl Plot<Cartesian> {
     where
         F: FnOnce(Scale) -> Scale,
     {
-        let scale = f(Scale::new(LinearScale));
+        let scale = f(Scale::with_type("linear"));
         let name = name.into();
         self.scales.insert(name.clone(), scale.clone());
         self.scale_specs
@@ -699,7 +699,7 @@ impl Plot<Cartesian> {
     where
         F: FnOnce(Scale) -> Scale,
     {
-        let scale = f(Scale::new(LinearScale));
+        let scale = f(Scale::with_type("linear"));
         let name = name.into();
         self.scales.insert(name.clone(), scale.clone());
         self.scale_specs

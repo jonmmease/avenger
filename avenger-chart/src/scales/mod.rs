@@ -15,6 +15,13 @@ use palette::Srgba;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+// Import all scale types
+use avenger_scales::scales::{
+    band::BandScale, linear::LinearScale, log::LogScale, ordinal::OrdinalScale, point::PointScale,
+    pow::PowScale, quantile::QuantileScale, quantize::QuantizeScale, symlog::SymlogScale,
+    threshold::ThresholdScale, time::TimeScale,
+};
+
 /// Helper function to evaluate constant expressions to scalar values
 fn eval_to_scalar(expr: &Expr) -> Result<ScalarValue, AvengerChartError> {
     match expr {
@@ -37,14 +44,41 @@ pub struct Scale {
 
 impl Scale {
     pub fn new<S: ScaleImpl>(scale_impl: S) -> Self {
-        Self {
+        let scale_type = scale_impl.scale_type();
+        let mut scale = Self {
             scale_impl: Arc::new(scale_impl),
             domain: ScaleDomain::new_interval(lit(0.0), lit(1.0)),
             range: ScaleRange::new_interval(lit(0.0), lit(1.0)),
             options: HashMap::new(),
             domain_explicit: false,
             range_explicit: false,
-        }
+        };
+        apply_scale_defaults(scale_type, &mut scale.options);
+        scale
+    }
+
+    /// Create a scale with a specific type
+    pub fn with_type(scale_type: &str) -> Self {
+        let scale_impl = create_scale_impl(scale_type);
+        let mut scale = Self {
+            scale_impl,
+            domain: ScaleDomain::new_interval(lit(0.0), lit(1.0)),
+            range: ScaleRange::new_interval(lit(0.0), lit(1.0)),
+            options: HashMap::new(),
+            domain_explicit: false,
+            range_explicit: false,
+        };
+        apply_scale_defaults(scale_type, &mut scale.options);
+        scale
+    }
+
+    /// Set the scale type, replacing the current implementation
+    pub fn scale_type(mut self, scale_type: &str) -> Self {
+        self.scale_impl = create_scale_impl(scale_type);
+        // Clear existing options and apply new defaults
+        self.options.clear();
+        apply_scale_defaults(scale_type, &mut self.options);
+        self
     }
 
     pub fn get_scale_impl(&self) -> &Arc<dyn ScaleImpl> {
@@ -68,25 +102,8 @@ impl Scale {
         self.domain(ScaleDomain::new_interval(start, end))
     }
 
-    pub fn domain_discrete<T: Into<Expr>>(mut self, values: Vec<T>) -> Self {
+    pub fn domain_discrete<T: Into<Expr>>(self, values: Vec<T>) -> Self {
         let exprs: Vec<Expr> = values.into_iter().map(|v| v.into()).collect();
-
-        // Switch to BandScale for discrete domains
-        if self.scale_impl.scale_type() == "linear" {
-            self.scale_impl = Arc::new(avenger_scales::scales::band::BandScale);
-
-            // Set default band scale options if not already set
-            if !self.options.contains_key("padding_inner") {
-                self.options.insert("padding_inner".to_string(), lit(0.1));
-            }
-            if !self.options.contains_key("padding_outer") {
-                self.options.insert("padding_outer".to_string(), lit(0.1));
-            }
-            if !self.options.contains_key("align") {
-                self.options.insert("align".to_string(), lit(0.5));
-            }
-        }
-
         self.domain(ScaleDomain::new_discrete(exprs))
     }
 
@@ -124,6 +141,24 @@ impl Scale {
         self.range(ScaleRange::new_interval(start, end))
     }
 
+    pub fn range_interval<T: Into<Expr>>(self, start: T, end: T) -> Self {
+        self.range(ScaleRange::new_interval(start, end))
+    }
+
+    pub fn range_discrete<T: Into<Expr>>(self, values: Vec<T>) -> Self {
+        let scalars: Vec<ScalarValue> = values
+            .into_iter()
+            .map(|v| {
+                let expr = v.into();
+                match expr {
+                    Expr::Literal(scalar, _) => scalar,
+                    _ => ScalarValue::Null,
+                }
+            })
+            .collect();
+        self.range(ScaleRange::new_enum(scalars))
+    }
+
     pub fn range_color(self, colors: Vec<Srgba>) -> Self {
         self.range(ScaleRange::new_color(colors))
     }
@@ -158,12 +193,18 @@ impl Scale {
         let options_type = options_expr.get_type(&DFSchema::empty())?;
 
         // Cast values to match the domain type if needed
-        let values = if domain_type == DataType::Float32 {
-            // For numeric scales with Float32 domain, cast values to Float32
-            use datafusion::logical_expr::cast;
-            cast(values, DataType::Float32)
-        } else {
-            values
+        let values = match &domain_type {
+            DataType::Float32 => {
+                // For numeric scales with Float32 domain, cast values to Float32
+                use datafusion::logical_expr::cast;
+                cast(values, DataType::Float32)
+            }
+            DataType::Float64 => {
+                // For Float64 domains, cast to Float32 for scale compatibility
+                use datafusion::logical_expr::cast;
+                cast(values, DataType::Float32)
+            }
+            _ => values,
         };
 
         let udf = udf::create_scale_udf(
@@ -301,6 +342,11 @@ impl Scale {
         plot_area_width: f32,
         plot_area_height: f32,
     ) -> Result<Self, AvengerChartError> {
+        // Skip normalization for non-numeric ranges (e.g., color ranges)
+        if !matches!(&self.range, ScaleRange::Numeric(_, _)) {
+            return Ok(self);
+        }
+
         // Create a ConfiguredScale to apply normalization
         let configured_scale = self.create_configured_scale(plot_area_width, plot_area_height)?;
 
@@ -397,10 +443,30 @@ impl Scale {
                 Arc::new(Float32Array::from(vec![start_f32, end_f32]))
                     as datafusion::arrow::array::ArrayRef
             }
-            _ => {
-                return Err(AvengerChartError::InternalError(
-                    "Cannot create ConfiguredScale from non-numeric range".to_string(),
-                ));
+            ScaleRange::Color(colors) => {
+                // Convert Vec<Srgba> to a list array of [f32; 4] arrays
+                let color_arrays: Vec<datafusion::arrow::array::ArrayRef> = colors
+                    .iter()
+                    .map(|color| {
+                        let rgba = [color.red, color.green, color.blue, color.alpha];
+                        Arc::new(Float32Array::from(Vec::from(rgba)))
+                            as datafusion::arrow::array::ArrayRef
+                    })
+                    .collect();
+
+                // Create a ListArray from the color arrays
+                avenger_scales::scalar::Scalar::arrays_into_list_array(color_arrays)?
+            }
+            ScaleRange::Enum(values) => {
+                // Create a string array for enum values
+                let strings: Vec<Option<&str>> = values
+                    .iter()
+                    .map(|v| match v {
+                        ScalarValue::Utf8(Some(s)) => Some(s.as_str()),
+                        _ => None,
+                    })
+                    .collect();
+                Arc::new(StringArray::from(strings)) as datafusion::arrow::array::ArrayRef
             }
         };
 
@@ -773,5 +839,69 @@ impl ScaleRegistry {
             .iter()
             .filter_map(|&channel| self.scales.get(channel).map(|scale| (channel, scale)))
             .collect()
+    }
+}
+
+/// Create a scale implementation based on scale type name
+fn create_scale_impl(scale_type: &str) -> Arc<dyn ScaleImpl> {
+    match scale_type {
+        "linear" => Arc::new(LinearScale),
+        "log" | "logarithmic" => Arc::new(LogScale),
+        "pow" | "power" => Arc::new(PowScale),
+        "sqrt" => {
+            // sqrt is pow with exponent 0.5, but PowScale will handle this via options
+            Arc::new(PowScale)
+        }
+        "symlog" => Arc::new(SymlogScale),
+        "time" | "temporal" => Arc::new(TimeScale),
+        "band" => Arc::new(BandScale),
+        "point" => Arc::new(PointScale),
+        "ordinal" => Arc::new(OrdinalScale),
+        "threshold" => Arc::new(ThresholdScale),
+        "quantile" => Arc::new(QuantileScale),
+        "quantize" => Arc::new(QuantizeScale),
+        _ => {
+            eprintln!("Unknown scale type '{}', defaulting to linear", scale_type);
+            Arc::new(LinearScale)
+        }
+    }
+}
+
+/// Apply default options for each scale type
+fn apply_scale_defaults(scale_type: &str, options: &mut HashMap<String, Expr>) {
+    match scale_type {
+        "band" => {
+            options
+                .entry("padding_inner".to_string())
+                .or_insert(lit(0.1));
+            options
+                .entry("padding_outer".to_string())
+                .or_insert(lit(0.1));
+            options.entry("align".to_string()).or_insert(lit(0.5));
+        }
+        "point" => {
+            options.entry("padding".to_string()).or_insert(lit(0.5));
+            options.entry("align".to_string()).or_insert(lit(0.5));
+        }
+        "log" | "logarithmic" => {
+            options.entry("base".to_string()).or_insert(lit(10.0));
+        }
+        "pow" | "power" => {
+            options.entry("exponent".to_string()).or_insert(lit(1.0));
+        }
+        "sqrt" => {
+            // sqrt is pow with exponent 0.5
+            options.insert("exponent".to_string(), lit(0.5));
+        }
+        "symlog" => {
+            options.entry("constant".to_string()).or_insert(lit(1.0));
+        }
+        "linear" => {
+            // Linear scales might have nice=true by default
+            options.entry("nice".to_string()).or_insert(lit(true));
+        }
+        _ => {
+            // No specific defaults for other scale types
+        }
     }
 }
