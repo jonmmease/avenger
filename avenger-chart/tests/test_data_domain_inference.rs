@@ -39,7 +39,7 @@ async fn test_data_domain_inference() -> Result<(), Box<dyn std::error::Error>> 
                 .x2(ChannelValue::column("category").with_band(1.0))
                 .y(lit(0.0))
                 .y2("value")
-                .fill(lit("#4682b4")),
+                .fill((lit("#4682b4"), None::<&str>)),
         );
 
     // Apply default domain to x scale
@@ -132,7 +132,7 @@ async fn test_numeric_domain_inference() -> Result<(), Box<dyn std::error::Error
                 .x2(col("x").add(lit(2.0)))
                 .y("y")
                 .y2(col("y").add(lit(2.0)))
-                .fill(lit("#ff0000")),
+                .fill((lit("#ff0000"), None::<&str>)),
         );
 
     // Apply default domains
@@ -199,7 +199,7 @@ async fn test_scale_options_preserved_during_domain_inference()
                 .x2(ChannelValue::column("category").with_band(1.0))
                 .y(lit(0.0))
                 .y2("value")
-                .fill(lit("#4682b4")),
+                .fill((lit("#4682b4"), None::<&str>)),
         );
 
     // Apply default domains

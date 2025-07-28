@@ -1,4 +1,5 @@
 pub mod defaults;
+pub mod inference;
 pub mod udf;
 
 use crate::error::AvengerChartError;

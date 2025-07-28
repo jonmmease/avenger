@@ -40,9 +40,9 @@ async fn test_bar_chart_inferred_domain() {
                 .x2(ChannelValue::column("category").with_band(1.0))
                 .y(lit(0.0))
                 .y2("value")
-                .fill(lit("#3498db"))
-                .stroke(lit("#2980b9"))
-                .stroke_width(lit(1.0)),
+                .fill((lit("#3498db"), None::<&str>))
+                .stroke((lit("#2980b9"), None::<&str>))
+                .stroke_width((lit(1.0), None::<&str>)),
         );
 
     // Apply domain inference
@@ -85,8 +85,8 @@ async fn test_scatter_plot_inferred_domain() {
                 .x2(col("x").add(lit(2.0)))
                 .y(col("y").sub(lit(2.0)))
                 .y2(col("y").add(lit(2.0)))
-                .fill(lit("#e74c3c"))
-                .opacity(lit(0.7)),
+                .fill((lit("#e74c3c"), None::<&str>))
+                .opacity((lit(0.7), None::<&str>)),
         );
 
     // Apply domain inference from expressions
