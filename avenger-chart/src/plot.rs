@@ -353,36 +353,79 @@ impl<C: CoordinateSystem> Plot<C> {
 
     /// Get or create a default scale for a channel
     pub(crate) fn get_or_create_scale(&mut self, channel: &str) -> Scale {
-        self.scales.remove(channel).unwrap_or_else(|| {
-            // Create default scale based on channel type
-            match channel {
-                // Position channels default to linear
-                "x" | "y" | "r" | "theta" => Scale::with_type("linear"),
+        self.scales
+            .remove(channel)
+            .unwrap_or_else(|| self.create_default_scale_for_channel_internal(channel))
+    }
 
-                // Size channels default to linear with appropriate ranges
-                "size" => Scale::with_type("linear").range_interval(lit(0.0), lit(20.0)),
+    /// Internal helper to create a default scale for a channel
+    fn create_default_scale_for_channel_internal(&self, channel: &str) -> Scale {
+        use crate::scales::inference::{get_default_scale_options, infer_scale_type_with_mark};
+        use datafusion::logical_expr::ExprSchemable;
 
-                "stroke_width" | "font_size" => {
-                    Scale::with_type("linear").range_interval(lit(0.0), lit(10.0))
+        // Try to infer the data type and mark type for this channel
+        let mut data_type = None;
+        let mut mark_type = None;
+
+        // Look through marks to find the expression for this channel
+        for mark_config in &self.marks {
+            if let Some(channel_value) = mark_config.data.encodings().get(channel) {
+                // Get the dataframe for this mark
+                let df = match &mark_config.data_source {
+                    crate::marks::DataSource::Explicit => mark_config.data.dataframe(),
+                    crate::marks::DataSource::Inherited => {
+                        if let Some(plot_df) = &self.data {
+                            plot_df
+                        } else {
+                            continue;
+                        }
+                    }
+                };
+
+                // Try to get the data type of the expression
+                let schema = df.schema();
+                if let Ok(expr_type) = channel_value.expr.get_type(schema) {
+                    data_type = Some(expr_type);
+                    mark_type = Some(mark_config.mark_type.as_str());
+                    break;
                 }
-
-                "width" | "height" | "outer_radius" | "inner_radius" => Scale::with_type("linear"),
-
-                "corner_radius" => Scale::with_type("linear").range_interval(lit(0.0), lit(10.0)),
-
-                // Angle channels default to linear
-                "angle" | "start_angle" | "end_angle" | "pad_angle" => Scale::with_type("linear"),
-
-                // Opacity defaults to linear with 0-1 range
-                "opacity" => Scale::with_type("linear").range_interval(lit(0.0), lit(1.0)),
-
-                // Color channels default to ordinal
-                "fill" | "stroke" | "color" => Scale::with_type("ordinal"),
-
-                // Default to linear for unknown channels
-                _ => Scale::with_type("linear"),
             }
-        })
+        }
+
+        // Create a scale based on the inferred type
+        let scale_type = if let Some(dt) = &data_type {
+            infer_scale_type_with_mark(channel, dt, mark_type)
+        } else {
+            // Fallback to channel-based defaults
+            match channel {
+                // Color channels default to ordinal
+                "fill" | "stroke" | "color" => "ordinal",
+                // Everything else defaults to linear
+                _ => "linear",
+            }
+        };
+
+        let mut scale = Scale::with_type(scale_type);
+
+        // Apply default options based on channel and scale type
+        if let Some(dt) = &data_type {
+            let default_options = get_default_scale_options(channel, scale_type, dt);
+            for (key, value) in default_options {
+                scale = scale.option(&key, value);
+            }
+        }
+
+        // Apply channel-specific ranges
+        match channel {
+            "size" => scale = scale.range_interval(lit(0.0), lit(20.0)),
+            "stroke_width" => scale = scale.range_interval(lit(0.0), lit(10.0)),
+            "font_size" => scale = scale.range_interval(lit(0.0), lit(10.0)),
+            "corner_radius" => scale = scale.range_interval(lit(0.0), lit(10.0)),
+            "opacity" => scale = scale.range_interval(lit(0.0), lit(1.0)),
+            _ => {}
+        }
+
+        scale
     }
 
     pub fn mark<M: Mark<C> + 'static>(mut self, mark: M) -> Self {
@@ -601,6 +644,43 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Get the aspect ratio if set
     pub fn get_aspect_ratio(&self) -> Option<f64> {
         self.aspect_ratio
+    }
+
+    /// Collect all channels that need scales
+    pub fn collect_channels_needing_scales(&self) -> std::collections::HashSet<String> {
+        use std::collections::HashSet;
+        let mut used_channels = HashSet::new();
+        for mark_config in &self.marks {
+            for (channel, channel_value) in mark_config.data.encodings() {
+                if channel_value.scale_name(channel).is_some() {
+                    used_channels.insert(channel.clone());
+                }
+            }
+        }
+        used_channels
+    }
+
+    /// Create a default scale for a channel
+    pub async fn create_default_scale_for_channel(&self, channel: &str) -> Option<Scale> {
+        Some(self.create_default_scale_for_channel_internal(channel))
+    }
+
+    /// Ensure scales exist for all channels used in marks
+    pub async fn ensure_scales_for_all_channels(
+        mut self,
+    ) -> Result<Self, crate::error::AvengerChartError> {
+        // Collect all channels that need scales
+        let used_channels = self.collect_channels_needing_scales();
+
+        // Create scales for channels that don't have them
+        for channel in used_channels {
+            if !self.scales.contains_key(&channel) {
+                let scale = self.create_default_scale_for_channel_internal(&channel);
+                self.scales.insert(channel, scale);
+            }
+        }
+
+        Ok(self)
     }
 }
 

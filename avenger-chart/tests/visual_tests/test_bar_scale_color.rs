@@ -50,9 +50,9 @@ async fn test_bar_chart_linear_color_interpolation() {
                 .y(lit(0.0))
                 .y2("value")
                 .fill("value") // Map value through the linear color scale
-                .stroke(lit("#333333"))
-                .stroke_width(lit(0.5))
-                .opacity(lit(0.95)),
+                .stroke((lit("#333333"), None::<&str>))
+                .stroke_width((lit(0.5), None::<&str>))
+                .opacity((lit(0.95), None::<&str>)),
         );
 
     assert_visual_match_default(
@@ -104,9 +104,9 @@ async fn test_bar_chart_log_color_interpolation() {
                 .y(lit(0.0))
                 .y2("value")
                 .fill("value") // Map value through the log color scale
-                .stroke(lit("#222222"))
-                .stroke_width(lit(0.5))
-                .opacity(lit(0.95)),
+                .stroke((lit("#222222"), None::<&str>))
+                .stroke_width((lit(0.5), None::<&str>))
+                .opacity((lit(0.95), None::<&str>)),
         );
 
     assert_visual_match_default(plot, "bar_scale_color", "bar_chart_log_color_interpolation").await;
@@ -153,9 +153,9 @@ async fn test_bar_chart_pow_color_interpolation() {
                 .y(lit(0.0))
                 .y2("value")
                 .fill("value") // Map value through the power color scale
-                .stroke(lit("#333333"))
-                .stroke_width(lit(0.5))
-                .opacity(lit(0.95)),
+                .stroke((lit("#333333"), None::<&str>))
+                .stroke_width((lit(0.5), None::<&str>))
+                .opacity((lit(0.95), None::<&str>)),
         );
 
     assert_visual_match_default(plot, "bar_scale_color", "bar_chart_pow_color_interpolation").await;
@@ -201,8 +201,8 @@ async fn test_bar_chart_sqrt_color_interpolation() {
                 .y(lit(0.0))
                 .y2("value")
                 .fill("value") // Map value through the sqrt color scale
-                .stroke(lit("#222222"))
-                .stroke_width(lit(0.75)),
+                .stroke((lit("#222222"), None::<&str>))
+                .stroke_width((lit(0.75), None::<&str>)),
         );
 
     assert_visual_match_default(
@@ -255,9 +255,9 @@ async fn test_bar_chart_threshold_scale_colors() {
                 .y(lit(0.0))
                 .y2("value")
                 .fill("value") // Map value through the threshold scale
-                .stroke(lit("#222222"))
-                .stroke_width(lit(1.0))
-                .opacity(lit(0.9)),
+                .stroke((lit("#222222"), None::<&str>))
+                .stroke_width((lit(1.0), None::<&str>))
+                .opacity((lit(0.9), None::<&str>)),
         );
 
     assert_visual_match_default(plot, "bar_scale_color", "bar_chart_threshold_scale_colors").await;
@@ -301,8 +301,8 @@ async fn test_bar_chart_linear_color_cool_warm() {
                 .y(lit(0.0))
                 .y2("value")
                 .fill("value")
-                .stroke(lit("#222222"))
-                .stroke_width(lit(1.0)),
+                .stroke((lit("#222222"), None::<&str>))
+                .stroke_width((lit(1.0), None::<&str>)),
         );
 
     assert_visual_match_default(plot, "bar_scale_color", "bar_chart_linear_color_cool_warm").await;

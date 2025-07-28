@@ -38,9 +38,9 @@ async fn test_simple_bar_chart() {
                 .x2(ChannelValue::column("category").with_band(1.0))
                 .y(lit(0.0))
                 .y2("value")
-                .fill(lit("#4682b4"))
-                .stroke(lit("#000000"))
-                .stroke_width(lit(1.0)),
+                .fill((lit("#4682b4"), None::<&str>))
+                .stroke((lit("#000000"), None::<&str>))
+                .stroke_width((lit(1.0), None::<&str>)),
         );
 
     assert_visual_match_default(plot, "bar", "simple_bar_chart").await;
@@ -75,9 +75,9 @@ async fn test_bar_chart_with_custom_colors() {
                 .x2(ChannelValue::column("category").with_band(1.0))
                 .y(lit(0.0))
                 .y2("value")
-                .fill(lit("#e74c3c"))
-                .stroke(lit("#c0392b"))
-                .stroke_width(lit(2.0)),
+                .fill((lit("#e74c3c"), None::<&str>))
+                .stroke((lit("#c0392b"), None::<&str>))
+                .stroke_width((lit(2.0), None::<&str>)),
         );
 
     assert_visual_match_default(plot, "bar", "bar_chart_custom_colors").await;
@@ -112,9 +112,9 @@ async fn test_bar_chart_with_narrow_bars() {
                 .x2(ChannelValue::column("category").with_band(0.7)) // 70% of band width
                 .y(lit(0.0))
                 .y2("value")
-                .fill(lit("#3498db"))
-                .stroke(lit("#2980b9"))
-                .stroke_width(lit(1.5)),
+                .fill((lit("#3498db"), None::<&str>))
+                .stroke((lit("#2980b9"), None::<&str>))
+                .stroke_width((lit(1.5), None::<&str>)),
         );
 
     assert_visual_match_default(plot, "bar", "bar_chart_narrow_bars").await;
@@ -127,9 +127,6 @@ async fn test_bar_chart_inferred_domains() {
     let plot = Plot::new(Cartesian)
         .preferred_size(400.0, 300.0)
         .data(df)
-        // No explicit domains - should be inferred from data
-        .scale_x(|s| s)
-        .scale_y(|s| s.option("zero", lit(true)).option("nice", lit(true)))
         .axis_x(|a| a.title("Category").grid(false))
         .axis_y(|a| a.title("Value").grid(true))
         .mark(
@@ -138,9 +135,9 @@ async fn test_bar_chart_inferred_domains() {
                 .x2(ChannelValue::column("category").with_band(1.0))
                 .y(lit(0.0))
                 .y2("value")
-                .fill(lit("#4682b4"))
-                .stroke(lit("#000000"))
-                .stroke_width(lit(1.0)),
+                .fill((lit("#4682b4"), None::<&str>))
+                .stroke((lit("#000000"), None::<&str>))
+                .stroke_width((lit(1.0), None::<&str>)),
         );
 
     assert_visual_match_default(plot, "bar", "bar_chart_inferred_domains").await;
@@ -189,9 +186,9 @@ async fn test_bar_chart_color_case_expression() {
                         .otherwise(lit("#0a3d62")) // Dark blue
                         .unwrap(),
                 ))
-                .stroke(lit("#222222"))
-                .stroke_width(lit(1.0))
-                .opacity(lit(0.9)),
+                .stroke((lit("#222222"), None::<&str>))
+                .stroke_width((lit(1.0), None::<&str>))
+                .opacity((lit(0.9), None::<&str>)),
         );
 
     assert_visual_match_default(plot, "bar", "bar_chart_color_case_expression").await;

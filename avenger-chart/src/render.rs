@@ -59,8 +59,19 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         // Create scale registry with default ranges applied
         let mut scales = crate::scales::ScaleRegistry::new();
 
+        // First, collect all channels that need scales
+        let channels_with_scales = self.plot.collect_channels_needing_scales();
+
+        // Add any missing scales with appropriate defaults
+        let mut all_scales = self.plot.scales.clone();
+        for channel in channels_with_scales.difference(&all_scales.keys().cloned().collect()) {
+            if let Some(default_scale) = self.plot.create_default_scale_for_channel(channel).await {
+                all_scales.insert(channel.clone(), default_scale);
+            }
+        }
+
         // Process scales: infer domains, apply defaults, and normalize
-        for (name, scale) in &self.plot.scales {
+        for (name, scale) in &all_scales {
             let mut scale_copy = scale.clone();
 
             // Apply default domain if needed
