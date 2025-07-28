@@ -21,7 +21,6 @@ use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, PngCanvas};
 use datafusion::arrow::array::{Array, Float32Array, Float64Array};
-use datafusion::logical_expr::lit;
 use std::sync::Arc;
 
 /// Result of rendering a plot to scene graph components
@@ -216,6 +215,58 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         }
     }
 
+    /// Apply scaling transformation to a channel expression
+    fn apply_channel_scale(
+        &self,
+        channel_name: &str,
+        channel_value: &ChannelValue,
+        scales: &crate::scales::ScaleRegistry,
+    ) -> Result<datafusion::logical_expr::Expr, AvengerChartError> {
+        use crate::marks::channel::strip_trailing_numbers;
+        use datafusion::logical_expr::lit;
+
+        let expr = channel_value.expr();
+
+        match channel_value {
+            ChannelValue::Identity { .. } => {
+                // No scaling requested, return expression as-is
+                Ok(expr.clone())
+            }
+            ChannelValue::Scaled {
+                scale_name, band, ..
+            } => {
+                // Determine scale name (custom or derived from channel)
+                let scale_key = scale_name
+                    .as_ref()
+                    .cloned()
+                    .unwrap_or_else(|| strip_trailing_numbers(channel_name).to_string());
+
+                // Scale MUST exist if scaling was requested
+                let scale = scales.get(&scale_key).ok_or_else(|| {
+                    AvengerChartError::ScaleNotFound(format!(
+                        "Scale '{}' requested for channel '{}' but not found",
+                        scale_key, channel_name
+                    ))
+                })?;
+
+                // Handle band parameter for any scale that supports it
+                let scale = if let Some(band_value) = band {
+                    if scale.get_scale_impl().scale_type() == "band" {
+                        scale.clone().option("band", lit(*band_value))
+                    } else {
+                        // Ignore band parameter for non-band scales
+                        scale.clone()
+                    }
+                } else {
+                    scale.clone()
+                };
+
+                // Apply the scale transformation
+                scale.to_expr(expr.clone())
+            }
+        }
+    }
+
     /// Render a rect mark (for bar charts, heatmaps, etc.)
     async fn render_rect_mark(
         &self,
@@ -240,166 +291,29 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         // Get channel mappings from DataContext
         let encodings = mark_config.data.encodings();
 
-        // Extract expressions and band parameters for rect channels
-        let x_channel = encodings.get("x");
-        let x2_channel = encodings.get("x2");
-        let y_channel = encodings.get("y");
-        let y2_channel = encodings.get("y2");
-        let x_expr = x_channel.map(|ch| ch.expr());
-        let x2_expr = x2_channel.map(|ch| ch.expr());
-        let x2_band = x2_channel.and_then(|ch| match ch {
-            ChannelValue::Scaled { band, .. } => *band,
-            _ => None,
-        });
-        let y_expr = y_channel.map(|ch| ch.expr());
-        let y2_expr = y2_channel.map(|ch| ch.expr());
-        let fill_expr = encodings.get("fill").map(|ch| ch.expr());
-        let stroke_expr = encodings.get("stroke").map(|ch| ch.expr());
-        let stroke_width_expr = encodings.get("stroke_width").map(|ch| ch.expr());
+        // Define all channels to process
+        let channels = [
+            ("x", encodings.get("x")),
+            ("x2", encodings.get("x2")),
+            ("y", encodings.get("y")),
+            ("y2", encodings.get("y2")),
+            ("fill", encodings.get("fill")),
+            ("stroke", encodings.get("stroke")),
+            ("stroke_width", encodings.get("stroke_width")),
+            ("opacity", encodings.get("opacity")),
+            // Additional channels can be added here
+        ];
 
-        // Build expressions with scale transformations applied
         let mut select_exprs = vec![];
         let mut channel_names = vec![];
 
-        // For position channels, apply scales if requested
-        if let Some(expr) = x_expr {
-            let scaled_expr = if let Some(channel) = x_channel {
-                if let Some(scale_name) = channel.scale_name("x") {
-                    if let Some(x_scale) = scales.get(&scale_name) {
-                        x_scale.to_expr(expr.clone())?
-                    } else {
-                        expr.clone()
-                    }
-                } else {
-                    // Identity - use expression as-is
-                    expr.clone()
-                }
-            } else {
-                expr.clone()
-            };
-            select_exprs.push(scaled_expr.alias("x"));
-            channel_names.push("x");
-        }
-
-        if let Some(expr) = x2_expr {
-            let scaled_expr = if let Some(channel) = x2_channel {
-                if let Some(scale_name) = channel.scale_name("x2") {
-                    if let Some(x_scale) = scales.get(&scale_name) {
-                        // For x2 with band scale, we need to handle band parameter
-                        if x_scale.get_scale_impl().scale_type() == "band" {
-                            // Add band parameter to scale options for x2
-                            let mut x2_scale = x_scale.clone();
-                            if let Some(band) = x2_band {
-                                x2_scale = x2_scale.option("band", lit(band));
-                            } else {
-                                x2_scale = x2_scale.option("band", lit(1.0));
-                            }
-                            x2_scale.to_expr(expr.clone())?
-                        } else {
-                            x_scale.to_expr(expr.clone())?
-                        }
-                    } else {
-                        expr.clone()
-                    }
-                } else {
-                    // Identity - use expression as-is
-                    expr.clone()
-                }
-            } else {
-                expr.clone()
-            };
-            select_exprs.push(scaled_expr.alias("x2"));
-            channel_names.push("x2");
-        }
-
-        if let Some(expr) = y_expr {
-            let scaled_expr = if let Some(channel) = y_channel {
-                if let Some(scale_name) = channel.scale_name("y") {
-                    if let Some(y_scale) = scales.get(&scale_name) {
-                        y_scale.to_expr(expr.clone())?
-                    } else {
-                        expr.clone()
-                    }
-                } else {
-                    // Identity - use expression as-is
-                    expr.clone()
-                }
-            } else {
-                expr.clone()
-            };
-            select_exprs.push(scaled_expr.alias("y"));
-            channel_names.push("y");
-        }
-
-        if let Some(expr) = y2_expr {
-            let scaled_expr = if let Some(channel) = y2_channel {
-                if let Some(scale_name) = channel.scale_name("y2") {
-                    if let Some(y_scale) = scales.get(&scale_name) {
-                        y_scale.to_expr(expr.clone())?
-                    } else {
-                        expr.clone()
-                    }
-                } else {
-                    // Identity - use expression as-is
-                    expr.clone()
-                }
-            } else {
-                expr.clone()
-            };
-            select_exprs.push(scaled_expr.alias("y2"));
-            channel_names.push("y2");
-        }
-
-        // Apply scales to color and size channels if available
-        if let Some(expr) = fill_expr {
-            let fill_channel = encodings.get("fill").unwrap();
-            if let Some(scale_name) = fill_channel.scale_name("fill") {
-                if let Some(fill_scale) = scales.get(&scale_name) {
-                    let scaled_expr = fill_scale.to_expr(expr.clone())?;
-                    select_exprs.push(scaled_expr.alias("fill"));
-                } else {
-                    // No scale found, use raw expression
-                    select_exprs.push(expr.clone().alias("fill"));
-                }
-            } else {
-                // No scaling requested (ScaleSpec::None)
-                select_exprs.push(expr.clone().alias("fill"));
+        // Process all channels uniformly
+        for (name, channel_opt) in channels {
+            if let Some(channel) = channel_opt {
+                let scaled_expr = self.apply_channel_scale(name, channel, scales)?;
+                select_exprs.push(scaled_expr.alias(name));
+                channel_names.push(name);
             }
-            channel_names.push("fill");
-        }
-
-        if let Some(expr) = stroke_expr {
-            let stroke_channel = encodings.get("stroke").unwrap();
-            if let Some(scale_name) = stroke_channel.scale_name("stroke") {
-                if let Some(stroke_scale) = scales.get(&scale_name) {
-                    let scaled_expr = stroke_scale.to_expr(expr.clone())?;
-                    select_exprs.push(scaled_expr.alias("stroke"));
-                } else {
-                    // No scale found, use raw expression
-                    select_exprs.push(expr.clone().alias("stroke"));
-                }
-            } else {
-                // No scaling requested (ScaleSpec::None)
-                select_exprs.push(expr.clone().alias("stroke"));
-            }
-            channel_names.push("stroke");
-        }
-
-        if let Some(expr) = stroke_width_expr {
-            let stroke_width_channel = encodings.get("stroke_width").unwrap();
-            if let Some(scale_name) = stroke_width_channel.scale_name("stroke_width") {
-                if let Some(stroke_width_scale) = scales.get(&scale_name) {
-                    let scaled_expr = stroke_width_scale.to_expr(expr.clone())?;
-                    select_exprs.push(scaled_expr.alias("stroke_width"));
-                } else {
-                    // No scale found, use raw expression
-                    select_exprs.push(expr.clone().alias("stroke_width"));
-                }
-            } else {
-                // No scaling requested (ScaleSpec::None)
-                select_exprs.push(expr.clone().alias("stroke_width"));
-            }
-            channel_names.push("stroke_width");
         }
 
         // Execute the query to get the data
@@ -434,62 +348,10 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
 
         // Extract scaled values from the DataFrame results
         // The scale UDFs have already transformed the values to pixel coordinates
-        let mut x_values: Vec<f32> = vec![];
-        let mut x2_values: Vec<f32> = vec![];
-        let mut y_values: Vec<f32> = vec![];
-        let mut y2_values: Vec<f32> = vec![];
-
-        // Extract x values if present
-        if channel_names.contains(&"x") {
-            let col_idx = channel_names.iter().position(|&c| c == "x").unwrap();
-            let x_array = batch.column(col_idx);
-            if let Some(float_array) = x_array.as_any().downcast_ref::<Float32Array>() {
-                x_values = (0..num_rows).map(|i| float_array.value(i)).collect();
-            } else if let Some(float64_array) = x_array.as_any().downcast_ref::<Float64Array>() {
-                x_values = (0..num_rows)
-                    .map(|i| float64_array.value(i) as f32)
-                    .collect();
-            }
-        }
-
-        // Extract x2 values if present
-        if channel_names.contains(&"x2") {
-            let col_idx = channel_names.iter().position(|&c| c == "x2").unwrap();
-            let x2_array = batch.column(col_idx);
-            if let Some(float_array) = x2_array.as_any().downcast_ref::<Float32Array>() {
-                x2_values = (0..num_rows).map(|i| float_array.value(i)).collect();
-            } else if let Some(float64_array) = x2_array.as_any().downcast_ref::<Float64Array>() {
-                x2_values = (0..num_rows)
-                    .map(|i| float64_array.value(i) as f32)
-                    .collect();
-            }
-        }
-
-        // Extract y values if present
-        if channel_names.contains(&"y") {
-            let col_idx = channel_names.iter().position(|&c| c == "y").unwrap();
-            let y_array = batch.column(col_idx);
-            if let Some(float_array) = y_array.as_any().downcast_ref::<Float32Array>() {
-                y_values = (0..num_rows).map(|i| float_array.value(i)).collect();
-            } else if let Some(float64_array) = y_array.as_any().downcast_ref::<Float64Array>() {
-                y_values = (0..num_rows)
-                    .map(|i| float64_array.value(i) as f32)
-                    .collect();
-            }
-        }
-
-        // Extract y2 values if present
-        if channel_names.contains(&"y2") {
-            let col_idx = channel_names.iter().position(|&c| c == "y2").unwrap();
-            let y2_array = batch.column(col_idx);
-            if let Some(float_array) = y2_array.as_any().downcast_ref::<Float32Array>() {
-                y2_values = (0..num_rows).map(|i| float_array.value(i)).collect();
-            } else if let Some(float64_array) = y2_array.as_any().downcast_ref::<Float64Array>() {
-                y2_values = (0..num_rows)
-                    .map(|i| float64_array.value(i) as f32)
-                    .collect();
-            }
-        }
+        let x_values = Self::extract_numeric_channel(batch, &channel_names, "x");
+        let x2_values = Self::extract_numeric_channel(batch, &channel_names, "x2");
+        let y_values = Self::extract_numeric_channel(batch, &channel_names, "y");
+        let y2_values = Self::extract_numeric_channel(batch, &channel_names, "y2");
 
         // Get fill color
         let fill_value = self.process_color_channel(
@@ -548,6 +410,30 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         };
 
         Ok(SceneMark::Rect(rect_mark))
+    }
+
+    /// Extract numeric values from a channel in the batch
+    fn extract_numeric_channel(
+        batch: &datafusion::arrow::record_batch::RecordBatch,
+        channel_names: &[&str],
+        channel_name: &str,
+    ) -> Vec<f32> {
+        if let Some(col_idx) = channel_names.iter().position(|&c| c == channel_name) {
+            let array = batch.column(col_idx);
+            let num_rows = batch.num_rows();
+
+            if let Some(float_array) = array.as_any().downcast_ref::<Float32Array>() {
+                (0..num_rows).map(|i| float_array.value(i)).collect()
+            } else if let Some(float64_array) = array.as_any().downcast_ref::<Float64Array>() {
+                (0..num_rows)
+                    .map(|i| float64_array.value(i) as f32)
+                    .collect()
+            } else {
+                vec![]
+            }
+        } else {
+            vec![]
+        }
     }
 
     /// Process a color channel from the batch, handling both scalar and array cases

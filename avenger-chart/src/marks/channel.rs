@@ -102,7 +102,7 @@ impl ChannelValue {
 
 /// Remove trailing numbers from a channel name to get the base scale name
 /// e.g., "x1" -> "x", "color2" -> "color", "x" -> "x"
-fn strip_trailing_numbers(name: &str) -> &str {
+pub(crate) fn strip_trailing_numbers(name: &str) -> &str {
     name.trim_end_matches(char::is_numeric)
 }
 

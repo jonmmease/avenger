@@ -84,27 +84,8 @@ macro_rules! impl_mark_common {
             }
         }
 
-        impl<C: CoordinateSystem> Mark<C> for $mark_type<C> {
-            fn into_config(self) -> MarkConfig<C> {
-                self.config
-            }
-        }
+        // Don't implement Mark trait here - marks will implement it themselves with specific coordinate systems
     };
 }
 
-/// Macro to implement encoding methods
-#[macro_export]
-macro_rules! encoding_methods {
-    ($($method:ident),* $(,)?) => {
-        $(
-            pub fn $method<V: Into<ChannelValue>>(mut self, value: V) -> Self {
-                let channel_value = value.into();
-
-                // Update encodings in DataContext
-                self.config.data = self.config.data.with_channel_value(stringify!($method), channel_value);
-
-                self
-            }
-        )*
-    };
-}
+// encoding_methods! macro removed - use define_common_mark_channels! and define_position_mark_channels! instead
