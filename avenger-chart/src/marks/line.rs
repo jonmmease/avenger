@@ -1,15 +1,17 @@
 use crate::coords::{Cartesian, CoordinateSystem, Polar};
 use crate::error::AvengerChartError;
-use crate::marks::{ChannelDescriptor, ChannelType, Mark, MarkConfig};
-use crate::{define_common_mark_channels, define_position_mark_channels, impl_mark_common};
+use crate::marks::{ChannelType, Mark, MarkState};
+use crate::{
+    define_common_mark_channels, define_position_mark_channels, impl_mark_common,
+    impl_mark_trait_common,
+};
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::dataframe::DataFrame;
 use datafusion::scalar::ScalarValue;
-use std::collections::HashMap;
 
 pub struct Line<C: CoordinateSystem> {
-    config: MarkConfig<C>,
+    state: MarkState<C>,
     __phantom: std::marker::PhantomData<C>,
 }
 
@@ -61,20 +63,14 @@ define_position_mark_channels! {
     }
 }
 
-// Stub implementations for Mark trait
+// Implement Mark trait for Cartesian Line
 impl Mark<Cartesian> for Line<Cartesian> {
-    fn into_config(self) -> MarkConfig<Cartesian> {
-        self.config
-    }
-
-    fn supported_channels(&self) -> Vec<ChannelDescriptor> {
-        Self::all_channel_descriptors()
-    }
+    impl_mark_trait_common!(Line, Cartesian, "line");
 
     fn render_from_data(
         &self,
-        _batch: Option<&RecordBatch>,
-        _scalars: &HashMap<String, ScalarValue>,
+        _data: Option<&RecordBatch>,
+        _scalars: &RecordBatch,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Err(AvengerChartError::InternalError(
             "Line mark rendering not yet implemented".to_string(),
@@ -82,19 +78,14 @@ impl Mark<Cartesian> for Line<Cartesian> {
     }
 }
 
+// Implement Mark trait for Polar Line
 impl Mark<Polar> for Line<Polar> {
-    fn into_config(self) -> MarkConfig<Polar> {
-        self.config
-    }
-
-    fn supported_channels(&self) -> Vec<ChannelDescriptor> {
-        Self::all_channel_descriptors()
-    }
+    impl_mark_trait_common!(Line, Polar, "line");
 
     fn render_from_data(
         &self,
-        _batch: Option<&RecordBatch>,
-        _scalars: &HashMap<String, ScalarValue>,
+        _data: Option<&RecordBatch>,
+        _scalars: &RecordBatch,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Err(AvengerChartError::InternalError(
             "Polar line mark rendering not yet implemented".to_string(),

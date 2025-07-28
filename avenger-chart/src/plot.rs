@@ -2,7 +2,7 @@ use crate::axis::{AxisPosition, CartesianAxis};
 use crate::controllers::Controller;
 use crate::coords::{Cartesian, CoordinateSystem, Polar};
 use crate::legend::Legend;
-use crate::marks::{Mark, MarkConfig};
+use crate::marks::Mark;
 use crate::scales::Scale;
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::lit;
@@ -23,7 +23,7 @@ pub struct Plot<C: CoordinateSystem> {
     pub(crate) scales: HashMap<String, Scale>,
     pub(crate) axes: HashMap<String, C::Axis>,
     pub(crate) legends: HashMap<String, Legend>,
-    pub(crate) marks: Vec<MarkConfig<C>>,
+    pub(crate) marks: Vec<Box<dyn Mark<C>>>,
 
     /// Plot-level data for faceting and mark inheritance
     pub(crate) data: Option<DataFrame>,
@@ -368,11 +368,11 @@ impl<C: CoordinateSystem> Plot<C> {
         let mut mark_type = None;
 
         // Look through marks to find the expression for this channel
-        for mark_config in &self.marks {
-            if let Some(channel_value) = mark_config.data.encodings().get(channel) {
+        for mark in &self.marks {
+            if let Some(channel_value) = mark.data_context().encodings().get(channel) {
                 // Get the dataframe for this mark
-                let df = match &mark_config.data_source {
-                    crate::marks::DataSource::Explicit => mark_config.data.dataframe(),
+                let df = match mark.data_source() {
+                    crate::marks::DataSource::Explicit => mark.data_context().dataframe(),
                     crate::marks::DataSource::Inherited => {
                         if let Some(plot_df) = &self.data {
                             plot_df
@@ -386,7 +386,7 @@ impl<C: CoordinateSystem> Plot<C> {
                 let schema = df.schema();
                 if let Ok(expr_type) = channel_value.expr().get_type(schema) {
                     data_type = Some(expr_type);
-                    mark_type = Some(mark_config.mark_type.as_str());
+                    mark_type = Some(mark.mark_type());
                     break;
                 }
             }
@@ -429,7 +429,7 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     pub fn mark<M: Mark<C> + 'static>(mut self, mark: M) -> Self {
-        self.marks.push(mark.into_config());
+        self.marks.push(Box::new(mark));
         self
     }
 
@@ -502,8 +502,8 @@ impl<C: CoordinateSystem> Plot<C> {
 
         for mark in &self.marks {
             // Get the appropriate DataFrame based on data source
-            let df = match &mark.data_source {
-                DataSource::Explicit => Arc::new(mark.data.dataframe().clone()),
+            let df = match mark.data_source() {
+                DataSource::Explicit => Arc::new(mark.data_context().dataframe().clone()),
                 DataSource::Inherited => {
                     // Use plot-level data if available
                     if let Some(plot_data) = &self.data {
@@ -516,7 +516,7 @@ impl<C: CoordinateSystem> Plot<C> {
             };
 
             // Check all encodings in the mark's data context
-            for (channel, channel_value) in mark.data.encodings() {
+            for (channel, channel_value) in mark.data_context().encodings() {
                 // Check if this channel uses our scale
                 // Get the scale name this channel would use
                 if let Some(channel_scale_name) = channel_value.scale_name(channel) {
@@ -650,8 +650,8 @@ impl<C: CoordinateSystem> Plot<C> {
     pub fn collect_channels_needing_scales(&self) -> std::collections::HashSet<String> {
         use std::collections::HashSet;
         let mut used_channels = HashSet::new();
-        for mark_config in &self.marks {
-            for (channel, channel_value) in mark_config.data.encodings() {
+        for mark in &self.marks {
+            for (channel, channel_value) in mark.data_context().encodings() {
                 if channel_value.scale_name(channel).is_some() {
                     used_channels.insert(channel.clone());
                 }

@@ -19,8 +19,7 @@ fn test_channel_resolution_simple() {
         .stroke(col(":x")); // stroke -> should resolve to col("month")
 
     // Get the mark config to inspect
-    let config = mark.into_config();
-    let data_ctx = &config.data;
+    let data_ctx = mark.data_context();
 
     // Check that stroke resolves to the same expression as x
     let x_expr = data_ctx.encoding_expr_string("x").unwrap();
@@ -46,8 +45,7 @@ fn test_channel_resolution_with_expression() {
         .opacity(col(":y")); // opacity -> should resolve to SUM(sales)
 
     // Get the mark config to inspect
-    let config = mark.into_config();
-    let data_ctx = &config.data;
+    let data_ctx = mark.data_context();
 
     // Check that opacity resolves to the same expression as y
     let y_expr = data_ctx.encoding_expr_string("y").unwrap();
@@ -71,8 +69,7 @@ fn test_channel_resolution_chained() {
         .stroke(col(":y")); // stroke -> should resolve to col("month") 
 
     // Get the mark config to inspect
-    let config = mark.into_config();
-    let data_ctx = &config.data;
+    let data_ctx = mark.data_context();
 
     // All three should resolve to "month"
     let x_expr = data_ctx.encoding_expr_string("x").unwrap();
@@ -97,8 +94,7 @@ fn test_channel_resolution_unknown_channel() {
         .y(col(":unknown")); // Reference to undefined channel
 
     // Get the mark config to inspect
-    let config = mark.into_config();
-    let data_ctx = &config.data;
+    let data_ctx = mark.data_context();
 
     // Unknown channel reference should be kept as-is
     let y_expr = data_ctx.encoding_expr_string("y").unwrap();
@@ -119,8 +115,7 @@ fn test_channel_resolution_complex_expression() {
         .stroke(col(":x").eq(lit("January"))); // Boolean expression with channel ref
 
     // Get the mark config to inspect
-    let config = mark.into_config();
-    let data_ctx = &config.data;
+    let data_ctx = mark.data_context();
 
     // The :x reference inside the expression should be resolved
     let stroke_expr = data_ctx.encoding_expr_string("stroke").unwrap();

@@ -42,7 +42,7 @@ async fn test_bar_chart_inferred_domain() {
                 .y(lit(0.0).scaled())
                 .y2(col("value"))
                 .fill("#3498db".identity())
-                .stroke("#2980b9".identity())
+                .stroke("crimson".identity())
                 .stroke_width(1.0),
         );
 
