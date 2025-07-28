@@ -1,10 +1,11 @@
 //! Test that scale defaults work correctly for bar charts
 
 use avenger_chart::coords::Cartesian;
+use avenger_chart::marks::ChannelExpr;
 use avenger_chart::marks::ChannelValue;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
-use datafusion::logical_expr::lit;
+use datafusion::logical_expr::{col, lit};
 
 use super::datasets;
 use super::helpers::assert_visual_match_default;
@@ -23,13 +24,13 @@ async fn test_bar_chart_y_scale_auto_zero() {
         .axis_y(|a| a.title("Value").grid(true))
         .mark(
             Rect::new()
-                .x("category")
+                .x(col("category"))
                 .x2(ChannelValue::column("category").with_band(1.0))
-                .y(lit(0.0))
-                .y2("value")
-                .fill((lit("#4682b4"), None::<&str>))
-                .stroke((lit("#000000"), None::<&str>))
-                .stroke_width((lit(1.0), None::<&str>)),
+                .y(lit(0.0).scaled())
+                .y2(col("value"))
+                .fill("#4682b4".identity())
+                .stroke("#000000".identity())
+                .stroke_width(1.0),
         );
 
     // This should produce the same result as bar_chart_inferred_domains
@@ -51,13 +52,13 @@ async fn test_bar_chart_y_scale_no_zero() {
         .axis_y(|a| a.title("Value").grid(true))
         .mark(
             Rect::new()
-                .x("category")
+                .x(col("category"))
                 .x2(ChannelValue::column("category").with_band(1.0))
-                .y(lit(0.0))
-                .y2("value")
-                .fill((lit("#e74c3c"), None::<&str>))
-                .stroke((lit("#c0392b"), None::<&str>))
-                .stroke_width((lit(1.0), None::<&str>)),
+                .y(lit(0.0).scaled())
+                .y2(col("value"))
+                .fill("#e74c3c".identity())
+                .stroke("#c0392b".identity())
+                .stroke_width(1.0),
         );
 
     // Y-axis should start near the data minimum, not at zero

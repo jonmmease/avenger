@@ -6,7 +6,7 @@ use crate::axis::AxisTrait;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::layout::PlotTrait;
-use crate::marks::MarkConfig;
+use crate::marks::{ChannelValue, MarkConfig};
 use crate::plot::Plot;
 use avenger_common::types::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
@@ -245,23 +245,35 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         let x2_channel = encodings.get("x2");
         let y_channel = encodings.get("y");
         let y2_channel = encodings.get("y2");
-        let x_expr = x_channel.map(|ch| &ch.expr);
-        let x2_expr = x2_channel.map(|ch| &ch.expr);
-        let x2_band = x2_channel.and_then(|ch| ch.band);
-        let y_expr = y_channel.map(|ch| &ch.expr);
-        let y2_expr = y2_channel.map(|ch| &ch.expr);
-        let fill_expr = encodings.get("fill").map(|ch| &ch.expr);
-        let stroke_expr = encodings.get("stroke").map(|ch| &ch.expr);
-        let stroke_width_expr = encodings.get("stroke_width").map(|ch| &ch.expr);
+        let x_expr = x_channel.map(|ch| ch.expr());
+        let x2_expr = x2_channel.map(|ch| ch.expr());
+        let x2_band = x2_channel.and_then(|ch| match ch {
+            ChannelValue::Scaled { band, .. } => *band,
+            _ => None,
+        });
+        let y_expr = y_channel.map(|ch| ch.expr());
+        let y2_expr = y2_channel.map(|ch| ch.expr());
+        let fill_expr = encodings.get("fill").map(|ch| ch.expr());
+        let stroke_expr = encodings.get("stroke").map(|ch| ch.expr());
+        let stroke_width_expr = encodings.get("stroke_width").map(|ch| ch.expr());
 
         // Build expressions with scale transformations applied
         let mut select_exprs = vec![];
         let mut channel_names = vec![];
 
-        // For position channels, apply scales if available
+        // For position channels, apply scales if requested
         if let Some(expr) = x_expr {
-            let scaled_expr = if let Some(x_scale) = scales.get("x") {
-                x_scale.to_expr(expr.clone())?
+            let scaled_expr = if let Some(channel) = x_channel {
+                if let Some(scale_name) = channel.scale_name("x") {
+                    if let Some(x_scale) = scales.get(&scale_name) {
+                        x_scale.to_expr(expr.clone())?
+                    } else {
+                        expr.clone()
+                    }
+                } else {
+                    // Identity - use expression as-is
+                    expr.clone()
+                }
             } else {
                 expr.clone()
             };
@@ -270,19 +282,28 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         }
 
         if let Some(expr) = x2_expr {
-            let scaled_expr = if let Some(x_scale) = scales.get("x") {
-                // For x2 with band scale, we need to handle band parameter
-                if x_scale.get_scale_impl().scale_type() == "band" {
-                    // Add band parameter to scale options for x2
-                    let mut x2_scale = x_scale.clone();
-                    if let Some(band) = x2_band {
-                        x2_scale = x2_scale.option("band", lit(band));
+            let scaled_expr = if let Some(channel) = x2_channel {
+                if let Some(scale_name) = channel.scale_name("x2") {
+                    if let Some(x_scale) = scales.get(&scale_name) {
+                        // For x2 with band scale, we need to handle band parameter
+                        if x_scale.get_scale_impl().scale_type() == "band" {
+                            // Add band parameter to scale options for x2
+                            let mut x2_scale = x_scale.clone();
+                            if let Some(band) = x2_band {
+                                x2_scale = x2_scale.option("band", lit(band));
+                            } else {
+                                x2_scale = x2_scale.option("band", lit(1.0));
+                            }
+                            x2_scale.to_expr(expr.clone())?
+                        } else {
+                            x_scale.to_expr(expr.clone())?
+                        }
                     } else {
-                        x2_scale = x2_scale.option("band", lit(1.0));
+                        expr.clone()
                     }
-                    x2_scale.to_expr(expr.clone())?
                 } else {
-                    x_scale.to_expr(expr.clone())?
+                    // Identity - use expression as-is
+                    expr.clone()
                 }
             } else {
                 expr.clone()
@@ -292,8 +313,17 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         }
 
         if let Some(expr) = y_expr {
-            let scaled_expr = if let Some(y_scale) = scales.get("y") {
-                y_scale.to_expr(expr.clone())?
+            let scaled_expr = if let Some(channel) = y_channel {
+                if let Some(scale_name) = channel.scale_name("y") {
+                    if let Some(y_scale) = scales.get(&scale_name) {
+                        y_scale.to_expr(expr.clone())?
+                    } else {
+                        expr.clone()
+                    }
+                } else {
+                    // Identity - use expression as-is
+                    expr.clone()
+                }
             } else {
                 expr.clone()
             };
@@ -302,8 +332,17 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         }
 
         if let Some(expr) = y2_expr {
-            let scaled_expr = if let Some(y_scale) = scales.get("y") {
-                y_scale.to_expr(expr.clone())?
+            let scaled_expr = if let Some(channel) = y2_channel {
+                if let Some(scale_name) = channel.scale_name("y2") {
+                    if let Some(y_scale) = scales.get(&scale_name) {
+                        y_scale.to_expr(expr.clone())?
+                    } else {
+                        expr.clone()
+                    }
+                } else {
+                    // Identity - use expression as-is
+                    expr.clone()
+                }
             } else {
                 expr.clone()
             };

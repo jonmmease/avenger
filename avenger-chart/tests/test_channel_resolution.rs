@@ -14,9 +14,9 @@ fn test_channel_resolution_simple() {
     // Create a line mark with nested channel references
     let mark = Line::<Cartesian>::new()
         .data(df)
-        .x("month") // x -> col("month")
-        .y("sales") // y -> col("sales")
-        .stroke(":x"); // stroke -> should resolve to col("month")
+        .x(ident("month")) // x -> col("month")
+        .y(ident("sales")) // y -> col("sales")
+        .stroke(col(":x")); // stroke -> should resolve to col("month")
 
     // Get the mark config to inspect
     let config = mark.into_config();
@@ -41,9 +41,9 @@ fn test_channel_resolution_with_expression() {
     // Create a line mark with an expression
     let mark = Line::<Cartesian>::new()
         .data(df)
-        .x("month")
+        .x(ident("month"))
         .y(sum(col("sales"))) // y -> SUM(sales)
-        .opacity(":y"); // opacity -> should resolve to SUM(sales)
+        .opacity(col(":y")); // opacity -> should resolve to SUM(sales)
 
     // Get the mark config to inspect
     let config = mark.into_config();
@@ -66,9 +66,9 @@ fn test_channel_resolution_chained() {
     // Create a line mark with chained channel references
     let mark = Line::<Cartesian>::new()
         .data(df)
-        .x("month") // x -> col("month")
-        .y(":x") // y -> should resolve to col("month")
-        .stroke(":y"); // stroke -> should resolve to col("month") 
+        .x(ident("month")) // x -> col("month")
+        .y(col(":x")) // y -> should resolve to col("month")
+        .stroke(col(":y")); // stroke -> should resolve to col("month") 
 
     // Get the mark config to inspect
     let config = mark.into_config();
@@ -91,7 +91,10 @@ fn test_channel_resolution_unknown_channel() {
     let df = ctx.read_empty().unwrap();
 
     // Create a line mark with a reference to an unknown channel
-    let mark = Line::<Cartesian>::new().data(df).x("month").y(":unknown"); // Reference to undefined channel
+    let mark = Line::<Cartesian>::new()
+        .data(df)
+        .x(ident("month"))
+        .y(col(":unknown")); // Reference to undefined channel
 
     // Get the mark config to inspect
     let config = mark.into_config();
@@ -111,8 +114,8 @@ fn test_channel_resolution_complex_expression() {
     // Create a mark with a complex expression containing channel reference
     let mark = Line::<Cartesian>::new()
         .data(df)
-        .x("month")
-        .y("sales")
+        .x(ident("month"))
+        .y(ident("sales"))
         .stroke(col(":x").eq(lit("January"))); // Boolean expression with channel ref
 
     // Get the mark config to inspect

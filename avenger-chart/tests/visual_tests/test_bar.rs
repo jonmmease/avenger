@@ -1,10 +1,10 @@
 //! Visual tests for bar charts
 
 use avenger_chart::coords::Cartesian;
-use avenger_chart::marks::ChannelValue;
 use avenger_chart::marks::rect::Rect;
+use avenger_chart::marks::{ChannelExpr, ChannelValue};
 use avenger_chart::plot::Plot;
-use datafusion::logical_expr::lit;
+use datafusion::logical_expr::{col, lit};
 
 use super::datasets;
 use super::helpers::assert_visual_match_default;
@@ -34,13 +34,13 @@ async fn test_simple_bar_chart() {
         .axis_y(|axis| axis.title("Value").grid(true))
         .mark(
             Rect::new()
-                .x("category")
-                .x2(ChannelValue::column("category").with_band(1.0))
-                .y(lit(0.0))
-                .y2("value")
-                .fill((lit("#4682b4"), None::<&str>))
-                .stroke((lit("#000000"), None::<&str>))
-                .stroke_width((lit(1.0), None::<&str>)),
+                .x(col("category"))
+                .x2(col("category").scaled().with_band(1.0))
+                .y(lit(0.0).scaled())
+                .y2(col("value"))
+                .fill("#4682b4".identity())
+                .stroke("#000000".identity())
+                .stroke_width(1.0),
         );
 
     assert_visual_match_default(plot, "bar", "simple_bar_chart").await;
@@ -71,13 +71,13 @@ async fn test_bar_chart_with_custom_colors() {
         .axis_y(|a| a.title("Value"))
         .mark(
             Rect::new()
-                .x("category")
-                .x2(ChannelValue::column("category").with_band(1.0))
-                .y(lit(0.0))
-                .y2("value")
-                .fill((lit("#e74c3c"), None::<&str>))
-                .stroke((lit("#c0392b"), None::<&str>))
-                .stroke_width((lit(2.0), None::<&str>)),
+                .x(col("category"))
+                .x2(col("category").scaled().with_band(1.0))
+                .y(lit(0.0).scaled())
+                .y2(col("value"))
+                .fill("#e74c3c".identity())
+                .stroke("#c0392b".identity())
+                .stroke_width(2.0),
         );
 
     assert_visual_match_default(plot, "bar", "bar_chart_custom_colors").await;
@@ -108,13 +108,13 @@ async fn test_bar_chart_with_narrow_bars() {
         .axis_y(|a| a.title("Value").grid(true))
         .mark(
             Rect::new()
-                .x("category")
+                .x(col("category"))
                 .x2(ChannelValue::column("category").with_band(0.7)) // 70% of band width
-                .y(lit(0.0))
-                .y2("value")
-                .fill((lit("#3498db"), None::<&str>))
-                .stroke((lit("#2980b9"), None::<&str>))
-                .stroke_width((lit(1.5), None::<&str>)),
+                .y(lit(0.0).scaled())
+                .y2(col("value"))
+                .fill("#3498db".identity())
+                .stroke("#2980b9".identity())
+                .stroke_width(1.5),
         );
 
     assert_visual_match_default(plot, "bar", "bar_chart_narrow_bars").await;
@@ -131,13 +131,13 @@ async fn test_bar_chart_inferred_domains() {
         .axis_y(|a| a.title("Value").grid(true))
         .mark(
             Rect::new()
-                .x("category")
-                .x2(ChannelValue::column("category").with_band(1.0))
-                .y(lit(0.0))
-                .y2("value")
-                .fill((lit("#4682b4"), None::<&str>))
-                .stroke((lit("#000000"), None::<&str>))
-                .stroke_width((lit(1.0), None::<&str>)),
+                .x(col("category"))
+                .x2(col("category").scaled().with_band(1.0))
+                .y(lit(0.0).scaled())
+                .y2(col("value"))
+                .fill("#4682b4".identity())
+                .stroke("#000000".identity())
+                .stroke_width(1.0),
         );
 
     assert_visual_match_default(plot, "bar", "bar_chart_inferred_domains").await;
@@ -172,10 +172,10 @@ async fn test_bar_chart_color_case_expression() {
         .axis_y(|a| a.title("Value").grid(true))
         .mark(
             Rect::new()
-                .x("category")
-                .x2(ChannelValue::column("category").with_band(1.0))
-                .y(lit(0.0))
-                .y2("value")
+                .x(col("category"))
+                .x2(col("category").scaled().with_band(1.0))
+                .y(lit(0.0).scaled())
+                .y2(col("value"))
                 // Use conditional expressions to create a gradient effect
                 // Colors range from light blue-grey for low values to dark blue for high values
                 .fill(ChannelValue::no_scale(
@@ -186,9 +186,9 @@ async fn test_bar_chart_color_case_expression() {
                         .otherwise(lit("#0a3d62")) // Dark blue
                         .unwrap(),
                 ))
-                .stroke((lit("#222222"), None::<&str>))
-                .stroke_width((lit(1.0), None::<&str>))
-                .opacity((lit(0.9), None::<&str>)),
+                .stroke("#222222".identity())
+                .stroke_width(1.0)
+                .opacity(0.9),
         );
 
     assert_visual_match_default(plot, "bar", "bar_chart_color_case_expression").await;

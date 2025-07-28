@@ -1,4 +1,5 @@
 use avenger_chart::coords::Cartesian;
+use avenger_chart::marks::ChannelExpr;
 use avenger_chart::marks::ChannelValue;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
@@ -35,11 +36,11 @@ async fn test_data_domain_inference() -> Result<(), Box<dyn std::error::Error>> 
         .scale_y(|s| s) // Should infer numeric domain from value column
         .mark(
             Rect::new()
-                .x("category")
+                .x(col("category"))
                 .x2(ChannelValue::column("category").with_band(1.0))
-                .y(lit(0.0))
-                .y2("value")
-                .fill((lit("#4682b4"), None::<&str>)),
+                .y(lit(0.0).scaled())
+                .y2(col("value"))
+                .fill(lit("#4682b4").identity()),
         );
 
     // Apply default domain to x scale
@@ -128,11 +129,11 @@ async fn test_numeric_domain_inference() -> Result<(), Box<dyn std::error::Error
         .scale_y(|s| s) // Should compute min/max from y column
         .mark(
             Rect::new()
-                .x("x")
+                .x(col("x"))
                 .x2(col("x").add(lit(2.0)))
-                .y("y")
+                .y(col("y"))
                 .y2(col("y").add(lit(2.0)))
-                .fill((lit("#ff0000"), None::<&str>)),
+                .fill(lit("#ff0000").identity()),
         );
 
     // Apply default domains
@@ -195,11 +196,11 @@ async fn test_scale_options_preserved_during_domain_inference()
         .scale_y(|s| s.option("zero", lit(true)).option("nice", lit(true)))
         .mark(
             Rect::new()
-                .x("category")
+                .x(col("category"))
                 .x2(ChannelValue::column("category").with_band(1.0))
-                .y(lit(0.0))
-                .y2("value")
-                .fill((lit("#4682b4"), None::<&str>)),
+                .y(lit(0.0).scaled())
+                .y2(col("value"))
+                .fill(lit("#4682b4").identity()),
         );
 
     // Apply default domains

@@ -1,10 +1,11 @@
 //! Visual tests for various scales with color ranges
 
 use avenger_chart::coords::Cartesian;
+use avenger_chart::marks::ChannelExpr;
 use avenger_chart::marks::ChannelValue;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
-use datafusion::logical_expr::lit;
+use datafusion::logical_expr::{col, lit};
 use palette::rgb::Srgba;
 
 use super::datasets;
@@ -45,14 +46,14 @@ async fn test_bar_chart_linear_color_interpolation() {
         .axis_y(|a| a.title("Value").grid(true))
         .mark(
             Rect::new()
-                .x("category")
+                .x(col("category"))
                 .x2(ChannelValue::column("category").with_band(1.0))
-                .y(lit(0.0))
-                .y2("value")
-                .fill("value") // Map value through the linear color scale
-                .stroke((lit("#333333"), None::<&str>))
-                .stroke_width((lit(0.5), None::<&str>))
-                .opacity((lit(0.95), None::<&str>)),
+                .y(lit(0.0).scaled())
+                .y2(col("value"))
+                .fill(col("value")) // Map value through the linear color scale
+                .stroke("#333333".identity())
+                .stroke_width(0.5)
+                .opacity(0.95),
         );
 
     assert_visual_match_default(
@@ -99,14 +100,14 @@ async fn test_bar_chart_log_color_interpolation() {
         .axis_y(|a| a.title("Value").grid(true))
         .mark(
             Rect::new()
-                .x("category")
+                .x(col("category"))
                 .x2(ChannelValue::column("category").with_band(1.0))
-                .y(lit(0.0))
-                .y2("value")
-                .fill("value") // Map value through the log color scale
-                .stroke((lit("#222222"), None::<&str>))
-                .stroke_width((lit(0.5), None::<&str>))
-                .opacity((lit(0.95), None::<&str>)),
+                .y(lit(0.0).scaled())
+                .y2(col("value"))
+                .fill(col("value")) // Map value through the log color scale
+                .stroke("#222222".identity())
+                .stroke_width(0.5)
+                .opacity(0.95),
         );
 
     assert_visual_match_default(plot, "bar_scale_color", "bar_chart_log_color_interpolation").await;
@@ -148,14 +149,14 @@ async fn test_bar_chart_pow_color_interpolation() {
         .axis_y(|a| a.title("Value").grid(true))
         .mark(
             Rect::new()
-                .x("category")
+                .x(col("category"))
                 .x2(ChannelValue::column("category").with_band(1.0))
-                .y(lit(0.0))
-                .y2("value")
-                .fill("value") // Map value through the power color scale
-                .stroke((lit("#333333"), None::<&str>))
-                .stroke_width((lit(0.5), None::<&str>))
-                .opacity((lit(0.95), None::<&str>)),
+                .y(lit(0.0).scaled())
+                .y2(col("value"))
+                .fill(col("value")) // Map value through the power color scale
+                .stroke("#333333".identity())
+                .stroke_width(0.5)
+                .opacity(0.95),
         );
 
     assert_visual_match_default(plot, "bar_scale_color", "bar_chart_pow_color_interpolation").await;
@@ -196,13 +197,13 @@ async fn test_bar_chart_sqrt_color_interpolation() {
         .axis_y(|a| a.title("Value").grid(true))
         .mark(
             Rect::new()
-                .x("category")
+                .x(col("category"))
                 .x2(ChannelValue::column("category").with_band(1.0))
-                .y(lit(0.0))
-                .y2("value")
-                .fill("value") // Map value through the sqrt color scale
-                .stroke((lit("#222222"), None::<&str>))
-                .stroke_width((lit(0.75), None::<&str>)),
+                .y(lit(0.0).scaled())
+                .y2(col("value"))
+                .fill(col("value")) // Map value through the sqrt color scale
+                .stroke("#222222".identity())
+                .stroke_width(0.75),
         );
 
     assert_visual_match_default(
@@ -250,14 +251,14 @@ async fn test_bar_chart_threshold_scale_colors() {
         .axis_y(|a| a.title("Value").grid(true))
         .mark(
             Rect::new()
-                .x("category")
+                .x(col("category"))
                 .x2(ChannelValue::column("category").with_band(1.0))
-                .y(lit(0.0))
-                .y2("value")
-                .fill("value") // Map value through the threshold scale
-                .stroke((lit("#222222"), None::<&str>))
-                .stroke_width((lit(1.0), None::<&str>))
-                .opacity((lit(0.9), None::<&str>)),
+                .y(lit(0.0).scaled())
+                .y2(col("value"))
+                .fill(col("value")) // Map value through the threshold scale
+                .stroke("#222222".identity())
+                .stroke_width(1.0)
+                .opacity(0.9),
         );
 
     assert_visual_match_default(plot, "bar_scale_color", "bar_chart_threshold_scale_colors").await;
@@ -296,13 +297,13 @@ async fn test_bar_chart_linear_color_cool_warm() {
         .axis_y(|a| a.title("Value").grid(true))
         .mark(
             Rect::new()
-                .x("category")
+                .x(col("category"))
                 .x2(ChannelValue::column("category").with_band(1.0))
-                .y(lit(0.0))
-                .y2("value")
-                .fill("value")
-                .stroke((lit("#222222"), None::<&str>))
-                .stroke_width((lit(1.0), None::<&str>)),
+                .y(lit(0.0).scaled())
+                .y2(col("value"))
+                .fill(col("value"))
+                .stroke("#222222".identity())
+                .stroke_width(1.0),
         );
 
     assert_visual_match_default(plot, "bar_scale_color", "bar_chart_linear_color_cool_warm").await;
