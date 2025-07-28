@@ -1,6 +1,7 @@
 //! Visual tests for data domain inference
 
 use avenger_chart::coords::Cartesian;
+use avenger_chart::marks::ChannelExpr;
 use avenger_chart::marks::ChannelValue;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
@@ -36,13 +37,13 @@ async fn test_bar_chart_inferred_domain() {
         .axis_y(|a| a.title("Value").grid(true))
         .mark(
             Rect::new()
-                .x("category")
+                .x(col("category"))
                 .x2(ChannelValue::column("category").with_band(1.0))
-                .y(lit(0.0))
-                .y2("value")
-                .fill((lit("#3498db"), None::<&str>))
-                .stroke((lit("#2980b9"), None::<&str>))
-                .stroke_width((lit(1.0), None::<&str>)),
+                .y(lit(0.0).scaled())
+                .y2(col("value"))
+                .fill("#3498db".identity())
+                .stroke("#2980b9".identity())
+                .stroke_width(1.0),
         );
 
     // Apply domain inference
@@ -85,8 +86,8 @@ async fn test_scatter_plot_inferred_domain() {
                 .x2(col("x").add(lit(2.0)))
                 .y(col("y").sub(lit(2.0)))
                 .y2(col("y").add(lit(2.0)))
-                .fill((lit("#e74c3c"), None::<&str>))
-                .opacity((lit(0.7), None::<&str>)),
+                .fill("#e74c3c".identity())
+                .opacity(0.7),
         );
 
     // Apply domain inference from expressions

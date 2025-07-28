@@ -114,6 +114,6 @@ pub fn get_default_scale_options(
 
         _ => {}
     }
-    
+
     options
 }

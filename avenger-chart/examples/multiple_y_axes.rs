@@ -1,4 +1,5 @@
 use avenger_chart::coords::Cartesian;
+use avenger_chart::marks::ChannelExpr;
 use avenger_chart::marks::line::Line;
 use avenger_chart::plot::Plot;
 use datafusion::arrow::array::Float64Array;
@@ -46,16 +47,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Add temperature line using default y scale
         .mark(
             Line::new()
-                .x("day")
-                .y("temperature")
+                .x(ident("day"))
+                .y(ident("temperature"))
                 .stroke(lit("#ff0000"))
                 .stroke_width(lit(2.0)),
         )
         // Add humidity line using alternative y scale
         .mark(
             Line::new()
-                .x("day")
-                .y((ident("humidity"), "y_humidity"))
+                .x(ident("day"))
+                .y(ident("humidity").scaled().with_scale("y_humidity"))
                 .stroke(lit("#0000ff"))
                 .stroke_width(lit(2.0)),
         );

@@ -384,7 +384,7 @@ impl<C: CoordinateSystem> Plot<C> {
 
                 // Try to get the data type of the expression
                 let schema = df.schema();
-                if let Ok(expr_type) = channel_value.expr.get_type(schema) {
+                if let Ok(expr_type) = channel_value.expr().get_type(schema) {
                     data_type = Some(expr_type);
                     mark_type = Some(mark_config.mark_type.as_str());
                     break;
@@ -522,7 +522,7 @@ impl<C: CoordinateSystem> Plot<C> {
                 if let Some(channel_scale_name) = channel_value.scale_name(channel) {
                     if channel_scale_name == scale_name {
                         // Add the expression directly
-                        data_expressions.push((df.clone(), channel_value.expr.clone()));
+                        data_expressions.push((df.clone(), channel_value.expr().clone()));
                     }
                 }
             }

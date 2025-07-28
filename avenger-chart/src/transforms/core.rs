@@ -80,20 +80,33 @@ impl DataContext {
         // Resolve any channel references in the expression
         let resolved_expr = self.resolve_channel_refs(expr);
 
-        // Store the encoding
+        // Store the encoding - assume scaled by default for transforms
         self.encodings
-            .insert(channel.to_string(), ChannelValue::new(resolved_expr));
+            .insert(channel.to_string(), resolved_expr.into());
 
         self
     }
 
     /// Set or update an encoding with a ChannelValue
-    pub fn with_channel_value(mut self, channel: &str, mut value: ChannelValue) -> Self {
+    pub fn with_channel_value(mut self, channel: &str, value: ChannelValue) -> Self {
         // Resolve any channel references in the expression
-        value.expr = self.resolve_channel_refs(value.expr);
+        let resolved_value = match value {
+            ChannelValue::Scaled {
+                expr,
+                scale_name,
+                band,
+            } => ChannelValue::Scaled {
+                expr: self.resolve_channel_refs(expr),
+                scale_name,
+                band,
+            },
+            ChannelValue::Identity { expr } => ChannelValue::Identity {
+                expr: self.resolve_channel_refs(expr),
+            },
+        };
 
         // Store the encoding
-        self.encodings.insert(channel.to_string(), value);
+        self.encodings.insert(channel.to_string(), resolved_value);
 
         self
     }
@@ -128,7 +141,7 @@ impl DataContext {
     /// For complex expressions, returns ":channel"
     pub fn encoding(&self, channel: &str) -> Option<String> {
         self.encodings.get(channel).map(|channel_value| {
-            if let datafusion::logical_expr::Expr::Column(col) = &channel_value.expr {
+            if let datafusion::logical_expr::Expr::Column(col) = channel_value.expr() {
                 col.name.clone()
             } else {
                 format!(":{}", channel)
@@ -138,12 +151,12 @@ impl DataContext {
 
     /// Get the expression for a channel
     pub fn encoding_expr(&self, channel: &str) -> Option<&datafusion::logical_expr::Expr> {
-        self.encodings.get(channel).map(|cv| &cv.expr)
+        self.encodings.get(channel).map(|cv| cv.expr())
     }
 
     /// Get the expression string for a channel
     pub fn encoding_expr_string(&self, channel: &str) -> Option<String> {
-        self.encodings.get(channel).map(|cv| cv.expr.to_string())
+        self.encodings.get(channel).map(|cv| cv.expr().to_string())
     }
 
     /// Get metadata for a channel
@@ -180,7 +193,7 @@ impl DataContext {
                     if let Some(channel_value) = self.encodings.get(channel_name) {
                         // Return the expression for this channel
                         // Note: we clone here to avoid infinite recursion
-                        Ok(Transformed::yes(channel_value.expr.clone()))
+                        Ok(Transformed::yes(channel_value.expr().clone()))
                     } else {
                         // Channel not found, keep the original column reference
                         Ok(Transformed::no(e))
