@@ -18,7 +18,7 @@ macro_rules! define_common_mark_channels {
             $(
                 pub fn $name<V: Into<$crate::marks::ChannelValue>>(mut self, value: V) -> Self {
                     let channel_value = value.into();
-                    self.config.data = self.config.data.with_channel_value(stringify!($name), channel_value);
+                    self.state.data = self.state.data.with_channel_value(stringify!($name), channel_value);
                     self
                 }
             )*
@@ -61,7 +61,7 @@ macro_rules! define_position_mark_channels {
             $(
                 pub fn $name<V: Into<$crate::marks::ChannelValue>>(mut self, value: V) -> Self {
                     let channel_value = value.into();
-                    self.config.data = self.config.data.with_channel_value(stringify!($name), channel_value);
+                    self.state.data = self.state.data.with_channel_value(stringify!($name), channel_value);
                     self
                 }
             )*
@@ -90,4 +90,3 @@ macro_rules! define_position_mark_channels {
         }
     };
 }
-

@@ -6,10 +6,8 @@ use crate::axis::AxisTrait;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::layout::PlotTrait;
-use crate::marks::{ChannelValue, MarkConfig};
+use crate::marks::{ChannelValue, Mark};
 use crate::plot::Plot;
-use avenger_common::types::ColorOrGradient;
-use avenger_common::value::ScalarOrArray;
 use avenger_guides::axis::{
     band::make_band_axis_marks,
     numeric::make_numeric_axis_marks,
@@ -17,10 +15,11 @@ use avenger_guides::axis::{
 };
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, PngCanvas};
-use datafusion::arrow::array::{Array, Float32Array, Float64Array};
+use datafusion::arrow::datatypes::{Field, Schema};
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::logical_expr::Expr;
 use std::sync::Arc;
 
 /// Result of rendering a plot to scene graph components
@@ -138,11 +137,11 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
 
         // Debug rects removed for cleaner output
 
-        for mark_config in &self.plot.marks {
-            let mark_group = self
-                .render_mark(mark_config, &scales, plot_area_width, plot_area_height)
+        for mark in &self.plot.marks {
+            let scene_marks = self
+                .render_mark(mark.as_ref(), &scales, plot_area_width, plot_area_height)
                 .await?;
-            mark_groups.push(mark_group);
+            mark_groups.extend(scene_marks);
         }
 
         // Create axes
@@ -194,25 +193,144 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         })
     }
 
-    /// Render a single mark to scene marks
+    /// Check if an expression references any columns
+    fn references_columns(expr: &Expr) -> bool {
+        match expr {
+            Expr::Column(_) => true,
+            Expr::Literal(..) => false,
+            Expr::ScalarFunction(func) => func.args.iter().any(|arg| Self::references_columns(arg)),
+            Expr::BinaryExpr(binary) => {
+                Self::references_columns(&binary.left) || Self::references_columns(&binary.right)
+            }
+            Expr::Alias(alias) => Self::references_columns(&alias.expr),
+            Expr::Cast(cast) => Self::references_columns(&cast.expr),
+            Expr::TryCast(cast) => Self::references_columns(&cast.expr),
+            Expr::Not(expr) => Self::references_columns(expr),
+            Expr::IsNull(expr) => Self::references_columns(expr),
+            Expr::IsNotNull(expr) => Self::references_columns(expr),
+            Expr::IsTrue(expr) => Self::references_columns(expr),
+            Expr::IsFalse(expr) => Self::references_columns(expr),
+            Expr::IsUnknown(expr) => Self::references_columns(expr),
+            Expr::IsNotTrue(expr) => Self::references_columns(expr),
+            Expr::IsNotFalse(expr) => Self::references_columns(expr),
+            Expr::IsNotUnknown(expr) => Self::references_columns(expr),
+            Expr::Negative(expr) => Self::references_columns(expr),
+            Expr::Case(case) => {
+                let expr_refs = case
+                    .expr
+                    .as_ref()
+                    .map(|e| Self::references_columns(e))
+                    .unwrap_or(false);
+                let when_refs = case.when_then_expr.iter().any(|(when, then)| {
+                    Self::references_columns(when) || Self::references_columns(then)
+                });
+                let else_refs = case
+                    .else_expr
+                    .as_ref()
+                    .map(|e| Self::references_columns(e))
+                    .unwrap_or(false);
+                expr_refs || when_refs || else_refs
+            }
+            _ => false, // For other expression types, conservatively assume no column references
+        }
+    }
+
+    /// Render a single mark to scene marks using the new Mark trait
     async fn render_mark(
         &self,
-        mark_config: &MarkConfig<C>,
+        mark: &dyn Mark<C>,
         scales: &crate::scales::ScaleRegistry,
-        plot_width: f32,
-        plot_height: f32,
-    ) -> Result<SceneMark, AvengerChartError> {
-        match mark_config.mark_type.as_str() {
-            "rect" => {
-                self.render_rect_mark(mark_config, scales, plot_width, plot_height)
-                    .await
+        _plot_width: f32,
+        _plot_height: f32,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        // Get the data - either from mark or inherit from plot
+        let df = match mark.data_source() {
+            crate::marks::DataSource::Explicit => mark.data_context().dataframe(),
+            crate::marks::DataSource::Inherited => {
+                // Get plot-level data
+                self.plot.data.as_ref().ok_or_else(|| {
+                    AvengerChartError::InternalError(
+                        "Mark expects inherited data but plot has no data".to_string(),
+                    )
+                })?
             }
-            "line" => todo!("Implement line mark rendering"),
-            "symbol" => todo!("Implement symbol mark rendering"),
-            _ => Err(AvengerChartError::MarkTypeLookupError(
-                mark_config.mark_type.clone(),
-            )),
+        };
+
+        // Get channel mappings from DataContext
+        let encodings = mark.data_context().encodings();
+
+        // Get supported channels from the mark
+        let supported_channels = mark.supported_channels();
+
+        // Separate channels into those that need array data vs scalar data
+        let mut array_channels = Vec::new();
+        let mut scalar_channels = Vec::new();
+        let mut has_array_data = false;
+
+        for channel_desc in &supported_channels {
+            if let Some(channel_value) = encodings.get(channel_desc.name) {
+                // Apply scaling to get the final expression
+                let scaled_expr =
+                    self.apply_channel_scale(channel_desc.name, channel_value, scales)?;
+
+                // Check if this channel references columns (needs array data)
+                if channel_desc.allow_column_ref && Self::references_columns(&scaled_expr) {
+                    array_channels.push((channel_desc.name, scaled_expr));
+                    has_array_data = true;
+                } else {
+                    scalar_channels.push((channel_desc.name, scaled_expr));
+                }
+            }
         }
+
+        // Build array data batch if needed
+        let data_batch = if has_array_data {
+            let mut select_exprs = vec![];
+            for (name, expr) in &array_channels {
+                select_exprs.push(expr.clone().alias(*name));
+            }
+
+            let batch = df.clone().select(select_exprs)?.collect().await?;
+
+            if batch.is_empty() {
+                None
+            } else {
+                Some(batch[0].clone())
+            }
+        } else {
+            None
+        };
+
+        // Build scalar batch - always needed, even if empty
+        let scalar_batch = {
+            let mut select_exprs = vec![];
+            for (name, expr) in &scalar_channels {
+                select_exprs.push(expr.clone().alias(*name));
+            }
+
+            if select_exprs.is_empty() {
+                // Create empty batch with single row
+                RecordBatch::try_new(Arc::new(Schema::new(vec![] as Vec<Field>)), vec![]).unwrap()
+            } else {
+                // Execute query to get scalar values
+                let batches = df
+                    .clone()
+                    .select(select_exprs)?
+                    .limit(0, Some(1))? // Only need one row for scalars
+                    .collect()
+                    .await?;
+
+                if batches.is_empty() {
+                    RecordBatch::try_new(Arc::new(Schema::new(vec![] as Vec<Field>)), vec![])
+                        .unwrap()
+                } else {
+                    batches[0].clone()
+                }
+            }
+        };
+
+        // Call the mark's render_from_data method
+        mark.render_from_data(data_batch.as_ref(), &scalar_batch)
     }
 
     /// Apply scaling transformation to a channel expression
@@ -251,10 +369,11 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
 
                 // Handle band parameter for any scale that supports it
                 let scale = if let Some(band_value) = band {
-                    if scale.get_scale_impl().scale_type() == "band" {
+                    let scale_type = scale.get_scale_impl().scale_type();
+                    if scale_type == "band" || scale_type == "point" {
                         scale.clone().option("band", lit(*band_value))
                     } else {
-                        // Ignore band parameter for non-band scales
+                        // Ignore band parameter for non-band/point scales
                         scale.clone()
                     }
                 } else {
@@ -264,259 +383,6 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                 // Apply the scale transformation
                 scale.to_expr(expr.clone())
             }
-        }
-    }
-
-    /// Render a rect mark (for bar charts, heatmaps, etc.)
-    async fn render_rect_mark(
-        &self,
-        mark_config: &MarkConfig<C>,
-        scales: &crate::scales::ScaleRegistry,
-        _plot_width: f32,
-        _plot_height: f32,
-    ) -> Result<SceneMark, AvengerChartError> {
-        // Get the data - either from mark or inherit from plot
-        let df = match &mark_config.data_source {
-            crate::marks::DataSource::Explicit => mark_config.data.dataframe(),
-            crate::marks::DataSource::Inherited => {
-                // Get plot-level data
-                self.plot.data.as_ref().ok_or_else(|| {
-                    AvengerChartError::InternalError(
-                        "Mark expects inherited data but plot has no data".to_string(),
-                    )
-                })?
-            }
-        };
-
-        // Get channel mappings from DataContext
-        let encodings = mark_config.data.encodings();
-
-        // Define all channels to process
-        let channels = [
-            ("x", encodings.get("x")),
-            ("x2", encodings.get("x2")),
-            ("y", encodings.get("y")),
-            ("y2", encodings.get("y2")),
-            ("fill", encodings.get("fill")),
-            ("stroke", encodings.get("stroke")),
-            ("stroke_width", encodings.get("stroke_width")),
-            ("opacity", encodings.get("opacity")),
-            // Additional channels can be added here
-        ];
-
-        let mut select_exprs = vec![];
-        let mut channel_names = vec![];
-
-        // Process all channels uniformly
-        for (name, channel_opt) in channels {
-            if let Some(channel) = channel_opt {
-                let scaled_expr = self.apply_channel_scale(name, channel, scales)?;
-                select_exprs.push(scaled_expr.alias(name));
-                channel_names.push(name);
-            }
-        }
-
-        // Execute the query to get the data
-        let result_df = df.clone().select(select_exprs)?;
-        let batches = result_df.collect().await?;
-
-        if batches.is_empty() {
-            // Return empty rect mark
-            return Ok(SceneMark::Rect(SceneRectMark {
-                name: "rect".to_string(),
-                clip: true,
-                len: 0,
-                gradients: vec![],
-                x: ScalarOrArray::new_scalar(0.0),
-                y: ScalarOrArray::new_scalar(0.0),
-                width: None,
-                height: None,
-                x2: None,
-                y2: None,
-                fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.5, 0.5, 0.5, 1.0])),
-                stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
-                stroke_width: ScalarOrArray::new_scalar(1.0),
-                corner_radius: ScalarOrArray::new_scalar(0.0),
-                indices: None,
-                zindex: mark_config.zindex,
-            }));
-        }
-
-        // Get the first batch (assuming single batch for now)
-        let batch = &batches[0];
-        let num_rows = batch.num_rows();
-
-        // Extract scaled values from the DataFrame results
-        // The scale UDFs have already transformed the values to pixel coordinates
-        let x_values = Self::extract_numeric_channel(batch, &channel_names, "x");
-        let x2_values = Self::extract_numeric_channel(batch, &channel_names, "x2");
-        let y_values = Self::extract_numeric_channel(batch, &channel_names, "y");
-        let y2_values = Self::extract_numeric_channel(batch, &channel_names, "y2");
-
-        // Get fill color
-        let fill_value = self.process_color_channel(
-            batch,
-            &channel_names,
-            "fill",
-            [0.27, 0.51, 0.71, 1.0], // Default steel blue
-        );
-
-        // Get stroke color
-        let stroke_value = self.process_color_channel(
-            batch,
-            &channel_names,
-            "stroke",
-            [0.0, 0.0, 0.0, 1.0], // Default black
-        );
-
-        // Get stroke width
-        let stroke_width_value = if channel_names.contains(&"stroke_width") {
-            let col_idx = channel_names
-                .iter()
-                .position(|&c| c == "stroke_width")
-                .unwrap();
-            let sw_array = batch.column(col_idx);
-            if let Some(f64_array) = sw_array.as_any().downcast_ref::<Float64Array>() {
-                if f64_array.len() == 1 && !f64_array.is_null(0) {
-                    ScalarOrArray::new_scalar(f64_array.value(0) as f32)
-                } else {
-                    ScalarOrArray::new_scalar(1.0)
-                }
-            } else {
-                ScalarOrArray::new_scalar(1.0)
-            }
-        } else {
-            ScalarOrArray::new_scalar(1.0)
-        };
-
-        // Create SceneRectMark
-        let rect_mark = SceneRectMark {
-            name: "rect".to_string(),
-            clip: true,
-            len: num_rows as u32,
-            gradients: vec![],
-            x: ScalarOrArray::new_array(x_values),
-            y: ScalarOrArray::new_array(y_values),
-            width: None,
-            height: None,
-            x2: Some(ScalarOrArray::new_array(x2_values)),
-            y2: Some(ScalarOrArray::new_array(y2_values)),
-            fill: fill_value,
-            stroke: stroke_value,
-            stroke_width: stroke_width_value,
-            corner_radius: ScalarOrArray::new_scalar(0.0),
-            indices: None,
-            zindex: mark_config.zindex,
-        };
-
-        Ok(SceneMark::Rect(rect_mark))
-    }
-
-    /// Extract numeric values from a channel in the batch
-    fn extract_numeric_channel(
-        batch: &datafusion::arrow::record_batch::RecordBatch,
-        channel_names: &[&str],
-        channel_name: &str,
-    ) -> Vec<f32> {
-        if let Some(col_idx) = channel_names.iter().position(|&c| c == channel_name) {
-            let array = batch.column(col_idx);
-            let num_rows = batch.num_rows();
-
-            if let Some(float_array) = array.as_any().downcast_ref::<Float32Array>() {
-                (0..num_rows).map(|i| float_array.value(i)).collect()
-            } else if let Some(float64_array) = array.as_any().downcast_ref::<Float64Array>() {
-                (0..num_rows)
-                    .map(|i| float64_array.value(i) as f32)
-                    .collect()
-            } else {
-                vec![]
-            }
-        } else {
-            vec![]
-        }
-    }
-
-    /// Process a color channel from the batch, handling both scalar and array cases
-    fn process_color_channel(
-        &self,
-        batch: &datafusion::arrow::record_batch::RecordBatch,
-        channel_names: &[&str],
-        channel_name: &str,
-        default_color: [f32; 4],
-    ) -> ScalarOrArray<ColorOrGradient> {
-        if channel_names.contains(&channel_name) {
-            let col_idx = channel_names
-                .iter()
-                .position(|&c| c == channel_name)
-                .unwrap();
-            let color_array = batch.column(col_idx);
-
-            if let Some(list_array) = color_array
-                .as_any()
-                .downcast_ref::<datafusion::arrow::array::ListArray>()
-            {
-                // Handle ListArray output from color scales (e.g., threshold scale)
-                // Each element should be a Float32Array with RGBA values
-                if list_array.len() == 1 && !list_array.is_null(0) {
-                    // Single color for all instances
-                    let rgba_array = list_array.value(0);
-                    if let Some(f32_array) = rgba_array.as_any().downcast_ref::<Float32Array>() {
-                        if f32_array.len() >= 4 {
-                            let color = [
-                                f32_array.value(0),
-                                f32_array.value(1),
-                                f32_array.value(2),
-                                f32_array.value(3),
-                            ];
-                            ScalarOrArray::new_scalar(ColorOrGradient::Color(color))
-                        } else {
-                            ScalarOrArray::new_scalar(ColorOrGradient::Color(default_color))
-                        }
-                    } else {
-                        ScalarOrArray::new_scalar(ColorOrGradient::Color(default_color))
-                    }
-                } else if list_array.len() > 1 {
-                    // Multiple colors - one per instance
-                    let mut colors = Vec::with_capacity(list_array.len());
-                    for i in 0..list_array.len() {
-                        if list_array.is_null(i) {
-                            colors.push(default_color);
-                        } else {
-                            let rgba_array = list_array.value(i);
-                            if let Some(f32_array) =
-                                rgba_array.as_any().downcast_ref::<Float32Array>()
-                            {
-                                if f32_array.len() >= 4 {
-                                    let color = [
-                                        f32_array.value(0),
-                                        f32_array.value(1),
-                                        f32_array.value(2),
-                                        f32_array.value(3),
-                                    ];
-                                    colors.push(color);
-                                } else {
-                                    colors.push(default_color);
-                                }
-                            } else {
-                                colors.push(default_color);
-                            }
-                        }
-                    }
-                    // Convert to ColorOrGradient array
-                    let color_gradients: Vec<ColorOrGradient> =
-                        colors.into_iter().map(ColorOrGradient::Color).collect();
-                    ScalarOrArray::new_array(color_gradients)
-                } else {
-                    // Empty array or all nulls
-                    ScalarOrArray::new_scalar(ColorOrGradient::Color(default_color))
-                }
-            } else {
-                // Not a string array or list array
-                ScalarOrArray::new_scalar(ColorOrGradient::Color(default_color))
-            }
-        } else {
-            // Channel not present
-            ScalarOrArray::new_scalar(ColorOrGradient::Color(default_color))
         }
     }
 
@@ -618,8 +484,8 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                 // Scale type determined
 
                 let axis_group = match scale_type {
-                    "band" => {
-                        // Creating band axis
+                    "band" | "point" => {
+                        // Creating band/point axis
                         let result = make_band_axis_marks(
                             &configured_scale,
                             axis.title.as_deref().unwrap_or(""),
@@ -628,11 +494,11 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                         );
                         match result {
                             Ok(group) => {
-                                // Band axis created successfully
+                                // Band/point axis created successfully
                                 group
                             }
                             Err(e) => {
-                                // Error creating band axis
+                                // Error creating band/point axis
                                 return Err(e.into());
                             }
                         }

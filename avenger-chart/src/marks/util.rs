@@ -1,12 +1,94 @@
-//! Utility functions for extracting channel values from batches and scalars
+//! Utility functions for extracting channel values from batches
 
 use crate::error::AvengerChartError;
 use avenger_common::types::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
-use datafusion::arrow::array::{Array, Float32Array, Float64Array, ListArray, StringArray};
+use avenger_scales::scales::coerce::Coercer;
+use datafusion::arrow::array::{
+    Array, ArrayRef, Float32Array, Float64Array, ListArray, StringArray,
+};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::scalar::ScalarValue;
 use std::collections::HashMap;
+
+/// Coerce a channel from either data or scalar batch using the provided coercion function
+/// First checks data batch for array values, then scalar batch for scalar values
+pub fn coerce_channel<T, F>(
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    coerce_fn: F,
+    default: T,
+) -> Result<ScalarOrArray<T>, AvengerChartError>
+where
+    T: Clone + Sync,
+    F: Fn(
+        &Coercer,
+        &ArrayRef,
+    ) -> Result<ScalarOrArray<T>, avenger_scales::error::AvengerScaleError>,
+{
+    let coercer = Coercer::default();
+
+    // First check data batch for array values
+    if let Some(data_batch) = data {
+        if let Some(array) = data_batch.column_by_name(channel) {
+            return coerce_fn(&coercer, array)
+                .map_err(|e| AvengerChartError::InternalError(e.to_string()));
+        }
+    }
+
+    // Then check scalar batch
+    if let Some(array) = scalars.column_by_name(channel) {
+        coerce_fn(&coercer, array)
+            .map(|v| v.to_scalar_if_len_one())
+            .map_err(|e| AvengerChartError::InternalError(e.to_string()))
+    } else {
+        Ok(ScalarOrArray::new_scalar(default))
+    }
+}
+
+/// Get numeric channel values using Coercer
+pub fn coerce_numeric_channel(
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    default: f32,
+) -> Result<ScalarOrArray<f32>, AvengerChartError> {
+    coerce_channel(
+        data,
+        scalars,
+        channel,
+        |c, a| c.to_numeric(a, Some(default)),
+        default,
+    )
+}
+
+/// Get color channel values using Coercer
+pub fn coerce_color_channel(
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    default: [f32; 4],
+) -> Result<ScalarOrArray<ColorOrGradient>, AvengerChartError> {
+    let default_color = ColorOrGradient::Color(default);
+    coerce_channel(
+        data,
+        scalars,
+        channel,
+        |c, a| c.to_color(a, Some(ColorOrGradient::Color(default))),
+        default_color,
+    )
+}
+
+/// Get boolean channel values using Coercer
+pub fn coerce_bool_channel(
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    default: bool,
+) -> Result<ScalarOrArray<bool>, AvengerChartError> {
+    coerce_channel(data, scalars, channel, |c, a| c.to_boolean(a), default)
+}
 
 /// Get numeric channel values as a vector
 pub fn get_numeric_channel(
@@ -241,4 +323,3 @@ fn parse_color_string(_color: &str) -> Option<[f32; 4]> {
     // For now, return None - marks will use defaults
     None
 }
-

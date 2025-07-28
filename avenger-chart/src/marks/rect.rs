@@ -1,20 +1,19 @@
 use crate::coords::{Cartesian, CoordinateSystem, Polar};
 use crate::error::AvengerChartError;
-use crate::marks::util::{
-    get_color_channel, get_numeric_channel, get_numeric_channel_scalar_or_array,
+use crate::marks::util::{coerce_color_channel, coerce_numeric_channel};
+use crate::marks::{ChannelType, Mark, MarkState};
+use crate::{
+    define_common_mark_channels, define_position_mark_channels, impl_mark_common,
+    impl_mark_trait_common,
 };
-use crate::marks::{ChannelDescriptor, ChannelType, Mark, MarkConfig};
-use crate::{define_common_mark_channels, define_position_mark_channels, impl_mark_common};
-use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::dataframe::DataFrame;
 use datafusion::scalar::ScalarValue;
-use std::collections::HashMap;
 
 pub struct Rect<C: CoordinateSystem> {
-    config: MarkConfig<C>,
+    state: MarkState<C>,
     __phantom: std::marker::PhantomData<C>,
 }
 
@@ -67,37 +66,29 @@ define_position_mark_channels! {
     }
 }
 
-// Implement new Mark trait methods for Cartesian Rect
+// Implement Mark trait for Cartesian Rect
 impl Mark<Cartesian> for Rect<Cartesian> {
-    fn into_config(self) -> MarkConfig<Cartesian> {
-        self.config
-    }
-
-    fn supported_channels(&self) -> Vec<ChannelDescriptor> {
-        Self::all_channel_descriptors()
-    }
+    impl_mark_trait_common!(Rect, Cartesian, "rect");
 
     fn render_from_data(
         &self,
-        batch: Option<&RecordBatch>,
-        scalars: &HashMap<String, ScalarValue>,
+        data: Option<&RecordBatch>,
+        scalars: &RecordBatch,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // Determine number of marks
-        let num_rows = batch.map(|b| b.num_rows()).unwrap_or(1) as u32;
+        // Determine number of marks from data batch or default to 1
+        let num_rows = data.map(|d| d.num_rows()).unwrap_or(1) as u32;
 
-        // Extract position values
-        let x_values = get_numeric_channel("x", batch, scalars, 0.0)?;
-        let x2_values = get_numeric_channel("x2", batch, scalars, 0.0)?;
-        let y_values = get_numeric_channel("y", batch, scalars, 0.0)?;
-        let y2_values = get_numeric_channel("y2", batch, scalars, 0.0)?;
+        // Extract position values using Coercer
+        let x = coerce_numeric_channel(data, scalars, "x", 0.0)?;
+        let x2 = coerce_numeric_channel(data, scalars, "x2", 0.0)?;
+        let y = coerce_numeric_channel(data, scalars, "y", 0.0)?;
+        let y2 = coerce_numeric_channel(data, scalars, "y2", 0.0)?;
 
-        // Extract style values
-        let fill = get_color_channel("fill", batch, scalars, [0.27, 0.51, 0.71, 1.0])?;
-        let stroke = get_color_channel("stroke", batch, scalars, [0.0, 0.0, 0.0, 1.0])?;
-        let stroke_width =
-            get_numeric_channel_scalar_or_array("stroke_width", batch, scalars, 1.0)?;
-        let corner_radius =
-            get_numeric_channel_scalar_or_array("corner_radius", batch, scalars, 0.0)?;
+        // Extract style values using Coercer
+        let fill = coerce_color_channel(data, scalars, "fill", [0.27, 0.51, 0.71, 1.0])?;
+        let stroke = coerce_color_channel(data, scalars, "stroke", [0.0, 0.0, 0.0, 1.0])?;
+        let stroke_width = coerce_numeric_channel(data, scalars, "stroke_width", 1.0)?;
+        let corner_radius = coerce_numeric_channel(data, scalars, "corner_radius", 0.0)?;
 
         // Create SceneRectMark
         let rect_mark = SceneRectMark {
@@ -105,38 +96,32 @@ impl Mark<Cartesian> for Rect<Cartesian> {
             clip: true,
             len: num_rows,
             gradients: vec![],
-            x: ScalarOrArray::new_array(x_values),
-            y: ScalarOrArray::new_array(y_values),
+            x,
+            y,
             width: None,
             height: None,
-            x2: Some(ScalarOrArray::new_array(x2_values)),
-            y2: Some(ScalarOrArray::new_array(y2_values)),
+            x2: Some(x2),
+            y2: Some(y2),
             fill,
             stroke,
             stroke_width,
             corner_radius,
             indices: None,
-            zindex: self.config.zindex,
+            zindex: self.state.zindex,
         };
 
         Ok(vec![SceneMark::Rect(rect_mark)])
     }
 }
 
-// Stub implementation for Polar coordinates
+// Implement Mark trait for Polar Rect
 impl Mark<Polar> for Rect<Polar> {
-    fn into_config(self) -> MarkConfig<Polar> {
-        self.config
-    }
-
-    fn supported_channels(&self) -> Vec<ChannelDescriptor> {
-        Self::all_channel_descriptors()
-    }
+    impl_mark_trait_common!(Rect, Polar, "rect");
 
     fn render_from_data(
         &self,
-        _batch: Option<&RecordBatch>,
-        _scalars: &HashMap<String, ScalarValue>,
+        _data: Option<&RecordBatch>,
+        _scalars: &RecordBatch,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // TODO: Implement polar rect rendering
         Err(AvengerChartError::InternalError(

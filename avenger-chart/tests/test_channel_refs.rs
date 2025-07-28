@@ -15,11 +15,7 @@ fn test_channel_reference_basic() {
     // Create a line mark with channel references
     let mark = Line::<Cartesian>::new().data(df).x(ident("month")).y(":x"); // This should reference the :x channel
 
-    // Get the mark config to inspect
-    let config = mark.into_config();
-
-    // Verify the data context has the :x column
-    let data_ctx = &config.data;
+    let data_ctx = mark.data_context();
 
     // Check that encoding was tracked
     assert_eq!(data_ctx.encoding("x"), Some("month".to_string()));
@@ -50,11 +46,7 @@ fn test_channel_reference_with_expression() {
         .y(sum(col("sales"))) // Expression
         .stroke(col(":y")); // Reference the y channel
 
-    // Get the mark config to inspect
-    let config = mark.into_config();
-
-    // Verify the data context
-    let data_ctx = &config.data;
+    let data_ctx = mark.data_context();
 
     // Check encodings
     assert_eq!(data_ctx.encoding("x"), Some("month".to_string()));

@@ -19,7 +19,6 @@ use avenger_common::types::SymbolShape;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::scalar::ScalarValue;
-use std::collections::HashMap;
 
 /// Types of channels that marks can support
 #[derive(Debug, Clone)]
@@ -53,16 +52,25 @@ pub struct ChannelDescriptor {
 }
 
 pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
-    fn into_config(self) -> MarkConfig<C>;
+    /// Get the data context for this mark (for accessing encodings and data)
+    fn data_context(&self) -> &DataContext;
+
+    /// Get the data source type
+    fn data_source(&self) -> DataSource;
+
+    /// Get the mark type name (e.g., "rect", "line", "symbol")
+    fn mark_type(&self) -> &str;
 
     /// Declare channels this mark supports
     fn supported_channels(&self) -> Vec<ChannelDescriptor>;
 
     /// Build scene marks from processed data
+    /// data: RecordBatch with array data (multiple rows), or None if all channels are scalar
+    /// scalars: RecordBatch with scalar data (single row) for channels that don't vary per mark
     fn render_from_data(
         &self,
-        batch: Option<&RecordBatch>, // Per-row data (None if all scalar)
-        scalars: &HashMap<String, ScalarValue>, // Scalar encodings
+        data: Option<&RecordBatch>,
+        scalars: &RecordBatch,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
 }
 
@@ -86,8 +94,8 @@ pub enum FacetStrategy {
     Skip,
 }
 
-pub struct MarkConfig<C: CoordinateSystem> {
-    pub mark_type: String,
+/// Internal state shared by all mark types
+pub(crate) struct MarkState<C: CoordinateSystem> {
     pub data: DataContext,
 
     // NEW: Data inheritance control
@@ -98,6 +106,7 @@ pub struct MarkConfig<C: CoordinateSystem> {
 
     pub details: Option<Vec<String>>,
     pub zindex: Option<i32>,
+    #[allow(dead_code)] // Reserved for future use
     pub shapes: Option<Vec<SymbolShape>>,
     pub adjustments: Vec<Box<dyn Adjust>>,
     pub derived_marks: Vec<Box<dyn Derive<C>>>,
