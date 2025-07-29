@@ -610,6 +610,25 @@ impl<C: CoordinateSystem> Plot<C> {
         }
     }
 
+    /// Apply default color range to a scale if no explicit range is set
+    /// This is called during rendering for color channels
+    pub fn apply_default_color_range(&self, scale: &mut Scale, name: &str) {
+        use crate::scales::color_defaults::get_default_color_range_for_channel;
+
+        if !scale.has_explicit_range() {
+            // Get domain cardinality for discrete scales
+            let domain_cardinality = scale.get_domain_cardinality();
+
+            if let Some(default_range) = get_default_color_range_for_channel(
+                name,
+                scale.get_scale_type(),
+                domain_cardinality,
+            ) {
+                *scale = scale.clone().range(default_range);
+            }
+        }
+    }
+
     /// Add a controller for interactivity
     pub fn controller<T: Controller + 'static>(mut self, controller: T) -> Self {
         self.controllers.push(Box::new(controller));
