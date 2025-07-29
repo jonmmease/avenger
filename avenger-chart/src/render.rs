@@ -590,9 +590,7 @@ fn add_marks_to_canvas_with_clip(
             SceneMark::Arc(arc) => canvas.add_arc_mark(arc, origin, parent_clip)?,
             SceneMark::Area(area) => canvas.add_area_mark(area, origin, parent_clip)?,
             SceneMark::Group(group) => {
-                let group_origin = [origin[0] + group.origin[0], origin[1] + group.origin[1]];
-                // Groups define their own clip that applies to their children
-                add_marks_to_canvas_with_clip(canvas, &group.marks, group_origin, &group.clip)?;
+                canvas.add_group_mark(group, origin, parent_clip)?;
             }
             SceneMark::Image(image) => canvas.add_image_mark(image, origin, parent_clip)?,
             SceneMark::Line(line) => canvas.add_line_mark(line, origin, parent_clip)?,
