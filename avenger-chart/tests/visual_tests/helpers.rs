@@ -227,5 +227,5 @@ pub async fn assert_visual_match_default<C: CoordinateSystem>(
     category: &str,
     baseline_name: &str,
 ) {
-    assert_visual_match(plot, category, baseline_name, 0.95).await
+    assert_visual_match(plot, category, baseline_name, 0.99).await
 }

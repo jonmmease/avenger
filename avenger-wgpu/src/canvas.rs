@@ -22,6 +22,7 @@ use crate::marks::instanced_mark::{InstancedMarkFingerprint, InstancedMarkRender
 use crate::marks::multi::MultiMarkRenderer;
 use crate::marks::symbol::SymbolShader;
 use crate::marks::text::TextAtlasBuilderTrait;
+use crate::zindex_layers::compute_zindex_layers;
 use avenger_scenegraph::marks::arc::SceneArcMark;
 use avenger_scenegraph::marks::area::SceneAreaMark;
 use avenger_scenegraph::marks::group::Clip;
@@ -42,6 +43,12 @@ pub enum MarkRenderer {
         y_adjustment: Option<LinearScaleAdjustment>,
     },
     Multi(Box<MultiMarkRenderer>),
+}
+
+/// A mark renderer with its associated z-index
+pub struct ZIndexedMark {
+    pub zindex: i32,
+    pub renderer: MarkRenderer,
 }
 
 pub type TextBuildCtor = Arc<fn() -> Box<dyn TextAtlasBuilderTrait>>;
@@ -84,6 +91,12 @@ pub trait Canvas {
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer;
 
     fn get_instanced_renderer(&mut self, fingerprint: u64) -> Option<Arc<InstancedMarkRenderer>>;
+
+    fn set_current_zindex(&mut self, zindex: i32);
+
+    fn commit_multi_renderer_if_needed(&mut self, new_zindex: i32);
+
+    fn get_current_zindex(&self) -> i32;
 
     fn add_arc_mark(
         &mut self,
@@ -236,15 +249,17 @@ pub trait Canvas {
         parent_origin: [f32; 2],
         parent_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
+        // Save parent z-index
+        let saved_zindex = self.get_current_zindex();
+
+        // Group's z-index defaults to parent's z-index
+        let group_zindex = group.zindex.unwrap_or(saved_zindex);
+        self.set_current_zindex(group_zindex);
+
         // Maybe add rect around group boundary
         if let Some(rect) = group.make_path_mark() {
             self.add_path_mark(&rect, parent_origin, &group.clip)?;
         }
-
-        // Add groups in order of zindex
-        let zindex = group.marks.iter().map(|m| m.zindex()).collect::<Vec<_>>();
-        let mut indices: Vec<usize> = (0..zindex.len()).collect();
-        indices.sort_by_key(|i| zindex[*i].unwrap_or(0));
 
         // Compute new origin
         let origin = [
@@ -261,8 +276,11 @@ pub trait Canvas {
             group.clip.translate(origin[0], origin[1])
         };
 
-        for mark_ind in indices {
-            let mark = &group.marks[mark_ind];
+        for mark in &group.marks {
+            // Mark inherits group's z-index if it doesn't have its own
+            let mark_zindex = mark.zindex().unwrap_or(group_zindex);
+            self.set_current_zindex(mark_zindex);
+
             match mark {
                 SceneMark::Arc(mark) => {
                     self.add_arc_mark(mark, origin, &clip)?;
@@ -299,6 +317,9 @@ pub trait Canvas {
                 }
             }
         }
+
+        // Restore previous z-index
+        self.set_current_zindex(saved_zindex);
         Ok(())
     }
 
@@ -307,14 +328,9 @@ pub trait Canvas {
         // Clear existing marks
         self.clear_mark_renderer();
 
-        // Sort groups by zindex
+        // Process groups in document order - z-index sorting will happen during rendering
         let groups = scene_graph.groups();
-        let zindex = groups.iter().map(|g| g.zindex).collect::<Vec<_>>();
-        let mut indices: Vec<usize> = (0..zindex.len()).collect();
-        indices.sort_by_key(|i| zindex[*i].unwrap_or(0));
-
-        for group_ind in &indices {
-            let group = groups[*group_ind];
+        for group in groups {
             self.add_group_mark(group, scene_graph.origin, &Clip::None)?;
         }
 
@@ -443,8 +459,9 @@ pub struct WindowCanvas<'window> {
     sample_count: u32,
     surface_config: SurfaceConfiguration,
     dimensions: CanvasDimensions,
-    marks: Vec<MarkRenderer>,
+    marks: Vec<ZIndexedMark>,
     multi_renderer: Option<MultiMarkRenderer>,
+    current_zindex: i32,
     instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
     config: CanvasConfig,
 
@@ -516,6 +533,7 @@ impl WindowCanvas<'_> {
             window,
             marks: Vec::new(),
             multi_renderer: None,
+            current_zindex: 0,
             instanced_renderers: HashMap::new(),
             config,
         })
@@ -571,60 +589,83 @@ impl WindowCanvas<'_> {
 
         // Commit open multi-renderer
         if let Some(multi_renderer) = self.multi_renderer.take() {
-            self.marks
-                .push(MarkRenderer::Multi(Box::new(multi_renderer)));
+            self.marks.push(ZIndexedMark {
+                zindex: self.current_zindex,
+                renderer: MarkRenderer::Multi(Box::new(multi_renderer)),
+            });
         }
 
+        // Collect z-indices and compute layers
+        let zindices: Vec<i32> = self.marks.iter().map(|m| m.zindex).collect();
+        let layers = if zindices.is_empty() {
+            vec![]
+        } else {
+            compute_zindex_layers(zindices)
+        };
+
+        // Render background first
         let background_command = if self.sample_count > 1 {
             make_background_command(self, &self.multisampled_framebuffer, Some(&view))
         } else {
             make_background_command(self, &view, None)
         };
         let mut commands = vec![background_command];
-        let texture_format = self.texture_format();
-        for mark in &mut self.marks {
-            let command = match mark {
-                MarkRenderer::Instanced {
-                    renderer,
-                    x_adjustment,
-                    y_adjustment,
-                } => {
-                    if self.sample_count > 1 {
-                        renderer.render(
-                            &self.device,
-                            &self.multisampled_framebuffer,
-                            Some(&view),
-                            *x_adjustment,
-                            *y_adjustment,
-                        )
-                    } else {
-                        renderer.render(&self.device, &view, None, *x_adjustment, *y_adjustment)
-                    }
-                }
-                MarkRenderer::Multi(renderer) => {
-                    if self.sample_count > 1 {
-                        renderer.render(
-                            &self.device,
-                            &self.queue,
-                            texture_format,
-                            self.sample_count,
-                            &self.multisampled_framebuffer,
-                            Some(&view),
-                        )
-                    } else {
-                        renderer.render(
-                            &self.device,
-                            &self.queue,
-                            texture_format,
-                            self.sample_count,
-                            &view,
-                            None,
-                        )
-                    }
-                }
-            };
 
-            commands.push(command);
+        let texture_format = self.texture_format();
+
+        // Render marks by layer
+        for (min_z, max_z) in layers {
+            for mark in &mut self.marks {
+                if mark.zindex >= min_z && mark.zindex <= max_z {
+                    let command = match &mut mark.renderer {
+                        MarkRenderer::Instanced {
+                            renderer,
+                            x_adjustment,
+                            y_adjustment,
+                        } => {
+                            if self.sample_count > 1 {
+                                renderer.render(
+                                    &self.device,
+                                    &self.multisampled_framebuffer,
+                                    Some(&view),
+                                    *x_adjustment,
+                                    *y_adjustment,
+                                )
+                            } else {
+                                renderer.render(
+                                    &self.device,
+                                    &view,
+                                    None,
+                                    *x_adjustment,
+                                    *y_adjustment,
+                                )
+                            }
+                        }
+                        MarkRenderer::Multi(renderer) => {
+                            if self.sample_count > 1 {
+                                renderer.render(
+                                    &self.device,
+                                    &self.queue,
+                                    texture_format,
+                                    self.sample_count,
+                                    &self.multisampled_framebuffer,
+                                    Some(&view),
+                                )
+                            } else {
+                                renderer.render(
+                                    &self.device,
+                                    &self.queue,
+                                    texture_format,
+                                    self.sample_count,
+                                    &view,
+                                    None,
+                                )
+                            }
+                        }
+                    };
+                    commands.push(command);
+                }
+            }
         }
 
         self.queue.submit(commands);
@@ -635,6 +676,28 @@ impl WindowCanvas<'_> {
 }
 
 impl Canvas for WindowCanvas<'_> {
+    fn set_current_zindex(&mut self, zindex: i32) {
+        if zindex != self.current_zindex {
+            self.commit_multi_renderer_if_needed(zindex);
+        }
+        self.current_zindex = zindex;
+    }
+
+    fn commit_multi_renderer_if_needed(&mut self, new_zindex: i32) {
+        if self.current_zindex != new_zindex {
+            if let Some(multi_renderer) = self.multi_renderer.take() {
+                self.marks.push(ZIndexedMark {
+                    zindex: self.current_zindex,
+                    renderer: MarkRenderer::Multi(Box::new(multi_renderer)),
+                });
+            }
+        }
+    }
+
+    fn get_current_zindex(&self) -> i32 {
+        self.current_zindex
+    }
+
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
         if self.multi_renderer.is_none() {
             self.multi_renderer = Some(MultiMarkRenderer::new(
@@ -657,15 +720,20 @@ impl Canvas for WindowCanvas<'_> {
         y_adjustment: Option<LinearScaleAdjustment>,
     ) {
         if let Some(multi_renderer) = self.multi_renderer.take() {
-            self.marks
-                .push(MarkRenderer::Multi(Box::new(multi_renderer)));
+            self.marks.push(ZIndexedMark {
+                zindex: self.current_zindex,
+                renderer: MarkRenderer::Multi(Box::new(multi_renderer)),
+            });
         }
         self.instanced_renderers
             .insert(fingerprint, mark_renderer.clone());
-        self.marks.push(MarkRenderer::Instanced {
-            renderer: mark_renderer,
-            x_adjustment,
-            y_adjustment,
+        self.marks.push(ZIndexedMark {
+            zindex: self.current_zindex,
+            renderer: MarkRenderer::Instanced {
+                renderer: mark_renderer,
+                x_adjustment,
+                y_adjustment,
+            },
         });
     }
 
@@ -703,7 +771,8 @@ impl Canvas for WindowCanvas<'_> {
 
 pub struct PngCanvas {
     sample_count: u32,
-    marks: Vec<MarkRenderer>,
+    marks: Vec<ZIndexedMark>,
+    current_zindex: i32,
     dimensions: CanvasDimensions,
     texture_view: TextureView,
     output_buffer: Buffer,
@@ -795,6 +864,7 @@ impl PngCanvas {
             padded_height,
             marks: Vec::new(),
             multi_renderer: None,
+            current_zindex: 0,
             instanced_renderers: HashMap::new(),
             config,
         })
@@ -804,8 +874,10 @@ impl PngCanvas {
     pub async fn render(&mut self) -> Result<image::RgbaImage, AvengerWgpuError> {
         // Commit open multi mark renderer
         if let Some(multi_renderer) = self.multi_renderer.take() {
-            self.marks
-                .push(MarkRenderer::Multi(Box::new(multi_renderer)));
+            self.marks.push(ZIndexedMark {
+                zindex: self.current_zindex,
+                renderer: MarkRenderer::Multi(Box::new(multi_renderer)),
+            });
         }
 
         // Build encoder for chart background
@@ -819,57 +891,70 @@ impl PngCanvas {
             make_background_command(self, &self.texture_view, None)
         };
 
+        // Collect z-indices and compute layers
+        let zindices: Vec<i32> = self.marks.iter().map(|m| m.zindex).collect();
+        let layers = if zindices.is_empty() {
+            vec![]
+        } else {
+            compute_zindex_layers(zindices)
+        };
+
         let mut commands = vec![background_command];
         let texture_format = self.texture_format();
-        for mark in &mut self.marks {
-            let command = match mark {
-                MarkRenderer::Instanced {
-                    renderer,
-                    x_adjustment,
-                    y_adjustment,
-                } => {
-                    if self.sample_count > 1 {
-                        renderer.render(
-                            &self.device,
-                            &self.multisampled_framebuffer,
-                            Some(&self.texture_view),
-                            *x_adjustment,
-                            *y_adjustment,
-                        )
-                    } else {
-                        renderer.render(
-                            &self.device,
-                            &self.texture_view,
-                            None,
-                            *x_adjustment,
-                            *y_adjustment,
-                        )
-                    }
-                }
-                MarkRenderer::Multi(renderer) => {
-                    if self.sample_count > 1 {
-                        renderer.render(
-                            &self.device,
-                            &self.queue,
-                            texture_format,
-                            self.sample_count,
-                            &self.multisampled_framebuffer,
-                            Some(&self.texture_view),
-                        )
-                    } else {
-                        renderer.render(
-                            &self.device,
-                            &self.queue,
-                            texture_format,
-                            self.sample_count,
-                            &self.texture_view,
-                            None,
-                        )
-                    }
-                }
-            };
 
-            commands.push(command);
+        // Render marks by layer
+        for (min_z, max_z) in layers {
+            for mark in &mut self.marks {
+                if mark.zindex >= min_z && mark.zindex <= max_z {
+                    let command = match &mut mark.renderer {
+                        MarkRenderer::Instanced {
+                            renderer,
+                            x_adjustment,
+                            y_adjustment,
+                        } => {
+                            if self.sample_count > 1 {
+                                renderer.render(
+                                    &self.device,
+                                    &self.multisampled_framebuffer,
+                                    Some(&self.texture_view),
+                                    *x_adjustment,
+                                    *y_adjustment,
+                                )
+                            } else {
+                                renderer.render(
+                                    &self.device,
+                                    &self.texture_view,
+                                    None,
+                                    *x_adjustment,
+                                    *y_adjustment,
+                                )
+                            }
+                        }
+                        MarkRenderer::Multi(renderer) => {
+                            if self.sample_count > 1 {
+                                renderer.render(
+                                    &self.device,
+                                    &self.queue,
+                                    texture_format,
+                                    self.sample_count,
+                                    &self.multisampled_framebuffer,
+                                    Some(&self.texture_view),
+                                )
+                            } else {
+                                renderer.render(
+                                    &self.device,
+                                    &self.queue,
+                                    texture_format,
+                                    self.sample_count,
+                                    &self.texture_view,
+                                    None,
+                                )
+                            }
+                        }
+                    };
+                    commands.push(command);
+                }
+            }
         }
 
         self.queue.submit(commands);
@@ -939,6 +1024,28 @@ impl PngCanvas {
 }
 
 impl Canvas for PngCanvas {
+    fn set_current_zindex(&mut self, zindex: i32) {
+        if zindex != self.current_zindex {
+            self.commit_multi_renderer_if_needed(zindex);
+        }
+        self.current_zindex = zindex;
+    }
+
+    fn commit_multi_renderer_if_needed(&mut self, new_zindex: i32) {
+        if self.current_zindex != new_zindex {
+            if let Some(multi_renderer) = self.multi_renderer.take() {
+                self.marks.push(ZIndexedMark {
+                    zindex: self.current_zindex,
+                    renderer: MarkRenderer::Multi(Box::new(multi_renderer)),
+                });
+            }
+        }
+    }
+
+    fn get_current_zindex(&self) -> i32 {
+        self.current_zindex
+    }
+
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
         if self.multi_renderer.is_none() {
             self.multi_renderer = Some(MultiMarkRenderer::new(
@@ -961,15 +1068,20 @@ impl Canvas for PngCanvas {
         y_adjustment: Option<LinearScaleAdjustment>,
     ) {
         if let Some(multi_renderer) = self.multi_renderer.take() {
-            self.marks
-                .push(MarkRenderer::Multi(Box::new(multi_renderer)));
+            self.marks.push(ZIndexedMark {
+                zindex: self.current_zindex,
+                renderer: MarkRenderer::Multi(Box::new(multi_renderer)),
+            });
         }
         self.instanced_renderers
             .insert(fingerprint, mark_renderer.clone());
-        self.marks.push(MarkRenderer::Instanced {
-            renderer: mark_renderer,
-            x_adjustment,
-            y_adjustment,
+        self.marks.push(ZIndexedMark {
+            zindex: self.current_zindex,
+            renderer: MarkRenderer::Instanced {
+                renderer: mark_renderer,
+                x_adjustment,
+                y_adjustment,
+            },
         });
     }
 
