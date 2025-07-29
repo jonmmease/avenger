@@ -2,17 +2,11 @@
 //!
 //! This module bridges the high-level chart API with the low-level rendering components.
 
-use crate::axis::AxisTrait;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::layout::PlotTrait;
 use crate::marks::{ChannelValue, Mark};
 use crate::plot::Plot;
-use avenger_guides::axis::{
-    band::make_band_axis_marks,
-    numeric::make_numeric_axis_marks,
-    opts::{AxisConfig, AxisOrientation},
-};
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
@@ -407,117 +401,22 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         plot_height: f32,
         padding: &crate::layout::Padding,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        let mut axis_marks = Vec::new();
+        // Get default axes from the coordinate system
+        let default_axes =
+            self.plot
+                .coord_system()
+                .create_default_axes(scales, &self.plot.axes, &self.plot.marks);
 
-        // For Cartesian coordinates, we can downcast and access the axes
-        if let Some(cartesian_axes) = self
-            .plot
-            .axes
-            .iter()
-            .map(|(ch, axis)| {
-                // Try to downcast to CartesianAxis
-                axis.as_any()
-                    .downcast_ref::<crate::axis::CartesianAxis>()
-                    .map(|a| (ch, a))
-            })
-            .collect::<Option<Vec<_>>>()
-        {
-            // Process each Cartesian axis
-            for (channel, axis) in cartesian_axes {
-                // Processing axis for channel
-
-                // Skip invisible axes
-                if !axis.visible {
-                    // Skipping invisible axis
-                    continue;
-                }
-
-                // Get the scale for this axis
-                let scale = scales.get(channel).ok_or_else(|| {
-                    AvengerChartError::InternalError(format!(
-                        "No scale found for axis channel: {}",
-                        channel
-                    ))
-                })?;
-
-                // Determine axis position
-                let position = axis.position.unwrap_or_else(|| {
-                    // Default positions based on channel name
-                    match channel.as_ref() {
-                        "x" => crate::axis::AxisPosition::Bottom,
-                        "y" => crate::axis::AxisPosition::Left,
-                        _ => crate::axis::AxisPosition::Bottom,
-                    }
-                });
-
-                // Convert position to orientation
-                let orientation = match position {
-                    crate::axis::AxisPosition::Top => AxisOrientation::Top,
-                    crate::axis::AxisPosition::Bottom => AxisOrientation::Bottom,
-                    crate::axis::AxisPosition::Left => AxisOrientation::Left,
-                    crate::axis::AxisPosition::Right => AxisOrientation::Right,
-                };
-
-                // Calculate axis origin based on position
-                let axis_origin = match position {
-                    crate::axis::AxisPosition::Bottom => [padding.left, padding.top + plot_height],
-                    crate::axis::AxisPosition::Top => [padding.left, padding.top],
-                    crate::axis::AxisPosition::Left => [padding.left, padding.top],
-                    crate::axis::AxisPosition::Right => [padding.left + plot_width, padding.top],
-                };
-
-                // Create axis config with plot dimensions
-                let axis_config = AxisConfig {
-                    orientation,
-                    dimensions: [plot_width, plot_height],
-                    grid: axis.grid,
-                };
-
-                // Create configured scale for avenger-guides
-                let configured_scale = scale.create_configured_scale(plot_width, plot_height)?;
-
-                // Generate axis marks based on scale type
-                let scale_type = scale.get_scale_impl().scale_type();
-                // Scale type determined
-
-                let axis_group = match scale_type {
-                    "band" | "point" => {
-                        // Creating band/point axis
-                        let result = make_band_axis_marks(
-                            &configured_scale,
-                            axis.title.as_deref().unwrap_or(""),
-                            axis_origin,
-                            &axis_config,
-                        );
-                        match result {
-                            Ok(group) => {
-                                // Band/point axis created successfully
-                                group
-                            }
-                            Err(e) => {
-                                // Error creating band/point axis
-                                return Err(e.into());
-                            }
-                        }
-                    }
-                    _ => {
-                        // Default to numeric axis for linear and other continuous scales
-                        make_numeric_axis_marks(
-                            &configured_scale,
-                            axis.title.as_deref().unwrap_or(""),
-                            axis_origin,
-                            &axis_config,
-                        )?
-                    }
-                };
-
-                // Don't set z-index on the axis group - let the internal z-indices work
-                // Grid lines have zindex: -1, axis elements have zindex: 1
-                axis_marks.push(SceneMark::Group(axis_group));
-            }
+        // Combine existing axes with defaults
+        let mut all_axes = self.plot.axes.clone();
+        for (channel, default_axis) in default_axes {
+            all_axes.entry(channel).or_insert(default_axis);
         }
 
-        Ok(axis_marks)
+        // Delegate all axis rendering to the coordinate system
+        self.plot
+            .coord_system()
+            .render_axes(&all_axes, scales, plot_width, plot_height, padding)
     }
 
     /// Create title mark if configured

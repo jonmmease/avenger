@@ -351,6 +351,11 @@ impl<C: CoordinateSystem> Plot<C> {
         }
     }
 
+    /// Get a reference to the coordinate system
+    pub fn coord_system(&self) -> &C {
+        &self.coord_system
+    }
+
     /// Get or create a default scale for a channel
     pub(crate) fn get_or_create_scale(&mut self, channel: &str) -> Scale {
         self.scales
