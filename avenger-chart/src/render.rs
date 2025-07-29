@@ -151,6 +151,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         let title_marks = self.create_title(width as f32, &padding)?;
 
         // Compose all elements into a scene graph
+        // A single Plot should produce a single top-level group
         let mut all_marks = Vec::new();
 
         // Create a group for data marks with adjusted clipping
@@ -164,6 +165,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                 width: plot_area_width,
                 height: clip_height,
             },
+            zindex: Some(0), // Data marks have lowest z-index
             ..Default::default()
         };
 
@@ -172,13 +174,33 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         all_marks.push(SceneMark::Group(data_marks_group));
 
         // 2. Axes (can overflow the plot area)
-        all_marks.extend(axis_marks);
+        for (i, axis_mark) in axis_marks.into_iter().enumerate() {
+            if let SceneMark::Group(mut axis_group) = axis_mark {
+                axis_group.zindex = Some(10 + i as i32);
+                all_marks.push(SceneMark::Group(axis_group));
+            } else {
+                all_marks.push(axis_mark);
+            }
+        }
 
         // 3. Title (can overflow, rendered on top)
-        all_marks.extend(title_marks);
+        for (i, title_mark) in title_marks.into_iter().enumerate() {
+            if let SceneMark::Group(mut title_group) = title_mark {
+                title_group.zindex = Some(20 + i as i32);
+                all_marks.push(SceneMark::Group(title_group));
+            } else {
+                all_marks.push(title_mark);
+            }
+        }
+
+        // Wrap everything in a single root group
+        let root_group = SceneGroup {
+            marks: all_marks,
+            ..Default::default()
+        };
 
         let scene_graph = SceneGraph {
-            marks: all_marks,
+            marks: vec![SceneMark::Group(root_group)],
             width: width as f32,
             height: height as f32,
             origin: [0.0, 0.0],
@@ -554,53 +576,9 @@ impl CanvasExt for PngCanvas {
         // Just call render directly since we're already async
         let render_result = renderer.render().await?;
 
-        // Add scene graph to canvas
-        self.clear_mark_renderer();
-
-        // Recursively add marks from the scene graph
-        add_marks_to_canvas(self, &render_result.scene_graph.marks, [0.0, 0.0])?;
+        // Set the entire scene graph at once (handles zindex sorting)
+        self.set_scene(&render_result.scene_graph)?;
 
         Ok(())
     }
-}
-
-/// Helper function to recursively add marks to canvas
-fn add_marks_to_canvas(
-    canvas: &mut dyn Canvas,
-    marks: &[SceneMark],
-    origin: [f32; 2],
-) -> Result<(), AvengerChartError> {
-    add_marks_to_canvas_with_clip(
-        canvas,
-        marks,
-        origin,
-        &avenger_scenegraph::marks::group::Clip::None,
-    )
-}
-
-/// Helper function to recursively add marks to canvas with inherited clip
-fn add_marks_to_canvas_with_clip(
-    canvas: &mut dyn Canvas,
-    marks: &[SceneMark],
-    origin: [f32; 2],
-    parent_clip: &avenger_scenegraph::marks::group::Clip,
-) -> Result<(), AvengerChartError> {
-    for mark in marks {
-        match mark {
-            SceneMark::Arc(arc) => canvas.add_arc_mark(arc, origin, parent_clip)?,
-            SceneMark::Area(area) => canvas.add_area_mark(area, origin, parent_clip)?,
-            SceneMark::Group(group) => {
-                canvas.add_group_mark(group, origin, parent_clip)?;
-            }
-            SceneMark::Image(image) => canvas.add_image_mark(image, origin, parent_clip)?,
-            SceneMark::Line(line) => canvas.add_line_mark(line, origin, parent_clip)?,
-            SceneMark::Path(path) => canvas.add_path_mark(path, origin, parent_clip)?,
-            SceneMark::Rect(rect) => canvas.add_rect_mark(rect, origin, parent_clip)?,
-            SceneMark::Rule(rule) => canvas.add_rule_mark(rule, origin, parent_clip)?,
-            SceneMark::Symbol(symbol) => canvas.add_symbol_mark(symbol, origin, parent_clip)?,
-            SceneMark::Text(text) => canvas.add_text_mark(text, origin, parent_clip)?,
-            SceneMark::Trail(trail) => canvas.add_trail_mark(trail, origin, parent_clip)?,
-        }
-    }
-    Ok(())
 }
