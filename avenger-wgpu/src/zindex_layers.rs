@@ -32,92 +32,57 @@
 ///
 /// The algorithm partitions z-indices into minimal non-overlapping intervals where
 /// values within each interval appear in ascending order in the document.
+///
+/// # Algorithm
+///
+/// 1. Create indices that would sort the input by z-value (argsort)
+/// 2. Iterate through these indices in sorted z-value order
+/// 3. Add each index to the current partition if it's greater than all previous indices
+/// 4. Otherwise, start a new partition
+///
+/// # Complexity
+///
+/// O(n log n) where n is the number of z-indices, dominated by the sorting step.
 pub fn compute_zindex_layers(z_indices: Vec<i32>) -> Vec<(i32, i32)> {
     if z_indices.is_empty() {
         return vec![];
     }
 
-    // Get sorted unique z-values
-    let mut unique_z: Vec<i32> = z_indices.clone();
-    unique_z.sort();
-    unique_z.dedup();
+    // Create indices that would sort the z_indices vector
+    let mut indices: Vec<usize> = (0..z_indices.len()).collect();
+    indices.sort_by_key(|&i| z_indices[i]);
 
-    // For simplicity, create one interval per unique z-value
-    // This guarantees correctness but may not be minimal
-    let intervals: Vec<(i32, i32)> = unique_z.iter().map(|&z| (z, z)).collect();
+    // Build partitions by iterating through sorted indices
+    let mut partitions = Vec::new();
+    let mut current_partition = vec![indices[0]];
+    let mut max_index_in_partition = indices[0];
 
-    // Try to merge intervals if valid (including non-adjacent ones)
-    let mut merged = Vec::new();
-    let mut used = vec![false; intervals.len()];
-
-    for i in 0..intervals.len() {
-        if used[i] {
-            continue;
+    for &idx in &indices[1..] {
+        if idx > max_index_in_partition {
+            // Can add to current partition
+            current_partition.push(idx);
+            max_index_in_partition = idx;
+        } else {
+            // Need to start a new partition
+            partitions.push(current_partition);
+            current_partition = vec![idx];
+            max_index_in_partition = idx;
         }
-
-        let mut current = intervals[i];
-        used[i] = true;
-
-        // Try to extend this interval by merging with later intervals
-        loop {
-            let mut extended = false;
-
-            for j in (i + 1)..intervals.len() {
-                if used[j] {
-                    continue;
-                }
-
-                // Try to merge interval j into current
-                let merged_min = current.0.min(intervals[j].0);
-                let merged_max = current.1.max(intervals[j].1);
-
-                if check_can_merge(&z_indices, merged_min, merged_max) {
-                    current = (merged_min, merged_max);
-                    used[j] = true;
-                    extended = true;
-                }
-            }
-
-            if !extended {
-                break;
-            }
-        }
-
-        merged.push(current);
     }
 
-    merged
-}
+    // Don't forget the last partition
+    partitions.push(current_partition);
 
-/// Check if all values in the range [min_z, max_z] appear in ascending order in z_indices
-fn check_can_merge(z_indices: &[i32], min_z: i32, max_z: i32) -> bool {
-    let mut last_pos = None;
-
-    for z in min_z..=max_z {
-        // Find all positions where z appears
-        let positions: Vec<usize> = z_indices
-            .iter()
-            .enumerate()
-            .filter(|(_, &val)| val == z)
-            .map(|(i, _)| i)
-            .collect();
-
-        if positions.is_empty() {
-            continue;
-        }
-
-        // Check if all positions of z come after last_pos
-        if let Some(last) = last_pos {
-            if positions.iter().any(|&p| p < last) {
-                return false;
-            }
-        }
-
-        // Update last_pos to the maximum position of z
-        last_pos = Some(*positions.iter().max().unwrap());
-    }
-
-    true
+    // Convert partitions of indices to intervals of z-values
+    partitions
+        .into_iter()
+        .map(|partition| {
+            let z_values: Vec<i32> = partition.iter().map(|&i| z_indices[i]).collect();
+            let min_z = *z_values.iter().min().unwrap();
+            let max_z = *z_values.iter().max().unwrap();
+            (min_z, max_z)
+        })
+        .collect()
 }
 
 /// Verify that a partition set is valid according to the problem constraints
