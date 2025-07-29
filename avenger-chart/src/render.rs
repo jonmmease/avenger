@@ -121,6 +121,11 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                 plot_area_height as f64,
             );
 
+            // Apply default color range for color channels
+            if matches!(name.as_str(), "fill" | "stroke" | "color") {
+                self.plot.apply_default_color_range(&mut scale_copy, name);
+            }
+
             // Normalize the scale to apply zero and nice transformations
             // This ensures data and axes use the same normalized domain
             scale_copy = scale_copy.normalize_domain(plot_area_width, plot_area_height)?;

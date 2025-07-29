@@ -1,3 +1,4 @@
+pub mod color_defaults;
 pub mod defaults;
 pub mod inference;
 pub mod udf;
@@ -86,6 +87,11 @@ impl Scale {
         &self.scale_impl
     }
 
+    /// Get the scale type name
+    pub fn get_scale_type(&self) -> &str {
+        self.scale_impl.scale_type()
+    }
+
     // Domain builders
     pub fn domain<D: Into<ScaleDomain>>(self, domain: D) -> Self {
         Self {
@@ -97,6 +103,14 @@ impl Scale {
 
     pub fn get_domain(&self) -> &ScaleDomain {
         &self.domain
+    }
+
+    /// Get the cardinality of the domain for discrete scales
+    pub fn get_domain_cardinality(&self) -> Option<usize> {
+        match &self.domain.default_domain {
+            ScaleDefaultDomain::Discrete(values) => Some(values.len()),
+            _ => None,
+        }
     }
 
     pub fn domain_interval<T: Into<Expr>>(self, start: T, end: T) -> Self {

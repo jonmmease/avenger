@@ -265,34 +265,42 @@ async fn test_bar_chart_threshold_scale_colors() {
 }
 
 #[tokio::test]
-async fn test_bar_chart_linear_color_cool_warm() {
+async fn test_bar_chart_linear_color_default_colors() {
     let df = datasets::simple_categories();
 
     let plot = Plot::new(Cartesian)
         .preferred_size(400.0, 300.0)
         .data(df)
-        .scale_x(|s| {
-            s.scale_type("band").domain_discrete(vec![
-                lit("A"),
-                lit("B"),
-                lit("C"),
-                lit("D"),
-                lit("E"),
-                lit("F"),
-                lit("G"),
-                lit("H"),
-                lit("I"),
-            ])
-        })
+        .axis_x(|a| a.title("Category").grid(false))
+        .axis_y(|a| a.title("Value").grid(true))
+        .mark(
+            Rect::new()
+                .x(col("category"))
+                .x2(ChannelValue::column("category").with_band(1.0))
+                .y(lit(0.0))
+                .y2(col("value"))
+                .fill(col("value"))
+                .stroke("#222222")
+                .stroke_width(1.0),
+        );
+
+    assert_visual_match_default(
+        plot,
+        "bar_scale_color",
+        "bar_chart_linear_color_default_colors",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_bar_chart_ordinal_scale_colors() {
+    let df = datasets::simple_categories();
+
+    let plot = Plot::new(Cartesian)
+        .preferred_size(400.0, 300.0)
+        .data(df)
+        .scale_x(|s| s.scale_type("band")) // Domain will be inferred from data
         .scale_y(|s| s.domain((0.0, 100.0)))
-        // Cool to warm color gradient
-        .scale_fill(|s| {
-            s.scale_type("linear").range_color(vec![
-                Srgba::new(0.23, 0.30, 0.75, 1.0), // Cool blue (#3b4cc0)
-                Srgba::new(0.87, 0.87, 0.87, 1.0), // Neutral gray (#dddddd)
-                Srgba::new(0.71, 0.02, 0.15, 1.0), // Warm red (#b40426)
-            ])
-        })
         .axis_x(|a| a.title("Category").grid(false))
         .axis_y(|a| a.title("Value").grid(true))
         .mark(
@@ -301,10 +309,10 @@ async fn test_bar_chart_linear_color_cool_warm() {
                 .x2(ChannelValue::column("category").with_band(1.0))
                 .y(lit(0.0).scaled())
                 .y2(col("value"))
-                .fill(col("value"))
+                .fill(col("category")) // Map fill to category column
                 .stroke("#222222".identity())
                 .stroke_width(1.0),
         );
 
-    assert_visual_match_default(plot, "bar_scale_color", "bar_chart_linear_color_cool_warm").await;
+    assert_visual_match_default(plot, "bar_scale_color", "bar_chart_ordinal_scale_colors").await;
 }
