@@ -415,4 +415,3 @@ async fn test_multi_series_line_all_encodings() {
 
     assert_visual_match_default(plot, "line", "multi_series_all_encodings").await;
 }
-
