@@ -174,24 +174,10 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         all_marks.push(SceneMark::Group(data_marks_group));
 
         // 2. Axes (can overflow the plot area)
-        for (i, axis_mark) in axis_marks.into_iter().enumerate() {
-            if let SceneMark::Group(mut axis_group) = axis_mark {
-                axis_group.zindex = Some(10 + i as i32);
-                all_marks.push(SceneMark::Group(axis_group));
-            } else {
-                all_marks.push(axis_mark);
-            }
-        }
+        all_marks.extend(axis_marks);
 
         // 3. Title (can overflow, rendered on top)
-        for (i, title_mark) in title_marks.into_iter().enumerate() {
-            if let SceneMark::Group(mut title_group) = title_mark {
-                title_group.zindex = Some(20 + i as i32);
-                all_marks.push(SceneMark::Group(title_group));
-            } else {
-                all_marks.push(title_mark);
-            }
-        }
+        all_marks.extend(title_marks);
 
         // Wrap everything in a single root group
         let root_group = SceneGroup {
@@ -536,7 +522,11 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                     }
                 };
 
-                axis_marks.push(SceneMark::Group(axis_group));
+                // Set z-index for axes (10+ to render above data marks)
+                let mut axis_group_with_zindex = axis_group;
+                axis_group_with_zindex.zindex = Some(10 + axis_marks.len() as i32);
+
+                axis_marks.push(SceneMark::Group(axis_group_with_zindex));
             }
         }
 
@@ -550,6 +540,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         _padding: &crate::layout::Padding,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // TODO: Create title text mark if plot.title is set
+        // When implemented, wrap in a group with zindex: Some(20)
         Ok(Vec::new())
     }
 }
