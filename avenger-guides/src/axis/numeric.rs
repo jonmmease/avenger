@@ -30,9 +30,12 @@ pub fn make_numeric_axis_marks(
         scale.clone()
     };
 
-    // Build group with origin [0, 0] so we can work in local coordinate.
+    // Get axis-specific dimensions for positioning axis elements
+    let axis_dims = config.axis_dimensions();
+
+    // Build main group with origin [0, 0] so we can work in local coordinate.
     // Then set final original at the end
-    let mut group = SceneGroup {
+    let mut main_group = SceneGroup {
         origin: [0.0, 0.0],
         ..Default::default()
     };
@@ -62,42 +65,52 @@ pub fn make_numeric_axis_marks(
         AxisOrientation::Left | AxisOrientation::Right
     );
     let offset = match config.orientation {
-        AxisOrientation::Right => config.dimensions[0],
-        AxisOrientation::Bottom => config.dimensions[1],
+        AxisOrientation::Right => axis_dims[0],
+        AxisOrientation::Bottom => axis_dims[1],
         _ => 0.0,
     };
 
-    // Add tick grid
+    // Add tick grid if enabled
     if config.grid {
-        group.marks.push(
-            make_tick_grid_marks(&ticks, &scale, &config.orientation, &config.dimensions)?.into(),
-        );
+        let grid_group =
+            make_tick_grid_marks(&ticks, &scale, &config.orientation, &config.dimensions)?;
+        main_group.marks.push(grid_group.into());
     }
 
+    // Create a group for axis elements that should render above data marks
+    let mut axis_elements_group = SceneGroup {
+        origin: [0.0, 0.0],
+        zindex: Some(1), // Axis elements above data marks
+        ..Default::default()
+    };
+
     // Add axis line
-    group
+    axis_elements_group
         .marks
         .push(make_axis_line(start, end, is_vertical, offset).into());
 
     // Add tick marks
-    group
+    axis_elements_group
         .marks
-        .push(make_tick_marks(&ticks, &scale, &config.orientation, &config.dimensions)?.into());
+        .push(make_tick_marks(&ticks, &scale, &config.orientation, &axis_dims)?.into());
 
     // Add tick labels
-    group
+    axis_elements_group
         .marks
-        .push(make_tick_labels(&ticks, &scale, &config.orientation, &config.dimensions)?.into());
+        .push(make_tick_labels(&ticks, &scale, &config.orientation, &axis_dims)?.into());
 
     // Add title
-    group
+    axis_elements_group
         .marks
-        .push(make_title(title, &scale, &group.bounding_box(), config)?.into());
+        .push(make_title(title, &scale, &axis_elements_group.bounding_box(), config)?.into());
+
+    // Add the axis elements group to the main group
+    main_group.marks.push(axis_elements_group.into());
 
     // Now set the actual origin
-    group.origin = origin;
+    main_group.origin = origin;
 
-    Ok(group)
+    Ok(main_group)
 }
 
 fn make_axis_line(start: f32, end: f32, is_vertical: bool, offset: f32) -> SceneRuleMark {
@@ -171,7 +184,7 @@ fn make_tick_grid_marks(
     scale: &ConfiguredScale,
     orientation: &AxisOrientation,
     dimensions: &[f32; 2],
-) -> Result<SceneRuleMark, AvengerGuidesError> {
+) -> Result<SceneGroup, AvengerGuidesError> {
     let scaled_values = scale.scale_to_numeric(ticks)?;
 
     let (x0, x1, y0, y1) = match orientation {
@@ -201,7 +214,7 @@ fn make_tick_grid_marks(
         ),
     };
 
-    Ok(SceneRuleMark {
+    let grid_mark = SceneRuleMark {
         len: ticks.len() as u32,
         clip: false,
         x: x0,
@@ -210,6 +223,20 @@ fn make_tick_grid_marks(
         y2: y1,
         stroke: ColorOrGradient::Color([0.6, 0.6, 0.6, 0.5]).into(),
         stroke_width: 0.2.into(),
+        ..Default::default()
+    };
+
+    // Grid lines need to be offset for bottom/right axes to align with plot area
+    let grid_origin = match orientation {
+        AxisOrientation::Bottom => [0.0, -dimensions[1]], // Move up by plot height
+        AxisOrientation::Right => [-dimensions[0], 0.0],  // Move left by plot width
+        _ => [0.0, 0.0],
+    };
+
+    Ok(SceneGroup {
+        origin: grid_origin,
+        zindex: Some(-1), // Grid lines behind data marks
+        marks: vec![grid_mark.into()],
         ..Default::default()
     })
 }
