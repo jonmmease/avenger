@@ -130,7 +130,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
 
         // Use the full plot area for clipping
         // Marks should be clipped to the plot area bounds, not the data bounds
-        let (clip_y_offset, clip_height) = (0.0, plot_area_height);
+        let clip_height = plot_area_height;
 
         // Process each mark
         let mut mark_groups = Vec::new();
@@ -160,8 +160,8 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
             origin: [plot_area_x, plot_area_y],
             marks: mark_groups,
             clip: Clip::Rect {
-                x: plot_area_x,
-                y: clip_y_offset + plot_area_y,
+                x: 0.0, // Relative to group origin
+                y: 0.0, // Relative to group origin
                 width: plot_area_width,
                 height: clip_height,
             },
@@ -454,33 +454,17 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                 };
 
                 // Calculate axis origin based on position
-                // For axes, dimensions represent the axis space, not the plot area
-                let (axis_origin, dimensions) = match position {
-                    crate::axis::AxisPosition::Bottom => {
-                        // Bottom axis origin calculation
-                        (
-                            [padding.left, padding.top + plot_height],
-                            [plot_width, 0.0], // Bottom axis has 0 height
-                        )
-                    }
-                    crate::axis::AxisPosition::Top => (
-                        [padding.left, padding.top],
-                        [plot_width, 0.0], // Top axis has 0 height
-                    ),
-                    crate::axis::AxisPosition::Left => (
-                        [padding.left, padding.top],
-                        [0.0, plot_height], // Left axis has 0 width
-                    ),
-                    crate::axis::AxisPosition::Right => (
-                        [padding.left + plot_width, padding.top],
-                        [0.0, plot_height], // Right axis has 0 width
-                    ),
+                let axis_origin = match position {
+                    crate::axis::AxisPosition::Bottom => [padding.left, padding.top + plot_height],
+                    crate::axis::AxisPosition::Top => [padding.left, padding.top],
+                    crate::axis::AxisPosition::Left => [padding.left, padding.top],
+                    crate::axis::AxisPosition::Right => [padding.left + plot_width, padding.top],
                 };
 
-                // Create axis config
+                // Create axis config with plot dimensions
                 let axis_config = AxisConfig {
                     orientation,
-                    dimensions,
+                    dimensions: [plot_width, plot_height],
                     grid: axis.grid,
                 };
 
