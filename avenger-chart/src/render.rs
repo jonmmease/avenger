@@ -251,7 +251,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         _plot_height: f32,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Get the data - either from mark or inherit from plot
-        let df = match mark.data_source() {
+        let df_ref = match mark.data_source() {
             crate::marks::DataSource::Explicit => mark.data_context().dataframe(),
             crate::marks::DataSource::Inherited => {
                 // Get plot-level data
@@ -265,6 +265,22 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
 
         // Get channel mappings from DataContext
         let encodings = mark.data_context().encodings();
+
+        // Check if mark supports order and has order encoding
+        let df = if mark.supports_order() {
+            if let Some(order_channel) = encodings.get("order") {
+                // Apply order transformation
+                let order_expr = self.apply_channel_scale("order", order_channel, scales)?;
+
+                // Sort the DataFrame by the order expression
+                let sorted_df = df_ref.clone().sort(vec![order_expr.sort(true, false)])?;
+                Arc::new(sorted_df)
+            } else {
+                Arc::new(df_ref.clone())
+            }
+        } else {
+            Arc::new(df_ref.clone())
+        };
 
         // Get supported channels from the mark
         let supported_channels = mark.supported_channels();
@@ -297,7 +313,46 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                 select_exprs.push(expr.clone().alias(*name));
             }
 
-            let batch = df.clone().select(select_exprs)?.collect().await?;
+            // Check if mark needs partitioning
+            let partitioning_channels = mark.partitioning_channels();
+            if !partitioning_channels.is_empty() {
+                // Build a struct expression from partitioning channels
+                let mut struct_fields = vec![];
+                for channel in &partitioning_channels {
+                    if let Some(channel_value) = encodings.get(*channel) {
+                        let scaled_expr =
+                            self.apply_channel_scale(channel, channel_value, scales)?;
+                        struct_fields.push(scaled_expr);
+                    }
+                }
+
+                if !struct_fields.is_empty() {
+                    // Create concatenated expression and compute digest
+                    use datafusion::functions::crypto::expr_fn::digest;
+                    use datafusion::functions::string::expr_fn::concat;
+                    use datafusion::logical_expr::lit;
+
+                    // DataFusion's digest function only accepts String/Binary inputs.
+                    // We tried:
+                    // 1. digest(struct) - not supported
+                    // 2. digest(cast(struct as string)) - cast not supported
+                    // So we concatenate fields as strings. This ensures unique hashes
+                    // for different combinations while being compatible with digest().
+                    let mut concat_expr = struct_fields[0].clone();
+                    for field in &struct_fields[1..] {
+                        concat_expr = concat(vec![
+                            concat_expr,
+                            lit("|"), // separator to avoid collisions
+                            field.clone(),
+                        ]);
+                    }
+
+                    let digest_expr = digest(concat_expr, lit("md5"));
+                    select_exprs.push(digest_expr.alias("_partition_digest"));
+                }
+            }
+
+            let batch = (*df).clone().select(select_exprs)?.collect().await?;
 
             if batch.is_empty() {
                 None
@@ -316,11 +371,18 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
             }
 
             if select_exprs.is_empty() {
-                // Create empty batch with single row
-                RecordBatch::try_new(Arc::new(Schema::new(vec![] as Vec<Field>)), vec![]).unwrap()
+                // Create empty batch with single row - need at least one column
+                use datafusion::arrow::array::Int32Array;
+                let schema = Arc::new(Schema::new(vec![Field::new(
+                    "_dummy",
+                    datafusion::arrow::datatypes::DataType::Int32,
+                    false,
+                )]));
+                let array = Arc::new(Int32Array::from(vec![0]));
+                RecordBatch::try_new(schema, vec![array]).unwrap()
             } else {
                 // Execute query to get scalar values
-                let batches = df
+                let batches = (*df)
                     .clone()
                     .select(select_exprs)?
                     .limit(0, Some(1))? // Only need one row for scalars

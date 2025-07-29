@@ -133,28 +133,30 @@ pub fn coerce_stroke_dash_channel(
     data: Option<&RecordBatch>,
     scalars: &RecordBatch,
     channel: &str,
-) -> Result<Option<Vec<f32>>, AvengerChartError> {
+) -> Result<ScalarOrArray<Option<Vec<f32>>>, AvengerChartError> {
     // First check if the channel exists
     if data.and_then(|d| d.column_by_name(channel)).is_none()
         && scalars.column_by_name(channel).is_none()
     {
-        return Ok(None);
+        return Ok(ScalarOrArray::new_scalar(None));
     }
 
     coerce_channel(data, scalars, channel, |c, a| c.to_stroke_dash(a), vec![]).map(|v| {
-        // Since stroke_dash must be scalar, extract the scalar value
+        // Convert Vec<f32> to Option<Vec<f32>> where empty vec means None
         match v.value() {
             ScalarOrArrayValue::Scalar(dash) => {
                 if dash.is_empty() {
-                    None
+                    ScalarOrArray::new_scalar(None)
                 } else {
-                    Some(dash.clone())
+                    ScalarOrArray::new_scalar(Some(dash.clone()))
                 }
             }
             ScalarOrArrayValue::Array(dashes) => {
-                // Take first value or None if empty
-                let first = dashes.first().cloned().unwrap_or_else(Vec::new);
-                if first.is_empty() { None } else { Some(first) }
+                let options: Vec<Option<Vec<f32>>> = dashes
+                    .iter()
+                    .map(|d| if d.is_empty() { None } else { Some(d.clone()) })
+                    .collect();
+                ScalarOrArray::new_array(options)
             }
         }
     })

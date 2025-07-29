@@ -73,6 +73,18 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
+
+    /// Whether this mark type supports the order encoding channel
+    fn supports_order(&self) -> bool {
+        false // Default to false, marks opt-in
+    }
+
+    /// Channels that should be used for partitioning data into separate visual elements
+    /// For example, Line might return ["stroke", "stroke_width"] to create separate lines
+    /// for each unique combination of stroke color and width
+    fn partitioning_channels(&self) -> Vec<&'static str> {
+        Vec::new() // Default to no partitioning
+    }
 }
 
 /// Data source strategy for marks in faceted plots
