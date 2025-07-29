@@ -332,11 +332,20 @@ Expected struct with fields [width(UInt32), height(UInt32), data(List[UInt8])]"
                 let cast_array = cast_array.as_string::<i32>();
                 for s in cast_array.iter() {
                     if let Some(s) = s {
-                        let s = s.replace(",", "");
-                        let v = s
-                            .split(" ")
-                            .filter_map(|p| p.parse::<f32>().ok())
-                            .collect::<Vec<_>>();
+                        // Handle named patterns
+                        let v = match s {
+                            "solid" => vec![],
+                            "dashed" => vec![8.0, 4.0],
+                            "dotted" => vec![2.0, 2.0],
+                            "dashdot" => vec![8.0, 4.0, 2.0, 4.0],
+                            _ => {
+                                // Try to parse as space-separated numbers
+                                let s = s.replace(",", "");
+                                s.split(" ")
+                                    .filter_map(|p| p.parse::<f32>().ok())
+                                    .collect::<Vec<_>>()
+                            }
+                        };
                         result.push(v);
                     } else {
                         result.push(Vec::new());

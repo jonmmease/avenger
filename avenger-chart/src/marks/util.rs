@@ -1,8 +1,8 @@
 //! Utility functions for extracting channel values from batches
 
 use crate::error::AvengerChartError;
-use avenger_common::types::ColorOrGradient;
-use avenger_common::value::ScalarOrArray;
+use avenger_common::types::{ColorOrGradient, StrokeCap, StrokeJoin};
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_scales::scales::coerce::Coercer;
 use datafusion::arrow::array::{
     Array, ArrayRef, Float32Array, Float64Array, ListArray, StringArray,
@@ -88,6 +88,76 @@ pub fn coerce_bool_channel(
     default: bool,
 ) -> Result<ScalarOrArray<bool>, AvengerChartError> {
     coerce_channel(data, scalars, channel, |c, a| c.to_boolean(a), default)
+}
+
+/// Get stroke cap channel value using Coercer
+pub fn coerce_stroke_cap_channel(
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    default: StrokeCap,
+) -> Result<StrokeCap, AvengerChartError> {
+    coerce_channel(data, scalars, channel, |c, a| c.to_stroke_cap(a), default).map(|v| {
+        // Since stroke_cap must be scalar, extract the scalar value
+        match v.value() {
+            ScalarOrArrayValue::Scalar(cap) => *cap,
+            ScalarOrArrayValue::Array(caps) => {
+                // Take first value or default if empty
+                caps.first().cloned().unwrap_or(default)
+            }
+        }
+    })
+}
+
+/// Get stroke join channel value using Coercer
+pub fn coerce_stroke_join_channel(
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    default: StrokeJoin,
+) -> Result<StrokeJoin, AvengerChartError> {
+    coerce_channel(data, scalars, channel, |c, a| c.to_stroke_join(a), default).map(|v| {
+        // Since stroke_join must be scalar, extract the scalar value
+        match v.value() {
+            ScalarOrArrayValue::Scalar(join) => *join,
+            ScalarOrArrayValue::Array(joins) => {
+                // Take first value or default if empty
+                joins.first().cloned().unwrap_or(default)
+            }
+        }
+    })
+}
+
+/// Get stroke dash channel value using Coercer
+pub fn coerce_stroke_dash_channel(
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+) -> Result<Option<Vec<f32>>, AvengerChartError> {
+    // First check if the channel exists
+    if data.and_then(|d| d.column_by_name(channel)).is_none()
+        && scalars.column_by_name(channel).is_none()
+    {
+        return Ok(None);
+    }
+
+    coerce_channel(data, scalars, channel, |c, a| c.to_stroke_dash(a), vec![]).map(|v| {
+        // Since stroke_dash must be scalar, extract the scalar value
+        match v.value() {
+            ScalarOrArrayValue::Scalar(dash) => {
+                if dash.is_empty() {
+                    None
+                } else {
+                    Some(dash.clone())
+                }
+            }
+            ScalarOrArrayValue::Array(dashes) => {
+                // Take first value or None if empty
+                let first = dashes.first().cloned().unwrap_or_else(Vec::new);
+                if first.is_empty() { None } else { Some(first) }
+            }
+        }
+    })
 }
 
 /// Get numeric channel values as a vector

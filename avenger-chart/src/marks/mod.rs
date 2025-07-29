@@ -28,6 +28,7 @@ pub enum ChannelType {
     Size,     // stroke_width, size
     Text,     // text labels
     Numeric,  // opacity, angle
+    Boolean,  // defined, visible
     Enum {
         // discrete choices with allowed values
         values: &'static [&'static str],
