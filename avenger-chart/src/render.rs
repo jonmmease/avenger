@@ -506,11 +506,9 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                     }
                 };
 
-                // Set z-index for axes (10+ to render above data marks)
-                let mut axis_group_with_zindex = axis_group;
-                axis_group_with_zindex.zindex = Some(10 + axis_marks.len() as i32);
-
-                axis_marks.push(SceneMark::Group(axis_group_with_zindex));
+                // Don't set z-index on the axis group - let the internal z-indices work
+                // Grid lines have zindex: -1, axis elements have zindex: 1
+                axis_marks.push(SceneMark::Group(axis_group));
             }
         }
 

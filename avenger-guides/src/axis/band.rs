@@ -199,8 +199,8 @@ fn make_tick_grid_marks(
         x2: x1,
         y: y0,
         y2: y1,
-        stroke: ColorOrGradient::Color([8.0, 8.0, 8.0, 0.2]).into(),
-        stroke_width: 0.1.into(),
+        stroke: ColorOrGradient::Color([0.6, 0.6, 0.6, 0.2]).into(),
+        stroke_width: 0.5.into(),
         ..Default::default()
     };
 
