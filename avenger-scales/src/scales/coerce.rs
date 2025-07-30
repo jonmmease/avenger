@@ -666,7 +666,10 @@ Expected struct with fields [verbs(List[UInt8]), points(List[Float32])]"
                     final_shapes.push(default_value);
                 }
 
-                Ok((final_shapes, ScalarOrArray::new_array(indices)))
+                Ok((
+                    final_shapes,
+                    ScalarOrArray::new_array(indices).to_scalar_if_len_one(),
+                ))
             }
             DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
                 // cast to normalize to utf8
@@ -710,7 +713,10 @@ Expected struct with fields [verbs(List[UInt8]), points(List[Float32])]"
                     shapes.push(default_value);
                 }
 
-                Ok((shapes, ScalarOrArray::new_array(indices)))
+                Ok((
+                    shapes,
+                    ScalarOrArray::new_array(indices).to_scalar_if_len_one(),
+                ))
             }
             _ => Err(AvengerScaleError::InternalError(format!(
                 "Unsupported data type for coercing to symbol shape: {dtype:?}"

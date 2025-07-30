@@ -422,11 +422,12 @@ impl<C: CoordinateSystem> Plot<C> {
 
         // Apply channel-specific ranges
         match channel {
-            "size" => scale = scale.range_interval(lit(0.0), lit(20.0)),
+            "size" => scale = scale.range_interval(lit(16.0), lit(64.0)),
             "stroke_width" => scale = scale.range_interval(lit(0.0), lit(10.0)),
             "font_size" => scale = scale.range_interval(lit(0.0), lit(10.0)),
             "corner_radius" => scale = scale.range_interval(lit(0.0), lit(10.0)),
             "opacity" => scale = scale.range_interval(lit(0.0), lit(1.0)),
+            "angle" => scale = scale.range_interval(lit(0.0), lit(360.0)),
             _ => {}
         }
 
@@ -638,11 +639,11 @@ impl<C: CoordinateSystem> Plot<C> {
     /// This is called during rendering for shape channels
     pub fn apply_default_shape_range(&self, scale: &mut Scale) {
         use datafusion::logical_expr::lit;
-        
+
         if !scale.has_explicit_range() && scale.get_scale_type() == "ordinal" {
             // Get domain cardinality
             let domain_cardinality = scale.get_domain_cardinality();
-            
+
             // Define available shapes in order of preference
             let all_shapes = vec![
                 lit("circle"),
@@ -654,7 +655,7 @@ impl<C: CoordinateSystem> Plot<C> {
                 lit("triangle-left"),
                 lit("triangle-right"),
             ];
-            
+
             // Use only as many shapes as needed based on domain cardinality
             let shape_range = if let Some(n) = domain_cardinality {
                 all_shapes.into_iter().take(n).collect()
@@ -662,7 +663,7 @@ impl<C: CoordinateSystem> Plot<C> {
                 // If cardinality unknown, use all shapes
                 all_shapes
             };
-            
+
             *scale = scale.clone().range_discrete(shape_range);
         }
     }

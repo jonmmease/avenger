@@ -50,7 +50,7 @@ async fn test_bar_chart_inferred_domain() {
     plot.apply_default_domain("x");
     plot.apply_default_domain("y");
 
-    assert_visual_match(plot, "data_domain", "bar_chart_inferred", 0.99).await;
+    assert_visual_match(plot, "data_domain", "bar_chart_inferred", 0.9999).await;
 }
 
 #[tokio::test]
@@ -94,5 +94,5 @@ async fn test_scatter_plot_inferred_domain() {
     plot.apply_default_domain("x");
     plot.apply_default_domain("y");
 
-    assert_visual_match(plot, "data_domain", "scatter_inferred", 0.99).await;
+    assert_visual_match(plot, "data_domain", "scatter_inferred", 0.9999).await;
 }

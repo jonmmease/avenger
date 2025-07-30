@@ -139,7 +139,7 @@ impl Mark<Cartesian> for Line<Cartesian> {
             )
         })?;
 
-        let num_rows = data.num_rows();
+        let len = data.num_rows();
         let coercer = Coercer::default();
 
         // Extract position arrays (x, y) - these must be arrays
@@ -207,7 +207,7 @@ impl Mark<Cartesian> for Line<Cartesian> {
             let line_mark = SceneLineMark {
                 name: "line".to_string(),
                 clip: true,
-                len: num_rows as u32,
+                len: len as u32,
                 gradients: vec![],
                 x,
                 y,
@@ -327,7 +327,7 @@ impl Mark<Cartesian> for Line<Cartesian> {
         // Build partition map using dictionary keys
         let mut partition_groups: HashMap<PartitionKey, Vec<usize>> = HashMap::new();
 
-        for i in 0..num_rows {
+        for i in 0..len {
             let key = PartitionKey {
                 stroke: stroke_keys.as_ref().and_then(|(dict, keys)| {
                     if dict.is_null(i) { None } else { Some(keys[i]) }

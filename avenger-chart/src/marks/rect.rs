@@ -76,7 +76,7 @@ impl Mark<Cartesian> for Rect<Cartesian> {
         scalars: &RecordBatch,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Determine number of marks from data batch or default to 1
-        let num_rows = data.map(|d| d.num_rows()).unwrap_or(1) as u32;
+        let len = data.map_or(1, |data| data.num_rows()) as u32;
 
         // Extract position values using Coercer
         let x = coerce_numeric_channel(data, scalars, "x", 0.0)?;
@@ -94,7 +94,7 @@ impl Mark<Cartesian> for Rect<Cartesian> {
         let rect_mark = SceneRectMark {
             name: "rect".to_string(),
             clip: true,
-            len: num_rows,
+            len,
             gradients: vec![],
             x,
             y,
