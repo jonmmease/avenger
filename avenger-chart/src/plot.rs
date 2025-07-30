@@ -537,58 +537,6 @@ impl<C: CoordinateSystem> Plot<C> {
         data_expressions
     }
 
-    /// Apply default domain to a scale if it doesn't have an explicit domain
-    pub fn apply_default_domain(&mut self, scale_name: &str) {
-        // First check if we need to update
-        let needs_update = self
-            .scales
-            .get(scale_name)
-            .map(|s| !s.has_explicit_domain())
-            .unwrap_or(false);
-
-        if needs_update {
-            // Gather data expressions from mark encodings
-            let data_expressions = self.gather_scale_domain_expressions(scale_name);
-
-            if !data_expressions.is_empty() {
-                // Remove the scale temporarily to update it
-                if let Some(mut scale) = self.scales.remove(scale_name) {
-                    // For now, convert expressions to data fields by evaluating them as columns
-                    // This is a simplified approach that works for many common cases
-                    let mut data_fields = Vec::new();
-
-                    for (df, expr) in data_expressions {
-                        // Try to extract column name from simple expressions
-                        match &expr {
-                            datafusion::logical_expr::Expr::Column(col) => {
-                                data_fields.push((df, col.name.clone()));
-                            }
-                            _ => {
-                                // For complex expressions, create a derived column
-                                // Generate a unique column name for the expression
-                                let expr_col_name = format!("__scale_domain_expr_{}", scale_name);
-
-                                // Create a new dataframe with the expression as a column
-                                if let Ok(df_with_expr) = df
-                                    .as_ref()
-                                    .clone()
-                                    .with_column(&expr_col_name, expr.clone())
-                                {
-                                    data_fields.push((Arc::new(df_with_expr), expr_col_name));
-                                }
-                            }
-                        }
-                    }
-
-                    if !data_fields.is_empty() {
-                        scale = scale.domain_data_fields(data_fields);
-                        self.scales.insert(scale_name.to_string(), scale);
-                    }
-                }
-            }
-        }
-    }
-
     /// Apply default range to a scale based on plot area dimensions
     /// This is called during rendering when actual plot area dimensions are known
     /// (i.e., after padding has been subtracted by the layout/rendering system)
