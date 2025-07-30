@@ -20,6 +20,15 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::scalar::ScalarValue;
 
+/// Padding requirements computed by a mark
+#[derive(Debug, Default, Clone)]
+pub struct MarkPadding {
+    /// Padding needed on x-axis in pixels
+    pub x: Option<f64>,
+    /// Padding needed on y-axis in pixels
+    pub y: Option<f64>,
+}
+
 /// Types of channels that marks can support
 #[derive(Debug, Clone)]
 pub enum ChannelType {
@@ -77,6 +86,22 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
     /// Whether this mark type supports the order encoding channel
     fn supports_order(&self) -> bool {
         false // Default to false, marks opt-in
+    }
+
+    /// Declare which non-positional channels contribute to padding calculation
+    fn padding_channels(&self) -> Vec<&'static str> {
+        vec![]
+    }
+
+    /// Compute padding requirements based on non-positional channel values
+    /// data: RecordBatch containing only the padding-relevant channels
+    /// scalars: Scalar values for padding-relevant channels
+    fn compute_padding(
+        &self,
+        _data: Option<&RecordBatch>,
+        _scalars: &RecordBatch,
+    ) -> Result<MarkPadding, AvengerChartError> {
+        Ok(MarkPadding::default())
     }
 }
 
