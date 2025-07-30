@@ -119,6 +119,11 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
             if matches!(name.as_str(), "fill" | "stroke" | "color") {
                 self.plot.apply_default_color_range(&mut scale_copy, name);
             }
+            
+            // Apply default shape range for shape channel
+            if name == "shape" {
+                self.plot.apply_default_shape_range(&mut scale_copy);
+            }
 
             // Normalize the scale to apply zero and nice transformations
             // This ensures data and axes use the same normalized domain
