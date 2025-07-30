@@ -30,8 +30,12 @@ where
     // First check data batch for array values
     if let Some(data_batch) = data {
         if let Some(array) = data_batch.column_by_name(channel) {
-            return coerce_fn(&coercer, array)
-                .map_err(|e| AvengerChartError::InternalError(e.to_string()));
+            return coerce_fn(&coercer, array).map_err(|e| {
+                AvengerChartError::InternalError(format!(
+                    "Error coercing channel '{}': {}",
+                    channel, e
+                ))
+            });
         }
     }
 
@@ -39,7 +43,12 @@ where
     if let Some(array) = scalars.column_by_name(channel) {
         coerce_fn(&coercer, array)
             .map(|v| v.to_scalar_if_len_one())
-            .map_err(|e| AvengerChartError::InternalError(e.to_string()))
+            .map_err(|e| {
+                AvengerChartError::InternalError(format!(
+                    "Error coercing channel '{}': {}",
+                    channel, e
+                ))
+            })
     } else {
         Ok(ScalarOrArray::new_scalar(default))
     }
