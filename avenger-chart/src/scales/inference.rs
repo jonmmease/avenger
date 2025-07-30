@@ -102,7 +102,7 @@ pub fn get_default_scale_options(
         // Band scales have padding
         (_, "band") => {
             options.insert("padding_inner".to_string(), lit(0.1));
-            options.insert("padding_outer".to_string(), lit(0.1));
+            options.insert("padding".to_string(), lit(0.1));
             options.insert("align".to_string(), lit(0.5));
         }
 

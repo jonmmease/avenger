@@ -45,7 +45,7 @@ pub fn get_default_scale_options(
         // Band scale defaults for categorical data
         ("band", _) => {
             options.insert("padding_inner".to_string(), lit(0.1));
-            options.insert("padding_outer".to_string(), lit(0.1));
+            options.insert("padding".to_string(), lit(0.1));
             options.insert("align".to_string(), lit(0.5));
         }
 
@@ -99,7 +99,7 @@ mod tests {
     fn test_band_defaults() {
         let options = get_default_scale_options("band", ScaleUsageContext::XPosition);
         assert_eq!(options.get("padding_inner"), Some(&lit(0.1)));
-        assert_eq!(options.get("padding_outer"), Some(&lit(0.1)));
+        assert_eq!(options.get("padding"), Some(&lit(0.1)));
         assert_eq!(options.get("align"), Some(&lit(0.5)));
     }
 
