@@ -2,12 +2,11 @@
 
 use avenger_chart::coords::Cartesian;
 use avenger_chart::marks::symbol::Symbol;
-use avenger_chart::marks::ChannelExpr;
 use avenger_chart::plot::Plot;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::logical_expr::{col, lit};
+use datafusion::logical_expr::col;
 use datafusion::prelude::*;
 use std::sync::Arc;
 
@@ -46,10 +45,10 @@ async fn test_simple_scatter_plot() {
             Symbol::new()
                 .x(col("x"))
                 .y(col("y"))
-                .size(lit(100.0))
+                .size(100.0)
                 .fill("#4682b4")
                 .stroke("#000000")
-                .stroke_width(lit(1.0)),
+                .stroke_width(1.0),
         );
 
     // Verify symbol mark is created correctly
@@ -134,9 +133,9 @@ async fn test_scatter_with_shapes() {
                 .y(col("y"))
                 .shape(col("shape"))  // Now uses automatic ordinal scale
                 .fill("#ff6347")
-                .size(lit(120.0))
+                .size(120.0)
                 .stroke("#333333")
-                .stroke_width(lit(1.5)),
+                .stroke_width(1.5),
         );
 
     // Verify symbol mark has correct shapes
@@ -209,7 +208,7 @@ async fn test_scatter_with_size_encoding() {
                 .size(col("size"))
                 .fill("#ff6347")
                 .stroke("#8b0000")
-                .stroke_width(lit(2.0)),
+                .stroke_width(2.0),
         );
 
     assert_visual_match_default(plot, "symbol", "scatter_with_size").await;
@@ -254,12 +253,12 @@ async fn test_scatter_with_angle() {
             Symbol::new()
                 .x(col("x"))
                 .y(col("y"))
-                .shape(lit("triangle-up").identity())
+                .shape("triangle-up")  // Use string literal
                 .angle(col("angle"))
-                .size(lit(300.0))
+                .size(300.0)
                 .fill("#ff8c00")
                 .stroke("#000000")
-                .stroke_width(lit(2.0)),
+                .stroke_width(2.0),
         );
 
     assert_visual_match_default(plot, "symbol", "scatter_with_angle").await;

@@ -6,7 +6,7 @@ use avenger_chart::plot::Plot;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::logical_expr::{col, lit};
+use datafusion::logical_expr::col;
 use datafusion::prelude::*;
 use std::sync::Arc;
 
@@ -59,9 +59,9 @@ async fn test_symbol_automatic_shape_scale() {
                 .y(col("profit"))
                 .shape(col("category"))  // Automatic ordinal scale
                 .fill(col("category"))   // Also use for color
-                .size(lit(200.0))
+                .size(200.0)
                 .stroke("#333333")
-                .stroke_width(lit(1.5)),
+                .stroke_width(1.5),
         );
 
     assert_visual_match_default(plot, "symbol_ordinal", "automatic_shape_scale").await;
@@ -114,9 +114,9 @@ async fn test_symbol_custom_enumeration() {
                 .y(col("completion"))
                 .shape(col("priority"))  // Maps priority levels to shapes
                 .fill(col("priority"))   // Also use for color
-                .size(lit(250.0))
+                .size(250.0)
                 .stroke("#000000")
-                .stroke_width(lit(2.0)),
+                .stroke_width(2.0),
         );
 
     assert_visual_match_default(plot, "symbol_ordinal", "custom_enumeration").await;
