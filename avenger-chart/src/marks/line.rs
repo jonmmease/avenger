@@ -1,8 +1,8 @@
 use crate::coords::{Cartesian, CoordinateSystem, Polar};
 use crate::error::AvengerChartError;
 use crate::marks::util::{
-    coerce_bool_channel, coerce_color_channel, coerce_numeric_channel, coerce_stroke_cap_channel,
-    coerce_stroke_dash_channel, coerce_stroke_join_channel,
+    coerce_bool_channel, coerce_numeric_channel, coerce_stroke_cap_channel,
+    coerce_stroke_join_channel,
 };
 use crate::marks::{ChannelType, Mark, MarkState};
 use crate::{
@@ -12,6 +12,9 @@ use crate::{
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::line::SceneLineMark;
 use avenger_scenegraph::marks::mark::SceneMark;
+use datafusion::arrow::array::{Array, ArrayRef, AsArray};
+use datafusion::arrow::compute::kernels::cast::cast;
+use datafusion::arrow::datatypes::DataType;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::dataframe::DataFrame;
 use datafusion::scalar::ScalarValue;
@@ -89,6 +92,29 @@ define_position_mark_channels! {
     }
 }
 
+// Partitioning support for multi-series lines
+#[derive(Hash, Eq, PartialEq, Debug, Clone)]
+struct PartitionKey {
+    stroke: Option<usize>,
+    width: Option<usize>,
+    dash: Option<usize>,
+}
+
+/// Convert an array to dictionary encoding for efficient partitioning
+fn ensure_dictionary_array(array: &ArrayRef) -> Result<ArrayRef, AvengerChartError> {
+    match array.data_type() {
+        DataType::Dictionary(_, _) => Ok(array.clone()),
+        _ => {
+            // Convert to dictionary for efficient partitioning
+            let dict_type = DataType::Dictionary(
+                Box::new(DataType::Int16),
+                Box::new(array.data_type().clone()),
+            );
+            Ok(cast(array, &dict_type)?)
+        }
+    }
+}
+
 // Implement Mark trait for Cartesian Line
 impl Mark<Cartesian> for Line<Cartesian> {
     impl_mark_trait_common!(Line, Cartesian, "line");
@@ -97,17 +123,13 @@ impl Mark<Cartesian> for Line<Cartesian> {
         true
     }
 
-    fn partitioning_channels(&self) -> Vec<&'static str> {
-        // Partition by visual properties that can vary per line
-        vec!["stroke", "stroke_width", "stroke_dash"]
-    }
-
     fn render_from_data(
         &self,
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         use avenger_common::value::ScalarOrArrayValue;
+        use avenger_scales::scales::coerce::Coercer;
         use std::collections::HashMap;
 
         // For lines, we need array data for positions
@@ -118,6 +140,7 @@ impl Mark<Cartesian> for Line<Cartesian> {
         })?;
 
         let num_rows = data.num_rows();
+        let coercer = Coercer::default();
 
         // Extract position arrays (x, y) - these must be arrays
         let x = coerce_numeric_channel(Some(data), scalars, "x", 0.0)?;
@@ -126,31 +149,60 @@ impl Mark<Cartesian> for Line<Cartesian> {
         // Extract defined array (for gaps in the line)
         let defined = coerce_bool_channel(Some(data), scalars, "defined", true)?;
 
-        // Extract style properties - now these can be either scalar or array
-        let stroke = coerce_color_channel(Some(data), scalars, "stroke", [0.0, 0.0, 0.0, 1.0])?;
-        let stroke_width = coerce_numeric_channel(Some(data), scalars, "stroke_width", 2.0)?;
-
-        // stroke_dash now supports column references
-        let stroke_dash = coerce_stroke_dash_channel(Some(data), scalars, "stroke_dash")?;
-
         // These remain scalar-only
         let stroke_cap =
             coerce_stroke_cap_channel(None, scalars, "stroke_cap", Default::default())?;
         let stroke_join =
             coerce_stroke_join_channel(None, scalars, "stroke_join", Default::default())?;
 
-        // Check if we need to create multiple lines based on varying visual properties
-        let has_varying_stroke = matches!(stroke.value(), ScalarOrArrayValue::Array(_));
-        let has_varying_width = matches!(stroke_width.value(), ScalarOrArrayValue::Array(_));
-        let has_varying_dash = matches!(stroke_dash.value(), ScalarOrArrayValue::Array(_));
+        // Check which style properties vary
+        let stroke_array = data.column_by_name("stroke");
+        let width_array = data.column_by_name("stroke_width");
+        let dash_array = data.column_by_name("stroke_dash");
+
+        let has_varying_stroke = stroke_array.is_some();
+        let has_varying_width = width_array.is_some();
+        let has_varying_dash = dash_array.is_some();
 
         if !has_varying_stroke && !has_varying_width && !has_varying_dash {
             // Simple case: single line with constant properties
-            // We know these are either scalars or arrays with all identical values,
-            // so first() will give us the right value
-            let stroke_color = stroke.first().unwrap().clone();
-            let stroke_width_value = *stroke_width.first().unwrap();
-            let stroke_dash_value = stroke_dash.first().unwrap().clone();
+            // Coerce scalar values only
+            let stroke_color = if let Some(stroke_scalar) = scalars.column_by_name("stroke") {
+                coercer
+                    .to_color(
+                        stroke_scalar,
+                        Some(avenger_common::types::ColorOrGradient::Color([
+                            0.0, 0.0, 0.0, 1.0,
+                        ])),
+                    )?
+                    .first()
+                    .unwrap()
+                    .clone()
+            } else {
+                avenger_common::types::ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])
+            };
+
+            let stroke_width_value =
+                if let Some(width_scalar) = scalars.column_by_name("stroke_width") {
+                    *coercer
+                        .to_numeric(width_scalar, Some(2.0))?
+                        .first()
+                        .unwrap()
+                } else {
+                    2.0
+                };
+
+            let dash_scalar = scalars.column_by_name("stroke_dash");
+            let stroke_dash_value = if let Some(dash) = dash_scalar {
+                let dash_vec = coercer.to_stroke_dash(dash)?.first().unwrap().clone();
+                if dash_vec.is_empty() {
+                    None
+                } else {
+                    Some(dash_vec)
+                }
+            } else {
+                None
+            };
 
             let line_mark = SceneLineMark {
                 name: "line".to_string(),
@@ -172,68 +224,167 @@ impl Mark<Cartesian> for Line<Cartesian> {
         }
 
         // Complex case: need to create multiple lines based on unique combinations
-        // Check if we have a partition digest column
-        let groups = if let Some(digest_column) = data.column_by_name("_partition_digest") {
-            // Use the pre-computed digest for grouping
-            use datafusion::arrow::array::BinaryArray;
-
-            // The digest function always returns a binary array (MD5 hash)
-            let binary_array = digest_column
-                .as_any()
-                .downcast_ref::<BinaryArray>()
-                .ok_or_else(|| {
-                    AvengerChartError::InternalError(format!(
-                        "Expected _partition_digest to be a binary array, got {:?}",
-                        digest_column.data_type()
-                    ))
-                })?;
-
-            let mut groups: HashMap<Vec<u8>, Vec<usize>> = HashMap::new();
-            for i in 0..num_rows {
-                let digest = binary_array.value(i);
-                groups.entry(digest.to_vec()).or_default().push(i);
-            }
-
-            // Convert to hash map with numeric keys for compatibility
-            groups
-                .into_iter()
-                .enumerate()
-                .map(|(idx, (_, indices))| (idx as u64, indices))
-                .collect()
+        // Convert varying channels to dictionary arrays for efficient partitioning
+        let stroke_dict = if has_varying_stroke {
+            Some(ensure_dictionary_array(stroke_array.unwrap())?)
         } else {
-            // Fallback: group all data together if no digest
-            let mut groups = HashMap::new();
-            groups.insert(0u64, (0..num_rows).collect());
-            groups
+            None
         };
 
-        // Create a line mark for each group
+        let width_dict = if has_varying_width {
+            Some(ensure_dictionary_array(width_array.unwrap())?)
+        } else {
+            None
+        };
+
+        let dash_dict = if has_varying_dash {
+            Some(ensure_dictionary_array(dash_array.unwrap())?)
+        } else {
+            None
+        };
+
+        // Get dictionary arrays and their keys outside the loop
+        let stroke_keys = stroke_dict.as_ref().map(|d| {
+            let dict = d.as_any_dictionary();
+            (dict, dict.normalized_keys())
+        });
+        let width_keys = width_dict.as_ref().map(|d| {
+            let dict = d.as_any_dictionary();
+            (dict, dict.normalized_keys())
+        });
+        let dash_keys = dash_dict.as_ref().map(|d| {
+            let dict = d.as_any_dictionary();
+            (dict, dict.normalized_keys())
+        });
+
+        // Coerce unique dictionary values only once
+        let stroke_values = if let Some((dict, _)) = &stroke_keys {
+            let values = dict.values();
+            Some(coercer.to_color(
+                values,
+                Some(avenger_common::types::ColorOrGradient::Color([
+                    0.0, 0.0, 0.0, 1.0,
+                ])),
+            )?)
+        } else {
+            None
+        };
+
+        let width_values = if let Some((dict, _)) = &width_keys {
+            let values = dict.values();
+            Some(coercer.to_numeric(values, Some(2.0))?)
+        } else {
+            None
+        };
+
+        let dash_values = if let Some((dict, _)) = &dash_keys {
+            let values = dict.values();
+            Some(coercer.to_stroke_dash(values)?)
+        } else {
+            None
+        };
+
+        // Get scalar defaults
+        let stroke_default = if let Some(stroke_scalar) = scalars.column_by_name("stroke") {
+            coercer
+                .to_color(
+                    stroke_scalar,
+                    Some(avenger_common::types::ColorOrGradient::Color([
+                        0.0, 0.0, 0.0, 1.0,
+                    ])),
+                )?
+                .first()
+                .unwrap()
+                .clone()
+        } else {
+            avenger_common::types::ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])
+        };
+
+        let width_default = if let Some(width_scalar) = scalars.column_by_name("stroke_width") {
+            *coercer
+                .to_numeric(width_scalar, Some(2.0))?
+                .first()
+                .unwrap()
+        } else {
+            2.0
+        };
+
+        let dash_default = if let Some(dash_scalar) = scalars.column_by_name("stroke_dash") {
+            let dash_vec = coercer
+                .to_stroke_dash(dash_scalar)?
+                .first()
+                .unwrap()
+                .clone();
+            if dash_vec.is_empty() {
+                None
+            } else {
+                Some(dash_vec)
+            }
+        } else {
+            None
+        };
+
+        // Build partition map using dictionary keys
+        let mut partition_groups: HashMap<PartitionKey, Vec<usize>> = HashMap::new();
+
+        for i in 0..num_rows {
+            let key = PartitionKey {
+                stroke: stroke_keys.as_ref().and_then(|(dict, keys)| {
+                    if dict.is_null(i) { None } else { Some(keys[i]) }
+                }),
+                width: width_keys.as_ref().and_then(|(dict, keys)| {
+                    if dict.is_null(i) { None } else { Some(keys[i]) }
+                }),
+                dash: dash_keys.as_ref().and_then(|(dict, keys)| {
+                    if dict.is_null(i) { None } else { Some(keys[i]) }
+                }),
+            };
+
+            partition_groups.entry(key).or_default().push(i);
+        }
+
+        // Create a line mark for each partition
         let mut scene_marks = Vec::new();
 
-        for (_hash, indices) in groups {
+        for (partition_key, indices) in partition_groups {
             if indices.is_empty() {
                 continue;
             }
 
-            // Extract values for this group
-            let first_idx = indices[0];
-
-            // Get the actual values for this group
-            let stroke_color = match stroke.value() {
-                ScalarOrArrayValue::Scalar(color) => color.clone(),
-                ScalarOrArrayValue::Array(colors) => colors.get(first_idx).cloned().unwrap_or(
-                    avenger_common::types::ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]),
-                ),
+            // Get the values for this partition using the partition key
+            let stroke_color = if let Some(key) = partition_key.stroke {
+                if let Some(values) = &stroke_values {
+                    values.as_vec(values.len(), None)[key].clone()
+                } else {
+                    stroke_default.clone()
+                }
+            } else {
+                stroke_default.clone()
             };
 
-            let stroke_width_value = match stroke_width.value() {
-                ScalarOrArrayValue::Scalar(width) => *width,
-                ScalarOrArrayValue::Array(widths) => widths.get(first_idx).cloned().unwrap_or(2.0),
+            let stroke_width_value = if let Some(key) = partition_key.width {
+                if let Some(values) = &width_values {
+                    values.as_vec(values.len(), None)[key]
+                } else {
+                    width_default
+                }
+            } else {
+                width_default
             };
 
-            let stroke_dash_value = match stroke_dash.value() {
-                ScalarOrArrayValue::Scalar(dash) => dash.clone(),
-                ScalarOrArrayValue::Array(dashes) => dashes.get(first_idx).cloned().flatten(),
+            let stroke_dash_value = if let Some(key) = partition_key.dash {
+                if let Some(values) = &dash_values {
+                    let dash_vec = values.as_vec(values.len(), None)[key].clone();
+                    if dash_vec.is_empty() {
+                        None
+                    } else {
+                        Some(dash_vec)
+                    }
+                } else {
+                    dash_default.clone()
+                }
+            } else {
+                dash_default.clone()
             };
 
             // Extract arrays for just this group's indices

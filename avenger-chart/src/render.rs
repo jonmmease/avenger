@@ -313,45 +313,6 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                 select_exprs.push(expr.clone().alias(*name));
             }
 
-            // Check if mark needs partitioning
-            let partitioning_channels = mark.partitioning_channels();
-            if !partitioning_channels.is_empty() {
-                // Build a struct expression from partitioning channels
-                let mut struct_fields = vec![];
-                for channel in &partitioning_channels {
-                    if let Some(channel_value) = encodings.get(*channel) {
-                        let scaled_expr =
-                            self.apply_channel_scale(channel, channel_value, scales)?;
-                        struct_fields.push(scaled_expr);
-                    }
-                }
-
-                if !struct_fields.is_empty() {
-                    // Create concatenated expression and compute digest
-                    use datafusion::functions::crypto::expr_fn::digest;
-                    use datafusion::functions::string::expr_fn::concat;
-                    use datafusion::logical_expr::lit;
-
-                    // DataFusion's digest function only accepts String/Binary inputs.
-                    // We tried:
-                    // 1. digest(struct) - not supported
-                    // 2. digest(cast(struct as string)) - cast not supported
-                    // So we concatenate fields as strings. This ensures unique hashes
-                    // for different combinations while being compatible with digest().
-                    let mut concat_expr = struct_fields[0].clone();
-                    for field in &struct_fields[1..] {
-                        concat_expr = concat(vec![
-                            concat_expr,
-                            lit("|"), // separator to avoid collisions
-                            field.clone(),
-                        ]);
-                    }
-
-                    let digest_expr = digest(concat_expr, lit("md5"));
-                    select_exprs.push(digest_expr.alias("_partition_digest"));
-                }
-            }
-
             let batch = (*df).clone().select(select_exprs)?.collect().await?;
 
             if batch.is_empty() {
