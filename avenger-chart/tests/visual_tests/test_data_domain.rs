@@ -27,7 +27,7 @@ async fn test_bar_chart_inferred_domain() {
         .unwrap();
 
     // Create a bar chart without explicit domains
-    let mut plot = Plot::new(Cartesian)
+    let plot = Plot::new(Cartesian)
         .preferred_size(400.0, 300.0)
         .data(df)
         // No explicit domain specifications - should be inferred
@@ -45,10 +45,6 @@ async fn test_bar_chart_inferred_domain() {
                 .stroke("crimson".identity())
                 .stroke_width(1.0),
         );
-
-    // Apply domain inference
-    plot.apply_default_domain("x");
-    plot.apply_default_domain("y");
 
     assert_visual_match(plot, "data_domain", "bar_chart_inferred", 0.9999).await;
 }
@@ -71,7 +67,7 @@ async fn test_scatter_plot_inferred_domain() {
         .unwrap();
 
     // Create a scatter plot without explicit domains
-    let mut plot = Plot::new(Cartesian)
+    let plot = Plot::new(Cartesian)
         .preferred_size(400.0, 300.0)
         .data(df)
         // No explicit domain specifications - should compute min/max from expressions
@@ -89,10 +85,6 @@ async fn test_scatter_plot_inferred_domain() {
                 .fill("#e74c3c".identity())
                 .opacity(0.7),
         );
-
-    // Apply domain inference from expressions
-    plot.apply_default_domain("x");
-    plot.apply_default_domain("y");
 
     assert_visual_match(plot, "data_domain", "scatter_inferred", 0.9999).await;
 }
