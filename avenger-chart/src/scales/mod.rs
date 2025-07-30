@@ -10,7 +10,7 @@ use datafusion::arrow::array::{Array, AsArray};
 use datafusion::arrow::datatypes::DataType;
 use datafusion::dataframe::DataFrame;
 use datafusion::functions_array::expr_fn::make_array;
-use datafusion::logical_expr::{Expr, ExprSchemable, lit, when};
+use datafusion::logical_expr::{Expr, ExprSchemable, lit, when, cast};
 use datafusion::prelude::named_struct;
 use datafusion_common::{DFSchema, ScalarValue};
 use palette::Srgba;
@@ -42,6 +42,7 @@ pub struct Scale {
     pub options: HashMap<String, Expr>,
     domain_explicit: bool,
     range_explicit: bool,
+    padding_explicit: bool,
 }
 
 impl Scale {
@@ -54,6 +55,7 @@ impl Scale {
             options: HashMap::new(),
             domain_explicit: false,
             range_explicit: false,
+            padding_explicit: false,
         };
         apply_scale_defaults(scale_type, &mut scale.options);
         scale
@@ -69,6 +71,7 @@ impl Scale {
             options: HashMap::new(),
             domain_explicit: false,
             range_explicit: false,
+            padding_explicit: false,
         };
         apply_scale_defaults(scale_type, &mut scale.options);
         scale
@@ -178,6 +181,26 @@ impl Scale {
         self.range(ScaleRange::new_color(colors))
     }
 
+    // Padding builders
+    pub fn padding<E: Into<Expr>>(mut self, expr: E) -> Self {
+        self.options.insert("padding".to_string(), expr.into());
+        self.padding_explicit = true;
+        self
+    }
+
+    pub fn padding_none(mut self) -> Self {
+        self.options.remove("padding");
+        self
+    }
+
+    pub fn has_explicit_padding(&self) -> bool {
+        self.padding_explicit
+    }
+
+    pub fn get_padding(&self) -> Option<&Expr> {
+        self.options.get("padding")
+    }
+
     // Other builder methods
     pub fn option<K: Into<String>, V: Into<Expr>>(mut self, key: K, value: V) -> Self {
         self.options.insert(key.into(), value.into());
@@ -208,19 +231,7 @@ impl Scale {
         let options_type = options_expr.get_type(&DFSchema::empty())?;
 
         // Cast values to match the domain type if needed
-        let values = match &domain_type {
-            DataType::Float32 => {
-                // For numeric scales with Float32 domain, cast values to Float32
-                use datafusion::logical_expr::cast;
-                cast(values, DataType::Float32)
-            }
-            DataType::Float64 => {
-                // For Float64 domains, cast to Float32 for scale compatibility
-                use datafusion::logical_expr::cast;
-                cast(values, DataType::Float32)
-            }
-            _ => values,
-        };
+        let values = cast(values, domain_type.clone());
 
         let udf = udf::create_scale_udf(
             self.scale_impl.clone(),

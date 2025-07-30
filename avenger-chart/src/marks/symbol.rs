@@ -1,7 +1,7 @@
 use crate::coords::{Cartesian, CoordinateSystem, Polar};
 use crate::error::AvengerChartError;
 use crate::marks::util::{coerce_color_channel, coerce_numeric_channel};
-use crate::marks::{ChannelType, Mark, MarkState};
+use crate::marks::{ChannelType, Mark, MarkPadding, MarkState};
 use crate::{
     define_common_mark_channels, define_position_mark_channels, impl_mark_common,
     impl_mark_trait_common,
@@ -71,6 +71,54 @@ define_position_mark_channels! {
 // Implement Mark trait for Cartesian Symbol
 impl Mark<Cartesian> for Symbol<Cartesian> {
     impl_mark_trait_common!(Symbol, Cartesian, "symbol");
+
+    fn padding_channels(&self) -> Vec<&'static str> {
+        vec!["size", "stroke_width", "shape"]
+    }
+
+    fn compute_padding(
+        &self,
+        data: Option<&RecordBatch>,
+        scalars: &RecordBatch,
+    ) -> Result<MarkPadding, AvengerChartError> {
+        use avenger_scales::scales::coerce::Coercer;
+        
+        let coercer = Coercer::default();
+
+        // Get maximum size (area in square pixels)
+        let size = coerce_numeric_channel(data, scalars, "size", 64.0)?;
+        let max_size = match size.value() {
+            avenger_common::value::ScalarOrArrayValue::Scalar(s) => *s,
+            avenger_common::value::ScalarOrArrayValue::Array(arr) => {
+                arr.iter().fold(0.0f32, |max, val| max.max(*val))
+            }
+        };
+
+        // Get stroke width (scalar only)
+        let stroke_width = if let Some(width_scalar) = scalars.column_by_name("stroke_width") {
+            *coercer
+                .to_numeric(width_scalar, Some(1.0))?
+                .first()
+                .unwrap()
+        } else {
+            1.0
+        };
+
+        // Calculate radius from area (size represents area, not diameter)
+        let radius = (max_size / std::f32::consts::PI).sqrt();
+        
+        // Total padding needed is radius + half stroke width
+        let padding = radius + stroke_width / 2.0;
+        
+        // Debug: print the calculated padding
+        eprintln!("Symbol padding calculation: max_size={}, radius={}, stroke_width={}, padding={}", 
+                  max_size, radius, stroke_width, padding);
+
+        Ok(MarkPadding {
+            x: Some(padding as f64),
+            y: Some(padding as f64),
+        })
+    }
 
     fn render_from_data(
         &self,
