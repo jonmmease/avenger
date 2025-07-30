@@ -132,7 +132,7 @@ async fn test_scatter_with_shapes() {
             Symbol::new()
                 .x(col("x"))
                 .y(col("y"))
-                .shape(col("shape").identity())
+                .shape(col("shape"))  // Now uses automatic ordinal scale
                 .fill("#ff6347")
                 .size(lit(120.0))
                 .stroke("#333333")
