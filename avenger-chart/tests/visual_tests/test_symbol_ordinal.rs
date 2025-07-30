@@ -22,8 +22,18 @@ async fn test_symbol_automatic_shape_scale() {
         22.3, 15.8, 18.9, 25.6, 12.4, 16.7, 17.8, 23.9, 13.2, 19.8, 26.1, 14.5,
     ]);
     let category = StringArray::from(vec![
-        "Electronics", "Clothing", "Food", "Electronics", "Clothing", "Food",
-        "Electronics", "Clothing", "Food", "Electronics", "Clothing", "Food",
+        "Electronics",
+        "Clothing",
+        "Food",
+        "Electronics",
+        "Clothing",
+        "Food",
+        "Electronics",
+        "Clothing",
+        "Food",
+        "Electronics",
+        "Clothing",
+        "Food",
     ]);
 
     let schema = Arc::new(Schema::new(vec![
@@ -57,8 +67,8 @@ async fn test_symbol_automatic_shape_scale() {
             Symbol::new()
                 .x(col("sales"))
                 .y(col("profit"))
-                .shape(col("category"))  // Automatic ordinal scale
-                .fill(col("category"))   // Also use for color
+                .shape(col("category")) // Automatic ordinal scale
+                .fill(col("category")) // Also use for color
                 .size(200.0)
                 .stroke("#333333")
                 .stroke_width(1.5),
@@ -71,12 +81,10 @@ async fn test_symbol_automatic_shape_scale() {
 async fn test_symbol_custom_enumeration() {
     // Create data with custom priority levels
     let tasks = Float64Array::from(vec![
-        1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0,
-        11.0, 12.0, 13.0, 14.0, 15.0,
+        1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
     ]);
     let completion = Float64Array::from(vec![
-        95.0, 20.0, 75.0, 15.0, 85.0, 50.0, 90.0, 30.0, 65.0, 10.0,
-        80.0, 40.0, 70.0, 25.0, 60.0,
+        95.0, 20.0, 75.0, 15.0, 85.0, 50.0, 90.0, 30.0, 65.0, 10.0, 80.0, 40.0, 70.0, 25.0, 60.0,
     ]);
     let priority = StringArray::from(vec![
         "critical", "low", "high", "low", "critical", "medium", "critical", "low", "high", "low",
@@ -112,8 +120,8 @@ async fn test_symbol_custom_enumeration() {
             Symbol::new()
                 .x(col("task_id"))
                 .y(col("completion"))
-                .shape(col("priority"))  // Maps priority levels to shapes
-                .fill(col("priority"))   // Also use for color
+                .shape(col("priority")) // Maps priority levels to shapes
+                .fill(col("priority")) // Also use for color
                 .size(250.0)
                 .stroke("#000000")
                 .stroke_width(2.0),

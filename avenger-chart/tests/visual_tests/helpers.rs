@@ -23,7 +23,7 @@ pub struct VisualTestConfig {
 impl Default for VisualTestConfig {
     fn default() -> Self {
         Self {
-            threshold: 0.95, // 95% similarity required by default
+            threshold: 0.9999, // 99.99% similarity required by default
             save_diff_on_failure: true,
         }
     }
@@ -221,11 +221,11 @@ pub async fn assert_visual_match<C: CoordinateSystem>(
     }
 }
 
-/// Test a plot against its baseline with default tolerance (95%)
+/// Test a plot against its baseline with default tolerance (99.99%)
 pub async fn assert_visual_match_default<C: CoordinateSystem>(
     plot: Plot<C>,
     category: &str,
     baseline_name: &str,
 ) {
-    assert_visual_match(plot, category, baseline_name, 0.99).await
+    assert_visual_match(plot, category, baseline_name, 0.9999).await
 }

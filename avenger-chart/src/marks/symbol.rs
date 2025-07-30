@@ -77,44 +77,53 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        use avenger_common::value::ScalarOrArrayValue;
         use avenger_scales::scales::coerce::Coercer;
 
         // Symbols can render with just scalar data
         let coercer = Coercer::default();
-        
+
         // Extract position data - these can be scalars or arrays
         let x = coerce_numeric_channel(data, scalars, "x", 0.0)?;
         let y = coerce_numeric_channel(data, scalars, "y", 0.0)?;
-        
-        // Determine the number of symbols
-        let len = match (x.value(), y.value()) {
-            (ScalarOrArrayValue::Array(x_arr), _) => x_arr.len(),
-            (_, ScalarOrArrayValue::Array(y_arr)) => y_arr.len(),
-            _ => 1, // Both scalars, render single symbol
-        };
 
-        // Handle shape channel efficiently
-        let (shapes, shape_index) = if let Some(shape_array) = data.and_then(|d| d.column_by_name("shape")) {
-            // Array data for shapes - use efficient coercion
-            coercer.to_symbol_shape(shape_array, None)?
-        } else if let Some(shape_scalar) = scalars.column_by_name("shape") {
-            // Scalar shape - still use to_symbol_shape for consistency
-            coercer.to_symbol_shape(shape_scalar, None)?
-        } else {
-            // Default shape
-            (vec![avenger_common::types::SymbolShape::Circle], ScalarOrArray::new_scalar(0))
-        };
-
-        // Extract other channels
+        // Extract other channels first to determine length from any array channel
         let size = coerce_numeric_channel(data, scalars, "size", 64.0)?;
-        let fill = coerce_color_channel(data, scalars, "fill", [70.0/255.0, 130.0/255.0, 180.0/255.0, 1.0])?;
+        let fill = coerce_color_channel(
+            data,
+            scalars,
+            "fill",
+            [70.0 / 255.0, 130.0 / 255.0, 180.0 / 255.0, 1.0],
+        )?;
         let stroke = coerce_color_channel(data, scalars, "stroke", [0.0, 0.0, 0.0, 1.0])?;
         let angle = coerce_numeric_channel(data, scalars, "angle", 0.0)?;
-        
+
+        // Determine the number of symbols from any array channel
+        let len = data.map_or(1, |data| data.num_rows()) as u32;
+
+        // Handle shape channel efficiently
+        let (shapes, shape_index) =
+            if let Some(shape_array) = data.and_then(|d| d.column_by_name("shape")) {
+                // Array data for shapes - use efficient coercion
+                coercer.to_symbol_shape(shape_array, None)?
+            } else if let Some(shape_scalar) = scalars.column_by_name("shape") {
+                // Scalar shape - still use to_symbol_shape for consistency
+                coercer.to_symbol_shape(shape_scalar, None)?
+            } else {
+                // Default shape
+                (
+                    vec![avenger_common::types::SymbolShape::Circle],
+                    ScalarOrArray::new_scalar(0),
+                )
+            };
+
         // Stroke width is scalar only
         let stroke_width = if let Some(width_scalar) = scalars.column_by_name("stroke_width") {
-            Some(*coercer.to_numeric(width_scalar, Some(1.0))?.first().unwrap())
+            Some(
+                *coercer
+                    .to_numeric(width_scalar, Some(1.0))?
+                    .first()
+                    .unwrap(),
+            )
         } else {
             Some(1.0)
         };
@@ -122,7 +131,7 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
         let symbol_mark = SceneSymbolMark {
             name: "symbol".to_string(),
             clip: true,
-            len: len as u32,
+            len,
             gradients: vec![],
             shapes,
             stroke_width,
