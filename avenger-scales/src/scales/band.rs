@@ -127,7 +127,12 @@ impl ScaleImpl for BandScale {
             context: config.context.clone(),
         };
 
-        ordinal_scale.scale(&ordinal_config, values)
+        let scaled = ordinal_scale.scale(&ordinal_config, values)?;
+
+        // Band scale always returns Float32, so cast the dictionary array
+        use arrow::compute::kernels::cast;
+        use arrow::datatypes::DataType;
+        Ok(cast(&scaled, &DataType::Float32)?)
     }
 
     fn invert_range_interval(

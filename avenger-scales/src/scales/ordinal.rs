@@ -10,7 +10,7 @@ use lazy_static::lazy_static;
 use crate::scalar::Scalar;
 use arrow::{
     array::{ArrayRef, AsArray, Float32Array, UInt32Array},
-    compute::kernels::{cast, take},
+    compute::kernels::cast,
     datatypes::{DataType, UInt32Type},
 };
 use avenger_common::{
@@ -91,10 +91,22 @@ impl ScaleImpl for OrdinalScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError> {
-        // Cast range indices to flat u32 array
-        let range_indices = range_indices_for_values(&config.domain, config.range.len(), values)?;
-        let range_indices = range_indices.as_primitive::<UInt32Type>();
-        Ok(take::take(config.range.as_ref(), &range_indices, None)?)
+        // Get dictionary array with range indices
+        let range_dict_array =
+            range_dict_array_for_values(&config.domain, config.range.len(), values)?;
+
+        // The dictionary now has indices that need to be used to take from the range
+        let dict_array = range_dict_array.as_any_dictionary();
+        let indices_array = dict_array.values(); // These are the range indices
+
+        // Use take to get the actual range values in the correct order
+        use arrow::compute::kernels::take;
+        let range_values = take::take(&config.range, &indices_array, None)?;
+
+        // Replace the dictionary values with the actual range values
+        let range_dict_with_values = dict_array.with_values(range_values);
+
+        Ok(range_dict_with_values)
     }
 
     // Enums
@@ -105,18 +117,29 @@ impl ScaleImpl for OrdinalScale {
     impl_ordinal_enum_scale_method!(AreaOrientation);
 }
 
-/// Helper function to get range indices corresponding to values
-fn range_indices_for_values(
+/// Helper function to get dictionary array with range indices corresponding to values
+fn range_dict_array_for_values(
     domain: &ArrayRef,
     range_length: usize,
     values: &ArrayRef,
 ) -> Result<ArrayRef, AvengerScaleError> {
-    // values and domain should have the same type
-    if values.data_type() != domain.data_type() {
+    // If values is already a dictionary array, we need to handle it specially
+    let values_to_process = if let DataType::Dictionary(_, value_type) = values.data_type() {
+        // If domain type matches the dictionary's value type, cast the dictionary values
+        if domain.data_type() == value_type.as_ref() {
+            cast(values, domain.data_type())?
+        } else {
+            return Err(AvengerScaleError::ScaleOperationNotSupported(
+                "dictionary value type does not match domain type".to_string(),
+            ));
+        }
+    } else if values.data_type() != domain.data_type() {
         return Err(AvengerScaleError::ScaleOperationNotSupported(
             "values and domain have different types".to_string(),
         ));
-    }
+    } else {
+        values.clone()
+    };
 
     if range_length != domain.len() {
         return Err(AvengerScaleError::ScaleOperationNotSupported(
@@ -134,7 +157,7 @@ fn range_indices_for_values(
         Box::new(DataType::Int16),
         Box::new(domain.data_type().clone()),
     );
-    let dict_array = cast(values, &dict_type)?;
+    let dict_array = cast(&values_to_process, &dict_type)?;
 
     // Downcast to dictionary with erased types
     let dict_array = dict_array.as_any_dictionary();
@@ -163,9 +186,8 @@ fn range_indices_for_values(
     // Replace domain values with range indices
     let range_dict_array = dict_array.with_values(observed_range_indices);
 
-    // Cast range indices to flat u32 array
-    let range_indices_array = cast(&range_dict_array, &DataType::UInt32)?;
-    Ok(range_indices_array)
+    // Return the dictionary array
+    Ok(range_dict_array)
 }
 
 /// Generic helper function for evaluating ordinal scales
@@ -175,17 +197,35 @@ fn ordinal_scale_to<R: Sync + Clone>(
     range: Vec<R>,
     default_value: R,
 ) -> Result<ScalarOrArray<R>, AvengerScaleError> {
-    // Cast range indices to flat u32 array
-    // let range_array = cast(&range_dict_array, &DataType::UInt32)?;
-    let range_indices = range_indices_for_values(domain, range.len(), values)?;
-    let range_indices = range_indices.as_primitive::<UInt32Type>();
-    let scaled_values = range_indices
-        .iter()
-        .map(|i| {
-            i.map(|v| range[v as usize].clone())
-                .unwrap_or_else(|| default_value.clone())
-        })
-        .collect::<Vec<_>>();
+    // Get dictionary array with range indices
+    let range_dict_array = range_dict_array_for_values(domain, range.len(), values)?;
+
+    // Use dictionary array efficiently without casting
+    let dict_array = range_dict_array.as_any_dictionary();
+
+    // Get the unique range indices from the dictionary values
+    let unique_indices = dict_array.values();
+    let unique_indices = unique_indices.as_primitive::<UInt32Type>();
+
+    // Create mapping from unique values to range values
+    let mut unique_range_values = Vec::with_capacity(unique_indices.len());
+    for i in 0..unique_indices.len() {
+        let idx = unique_indices.value(i) as usize;
+        unique_range_values.push(range[idx].clone());
+    }
+
+    // Get the dictionary keys using normalized_keys()
+    let keys = dict_array.normalized_keys();
+
+    // Map keys to final values
+    let mut scaled_values = Vec::with_capacity(values.len());
+    for (i, key) in keys.into_iter().enumerate() {
+        if dict_array.is_null(i) {
+            scaled_values.push(default_value.clone());
+        } else {
+            scaled_values.push(unique_range_values[key].clone());
+        }
+    }
 
     Ok(ScalarOrArray::new_array(scaled_values))
 }
@@ -220,6 +260,8 @@ pub(crate) fn prep_discrete_enum_range<R: Sync + Clone + DeserializeOwned + Defa
 mod tests {
     use super::*;
     use arrow::array::{Float32Array, StringArray};
+    use arrow::compute::kernels::cast::cast;
+    use arrow::datatypes::Float32Type;
     use std::sync::Arc;
 
     #[test]
@@ -245,7 +287,6 @@ mod tests {
 
         // Convert to string array and verify results
         let result = result.as_vec(values.len(), None);
-        println!("{:?}", result);
         assert_eq!(result[0], 2.5);
         assert_eq!(result[1], 1.4);
         assert!(result[2].is_nan());
@@ -285,6 +326,146 @@ mod tests {
         assert_eq!(result[2], StrokeCap::default());
         assert_eq!(result[3], StrokeCap::Round);
         assert_eq!(result[4], StrokeCap::default());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_ordinal_scale_returns_dictionary() -> Result<(), AvengerScaleError> {
+        // Create domain and range arrays
+        let domain = Arc::new(StringArray::from(vec!["a", "b", "c"])) as ArrayRef;
+        let range = Arc::new(Float32Array::from(vec![1.0, 2.0, 3.0])) as ArrayRef;
+
+        // Create scale
+        let scale = OrdinalScale;
+        let config = ScaleConfig {
+            domain,
+            range,
+            options: HashMap::new(),
+            context: ScaleContext::default(),
+        };
+
+        // Create input values with repetitions
+        let values =
+            Arc::new(StringArray::from(vec!["b", "a", "c", "b", "a", "c", "b"])) as ArrayRef;
+
+        // Apply scale
+        let result = scale.scale(&config, &values)?;
+
+        // Verify the result is a dictionary array
+        assert!(matches!(result.data_type(), DataType::Dictionary(_, _)));
+
+        // Check the dictionary type
+        if let DataType::Dictionary(key_type, value_type) = result.data_type() {
+            assert_eq!(key_type.as_ref(), &DataType::Int16);
+            assert_eq!(value_type.as_ref(), &DataType::Float32);
+        }
+
+        // Verify we can cast it back to get the correct values
+        let cast_result = cast(&result, &DataType::Float32)?;
+        let float_array = cast_result.as_primitive::<Float32Type>();
+
+        assert_eq!(float_array.value(0), 2.0); // "b" -> 2.0
+        assert_eq!(float_array.value(1), 1.0); // "a" -> 1.0
+        assert_eq!(float_array.value(2), 3.0); // "c" -> 3.0
+        assert_eq!(float_array.value(3), 2.0); // "b" -> 2.0
+        assert_eq!(float_array.value(4), 1.0); // "a" -> 1.0
+        assert_eq!(float_array.value(5), 3.0); // "c" -> 3.0
+        assert_eq!(float_array.value(6), 2.0); // "b" -> 2.0
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_ordinal_scale_with_colors_returns_dictionary() -> Result<(), AvengerScaleError> {
+        // Create domain and range arrays
+        let domain = Arc::new(StringArray::from(vec!["red", "green", "blue"])) as ArrayRef;
+        let range = Arc::new(StringArray::from(vec!["#ff0000", "#00ff00", "#0000ff"])) as ArrayRef;
+
+        // Create scale
+        let scale = OrdinalScale;
+        let config = ScaleConfig {
+            domain,
+            range,
+            options: HashMap::new(),
+            context: ScaleContext::default(),
+        };
+
+        // Create input values with repetitions
+        let values = Arc::new(StringArray::from(vec![
+            "red", "blue", "green", "red", "red", "blue", "green",
+        ])) as ArrayRef;
+
+        // Apply scale
+        let result = scale.scale(&config, &values)?;
+
+        // Verify the result is a dictionary array
+        assert!(matches!(result.data_type(), DataType::Dictionary(_, _)));
+
+        // Check the dictionary type
+        if let DataType::Dictionary(key_type, value_type) = result.data_type() {
+            assert_eq!(key_type.as_ref(), &DataType::Int16);
+            assert_eq!(value_type.as_ref(), &DataType::Utf8);
+        }
+
+        // Get the dictionary array
+        let dict_array = result.as_any_dictionary();
+
+        // Check that the dictionary values are unique (should be 3 unique colors)
+        let dict_values = dict_array.values();
+        assert_eq!(dict_values.len(), 3); // Should only have 3 unique values
+
+        // Verify we can cast it back to get the correct values
+        let cast_result = cast(&result, &DataType::Utf8)?;
+        let string_array = cast_result.as_string::<i32>();
+
+        assert_eq!(string_array.value(0), "#ff0000"); // "red" -> "#ff0000"
+        assert_eq!(string_array.value(1), "#0000ff"); // "blue" -> "#0000ff"
+        assert_eq!(string_array.value(2), "#00ff00"); // "green" -> "#00ff00"
+        assert_eq!(string_array.value(3), "#ff0000"); // "red" -> "#ff0000"
+        assert_eq!(string_array.value(4), "#ff0000"); // "red" -> "#ff0000"
+        assert_eq!(string_array.value(5), "#0000ff"); // "blue" -> "#0000ff"
+        assert_eq!(string_array.value(6), "#00ff00"); // "green" -> "#00ff00"
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_ordinal_scale_with_nulls() -> Result<(), AvengerScaleError> {
+        // Test that our optimized ordinal_scale_to handles nulls correctly
+        // Create domain and range arrays
+        let domain = Arc::new(StringArray::from(vec!["a", "b", "c"])) as ArrayRef;
+        let range = Arc::new(Float32Array::from(vec![10.0, 20.0, 30.0])) as ArrayRef;
+
+        // Create scale
+        let scale = OrdinalScale;
+        let config = ScaleConfig {
+            domain,
+            range,
+            options: HashMap::new(),
+            context: ScaleContext::default(),
+        };
+
+        // Create input values with nulls
+        let values = Arc::new(StringArray::from(vec![
+            Some("a"),
+            None,
+            Some("b"),
+            Some("d"), // not in domain
+            None,
+            Some("c"),
+        ])) as ArrayRef;
+
+        // Apply scale
+        let result = scale.scale_to_numeric(&config, &values)?;
+        let result = result.as_vec(values.len(), None);
+
+        assert_eq!(result[0], 10.0); // "a" -> 10.0
+        assert!(result[1].is_nan()); // null -> NaN
+        assert_eq!(result[2], 20.0); // "b" -> 20.0
+        assert!(result[3].is_nan()); // "d" (not in domain) -> NaN
+        assert!(result[4].is_nan()); // null -> NaN
+        assert_eq!(result[5], 30.0); // "c" -> 30.0
 
         Ok(())
     }
