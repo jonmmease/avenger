@@ -12,8 +12,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let domain = Arc::new(StringArray::from(categories.clone())) as ArrayRef;
 
     let band_scale = BandScale::configured(domain.clone(), (0.0, 400.0))
-        .with_option("padding", 0.1) // 10% padding between bands
-        .with_option("padding_outer", 0.05); // 5% padding on outer edges
+        .with_option("padding_inner", 0.1) // 10% padding between bands
+        .with_option("padding", 0.05); // 5% padding on outer edges
 
     let test_array = Arc::new(StringArray::from(categories.clone())) as ArrayRef;
     let positions = band_scale.scale_to_numeric(&test_array)?;

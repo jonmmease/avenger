@@ -29,15 +29,14 @@ use super::{
 ///   0 places at band start, 0.5 at band center, and 1 at band end. This effectively
 ///   controls where within its allocated band each mark is positioned.
 ///
-/// - **padding** (f32, default: 0.0): Sets both padding_inner and padding_outer to the same value.
-///   This is a convenience option for uniform padding.
+/// - **padding** (f32, default: 0.0): Padding before the first and after
+///   the last band as a multiple of the step size. Must be non-negative. A value of 0.5 adds half
+///   a step of padding on each end.
 ///
 /// - **padding_inner** (f32, default: 0.0): Padding between adjacent bands
 ///   as a fraction [0, 1] of the step size. A value of 0.2 means 20% of the step is used for padding.
 ///
-/// - **padding_outer** (f32, default: 0.0): Padding before the first and after
-///   the last band as a multiple of the step size. Must be non-negative. A value of 0.5 adds half
-///   a step of padding on each end.
+/// - **padding_outer** (f32, default: 0.0): Alias for `padding`. Kept for backward compatibility.
 ///
 /// - **round** (boolean, default: false): When true, band positions and widths are rounded
 ///   to integer pixel values for crisp rendering.
@@ -57,8 +56,8 @@ impl BandScale {
                 options: vec![
                     ("align".to_string(), 0.5.into()),
                     ("band".to_string(), 0.0.into()),
+                    ("padding".to_string(), 0.0.into()),
                     ("padding_inner".to_string(), 0.0.into()),
-                    ("padding_outer".to_string(), 0.0.into()),
                     ("round".to_string(), false.into()),
                     ("range_offset".to_string(), 0.0.into()),
                 ]
@@ -213,11 +212,13 @@ fn build_range_values(config: &ScaleConfig) -> Result<Vec<f32>, AvengerScaleErro
     let align = config.option_f32("align", 0.5);
     let band = config.option_f32("band", 0.0);
 
-    // Check for generic padding option first (sets both inner and outer)
-    let default_padding = config.option_f32("padding", 0.0);
-
-    let padding_inner = config.option_f32("padding_inner", default_padding);
-    let padding_outer = config.option_f32("padding_outer", default_padding);
+    // Handle padding options: 'padding' is primary for outer, 'padding_outer' is kept for compatibility
+    let padding_inner = config.option_f32("padding_inner", 0.0);
+    let padding_outer = config
+        .options
+        .get("padding_outer")
+        .and_then(|v| v.as_f32().ok())
+        .unwrap_or_else(|| config.option_f32("padding", 0.0));
     let round = config.option_boolean("round", false);
     let range_offset = config.option_f32("range_offset", 0.0);
     let (range_start, range_stop) = config.numeric_interval_range()?;
@@ -301,11 +302,13 @@ pub fn bandwidth(config: &ScaleConfig) -> Result<f32, AvengerScaleError> {
 
     let (range_start, range_stop) = config.numeric_interval_range()?;
 
-    // Check for generic padding option first (sets both inner and outer)
-    let default_padding = config.option_f32("padding", 0.0);
-
-    let padding_inner = config.option_f32("padding_inner", default_padding);
-    let padding_outer = config.option_f32("padding_outer", default_padding);
+    // Handle padding options: 'padding' is primary for outer, 'padding_outer' is kept for compatibility
+    let padding_inner = config.option_f32("padding_inner", 0.0);
+    let padding_outer = config
+        .options
+        .get("padding_outer")
+        .and_then(|v| v.as_f32().ok())
+        .unwrap_or_else(|| config.option_f32("padding", 0.0));
 
     let (start, stop) = if range_stop < range_start {
         (range_stop, range_start)
@@ -346,7 +349,11 @@ pub fn step(config: &ScaleConfig) -> Result<f32, AvengerScaleError> {
     };
 
     let padding_inner = config.option_f32("padding_inner", 0.0);
-    let padding_outer = config.option_f32("padding_outer", 0.0);
+    let padding_outer = config
+        .options
+        .get("padding_outer")
+        .and_then(|v| v.as_f32().ok())
+        .unwrap_or_else(|| config.option_f32("padding", 0.0));
 
     let step = (stop - start) / 1.0_f32.max(bandspace(n, Some(padding_inner), Some(padding_outer)));
 
@@ -415,7 +422,7 @@ mod tests {
             range: Arc::new(Float32Array::from(vec![0.0, 120.0])),
             options: vec![
                 ("padding_inner".to_string(), 0.2.into()),
-                ("padding_outer".to_string(), 0.2.into()),
+                ("padding".to_string(), 0.2.into()),
             ]
             .into_iter()
             .collect(),
@@ -528,7 +535,7 @@ mod tests {
             range: Arc::new(Float32Array::from(vec![0.0, 120.0])),
             options: vec![
                 ("padding_inner".to_string(), 0.2.into()),
-                ("padding_outer".to_string(), 0.2.into()),
+                ("padding".to_string(), 0.2.into()),
             ]
             .into_iter()
             .collect(),
@@ -572,7 +579,7 @@ mod tests {
             range: Arc::new(Float32Array::from(vec![0.0, 120.0])),
             options: vec![
                 ("padding_inner".to_string(), 0.2.into()),
-                ("padding_outer".to_string(), 0.2.into()),
+                ("padding".to_string(), 0.2.into()),
             ]
             .into_iter()
             .collect(),
@@ -680,7 +687,7 @@ mod tests {
             options: vec![
                 ("round".to_string(), true.into()),
                 ("padding_inner".to_string(), 0.1.into()),
-                ("padding_outer".to_string(), 0.1.into()),
+                ("padding".to_string(), 0.1.into()),
                 ("align".to_string(), 0.5.into()),
             ]
             .into_iter()

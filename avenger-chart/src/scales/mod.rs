@@ -280,8 +280,8 @@ impl Scale {
                 if !self.options.contains_key("padding_inner") {
                     self = self.option("padding_inner", lit(0.1));
                 }
-                if !self.options.contains_key("padding_outer") {
-                    self = self.option("padding_outer", lit(0.1));
+                if !self.options.contains_key("padding") {
+                    self = self.option("padding", lit(0.1));
                 }
                 if !self.options.contains_key("align") {
                     self = self.option("align", lit(0.5));
@@ -889,9 +889,7 @@ fn apply_scale_defaults(scale_type: &str, options: &mut HashMap<String, Expr>) {
             options
                 .entry("padding_inner".to_string())
                 .or_insert(lit(0.1));
-            options
-                .entry("padding_outer".to_string())
-                .or_insert(lit(0.1));
+            options.entry("padding".to_string()).or_insert(lit(0.1));
             options.entry("align".to_string()).or_insert(lit(0.5));
         }
         "point" => {
