@@ -427,6 +427,19 @@ impl<C: CoordinateSystem> Plot<C> {
             "font_size" => scale = scale.range_interval(lit(0.0), lit(10.0)),
             "corner_radius" => scale = scale.range_interval(lit(0.0), lit(10.0)),
             "opacity" => scale = scale.range_interval(lit(0.0), lit(1.0)),
+            "shape" => {
+                // Default shape range for ordinal scales
+                scale = scale.range_discrete(vec![
+                    lit("circle"),
+                    lit("square"),
+                    lit("triangle-up"),
+                    lit("cross"),
+                    lit("diamond"),
+                    lit("triangle-down"),
+                    lit("triangle-left"),
+                    lit("triangle-right"),
+                ])
+            }
             _ => {}
         }
 
