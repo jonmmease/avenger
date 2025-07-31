@@ -192,75 +192,25 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         }
 
         // Stage 1: Process non-positional scales first
-                for (name, scale) in &mut non_positional_scales {
-            let mut scale_copy = scale.clone();
-
-            // Apply default domain if needed
-                        if !scale_copy.has_explicit_domain() {
-                                let data_expressions = self.plot.gather_scale_domain_expressions(name);
-                if !data_expressions.is_empty() {
-                    // Convert expressions to data fields
-                    let mut data_fields = Vec::new();
-
-                    for (df, expr) in data_expressions {
-                        match &expr {
-                            Expr::Column(col) => {
-                                data_fields.push((df, col.name.clone()));
-                            }
-                            _ => {
-                                // For complex expressions, create a derived column
-                                let expr_col_name = format!("__scale_domain_expr_{}", name);
-
-                                if let Ok(df_with_expr) = df
-                                    .as_ref()
-                                    .clone()
-                                    .with_column(&expr_col_name, expr.clone())
-                                {
-                                    data_fields.push((Arc::new(df_with_expr), expr_col_name));
-                                }
-                            }
-                        }
-                    }
-
-                    if !data_fields.is_empty() {
-                        scale_copy = scale_copy.domain_data_fields(data_fields);
-                    }
-                }
-            }
-
-            // Infer domain from data if needed
-            if matches!(
-                &scale_copy.domain.default_domain,
-                crate::scales::ScaleDefaultDomain::DataFields(_)
-            ) {
-                scale_copy = scale_copy.infer_domain_from_data().await?;
-            }
-
-            // Apply default range
-            self.plot.apply_default_range(
-                &mut scale_copy,
+        for (name, scale) in &mut non_positional_scales {
+            self.process_scale(
+                scale,
                 name,
-                plot_area_width as f64,
-                plot_area_height as f64,
-            );
+                plot_area_width,
+                plot_area_height,
+                |scale_copy| {
+                    // Apply default color range for color channels
+                    if matches!(name.as_str(), "fill" | "stroke" | "color") {
+                        self.plot.apply_default_color_range(scale_copy, name);
+                    }
 
-            // Apply default color range for color channels
-            if matches!(name.as_str(), "fill" | "stroke" | "color") {
-                self.plot.apply_default_color_range(&mut scale_copy, name);
-            }
-
-            // Apply default shape range for shape channel
-            if name == "shape" {
-                self.plot.apply_default_shape_range(&mut scale_copy);
-            }
-
-            // Normalize the scale (no padding for non-positional scales)
-            scale_copy = scale_copy
-                .normalize_domain(plot_area_width, plot_area_height)
-                .await?;
-
-            // Update the scale
-            *scale = scale_copy;
+                    // Apply default shape range for shape channel
+                    if name == "shape" {
+                        self.plot.apply_default_shape_range(scale_copy);
+                    }
+                },
+            )
+            .await?;
         }
 
         // Stage 2: Compute padding requirements from marks
@@ -304,75 +254,26 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         }
 
         // Stage 3: Process positional scales with padding
-                for (name, scale) in &mut positional_scales {
-            let mut scale_copy = scale.clone();
-
-            // Apply default domain if needed
-                        if !scale_copy.has_explicit_domain() {
-                                let data_expressions = self.plot.gather_scale_domain_expressions(name);
-                if !data_expressions.is_empty() {
-                    // Convert expressions to data fields
-                    let mut data_fields = Vec::new();
-
-                    for (df, expr) in data_expressions {
-                        match &expr {
-                            Expr::Column(col) => {
-                                data_fields.push((df, col.name.clone()));
-                            }
-                            _ => {
-                                // For complex expressions, create a derived column
-                                let expr_col_name = format!("__scale_domain_expr_{}", name);
-
-                                if let Ok(df_with_expr) = df
-                                    .as_ref()
-                                    .clone()
-                                    .with_column(&expr_col_name, expr.clone())
-                                {
-                                    data_fields.push((Arc::new(df_with_expr), expr_col_name));
-                                }
+        for (name, scale) in &mut positional_scales {
+            let mark_paddings_ref = &mark_paddings;
+            self.process_scale(
+                scale,
+                name,
+                plot_area_width,
+                plot_area_height,
+                |scale_copy| {
+                    // Apply mark-computed padding if available and not explicitly set
+                    if !scale_copy.has_explicit_padding() {
+                        if let Some(&padding_pixels) = mark_paddings_ref.get(name) {
+                            if padding_pixels > 0.0 {
+                                // The padding option expects pixels directly
+                                *scale_copy = scale_copy.clone().padding(datafusion::prelude::lit(padding_pixels));
                             }
                         }
                     }
-
-                    if !data_fields.is_empty() {
-                        scale_copy = scale_copy.domain_data_fields(data_fields);
-                    }
-                }
-            }
-
-            // Infer domain from data if needed
-            if matches!(
-                &scale_copy.domain.default_domain,
-                crate::scales::ScaleDefaultDomain::DataFields(_)
-            ) {
-                scale_copy = scale_copy.infer_domain_from_data().await?;
-            }
-
-            // Apply default range
-            self.plot.apply_default_range(
-                &mut scale_copy,
-                name,
-                plot_area_width as f64,
-                plot_area_height as f64,
-            );
-
-            // Apply mark-computed padding if available and not explicitly set
-            if !scale_copy.has_explicit_padding() {
-                if let Some(&padding_pixels) = mark_paddings.get(name) {
-                    if padding_pixels > 0.0 {
-                        // The padding option expects pixels directly
-                        scale_copy = scale_copy.padding(datafusion::prelude::lit(padding_pixels));
-                    }
-                }
-            }
-
-            // Normalize the scale to apply padding, zero, and nice transformations
-            scale_copy = scale_copy
-                .normalize_domain(plot_area_width, plot_area_height)
-                .await?;
-
-            // Update the scale
-            *scale = scale_copy;
+                },
+            )
+            .await?;
         }
 
         // Merge all scales back together for mark rendering
@@ -711,6 +612,94 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         // TODO: Create title text mark if plot.title is set
         // When implemented, wrap in a group with zindex: Some(20)
         Ok(Vec::new())
+    }
+
+    /// Infer and apply domain for a scale if not explicitly set
+    async fn infer_scale_domain(
+        &self,
+        scale: &mut Scale,
+        name: &str,
+    ) -> Result<(), AvengerChartError> {
+        if !scale.has_explicit_domain() {
+            let data_expressions = self.plot.gather_scale_domain_expressions(name);
+            if !data_expressions.is_empty() {
+                // Convert expressions to data fields
+                let mut data_fields = Vec::new();
+
+                for (df, expr) in data_expressions {
+                    match &expr {
+                        Expr::Column(col) => {
+                            data_fields.push((df, col.name.clone()));
+                        }
+                        _ => {
+                            // For complex expressions, create a derived column
+                            let expr_col_name = format!("__scale_domain_expr_{}", name);
+
+                            if let Ok(df_with_expr) = df
+                                .as_ref()
+                                .clone()
+                                .with_column(&expr_col_name, expr.clone())
+                            {
+                                data_fields.push((Arc::new(df_with_expr), expr_col_name));
+                            }
+                        }
+                    }
+                }
+
+                if !data_fields.is_empty() {
+                    *scale = scale.clone().domain_data_fields(data_fields);
+                }
+            }
+        }
+
+        // Infer domain from data if needed
+        if matches!(
+            &scale.domain.default_domain,
+            crate::scales::ScaleDefaultDomain::DataFields(_)
+        ) {
+            *scale = scale.clone().infer_domain_from_data().await?;
+        }
+
+        Ok(())
+    }
+
+    /// Process a scale with common workflow
+    async fn process_scale<F>(
+        &self,
+        scale: &mut Scale,
+        name: &str,
+        plot_area_width: f32,
+        plot_area_height: f32,
+        apply_scale_specific: F,
+    ) -> Result<(), AvengerChartError>
+    where
+        F: FnOnce(&mut Scale),
+    {
+        let mut scale_copy = scale.clone();
+
+        // Apply domain inference
+        self.infer_scale_domain(&mut scale_copy, name).await?;
+
+        // Apply default range
+        self.plot.apply_default_range(
+            &mut scale_copy,
+            name,
+            plot_area_width as f64,
+            plot_area_height as f64,
+        );
+
+        // Apply scale-specific logic
+        apply_scale_specific(&mut scale_copy);
+
+        // Normalize the scale
+        scale_copy = scale_copy
+            .normalize_domain(plot_area_width, plot_area_height)
+            .await?;
+
+        // Update the scale
+        *scale = scale_copy;
+        
+        Ok(())
     }
 }
 
