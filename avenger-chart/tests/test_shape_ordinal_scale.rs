@@ -46,7 +46,7 @@ mod tests {
             Symbol::new()
                 .x(col("x"))
                 .y(col("y"))
-                .shape(col("shape")) // Using scaled behavior (default)
+                .shape(col("shape"))
                 .size(lit(150.0))
                 .fill("#4682b4")
                 .stroke("#000000")
