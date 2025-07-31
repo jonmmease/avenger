@@ -7,6 +7,7 @@ use crate::error::AvengerChartError;
 use crate::layout::PlotTrait;
 use crate::marks::{ChannelValue, Mark};
 use crate::plot::Plot;
+use crate::scales::Scale;
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
@@ -14,6 +15,7 @@ use avenger_wgpu::canvas::{Canvas, PngCanvas};
 use datafusion::arrow::datatypes::{Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::Expr;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Result of rendering a plot to scene graph components
@@ -48,22 +50,27 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         let plot_area_width = width as f32 - padding.left - padding.right;
         let plot_area_height = height as f32 - padding.top - padding.bottom;
 
-        // Create scale registry with default ranges applied
-        let mut scales = crate::scales::ScaleRegistry::new();
-
         // First, collect all channels that need scales
         let channels_with_scales = self.plot.collect_channels_needing_scales();
 
-        // Add any missing scales with appropriate defaults
-        let mut all_scales = self.plot.scales.clone();
-        for channel in channels_with_scales.difference(&all_scales.keys().cloned().collect()) {
-            if let Some(default_scale) = self.plot.create_default_scale_for_channel(channel).await {
-                all_scales.insert(channel.clone(), default_scale);
-            }
+        // Build all scales on demand, applying configured transformations
+        let mut all_scales = HashMap::new();
+        for channel in &channels_with_scales {
+            let scale = if let Some(scale) = self.plot.get_scale(channel) {
+                // Scale was explicitly configured
+                scale
+            } else {
+                // Create default scale for channel
+                self.plot
+                    .create_default_scale_for_channel(channel)
+                    .await
+                    .unwrap_or_else(|| Scale::with_type("linear"))
+            };
+            all_scales.insert(channel.clone(), scale);
         }
 
         // Process scales: infer domains, apply defaults, and normalize
-        for (name, scale) in &all_scales {
+        for (name, scale) in &mut all_scales {
             let mut scale_copy = scale.clone();
 
             // Apply default domain if needed
@@ -129,7 +136,8 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
             // This ensures data and axes use the same normalized domain
             scale_copy = scale_copy.normalize_domain(plot_area_width, plot_area_height)?;
 
-            scales.add(name.clone(), scale_copy);
+            // Update the scale in the registry
+            *scale = scale_copy;
         }
 
         // Use the full plot area for clipping
@@ -143,13 +151,19 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
 
         for mark in &self.plot.marks {
             let scene_marks = self
-                .render_mark(mark.as_ref(), &scales, plot_area_width, plot_area_height)
+                .render_mark(
+                    mark.as_ref(),
+                    &all_scales,
+                    plot_area_width,
+                    plot_area_height,
+                )
                 .await?;
             mark_groups.extend(scene_marks);
         }
 
         // Create axes
-        let axis_marks = self.create_axes(&scales, plot_area_width, plot_area_height, &padding)?;
+        let axis_marks =
+            self.create_axes(&all_scales, plot_area_width, plot_area_height, &padding)?;
 
         // Create title if present
         let title_marks = self.create_title(width as f32, &padding)?;
@@ -251,7 +265,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
     async fn render_mark(
         &self,
         mark: &dyn Mark<C>,
-        scales: &crate::scales::ScaleRegistry,
+        scales: &HashMap<String, Scale>,
         _plot_width: f32,
         _plot_height: f32,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
@@ -373,7 +387,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         &self,
         channel_name: &str,
         channel_value: &ChannelValue,
-        scales: &crate::scales::ScaleRegistry,
+        scales: &HashMap<String, Scale>,
     ) -> Result<datafusion::logical_expr::Expr, AvengerChartError> {
         use crate::marks::channel::strip_trailing_numbers;
         use datafusion::logical_expr::lit;
@@ -424,7 +438,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
     /// Create axis marks based on configured axes
     fn create_axes(
         &self,
-        scales: &crate::scales::ScaleRegistry,
+        scales: &HashMap<String, Scale>,
         plot_width: f32,
         plot_height: f32,
         padding: &crate::layout::Padding,

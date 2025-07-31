@@ -18,6 +18,7 @@ use datafusion::arrow::datatypes::DataType;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::dataframe::DataFrame;
 use datafusion::scalar::ScalarValue;
+use indexmap::IndexMap;
 
 pub struct Line<C: CoordinateSystem> {
     state: MarkState<C>,
@@ -93,7 +94,7 @@ define_position_mark_channels! {
 }
 
 // Partitioning support for multi-series lines
-#[derive(Hash, Eq, PartialEq, Debug, Clone)]
+#[derive(Hash, Eq, PartialEq, Debug, Clone, Ord, PartialOrd)]
 struct PartitionKey {
     stroke: Option<usize>,
     width: Option<usize>,
@@ -130,7 +131,6 @@ impl Mark<Cartesian> for Line<Cartesian> {
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         use avenger_common::value::ScalarOrArrayValue;
         use avenger_scales::scales::coerce::Coercer;
-        use std::collections::HashMap;
 
         // For lines, we need array data for positions
         let data = data.ok_or_else(|| {
@@ -325,7 +325,7 @@ impl Mark<Cartesian> for Line<Cartesian> {
         };
 
         // Build partition map using dictionary keys
-        let mut partition_groups: HashMap<PartitionKey, Vec<usize>> = HashMap::new();
+        let mut partition_groups: IndexMap<PartitionKey, Vec<usize>> = IndexMap::new();
 
         for i in 0..len {
             let key = PartitionKey {

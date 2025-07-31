@@ -10,17 +10,16 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 /// How a scale is defined for a channel
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum ScaleSpec {
-    /// Scale defined locally on this plot
-    Local(Box<Scale>),
+    /// Scale defined locally on this plot with a configuration function
+    Local(Arc<dyn Fn(Scale) -> Scale + Send + Sync>),
     /// Reference to a scale defined in parent layout
     Reference(String),
 }
 
 pub struct Plot<C: CoordinateSystem> {
     coord_system: C,
-    pub(crate) scales: HashMap<String, Scale>,
     pub(crate) axes: HashMap<String, C::Axis>,
     pub(crate) legends: HashMap<String, Legend>,
     pub(crate) marks: Vec<Box<dyn Mark<C>>>,
@@ -35,7 +34,7 @@ pub struct Plot<C: CoordinateSystem> {
     controllers: Vec<Box<dyn std::any::Any + Send + Sync>>,
 
     /// Scale specifications (local or referenced)
-    scale_specs: HashMap<String, ScaleSpec>,
+    pub(crate) scale_specs: HashMap<String, ScaleSpec>,
 
     /// Size hints for layout system
     preferred_size: Option<(f64, f64)>,
@@ -337,7 +336,6 @@ impl<C: CoordinateSystem> Plot<C> {
     pub fn new(coord_system: C) -> Self {
         Plot {
             coord_system,
-            scales: HashMap::new(),
             axes: HashMap::new(),
             legends: HashMap::new(),
             marks: Vec::new(),
@@ -354,13 +352,6 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Get a reference to the coordinate system
     pub fn coord_system(&self) -> &C {
         &self.coord_system
-    }
-
-    /// Get or create a default scale for a channel
-    pub(crate) fn get_or_create_scale(&mut self, channel: &str) -> Scale {
-        self.scales
-            .remove(channel)
-            .unwrap_or_else(|| self.create_default_scale_for_channel_internal(channel))
     }
 
     /// Internal helper to create a default scale for a channel
@@ -491,10 +482,20 @@ impl<C: CoordinateSystem> Plot<C> {
         self.facet_spec.is_some()
     }
 
-    /// Get a copy of a scale by name
+    /// Build a scale by name, applying any configured transformations
     /// Note: Default range will be applied during rendering when actual dimensions are known
     pub fn get_scale(&self, name: &str) -> Option<Scale> {
-        self.scales.get(name).cloned()
+        match self.scale_specs.get(name) {
+            Some(ScaleSpec::Local(f)) => {
+                let base_scale = self.create_default_scale_for_channel_internal(name);
+                Some(f(base_scale))
+            }
+            Some(ScaleSpec::Reference(_)) => {
+                // TODO: Handle referenced scales from parent layout
+                None
+            }
+            None => None,
+        }
     }
 
     /// Gather mark data and encoding expressions that use this scale
@@ -670,36 +671,15 @@ impl<C: CoordinateSystem> Plot<C> {
     pub async fn create_default_scale_for_channel(&self, channel: &str) -> Option<Scale> {
         Some(self.create_default_scale_for_channel_internal(channel))
     }
-
-    /// Ensure scales exist for all channels used in marks
-    pub async fn ensure_scales_for_all_channels(
-        mut self,
-    ) -> Result<Self, crate::error::AvengerChartError> {
-        // Collect all channels that need scales
-        let used_channels = self.collect_channels_needing_scales();
-
-        // Create scales for channels that don't have them
-        for channel in used_channels {
-            if !self.scales.contains_key(&channel) {
-                let scale = self.create_default_scale_for_channel_internal(&channel);
-                self.scales.insert(channel, scale);
-            }
-        }
-
-        Ok(self)
-    }
 }
 
 impl Plot<Cartesian> {
     pub fn scale_x<F>(mut self, f: F) -> Self
     where
-        F: FnOnce(Scale) -> Scale,
+        F: Fn(Scale) -> Scale + Send + Sync + 'static,
     {
-        let scale = self.get_or_create_scale("x");
-        let scale = f(scale);
-        self.scales.insert("x".to_string(), scale.clone());
         self.scale_specs
-            .insert("x".to_string(), ScaleSpec::Local(Box::new(scale)));
+            .insert("x".to_string(), ScaleSpec::Local(Arc::new(f)));
         self
     }
 
@@ -712,13 +692,10 @@ impl Plot<Cartesian> {
 
     pub fn scale_y<F>(mut self, f: F) -> Self
     where
-        F: FnOnce(Scale) -> Scale,
+        F: Fn(Scale) -> Scale + Send + Sync + 'static,
     {
-        let scale = self.get_or_create_scale("y");
-        let scale = f(scale);
-        self.scales.insert("y".to_string(), scale.clone());
         self.scale_specs
-            .insert("y".to_string(), ScaleSpec::Local(Box::new(scale)));
+            .insert("y".to_string(), ScaleSpec::Local(Arc::new(f)));
         self
     }
 
@@ -768,13 +745,11 @@ impl Plot<Cartesian> {
     /// Add an alternative y-axis scale with a custom name
     pub fn scale_y_alt<S: Into<String>, F>(mut self, name: S, f: F) -> Self
     where
-        F: FnOnce(Scale) -> Scale,
+        F: Fn(Scale) -> Scale + Send + Sync + 'static,
     {
-        let scale = f(Scale::with_type("linear"));
         let name = name.into();
-        self.scales.insert(name.clone(), scale.clone());
         self.scale_specs
-            .insert(name.clone(), ScaleSpec::Local(Box::new(scale)));
+            .insert(name.clone(), ScaleSpec::Local(Arc::new(f)));
         // Map this scale to the y coordinate channel
         self.scale_to_coord_channel.insert(name, "y".to_string());
         self
@@ -783,13 +758,11 @@ impl Plot<Cartesian> {
     /// Add an alternative x-axis scale with a custom name
     pub fn scale_x_alt<S: Into<String>, F>(mut self, name: S, f: F) -> Self
     where
-        F: FnOnce(Scale) -> Scale,
+        F: Fn(Scale) -> Scale + Send + Sync + 'static,
     {
-        let scale = f(Scale::with_type("linear"));
         let name = name.into();
-        self.scales.insert(name.clone(), scale.clone());
         self.scale_specs
-            .insert(name.clone(), ScaleSpec::Local(Box::new(scale)));
+            .insert(name.clone(), ScaleSpec::Local(Arc::new(f)));
         // Map this scale to the x coordinate channel
         self.scale_to_coord_channel.insert(name, "x".to_string());
         self
@@ -835,13 +808,10 @@ impl Plot<Cartesian> {
 impl Plot<Polar> {
     pub fn scale_r<F>(mut self, f: F) -> Self
     where
-        F: FnOnce(Scale) -> Scale,
+        F: Fn(Scale) -> Scale + Send + Sync + 'static,
     {
-        let scale = self.get_or_create_scale("r");
-        let scale = f(scale);
-        self.scales.insert("r".to_string(), scale.clone());
         self.scale_specs
-            .insert("r".to_string(), ScaleSpec::Local(Box::new(scale)));
+            .insert("r".to_string(), ScaleSpec::Local(Arc::new(f)));
         self
     }
 
@@ -854,13 +824,10 @@ impl Plot<Polar> {
 
     pub fn scale_theta<F>(mut self, f: F) -> Self
     where
-        F: FnOnce(Scale) -> Scale,
+        F: Fn(Scale) -> Scale + Send + Sync + 'static,
     {
-        let scale = self.get_or_create_scale("theta");
-        let scale = f(scale);
-        self.scales.insert("theta".to_string(), scale.clone());
         self.scale_specs
-            .insert("theta".to_string(), ScaleSpec::Local(Box::new(scale)));
+            .insert("theta".to_string(), ScaleSpec::Local(Arc::new(f)));
         self
     }
 

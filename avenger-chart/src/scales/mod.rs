@@ -1,5 +1,5 @@
 pub mod color_defaults;
-pub mod defaults;
+// pub mod defaults;
 pub mod inference;
 pub mod udf;
 
@@ -10,7 +10,7 @@ use datafusion::arrow::array::{Array, AsArray};
 use datafusion::arrow::datatypes::DataType;
 use datafusion::dataframe::DataFrame;
 use datafusion::functions_array::expr_fn::make_array;
-use datafusion::logical_expr::{Expr, ExprSchemable, lit, when, cast};
+use datafusion::logical_expr::{Expr, ExprSchemable, cast, lit, when};
 use datafusion::prelude::named_struct;
 use datafusion_common::{DFSchema, ScalarValue};
 use palette::Srgba;
@@ -79,9 +79,14 @@ impl Scale {
 
     /// Set the scale type, replacing the current implementation
     pub fn scale_type(mut self, scale_type: &str) -> Self {
+        let old_type = self.scale_impl.scale_type();
         self.scale_impl = create_scale_impl(scale_type);
+        let new_type = self.scale_impl.scale_type();
+
         // Clear existing options and apply new defaults
-        self.options.clear();
+        if old_type != new_type {
+            self.options.clear();
+        }
         apply_scale_defaults(scale_type, &mut self.options);
         self
     }
@@ -190,6 +195,7 @@ impl Scale {
 
     pub fn padding_none(mut self) -> Self {
         self.options.remove("padding");
+        self.padding_explicit = true;
         self
     }
 

@@ -56,7 +56,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     /// A map of channel names to default axis configurations
     fn create_default_axes(
         &self,
-        scales: &crate::scales::ScaleRegistry,
+        scales: &HashMap<String, crate::scales::Scale>,
         existing_axes: &HashMap<String, Self::Axis>,
         marks: &[Box<dyn crate::marks::Mark<Self>>],
     ) -> HashMap<String, Self::Axis>
@@ -77,7 +77,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     fn render_axes(
         &self,
         axes: &HashMap<String, Self::Axis>,
-        scales: &crate::scales::ScaleRegistry,
+        scales: &HashMap<String, crate::scales::Scale>,
         plot_width: f32,
         plot_height: f32,
         padding: &crate::layout::Padding,
@@ -143,15 +143,15 @@ impl CoordinateSystem for Cartesian {
 
     fn create_default_axes(
         &self,
-        scales: &crate::scales::ScaleRegistry,
+        scales: &HashMap<String, crate::scales::Scale>,
         existing_axes: &HashMap<String, Self::Axis>,
         marks: &[Box<dyn crate::marks::Mark<Self>>],
     ) -> HashMap<String, Self::Axis> {
         let mut default_axes = HashMap::new();
 
         // Create default axes for x and y channels if they have scales but no explicit axis
-        for channel in &["x", "y"] {
-            if scales.get(channel).is_some() && !existing_axes.contains_key(*channel) {
+        for channel in ["x", "y"] {
+            if scales.get(channel).is_some() && !existing_axes.contains_key(channel) {
                 // Extract title from mark encodings
                 let title = extract_axis_title_from_marks(marks, channel)
                     .unwrap_or_else(|| channel.to_string());
@@ -178,7 +178,7 @@ impl CoordinateSystem for Cartesian {
     fn render_axes(
         &self,
         axes: &HashMap<String, Self::Axis>,
-        scales: &crate::scales::ScaleRegistry,
+        scales: &HashMap<String, crate::scales::Scale>,
         plot_width: f32,
         plot_height: f32,
         padding: &crate::layout::Padding,
@@ -344,7 +344,7 @@ impl CoordinateSystem for Polar {
 
     fn create_default_axes(
         &self,
-        _scales: &crate::scales::ScaleRegistry,
+        _scales: &HashMap<String, crate::scales::Scale>,
         _existing_axes: &HashMap<String, Self::Axis>,
         _marks: &[Box<dyn crate::marks::Mark<Self>>],
     ) -> HashMap<String, Self::Axis> {
@@ -356,7 +356,7 @@ impl CoordinateSystem for Polar {
     fn render_axes(
         &self,
         _axes: &HashMap<String, Self::Axis>,
-        _scales: &crate::scales::ScaleRegistry,
+        _scales: &HashMap<String, crate::scales::Scale>,
         _plot_width: f32,
         _plot_height: f32,
         _padding: &crate::layout::Padding,
