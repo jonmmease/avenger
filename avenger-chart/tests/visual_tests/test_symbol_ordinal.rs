@@ -59,8 +59,8 @@ async fn test_symbol_automatic_shape_scale() {
     let plot = Plot::new(Cartesian)
         .preferred_size(600.0, 400.0)
         .data(df)
-        .scale_x(|scale| scale.scale_type("linear").domain((60.0, 130.0)))
-        .scale_y(|scale| scale.scale_type("linear").domain((10.0, 30.0)))
+        // .scale_x(|scale| scale.scale_type("linear").domain((60.0, 130.0)))
+        // .scale_y(|scale| scale.scale_type("linear").domain((10.0, 30.0)))
         .axis_x(|axis| axis.title("Sales ($k)"))
         .axis_y(|axis| axis.title("Profit ($k)"))
         .mark(

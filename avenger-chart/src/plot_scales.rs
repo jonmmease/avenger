@@ -1,17 +1,17 @@
 use crate::coords::CoordinateSystem;
-use crate::plot::Plot;
+use crate::plot::{Plot, ScaleSpec};
 use crate::scales::Scale;
+use std::sync::Arc;
 
 /// Macro to generate scale methods for Plot
 macro_rules! scale_methods {
     ($($method:ident => $channel:expr),* $(,)?) => {
         $(
             pub fn $method<F>(mut self, f: F) -> Self
-            where F: FnOnce(Scale) -> Scale
+            where F: Fn(Scale) -> Scale + Send + Sync + 'static
             {
-                let scale = self.get_or_create_scale($channel);
-                let scale = f(scale);
-                self.scales.insert($channel.to_string(), scale);
+                self.scale_specs
+                    .insert($channel.to_string(), ScaleSpec::Local(Arc::new(f)));
                 self
             }
         )*

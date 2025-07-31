@@ -82,7 +82,7 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
         scalars: &RecordBatch,
     ) -> Result<MarkPadding, AvengerChartError> {
         use avenger_scales::scales::coerce::Coercer;
-        
+
         let coercer = Coercer::default();
 
         // Get maximum size (area in square pixels)
@@ -106,13 +106,15 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
 
         // Calculate radius from area (size represents area, not diameter)
         let radius = (max_size / std::f32::consts::PI).sqrt();
-        
+
         // Total padding needed is radius + half stroke width
         let padding = radius + stroke_width / 2.0;
-        
+
         // Debug: print the calculated padding
-        eprintln!("Symbol padding calculation: max_size={}, radius={}, stroke_width={}, padding={}", 
-                  max_size, radius, stroke_width, padding);
+        eprintln!(
+            "Symbol padding calculation: max_size={}, radius={}, stroke_width={}, padding={}",
+            max_size, radius, stroke_width, padding
+        );
 
         Ok(MarkPadding {
             x: Some(padding as f64),

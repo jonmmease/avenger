@@ -1,5 +1,8 @@
 use crate::error::AvengerChartError;
+use arrow::array::{ArrayRef, ListArray};
+use arrow::datatypes::DataType;
 use async_trait::async_trait;
+use avenger_scales::scalar::Scalar;
 use datafusion::common::{ParamValues, Spans};
 use datafusion::error::DataFusionError;
 use datafusion::functions_aggregate::expr_fn::array_agg;
@@ -10,7 +13,7 @@ use datafusion::prelude::{DataFrame, Expr, SessionContext, col, lit};
 use datafusion::scalar::ScalarValue;
 use std::sync::Arc;
 
-pub trait DataFrameChartUtils {
+pub trait DataFrameChartHelpers {
     /// Return two-element array of min and max values across all of the columns in the input DataFrame
     fn span(&self) -> Result<Expr, AvengerChartError>;
 
@@ -24,7 +27,7 @@ pub trait DataFrameChartUtils {
     fn all_values(&self) -> Result<Expr, AvengerChartError>;
 }
 
-impl DataFrameChartUtils for DataFrame {
+impl DataFrameChartHelpers for DataFrame {
     fn span(&self) -> Result<Expr, AvengerChartError> {
         // Collect single column DataFrames for all numeric columns
         let mut union_dfs: Vec<DataFrame> = Vec::new();
@@ -193,6 +196,177 @@ impl ExprHelpers for Expr {
             res[0].column_by_name("value").unwrap(),
             0,
         )?)
+    }
+}
+
+pub trait ScalarValueHelpers {
+    fn as_i32(&self) -> Result<i32, DataFusionError>;
+    fn as_f32(&self) -> Result<f32, DataFusionError>;
+    fn as_f64(&self) -> Result<f64, DataFusionError>;
+    fn as_f32x2(&self) -> Result<[f32; 2], DataFusionError>;
+    fn as_f64x2(&self) -> Result<[f64; 2], DataFusionError>;
+    fn as_scalar_string(&self) -> Result<String, DataFusionError>;
+    fn negate(&self) -> Self;
+    fn as_scale_scalar(&self) -> Result<Scalar, DataFusionError>;
+}
+
+impl ScalarValueHelpers for ScalarValue {
+    fn as_i32(&self) -> Result<i32, DataFusionError> {
+        Ok(match self {
+            ScalarValue::Float32(Some(e)) => *e as i32,
+            ScalarValue::Float64(Some(e)) => *e as i32,
+            ScalarValue::Int8(Some(e)) => *e as i32,
+            ScalarValue::Int16(Some(e)) => *e as i32,
+            ScalarValue::Int32(Some(e)) => *e,
+            ScalarValue::Int64(Some(e)) => *e as i32,
+            ScalarValue::UInt8(Some(e)) => *e as i32,
+            ScalarValue::UInt16(Some(e)) => *e as i32,
+            ScalarValue::UInt32(Some(e)) => *e as i32,
+            ScalarValue::UInt64(Some(e)) => *e as i32,
+            _ => {
+                return Err(DataFusionError::Internal(format!(
+                    "Cannot convert {self} to i32"
+                )));
+            }
+        })
+    }
+
+    fn as_f32(&self) -> Result<f32, DataFusionError> {
+        Ok(self.as_f64()? as f32)
+    }
+
+    fn as_f64(&self) -> Result<f64, DataFusionError> {
+        Ok(match self {
+            ScalarValue::Float32(Some(e)) => *e as f64,
+            ScalarValue::Float64(Some(e)) => *e,
+            ScalarValue::Int8(Some(e)) => *e as f64,
+            ScalarValue::Int16(Some(e)) => *e as f64,
+            ScalarValue::Int32(Some(e)) => *e as f64,
+            ScalarValue::Int64(Some(e)) => *e as f64,
+            ScalarValue::UInt8(Some(e)) => *e as f64,
+            ScalarValue::UInt16(Some(e)) => *e as f64,
+            ScalarValue::UInt32(Some(e)) => *e as f64,
+            ScalarValue::UInt64(Some(e)) => *e as f64,
+            _ => {
+                return Err(DataFusionError::Internal(format!(
+                    "Cannot convert {self} to f64"
+                )));
+            }
+        })
+    }
+
+    fn as_f32x2(&self) -> Result<[f32; 2], DataFusionError> {
+        let f64x2 = self.as_f64x2()?;
+        Ok([f64x2[0] as f32, f64x2[1] as f32])
+    }
+
+    fn as_f64x2(&self) -> Result<[f64; 2], DataFusionError> {
+        if let ScalarValue::List(array) = self {
+            let elements = array.value(0).to_scalar_vec()?;
+            if let [v0, v1] = elements.as_slice() {
+                return Ok([v0.as_f64()?, v1.as_f64()?]);
+            }
+        }
+        Err(DataFusionError::Internal(format!(
+            "Cannot convert {self} to [f64; 2]"
+        )))
+    }
+
+    fn as_scalar_string(&self) -> Result<String, DataFusionError> {
+        Ok(match self {
+            ScalarValue::Utf8(Some(value)) => value.clone(),
+            ScalarValue::LargeUtf8(Some(value)) => value.clone(),
+            ScalarValue::Utf8View(Some(value)) => value.clone(),
+            _ => {
+                return Err(DataFusionError::Internal(format!(
+                    "Cannot convert {self} to String"
+                )));
+            }
+        })
+    }
+
+    fn negate(&self) -> Self {
+        match self {
+            ScalarValue::Float32(Some(e)) => ScalarValue::Float32(Some(-*e)),
+            ScalarValue::Float64(Some(e)) => ScalarValue::Float64(Some(-*e)),
+            ScalarValue::Int8(Some(e)) => ScalarValue::Int8(Some(-*e)),
+            ScalarValue::Int16(Some(e)) => ScalarValue::Int16(Some(-*e)),
+            ScalarValue::Int32(Some(e)) => ScalarValue::Int32(Some(-*e)),
+            ScalarValue::Int64(Some(e)) => ScalarValue::Int64(Some(-*e)),
+            ScalarValue::UInt8(Some(e)) => ScalarValue::Int16(Some(-(*e as i16))),
+            ScalarValue::UInt16(Some(e)) => ScalarValue::Int32(Some(-(*e as i32))),
+            ScalarValue::UInt32(Some(e)) => ScalarValue::Int64(Some(-(*e as i64))),
+            ScalarValue::UInt64(Some(e)) => ScalarValue::Int64(Some(-(*e as i64))),
+            _ => self.clone(),
+        }
+    }
+
+    fn as_scale_scalar(&self) -> Result<Scalar, DataFusionError> {
+        let scalar = match self {
+            Self::Float64(Some(v)) => Scalar::from_f32(*v as f32),
+            ScalarValue::Float32(Some(v)) => Scalar::from_f32(*v),
+            ScalarValue::Int64(Some(v)) => Scalar::from_f32(*v as f32),
+            ScalarValue::Int32(Some(v)) => Scalar::from_f32(*v as f32),
+            ScalarValue::Boolean(Some(v)) => Scalar::from_bool(*v),
+            _ => {
+                return Err(DataFusionError::Internal(format!(
+                    "Cannot convert {self} to avenger_scales::scalar::Scalar"
+                )));
+            }
+        };
+        Ok(scalar)
+    }
+}
+
+pub trait ArrayRefHelpers {
+    fn to_scalar_vec(&self) -> Result<Vec<ScalarValue>, DataFusionError>;
+
+    fn list_el_to_scalar_vec(&self) -> Result<Vec<ScalarValue>, DataFusionError>;
+
+    fn list_el_len(&self) -> Result<usize, DataFusionError>;
+
+    fn list_el_dtype(&self) -> Result<DataType, DataFusionError>;
+}
+
+impl ArrayRefHelpers for ArrayRef {
+    /// Convert ArrayRef into vector of ScalarValues
+    fn to_scalar_vec(&self) -> Result<Vec<ScalarValue>, DataFusionError> {
+        (0..self.len())
+            .map(|i| ScalarValue::try_from_array(self, i))
+            .collect::<Result<Vec<_>, DataFusionError>>()
+    }
+
+    /// Extract Vec<ScalarValue> for single element ListArray (as is stored inside ScalarValue::List(arr))
+    fn list_el_to_scalar_vec(&self) -> Result<Vec<ScalarValue>, DataFusionError> {
+        let a = self
+            .as_any()
+            .downcast_ref::<ListArray>()
+            .ok_or(DataFusionError::Internal(
+                "list_el_to_scalar_vec called on non-List type".to_string(),
+            ))?;
+        a.value(0).to_scalar_vec()
+    }
+
+    /// Extract length of single element ListArray
+    fn list_el_len(&self) -> Result<usize, DataFusionError> {
+        let a = self
+            .as_any()
+            .downcast_ref::<ListArray>()
+            .ok_or(DataFusionError::Internal(
+                "list_el_len called on non-List type".to_string(),
+            ))?;
+        Ok(a.value(0).len())
+    }
+
+    /// Extract data type of single element ListArray
+    fn list_el_dtype(&self) -> Result<DataType, DataFusionError> {
+        let a = self
+            .as_any()
+            .downcast_ref::<ListArray>()
+            .ok_or(DataFusionError::Internal(
+                "list_el_len called on non-List type".to_string(),
+            ))?;
+        Ok(a.value(0).data_type().clone())
     }
 }
 

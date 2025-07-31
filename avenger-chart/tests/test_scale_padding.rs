@@ -1,0 +1,51 @@
+use avenger_chart::scales::Scale;
+use avenger_scales::scales::linear::LinearScale;
+use datafusion::prelude::*;
+
+#[test]
+fn test_scale_padding_builders() {
+    // Test padding with literal
+    let scale = Scale::new(LinearScale).padding(lit(10.0));
+
+    assert!(scale.has_explicit_padding());
+    assert!(scale.get_padding().is_some());
+
+    // Test padding with numeric value wrapped in lit
+    let scale = Scale::new(LinearScale).padding(lit(15.5));
+
+    assert!(scale.has_explicit_padding());
+    assert!(scale.get_padding().is_some());
+
+    // Test no padding
+    let scale = Scale::new(LinearScale).padding_none();
+
+    assert!(scale.has_explicit_padding());
+    assert!(scale.get_padding().is_none());
+}
+
+#[test]
+fn test_scale_padding_default() {
+    // Test that default scale has no padding
+    let scale = Scale::new(LinearScale);
+
+    assert!(!scale.has_explicit_padding());
+    assert!(scale.get_padding().is_none());
+}
+
+#[tokio::test]
+async fn test_scale_padding_normalization() -> Result<(), Box<dyn std::error::Error>> {
+    // Test that explicit padding is applied during normalization
+    let scale = Scale::new(LinearScale)
+        .domain_interval(lit(0.0), lit(100.0))
+        .range_interval(lit(0.0), lit(400.0))
+        .padding(lit(20.0));
+
+    // Create configured scale to test padding option is set
+    let configured = scale.create_configured_scale(400.0, 300.0)?;
+
+    // Check that padding option was added
+    let padding_opt = configured.config.options.get("padding");
+    assert!(padding_opt.is_some(), "Padding option should be set");
+
+    Ok(())
+}
