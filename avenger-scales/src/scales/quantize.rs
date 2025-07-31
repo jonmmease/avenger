@@ -11,8 +11,9 @@ use lazy_static::lazy_static;
 use crate::error::AvengerScaleError;
 
 use super::{
-    linear::LinearScale, ConfiguredScale, InferDomainFromDataMethod, OptionConstraint,
-    OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl,
+    linear::{LinearScale, NormalizationConfig},
+    ConfiguredScale, InferDomainFromDataMethod, OptionConstraint, OptionDefinition, ScaleConfig,
+    ScaleContext, ScaleImpl,
 };
 
 /// Quantize scale that divides a continuous numeric domain into uniform segments,
@@ -69,7 +70,15 @@ impl QuantizeScale {
     ) -> Result<(f32, f32), AvengerScaleError> {
         // Use LinearScale normalization since quantize scale works with linear domains
         // Quantize scale doesn't use padding, so we pass dummy range and None for padding
-        LinearScale::apply_normalization(domain, (0.0, 1.0), None, zero, nice)
+        LinearScale::apply_normalization(NormalizationConfig {
+            domain,
+            range: (0.0, 1.0),
+            padding: None,
+            padding_lower: None,
+            padding_upper: None,
+            zero,
+            nice,
+        })
     }
 }
 
