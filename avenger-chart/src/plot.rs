@@ -395,7 +395,7 @@ impl<C: CoordinateSystem> Plot<C> {
             // Fallback to channel-based defaults
             match channel {
                 // Color channels default to ordinal
-                "fill" | "stroke" | "color" => "ordinal",
+                "fill" | "stroke" | "color" | "shape" => "ordinal",
                 // Everything else defaults to linear
                 _ => "linear",
             }

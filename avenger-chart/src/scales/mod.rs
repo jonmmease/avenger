@@ -55,15 +55,15 @@ impl Scale {
     pub fn with_type(scale_type: &str) -> Self {
         let scale_impl = create_scale_impl(scale_type);
         
-        // Create appropriate default domain based on scale type
-        let domain = match scale_type {
-            "ordinal" | "band" | "point" => ScaleDomain::new_discrete(vec![]),
-            _ => ScaleDomain::new_interval(lit(0.0), lit(1.0)),
-        };
+        // // Create appropriate default domain based on scale type
+        // let domain = match scale_type {
+        //     "ordinal" | "band" | "point" => ScaleDomain::new_discrete(vec![]),
+        //     _ => ScaleDomain::new_interval(lit(0.0), lit(1.0)),
+        // };
         
         let mut scale = Self {
             scale_impl,
-            domain,
+            domain: ScaleDomain::new_interval(lit(0.0), lit(1.0)),
             range: ScaleRange::new_interval(lit(0.0), lit(1.0)),
             options: HashMap::new(),
             domain_explicit: false,
@@ -363,139 +363,6 @@ impl Scale {
         Ok(self)
     }
 
-    /// Create a ConfiguredScale from this Scale (without normalization)
-    pub async fn create_configured_scale_without_normalization(
-        &self,
-        _plot_area_width: f32,
-        _plot_area_height: f32,
-    ) -> Result<avenger_scales::scales::ConfiguredScale, AvengerChartError> {
-        use crate::utils::ScalarValueHelpers;
-        use avenger_scales::scales::{ConfiguredScale, ScaleConfig, ScaleContext};
-        use datafusion::arrow::array::{Float32Array, StringArray};
-
-        // Extract domain values as arrow array
-        let domain = match &self.domain.default_domain {
-            ScaleDefaultDomain::Interval(start, end) => {
-                let scalars =
-                    eval_to_scalars(vec![start.clone(), end.as_ref().clone()], None, None).await?;
-                let [start_val, end_val] = scalars.as_slice() else {
-                    return Err(AvengerChartError::InternalError(
-                        "Expected two scalar values for interval domain".to_string(),
-                    ));
-                };
-
-                // Convert to f32 values
-                let start_f32 = start_val.as_f32()?;
-                let end_f32 = end_val.as_f32()?;
-                Arc::new(Float32Array::from(vec![start_f32, end_f32])) as arrow::array::ArrayRef
-            }
-            ScaleDefaultDomain::Discrete(values) => {
-                // Extract string literals from the expressions
-                let mut strings = Vec::new();
-                let scalars = eval_to_scalars(values.clone(), None, None).await?;
-                for scalar in scalars {
-                    if let ScalarValue::Utf8(Some(s)) = scalar {
-                        strings.push(s);
-                    }
-                }
-                Arc::new(StringArray::from(strings)) as arrow::array::ArrayRef
-            }
-            _ => {
-                return Err(AvengerChartError::InternalError(
-                    "Scale domain must be explicitly set".to_string(),
-                ));
-            }
-        };
-
-        // Extract range values as arrow array
-        let range = match &self.range {
-            ScaleRange::Numeric(start, end) => {
-                let scalars =
-                    eval_to_scalars(vec![start.clone(), end.as_ref().clone()], None, None).await?;
-
-                let [start_val, end_val] = scalars.as_slice() else {
-                    return Err(AvengerChartError::InternalError(
-                        "Expected two scalar values for numeric range".to_string(),
-                    ));
-                };
-
-                let start_f32 = start_val.as_f32()?;
-                let end_f32 = end_val.as_f32()?;
-                Arc::new(Float32Array::from(vec![start_f32, end_f32]))
-                    as datafusion::arrow::array::ArrayRef
-            }
-            ScaleRange::Color(colors) => {
-                // Convert Vec<Srgba> to a list array of [f32; 4] arrays
-                let color_arrays: Vec<datafusion::arrow::array::ArrayRef> = colors
-                    .iter()
-                    .map(|color| {
-                        let rgba = [color.red, color.green, color.blue, color.alpha];
-                        Arc::new(Float32Array::from(Vec::from(rgba)))
-                            as datafusion::arrow::array::ArrayRef
-                    })
-                    .collect();
-
-                // Create a ListArray from the color arrays
-                avenger_scales::scalar::Scalar::arrays_into_list_array(color_arrays)?
-            }
-            ScaleRange::Enum(values) => {
-                // Create a string array for enum values
-                let strings: Vec<Option<&str>> = values
-                    .iter()
-                    .map(|v| match v {
-                        ScalarValue::Utf8(Some(s)) => Some(s.as_str()),
-                        _ => None,
-                    })
-                    .collect();
-                Arc::new(StringArray::from(strings)) as datafusion::arrow::array::ArrayRef
-            }
-        };
-
-        // Eval scalars options values and convert them to avenger_scales::scalar::Scalar
-        let (names, exprs): (Vec<_>, Vec<_>) = self.options.clone().into_iter().unzip();
-        let scalars = eval_to_scalars(exprs, None, None)
-            .await?
-            .into_iter()
-            .map(|s| s.as_scale_scalar())
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut options = names.into_iter().zip(scalars).collect::<HashMap<_, _>>();
-
-        // Add padding option if specified
-        if self.padding_explicit {
-            match self.get_padding() {
-                Some(expr) => {
-                    let scalar_val = eval_to_scalars(vec![expr.clone()], None, None).await?;
-                    if let Some(val) = scalar_val.first() {
-                        let padding_scalar = val.as_scale_scalar()?;
-                        options.insert("padding".to_string(), padding_scalar);
-                    }
-                }
-                None => {
-                    // Explicitly set padding to 0
-                    options.insert(
-                        "padding".to_string(),
-                        avenger_scales::scalar::Scalar::from_f32(0.0),
-                    );
-                }
-            }
-        }
-
-        let config = ScaleConfig {
-            domain,
-            range,
-            options,
-            context: ScaleContext::default(),
-        };
-
-        let configured_scale = ConfiguredScale {
-            scale_impl: self.scale_impl.clone(),
-            config,
-        };
-
-        // Don't normalize - return as-is
-        Ok(configured_scale)
-    }
-
     /// Create a ConfiguredScale from this Scale
     pub async fn create_configured_scale(
         &self,
@@ -626,7 +493,7 @@ impl Scale {
         };
 
         // Normalize the scale to apply zero and nice transformations
-        Ok(configured_scale.normalize()?)
+        Ok(configured_scale)
     }
 
     /// Compile domain to an expression that evaluates to a list
@@ -770,7 +637,7 @@ impl ScaleDomain {
             ScaleDefaultDomain::Interval(start, end) => {
                 if method != InferDomainFromDataMethod::Interval {
                     return Err(AvengerChartError::InternalError(
-                        "Scale does not support interval domain".to_string(),
+                        format!("Scale does not support interval domain: {self:?}"),
                     ));
                 }
                 make_array(vec![start.clone(), end.as_ref().clone()])

@@ -171,6 +171,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         // First, collect all channels that need scales
         let channels_with_scales = self.plot.collect_channels_needing_scales();
 
+
         // Build all scales on demand, applying configured transformations
         let mut all_scales = HashMap::new();
         for channel in &channels_with_scales {
@@ -178,43 +179,25 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
             all_scales.insert(channel.clone(), scale);
         }
 
-        // First pass: compute padding requirements from marks
-        let mut mark_paddings: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
-        for mark in &self.plot.marks {
-            let padding_channels = mark.padding_channels();
-            if !padding_channels.is_empty() {
-                // Prepare data for padding calculation using current scale configuration
-                let (padding_data, padding_scalars) = self.prepare_padding_data(mark.as_ref(), &padding_channels, &all_scales).await?;
-                
-                // Compute padding for this mark
-                let mark_padding = mark.compute_padding(padding_data.as_ref(), &padding_scalars)?;
-                
-                // Track maximum padding needed for each positional scale
-                for pos_channel in ["x", "y"] {
-                    let padding_value = match pos_channel {
-                        "x" => mark_padding.x,
-                        "y" => mark_padding.y,
-                        _ => None,
-                    };
-                    
-                    if let Some(padding) = padding_value {
-                        mark_paddings.entry(pos_channel.to_string())
-                            .and_modify(|existing| {
-                                *existing = existing.max(padding);
-                            })
-                            .or_insert(padding);
-                    }
-                }
+        // Separate scales into positional and non-positional
+        let mut positional_scales = HashMap::new();
+        let mut non_positional_scales = HashMap::new();
+        
+        for (name, scale) in all_scales {
+            if matches!(name.as_str(), "x" | "y") {
+                positional_scales.insert(name, scale);
+            } else {
+                non_positional_scales.insert(name, scale);
             }
         }
 
-        // Process scales: infer domains, apply defaults, and normalize
-        for (name, scale) in &mut all_scales {
+        // Stage 1: Process non-positional scales first
+                for (name, scale) in &mut non_positional_scales {
             let mut scale_copy = scale.clone();
 
             // Apply default domain if needed
-            if !scale_copy.has_explicit_domain() {
-                let data_expressions = self.plot.gather_scale_domain_expressions(name);
+                        if !scale_copy.has_explicit_domain() {
+                                let data_expressions = self.plot.gather_scale_domain_expressions(name);
                 if !data_expressions.is_empty() {
                     // Convert expressions to data fields
                     let mut data_fields = Vec::new();
@@ -271,9 +254,110 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                 self.plot.apply_default_shape_range(&mut scale_copy);
             }
 
+            // Normalize the scale (no padding for non-positional scales)
+            scale_copy = scale_copy
+                .normalize_domain(plot_area_width, plot_area_height)
+                .await?;
+
+            // Update the scale
+            *scale = scale_copy;
+        }
+
+        // Stage 2: Compute padding requirements from marks
+        // Now that non-positional scales are ready, we can compute padding
+                let mut mark_paddings: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        
+        // Merge all scales for padding calculation
+        let mut scales_for_padding = non_positional_scales.clone();
+        scales_for_padding.extend(positional_scales.clone());
+        
+        for mark in &self.plot.marks {
+            let padding_channels = mark.padding_channels();
+            if !padding_channels.is_empty() {
+                // Prepare data for padding calculation using processed scales
+                let (padding_data, padding_scalars) = self.prepare_padding_data(
+                    mark.as_ref(), 
+                    &padding_channels, 
+                    &scales_for_padding
+                ).await?;
+                
+                // Compute padding for this mark
+                let mark_padding = mark.compute_padding(padding_data.as_ref(), &padding_scalars)?;
+                
+                // Track maximum padding needed for each positional scale
+                for pos_channel in ["x", "y"] {
+                    let padding_value = match pos_channel {
+                        "x" => mark_padding.x,
+                        "y" => mark_padding.y,
+                        _ => None,
+                    };
+                    
+                    if let Some(padding) = padding_value {
+                        mark_paddings.entry(pos_channel.to_string())
+                            .and_modify(|existing| {
+                                *existing = existing.max(padding);
+                            })
+                            .or_insert(padding);
+                    }
+                }
+            }
+        }
+
+        // Stage 3: Process positional scales with padding
+                for (name, scale) in &mut positional_scales {
+            let mut scale_copy = scale.clone();
+
+            // Apply default domain if needed
+                        if !scale_copy.has_explicit_domain() {
+                                let data_expressions = self.plot.gather_scale_domain_expressions(name);
+                if !data_expressions.is_empty() {
+                    // Convert expressions to data fields
+                    let mut data_fields = Vec::new();
+
+                    for (df, expr) in data_expressions {
+                        match &expr {
+                            Expr::Column(col) => {
+                                data_fields.push((df, col.name.clone()));
+                            }
+                            _ => {
+                                // For complex expressions, create a derived column
+                                let expr_col_name = format!("__scale_domain_expr_{}", name);
+
+                                if let Ok(df_with_expr) = df
+                                    .as_ref()
+                                    .clone()
+                                    .with_column(&expr_col_name, expr.clone())
+                                {
+                                    data_fields.push((Arc::new(df_with_expr), expr_col_name));
+                                }
+                            }
+                        }
+                    }
+
+                    if !data_fields.is_empty() {
+                        scale_copy = scale_copy.domain_data_fields(data_fields);
+                    }
+                }
+            }
+
+            // Infer domain from data if needed
+            if matches!(
+                &scale_copy.domain.default_domain,
+                crate::scales::ScaleDefaultDomain::DataFields(_)
+            ) {
+                scale_copy = scale_copy.infer_domain_from_data().await?;
+            }
+
+            // Apply default range
+            self.plot.apply_default_range(
+                &mut scale_copy,
+                name,
+                plot_area_width as f64,
+                plot_area_height as f64,
+            );
+
             // Apply mark-computed padding if available and not explicitly set
-            // Only apply to position scales (x, y) that support padding
-            if !scale_copy.has_explicit_padding() && matches!(name.as_str(), "x" | "y") {
+            if !scale_copy.has_explicit_padding() {
                 if let Some(&padding_pixels) = mark_paddings.get(name) {
                     if padding_pixels > 0.0 {
                         // The padding option expects pixels directly
@@ -287,9 +371,13 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                 .normalize_domain(plot_area_width, plot_area_height)
                 .await?;
 
-            // Update the scale in the registry
+            // Update the scale
             *scale = scale_copy;
         }
+
+        // Merge all scales back together for mark rendering
+        let mut all_scales = non_positional_scales;
+        all_scales.extend(positional_scales);
 
         // Use the full plot area for clipping
         // Marks should be clipped to the plot area bounds, not the data bounds
