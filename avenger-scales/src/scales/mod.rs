@@ -1,13 +1,16 @@
 pub mod band;
 pub mod coerce;
 pub mod linear;
+pub use linear::NormalizationConfig;
 pub mod log;
 pub mod ordinal;
 pub mod point;
 pub mod pow;
+pub use pow::PowNormalizationConfig;
 pub mod quantile;
 pub mod quantize;
 pub mod symlog;
+pub use symlog::SymlogNormalizationConfig;
 pub mod threshold;
 pub mod time;
 
@@ -954,6 +957,12 @@ impl ConfiguredScale {
         }
         if supported_options.contains("padding") {
             new_options.insert("padding".to_string(), 0.0.into());
+        }
+        if supported_options.contains("padding_lower") {
+            new_options.insert("padding_lower".to_string(), 0.0.into());
+        }
+        if supported_options.contains("padding_upper") {
+            new_options.insert("padding_upper".to_string(), 0.0.into());
         }
 
         Ok(ConfiguredScale {

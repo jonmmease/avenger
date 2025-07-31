@@ -15,8 +15,9 @@ use lazy_static::lazy_static;
 use crate::{array, color_interpolator::scale_numeric_to_color, error::AvengerScaleError};
 
 use super::{
-    linear::LinearScale, ConfiguredScale, InferDomainFromDataMethod, OptionConstraint,
-    OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl,
+    linear::{LinearScale, NormalizationConfig},
+    ConfiguredScale, InferDomainFromDataMethod, OptionConstraint, OptionDefinition, ScaleConfig,
+    ScaleContext, ScaleImpl,
 };
 
 /// Power scale that maps a continuous numeric domain to a continuous numeric range
@@ -51,8 +52,31 @@ use super::{
 /// - **zero** (boolean, default: false): When true, ensures that the domain includes zero. If both min and max
 ///   are positive, sets min to zero. If both min and max are negative, sets max to zero. If the domain already
 ///   spans zero, no change is made. Zero extension is applied before nice calculations.
+///
+/// - **padding** (f32, default: 0.0): Expands the scale domain to accommodate the specified number of pixels
+///   on each of the scale range. The scale range must represent pixels for this parameter to function as intended.
+///   Padding is applied in pow space before all other adjustments, including zero and nice properties.
+///
+/// - **padding_lower** (f32, default: value of padding): Expands the scale domain at the lower end to accommodate
+///   the specified number of pixels. Takes precedence over the general padding value for the lower end.
+///
+/// - **padding_upper** (f32, default: value of padding): Expands the scale domain at the upper end to accommodate
+///   the specified number of pixels. Takes precedence over the general padding value for the upper end.
 #[derive(Debug)]
 pub struct PowScale;
+
+/// Configuration for pow scale normalization operations
+#[derive(Debug, Clone)]
+pub struct PowNormalizationConfig<'a> {
+    pub domain: (f32, f32),
+    pub range: (f32, f32),
+    pub padding: Option<&'a Scalar>,
+    pub padding_lower: Option<&'a Scalar>,
+    pub padding_upper: Option<&'a Scalar>,
+    pub exponent: f32,
+    pub zero: Option<&'a Scalar>,
+    pub nice: Option<&'a Scalar>,
+}
 
 impl PowScale {
     pub fn configured(domain: (f32, f32), range: (f32, f32)) -> ConfiguredScale {
@@ -100,14 +124,18 @@ impl PowScale {
     pub fn apply_padding(
         domain: (f32, f32),
         range: (f32, f32),
-        padding: f32,
+        padding_lower: f32,
+        padding_upper: f32,
         exponent: f32,
     ) -> Result<(f32, f32), AvengerScaleError> {
         let (domain_start, domain_end) = domain;
         let (range_start, range_end) = range;
 
         // Early return for degenerate cases
-        if domain_start == domain_end || range_start == range_end || padding <= 0.0 {
+        if domain_start == domain_end
+            || range_start == range_end
+            || (padding_lower <= 0.0 && padding_upper <= 0.0)
+        {
             return Ok(domain);
         }
 
@@ -116,12 +144,14 @@ impl PowScale {
         let pow_start = power_fun.pow(domain_start);
         let pow_end = power_fun.pow(domain_end);
 
-        // Apply padding in pow space using linear approach
-        let span = (range_end - range_start).abs();
-        let frac = span / (span - 2.0 * padding);
-        let pow_center = (pow_start + pow_end) / 2.0;
-        let new_pow_start = pow_center + (pow_start - pow_center) * frac;
-        let new_pow_end = pow_center + (pow_end - pow_center) * frac;
+        // Calculate how many pow-space units per pixel
+        let range_span = (range_end - range_start).abs();
+        let pow_span = pow_end - pow_start;
+        let pow_per_pixel = pow_span / range_span;
+
+        // Apply padding in pow space
+        let new_pow_start = pow_start - padding_lower * pow_per_pixel;
+        let new_pow_end = pow_end + padding_upper * pow_per_pixel;
 
         // Transform back to linear space
         let new_start = power_fun.pow_inv(new_pow_start);
@@ -132,23 +162,42 @@ impl PowScale {
 
     /// Apply normalization (padding, zero and nice) to domain
     pub fn apply_normalization(
-        domain: (f32, f32),
-        range: (f32, f32),
-        padding: Option<f32>,
-        exponent: f32,
-        zero: Option<&Scalar>,
-        nice: Option<&Scalar>,
+        config: PowNormalizationConfig,
     ) -> Result<(f32, f32), AvengerScaleError> {
         // Apply padding first if specified
-        let domain = if let Some(pad) = padding {
-            PowScale::apply_padding(domain, range, pad, exponent)?
+        let padding_value = config.padding.and_then(|p| p.as_f32().ok()).unwrap_or(0.0);
+        let padding_lower_value = config
+            .padding_lower
+            .and_then(|p| p.as_f32().ok())
+            .unwrap_or(padding_value);
+        let padding_upper_value = config
+            .padding_upper
+            .and_then(|p| p.as_f32().ok())
+            .unwrap_or(padding_value);
+
+        let domain = if padding_lower_value > 0.0 || padding_upper_value > 0.0 {
+            PowScale::apply_padding(
+                config.domain,
+                config.range,
+                padding_lower_value,
+                padding_upper_value,
+                config.exponent,
+            )?
         } else {
-            domain
+            config.domain
         };
 
         // Use LinearScale normalization for zero and nice since power transformation preserves zero
-        let (normalized_start, normalized_end) =
-            LinearScale::apply_normalization(domain, range, None, zero, nice)?;
+        let linear_config = NormalizationConfig {
+            domain,
+            range: config.range,
+            padding: None,
+            padding_lower: None,
+            padding_upper: None,
+            zero: config.zero,
+            nice: config.nice,
+        };
+        let (normalized_start, normalized_end) = LinearScale::apply_normalization(linear_config)?;
         Ok((normalized_start, normalized_end))
     }
 }
@@ -172,6 +221,8 @@ impl ScaleImpl for PowScale {
                 OptionDefinition::optional("nice", OptionConstraint::nice()),
                 OptionDefinition::optional("zero", OptionConstraint::Boolean),
                 OptionDefinition::optional("padding", OptionConstraint::NonNegativeFloat),
+                OptionDefinition::optional("padding_lower", OptionConstraint::NonNegativeFloat),
+                OptionDefinition::optional("padding_upper", OptionConstraint::NonNegativeFloat),
                 OptionDefinition::optional("default", OptionConstraint::Float),
             ];
         }
@@ -217,17 +268,16 @@ impl ScaleImpl for PowScale {
         // Get range for padding calculation, use dummy range if not numeric
         let range_for_padding = config.numeric_interval_range().unwrap_or((0.0, 1.0));
 
-        // Get padding option
-        let padding = config.options.get("padding").and_then(|p| p.as_f32().ok());
-
-        let (domain_start, domain_end) = PowScale::apply_normalization(
-            config.numeric_interval_domain()?,
-            range_for_padding,
-            padding,
+        let (domain_start, domain_end) = PowScale::apply_normalization(PowNormalizationConfig {
+            domain: config.numeric_interval_domain()?,
+            range: range_for_padding,
+            padding: config.options.get("padding"),
+            padding_lower: config.options.get("padding_lower"),
+            padding_upper: config.options.get("padding_upper"),
             exponent,
-            config.options.get("zero"),
-            config.options.get("nice"),
-        )?;
+            zero: config.options.get("zero"),
+            nice: config.options.get("nice"),
+        })?;
 
         // Check if color interpolation is needed
         if config.color_range().is_ok() {
@@ -379,17 +429,16 @@ impl ScaleImpl for PowScale {
         let range_for_padding = config.numeric_interval_range().unwrap_or((0.0, 1.0));
         let (range_start, range_end) = config.numeric_interval_range()?;
 
-        // Get padding option
-        let padding = config.options.get("padding").and_then(|p| p.as_f32().ok());
-
-        let (domain_start, domain_end) = PowScale::apply_normalization(
-            config.numeric_interval_domain()?,
-            range_for_padding,
-            padding,
+        let (domain_start, domain_end) = PowScale::apply_normalization(PowNormalizationConfig {
+            domain: config.numeric_interval_domain()?,
+            range: range_for_padding,
+            padding: config.options.get("padding"),
+            padding_lower: config.options.get("padding_lower"),
+            padding_upper: config.options.get("padding_upper"),
             exponent,
-            config.options.get("zero"),
-            config.options.get("nice"),
-        )?;
+            zero: config.options.get("zero"),
+            nice: config.options.get("nice"),
+        })?;
 
         // If domain start equals end, return constant domain value
         if domain_start == domain_end {
@@ -499,17 +548,16 @@ impl ScaleImpl for PowScale {
         // Get range for padding calculation, use dummy range if not numeric
         let range_for_padding = config.numeric_interval_range().unwrap_or((0.0, 1.0));
 
-        // Get padding option
-        let padding = config.options.get("padding").and_then(|p| p.as_f32().ok());
-
-        let (domain_start, domain_end) = PowScale::apply_normalization(
-            config.numeric_interval_domain()?,
-            range_for_padding,
-            padding,
+        let (domain_start, domain_end) = PowScale::apply_normalization(PowNormalizationConfig {
+            domain: config.numeric_interval_domain()?,
+            range: range_for_padding,
+            padding: config.options.get("padding"),
+            padding_lower: config.options.get("padding_lower"),
+            padding_upper: config.options.get("padding_upper"),
             exponent,
-            config.options.get("zero"),
-            config.options.get("nice"),
-        )?;
+            zero: config.options.get("zero"),
+            nice: config.options.get("nice"),
+        })?;
         let count = count.unwrap_or(10.0);
         let ticks_array = Float32Array::from(array::ticks(domain_start, domain_end, count));
         Ok(Arc::new(ticks_array) as ArrayRef)
@@ -521,17 +569,16 @@ impl ScaleImpl for PowScale {
         // Get range for padding calculation, use dummy range if not numeric
         let range_for_padding = config.numeric_interval_range().unwrap_or((0.0, 1.0));
 
-        // Get padding option
-        let padding = config.options.get("padding").and_then(|p| p.as_f32().ok());
-
-        let (domain_start, domain_end) = PowScale::apply_normalization(
-            config.numeric_interval_domain()?,
-            range_for_padding,
-            padding,
+        let (domain_start, domain_end) = PowScale::apply_normalization(PowNormalizationConfig {
+            domain: config.numeric_interval_domain()?,
+            range: range_for_padding,
+            padding: config.options.get("padding"),
+            padding_lower: config.options.get("padding_lower"),
+            padding_upper: config.options.get("padding_upper"),
             exponent,
-            config.options.get("zero"),
-            config.options.get("nice"),
-        )?;
+            zero: config.options.get("zero"),
+            nice: config.options.get("nice"),
+        })?;
 
         Ok(Arc::new(Float32Array::from(vec![domain_start, domain_end])) as ArrayRef)
     }
@@ -938,40 +985,64 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_padding() -> Result<(), AvengerScaleError> {
-        // Test basic padding
-        let _result = PowScale::apply_padding((1.0, 9.0), (0.0, 500.0), 10.0, 2.0)?;
+    fn test_apply_padding_symmetric() -> Result<(), AvengerScaleError> {
+        // Test symmetric padding
+        let result = PowScale::apply_padding((2.0, 4.0), (0.0, 500.0), 10.0, 10.0, 2.0)?;
 
-        // With exponent=2, domain [1,9] becomes [1,81] in pow space
-        // Center is 41, span = 80
-        // frac = 500 / (500 - 20) = 1.0417
-        // New pow domain: [41 - 41.67, 41 + 41.67] = [-0.67, 82.67]
-        // But since we can't have negative values in pow space with even exponent,
-        // the result should be adjusted
-
-        // Actually, let's verify with a simpler case
-        let result = PowScale::apply_padding((2.0, 4.0), (0.0, 500.0), 10.0, 2.0)?;
-
-        // In pow space: [4, 16], center = 10
-        // frac = 500/480 = 1.0417
-        // New pow range: center ± (distance * frac)
-        // [10 - 6*1.0417, 10 + 6*1.0417] = [3.75, 16.25]
-        // Back to linear: [1.936, 4.031] approximately
-
+        // In pow space: [4, 16] with range 500
+        // pow units per pixel = (16-4)/500 = 0.024
+        // padding = 10 pixels = 0.24 pow units on each side
+        // new pow domain = [3.76, 16.24]
+        // Back to linear: [1.939, 4.030]
         assert!(result.0 < 2.0);
         assert!(result.1 > 4.0);
+        assert_approx_eq!(f32, result.0, 1.9391448, epsilon = 0.01);
+        assert_approx_eq!(f32, result.1, 4.029875, epsilon = 0.01);
 
         // Test with no padding
-        let result = PowScale::apply_padding((2.0, 4.0), (0.0, 500.0), 0.0, 2.0)?;
+        let result = PowScale::apply_padding((2.0, 4.0), (0.0, 500.0), 0.0, 0.0, 2.0)?;
         assert_eq!(result, (2.0, 4.0));
 
         // Test with degenerate domain
-        let result = PowScale::apply_padding((5.0, 5.0), (0.0, 500.0), 10.0, 2.0)?;
+        let result = PowScale::apply_padding((5.0, 5.0), (0.0, 500.0), 10.0, 10.0, 2.0)?;
         assert_eq!(result, (5.0, 5.0));
 
         // Test with degenerate range
-        let result = PowScale::apply_padding((2.0, 4.0), (100.0, 100.0), 10.0, 2.0)?;
+        let result = PowScale::apply_padding((2.0, 4.0), (100.0, 100.0), 10.0, 10.0, 2.0)?;
         assert_eq!(result, (2.0, 4.0));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_apply_padding_asymmetric() -> Result<(), AvengerScaleError> {
+        // Test asymmetric padding
+        let result = PowScale::apply_padding((2.0, 4.0), (0.0, 500.0), 20.0, 10.0, 2.0)?;
+
+        // In pow space: [4, 16] with range 500
+        // pow units per pixel = (16-4)/500 = 0.024
+        // padding_lower = 20 pixels = 0.48 pow units
+        // padding_upper = 10 pixels = 0.24 pow units
+        // new pow domain = [3.52, 16.24]
+        // Back to linear: [1.876, 4.030]
+        assert_approx_eq!(f32, result.0, 1.8761664, epsilon = 0.01);
+        assert_approx_eq!(f32, result.1, 4.029875, epsilon = 0.01);
+
+        // Test with only lower padding
+        let result = PowScale::apply_padding((2.0, 4.0), (0.0, 500.0), 25.0, 0.0, 2.0)?;
+
+        // padding_lower = 25 pixels = 0.6 pow units
+        // new pow domain = [3.4, 16.0]
+        assert_approx_eq!(f32, result.0, 1.8439089, epsilon = 0.01);
+        assert_eq!(result.1, 4.0);
+
+        // Test with only upper padding
+        let result = PowScale::apply_padding((2.0, 4.0), (0.0, 500.0), 0.0, 25.0, 2.0)?;
+
+        // padding_upper = 25 pixels = 0.6 pow units
+        // new pow domain = [4.0, 16.6]
+        assert_eq!(result.0, 2.0);
+        assert_approx_eq!(f32, result.1, 4.0743666, epsilon = 0.01);
 
         Ok(())
     }
@@ -999,12 +1070,22 @@ mod tests {
         // Test padding applied before nice
         let domain = (2.0, 10.0);
         let range = (0.0, 100.0);
-        let padding = Some(5.0);
+        let padding_value = Scalar::from(5.0);
+        let padding = Some(&padding_value);
         let exponent = 2.0;
         let nice_value: Scalar = true.into();
         let nice = Some(&nice_value);
 
-        let result = PowScale::apply_normalization(domain, range, padding, exponent, None, nice)?;
+        let result = PowScale::apply_normalization(PowNormalizationConfig {
+            domain,
+            range,
+            padding,
+            padding_lower: None,
+            padding_upper: None,
+            exponent,
+            zero: None,
+            nice,
+        })?;
 
         // Nice should round to nice values after padding is applied
         // The exact values depend on the nice algorithm
@@ -1020,14 +1101,72 @@ mod tests {
         // We test this by verifying that apply_normalization works with a dummy range
         let domain = (2.0, 8.0);
         let range = (0.0, 500.0); // larger range for padding calculation
-        let padding = Some(10.0);
+        let padding_value = Scalar::from(10.0);
+        let padding = Some(&padding_value);
         let exponent = 2.0;
 
-        let result = PowScale::apply_normalization(domain, range, padding, exponent, None, None)?;
+        let result = PowScale::apply_normalization(PowNormalizationConfig {
+            domain,
+            range,
+            padding,
+            padding_lower: None,
+            padding_upper: None,
+            exponent,
+            zero: None,
+            nice: None,
+        })?;
 
         // Should have expanded the domain
         assert!(result.0 < domain.0);
         assert!(result.1 > domain.1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_pow_scale_with_asymmetric_padding() -> Result<(), AvengerScaleError> {
+        // Test with padding_lower and padding_upper
+        let scale = PowScale::configured((2.0, 8.0), (0.0, 100.0))
+            .with_option("padding_lower", 20.0)
+            .with_option("padding_upper", 10.0)
+            .with_option("exponent", 2.0);
+
+        let normalized = scale.normalize()?;
+        let domain = normalized.numeric_interval_domain()?;
+
+        // With exponent=2, domain [2,8] becomes [4,64] in pow space
+        // pow units per pixel = (64-4)/100 = 0.6
+        // padding_lower = 20 pixels = 12 pow units, so pow_start = 4-12 = -8
+        // But pow_inv(-8) with sign preservation = -sqrt(8) = -2.828
+        // padding_upper = 10 pixels = 6 pow units, so pow_end = 64+6 = 70
+        // pow_inv(70) = sqrt(70) = 8.366
+        assert!(domain.0 < 0.0); // Due to sign preservation in pow space
+        assert_approx_eq!(f32, domain.0, -2.828427, epsilon = 0.01);
+        assert_approx_eq!(f32, domain.1, 8.366601, epsilon = 0.01);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_pow_padding_fallback_behavior() -> Result<(), AvengerScaleError> {
+        // Test that padding_lower/upper fall back to padding when not specified
+        let scale1 = PowScale::configured((1.0, 9.0), (0.0, 100.0))
+            .with_option("padding", 15.0)
+            .with_option("padding_lower", 20.0) // Only lower specified
+            .with_option("exponent", 2.0);
+
+        let normalized1 = scale1.normalize()?;
+        let domain1 = normalized1.numeric_interval_domain()?;
+
+        // padding_lower = 20, padding_upper falls back to padding = 15
+        // In pow space: [1, 81], pow units per pixel = 80/100 = 0.8
+        // padding_lower = 20 pixels = 16 pow units, new start = 1-16 = -15
+        // pow_inv(-15) with sign = -sqrt(15) = -3.873
+        // padding_upper = 15 pixels = 12 pow units, new end = 81+12 = 93
+        // pow_inv(93) = sqrt(93) = 9.644
+        assert!(domain1.0 < 0.0);
+        assert_approx_eq!(f32, domain1.0, -3.8729835, epsilon = 0.01);
+        assert_approx_eq!(f32, domain1.1, 9.643651, epsilon = 0.01);
 
         Ok(())
     }
