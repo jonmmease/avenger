@@ -36,6 +36,124 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         Self { plot }
     }
 
+    /// Prepare data for padding calculation, extracting only the required channels
+    async fn prepare_padding_data(
+        &self,
+        mark: &dyn Mark<C>,
+        padding_channels: &[&str],
+        scales: &HashMap<String, Scale>,
+    ) -> Result<(Option<RecordBatch>, RecordBatch), AvengerChartError> {
+        
+        // Get the data - either from mark or inherit from plot
+        let df_ref = match mark.data_source() {
+            crate::marks::DataSource::Explicit => mark.data_context().dataframe(),
+            crate::marks::DataSource::Inherited => {
+                // Get plot-level data
+                self.plot.data.as_ref().ok_or_else(|| {
+                    AvengerChartError::InternalError(
+                        "Mark expects inherited data but plot has no data".to_string(),
+                    )
+                })?
+            }
+        };
+        
+        let df = Arc::new(df_ref.clone());
+        
+        // Get channel mappings from DataContext
+        let encodings = mark.data_context().encodings();
+        
+        // Get supported channels from the mark
+        let supported_channels = mark.supported_channels();
+        
+        // Create a map of channel names to their descriptors for quick lookup
+        let channel_desc_map: std::collections::HashMap<&str, &crate::marks::ChannelDescriptor> = 
+            supported_channels.iter().map(|desc| (desc.name, desc)).collect();
+        
+        // Separate channels into those that need array data vs scalar data
+        let mut array_channels = Vec::new();
+        let mut scalar_channels = Vec::new();
+        let mut has_array_data = false;
+        
+        for &channel_name in padding_channels {
+            if let Some(channel_value) = encodings.get(channel_name) {
+                // Get channel descriptor
+                let channel_desc = channel_desc_map.get(channel_name).ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Padding channel '{}' not in supported channels",
+                        channel_name
+                    ))
+                })?;
+                
+                // Apply scaling to get the final expression
+                let scaled_expr =
+                    self.apply_channel_scale(channel_name, channel_value, scales)?;
+                
+                // Check if this channel references columns (needs array data)
+                if channel_desc.allow_column_ref && Self::references_columns(&scaled_expr) {
+                    array_channels.push((channel_name, scaled_expr));
+                    has_array_data = true;
+                } else {
+                    scalar_channels.push((channel_name, scaled_expr));
+                }
+            }
+        }
+        
+        // Build array data batch if needed
+        let data_batch = if has_array_data {
+            let mut select_exprs = vec![];
+            for (name, expr) in &array_channels {
+                select_exprs.push(expr.clone().alias(*name));
+            }
+            
+            let batch = (*df).clone().select(select_exprs)?.collect().await?;
+            
+            if batch.is_empty() {
+                None
+            } else {
+                Some(batch[0].clone())
+            }
+        } else {
+            None
+        };
+        
+        // Build scalar batch
+        let scalar_batch = {
+            let mut select_exprs = vec![];
+            for (name, expr) in &scalar_channels {
+                select_exprs.push(expr.clone().alias(*name));
+            }
+            
+            if select_exprs.is_empty() {
+                // Create empty batch with single row
+                use datafusion::arrow::array::Int32Array;
+                let schema = Arc::new(Schema::new(vec![Field::new(
+                    "_dummy",
+                    datafusion::arrow::datatypes::DataType::Int32,
+                    false,
+                )]));
+                let array = Arc::new(Int32Array::from(vec![0]));
+                RecordBatch::try_new(schema, vec![array]).unwrap()
+            } else {
+                // Execute query to get scalar values
+                let batches = (*df)
+                    .clone()
+                    .select(select_exprs)?
+                    .limit(0, Some(1))? // Only need one row for scalars
+                    .collect()
+                    .await?;
+                
+                if batches.is_empty() {
+                    RecordBatch::try_new(Arc::new(Schema::new(vec![] as Vec<Field>)), vec![])
+                        .unwrap()
+                } else {
+                    batches[0].clone()
+                }
+            }
+        };
+        
+        Ok((data_batch, scalar_batch))
+    }
+
     /// Render the plot to a scene graph
     pub async fn render(&self) -> Result<RenderResult, AvengerChartError> {
         // Get plot dimensions from preferred size or default
@@ -58,6 +176,36 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         for channel in &channels_with_scales {
             let scale = self.plot.get_scale(channel);
             all_scales.insert(channel.clone(), scale);
+        }
+
+        // First pass: compute padding requirements from marks
+        let mut mark_paddings: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        for mark in &self.plot.marks {
+            let padding_channels = mark.padding_channels();
+            if !padding_channels.is_empty() {
+                // Prepare data for padding calculation using current scale configuration
+                let (padding_data, padding_scalars) = self.prepare_padding_data(mark.as_ref(), &padding_channels, &all_scales).await?;
+                
+                // Compute padding for this mark
+                let mark_padding = mark.compute_padding(padding_data.as_ref(), &padding_scalars)?;
+                
+                // Track maximum padding needed for each positional scale
+                for pos_channel in ["x", "y"] {
+                    let padding_value = match pos_channel {
+                        "x" => mark_padding.x,
+                        "y" => mark_padding.y,
+                        _ => None,
+                    };
+                    
+                    if let Some(padding) = padding_value {
+                        mark_paddings.entry(pos_channel.to_string())
+                            .and_modify(|existing| {
+                                *existing = existing.max(padding);
+                            })
+                            .or_insert(padding);
+                    }
+                }
+            }
         }
 
         // Process scales: infer domains, apply defaults, and normalize
@@ -121,6 +269,17 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
             // Apply default shape range for shape channel
             if name == "shape" {
                 self.plot.apply_default_shape_range(&mut scale_copy);
+            }
+
+            // Apply mark-computed padding if available and not explicitly set
+            // Only apply to position scales (x, y) that support padding
+            if !scale_copy.has_explicit_padding() && matches!(name.as_str(), "x" | "y") {
+                if let Some(&padding_pixels) = mark_paddings.get(name) {
+                    if padding_pixels > 0.0 {
+                        // The padding option expects pixels directly
+                        scale_copy = scale_copy.padding(datafusion::prelude::lit(padding_pixels));
+                    }
+                }
             }
 
             // Normalize the scale to apply padding, zero, and nice transformations

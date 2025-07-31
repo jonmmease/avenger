@@ -54,9 +54,16 @@ impl Scale {
     /// Create a scale with a specific type
     pub fn with_type(scale_type: &str) -> Self {
         let scale_impl = create_scale_impl(scale_type);
+        
+        // Create appropriate default domain based on scale type
+        let domain = match scale_type {
+            "ordinal" | "band" | "point" => ScaleDomain::new_discrete(vec![]),
+            _ => ScaleDomain::new_interval(lit(0.0), lit(1.0)),
+        };
+        
         let mut scale = Self {
             scale_impl,
-            domain: ScaleDomain::new_interval(lit(0.0), lit(1.0)),
+            domain,
             range: ScaleRange::new_interval(lit(0.0), lit(1.0)),
             options: HashMap::new(),
             domain_explicit: false,
@@ -335,6 +342,11 @@ impl Scale {
             return Ok(self);
         }
 
+        // Skip normalization for non-numeric domains (e.g., ordinal scales)
+        if !matches!(&self.domain.default_domain, ScaleDefaultDomain::Interval(_, _)) {
+            return Ok(self);
+        }
+
         // Create a ConfiguredScale to apply normalization
         let configured_scale = self
             .create_configured_scale(plot_area_width, plot_area_height)
@@ -446,7 +458,27 @@ impl Scale {
             .into_iter()
             .map(|s| s.as_scale_scalar())
             .collect::<Result<Vec<_>, _>>()?;
-        let options = names.into_iter().zip(scalars).collect::<HashMap<_, _>>();
+        let mut options = names.into_iter().zip(scalars).collect::<HashMap<_, _>>();
+
+        // Add padding option if specified
+        if self.padding_explicit {
+            match self.get_padding() {
+                Some(expr) => {
+                    let scalar_val = eval_to_scalars(vec![expr.clone()], None, None).await?;
+                    if let Some(val) = scalar_val.first() {
+                        let padding_scalar = val.as_scale_scalar()?;
+                        options.insert("padding".to_string(), padding_scalar);
+                    }
+                }
+                None => {
+                    // Explicitly set padding to 0
+                    options.insert(
+                        "padding".to_string(),
+                        avenger_scales::scalar::Scalar::from_f32(0.0),
+                    );
+                }
+            }
+        }
 
         let config = ScaleConfig {
             domain,
@@ -479,16 +511,22 @@ impl Scale {
     fn compile_options(&self) -> Result<Expr, AvengerChartError> {
         use datafusion::arrow::array::StructArray;
 
-        if self.options.is_empty() {
+        if self.options.is_empty() && !self.padding_explicit {
             // Create an empty struct with 1 row for scalar
             let empty_struct = StructArray::new_empty_fields(1, None);
             Ok(lit(ScalarValue::Struct(Arc::new(empty_struct))))
         } else {
-            let struct_args = self
+            let mut struct_args = self
                 .options
                 .iter()
                 .flat_map(|(key, value)| vec![lit(key), value.clone()])
                 .collect::<Vec<_>>();
+
+            // Add padding if specified
+            if let Some(padding) = self.get_padding() {
+                struct_args.push(lit("padding"));
+                struct_args.push(padding.clone());
+            }
 
             Ok(named_struct(struct_args))
         }
@@ -562,7 +600,14 @@ impl ScaleDomain {
         let schema = DFSchema::empty();
         match &self.default_domain {
             ScaleDefaultDomain::Interval(expr, _) => Ok(expr.get_type(&schema)?),
-            ScaleDefaultDomain::Discrete(exprs) => Ok(exprs[0].get_type(&schema)?),
+            ScaleDefaultDomain::Discrete(exprs) => {
+                if exprs.is_empty() {
+                    // Default to string type for empty discrete domains
+                    Ok(DataType::Utf8)
+                } else {
+                    Ok(exprs[0].get_type(&schema)?)
+                }
+            }
             ScaleDefaultDomain::DataFields(fields) => {
                 let DataField { dataframe, field } = fields.first().ok_or_else(|| {
                     AvengerChartError::InternalError(
