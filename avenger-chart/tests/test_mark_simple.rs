@@ -29,8 +29,6 @@ mod tests {
         let batch =
             RecordBatch::try_new(schema, vec![Arc::new(x), Arc::new(y), Arc::new(size)]).unwrap();
 
-        println!("Created batch with {} rows", batch.num_rows());
-
         let df = ctx.read_batch(batch).unwrap();
 
         // Create plots with different size configurations
@@ -89,11 +87,11 @@ mod tests {
                 .await
                 .expect("Failed to render plot");
 
-            let img = canvas.render().await.expect("Failed to render image");
-            let filename = format!("test_symbol_{}.png", name);
-            img.save(&filename).expect("Failed to save image");
-
-            println!("Saved {}", filename);
+            // Verify rendering succeeded without saving files
+            let _img = canvas.render().await.expect("Failed to render image");
+            
+            // Test passed if we get here without errors
+            println!("Successfully rendered symbol with {} configuration", name);
         }
     }
 }
