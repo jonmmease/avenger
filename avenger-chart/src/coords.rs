@@ -240,9 +240,9 @@ impl CoordinateSystem for Cartesian {
                 grid: axis.grid,
             };
 
-            // Create configured scale for avenger-guides
+            // Create configured scale for avenger-guides (without re-normalization)
             let configured_scale = scale
-                .create_configured_scale(plot_width, plot_height)
+                .create_configured_scale_without_normalization(plot_width, plot_height)
                 .await?;
 
             // Generate axis marks based on scale type
