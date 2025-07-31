@@ -56,16 +56,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         // Build all scales on demand, applying configured transformations
         let mut all_scales = HashMap::new();
         for channel in &channels_with_scales {
-            let scale = if let Some(scale) = self.plot.get_scale(channel) {
-                // Scale was explicitly configured
-                scale
-            } else {
-                // Create default scale for channel
-                self.plot
-                    .create_default_scale_for_channel(channel)
-                    .await
-                    .unwrap_or_else(|| Scale::with_type("linear"))
-            };
+            let scale = self.plot.get_scale(channel);
             all_scales.insert(channel.clone(), scale);
         }
 
@@ -82,7 +73,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
 
                     for (df, expr) in data_expressions {
                         match &expr {
-                            datafusion::logical_expr::Expr::Column(col) => {
+                            Expr::Column(col) => {
                                 data_fields.push((df, col.name.clone()));
                             }
                             _ => {
@@ -132,9 +123,10 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                 self.plot.apply_default_shape_range(&mut scale_copy);
             }
 
-            // Normalize the scale to apply zero and nice transformations
-            // This ensures data and axes use the same normalized domain
-            scale_copy = scale_copy.normalize_domain(plot_area_width, plot_area_height)?;
+            // Normalize the scale to apply padding, zero, and nice transformations
+            scale_copy = scale_copy
+                .normalize_domain(plot_area_width, plot_area_height)
+                .await?;
 
             // Update the scale in the registry
             *scale = scale_copy;
@@ -162,8 +154,9 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         }
 
         // Create axes
-        let axis_marks =
-            self.create_axes(&all_scales, plot_area_width, plot_area_height, &padding)?;
+        let axis_marks = self
+            .create_axes(&all_scales, plot_area_width, plot_area_height, &padding)
+            .await?;
 
         // Create title if present
         let title_marks = self.create_title(width as f32, &padding)?;
@@ -436,7 +429,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
     }
 
     /// Create axis marks based on configured axes
-    fn create_axes(
+    async fn create_axes(
         &self,
         scales: &HashMap<String, Scale>,
         plot_width: f32,
@@ -459,6 +452,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         self.plot
             .coord_system()
             .render_axes(&all_axes, scales, plot_width, plot_height, padding)
+            .await
     }
 
     /// Create title mark if configured

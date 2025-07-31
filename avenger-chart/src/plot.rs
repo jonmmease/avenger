@@ -68,21 +68,21 @@ pub enum Resolution {
 #[derive(Debug, Clone)]
 pub struct FacetResolve {
     /// Scale resolution per channel (data mapping)
-    scales: std::collections::HashMap<String, Resolution>,
+    scales: HashMap<String, Resolution>,
 
     /// Axis resolution per positional channel (visual layout)
-    axes: std::collections::HashMap<String, Resolution>,
+    axes: HashMap<String, Resolution>,
 
     /// Legend resolution per non-positional channel (visual layout)
-    legends: std::collections::HashMap<String, Resolution>,
+    legends: HashMap<String, Resolution>,
 }
 
 impl FacetResolve {
     pub fn new() -> Self {
         Self {
-            scales: std::collections::HashMap::new(),
-            axes: std::collections::HashMap::new(),
-            legends: std::collections::HashMap::new(),
+            scales: HashMap::new(),
+            axes: HashMap::new(),
+            legends: HashMap::new(),
         }
     }
 
@@ -484,17 +484,16 @@ impl<C: CoordinateSystem> Plot<C> {
 
     /// Build a scale by name, applying any configured transformations
     /// Note: Default range will be applied during rendering when actual dimensions are known
-    pub fn get_scale(&self, name: &str) -> Option<Scale> {
+    pub fn get_scale(&self, name: &str) -> Scale {
         match self.scale_specs.get(name) {
             Some(ScaleSpec::Local(f)) => {
                 let base_scale = self.create_default_scale_for_channel_internal(name);
-                Some(f(base_scale))
+                f(base_scale)
             }
             Some(ScaleSpec::Reference(_)) => {
-                // TODO: Handle referenced scales from parent layout
-                None
+                todo!("Referenced scales are not yet implemented");
             }
-            None => None,
+            None => self.create_default_scale_for_channel_internal(name),
         }
     }
 

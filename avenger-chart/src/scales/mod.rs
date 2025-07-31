@@ -4,7 +4,7 @@ pub mod inference;
 pub mod udf;
 
 use crate::error::AvengerChartError;
-use crate::utils::DataFrameChartUtils;
+use crate::utils::{DataFrameChartHelpers, eval_to_scalars};
 use avenger_scales::scales::{InferDomainFromDataMethod, ScaleImpl};
 use datafusion::arrow::array::{Array, AsArray};
 use datafusion::arrow::datatypes::DataType;
@@ -23,16 +23,6 @@ use avenger_scales::scales::{
     pow::PowScale, quantile::QuantileScale, quantize::QuantizeScale, symlog::SymlogScale,
     threshold::ThresholdScale, time::TimeScale,
 };
-
-/// Helper function to evaluate constant expressions to scalar values
-fn eval_to_scalar(expr: &Expr) -> Result<ScalarValue, AvengerChartError> {
-    match expr {
-        Expr::Literal(scalar, _) => Ok(scalar.clone()),
-        _ => Err(AvengerChartError::InternalError(
-            "Cannot evaluate non-literal expression to scalar value".to_string(),
-        )),
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct Scale {
@@ -136,10 +126,6 @@ impl Scale {
 
     pub fn domain_data_fields<S: Into<String>>(self, fields: Vec<(Arc<DataFrame>, S)>) -> Self {
         self.domain(ScaleDomain::new_data_fields(fields))
-    }
-
-    pub fn domain_expressions(self, expressions: Vec<Expr>) -> Self {
-        self.domain(ScaleDomain::new_expressions(expressions))
     }
 
     pub fn raw_domain<E: Clone + Into<Expr>>(self, raw_domain: E) -> Self {
@@ -276,34 +262,11 @@ impl Scale {
 
             // Determine the data type by checking the first field
             let first_field = &data_fields[0];
-            let field_type = first_field
+            let _field_type = first_field
                 .dataframe
                 .schema()
                 .field_with_name(None, &first_field.field)?
                 .data_type();
-
-            // Convert to band scale if we have string data and current scale is linear
-            if field_type == &DataType::Utf8 && self.scale_impl.scale_type() == "linear" {
-                // Convert to band scale for string data
-                let data_fields_for_scale: Vec<(Arc<DataFrame>, String)> = data_fields
-                    .iter()
-                    .map(|field| (field.dataframe.clone(), field.field.clone()))
-                    .collect();
-
-                self = Scale::new(avenger_scales::scales::band::BandScale)
-                    .domain_data_fields(data_fields_for_scale);
-
-                // Set default band scale options if not already set
-                if !self.options.contains_key("padding_inner") {
-                    self = self.option("padding_inner", lit(0.1));
-                }
-                if !self.options.contains_key("padding") {
-                    self = self.option("padding", lit(0.1));
-                }
-                if !self.options.contains_key("align") {
-                    self = self.option("align", lit(0.5));
-                }
-            }
 
             // Determine the appropriate method based on scale type
             let method = self.scale_impl.infer_domain_from_data_method();
@@ -325,39 +288,32 @@ impl Scale {
             // Convert the array to expressions based on the scale type
             if method == InferDomainFromDataMethod::Interval {
                 // For interval domains, we expect a list array with a 2-element inner array
-                if let Some(list_array) = domain_array.as_list_opt::<i32>() {
-                    if list_array.len() > 0 {
-                        let inner_array = list_array.value(0);
-                        if inner_array.len() >= 2 {
-                            // Extract min and max values
-                            let min_val =
-                                datafusion_common::ScalarValue::try_from_array(&inner_array, 0)?;
-                            let max_val = datafusion_common::ScalarValue::try_from_array(
-                                &inner_array,
-                                inner_array.len() - 1,
-                            )?;
-                            self = self.domain_interval(lit(min_val), lit(max_val));
-                        }
+                let Some(list_array) = domain_array.as_list_opt::<i32>() else {
+                    return Err(AvengerChartError::InternalError(
+                        "Expected domain to be a ListArray".to_string(),
+                    ));
+                };
+                if list_array.len() > 0 {
+                    let inner_array = list_array.value(0);
+                    if inner_array.len() >= 2 {
+                        // Extract min and max values
+                        let min_val = ScalarValue::try_from_array(&inner_array, 0)?;
+                        let max_val =
+                            ScalarValue::try_from_array(&inner_array, inner_array.len() - 1)?;
+                        self = self.domain_interval(lit(min_val), lit(max_val));
                     }
                 }
             } else {
-                // For unique/all domains, array_agg returns a ListArray
-                if let Some(list_array) = domain_array.as_list_opt::<i32>() {
-                    if list_array.len() > 0 {
-                        let inner_array = list_array.value(0);
-                        let mut values = Vec::new();
-                        for i in 0..inner_array.len() {
-                            let val =
-                                datafusion_common::ScalarValue::try_from_array(&inner_array, i)?;
-                            values.push(lit(val));
-                        }
-                        self = self.domain_discrete(values);
-                    }
-                } else {
-                    // Fallback: treat as a simple array
+                let Some(list_array) = domain_array.as_list_opt::<i32>() else {
+                    return Err(AvengerChartError::InternalError(
+                        "Expected domain to be a ListArray".to_string(),
+                    ));
+                };
+                if list_array.len() > 0 {
+                    let inner_array = list_array.value(0);
                     let mut values = Vec::new();
-                    for i in 0..domain_array.len() {
-                        let val = datafusion_common::ScalarValue::try_from_array(&domain_array, i)?;
+                    for i in 0..inner_array.len() {
+                        let val = datafusion_common::ScalarValue::try_from_array(&inner_array, i)?;
                         values.push(lit(val));
                     }
                     self = self.domain_discrete(values);
@@ -369,7 +325,7 @@ impl Scale {
     }
 
     /// Apply normalization (zero, nice, padding) to the scale domain
-    pub fn normalize_domain(
+    pub async fn normalize_domain(
         mut self,
         plot_area_width: f32,
         plot_area_height: f32,
@@ -380,7 +336,9 @@ impl Scale {
         }
 
         // Create a ConfiguredScale to apply normalization
-        let configured_scale = self.create_configured_scale(plot_area_width, plot_area_height)?;
+        let configured_scale = self
+            .create_configured_scale(plot_area_width, plot_area_height)
+            .await?;
 
         // Convert back to avenger-chart Scale with the normalized domain
         if let ScaleDefaultDomain::Interval(_start, _end) = &self.domain.default_domain {
@@ -394,56 +352,41 @@ impl Scale {
     }
 
     /// Create a ConfiguredScale from this Scale
-    pub fn create_configured_scale(
+    pub async fn create_configured_scale(
         &self,
-        plot_area_width: f32,
+        _plot_area_width: f32,
         _plot_area_height: f32,
     ) -> Result<avenger_scales::scales::ConfiguredScale, AvengerChartError> {
+        use crate::utils::ScalarValueHelpers;
         use avenger_scales::scales::{ConfiguredScale, ScaleConfig, ScaleContext};
         use datafusion::arrow::array::{Float32Array, StringArray};
 
         // Extract domain values as arrow array
         let domain = match &self.domain.default_domain {
             ScaleDefaultDomain::Interval(start, end) => {
-                let start_val = eval_to_scalar(start)?;
-                let end_val = eval_to_scalar(end)?;
+                let scalars =
+                    eval_to_scalars(vec![start.clone(), end.as_ref().clone()], None, None).await?;
+                let [start_val, end_val] = scalars.as_slice() else {
+                    return Err(AvengerChartError::InternalError(
+                        "Expected two scalar values for interval domain".to_string(),
+                    ));
+                };
 
                 // Convert to f32 values
-                let start_f32 = match start_val {
-                    ScalarValue::Float64(Some(v)) => v as f32,
-                    ScalarValue::Float32(Some(v)) => v,
-                    ScalarValue::Int64(Some(v)) => v as f32,
-                    ScalarValue::Int32(Some(v)) => v as f32,
-                    _ => {
-                        return Err(AvengerChartError::InternalError(
-                            "Scale domain must be numeric literals".to_string(),
-                        ));
-                    }
-                };
-                let end_f32 = match end_val {
-                    ScalarValue::Float64(Some(v)) => v as f32,
-                    ScalarValue::Float32(Some(v)) => v,
-                    ScalarValue::Int64(Some(v)) => v as f32,
-                    ScalarValue::Int32(Some(v)) => v as f32,
-                    _ => {
-                        return Err(AvengerChartError::InternalError(
-                            "Scale domain must be numeric literals".to_string(),
-                        ));
-                    }
-                };
-                Arc::new(Float32Array::from(vec![start_f32, end_f32]))
-                    as datafusion::arrow::array::ArrayRef
+                let start_f32 = start_val.as_f32()?;
+                let end_f32 = end_val.as_f32()?;
+                Arc::new(Float32Array::from(vec![start_f32, end_f32])) as arrow::array::ArrayRef
             }
             ScaleDefaultDomain::Discrete(values) => {
                 // Extract string literals from the expressions
                 let mut strings = Vec::new();
-                for expr in values {
-                    let scalar = eval_to_scalar(expr)?;
+                let scalars = eval_to_scalars(values.clone(), None, None).await?;
+                for scalar in scalars {
                     if let ScalarValue::Utf8(Some(s)) = scalar {
                         strings.push(s);
                     }
                 }
-                Arc::new(StringArray::from(strings)) as datafusion::arrow::array::ArrayRef
+                Arc::new(StringArray::from(strings)) as arrow::array::ArrayRef
             }
             _ => {
                 return Err(AvengerChartError::InternalError(
@@ -455,23 +398,17 @@ impl Scale {
         // Extract range values as arrow array
         let range = match &self.range {
             ScaleRange::Numeric(start, end) => {
-                let start_val = eval_to_scalar(start)?;
-                let end_val = eval_to_scalar(end)?;
+                let scalars =
+                    eval_to_scalars(vec![start.clone(), end.as_ref().clone()], None, None).await?;
 
-                let start_f32 = match start_val {
-                    ScalarValue::Float64(Some(v)) => v as f32,
-                    ScalarValue::Float32(Some(v)) => v,
-                    ScalarValue::Int64(Some(v)) => v as f32,
-                    ScalarValue::Int32(Some(v)) => v as f32,
-                    _ => 0.0,
+                let [start_val, end_val] = scalars.as_slice() else {
+                    return Err(AvengerChartError::InternalError(
+                        "Expected two scalar values for numeric range".to_string(),
+                    ));
                 };
-                let end_f32 = match end_val {
-                    ScalarValue::Float64(Some(v)) => v as f32,
-                    ScalarValue::Float32(Some(v)) => v,
-                    ScalarValue::Int64(Some(v)) => v as f32,
-                    ScalarValue::Int32(Some(v)) => v as f32,
-                    _ => plot_area_width,
-                };
+
+                let start_f32 = start_val.as_f32()?;
+                let end_f32 = end_val.as_f32()?;
                 Arc::new(Float32Array::from(vec![start_f32, end_f32]))
                     as datafusion::arrow::array::ArrayRef
             }
@@ -502,20 +439,14 @@ impl Scale {
             }
         };
 
-        // Convert options to avenger_scales::scalar::Scalar
-        let mut options = HashMap::new();
-        for (key, expr) in &self.options {
-            let scalar_val = eval_to_scalar(expr)?;
-            let scalar = match scalar_val {
-                ScalarValue::Float64(Some(v)) => avenger_scales::scalar::Scalar::from_f32(v as f32),
-                ScalarValue::Float32(Some(v)) => avenger_scales::scalar::Scalar::from_f32(v),
-                ScalarValue::Int64(Some(v)) => avenger_scales::scalar::Scalar::from_f32(v as f32),
-                ScalarValue::Int32(Some(v)) => avenger_scales::scalar::Scalar::from_f32(v as f32),
-                ScalarValue::Boolean(Some(v)) => avenger_scales::scalar::Scalar::from_bool(v),
-                _ => continue,
-            };
-            options.insert(key.clone(), scalar);
-        }
+        // Eval scalars options values and convert them to avenger_scales::scalar::Scalar
+        let (names, exprs): (Vec<_>, Vec<_>) = self.options.clone().into_iter().unzip();
+        let scalars = eval_to_scalars(exprs, None, None)
+            .await?
+            .into_iter()
+            .map(|s| s.as_scale_scalar())
+            .collect::<Result<Vec<_>, _>>()?;
+        let options = names.into_iter().zip(scalars).collect::<HashMap<_, _>>();
 
         let config = ScaleConfig {
             domain,
@@ -576,12 +507,8 @@ pub enum ScaleDefaultDomain {
     Interval(Expr, Box<Expr>),
     // Discrete values
     Discrete(Vec<Expr>),
-
     // Domain derived from data
-    DataField(DataField),
     DataFields(Vec<DataField>),
-    // Domain derived from encoding expressions
-    Expressions(Vec<Expr>),
 }
 
 impl ScaleDomain {
@@ -601,10 +528,10 @@ impl ScaleDomain {
 
     pub fn new_data_field<S: Into<String>>(dataframe: Arc<DataFrame>, field: S) -> Self {
         Self {
-            default_domain: ScaleDefaultDomain::DataField(DataField {
+            default_domain: ScaleDefaultDomain::DataFields(vec![DataField {
                 dataframe,
                 field: field.into(),
-            }),
+            }]),
             raw_domain: None,
         }
     }
@@ -624,13 +551,6 @@ impl ScaleDomain {
         }
     }
 
-    pub fn new_expressions(expressions: Vec<Expr>) -> Self {
-        Self {
-            default_domain: ScaleDefaultDomain::Expressions(expressions),
-            raw_domain: None,
-        }
-    }
-
     pub fn with_raw(self, raw_domain: Expr) -> Self {
         Self {
             default_domain: self.default_domain,
@@ -643,11 +563,6 @@ impl ScaleDomain {
         match &self.default_domain {
             ScaleDefaultDomain::Interval(expr, _) => Ok(expr.get_type(&schema)?),
             ScaleDefaultDomain::Discrete(exprs) => Ok(exprs[0].get_type(&schema)?),
-            ScaleDefaultDomain::DataField(DataField { dataframe, field }) => Ok(dataframe
-                .schema()
-                .field_with_name(None, field)?
-                .data_type()
-                .clone()),
             ScaleDefaultDomain::DataFields(fields) => {
                 let DataField { dataframe, field } = fields.first().ok_or_else(|| {
                     AvengerChartError::InternalError(
@@ -659,14 +574,6 @@ impl ScaleDomain {
                     .field_with_name(None, field)?
                     .data_type()
                     .clone())
-            }
-            ScaleDefaultDomain::Expressions(exprs) => {
-                if exprs.is_empty() {
-                    return Err(AvengerChartError::InternalError(
-                        "Expressions domain may not be empty".to_string(),
-                    ));
-                }
-                Ok(exprs[0].get_type(&schema)?)
             }
         }
     }
@@ -691,18 +598,8 @@ impl ScaleDomain {
                 make_array(vec![start.clone(), end.as_ref().clone()])
             }
             ScaleDefaultDomain::Discrete(values) => make_array(values.clone()),
-            ScaleDefaultDomain::DataField(DataField { dataframe, field }) => {
-                use crate::utils::DataFrameChartUtils;
-                let df_with_field = dataframe.as_ref().clone().select_columns(&[field])?;
-
-                match method {
-                    InferDomainFromDataMethod::Interval => df_with_field.span()?,
-                    InferDomainFromDataMethod::Unique => df_with_field.unique_values()?,
-                    InferDomainFromDataMethod::All => df_with_field.all_values()?,
-                }
-            }
             ScaleDefaultDomain::DataFields(data_fields) => {
-                use crate::utils::DataFrameChartUtils;
+                use crate::utils::DataFrameChartHelpers;
                 let mut single_col_dfs: Vec<DataFrame> = Vec::new();
 
                 for DataField { dataframe, field } in data_fields {
@@ -711,7 +608,7 @@ impl ScaleDomain {
                     single_col_dfs.push(df_with_field);
                 }
 
-                // Union all of the single column dataframes
+                // Union all the single column dataframes
                 let union_df = single_col_dfs
                     .iter()
                     .skip(1)
@@ -724,16 +621,6 @@ impl ScaleDomain {
                     InferDomainFromDataMethod::Unique => union_df.unique_values()?,
                     InferDomainFromDataMethod::All => union_df.all_values()?,
                 }
-            }
-            ScaleDefaultDomain::Expressions(_expressions) => {
-                // For expressions, we can't create a DataFrame here since we don't have
-                // the actual data. Instead, we'll return a placeholder that will be
-                // evaluated at runtime when we have the actual DataFrames.
-                // This is a limitation we'll need to address by passing DataFrames
-                // to the compile method or deferring compilation.
-                return Err(AvengerChartError::InternalError(
-                    "Expression-based domain inference requires runtime evaluation".to_string(),
-                ));
             }
         };
 

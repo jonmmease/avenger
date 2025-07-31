@@ -41,7 +41,7 @@ async fn test_scale_padding_normalization() -> Result<(), Box<dyn std::error::Er
         .padding(lit(20.0));
 
     // Create configured scale to test padding option is set
-    let configured = scale.create_configured_scale(400.0, 300.0)?;
+    let configured = scale.create_configured_scale(400.0, 300.0).await?;
 
     // Check that padding option was added
     let padding_opt = configured.config.options.get("padding");

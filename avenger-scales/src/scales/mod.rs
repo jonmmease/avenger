@@ -19,12 +19,12 @@ use crate::{
     color_interpolator::SrgbaColorInterpolator,
     scales::coerce::{ColorCoercer, CssColorCoercer},
 };
+use arrow::array::Array;
 use arrow::{
     array::{ArrayRef, AsArray, Float32Array},
     compute::cast,
     datatypes::{DataType, Float32Type},
 };
-use arrow::array::Array;
 use avenger_common::{
     types::{
         AreaOrientation, ColorOrGradient, GradientStop, ImageAlign, ImageBaseline,
@@ -932,7 +932,7 @@ impl ConfiguredScale {
     pub fn normalize(self) -> Result<ConfiguredScale, AvengerScaleError> {
         if !self.domain().data_type().is_numeric() {
             // Only scales with numeric domain can be normalized
-            return Ok(self)
+            return Ok(self);
         }
 
         let normalized_domain = self.scale_impl.compute_nice_domain(&self.config)?;
