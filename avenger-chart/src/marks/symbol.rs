@@ -110,12 +110,6 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
         // Total padding needed is radius + half stroke width
         let padding = radius + stroke_width / 2.0;
 
-        // Debug: print the calculated padding
-        eprintln!(
-            "Symbol padding calculation: max_size={}, radius={}, stroke_width={}, padding={}",
-            max_size, radius, stroke_width, padding
-        );
-
         Ok(MarkPadding {
             x: Some(padding as f64),
             y: Some(padding as f64),
