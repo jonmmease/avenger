@@ -163,7 +163,7 @@ pub trait ExprHelpers {
     /// Evaluate expression to a scalar value
     async fn eval_to_scalar(
         &self,
-        ctx: &SessionContext,
+        ctx: Option<&SessionContext>,
         params: Option<&ParamValues>,
     ) -> Result<ScalarValue, DataFusionError>;
 }
@@ -172,31 +172,80 @@ pub trait ExprHelpers {
 impl ExprHelpers for Expr {
     async fn eval_to_scalar(
         &self,
-        ctx: &SessionContext,
+        ctx: Option<&SessionContext>,
         params: Option<&ParamValues>,
     ) -> Result<ScalarValue, DataFusionError> {
-        let df = ctx.read_empty()?;
-        // Normalize params
-        let params = params
-            .cloned()
-            .unwrap_or_else(|| ParamValues::Map(Default::default()));
-        let res = df
-            .select(vec![self.clone().alias("value")])?
-            .with_param_values(params)?
-            .collect()
-            .await?;
-
-        if res.is_empty() || res[0].num_rows() == 0 {
-            return Err(DataFusionError::Internal(
-                "Failed to evaluate expression".to_string(),
-            ));
-        }
-
-        Ok(ScalarValue::try_from_array(
-            res[0].column_by_name("value").unwrap(),
-            0,
-        )?)
+        let mut result = eval_to_scalars(vec![self.clone()], ctx, params).await?;
+        result.pop().ok_or_else(|| {
+            DataFusionError::Internal("Failed to evaluate expression".to_string())
+        })
     }
+}
+
+pub async fn eval_to_scalars(
+    mut exprs: Vec<Expr>,
+    ctx: Option<&SessionContext>,
+    params: Option<&ParamValues>,
+) -> Result<Vec<ScalarValue>, DataFusionError> {
+    // As optimization, convert literal expressions to scalars starting from the left.
+    // This is the common case, and can be handled very efficiently. For simplicity,
+    // once we encounter the first non-literal expression, we process the rest through
+    // evaluation, without checking if any later expressions are literals.
+    let mut result_scalars = vec![];
+    while let Some(Expr::Literal(scalar, _)) = exprs.first() {
+        result_scalars.push(scalar.clone());
+        exprs.remove(0);
+    }
+
+    if exprs.is_empty() {
+        return Ok(result_scalars);
+    }
+
+    // Otherwise, we need to evaluate the remaining expressions
+    let aliased_exprs = exprs
+        .into_iter()
+        .enumerate()
+        .map(|(ind, e)| {
+            let name = format!("value_{}", ind);
+            if let Expr::Alias(alias) = e {
+                // Unwrap existing alias if present
+                alias.expr.alias(name)
+            } else {
+                e.alias(name)
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let ctx = ctx.cloned().unwrap_or_else(SessionContext::new);
+    let df = ctx.read_empty()?;
+
+    let res = df
+        .select(aliased_exprs)?
+        .with_param_values(
+            params
+                .cloned()
+                .unwrap_or_else(|| ParamValues::Map(Default::default())),
+        )?
+        .collect()
+        .await?;
+    let batch = res.first().ok_or_else(|| {
+        DataFusionError::Internal("No results returned from evaluation".to_string())
+    })?;
+
+    if res.is_empty() || res[0].num_rows() == 0 {
+        return Err(DataFusionError::Internal(
+            "Failed to evaluate expressions".to_string(),
+        ));
+    }
+
+    for i in 0..batch.num_columns() {
+        result_scalars.push(
+            ScalarValue::try_from_array(batch.column(i), 0).map_err(|e| {
+                DataFusionError::Internal(format!("Failed to convert column {}: {}", i, e))
+            })?,
+        );
+    }
+    Ok(result_scalars)
 }
 
 pub trait ScalarValueHelpers {

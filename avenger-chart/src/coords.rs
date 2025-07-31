@@ -17,6 +17,7 @@ pub struct TransformResult {
     pub depth: Option<Expr>,
 }
 
+#[async_trait::async_trait]
 pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     /// The axis type for this coordinate system
     type Axis: AxisTrait + Clone + 'static;
@@ -74,7 +75,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     ///
     /// # Returns
     /// A vector of SceneMark objects representing the rendered axes
-    fn render_axes(
+    async fn render_axes(
         &self,
         axes: &HashMap<String, Self::Axis>,
         scales: &HashMap<String, crate::scales::Scale>,
@@ -86,6 +87,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
 
 pub struct Cartesian;
 
+#[async_trait::async_trait]
 impl CoordinateSystem for Cartesian {
     type Axis = CartesianAxis;
 
@@ -175,7 +177,7 @@ impl CoordinateSystem for Cartesian {
         default_axes
     }
 
-    fn render_axes(
+    async fn render_axes(
         &self,
         axes: &HashMap<String, Self::Axis>,
         scales: &HashMap<String, crate::scales::Scale>,
@@ -239,7 +241,9 @@ impl CoordinateSystem for Cartesian {
             };
 
             // Create configured scale for avenger-guides
-            let configured_scale = scale.create_configured_scale(plot_width, plot_height)?;
+            let configured_scale = scale
+                .create_configured_scale(plot_width, plot_height)
+                .await?;
 
             // Generate axis marks based on scale type
             let scale_type = scale.get_scale_impl().scale_type();
@@ -288,6 +292,7 @@ fn extract_axis_title_from_marks<C: CoordinateSystem>(
 
 pub struct Polar;
 
+#[async_trait::async_trait]
 impl CoordinateSystem for Polar {
     type Axis = CartesianAxis; // TODO: Implement PolarAxis for proper polar coordinate support
 
@@ -353,7 +358,7 @@ impl CoordinateSystem for Polar {
         HashMap::new()
     }
 
-    fn render_axes(
+    async fn render_axes(
         &self,
         _axes: &HashMap<String, Self::Axis>,
         _scales: &HashMap<String, crate::scales::Scale>,
