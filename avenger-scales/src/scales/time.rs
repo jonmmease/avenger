@@ -731,7 +731,10 @@ impl ScaleImpl for TimeScale {
         create_temporal_array_from_millis_vec(&tick_millis, domain_type)
     }
 
-    fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
+    fn compute_normalized_domain(
+        &self,
+        config: &ScaleConfig,
+    ) -> Result<ArrayRef, AvengerScaleError> {
         // Get domain bounds
         let domain_type = config.domain.data_type();
         let handler = TemporalHandler::from_data_type(domain_type)?;
@@ -1753,7 +1756,7 @@ mod tests {
 
         // Apply nice with default count
         scale = scale.with_option("nice", true);
-        let nice_domain = scale.scale_impl.compute_nice_domain(&scale.config)?;
+        let nice_domain = scale.scale_impl.compute_normalized_domain(&scale.config)?;
 
         // Should round to nice month boundaries
         let nice_array = nice_domain

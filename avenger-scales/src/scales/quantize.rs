@@ -73,9 +73,8 @@ impl QuantizeScale {
         LinearScale::apply_normalization(NormalizationConfig {
             domain,
             range: (0.0, 1.0),
-            padding: None,
-            padding_lower: None,
-            padding_upper: None,
+            clip_padding_lower: None,
+            clip_padding_upper: None,
             zero,
             nice,
         })
@@ -149,7 +148,10 @@ impl ScaleImpl for QuantizeScale {
         linear_scale.ticks(config, count)
     }
 
-    fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
+    fn compute_normalized_domain(
+        &self,
+        config: &ScaleConfig,
+    ) -> Result<ArrayRef, AvengerScaleError> {
         let (domain_start, domain_end) = QuantizeScale::apply_normalization(
             config.numeric_interval_domain()?,
             config.options.get("zero"),
