@@ -343,8 +343,8 @@ impl Scale {
     /// Apply normalization (zero, nice, padding) to the scale domain
     pub async fn normalize_domain(
         mut self,
-        _plot_area_width: f32,
-        _plot_area_height: f32,
+        plot_area_width: f32,
+        plot_area_height: f32,
     ) -> Result<Self, AvengerChartError> {
         // Skip normalization for non-numeric ranges (e.g., color ranges)
         if !matches!(&self.range, ScaleRange::Numeric(_, _)) {
