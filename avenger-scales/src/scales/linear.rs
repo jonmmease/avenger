@@ -25,9 +25,8 @@ use super::{
 pub struct NormalizationConfig<'a> {
     pub domain: (f32, f32),
     pub range: (f32, f32),
-    pub padding: Option<&'a Scalar>,
-    pub padding_lower: Option<&'a Scalar>,
-    pub padding_upper: Option<&'a Scalar>,
+    pub clip_padding_lower: Option<&'a Scalar>,
+    pub clip_padding_upper: Option<&'a Scalar>,
     pub zero: Option<&'a Scalar>,
     pub nice: Option<&'a Scalar>,
 }
@@ -54,15 +53,12 @@ pub struct NormalizationConfig<'a> {
 ///   are positive, sets min to zero. If both min and max are negative, sets max to zero. If the domain already
 ///   spans zero, no change is made. Zero extension is applied before nice calculations.
 ///
-/// - **padding** (f32, default: 0.0): Expands the scale domain to accommodate the specified number of pixels
-///   on each of the scale range. The scale range must represent pixels for this parameter to function as intended.
+/// - **clip_padding_lower** (f32, default: 0.0): Expands the scale domain at the lower end to accommodate
+///   the specified number of pixels. This helps prevent visual elements like markers from being clipped at the domain boundary.
 ///   Padding adjustment is performed prior to all other adjustments, including the effects of the zero and nice properties.
 ///
-/// - **padding_lower** (f32, default: value of padding): Expands the scale domain at the lower end to accommodate
-///   the specified number of pixels. Takes precedence over the general padding value for the lower end.
-///
-/// - **padding_upper** (f32, default: value of padding): Expands the scale domain at the upper end to accommodate
-///   the specified number of pixels. Takes precedence over the general padding value for the upper end.
+/// - **clip_padding_upper** (f32, default: 0.0): Expands the scale domain at the upper end to accommodate
+///   the specified number of pixels. This helps prevent visual elements like markers from being clipped at the domain boundary.
 #[derive(Debug)]
 pub struct LinearScale;
 
@@ -116,23 +112,22 @@ impl LinearScale {
             return Ok(config.domain);
         }
 
-        // Step 1: Apply padding if requested (before all other adjustments)
-        let padding_value = config.padding.and_then(|p| p.as_f32().ok()).unwrap_or(0.0);
-        let padding_lower_value = config
-            .padding_lower
+        // Step 1: Apply clipping padding if requested (before all other adjustments)
+        let clip_padding_lower_value = config
+            .clip_padding_lower
             .and_then(|p| p.as_f32().ok())
-            .unwrap_or(padding_value);
-        let padding_upper_value = config
-            .padding_upper
+            .unwrap_or(0.0);
+        let clip_padding_upper_value = config
+            .clip_padding_upper
             .and_then(|p| p.as_f32().ok())
-            .unwrap_or(padding_value);
+            .unwrap_or(0.0);
 
-        if padding_lower_value > 0.0 || padding_upper_value > 0.0 {
+        if clip_padding_lower_value > 0.0 || clip_padding_upper_value > 0.0 {
             let (padded_start, padded_end) = Self::apply_padding(
                 (domain_start, domain_end),
                 config.range,
-                padding_lower_value,
-                padding_upper_value,
+                clip_padding_lower_value,
+                clip_padding_upper_value,
             )?;
             domain_start = padded_start;
             domain_end = padded_end;
@@ -234,9 +229,8 @@ impl LinearScale {
         Self::apply_normalization(NormalizationConfig {
             domain,
             range: (0.0, 1.0),
-            padding: None,
-            padding_lower: None,
-            padding_upper: None,
+            clip_padding_lower: None,
+            clip_padding_upper: None,
             zero: None,
             nice: count,
         })
@@ -293,9 +287,14 @@ impl ScaleImpl for LinearScale {
                 OptionDefinition::optional("nice", OptionConstraint::nice()),
                 OptionDefinition::optional("zero", OptionConstraint::Boolean),
                 OptionDefinition::optional("default", OptionConstraint::Float),
-                OptionDefinition::optional("padding", OptionConstraint::NonNegativeFloat),
-                OptionDefinition::optional("padding_lower", OptionConstraint::NonNegativeFloat),
-                OptionDefinition::optional("padding_upper", OptionConstraint::NonNegativeFloat),
+                OptionDefinition::optional(
+                    "clip_padding_lower",
+                    OptionConstraint::NonNegativeFloat
+                ),
+                OptionDefinition::optional(
+                    "clip_padding_upper",
+                    OptionConstraint::NonNegativeFloat
+                ),
             ];
         }
 
@@ -338,9 +337,8 @@ impl ScaleImpl for LinearScale {
                 LinearScale::apply_normalization(NormalizationConfig {
                     domain: config.numeric_interval_domain()?,
                     range: (0.0, 1.0), // dummy range for padding calculation
-                    padding: config.options.get("padding"),
-                    padding_lower: config.options.get("padding_lower"),
-                    padding_upper: config.options.get("padding_upper"),
+                    clip_padding_lower: config.options.get("clip_padding_lower"),
+                    clip_padding_upper: config.options.get("clip_padding_upper"),
                     zero: config.options.get("zero"),
                     nice: config.options.get("nice"),
                 })?;
@@ -358,9 +356,8 @@ impl ScaleImpl for LinearScale {
         let (domain_start, domain_end) = LinearScale::apply_normalization(NormalizationConfig {
             domain: config.numeric_interval_domain()?,
             range: (range_start, range_end),
-            padding: config.options.get("padding"),
-            padding_lower: config.options.get("padding_lower"),
-            padding_upper: config.options.get("padding_upper"),
+            clip_padding_lower: config.options.get("clip_padding_lower"),
+            clip_padding_upper: config.options.get("clip_padding_upper"),
             zero: config.options.get("zero"),
             nice: config.options.get("nice"),
         })?;
@@ -432,9 +429,8 @@ impl ScaleImpl for LinearScale {
         let (domain_start, domain_end) = LinearScale::apply_normalization(NormalizationConfig {
             domain: config.numeric_interval_domain()?,
             range: (range_start, range_end),
-            padding: config.options.get("padding"),
-            padding_lower: config.options.get("padding_lower"),
-            padding_upper: config.options.get("padding_upper"),
+            clip_padding_lower: config.options.get("clip_padding_lower"),
+            clip_padding_upper: config.options.get("clip_padding_upper"),
             zero: config.options.get("zero"),
             nice: config.options.get("nice"),
         })?;
@@ -496,9 +492,8 @@ impl ScaleImpl for LinearScale {
         let (domain_start, domain_end) = LinearScale::apply_normalization(NormalizationConfig {
             domain: config.numeric_interval_domain()?,
             range: (range_start, range_end),
-            padding: config.options.get("padding"),
-            padding_lower: config.options.get("padding_lower"),
-            padding_upper: config.options.get("padding_upper"),
+            clip_padding_lower: config.options.get("clip_padding_lower"),
+            clip_padding_upper: config.options.get("clip_padding_upper"),
             zero: config.options.get("zero"),
             nice: config.options.get("nice"),
         })?;
@@ -612,14 +607,16 @@ impl ScaleImpl for LinearScale {
         Ok(LinearScaleAdjustment { scale, offset })
     }
 
-    fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
+    fn compute_normalized_domain(
+        &self,
+        config: &ScaleConfig,
+    ) -> Result<ArrayRef, AvengerScaleError> {
         let (range_start, range_end) = config.numeric_interval_range()?;
         let (domain_start, domain_end) = LinearScale::apply_normalization(NormalizationConfig {
             domain: config.numeric_interval_domain()?,
             range: (range_start, range_end),
-            padding: config.options.get("padding"),
-            padding_lower: config.options.get("padding_lower"),
-            padding_upper: config.options.get("padding_upper"),
+            clip_padding_lower: config.options.get("clip_padding_lower"),
+            clip_padding_upper: config.options.get("clip_padding_upper"),
             zero: config.options.get("zero"),
             nice: config.options.get("nice"),
         })?;
@@ -1000,15 +997,19 @@ mod tests {
     fn test_normalize_with_nice_true() -> Result<(), AvengerScaleError> {
         let scale = LinearScale::configured((1.1, 10.9), (0.0, 100.0)).with_option("nice", true);
 
-        let normalized = scale.normalize()?;
+        // Check original domain
+        let original_domain = scale.numeric_interval_domain()?;
+        assert_approx_eq!(f32, original_domain.0, 1.1);
+        assert_approx_eq!(f32, original_domain.1, 10.9);
 
-        // Check that the domain has been niced
-        let domain = normalized.numeric_interval_domain()?;
-        assert_approx_eq!(f32, domain.0, 1.0);
-        assert_approx_eq!(f32, domain.1, 11.0);
-
-        // Check that the nice option is disabled
-        assert!(!normalized.option_boolean("nice", true));
+        // Check that the normalized domain has been niced
+        let normalized_domain = scale.normalized_domain()?;
+        let normalized_array = normalized_domain
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .unwrap();
+        assert_approx_eq!(f32, normalized_array.value(0), 1.0);
+        assert_approx_eq!(f32, normalized_array.value(1), 11.0);
 
         Ok(())
     }
@@ -1017,15 +1018,14 @@ mod tests {
     fn test_normalize_with_nice_false() -> Result<(), AvengerScaleError> {
         let scale = LinearScale::configured((1.1, 10.9), (0.0, 100.0)).with_option("nice", false);
 
-        let normalized = scale.normalize()?;
-
-        // Check that the domain is unchanged
-        let domain = normalized.numeric_interval_domain()?;
-        assert_approx_eq!(f32, domain.0, 1.1);
-        assert_approx_eq!(f32, domain.1, 10.9);
-
-        // Check that the nice option is still false
-        assert!(!normalized.option_boolean("nice", true));
+        // Check that the normalized domain is unchanged
+        let normalized_domain = scale.normalized_domain()?;
+        let normalized_array = normalized_domain
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .unwrap();
+        assert_approx_eq!(f32, normalized_array.value(0), 1.1);
+        assert_approx_eq!(f32, normalized_array.value(1), 10.9);
 
         Ok(())
     }
@@ -1034,17 +1034,16 @@ mod tests {
     fn test_normalize_with_nice_count() -> Result<(), AvengerScaleError> {
         let scale = LinearScale::configured((1.1, 10.9), (0.0, 100.0)).with_option("nice", 5.0);
 
-        let normalized = scale.normalize()?;
-
-        // Check that the domain has been niced
-        let domain = normalized.numeric_interval_domain()?;
+        // Check that the normalized domain has been niced
+        let normalized_domain = scale.normalized_domain()?;
+        let normalized_array = normalized_domain
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .unwrap();
         let expected_nice = LinearScale::apply_nice((1.1, 10.9), Some(&5.0.into()))?;
 
-        assert_approx_eq!(f32, domain.0, expected_nice.0);
-        assert_approx_eq!(f32, domain.1, expected_nice.1);
-
-        // Check that the nice option is disabled
-        assert!(!normalized.option_boolean("nice", true));
+        assert_approx_eq!(f32, normalized_array.value(0), expected_nice.0);
+        assert_approx_eq!(f32, normalized_array.value(1), expected_nice.1);
 
         Ok(())
     }
@@ -1053,15 +1052,14 @@ mod tests {
     fn test_normalize_with_zero_both_positive() -> Result<(), AvengerScaleError> {
         let scale = LinearScale::configured((2.0, 10.0), (0.0, 100.0)).with_option("zero", true);
 
-        let normalized = scale.normalize()?;
-
-        // Check that zero is included (min should be 0)
-        let domain = normalized.numeric_interval_domain()?;
-        assert_approx_eq!(f32, domain.0, 0.0);
-        assert_approx_eq!(f32, domain.1, 10.0);
-
-        // Check that the zero option is disabled
-        assert!(!normalized.option_boolean("zero", true));
+        // Check that zero is included in normalized domain (min should be 0)
+        let normalized_domain = scale.normalized_domain()?;
+        let normalized_array = normalized_domain
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .unwrap();
+        assert_approx_eq!(f32, normalized_array.value(0), 0.0);
+        assert_approx_eq!(f32, normalized_array.value(1), 10.0);
 
         Ok(())
     }
@@ -1070,15 +1068,14 @@ mod tests {
     fn test_normalize_with_zero_both_negative() -> Result<(), AvengerScaleError> {
         let scale = LinearScale::configured((-10.0, -2.0), (0.0, 100.0)).with_option("zero", true);
 
-        let normalized = scale.normalize()?;
-
-        // Check that zero is included (max should be 0)
-        let domain = normalized.numeric_interval_domain()?;
-        assert_approx_eq!(f32, domain.0, -10.0);
-        assert_approx_eq!(f32, domain.1, 0.0);
-
-        // Check that the zero option is disabled
-        assert!(!normalized.option_boolean("zero", true));
+        // Check that zero is included in normalized domain (max should be 0)
+        let normalized_domain = scale.normalized_domain()?;
+        let normalized_array = normalized_domain
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .unwrap();
+        assert_approx_eq!(f32, normalized_array.value(0), -10.0);
+        assert_approx_eq!(f32, normalized_array.value(1), 0.0);
 
         Ok(())
     }
@@ -1087,15 +1084,14 @@ mod tests {
     fn test_normalize_with_zero_spans_zero() -> Result<(), AvengerScaleError> {
         let scale = LinearScale::configured((-5.0, 5.0), (0.0, 100.0)).with_option("zero", true);
 
-        let normalized = scale.normalize()?;
-
-        // Check that domain is unchanged (already spans zero)
-        let domain = normalized.numeric_interval_domain()?;
-        assert_approx_eq!(f32, domain.0, -5.0);
-        assert_approx_eq!(f32, domain.1, 5.0);
-
-        // Check that the zero option is disabled
-        assert!(!normalized.option_boolean("zero", true));
+        // Check that normalized domain is unchanged (already spans zero)
+        let normalized_domain = scale.normalized_domain()?;
+        let normalized_array = normalized_domain
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .unwrap();
+        assert_approx_eq!(f32, normalized_array.value(0), -5.0);
+        assert_approx_eq!(f32, normalized_array.value(1), 5.0);
 
         Ok(())
     }
@@ -1106,17 +1102,15 @@ mod tests {
             .with_option("zero", true)
             .with_option("nice", true);
 
-        let normalized = scale.normalize()?;
-
         // Check that zero is applied first, then nice
-        let domain = normalized.numeric_interval_domain()?;
+        let normalized_domain = scale.normalized_domain()?;
+        let normalized_array = normalized_domain
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .unwrap();
         // Should be (0.0, 9.9) after zero, then (0.0, 10.0) after nice
-        assert_approx_eq!(f32, domain.0, 0.0);
-        assert_approx_eq!(f32, domain.1, 10.0);
-
-        // Check that both options are disabled
-        assert!(!normalized.option_boolean("zero", true));
-        assert!(!normalized.option_boolean("nice", true));
+        assert_approx_eq!(f32, normalized_array.value(0), 0.0);
+        assert_approx_eq!(f32, normalized_array.value(1), 10.0);
 
         Ok(())
     }
@@ -1125,15 +1119,14 @@ mod tests {
     fn test_normalize_with_zero_false() -> Result<(), AvengerScaleError> {
         let scale = LinearScale::configured((2.0, 10.0), (0.0, 100.0)).with_option("zero", false);
 
-        let normalized = scale.normalize()?;
-
-        // Check that domain is unchanged
-        let domain = normalized.numeric_interval_domain()?;
-        assert_approx_eq!(f32, domain.0, 2.0);
-        assert_approx_eq!(f32, domain.1, 10.0);
-
-        // Check that the zero option is disabled
-        assert!(!normalized.option_boolean("zero", true));
+        // Check that normalized domain is unchanged
+        let normalized_domain = scale.normalized_domain()?;
+        let normalized_array = normalized_domain
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .unwrap();
+        assert_approx_eq!(f32, normalized_array.value(0), 2.0);
+        assert_approx_eq!(f32, normalized_array.value(1), 10.0);
 
         Ok(())
     }
@@ -1144,9 +1137,8 @@ mod tests {
         let result = LinearScale::apply_normalization(NormalizationConfig {
             domain: (2.0, 10.0),
             range: (0.0, 1.0),
-            padding: None,
-            padding_lower: None,
-            padding_upper: None,
+            clip_padding_lower: None,
+            clip_padding_upper: None,
             zero: Some(&true.into()),
             nice: None,
         })?;
@@ -1157,9 +1149,8 @@ mod tests {
         let result = LinearScale::apply_normalization(NormalizationConfig {
             domain: (-10.0, -2.0),
             range: (0.0, 1.0),
-            padding: None,
-            padding_lower: None,
-            padding_upper: None,
+            clip_padding_lower: None,
+            clip_padding_upper: None,
             zero: Some(&true.into()),
             nice: None,
         })?;
@@ -1170,9 +1161,8 @@ mod tests {
         let result = LinearScale::apply_normalization(NormalizationConfig {
             domain: (-5.0, 5.0),
             range: (0.0, 1.0),
-            padding: None,
-            padding_lower: None,
-            padding_upper: None,
+            clip_padding_lower: None,
+            clip_padding_upper: None,
             zero: Some(&true.into()),
             nice: None,
         })?;
@@ -1183,9 +1173,8 @@ mod tests {
         let result = LinearScale::apply_normalization(NormalizationConfig {
             domain: (2.0, 10.0),
             range: (0.0, 1.0),
-            padding: None,
-            padding_lower: None,
-            padding_upper: None,
+            clip_padding_lower: None,
+            clip_padding_upper: None,
             zero: Some(&false.into()),
             nice: None,
         })?;
@@ -1270,21 +1259,24 @@ mod tests {
     #[test]
     fn test_linear_scale_with_padding() -> Result<(), AvengerScaleError> {
         // Create a linear scale with padding
-        let scale = LinearScale::configured((0.0, 10.0), (0.0, 100.0)).with_option("padding", 10.0);
+        let scale = LinearScale::configured((0.0, 10.0), (0.0, 100.0))
+            .with_option("clip_padding_lower", 10.0)
+            .with_option("clip_padding_upper", 10.0);
 
-        // Normalize the scale to apply padding
-        let normalized = scale.normalize()?;
-
-        // Check that domain has been expanded
-        let domain = normalized.numeric_interval_domain()?;
+        // Check that normalized domain has been expanded
+        let normalized_domain = scale.normalized_domain()?;
+        let normalized_array = normalized_domain
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .unwrap();
         // With symmetric padding=10, domain units per pixel = 0.1
         // New domain: [0 - 10*0.1, 10 + 10*0.1] = [-1, 11]
-        assert_approx_eq!(f32, domain.0, -1.0);
-        assert_approx_eq!(f32, domain.1, 11.0);
+        assert_approx_eq!(f32, normalized_array.value(0), -1.0);
+        assert_approx_eq!(f32, normalized_array.value(1), 11.0);
 
-        // Test scaling values
+        // Test scaling values - auto-normalization should apply padding
         let values = Arc::new(Float32Array::from(vec![0.0, 5.0, 10.0])) as ArrayRef;
-        let result = normalized.scale(&values)?;
+        let result = scale.scale(&values)?;
         let result_array = result.as_primitive::<Float32Type>();
 
         // With expanded domain [-1, 11], range [0, 100]
@@ -1303,21 +1295,20 @@ mod tests {
     fn test_padding_with_zero_and_nice() -> Result<(), AvengerScaleError> {
         // Test that transformations are applied in order: padding -> zero -> nice
         let scale = LinearScale::configured((2.0, 10.0), (0.0, 100.0))
-            .with_option("padding", 9.0)
+            .with_option("clip_padding_lower", 9.0)
+            .with_option("clip_padding_upper", 9.0)
             .with_option("zero", true)
             .with_option("nice", true);
 
-        let normalized = scale.normalize()?;
-        let domain = normalized.numeric_interval_domain()?;
+        let normalized_domain = scale.normalized_domain()?;
+        let normalized_array = normalized_domain
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .unwrap();
 
         // Expected transformations:
-        assert_approx_eq!(f32, domain.0, 0.0);
-        assert_approx_eq!(f32, domain.1, 11.0);
-
-        // Verify all normalization options are disabled
-        assert_eq!(normalized.option_f32("padding", -1.0), 0.0);
-        assert!(!normalized.option_boolean("zero", true));
-        assert!(!normalized.option_boolean("nice", true));
+        assert_approx_eq!(f32, normalized_array.value(0), 0.0);
+        assert_approx_eq!(f32, normalized_array.value(1), 11.0);
 
         Ok(())
     }
@@ -1326,25 +1317,28 @@ mod tests {
     fn test_linear_scale_with_asymmetric_padding() -> Result<(), AvengerScaleError> {
         // Test with padding_lower and padding_upper
         let scale = LinearScale::configured((0.0, 10.0), (0.0, 100.0))
-            .with_option("padding_lower", 20.0)
-            .with_option("padding_upper", 10.0);
+            .with_option("clip_padding_lower", 20.0)
+            .with_option("clip_padding_upper", 10.0);
 
-        let normalized = scale.normalize()?;
-        let domain = normalized.numeric_interval_domain()?;
+        let normalized_domain = scale.normalized_domain()?;
+        let normalized_array = normalized_domain
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .unwrap();
 
         // Domain units per pixel = 10 / 100 = 0.1
         // New domain: [0 - 20*0.1, 10 + 10*0.1] = [-2, 11]
-        assert_approx_eq!(f32, domain.0, -2.0);
-        assert_approx_eq!(f32, domain.1, 11.0);
+        assert_approx_eq!(f32, normalized_array.value(0), -2.0);
+        assert_approx_eq!(f32, normalized_array.value(1), 11.0);
 
-        // Check the range as well
-        let range = normalized.numeric_interval_range()?;
+        // Check the range remains unchanged
+        let range = scale.numeric_interval_range()?;
         assert_approx_eq!(f32, range.0, 0.0);
         assert_approx_eq!(f32, range.1, 100.0);
 
-        // Test scaling values
+        // Test scaling values - auto-normalization should apply padding
         let values = Arc::new(Float32Array::from(vec![0.0, 5.0, 10.0])) as ArrayRef;
-        let result = normalized.scale(&values)?;
+        let result = scale.scale(&values)?;
         let result_array = result.as_primitive::<Float32Type>();
 
         // With expanded domain [-2, 11], range [0, 100]
@@ -1360,33 +1354,37 @@ mod tests {
     }
 
     #[test]
-    fn test_padding_fallback_behavior() -> Result<(), AvengerScaleError> {
-        // Test that padding_lower/upper fall back to padding when not specified
+    fn test_padding_asymmetric_only_one_side() -> Result<(), AvengerScaleError> {
+        // Test that specifying only one padding side works correctly
         let scale1 = LinearScale::configured((0.0, 10.0), (0.0, 100.0))
-            .with_option("padding", 15.0)
-            .with_option("padding_lower", 20.0); // Only lower specified
+            .with_option("clip_padding_lower", 20.0); // Only lower specified
 
-        let normalized1 = scale1.normalize()?;
-        let domain1 = normalized1.numeric_interval_domain()?;
+        let normalized_domain1 = scale1.normalized_domain()?;
+        let normalized_array1 = normalized_domain1
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .unwrap();
 
-        // padding_lower = 20, padding_upper falls back to padding = 15
+        // clip_padding_lower = 20, clip_padding_upper defaults to 0
         // Domain units per pixel = 0.1
-        // New domain: [0 - 20*0.1, 10 + 15*0.1] = [-2, 11.5]
-        assert_approx_eq!(f32, domain1.0, -2.0);
-        assert_approx_eq!(f32, domain1.1, 11.5);
+        // New domain: [0 - 20*0.1, 10 + 0*0.1] = [-2, 10]
+        assert_approx_eq!(f32, normalized_array1.value(0), -2.0);
+        assert_approx_eq!(f32, normalized_array1.value(1), 10.0);
 
-        // Test with only padding_upper specified
+        // Test with only upper specified
         let scale2 = LinearScale::configured((0.0, 10.0), (0.0, 100.0))
-            .with_option("padding", 15.0)
-            .with_option("padding_upper", 25.0); // Only upper specified
+            .with_option("clip_padding_upper", 25.0); // Only upper specified
 
-        let normalized2 = scale2.normalize()?;
-        let domain2 = normalized2.numeric_interval_domain()?;
+        let normalized_domain2 = scale2.normalized_domain()?;
+        let normalized_array2 = normalized_domain2
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .unwrap();
 
-        // padding_lower falls back to padding = 15, padding_upper = 25
-        // New domain: [0 - 15*0.1, 10 + 25*0.1] = [-1.5, 12.5]
-        assert_approx_eq!(f32, domain2.0, -1.5);
-        assert_approx_eq!(f32, domain2.1, 12.5);
+        // clip_padding_lower defaults to 0, clip_padding_upper = 25
+        // New domain: [0 - 0*0.1, 10 + 25*0.1] = [0, 12.5]
+        assert_approx_eq!(f32, normalized_array2.value(0), 0.0);
+        assert_approx_eq!(f32, normalized_array2.value(1), 12.5);
 
         Ok(())
     }

@@ -48,15 +48,13 @@ use super::{
 ///   are positive, sets min to zero. If both min and max are negative, sets max to zero. If the domain already
 ///   spans zero, no change is made. Zero extension is applied before nice calculations.
 ///
-/// - **padding** (f32, default: 0.0): Expands the scale domain to accommodate the specified number of pixels
-///   on each of the scale range. The scale range must represent pixels for this parameter to function as intended.
+/// - **clip_padding_lower** (f32, default: 0.0): Expands the scale domain at the lower end to accommodate
+///   the specified number of pixels. The scale range must represent pixels for this parameter to function as intended.
 ///   Padding is applied in symlog space before all other adjustments, including zero and nice properties.
 ///
-/// - **padding_lower** (f32, default: value of padding): Expands the scale domain at the lower end to accommodate
-///   the specified number of pixels. Takes precedence over the general padding value for the lower end.
-///
-/// - **padding_upper** (f32, default: value of padding): Expands the scale domain at the upper end to accommodate
-///   the specified number of pixels. Takes precedence over the general padding value for the upper end.
+/// - **clip_padding_upper** (f32, default: 0.0): Expands the scale domain at the upper end to accommodate
+///   the specified number of pixels. The scale range must represent pixels for this parameter to function as intended.
+///   Padding is applied in symlog space before all other adjustments, including zero and nice properties.
 #[derive(Debug)]
 pub struct SymlogScale;
 
@@ -66,9 +64,8 @@ pub struct SymlogNormalizationConfig<'a> {
     pub domain: (f32, f32),
     pub range: (f32, f32),
     pub constant: f32,
-    pub padding: Option<&'a Scalar>,
-    pub padding_lower: Option<&'a Scalar>,
-    pub padding_upper: Option<&'a Scalar>,
+    pub clip_padding_lower: Option<&'a Scalar>,
+    pub clip_padding_upper: Option<&'a Scalar>,
     pub zero: Option<&'a Scalar>,
     pub nice: Option<&'a Scalar>,
 }
@@ -87,7 +84,6 @@ impl SymlogScale {
                     ("round".to_string(), false.into()),
                     ("nice".to_string(), false.into()),
                     ("zero".to_string(), false.into()),
-                    ("padding".to_string(), 0.0.into()),
                 ]
                 .into_iter()
                 .collect(),
@@ -159,15 +155,14 @@ impl SymlogScale {
         config: SymlogNormalizationConfig,
     ) -> Result<(f32, f32), AvengerScaleError> {
         // Apply padding first if specified
-        let padding_value = config.padding.and_then(|p| p.as_f32().ok()).unwrap_or(0.0);
         let padding_lower_value = config
-            .padding_lower
+            .clip_padding_lower
             .and_then(|p| p.as_f32().ok())
-            .unwrap_or(padding_value);
+            .unwrap_or(0.0);
         let padding_upper_value = config
-            .padding_upper
+            .clip_padding_upper
             .and_then(|p| p.as_f32().ok())
-            .unwrap_or(padding_value);
+            .unwrap_or(0.0);
 
         let domain = if padding_lower_value > 0.0 || padding_upper_value > 0.0 {
             Self::apply_padding(
@@ -185,9 +180,8 @@ impl SymlogScale {
         let linear_config = NormalizationConfig {
             domain,
             range: (0.0, 1.0),
-            padding: None,
-            padding_lower: None,
-            padding_upper: None,
+            clip_padding_lower: None,
+            clip_padding_upper: None,
             zero: config.zero,
             nice: config.nice,
         };
@@ -214,9 +208,14 @@ impl ScaleImpl for SymlogScale {
                 OptionDefinition::optional("round", OptionConstraint::Boolean),
                 OptionDefinition::optional("nice", OptionConstraint::nice()),
                 OptionDefinition::optional("zero", OptionConstraint::Boolean),
-                OptionDefinition::optional("padding", OptionConstraint::NonNegativeFloat),
-                OptionDefinition::optional("padding_lower", OptionConstraint::NonNegativeFloat),
-                OptionDefinition::optional("padding_upper", OptionConstraint::NonNegativeFloat),
+                OptionDefinition::optional(
+                    "clip_padding_lower",
+                    OptionConstraint::NonNegativeFloat
+                ),
+                OptionDefinition::optional(
+                    "clip_padding_upper",
+                    OptionConstraint::NonNegativeFloat
+                ),
                 OptionDefinition::optional("default", OptionConstraint::Float),
             ];
         }
@@ -267,9 +266,8 @@ impl ScaleImpl for SymlogScale {
                 domain: config.numeric_interval_domain()?,
                 range: range_for_padding,
                 constant,
-                padding: config.options.get("padding"),
-                padding_lower: config.options.get("padding_lower"),
-                padding_upper: config.options.get("padding_upper"),
+                clip_padding_lower: config.options.get("clip_padding_lower"),
+                clip_padding_upper: config.options.get("clip_padding_upper"),
                 zero: config.options.get("zero"),
                 nice: config.options.get("nice"),
             })?;
@@ -405,9 +403,8 @@ impl ScaleImpl for SymlogScale {
                 domain: config.numeric_interval_domain()?,
                 range: config.numeric_interval_range()?,
                 constant: config.option_f32("constant", 1.0),
-                padding: config.options.get("padding"),
-                padding_lower: config.options.get("padding_lower"),
-                padding_upper: config.options.get("padding_upper"),
+                clip_padding_lower: config.options.get("clip_padding_lower"),
+                clip_padding_upper: config.options.get("clip_padding_upper"),
                 zero: config.options.get("zero"),
                 nice: config.options.get("nice"),
             })?;
@@ -516,9 +513,8 @@ impl ScaleImpl for SymlogScale {
                 domain: config.numeric_interval_domain()?,
                 range: (0.0, 1.0), // Use dummy range for ticks computation
                 constant: config.option_f32("constant", 1.0),
-                padding: None, // No padding for ticks
-                padding_lower: None,
-                padding_upper: None,
+                clip_padding_lower: None, // No padding for ticks
+                clip_padding_upper: None,
                 zero: config.options.get("zero"),
                 nice: config.options.get("nice"),
             })?;
@@ -527,7 +523,10 @@ impl ScaleImpl for SymlogScale {
         Ok(Arc::new(ticks_array) as ArrayRef)
     }
 
-    fn compute_nice_domain(&self, config: &ScaleConfig) -> Result<ArrayRef, AvengerScaleError> {
+    fn compute_normalized_domain(
+        &self,
+        config: &ScaleConfig,
+    ) -> Result<ArrayRef, AvengerScaleError> {
         let constant = config.option_f32("constant", 1.0);
         // Get range for padding calculation, use dummy range if not numeric
         let range_for_padding = config.numeric_interval_range().unwrap_or((0.0, 1.0));
@@ -536,9 +535,8 @@ impl ScaleImpl for SymlogScale {
                 domain: config.numeric_interval_domain()?,
                 range: range_for_padding,
                 constant,
-                padding: config.options.get("padding"),
-                padding_lower: config.options.get("padding_lower"),
-                padding_upper: config.options.get("padding_upper"),
+                clip_padding_lower: config.options.get("clip_padding_lower"),
+                clip_padding_upper: config.options.get("clip_padding_upper"),
                 zero: config.options.get("zero"),
                 nice: config.options.get("nice"),
             })?;
@@ -980,9 +978,12 @@ mod tests {
         let config = ScaleConfig {
             domain: Arc::new(Float32Array::from(vec![-10.0, 10.0])),
             range: Arc::new(Float32Array::from(vec![0.0, 100.0])),
-            options: vec![("padding".to_string(), 10.0.into())]
-                .into_iter()
-                .collect(),
+            options: vec![
+                ("clip_padding_lower".to_string(), 10.0.into()),
+                ("clip_padding_upper".to_string(), 10.0.into()),
+            ]
+            .into_iter()
+            .collect(),
             context: ScaleContext::default(),
         };
 
@@ -1024,7 +1025,7 @@ mod tests {
         };
 
         // With padding and nice, domain should be expanded then niced
-        let nice_domain = scale.compute_nice_domain(&config).unwrap();
+        let nice_domain = scale.compute_normalized_domain(&config).unwrap();
         let nice_array = nice_domain.as_primitive::<Float32Type>();
 
         // Domain should be expanded and then made nice
@@ -1076,12 +1077,16 @@ mod tests {
     fn test_symlog_scale_with_asymmetric_padding() -> Result<(), AvengerScaleError> {
         // Test with padding_lower and padding_upper
         let scale = SymlogScale::configured((-5.0, 5.0), (0.0, 100.0))
-            .with_option("padding_lower", 20.0)
-            .with_option("padding_upper", 10.0)
+            .with_option("clip_padding_lower", 20.0)
+            .with_option("clip_padding_upper", 10.0)
             .with_option("constant", 1.0);
 
-        let normalized = scale.normalize()?;
-        let domain = normalized.numeric_interval_domain()?;
+        let normalized_domain = scale.normalized_domain()?;
+        let normalized_f32 = normalized_domain
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .unwrap();
+        let domain = (normalized_f32.value(0), normalized_f32.value(1));
 
         // Domain should be expanded asymmetrically
         assert!(domain.0 < -5.0);
@@ -1094,14 +1099,18 @@ mod tests {
 
     #[test]
     fn test_symlog_padding_fallback_behavior() -> Result<(), AvengerScaleError> {
-        // Test that padding_lower/upper fall back to padding when not specified
+        // Test that only clip_padding_lower is specified
         let scale1 = SymlogScale::configured((-10.0, 10.0), (0.0, 100.0))
-            .with_option("padding", 15.0)
-            .with_option("padding_lower", 20.0) // Only lower specified
+            .with_option("clip_padding_lower", 20.0)
+            .with_option("clip_padding_upper", 15.0)
             .with_option("constant", 1.0);
 
-        let normalized1 = scale1.normalize()?;
-        let domain1 = normalized1.numeric_interval_domain()?;
+        let normalized_domain1 = scale1.normalized_domain()?;
+        let normalized_f32_1 = normalized_domain1
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .unwrap();
+        let domain1 = (normalized_f32_1.value(0), normalized_f32_1.value(1));
 
         // padding_lower = 20, padding_upper falls back to padding = 15
         // Should expand more on the lower end
