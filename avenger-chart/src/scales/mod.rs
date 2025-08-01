@@ -32,7 +32,6 @@ pub struct Scale {
     pub options: HashMap<String, Expr>,
     domain_explicit: bool,
     range_explicit: bool,
-    padding_explicit: bool,
 }
 
 impl Scale {
@@ -45,7 +44,6 @@ impl Scale {
             options: HashMap::new(),
             domain_explicit: false,
             range_explicit: false,
-            padding_explicit: false,
         };
         apply_scale_defaults(scale_type, &mut scale.options);
         scale
@@ -54,13 +52,13 @@ impl Scale {
     /// Create a scale with a specific type
     pub fn with_type(scale_type: &str) -> Self {
         let scale_impl = create_scale_impl(scale_type);
-        
+
         // // Create appropriate default domain based on scale type
         // let domain = match scale_type {
         //     "ordinal" | "band" | "point" => ScaleDomain::new_discrete(vec![]),
         //     _ => ScaleDomain::new_interval(lit(0.0), lit(1.0)),
         // };
-        
+
         let mut scale = Self {
             scale_impl,
             domain: ScaleDomain::new_interval(lit(0.0), lit(1.0)),
@@ -68,7 +66,6 @@ impl Scale {
             options: HashMap::new(),
             domain_explicit: false,
             range_explicit: false,
-            padding_explicit: false,
         };
         apply_scale_defaults(scale_type, &mut scale.options);
         scale
@@ -179,25 +176,37 @@ impl Scale {
         self.range(ScaleRange::new_color(colors))
     }
 
-    // Padding builders
+    // Clip padding builders - for backward compatibility, padding sets both lower and upper
     pub fn padding<E: Into<Expr>>(mut self, expr: E) -> Self {
-        self.options.insert("padding".to_string(), expr.into());
-        self.padding_explicit = true;
+        let padding_expr = expr.into();
+        self.options.insert("clip_padding_lower".to_string(), padding_expr.clone());
+        self.options.insert("clip_padding_upper".to_string(), padding_expr);
+        self
+    }
+    
+    pub fn clip_padding_lower<E: Into<Expr>>(mut self, expr: E) -> Self {
+        self.options.insert("clip_padding_lower".to_string(), expr.into());
+        self
+    }
+    
+    pub fn clip_padding_upper<E: Into<Expr>>(mut self, expr: E) -> Self {
+        self.options.insert("clip_padding_upper".to_string(), expr.into());
         self
     }
 
     pub fn padding_none(mut self) -> Self {
-        self.options.remove("padding");
-        self.padding_explicit = true;
+        self.options.remove("clip_padding_lower");
+        self.options.remove("clip_padding_upper");
         self
     }
 
     pub fn has_explicit_padding(&self) -> bool {
-        self.padding_explicit
+        self.options.contains_key("clip_padding_lower") || self.options.contains_key("clip_padding_upper")
     }
 
     pub fn get_padding(&self) -> Option<&Expr> {
-        self.options.get("padding")
+        // For backward compatibility, return lower padding if it exists
+        self.options.get("clip_padding_lower")
     }
 
     // Other builder methods
@@ -334,8 +343,8 @@ impl Scale {
     /// Apply normalization (zero, nice, padding) to the scale domain
     pub async fn normalize_domain(
         mut self,
-        plot_area_width: f32,
-        plot_area_height: f32,
+        _plot_area_width: f32,
+        _plot_area_height: f32,
     ) -> Result<Self, AvengerChartError> {
         // Skip normalization for non-numeric ranges (e.g., color ranges)
         if !matches!(&self.range, ScaleRange::Numeric(_, _)) {
@@ -343,7 +352,10 @@ impl Scale {
         }
 
         // Skip normalization for non-numeric domains (e.g., ordinal scales)
-        if !matches!(&self.domain.default_domain, ScaleDefaultDomain::Interval(_, _)) {
+        if !matches!(
+            &self.domain.default_domain,
+            ScaleDefaultDomain::Interval(_, _)
+        ) {
             return Ok(self);
         }
 
@@ -366,8 +378,8 @@ impl Scale {
     /// Create a ConfiguredScale from this Scale
     pub async fn create_configured_scale(
         &self,
-        plot_area_width: f32,
-        plot_area_height: f32,
+        _plot_area_width: f32,
+        _plot_area_height: f32,
     ) -> Result<avenger_scales::scales::ConfiguredScale, AvengerChartError> {
         use crate::utils::ScalarValueHelpers;
         use avenger_scales::scales::{ConfiguredScale, ScaleConfig, ScaleContext};
@@ -460,23 +472,36 @@ impl Scale {
             .collect::<Result<Vec<_>, _>>()?;
         let mut options = names.into_iter().zip(scalars).collect::<HashMap<_, _>>();
 
-        // Add padding option if specified
-        if self.padding_explicit {
-            match self.get_padding() {
-                Some(expr) => {
-                    let scalar_val = eval_to_scalars(vec![expr.clone()], None, None).await?;
-                    if let Some(val) = scalar_val.first() {
-                        let padding_scalar = val.as_scale_scalar()?;
-                        options.insert("padding".to_string(), padding_scalar);
-                    }
+        // Add clip_padding options if specified
+        if self.has_explicit_padding() {
+            // Handle clip_padding_lower
+            if let Some(expr) = self.options.get("clip_padding_lower") {
+                let scalar_val = eval_to_scalars(vec![expr.clone()], None, None).await?;
+                if let Some(val) = scalar_val.first() {
+                    let padding_scalar = val.as_scale_scalar()?;
+                    options.insert("clip_padding_lower".to_string(), padding_scalar);
                 }
-                None => {
-                    // Explicitly set padding to 0
-                    options.insert(
-                        "padding".to_string(),
-                        avenger_scales::scalar::Scalar::from_f32(0.0),
-                    );
+            } else if self.options.contains_key("clip_padding_upper") {
+                // If upper is set but not lower, default lower to 0
+                options.insert(
+                    "clip_padding_lower".to_string(),
+                    avenger_scales::scalar::Scalar::from_f32(0.0),
+                );
+            }
+            
+            // Handle clip_padding_upper
+            if let Some(expr) = self.options.get("clip_padding_upper") {
+                let scalar_val = eval_to_scalars(vec![expr.clone()], None, None).await?;
+                if let Some(val) = scalar_val.first() {
+                    let padding_scalar = val.as_scale_scalar()?;
+                    options.insert("clip_padding_upper".to_string(), padding_scalar);
                 }
+            } else if self.options.contains_key("clip_padding_lower") {
+                // If lower is set but not upper, default upper to 0
+                options.insert(
+                    "clip_padding_upper".to_string(),
+                    avenger_scales::scalar::Scalar::from_f32(0.0),
+                );
             }
         }
 
@@ -511,22 +536,16 @@ impl Scale {
     fn compile_options(&self) -> Result<Expr, AvengerChartError> {
         use datafusion::arrow::array::StructArray;
 
-        if self.options.is_empty() && !self.padding_explicit {
+        if self.options.is_empty() {
             // Create an empty struct with 1 row for scalar
             let empty_struct = StructArray::new_empty_fields(1, None);
             Ok(lit(ScalarValue::Struct(Arc::new(empty_struct))))
         } else {
-            let mut struct_args = self
+            let struct_args = self
                 .options
                 .iter()
                 .flat_map(|(key, value)| vec![lit(key), value.clone()])
                 .collect::<Vec<_>>();
-
-            // Add padding if specified
-            if let Some(padding) = self.get_padding() {
-                struct_args.push(lit("padding"));
-                struct_args.push(padding.clone());
-            }
 
             Ok(named_struct(struct_args))
         }
@@ -636,9 +655,9 @@ impl ScaleDomain {
         let default_expr = match &self.default_domain {
             ScaleDefaultDomain::Interval(start, end) => {
                 if method != InferDomainFromDataMethod::Interval {
-                    return Err(AvengerChartError::InternalError(
-                        format!("Scale does not support interval domain: {self:?}"),
-                    ));
+                    return Err(AvengerChartError::InternalError(format!(
+                        "Scale does not support interval domain: {self:?}"
+                    )));
                 }
                 make_array(vec![start.clone(), end.as_ref().clone()])
             }

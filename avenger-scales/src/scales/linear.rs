@@ -611,7 +611,8 @@ impl ScaleImpl for LinearScale {
         &self,
         config: &ScaleConfig,
     ) -> Result<ArrayRef, AvengerScaleError> {
-        let (range_start, range_end) = config.numeric_interval_range()?;
+        // Get range for padding calculation, use dummy range if not numeric
+        let (range_start, range_end) = config.numeric_interval_range().unwrap_or((0.0, 1.0));
         let (domain_start, domain_end) = LinearScale::apply_normalization(NormalizationConfig {
             domain: config.numeric_interval_domain()?,
             range: (range_start, range_end),

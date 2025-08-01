@@ -19,7 +19,7 @@ fn test_scale_padding_builders() {
     // Test no padding
     let scale = Scale::new(LinearScale).padding_none();
 
-    assert!(scale.has_explicit_padding());
+    assert!(!scale.has_explicit_padding());
     assert!(scale.get_padding().is_none());
 }
 
@@ -43,9 +43,11 @@ async fn test_scale_padding_normalization() -> Result<(), Box<dyn std::error::Er
     // Create configured scale to test padding option is set
     let configured = scale.create_configured_scale(400.0, 300.0).await?;
 
-    // Check that padding option was added
-    let padding_opt = configured.config.options.get("padding");
-    assert!(padding_opt.is_some(), "Padding option should be set");
+    // Check that clip_padding options were added
+    let clip_padding_lower = configured.config.options.get("clip_padding_lower");
+    let clip_padding_upper = configured.config.options.get("clip_padding_upper");
+    assert!(clip_padding_lower.is_some(), "clip_padding_lower option should be set");
+    assert!(clip_padding_upper.is_some(), "clip_padding_upper option should be set");
 
     Ok(())
 }
