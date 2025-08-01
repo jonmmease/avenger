@@ -131,6 +131,12 @@ impl Scale {
     pub fn domain_data_fields<S: Into<String>>(self, fields: Vec<(Arc<DataFrame>, S)>) -> Self {
         self.domain(ScaleDomain::new_data_fields(fields))
     }
+    
+    /// Internal method to set domain for data fields without marking as explicit
+    pub(crate) fn domain_data_fields_internal<S: Into<String>>(mut self, fields: Vec<(Arc<DataFrame>, S)>) -> Self {
+        self.domain = ScaleDomain::new_data_fields(fields);
+        self
+    }
 
     pub fn raw_domain<E: Clone + Into<Expr>>(self, raw_domain: E) -> Self {
         let new_domain = self.domain.clone().with_raw(raw_domain.into());
@@ -207,6 +213,12 @@ impl Scale {
     pub fn get_padding(&self) -> Option<&Expr> {
         // For backward compatibility, return lower padding if it exists
         self.options.get("clip_padding_lower")
+    }
+    
+    // Nice option for numeric scales
+    pub fn nice<E: Into<Expr>>(mut self, value: E) -> Self {
+        self.options.insert("nice".to_string(), value.into());
+        self
     }
 
     // Other builder methods
@@ -316,7 +328,8 @@ impl Scale {
                         let min_val = ScalarValue::try_from_array(&inner_array, 0)?;
                         let max_val =
                             ScalarValue::try_from_array(&inner_array, inner_array.len() - 1)?;
-                        self = self.domain_interval(lit(min_val), lit(max_val));
+                        // Set domain without marking as explicit since this is inferred
+                        self.domain = ScaleDomain::new_interval(lit(min_val), lit(max_val));
                     }
                 }
             } else {
@@ -332,7 +345,8 @@ impl Scale {
                         let val = datafusion_common::ScalarValue::try_from_array(&inner_array, i)?;
                         values.push(lit(val));
                     }
-                    self = self.domain_discrete(values);
+                    // Set domain without marking as explicit since this is inferred
+                    self.domain = ScaleDomain::new_discrete(values);
                 }
             }
         }

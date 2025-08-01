@@ -188,7 +188,7 @@ async fn test_scatter_with_size_encoding() {
     let x_values = Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
     let y_values = Float64Array::from(vec![2.0, 3.5, 2.8, 4.2, 5.1, 4.8, 6.2, 5.5]);
     let size_values =
-        Float64Array::from(vec![50.0, 100.0, 75.0, 150.0, 200.0, 125.0, 175.0, 225.0]);
+        Float64Array::from(vec![50.0, 100.0, 75.0, 150.0, 200.0, 125.0, 175.0, 50225.0]);
 
     let schema = Arc::new(Schema::new(vec![
         Field::new("x", DataType::Float64, false),

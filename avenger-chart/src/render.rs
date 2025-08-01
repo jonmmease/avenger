@@ -215,40 +215,107 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
 
         // Stage 2: Compute padding requirements from marks
         // Now that non-positional scales are ready, we can compute padding
-        let mut mark_paddings: std::collections::HashMap<String, f64> =
+        #[derive(Default)]
+        struct AsymmetricPadding {
+            lower: f64,
+            upper: f64,
+        }
+        let mut mark_paddings: std::collections::HashMap<String, AsymmetricPadding> =
             std::collections::HashMap::new();
 
         // Merge all scales for padding calculation
         let mut scales_for_padding = non_positional_scales.clone();
         scales_for_padding.extend(positional_scales.clone());
 
+        // Process positional scales first to get clip bounds, but only if domains aren't explicit
+        // We need to clone and process separately to avoid marking domains as explicit
+        let mut temp_positional_scales = HashMap::new();
+        for (name, scale) in &positional_scales {
+            if !scale.has_explicit_domain() {
+                // Clone and process to get domain bounds without modifying original
+                let mut scale_copy = scale.clone();
+                self.infer_scale_domain(&mut scale_copy, name).await?;
+                temp_positional_scales.insert(name.clone(), scale_copy);
+            } else {
+                temp_positional_scales.insert(name.clone(), scale.clone());
+            }
+        }
+
+        // Extract current clip bounds from positional scales (data domain bounds)
+        let mut x_bounds = (0.0, plot_area_width as f64);
+        let mut y_bounds = (0.0, plot_area_height as f64);
+
+        if let Some(scale) = temp_positional_scales.get("x") {
+            // Try to extract actual domain bounds from scale
+            if let Ok(configured_scale) = scale.create_configured_scale(plot_area_width, plot_area_height).await {
+                if let Ok((min, max)) = configured_scale.numeric_interval_domain() {
+                    x_bounds = (min as f64, max as f64);
+                }
+            }
+        }
+
+        if let Some(scale) = temp_positional_scales.get("y") {
+            // Try to extract actual domain bounds from scale
+            if let Ok(configured_scale) = scale.create_configured_scale(plot_area_width, plot_area_height).await {
+                if let Ok((min, max)) = configured_scale.numeric_interval_domain() {
+                    y_bounds = (min as f64, max as f64);
+                }
+            }
+        }
+
+        let clip_bounds = crate::marks::ClipBounds {
+            x_min: x_bounds.0,
+            x_max: x_bounds.1,
+            y_min: y_bounds.0,
+            y_max: y_bounds.1,
+        };
+
+        // Now compute padding for marks that don't have explicit domains
         for mark in &self.plot.marks {
+            // Skip if positional scales have explicit domains
+            let x_scale = positional_scales.get("x");
+            let y_scale = positional_scales.get("y");
+            if let (Some(x), Some(y)) = (x_scale, y_scale) {
+                if x.has_explicit_domain() && y.has_explicit_domain() {
+                    continue;
+                }
+            }
+            
             let padding_channels = mark.padding_channels();
             if !padding_channels.is_empty() {
-                // Prepare data for padding calculation using processed scales
+                // Prepare data for padding calculation using all scales
+                let mut all_scales = scales_for_padding.clone();
+                all_scales.extend(positional_scales.clone());
+                
                 let (padding_data, padding_scalars) = self
-                    .prepare_padding_data(mark.as_ref(), &padding_channels, &scales_for_padding)
+                    .prepare_padding_data(mark.as_ref(), &padding_channels, &all_scales)
                     .await?;
 
-                // Compute padding for this mark
-                let mark_padding = mark.compute_padding(padding_data.as_ref(), &padding_scalars)?;
+                // Compute padding for this mark with clip bounds
+                let mark_padding = mark.compute_padding(
+                    padding_data.as_ref(), 
+                    &padding_scalars,
+                    &clip_bounds,
+                    plot_area_width,
+                    plot_area_height
+                )?;
 
                 // Track maximum padding needed for each positional scale
-                for pos_channel in ["x", "y"] {
-                    let padding_value = match pos_channel {
-                        "x" => mark_padding.x,
-                        "y" => mark_padding.y,
-                        _ => None,
-                    };
-
-                    if let Some(padding) = padding_value {
-                        mark_paddings
-                            .entry(pos_channel.to_string())
-                            .and_modify(|existing| {
-                                *existing = existing.max(padding);
-                            })
-                            .or_insert(padding);
-                    }
+                if let Some(x_lower) = mark_padding.x_lower {
+                    let entry = mark_paddings.entry("x".to_string()).or_default();
+                    entry.lower = entry.lower.max(x_lower);
+                }
+                if let Some(x_upper) = mark_padding.x_upper {
+                    let entry = mark_paddings.entry("x".to_string()).or_default();
+                    entry.upper = entry.upper.max(x_upper);
+                }
+                if let Some(y_lower) = mark_padding.y_lower {
+                    let entry = mark_paddings.entry("y".to_string()).or_default();
+                    entry.lower = entry.lower.max(y_lower);
+                }
+                if let Some(y_upper) = mark_padding.y_upper {
+                    let entry = mark_paddings.entry("y".to_string()).or_default();
+                    entry.upper = entry.upper.max(y_upper);
                 }
             }
         }
@@ -263,13 +330,14 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                 plot_area_height,
                 |scale_copy| {
                     // Apply mark-computed padding if available and not explicitly set
-                    if !scale_copy.has_explicit_padding() {
-                        if let Some(&padding_pixels) = mark_paddings_ref.get(name) {
-                            if padding_pixels > 0.0 {
-                                // The padding option expects pixels directly
+                    if !scale_copy.has_explicit_padding() && !scale_copy.has_explicit_domain() {
+                        if let Some(padding) = mark_paddings_ref.get(name) {
+                            if padding.lower > 0.0 || padding.upper > 0.0 {
+                                // Apply asymmetric padding
                                 *scale_copy = scale_copy
                                     .clone()
-                                    .padding(datafusion::prelude::lit(padding_pixels));
+                                    .clip_padding_lower(datafusion::prelude::lit(padding.lower))
+                                    .clip_padding_upper(datafusion::prelude::lit(padding.upper));
                             }
                         }
                     }
@@ -649,7 +717,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                 }
 
                 if !data_fields.is_empty() {
-                    *scale = scale.clone().domain_data_fields(data_fields);
+                    *scale = scale.clone().domain_data_fields_internal(data_fields);
                 }
             }
         }

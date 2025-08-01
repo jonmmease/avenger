@@ -12,4 +12,5 @@ pub mod test_line;
 pub mod test_line_multi_series;
 pub mod test_symbol;
 pub mod test_symbol_ordinal;
+pub mod test_symbol_padding;
 pub mod test_zindex;
