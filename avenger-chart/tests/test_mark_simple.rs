@@ -89,7 +89,7 @@ mod tests {
 
             // Verify rendering succeeded without saving files
             let _img = canvas.render().await.expect("Failed to render image");
-            
+
             // Test passed if we get here without errors
             println!("Successfully rendered symbol with {} configuration", name);
         }

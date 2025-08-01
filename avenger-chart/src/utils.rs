@@ -176,9 +176,9 @@ impl ExprHelpers for Expr {
         params: Option<&ParamValues>,
     ) -> Result<ScalarValue, DataFusionError> {
         let mut result = eval_to_scalars(vec![self.clone()], ctx, params).await?;
-        result.pop().ok_or_else(|| {
-            DataFusionError::Internal("Failed to evaluate expression".to_string())
-        })
+        result
+            .pop()
+            .ok_or_else(|| DataFusionError::Internal("Failed to evaluate expression".to_string()))
     }
 }
 
