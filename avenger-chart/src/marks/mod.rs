@@ -23,10 +23,44 @@ use datafusion::scalar::ScalarValue;
 /// Padding requirements computed by a mark
 #[derive(Debug, Default, Clone)]
 pub struct MarkPadding {
-    /// Padding needed on x-axis in pixels
-    pub x: Option<f64>,
-    /// Padding needed on y-axis in pixels
-    pub y: Option<f64>,
+    /// Padding needed on lower x-axis bound in pixels
+    pub x_lower: Option<f64>,
+    /// Padding needed on upper x-axis bound in pixels
+    pub x_upper: Option<f64>,
+    /// Padding needed on lower y-axis bound in pixels
+    pub y_lower: Option<f64>,
+    /// Padding needed on upper y-axis bound in pixels
+    pub y_upper: Option<f64>,
+}
+
+impl MarkPadding {
+    /// Create padding with symmetric values
+    pub fn symmetric(x: f64, y: f64) -> Self {
+        Self {
+            x_lower: Some(x),
+            x_upper: Some(x),
+            y_lower: Some(y),
+            y_upper: Some(y),
+        }
+    }
+    
+    /// Create padding with no padding
+    pub fn none() -> Self {
+        Self::default()
+    }
+}
+
+/// Current clip bounds of the plot area
+#[derive(Debug, Clone)]
+pub struct ClipBounds {
+    /// Minimum x value of the clip area
+    pub x_min: f64,
+    /// Maximum x value of the clip area
+    pub x_max: f64,
+    /// Minimum y value of the clip area
+    pub y_min: f64,
+    /// Maximum y value of the clip area
+    pub y_max: f64,
 }
 
 /// Types of channels that marks can support
@@ -88,18 +122,24 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
         false // Default to false, marks opt-in
     }
 
-    /// Declare which non-positional channels contribute to padding calculation
+    /// Declare which channels contribute to padding calculation (including positional)
     fn padding_channels(&self) -> Vec<&'static str> {
         vec![]
     }
 
-    /// Compute padding requirements based on non-positional channel values
-    /// data: RecordBatch containing only the padding-relevant channels
+    /// Compute padding requirements based on channel values
+    /// data: RecordBatch containing the padding-relevant channels (including positional)
     /// scalars: Scalar values for padding-relevant channels
+    /// clip_bounds: Current clip bounds of the plot area
+    /// plot_area_width: Width of the plot area in pixels
+    /// plot_area_height: Height of the plot area in pixels
     fn compute_padding(
         &self,
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
+        _clip_bounds: &ClipBounds,
+        _plot_area_width: f32,
+        _plot_area_height: f32,
     ) -> Result<MarkPadding, AvengerChartError> {
         Ok(MarkPadding::default())
     }
