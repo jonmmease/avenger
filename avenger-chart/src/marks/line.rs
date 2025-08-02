@@ -4,7 +4,7 @@ use crate::marks::util::{
     coerce_bool_channel, coerce_numeric_channel, coerce_stroke_cap_channel,
     coerce_stroke_join_channel,
 };
-use crate::marks::{ChannelType, Mark, MarkState};
+use crate::marks::{ChannelType, Mark, MarkState, RadiusExpression};
 use crate::{
     define_common_mark_channels, define_position_mark_channels, impl_mark_common,
     impl_mark_trait_common,
@@ -17,6 +17,7 @@ use datafusion::arrow::compute::kernels::cast::cast;
 use datafusion::arrow::datatypes::DataType;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::dataframe::DataFrame;
+use datafusion::logical_expr::{Expr, lit};
 use datafusion::scalar::ScalarValue;
 use indexmap::IndexMap;
 
@@ -122,6 +123,43 @@ impl Mark<Cartesian> for Line<Cartesian> {
 
     fn supports_order(&self) -> bool {
         true
+    }
+
+    fn default_channel_value(&self, channel: &str) -> Option<Expr> {
+        match channel {
+            "stroke" => Some(lit("#000000")),     // Default black
+            "stroke_width" => Some(lit(2.0)),     // Default line width
+            "stroke_cap" => Some(lit("butt")),    // Default cap style
+            "stroke_join" => Some(lit("miter")),  // Default join style
+            "opacity" => Some(lit(1.0)),          // Fully opaque
+            "interpolate" => Some(lit("linear")), // Linear interpolation
+            "defined" => Some(lit(true)),         // All points defined
+            _ => None,
+        }
+    }
+
+    fn radius_expression(
+        &self,
+        dimension: &str,
+        resolve_channel: &dyn Fn(&str) -> Expr,
+    ) -> Option<RadiusExpression> {
+        match dimension {
+            "y" => {
+                // Get stroke_width expression (either mapped or default)
+                let stroke_width_expr = resolve_channel("stroke_width");
+
+                // For lines: vertical radius = stroke_width * 2
+                // This ensures the full line thickness is visible even at plot boundaries
+                let radius_expr = stroke_width_expr * lit(2.0);
+
+                Some(RadiusExpression::Symmetric(radius_expr))
+            }
+            "x" => {
+                // No horizontal radius for line marks
+                None
+            }
+            _ => None,
+        }
     }
 
     fn render_from_data(
@@ -455,6 +493,42 @@ impl Mark<Cartesian> for Line<Cartesian> {
 // Implement Mark trait for Polar Line
 impl Mark<Polar> for Line<Polar> {
     impl_mark_trait_common!(Line, Polar, "line");
+
+    fn default_channel_value(&self, channel: &str) -> Option<Expr> {
+        match channel {
+            "stroke" => Some(lit("#000000")),     // Default black
+            "stroke_width" => Some(lit(2.0)),     // Default line width
+            "stroke_cap" => Some(lit("butt")),    // Default cap style
+            "stroke_join" => Some(lit("miter")),  // Default join style
+            "opacity" => Some(lit(1.0)),          // Fully opaque
+            "interpolate" => Some(lit("linear")), // Linear interpolation
+            "defined" => Some(lit(true)),         // All points defined
+            _ => None,
+        }
+    }
+
+    fn radius_expression(
+        &self,
+        dimension: &str,
+        resolve_channel: &dyn Fn(&str) -> Expr,
+    ) -> Option<RadiusExpression> {
+        match dimension {
+            "r" => {
+                // Get stroke_width expression (either mapped or default)
+                let stroke_width_expr = resolve_channel("stroke_width");
+
+                // For lines: radial radius = stroke_width * 2
+                let radius_expr = stroke_width_expr * lit(2.0);
+
+                Some(RadiusExpression::Symmetric(radius_expr))
+            }
+            "theta" => {
+                // No angular radius for line marks
+                None
+            }
+            _ => None,
+        }
+    }
 
     fn render_from_data(
         &self,
