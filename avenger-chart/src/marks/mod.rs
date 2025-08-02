@@ -43,7 +43,7 @@ impl MarkPadding {
             y_upper: Some(y),
         }
     }
-    
+
     /// Create padding with no padding
     pub fn none() -> Self {
         Self::default()

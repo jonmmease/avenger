@@ -10,7 +10,7 @@ use datafusion::arrow::array::{Array, AsArray};
 use datafusion::arrow::datatypes::DataType;
 use datafusion::dataframe::DataFrame;
 use datafusion::functions_array::expr_fn::make_array;
-use datafusion::logical_expr::{Expr, ExprSchemable, cast, lit, when};
+use datafusion::logical_expr::{Expr, ExprSchemable, cast, col, lit, when};
 use datafusion::prelude::named_struct;
 use datafusion_common::{DFSchema, ScalarValue};
 use palette::Srgba;
@@ -128,13 +128,48 @@ impl Scale {
         self.domain(ScaleDomain::new_data_field(dataframe, expr))
     }
 
+    pub fn domain_data_field_with_radius(
+        self,
+        dataframe: Arc<DataFrame>,
+        expr: Expr,
+        radius: Expr,
+    ) -> Self {
+        self.domain(ScaleDomain::new_data_field_with_radius(
+            dataframe, expr, radius,
+        ))
+    }
+
     pub fn domain_data_fields(self, fields: Vec<(Arc<DataFrame>, Expr)>) -> Self {
         self.domain(ScaleDomain::new_data_fields(fields))
     }
-    
+
     /// Internal method to set domain for data fields without marking as explicit
-    pub(crate) fn domain_data_fields_internal(mut self, fields: Vec<(Arc<DataFrame>, Expr)>) -> Self {
+    pub(crate) fn domain_data_fields_internal(
+        mut self,
+        fields: Vec<(Arc<DataFrame>, Expr)>,
+    ) -> Self {
         self.domain = ScaleDomain::new_data_fields(fields);
+        self
+    }
+
+    /// Internal method to set domain for data fields with radius without marking as explicit
+    pub(crate) fn domain_data_fields_with_radius_internal(
+        mut self,
+        fields: Vec<(Arc<DataFrame>, Expr, Option<Expr>)>,
+    ) -> Self {
+        self.domain = ScaleDomain {
+            default_domain: ScaleDefaultDomain::DomainExprs(
+                fields
+                    .into_iter()
+                    .map(|(dataframe, expr, radius)| DomainExpr {
+                        dataframe,
+                        expr,
+                        radius,
+                    })
+                    .collect(),
+            ),
+            raw_domain: None,
+        };
         self
     }
 
@@ -185,18 +220,22 @@ impl Scale {
     // Clip padding builders - for backward compatibility, padding sets both lower and upper
     pub fn padding<E: Into<Expr>>(mut self, expr: E) -> Self {
         let padding_expr = expr.into();
-        self.options.insert("clip_padding_lower".to_string(), padding_expr.clone());
-        self.options.insert("clip_padding_upper".to_string(), padding_expr);
+        self.options
+            .insert("clip_padding_lower".to_string(), padding_expr.clone());
+        self.options
+            .insert("clip_padding_upper".to_string(), padding_expr);
         self
     }
-    
+
     pub fn clip_padding_lower<E: Into<Expr>>(mut self, expr: E) -> Self {
-        self.options.insert("clip_padding_lower".to_string(), expr.into());
+        self.options
+            .insert("clip_padding_lower".to_string(), expr.into());
         self
     }
-    
+
     pub fn clip_padding_upper<E: Into<Expr>>(mut self, expr: E) -> Self {
-        self.options.insert("clip_padding_upper".to_string(), expr.into());
+        self.options
+            .insert("clip_padding_upper".to_string(), expr.into());
         self
     }
 
@@ -207,14 +246,15 @@ impl Scale {
     }
 
     pub fn has_explicit_padding(&self) -> bool {
-        self.options.contains_key("clip_padding_lower") || self.options.contains_key("clip_padding_upper")
+        self.options.contains_key("clip_padding_lower")
+            || self.options.contains_key("clip_padding_upper")
     }
 
     pub fn get_padding(&self) -> Option<&Expr> {
         // For backward compatibility, return lower padding if it exists
         self.options.get("clip_padding_lower")
     }
-    
+
     // Nice option for numeric scales
     pub fn nice<E: Into<Expr>>(mut self, value: E) -> Self {
         self.options.insert("nice".to_string(), value.into());
@@ -264,16 +304,136 @@ impl Scale {
     }
 
     /// Infer domain from data fields and return a new scale with the inferred domain
-    pub async fn infer_domain_from_data(mut self) -> Result<Self, AvengerChartError> {
+    ///
+    /// # Arguments
+    /// * `range_hint` - Optional range to use for radius-aware padding calculations.
+    ///   If not provided, padding calculations will be skipped.
+    pub async fn infer_domain_from_data(
+        mut self,
+        range_hint: Option<(f64, f64)>,
+    ) -> Result<Self, AvengerChartError> {
         use datafusion::prelude::SessionContext;
 
-        if let ScaleDefaultDomain::DomainExprs(data_fields) = &self.domain.default_domain {
+        // Use std::mem::replace to avoid partial move
+        let default_domain = std::mem::replace(
+            &mut self.domain.default_domain,
+            ScaleDefaultDomain::Discrete(vec![]),
+        );
+        if let ScaleDefaultDomain::DomainExprs(mut data_fields) = default_domain {
+            // Process DomainExprs with radius data first
+            let mut i = 0;
+            while i < data_fields.len() {
+                let field = &data_fields[i];
+
+                if let Some(radius_expr) = &field.radius {
+                    if self.scale_impl.scale_type() == "linear" && range_hint.is_some() {
+                        // Handle radius-aware domain calculation
+                        let (range_min, range_max) = range_hint.unwrap();
+                        let range_width = (range_max - range_min).abs();
+
+                        let df = field.dataframe.clone();
+
+                        // Select both position and radius (size) expressions
+                        let select_exprs = vec![
+                            field.expr.clone().alias("__position__"),
+                            radius_expr.clone().alias("__size__"),
+                        ];
+
+                        let df_with_exprs = df.as_ref().clone().select(select_exprs)?;
+                        let batches = df_with_exprs.collect().await?;
+
+                        if !batches.is_empty() && batches[0].num_rows() > 0 {
+                            let batch = &batches[0];
+                            let position_array = batch.column_by_name("__position__").unwrap();
+                            let size_array = batch.column_by_name("__size__").unwrap();
+
+                            // Cast to Float64 using arrow's cast function
+                            use datafusion::arrow::compute::cast;
+                            use datafusion::arrow::datatypes::DataType as ArrowDataType;
+
+                            let position_f64 = cast(position_array, &ArrowDataType::Float64)?;
+                            let size_f64 = cast(size_array, &ArrowDataType::Float64)?;
+
+                            // Extract values as slices
+                            use datafusion::arrow::array::AsArray;
+                            use datafusion::arrow::datatypes::Float64Type;
+
+                            let positions = position_f64.as_primitive::<Float64Type>();
+                            let sizes = size_f64.as_primitive::<Float64Type>();
+
+                            // Convert to vectors, filtering out nulls
+                            let position_vec: Vec<f64> = positions.iter().flatten().collect();
+
+                            // Convert area to radius: radius = sqrt(area)
+                            // Note: Symbol base shapes have radius 0.5, so actual rendered radius is 0.5 * sqrt(area)
+                            // We need to account for this when computing domain padding
+                            let radius_vec: Vec<f64> = sizes
+                                .iter()
+                                .filter_map(|v| v.map(|area| area.sqrt() * 0.5))
+                                .collect();
+
+                            // Ensure matching lengths
+                            let min_len = position_vec.len().min(radius_vec.len());
+                            let positions_slice = &position_vec[..min_len];
+                            let radii_slice = &radius_vec[..min_len];
+
+                            // Use the padding solver
+                            use avenger_scales::scales::domain_solver::compute_domain_from_data_with_padding_linear;
+
+                            let (d_min, d_max) = compute_domain_from_data_with_padding_linear(
+                                positions_slice,
+                                radii_slice,
+                                range_width,
+                            )?;
+
+                            // Create a new DataFrame with the computed domain
+                            use datafusion::arrow::array::Float64Array;
+                            use datafusion::arrow::datatypes::{DataType, Field, Schema};
+                            use datafusion::arrow::record_batch::RecordBatch;
+
+                            let domain_array = Float64Array::from(vec![d_min, d_max]);
+                            let schema = Arc::new(Schema::new(vec![Field::new(
+                                "__domain__",
+                                DataType::Float64,
+                                false,
+                            )]));
+                            let batch = RecordBatch::try_new(schema, vec![Arc::new(domain_array)])?;
+
+                            let ctx = SessionContext::new();
+                            let domain_df = Arc::new(ctx.read_batch(batch)?);
+
+                            // Replace the DomainExpr with the computed domain
+                            data_fields[i] = DomainExpr {
+                                dataframe: domain_df,
+                                expr: col("__domain__"),
+                                radius: None,
+                            };
+                        }
+                    }
+                }
+                i += 1;
+            }
+
+            // Now proceed with standard domain inference logic if we have remaining data fields
+            if data_fields.is_empty() {
+                // All fields were processed as radius-aware, nothing more to do
+                return Ok(self);
+            }
+
             let mut single_col_dfs: Vec<DataFrame> = Vec::new();
 
-            for DomainExpr { dataframe, expr } in data_fields {
+            for DomainExpr {
+                dataframe,
+                expr,
+                radius: _,
+            } in &data_fields
+            {
                 let df = dataframe.clone();
                 // Select the expression and alias it to a consistent column name
-                let df_with_expr = df.as_ref().clone().select(vec![expr.clone().alias("__domain_col__")])?;
+                let df_with_expr = df
+                    .as_ref()
+                    .clone()
+                    .select(vec![expr.clone().alias("__domain_col__")])?;
                 single_col_dfs.push(df_with_expr);
             }
 
@@ -292,7 +452,7 @@ impl Scale {
             // Determine the data type by checking the first field
             let first_field = &data_fields[0];
             let schema = first_field.dataframe.schema();
-            let df_schema: datafusion_common::DFSchema = schema.clone().into();
+            let df_schema = schema.clone();
             let _field_type = first_field.expr.get_type(&df_schema)?;
 
             // Determine the appropriate method based on scale type
@@ -348,6 +508,9 @@ impl Scale {
                     self.domain = ScaleDomain::new_discrete(values);
                 }
             }
+        } else {
+            // Restore the default domain if it wasn't DomainExprs
+            self.domain.default_domain = default_domain;
         }
 
         Ok(self)
@@ -501,7 +664,7 @@ impl Scale {
                     avenger_scales::scalar::Scalar::from_f32(0.0),
                 );
             }
-            
+
             // Handle clip_padding_upper
             if let Some(expr) = self.options.get("clip_padding_upper") {
                 let scalar_val = eval_to_scalars(vec![expr.clone()], None, None).await?;
@@ -601,6 +764,7 @@ impl ScaleDomain {
             default_domain: ScaleDefaultDomain::DomainExprs(vec![DomainExpr {
                 dataframe,
                 expr,
+                radius: None,
             }]),
             raw_domain: None,
         }
@@ -614,9 +778,21 @@ impl ScaleDomain {
                     .map(|(dataframe, expr)| DomainExpr {
                         dataframe,
                         expr,
+                        radius: None,
                     })
                     .collect(),
             ),
+            raw_domain: None,
+        }
+    }
+
+    pub fn new_data_field_with_radius(dataframe: Arc<DataFrame>, expr: Expr, radius: Expr) -> Self {
+        Self {
+            default_domain: ScaleDefaultDomain::DomainExprs(vec![DomainExpr {
+                dataframe,
+                expr,
+                radius: Some(radius),
+            }]),
             raw_domain: None,
         }
     }
@@ -641,14 +817,18 @@ impl ScaleDomain {
                 }
             }
             ScaleDefaultDomain::DomainExprs(fields) => {
-                let DomainExpr { dataframe, expr } = fields.first().ok_or_else(|| {
+                let DomainExpr {
+                    dataframe,
+                    expr,
+                    radius: _,
+                } = fields.first().ok_or_else(|| {
                     AvengerChartError::InternalError(
                         "Domain data fields may not be empty".to_string(),
                     )
                 })?;
                 // Use the expression's data type
                 let schema = dataframe.schema();
-                let df_schema: datafusion_common::DFSchema = schema.clone().into();
+                let df_schema = schema.clone();
                 Ok(expr.get_type(&df_schema)?)
             }
         }
@@ -678,10 +858,18 @@ impl ScaleDomain {
                 use crate::utils::DataFrameChartHelpers;
                 let mut single_col_dfs: Vec<DataFrame> = Vec::new();
 
-                for DomainExpr { dataframe, expr } in data_fields {
+                for DomainExpr {
+                    dataframe,
+                    expr,
+                    radius: _,
+                } in data_fields
+                {
                     let df = dataframe.clone();
                     // Select the expression and alias it to a consistent column name
-                    let df_with_expr = df.as_ref().clone().select(vec![expr.clone().alias("__domain_col__")])?;
+                    let df_with_expr = df
+                        .as_ref()
+                        .clone()
+                        .select(vec![expr.clone().alias("__domain_col__")])?;
                     single_col_dfs.push(df_with_expr);
                 }
 
@@ -734,6 +922,7 @@ impl From<Vec<Expr>> for ScaleDomain {
 pub struct DomainExpr {
     pub dataframe: Arc<DataFrame>,
     pub expr: Expr,
+    pub radius: Option<Expr>,
 }
 
 #[derive(Debug, Clone)]

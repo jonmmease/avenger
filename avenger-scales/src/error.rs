@@ -1,7 +1,7 @@
 use crate::scalar::Scalar;
+use crate::scales::domain_solver::DomainError;
 use arrow::error::ArrowError;
 use avenger_image::error::AvengerImageError;
-use crate::scales::domain_solver::DomainError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AvengerScaleError {
@@ -19,7 +19,7 @@ pub enum AvengerScaleError {
 
     #[error("Failed to compute domain from padded data: {0}")]
     DomainFromPaddingError(#[from] DomainError),
-    
+
     #[error("Bins must be in ascending order: {0:?}")]
     BinsNotAscending(Vec<f32>),
 
