@@ -124,16 +124,16 @@ impl Scale {
         self.domain(ScaleDomain::new_discrete(exprs))
     }
 
-    pub fn domain_data_field<S: Into<String>>(self, dataframe: Arc<DataFrame>, field: S) -> Self {
-        self.domain(ScaleDomain::new_data_field(dataframe, field))
+    pub fn domain_data_field(self, dataframe: Arc<DataFrame>, expr: Expr) -> Self {
+        self.domain(ScaleDomain::new_data_field(dataframe, expr))
     }
 
-    pub fn domain_data_fields<S: Into<String>>(self, fields: Vec<(Arc<DataFrame>, S)>) -> Self {
+    pub fn domain_data_fields(self, fields: Vec<(Arc<DataFrame>, Expr)>) -> Self {
         self.domain(ScaleDomain::new_data_fields(fields))
     }
     
     /// Internal method to set domain for data fields without marking as explicit
-    pub(crate) fn domain_data_fields_internal<S: Into<String>>(mut self, fields: Vec<(Arc<DataFrame>, S)>) -> Self {
+    pub(crate) fn domain_data_fields_internal(mut self, fields: Vec<(Arc<DataFrame>, Expr)>) -> Self {
         self.domain = ScaleDomain::new_data_fields(fields);
         self
     }
@@ -267,13 +267,14 @@ impl Scale {
     pub async fn infer_domain_from_data(mut self) -> Result<Self, AvengerChartError> {
         use datafusion::prelude::SessionContext;
 
-        if let ScaleDefaultDomain::DataFields(data_fields) = &self.domain.default_domain {
+        if let ScaleDefaultDomain::DomainExprs(data_fields) = &self.domain.default_domain {
             let mut single_col_dfs: Vec<DataFrame> = Vec::new();
 
-            for DataField { dataframe, field } in data_fields {
+            for DomainExpr { dataframe, expr } in data_fields {
                 let df = dataframe.clone();
-                let df_with_field = df.as_ref().clone().select_columns(&[field])?;
-                single_col_dfs.push(df_with_field);
+                // Select the expression and alias it to a consistent column name
+                let df_with_expr = df.as_ref().clone().select(vec![expr.clone().alias("__domain_col__")])?;
+                single_col_dfs.push(df_with_expr);
             }
 
             // Union all of the single column dataframes
@@ -290,11 +291,9 @@ impl Scale {
 
             // Determine the data type by checking the first field
             let first_field = &data_fields[0];
-            let _field_type = first_field
-                .dataframe
-                .schema()
-                .field_with_name(None, &first_field.field)?
-                .data_type();
+            let schema = first_field.dataframe.schema();
+            let df_schema: datafusion_common::DFSchema = schema.clone().into();
+            let _field_type = first_field.expr.get_type(&df_schema)?;
 
             // Determine the appropriate method based on scale type
             let method = self.scale_impl.infer_domain_from_data_method();
@@ -579,7 +578,7 @@ pub enum ScaleDefaultDomain {
     // Discrete values
     Discrete(Vec<Expr>),
     // Domain derived from data
-    DataFields(Vec<DataField>),
+    DomainExprs(Vec<DomainExpr>),
 }
 
 impl ScaleDomain {
@@ -597,24 +596,24 @@ impl ScaleDomain {
         }
     }
 
-    pub fn new_data_field<S: Into<String>>(dataframe: Arc<DataFrame>, field: S) -> Self {
+    pub fn new_data_field(dataframe: Arc<DataFrame>, expr: Expr) -> Self {
         Self {
-            default_domain: ScaleDefaultDomain::DataFields(vec![DataField {
+            default_domain: ScaleDefaultDomain::DomainExprs(vec![DomainExpr {
                 dataframe,
-                field: field.into(),
+                expr,
             }]),
             raw_domain: None,
         }
     }
 
-    pub fn new_data_fields<S: Into<String>>(fields: Vec<(Arc<DataFrame>, S)>) -> Self {
+    pub fn new_data_fields(fields: Vec<(Arc<DataFrame>, Expr)>) -> Self {
         Self {
-            default_domain: ScaleDefaultDomain::DataFields(
+            default_domain: ScaleDefaultDomain::DomainExprs(
                 fields
                     .into_iter()
-                    .map(|(dataframe, field)| DataField {
+                    .map(|(dataframe, expr)| DomainExpr {
                         dataframe,
-                        field: field.into(),
+                        expr,
                     })
                     .collect(),
             ),
@@ -641,17 +640,16 @@ impl ScaleDomain {
                     Ok(exprs[0].get_type(&schema)?)
                 }
             }
-            ScaleDefaultDomain::DataFields(fields) => {
-                let DataField { dataframe, field } = fields.first().ok_or_else(|| {
+            ScaleDefaultDomain::DomainExprs(fields) => {
+                let DomainExpr { dataframe, expr } = fields.first().ok_or_else(|| {
                     AvengerChartError::InternalError(
                         "Domain data fields may not be empty".to_string(),
                     )
                 })?;
-                Ok(dataframe
-                    .schema()
-                    .field_with_name(None, field)?
-                    .data_type()
-                    .clone())
+                // Use the expression's data type
+                let schema = dataframe.schema();
+                let df_schema: datafusion_common::DFSchema = schema.clone().into();
+                Ok(expr.get_type(&df_schema)?)
             }
         }
     }
@@ -676,14 +674,15 @@ impl ScaleDomain {
                 make_array(vec![start.clone(), end.as_ref().clone()])
             }
             ScaleDefaultDomain::Discrete(values) => make_array(values.clone()),
-            ScaleDefaultDomain::DataFields(data_fields) => {
+            ScaleDefaultDomain::DomainExprs(data_fields) => {
                 use crate::utils::DataFrameChartHelpers;
                 let mut single_col_dfs: Vec<DataFrame> = Vec::new();
 
-                for DataField { dataframe, field } in data_fields {
+                for DomainExpr { dataframe, expr } in data_fields {
                     let df = dataframe.clone();
-                    let df_with_field = df.as_ref().clone().select_columns(&[field])?;
-                    single_col_dfs.push(df_with_field);
+                    // Select the expression and alias it to a consistent column name
+                    let df_with_expr = df.as_ref().clone().select(vec![expr.clone().alias("__domain_col__")])?;
+                    single_col_dfs.push(df_with_expr);
                 }
 
                 // Union all the single column dataframes
@@ -732,9 +731,9 @@ impl From<Vec<Expr>> for ScaleDomain {
 }
 
 #[derive(Debug, Clone)]
-pub struct DataField {
+pub struct DomainExpr {
     pub dataframe: Arc<DataFrame>,
-    pub field: String,
+    pub expr: Expr,
 }
 
 #[derive(Debug, Clone)]

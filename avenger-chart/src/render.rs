@@ -15,6 +15,7 @@ use avenger_wgpu::canvas::{Canvas, PngCanvas};
 use datafusion::arrow::datatypes::{Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::Expr;
+use datafusion::prelude::DataFrame;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -693,28 +694,11 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         if !scale.has_explicit_domain() {
             let data_expressions = self.plot.gather_scale_domain_expressions(name);
             if !data_expressions.is_empty() {
-                // Convert expressions to data fields
-                let mut data_fields = Vec::new();
-
-                for (df, expr) in data_expressions {
-                    match &expr {
-                        Expr::Column(col) => {
-                            data_fields.push((df, col.name.clone()));
-                        }
-                        _ => {
-                            // For complex expressions, create a derived column
-                            let expr_col_name = format!("__scale_domain_expr_{}", name);
-
-                            if let Ok(df_with_expr) = df
-                                .as_ref()
-                                .clone()
-                                .with_column(&expr_col_name, expr.clone())
-                            {
-                                data_fields.push((Arc::new(df_with_expr), expr_col_name));
-                            }
-                        }
-                    }
-                }
+                // Convert expressions to data expressions
+                let data_fields: Vec<(Arc<DataFrame>, Expr)> = data_expressions
+                    .into_iter()
+                    .map(|(df, expr)| (df, expr))
+                    .collect();
 
                 if !data_fields.is_empty() {
                     *scale = scale.clone().domain_data_fields_internal(data_fields);
@@ -725,7 +709,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         // Infer domain from data if needed
         if matches!(
             &scale.domain.default_domain,
-            crate::scales::ScaleDefaultDomain::DataFields(_)
+            crate::scales::ScaleDefaultDomain::DomainExprs(_)
         ) {
             *scale = scale.clone().infer_domain_from_data().await?;
         }
