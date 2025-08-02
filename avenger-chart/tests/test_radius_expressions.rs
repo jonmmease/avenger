@@ -39,10 +39,11 @@ async fn test_symbol_radius_expression() {
 
     let symbol = Symbol::new().data(df).x(col("x")).y(col("y"));
 
-    // Create a simple channel resolver that returns the size default
+    // Create a simple channel resolver that returns the size and stroke_width defaults
     let resolve_channel = |channel: &str| -> datafusion::logical_expr::Expr {
         match channel {
             "size" => lit(50.0),
+            "stroke_width" => lit(2.0),
             _ => lit(datafusion::scalar::ScalarValue::Null),
         }
     };
@@ -104,4 +105,39 @@ async fn test_symbol_radius_expression_with_mapped_size() {
     // Test radius expression uses the mapped size
     let radius_expr = symbol.radius_expression("x", &resolve_channel);
     assert!(matches!(radius_expr, Some(RadiusExpression::Symmetric(_))));
+}
+
+#[tokio::test]
+async fn test_symbol_radius_includes_stroke_width() {
+    let ctx = SessionContext::new();
+    let df = ctx.read_empty().unwrap();
+
+    let symbol = Symbol::new().data(df).x(col("x")).y(col("y"));
+
+    // Test with specific size and stroke_width values
+    let resolve_channel = |channel: &str| -> datafusion::logical_expr::Expr {
+        match channel {
+            "size" => lit(100.0),       // area = 100, so radius = sqrt(100) * 0.5 = 5.0
+            "stroke_width" => lit(4.0), // adds 2.0 to radius
+            _ => lit(datafusion::scalar::ScalarValue::Null),
+        }
+    };
+
+    // Get radius expression
+    let radius_expr = symbol.radius_expression("x", &resolve_channel).unwrap();
+
+    // The expression should be: sqrt(100) * 0.5 + 4.0 / 2.0 = 5.0 + 2.0 = 7.0
+    // We can't easily evaluate the expression here, but we can verify it includes both components
+    if let RadiusExpression::Symmetric(expr) = radius_expr {
+        // Convert to string to check the expression includes both size and stroke_width
+        let expr_str = format!("{:?}", expr);
+
+        // The expression should contain references to both values
+        assert!(expr_str.contains("100")); // our size value
+        assert!(expr_str.contains("4")); // our stroke_width value
+        assert!(expr_str.contains("0.5")); // the size multiplier
+        assert!(expr_str.contains("2")); // the stroke_width divisor
+    } else {
+        panic!("Expected symmetric radius expression");
+    }
 }
