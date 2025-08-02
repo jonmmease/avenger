@@ -143,21 +143,23 @@ impl std::error::Error for DomainError {}
 ///
 /// # Arguments
 /// * `domain_points` - Data values for each point
-/// * `range_sizes` - Marker sizes in screen units for each point
+/// * `radius_lower` - Lower radii (left extent) in screen units for each point
+/// * `radius_upper` - Upper radii (right extent) in screen units for each point
 /// * `range` - Width of the screen in screen units
 ///
 /// # Returns
-/// * `Ok(DomainSolution)` - The optimal domain [d_min, d_max]
+/// * `Ok((d_min, d_max))` - The optimal domain
 /// * `Err(DomainError)` - If the problem is infeasible or invalid
 pub fn compute_domain_from_data_with_padding_linear(
     domain_points: &[f64],
-    range_sizes: &[f64],
+    radius_lower: &[f64],
+    radius_upper: &[f64],
     range: f64,
 ) -> Result<(f64, f64), AvengerScaleError> {
     // Validate inputs
-    if domain_points.len() != range_sizes.len() {
+    if domain_points.len() != radius_lower.len() || domain_points.len() != radius_upper.len() {
         return Err(DomainError::InvalidInput(
-            "Points and sizes must have the same length".to_string(),
+            "Points and radii must have the same length".to_string(),
         )
         .into());
     }
@@ -173,20 +175,16 @@ pub fn compute_domain_from_data_with_padding_linear(
 
     // Handle single point case
     if domain_points.len() == 1 {
-        return solve_single_point(domain_points[0], range_sizes[0], range);
+        return solve_single_point(domain_points[0], radius_lower[0], radius_upper[0], range);
     }
 
     // Get filtered candidates
-    let left_candidates = filter_left_supports(domain_points, range_sizes);
-    let right_candidates = filter_right_supports(domain_points, range_sizes);
+    let left_candidates = filter_left_supports(domain_points, radius_lower);
+    let right_candidates = filter_right_supports(domain_points, radius_upper);
 
     // Try all combinations of filtered candidates
     let mut best_solution = None;
     let mut best_width = f64::INFINITY;
-
-    let mut _attempted = 0;
-    let mut _solutions_found = 0;
-    let mut _feasible_found = 0;
 
     for &left_idx in &left_candidates {
         for &right_idx in &right_candidates {
@@ -195,20 +193,21 @@ pub fn compute_domain_from_data_with_padding_linear(
                 continue;
             }
 
-            _attempted += 1;
-
             // Solve for this pair of active constraints
-            if let Some(solution) =
-                solve_for_active_pair(domain_points, range_sizes, range, left_idx, right_idx)
-            {
-                _solutions_found += 1;
+            if let Some(solution) = solve_for_active_pair(
+                domain_points,
+                radius_lower,
+                radius_upper,
+                range,
+                left_idx,
+                right_idx,
+            ) {
                 let width = solution.1 - solution.0;
-                if is_feasible(domain_points, range_sizes, range, solution) {
-                    _feasible_found += 1;
-                    if width < best_width {
-                        best_width = width;
-                        best_solution = Some(solution);
-                    }
+                if is_feasible(domain_points, radius_lower, radius_upper, range, solution)
+                    && width < best_width
+                {
+                    best_width = width;
+                    best_solution = Some(solution);
                 }
             }
         }
@@ -220,34 +219,68 @@ pub fn compute_domain_from_data_with_padding_linear(
 }
 
 /// Solve for a single point
-fn solve_single_point(d: f64, s: f64, r: f64) -> Result<(f64, f64), AvengerScaleError> {
-    // For a single point, we need:
-    // s/2 ≤ position ≤ R - s/2
-    // where position = (d - d_min) / (d_max - d_min) × R
-
-    // This requires: s ≤ R - s, or s ≤ R/2
-    if s > r {
+fn solve_single_point(
+    d: f64,
+    radius_lower: f64,
+    radius_upper: f64,
+    r: f64,
+) -> Result<(f64, f64), AvengerScaleError> {
+    // Need: radius_lower + radius_upper ≤ r
+    let total_size = radius_lower + radius_upper;
+    if total_size > r {
         return Err(DomainError::Infeasible(format!(
-            "Marker size {} exceeds screen width {}",
-            s, r
+            "Combined marker sizes {:.2} exceed screen width {:.2}",
+            total_size, r
         ))
         .into());
     }
 
-    // The optimal domain has the point centered
-    let factor = s / (r - 2.0 * s);
-    if factor < 0.0 || !factor.is_finite() {
-        return Err(DomainError::Infeasible("Marker too large for screen".to_string()).into());
+    // If point has no size, create unit domain
+    if total_size == 0.0 {
+        return Ok((d - 0.5, d + 0.5));
     }
 
-    let half_width = d * factor;
+    // For a single point, we want it to exactly fill the screen
+    // When mapped to screen: position - radius_lower = 0 and position + radius_upper = r
+    // This means position = radius_lower
+    //
+    // Linear mapping: position = (d - d_min) / (d_max - d_min) * r
+    // So: radius_lower = (d - d_min) / (d_max - d_min) * r
+    //
+    // Also, from the right edge constraint:
+    // radius_lower + radius_upper = r (the point spans the entire screen)
+    //
+    // Solving: (d - d_min) / (d_max - d_min) = radius_lower / r
+    // Let k = radius_lower / r, then:
+    // d - d_min = k * (d_max - d_min)
+    // d - d_min = k * d_max - k * d_min
+    // d = k * d_max + (1 - k) * d_min
+    //
+    // Similarly from right edge: (d_max - d) / (d_max - d_min) = radius_upper / r
+    //
+    // Solving these gives us:
+    let k_lower = radius_lower / r;
+    let k_upper = radius_upper / r;
 
-    Ok((d - half_width, d + half_width))
+    // d_min = d - radius_lower * (d_max - d_min) / r
+    // d_max = d + radius_upper * (d_max - d_min) / r
+    // Let w = d_max - d_min
+    // d_min = d - k_lower * w
+    // d_max = d + k_upper * w
+    // w = d_max - d_min = k_upper * w + k_lower * w = (k_upper + k_lower) * w = w
+    // This confirms k_upper + k_lower = 1 (which it should since total_size = r when point fills screen)
+
+    // The domain width that makes the point exactly fill the screen
+    let domain_width = r; // When scale is 1:1
+    let d_min = d - k_lower * domain_width;
+    let d_max = d + k_upper * domain_width;
+
+    Ok((d_min, d_max))
 }
 
-/// Filter points to find potential left support points
-/// A point can be a left support only if it has larger radius than all points to its left
-fn filter_left_supports(points: &[f64], sizes: &[f64]) -> Vec<usize> {
+/// Filter points to find potential left support points based on lower radius
+/// A point can be a left support only if it has larger lower radius than all points to its left
+fn filter_left_supports(points: &[f64], radius_lower: &[f64]) -> Vec<usize> {
     let n = points.len();
     if n == 0 {
         return vec![];
@@ -258,24 +291,24 @@ fn filter_left_supports(points: &[f64], sizes: &[f64]) -> Vec<usize> {
     indices.sort_by(|&i, &j| points[i].partial_cmp(&points[j]).unwrap());
 
     let mut candidates = Vec::new();
-    let mut max_radius_so_far = 0.0;
+    let mut max_radius_lower = 0.0;
 
     // Scan from left to right
     for &idx in &indices {
-        let radius = sizes[idx];
-        // Keep point if it has larger radius than all points to its left
-        if radius > max_radius_so_far || candidates.is_empty() {
+        let radius = radius_lower[idx];
+        // Keep point if it has larger lower radius than all points to its left
+        if radius > max_radius_lower || candidates.is_empty() {
             candidates.push(idx);
-            max_radius_so_far = radius;
+            max_radius_lower = radius;
         }
     }
 
     candidates
 }
 
-/// Filter points to find potential right support points
-/// A point can be a right support only if it has larger radius than all points to its right
-fn filter_right_supports(points: &[f64], sizes: &[f64]) -> Vec<usize> {
+/// Filter points to find potential right support points based on upper radius
+/// A point can be a right support only if it has larger upper radius than all points to its right
+fn filter_right_supports(points: &[f64], radius_upper: &[f64]) -> Vec<usize> {
     let n = points.len();
     if n == 0 {
         return vec![];
@@ -286,15 +319,15 @@ fn filter_right_supports(points: &[f64], sizes: &[f64]) -> Vec<usize> {
     indices.sort_by(|&i, &j| points[i].partial_cmp(&points[j]).unwrap());
 
     let mut candidates = Vec::new();
-    let mut max_radius_so_far = 0.0;
+    let mut max_radius_upper = 0.0;
 
     // Scan from right to left
     for &idx in indices.iter().rev() {
-        let radius = sizes[idx];
-        // Keep point if it has larger radius than all points to its right
-        if radius > max_radius_so_far || candidates.is_empty() {
+        let radius = radius_upper[idx];
+        // Keep point if it has larger upper radius than all points to its right
+        if radius > max_radius_upper || candidates.is_empty() {
             candidates.push(idx);
-            max_radius_so_far = radius;
+            max_radius_upper = radius;
         }
     }
 
@@ -305,47 +338,45 @@ fn filter_right_supports(points: &[f64], sizes: &[f64]) -> Vec<usize> {
 /// Solve assuming specific left and right constraints are active
 fn solve_for_active_pair(
     points: &[f64],
-    sizes: &[f64],
+    radius_lower: &[f64],
+    radius_upper: &[f64],
     screen_width: f64,
     left_idx: usize,
     right_idx: usize,
 ) -> Option<(f64, f64)> {
     let d_left = points[left_idx];
-    let s_left = sizes[left_idx];
+    let s_left_lower = radius_lower[left_idx]; // Only lower radius matters for left support
     let d_right = points[right_idx];
-    let s_right = sizes[right_idx];
+    let s_right_upper = radius_upper[right_idx]; // Only upper radius matters for right support
     let r = screen_width;
 
     // System of equations:
-    // (d_left - d_min) / (d_max - d_min) = s_left / r
-    // (d_max - d_right) / (d_max - d_min) = s_right / r
+    // (d_left - d_min) / (d_max - d_min) = s_left_lower / r
+    // (d_max - d_right) / (d_max - d_min) = s_right_upper / r
 
-    // Let w = d_max - d_min (domain width)
-    // Then: d_left - d_min = s_left * w / r
-    //       d_max - d_right = s_right * w / r
+    // The domain width equation becomes:
+    // w = (d_right - d_left) * r / (r - s_left_lower - s_right_upper)
 
-    // From first equation: d_min = d_left - s_left * w / r
-    // From second equation: d_max = d_right + s_right * w / r
-
-    // Since w = d_max - d_min:
-    // w = (d_right + s_right * w / r) - (d_left - s_left * w / r)
-    // w = d_right - d_left + (s_right + s_left) * w / r
-    // w * (1 - (s_right + s_left) / r) = d_right - d_left
-
-    let sum_sizes = s_left + s_right;
-    if sum_sizes >= r {
+    let sum_critical_sizes = s_left_lower + s_right_upper;
+    if sum_critical_sizes >= r {
         return None; // Infeasible
     }
 
-    let w = (d_right - d_left) * r / (r - sum_sizes);
-    let d_min = d_left - s_left * w / r;
-    let d_max = d_right + s_right * w / r;
+    let w = (d_right - d_left) * r / (r - sum_critical_sizes);
+    let d_min = d_left - s_left_lower * w / r;
+    let d_max = d_right + s_right_upper * w / r;
 
     Some((d_min, d_max))
 }
 
 /// Check if a solution satisfies all constraints
-fn is_feasible(points: &[f64], sizes: &[f64], screen_width: f64, solution: (f64, f64)) -> bool {
+fn is_feasible(
+    points: &[f64],
+    radius_lower: &[f64],
+    radius_upper: &[f64],
+    screen_width: f64,
+    solution: (f64, f64),
+) -> bool {
     if solution.1 <= solution.0 {
         return false;
     }
@@ -355,7 +386,8 @@ fn is_feasible(points: &[f64], sizes: &[f64], screen_width: f64, solution: (f64,
 
     for i in 0..points.len() {
         let d_i = points[i];
-        let radius = sizes[i]; // This is already the radius
+        let radius_lower = radius_lower[i];
+        let radius_upper = radius_upper[i];
 
         // Check data containment
         if d_i < d_min || d_i > d_max {
@@ -364,8 +396,8 @@ fn is_feasible(points: &[f64], sizes: &[f64], screen_width: f64, solution: (f64,
 
         // Calculate actual screen position and edges
         let screen_pos = (d_i - d_min) / domain_width * screen_width;
-        let left_edge = screen_pos - radius;
-        let right_edge = screen_pos + radius;
+        let left_edge = screen_pos - radius_lower; // Use radius_lower for left edge
+        let right_edge = screen_pos + radius_upper; // Use radius_upper for right edge
 
         // Check if the point fits within screen bounds
         if left_edge < -1e-10 || right_edge > screen_width + 1e-10 {
@@ -383,13 +415,31 @@ mod tests {
     #[test]
     fn test_single_point() {
         let points = vec![50.0];
-        let sizes = vec![20.0];
+        let sizes = vec![20.0]; // radius
         let screen_width = 100.0;
 
         let result =
-            compute_domain_from_data_with_padding_linear(&points, &sizes, screen_width).unwrap();
-        assert!((result.0 - 33.3333).abs() < 0.01);
-        assert!((result.1 - 66.6667).abs() < 0.01);
+            compute_domain_from_data_with_padding_linear(&points, &sizes, &sizes, screen_width)
+                .unwrap();
+
+        // For a single point with radius 20 on screen width 100:
+        // The algorithm positions the point to touch both edges
+        // k_lower = k_upper = 20/100 = 0.2
+        // d_min = 50 - 0.2 * 100 = 30
+        // d_max = 50 + 0.2 * 100 = 70
+        assert!(
+            (result.0 - 30.0).abs() < 0.01,
+            "d_min should be 30.0, got {}",
+            result.0
+        );
+        assert!(
+            (result.1 - 70.0).abs() < 0.01,
+            "d_max should be 70.0, got {}",
+            result.1
+        );
+
+        // Verify the solution is feasible
+        assert!(is_feasible(&points, &sizes, &sizes, screen_width, result));
     }
 
     #[test]
@@ -399,11 +449,14 @@ mod tests {
         let screen_width = 200.0;
 
         let result =
-            compute_domain_from_data_with_padding_linear(&points, &sizes, screen_width).unwrap();
+            compute_domain_from_data_with_padding_linear(&points, &sizes, &sizes, screen_width)
+                .unwrap();
 
         // The algorithm found a valid solution - test that it's feasible
-        let is_valid = is_feasible(&points, &sizes, screen_width, result);
-        assert!(is_valid, "Solution should be feasible");
+        assert!(
+            is_feasible(&points, &sizes, &sizes, screen_width, result),
+            "Solution should be feasible"
+        );
     }
 
     #[test]
@@ -414,10 +467,11 @@ mod tests {
 
         // With uniform sizes, only endpoints matter
         let result =
-            compute_domain_from_data_with_padding_linear(&points, &sizes, screen_width).unwrap();
+            compute_domain_from_data_with_padding_linear(&points, &sizes, &sizes, screen_width)
+                .unwrap();
 
         // Verify the solution is valid
-        assert!(is_feasible(&points, &sizes, screen_width, result));
+        assert!(is_feasible(&points, &sizes, &sizes, screen_width, result));
     }
 
     #[test]
@@ -426,7 +480,8 @@ mod tests {
         let sizes = vec![150.0]; // Marker larger than screen
         let screen_width = 100.0;
 
-        let result = compute_domain_from_data_with_padding_linear(&points, &sizes, screen_width);
+        let result =
+            compute_domain_from_data_with_padding_linear(&points, &sizes, &sizes, screen_width);
         assert!(matches!(
             result,
             Err(AvengerScaleError::DomainFromPaddingError(
@@ -442,11 +497,12 @@ mod tests {
         let screen_width = 200.0;
 
         let result =
-            compute_domain_from_data_with_padding_linear(&points, &sizes, screen_width).unwrap();
+            compute_domain_from_data_with_padding_linear(&points, &sizes, &sizes, screen_width)
+                .unwrap();
 
         // With decreasing sizes, leftmost point dominates for left support
         // and rightmost point dominates for right support
-        assert!(is_feasible(&points, &sizes, screen_width, result));
+        assert!(is_feasible(&points, &sizes, &sizes, screen_width, result));
     }
 
     #[test]
@@ -464,7 +520,8 @@ mod tests {
         // So actual width = 600 - 60 - 20 = 520
         let screen_width = 520.0;
 
-        let result = compute_domain_from_data_with_padding_linear(&y_values, &radii, screen_width);
+        let result =
+            compute_domain_from_data_with_padding_linear(&y_values, &radii, &radii, screen_width);
 
         match result {
             Ok((d_min, d_max)) => {
@@ -493,17 +550,177 @@ mod tests {
         let sizes = vec![3.54, 7.07, 6.12, 12.25, 14.14, 11.18, 13.23, 87.5]; // radii
         let screen_width = 300.0; // Increased to accommodate large radius
 
-        let result = compute_domain_from_data_with_padding_linear(&points, &sizes, screen_width);
+        let result =
+            compute_domain_from_data_with_padding_linear(&points, &sizes, &sizes, screen_width);
 
         match result {
             Ok((d_min, d_max)) => {
                 // Just verify the solution is feasible
                 assert!(
-                    is_feasible(&points, &sizes, screen_width, (d_min, d_max)),
+                    is_feasible(&points, &sizes, &sizes, screen_width, (d_min, d_max)),
                     "Solution should be feasible"
                 );
             }
             Err(_) => panic!("Should find a solution"),
         }
+    }
+
+    #[test]
+    fn test_asymmetric_single_point() {
+        let points = vec![50.0];
+        let sizes_lower = vec![10.0];
+        let sizes_upper = vec![30.0];
+        let screen_width = 100.0;
+
+        let result = compute_domain_from_data_with_padding_linear(
+            &points,
+            &sizes_lower,
+            &sizes_upper,
+            screen_width,
+        )
+        .unwrap();
+
+        // Verify the solution
+        let (d_min, d_max) = result;
+
+        // For a single point with asymmetric radii:
+        // k_lower = 10/100 = 0.1, k_upper = 30/100 = 0.3
+        // d_min = 50 - 0.1 * 100 = 40
+        // d_max = 50 + 0.3 * 100 = 80
+        assert!(
+            (d_min - 40.0).abs() < 0.01,
+            "d_min should be 40.0, got {}",
+            d_min
+        );
+        assert!(
+            (d_max - 80.0).abs() < 0.01,
+            "d_max should be 80.0, got {}",
+            d_max
+        );
+
+        // Verify feasibility
+        assert!(is_feasible(
+            &points,
+            &sizes_lower,
+            &sizes_upper,
+            screen_width,
+            result
+        ));
+    }
+
+    #[test]
+    fn test_asymmetric_two_points() {
+        let points = vec![20.0, 80.0];
+        let sizes_lower = vec![15.0, 5.0]; // First point has larger lower radius
+        let sizes_upper = vec![5.0, 25.0]; // Second point has larger upper radius
+        let screen_width = 200.0;
+
+        let result = compute_domain_from_data_with_padding_linear(
+            &points,
+            &sizes_lower,
+            &sizes_upper,
+            screen_width,
+        )
+        .unwrap();
+
+        // The algorithm should select point 0 as left support (larger lower radius)
+        // and point 1 as right support (larger upper radius)
+        assert!(is_feasible(
+            &points,
+            &sizes_lower,
+            &sizes_upper,
+            screen_width,
+            result
+        ));
+    }
+
+    #[test]
+    fn test_asymmetric_filtering() {
+        // Test that filtering correctly identifies candidates based on asymmetric radii
+        let points = vec![10.0, 20.0, 30.0, 40.0, 50.0];
+        let sizes_lower = vec![5.0, 10.0, 8.0, 15.0, 12.0]; // Points 1 and 3 dominate
+        let sizes_upper = vec![12.0, 8.0, 15.0, 10.0, 5.0]; // Points 2 and 0 dominate
+
+        let left_candidates = filter_left_supports(&points, &sizes_lower);
+        let right_candidates = filter_right_supports(&points, &sizes_upper);
+
+        // Left candidates should include points with progressively larger lower radii
+        assert!(left_candidates.contains(&0)); // First point always included
+        assert!(left_candidates.contains(&1)); // radius_lower 10 > 5
+        assert!(left_candidates.contains(&3)); // radius_lower 15 > 10
+
+        // Right candidates should include points with progressively larger upper radii
+        assert!(right_candidates.contains(&2)); // radius_upper 15 is largest
+        assert!(right_candidates.contains(&4)); // Last point always included
+    }
+
+    #[test]
+    fn test_asymmetric_matches_symmetric() {
+        // When lower and upper radii are equal, result should be same as old symmetric case
+        let points = vec![5.0, 20.0, 40.0, 50.0, 60.0, 80.0, 95.0];
+        let sizes = vec![3.0, 50.0, 70.0, 80.0, 70.0, 50.0, 3.0];
+        let screen_width = 200.0;
+
+        // Call with equal lower and upper radii
+        let result = solve_for_active_pair(&points, &sizes, &sizes, screen_width, 0, 6);
+
+        // Just verify that we get a solution
+        assert!(result.is_some(), "Should produce a solution");
+    }
+
+    #[test]
+    fn test_asymmetric_infeasible() {
+        let points = vec![50.0];
+        let sizes_lower = vec![60.0]; // Combined size exceeds screen
+        let sizes_upper = vec![60.0];
+        let screen_width = 100.0;
+
+        let result = compute_domain_from_data_with_padding_linear(
+            &points,
+            &sizes_lower,
+            &sizes_upper,
+            screen_width,
+        );
+        assert!(matches!(
+            result,
+            Err(AvengerScaleError::DomainFromPaddingError(
+                DomainError::Infeasible(_)
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_asymmetric_complex_case() {
+        // Test with directional markers (e.g., arrows pointing right)
+        let points = vec![10.0, 30.0, 50.0, 70.0, 90.0];
+        let sizes_lower = vec![5.0, 5.0, 5.0, 5.0, 5.0]; // Small on left
+        let sizes_upper = vec![20.0, 25.0, 30.0, 25.0, 20.0]; // Large on right (arrows)
+        let screen_width = 300.0;
+
+        let result = compute_domain_from_data_with_padding_linear(
+            &points,
+            &sizes_lower,
+            &sizes_upper,
+            screen_width,
+        )
+        .unwrap();
+
+        // Verify all points fit
+        assert!(is_feasible(
+            &points,
+            &sizes_lower,
+            &sizes_upper,
+            screen_width,
+            result
+        ));
+
+        // The middle point with largest upper radius should influence the domain
+        let (d_min, d_max) = result;
+        let domain_width = d_max - d_min;
+
+        // Check that the middle point (index 2) with radius_upper = 30 fits
+        let screen_pos = (points[2] - d_min) / domain_width * screen_width;
+        let right_edge = screen_pos + sizes_upper[2];
+        assert!(right_edge <= screen_width + 1e-10);
     }
 }

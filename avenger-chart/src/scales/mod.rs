@@ -383,6 +383,7 @@ impl Scale {
                             let (d_min, d_max) = compute_domain_from_data_with_padding_linear(
                                 positions_slice,
                                 radii_slice,
+                                radii_slice,
                                 range_width,
                             )?;
 
