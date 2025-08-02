@@ -46,8 +46,14 @@ async fn test_scale_padding_normalization() -> Result<(), Box<dyn std::error::Er
     // Check that clip_padding options were added
     let clip_padding_lower = configured.config.options.get("clip_padding_lower");
     let clip_padding_upper = configured.config.options.get("clip_padding_upper");
-    assert!(clip_padding_lower.is_some(), "clip_padding_lower option should be set");
-    assert!(clip_padding_upper.is_some(), "clip_padding_upper option should be set");
+    assert!(
+        clip_padding_lower.is_some(),
+        "clip_padding_lower option should be set"
+    );
+    assert!(
+        clip_padding_upper.is_some(),
+        "clip_padding_upper option should be set"
+    );
 
     Ok(())
 }

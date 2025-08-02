@@ -185,10 +185,11 @@ async fn test_scatter_with_shapes() {
 
 #[tokio::test]
 async fn test_scatter_with_size_encoding() {
-    let x_values = Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
+    let x_values = Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 5.0, 8.0]);
     let y_values = Float64Array::from(vec![2.0, 3.5, 2.8, 4.2, 5.1, 4.8, 6.2, 5.5]);
-    let size_values =
-        Float64Array::from(vec![50.0, 100.0, 75.0, 150.0, 200.0, 125.0, 175.0, 50225.0]);
+    let size_values = Float64Array::from(vec![
+        50.0, 50000.0, 75.0, 150.0, 200.0, 125.0, 175.0, 30625.0,
+    ]);
 
     let schema = Arc::new(Schema::new(vec![
         Field::new("x", DataType::Float64, false),
@@ -214,16 +215,21 @@ async fn test_scatter_with_size_encoding() {
     let plot = Plot::new(Cartesian)
         .preferred_size(600.0, 400.0)
         .data(df)
-        .scale_x(|scale| scale.scale_type("linear"))
-        .scale_y(|scale| scale.scale_type("linear"))
-        .axis_x(|axis| axis.title("X Value"))
-        .axis_y(|axis| axis.title("Y Value"))
+        .scale_x(|scale| scale.scale_type("linear").option("nice", lit(false)))
+        .scale_y(|scale| {
+            scale
+                .scale_type("linear")
+                .option("nice", lit(false))
+                .option("zero", lit(false))
+        })
+        .axis_x(|axis| axis.title("X Value").grid(true))
+        .axis_y(|axis| axis.title("Y Value").grid(true))
         .mark(
             Symbol::new()
                 .x(col("x"))
                 .y(col("y"))
                 .size(col("size").identity())
-                .fill("#ff6347")
+                .fill("rgba(255, 99, 71, 0.5)")
                 .stroke("#8b0000")
                 .stroke_width(2.0),
         );

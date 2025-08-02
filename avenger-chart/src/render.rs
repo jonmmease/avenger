@@ -37,125 +37,6 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         Self { plot }
     }
 
-    /// Prepare data for padding calculation, extracting only the required channels
-    async fn prepare_padding_data(
-        &self,
-        mark: &dyn Mark<C>,
-        padding_channels: &[&str],
-        scales: &HashMap<String, Scale>,
-    ) -> Result<(Option<RecordBatch>, RecordBatch), AvengerChartError> {
-        // Get the data - either from mark or inherit from plot
-        let df_ref = match mark.data_source() {
-            crate::marks::DataSource::Explicit => mark.data_context().dataframe(),
-            crate::marks::DataSource::Inherited => {
-                // Get plot-level data
-                self.plot.data.as_ref().ok_or_else(|| {
-                    AvengerChartError::InternalError(
-                        "Mark expects inherited data but plot has no data".to_string(),
-                    )
-                })?
-            }
-        };
-
-        let df = Arc::new(df_ref.clone());
-
-        // Get channel mappings from DataContext
-        let encodings = mark.data_context().encodings();
-
-        // Get supported channels from the mark
-        let supported_channels = mark.supported_channels();
-
-        // Create a map of channel names to their descriptors for quick lookup
-        let channel_desc_map: std::collections::HashMap<&str, &crate::marks::ChannelDescriptor> =
-            supported_channels
-                .iter()
-                .map(|desc| (desc.name, desc))
-                .collect();
-
-        // Separate channels into those that need array data vs scalar data
-        let mut array_channels = Vec::new();
-        let mut scalar_channels = Vec::new();
-        let mut has_array_data = false;
-
-        for &channel_name in padding_channels {
-            if let Some(channel_value) = encodings.get(channel_name) {
-                // Get channel descriptor
-                let channel_desc = channel_desc_map.get(channel_name).ok_or_else(|| {
-                    AvengerChartError::InternalError(format!(
-                        "Padding channel '{}' not in supported channels",
-                        channel_name
-                    ))
-                })?;
-
-                // Apply scaling to get the final expression
-                let scaled_expr = self.apply_channel_scale(channel_name, channel_value, scales)?;
-
-                // Check if this channel references columns (needs array data)
-                if channel_desc.allow_column_ref && Self::references_columns(&scaled_expr) {
-                    array_channels.push((channel_name, scaled_expr));
-                    has_array_data = true;
-                } else {
-                    scalar_channels.push((channel_name, scaled_expr));
-                }
-            }
-        }
-
-        // Build array data batch if needed
-        let data_batch = if has_array_data {
-            let mut select_exprs = vec![];
-            for (name, expr) in &array_channels {
-                select_exprs.push(expr.clone().alias(*name));
-            }
-
-            let batch = (*df).clone().select(select_exprs)?.collect().await?;
-
-            if batch.is_empty() {
-                None
-            } else {
-                Some(batch[0].clone())
-            }
-        } else {
-            None
-        };
-
-        // Build scalar batch
-        let scalar_batch = {
-            let mut select_exprs = vec![];
-            for (name, expr) in &scalar_channels {
-                select_exprs.push(expr.clone().alias(*name));
-            }
-
-            if select_exprs.is_empty() {
-                // Create empty batch with single row
-                use datafusion::arrow::array::Int32Array;
-                let schema = Arc::new(Schema::new(vec![Field::new(
-                    "_dummy",
-                    datafusion::arrow::datatypes::DataType::Int32,
-                    false,
-                )]));
-                let array = Arc::new(Int32Array::from(vec![0]));
-                RecordBatch::try_new(schema, vec![array]).unwrap()
-            } else {
-                // Execute query to get scalar values
-                let batches = (*df)
-                    .clone()
-                    .select(select_exprs)?
-                    .limit(0, Some(1))? // Only need one row for scalars
-                    .collect()
-                    .await?;
-
-                if batches.is_empty() {
-                    RecordBatch::try_new(Arc::new(Schema::new(vec![] as Vec<Field>)), vec![])
-                        .unwrap()
-                } else {
-                    batches[0].clone()
-                }
-            }
-        };
-
-        Ok((data_batch, scalar_batch))
-    }
-
     /// Render the plot to a scene graph
     pub async fn render(&self) -> Result<RenderResult, AvengerChartError> {
         // Get plot dimensions from preferred size or default
@@ -193,16 +74,20 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         }
 
         // Stage 1: Process non-positional scales first
-        for (name, scale) in &mut non_positional_scales {
+        // Collect names first to avoid borrowing issues
+        let non_pos_scale_names: Vec<String> = non_positional_scales.keys().cloned().collect();
+        for name in non_pos_scale_names {
+            let scale = non_positional_scales.get_mut(&name).unwrap();
             self.process_scale(
                 scale,
-                name,
+                &name,
                 plot_area_width,
                 plot_area_height,
+                &HashMap::new(), // Non-positional scales don't need other scales for domain inference
                 |scale_copy| {
                     // Apply default color range for color channels
                     if matches!(name.as_str(), "fill" | "stroke" | "color") {
-                        self.plot.apply_default_color_range(scale_copy, name);
+                        self.plot.apply_default_color_range(scale_copy, &name);
                     }
 
                     // Apply default shape range for shape channel
@@ -214,134 +99,24 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
             .await?;
         }
 
-        // Stage 2: Compute padding requirements from marks
-        // Now that non-positional scales are ready, we can compute padding
-        #[derive(Default)]
-        struct AsymmetricPadding {
-            lower: f64,
-            upper: f64,
-        }
-        let mut mark_paddings: std::collections::HashMap<String, AsymmetricPadding> =
-            std::collections::HashMap::new();
+        // Stage 2: Process positional scales
+        // Collect names first to avoid borrowing issues
+        let pos_scale_names: Vec<String> = positional_scales.keys().cloned().collect();
 
-        // Merge all scales for padding calculation
-        let mut scales_for_padding = non_positional_scales.clone();
-        scales_for_padding.extend(positional_scales.clone());
+        // Prepare all scales for radius-aware domain calculation
+        let mut all_scales_for_process = non_positional_scales.clone();
+        all_scales_for_process.extend(positional_scales.clone());
 
-        // Process positional scales first to get clip bounds, but only if domains aren't explicit
-        // We need to clone and process separately to avoid marking domains as explicit
-        let mut temp_positional_scales = HashMap::new();
-        for (name, scale) in &positional_scales {
-            if !scale.has_explicit_domain() {
-                // Clone and process to get domain bounds without modifying original
-                let mut scale_copy = scale.clone();
-                self.infer_scale_domain(&mut scale_copy, name).await?;
-                temp_positional_scales.insert(name.clone(), scale_copy);
-            } else {
-                temp_positional_scales.insert(name.clone(), scale.clone());
-            }
-        }
-
-        // Extract current clip bounds from positional scales (data domain bounds)
-        let mut x_bounds = (0.0, plot_area_width as f64);
-        let mut y_bounds = (0.0, plot_area_height as f64);
-
-        if let Some(scale) = temp_positional_scales.get("x") {
-            // Try to extract actual domain bounds from scale
-            if let Ok(configured_scale) = scale.create_configured_scale(plot_area_width, plot_area_height).await {
-                if let Ok((min, max)) = configured_scale.numeric_interval_domain() {
-                    x_bounds = (min as f64, max as f64);
-                }
-            }
-        }
-
-        if let Some(scale) = temp_positional_scales.get("y") {
-            // Try to extract actual domain bounds from scale
-            if let Ok(configured_scale) = scale.create_configured_scale(plot_area_width, plot_area_height).await {
-                if let Ok((min, max)) = configured_scale.numeric_interval_domain() {
-                    y_bounds = (min as f64, max as f64);
-                }
-            }
-        }
-
-        let clip_bounds = crate::marks::ClipBounds {
-            x_min: x_bounds.0,
-            x_max: x_bounds.1,
-            y_min: y_bounds.0,
-            y_max: y_bounds.1,
-        };
-
-        // Now compute padding for marks that don't have explicit domains
-        for mark in &self.plot.marks {
-            // Skip if positional scales have explicit domains
-            let x_scale = positional_scales.get("x");
-            let y_scale = positional_scales.get("y");
-            if let (Some(x), Some(y)) = (x_scale, y_scale) {
-                if x.has_explicit_domain() && y.has_explicit_domain() {
-                    continue;
-                }
-            }
-            
-            let padding_channels = mark.padding_channels();
-            if !padding_channels.is_empty() {
-                // Prepare data for padding calculation using all scales
-                let mut all_scales = scales_for_padding.clone();
-                all_scales.extend(positional_scales.clone());
-                
-                let (padding_data, padding_scalars) = self
-                    .prepare_padding_data(mark.as_ref(), &padding_channels, &all_scales)
-                    .await?;
-
-                // Compute padding for this mark with clip bounds
-                let mark_padding = mark.compute_padding(
-                    padding_data.as_ref(), 
-                    &padding_scalars,
-                    &clip_bounds,
-                    plot_area_width,
-                    plot_area_height
-                )?;
-
-                // Track maximum padding needed for each positional scale
-                if let Some(x_lower) = mark_padding.x_lower {
-                    let entry = mark_paddings.entry("x".to_string()).or_default();
-                    entry.lower = entry.lower.max(x_lower);
-                }
-                if let Some(x_upper) = mark_padding.x_upper {
-                    let entry = mark_paddings.entry("x".to_string()).or_default();
-                    entry.upper = entry.upper.max(x_upper);
-                }
-                if let Some(y_lower) = mark_padding.y_lower {
-                    let entry = mark_paddings.entry("y".to_string()).or_default();
-                    entry.lower = entry.lower.max(y_lower);
-                }
-                if let Some(y_upper) = mark_padding.y_upper {
-                    let entry = mark_paddings.entry("y".to_string()).or_default();
-                    entry.upper = entry.upper.max(y_upper);
-                }
-            }
-        }
-
-        // Stage 3: Process positional scales with padding
-        for (name, scale) in &mut positional_scales {
-            let mark_paddings_ref = &mark_paddings;
+        for name in pos_scale_names {
+            let scale = positional_scales.get_mut(&name).unwrap();
             self.process_scale(
                 scale,
-                name,
+                &name,
                 plot_area_width,
                 plot_area_height,
-                |scale_copy| {
-                    // Apply mark-computed padding if available and not explicitly set
-                    if !scale_copy.has_explicit_padding() && !scale_copy.has_explicit_domain() {
-                        if let Some(padding) = mark_paddings_ref.get(name) {
-                            if padding.lower > 0.0 || padding.upper > 0.0 {
-                                // Apply asymmetric padding
-                                *scale_copy = scale_copy
-                                    .clone()
-                                    .clip_padding_lower(datafusion::prelude::lit(padding.lower))
-                                    .clip_padding_upper(datafusion::prelude::lit(padding.upper));
-                            }
-                        }
-                    }
+                &all_scales_for_process,
+                |_scale_copy| {
+                    // Padding is now handled by radius-aware domain calculation
                 },
             )
             .await?;
@@ -690,18 +465,44 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         &self,
         scale: &mut Scale,
         name: &str,
+        plot_area_width: f32,
+        plot_area_height: f32,
+        all_scales: &std::collections::HashMap<String, Scale>,
     ) -> Result<(), AvengerChartError> {
         if !scale.has_explicit_domain() {
-            let data_expressions = self.plot.gather_scale_domain_expressions(name);
-            if !data_expressions.is_empty() {
-                // Convert expressions to data expressions
-                let data_fields: Vec<(Arc<DataFrame>, Expr)> = data_expressions
-                    .into_iter()
-                    .map(|(df, expr)| (df, expr))
-                    .collect();
+            // Only use radius-aware gathering for linear positional scales
+            if scale.get_scale_impl().scale_type() == "linear"
+                && matches!(name, "x" | "y" | "x2" | "y2")
+            {
+                // Use the new method that gathers radius information
+                let data_expressions_with_radius = self
+                    .plot
+                    .gather_scale_domain_expressions_with_radius(name, all_scales);
 
-                if !data_fields.is_empty() {
-                    *scale = scale.clone().domain_data_fields_internal(data_fields);
+                // Check if any expressions actually have radius
+                let has_radius = data_expressions_with_radius
+                    .iter()
+                    .any(|(_, _, radius)| radius.is_some());
+
+                if !data_expressions_with_radius.is_empty() && has_radius {
+                    // Use the internal method that accepts radius
+                    *scale = scale
+                        .clone()
+                        .domain_data_fields_with_radius_internal(data_expressions_with_radius);
+                } else if !data_expressions_with_radius.is_empty() {
+                    // Convert to standard expressions (without radius)
+                    let data_expressions: Vec<(Arc<DataFrame>, datafusion::logical_expr::Expr)> =
+                        data_expressions_with_radius
+                            .into_iter()
+                            .map(|(df, expr, _)| (df, expr))
+                            .collect();
+                    *scale = scale.clone().domain_data_fields_internal(data_expressions);
+                }
+            } else {
+                // Use standard domain gathering for non-linear scales
+                let data_expressions = self.plot.gather_scale_domain_expressions(name);
+                if !data_expressions.is_empty() {
+                    *scale = scale.clone().domain_data_fields_internal(data_expressions);
                 }
             }
         }
@@ -711,7 +512,14 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
             &scale.domain.default_domain,
             crate::scales::ScaleDefaultDomain::DomainExprs(_)
         ) {
-            *scale = scale.clone().infer_domain_from_data().await?;
+            // Compute range hint for positional scales
+            let range_hint = match name {
+                "x" => Some((0.0, plot_area_width as f64)),
+                "y" => Some((plot_area_height as f64, 0.0)), // Y is flipped
+                _ => None,
+            };
+
+            *scale = scale.clone().infer_domain_from_data(range_hint).await?;
         }
 
         Ok(())
@@ -724,6 +532,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         name: &str,
         plot_area_width: f32,
         plot_area_height: f32,
+        all_scales: &std::collections::HashMap<String, Scale>,
         apply_scale_specific: F,
     ) -> Result<(), AvengerChartError>
     where
@@ -732,7 +541,14 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         let mut scale_copy = scale.clone();
 
         // Apply domain inference
-        self.infer_scale_domain(&mut scale_copy, name).await?;
+        self.infer_scale_domain(
+            &mut scale_copy,
+            name,
+            plot_area_width,
+            plot_area_height,
+            all_scales,
+        )
+        .await?;
 
         // Apply default range
         self.plot.apply_default_range(

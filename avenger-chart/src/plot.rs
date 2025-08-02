@@ -537,6 +537,117 @@ impl<C: CoordinateSystem> Plot<C> {
         data_expressions
     }
 
+    /// Gather mark data and encoding expressions with radius information for positional scales
+    pub fn gather_scale_domain_expressions_with_radius(
+        &self,
+        scale_name: &str,
+        scales: &HashMap<String, Scale>,
+    ) -> Vec<(
+        Arc<DataFrame>,
+        datafusion::logical_expr::Expr,
+        Option<datafusion::logical_expr::Expr>,
+    )> {
+        use crate::marks::channel::strip_trailing_numbers;
+        use crate::marks::{ChannelValue, DataSource};
+
+        let mut data_expressions = Vec::new();
+
+        // Only gather radius for positional scales (including x2, y2 which map to x, y scales)
+        let is_positional = matches!(scale_name, "x" | "y");
+        if !is_positional {
+            // For non-positional scales, return without radius
+            for (df, expr) in self.gather_scale_domain_expressions(scale_name) {
+                data_expressions.push((df, expr, None));
+            }
+            return data_expressions;
+        }
+
+        for mark in &self.marks {
+            // Get the appropriate DataFrame based on data source
+            let df = match mark.data_source() {
+                DataSource::Explicit => Arc::new(mark.data_context().dataframe().clone()),
+                DataSource::Inherited => {
+                    // Use plot-level data if available
+                    if let Some(plot_data) = &self.data {
+                        Arc::new(plot_data.clone())
+                    } else {
+                        // Skip this mark if no plot data is available
+                        continue;
+                    }
+                }
+            };
+
+            // Check all encodings in the mark's data context
+            let encodings = mark.data_context().encodings();
+            for (channel, position_channel_value) in encodings {
+                // Check if this channel uses our scale
+                if let Some(channel_scale_name) = position_channel_value.scale_name(channel) {
+                    if channel_scale_name == scale_name {
+                        // Get the position expression
+                        let position_expr = position_channel_value.expr().clone();
+
+                        // Check if the mark has and uses a size channel
+                        // Only gather radius for marks that actually support size channel
+                        let supports_size =
+                            mark.supported_channels().iter().any(|ch| ch.name == "size");
+                        let radius_expr = if supports_size && encodings.contains_key("size") {
+                            let size_channel_value = encodings.get("size").unwrap();
+                            // Apply the size scale to get the scaled size expression
+                            match size_channel_value {
+                                ChannelValue::Identity { .. } => {
+                                    // No scaling, use expression as-is
+                                    Some(size_channel_value.expr().clone())
+                                }
+                                ChannelValue::Scaled {
+                                    scale_name: size_scale_name,
+                                    band,
+                                    ..
+                                } => {
+                                    // Determine scale name (custom or derived from channel)
+                                    let scale_key =
+                                        size_scale_name.as_ref().cloned().unwrap_or_else(|| {
+                                            strip_trailing_numbers("size").to_string()
+                                        });
+
+                                    // Get the size scale and apply it
+                                    if let Some(size_scale) = scales.get(&scale_key) {
+                                        // Handle band parameter for any scale that supports it
+                                        let size_scale = if let Some(band_value) = band {
+                                            let scale_type =
+                                                size_scale.get_scale_impl().scale_type();
+                                            if scale_type == "band" || scale_type == "point" {
+                                                size_scale.clone().option(
+                                                    "band",
+                                                    datafusion::prelude::lit(*band_value),
+                                                )
+                                            } else {
+                                                size_scale.clone()
+                                            }
+                                        } else {
+                                            size_scale.clone()
+                                        };
+
+                                        // Apply the scale transformation to get scaled size
+                                        size_scale.to_expr(size_channel_value.expr().clone()).ok()
+                                    } else {
+                                        None
+                                    }
+                                }
+                            }
+                        } else {
+                            None
+                        };
+
+                        // Add to expressions with radius info
+                        data_expressions.push((df.clone(), position_expr, radius_expr));
+                    }
+                }
+            }
+        }
+
+        data_expressions
+    }
+
     /// Apply default range to a scale based on plot area dimensions
     /// This is called during rendering when actual plot area dimensions are known
     /// (i.e., after padding has been subtracted by the layout/rendering system)
