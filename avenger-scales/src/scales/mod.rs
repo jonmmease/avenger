@@ -9,6 +9,7 @@ pub mod pow;
 pub use pow::PowNormalizationConfig;
 pub mod quantile;
 pub mod quantize;
+pub mod domain_solver;
 pub mod symlog;
 pub use symlog::SymlogNormalizationConfig;
 pub mod threshold;
