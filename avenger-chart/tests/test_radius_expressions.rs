@@ -1,3 +1,4 @@
+use avenger_chart::marks::line::Line;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::marks::{Mark, RadiusExpression};
 use datafusion::logical_expr::{col, lit};
@@ -140,4 +141,39 @@ async fn test_symbol_radius_includes_stroke_width() {
     } else {
         panic!("Expected symmetric radius expression");
     }
+}
+
+#[tokio::test]
+async fn test_line_radius_expression() {
+    let ctx = SessionContext::new();
+    let df = ctx.read_empty().unwrap();
+
+    let line = Line::new().data(df).x(col("x")).y(col("y"));
+
+    // Create a channel resolver that returns stroke_width
+    let resolve_channel = |channel: &str| -> datafusion::logical_expr::Expr {
+        match channel {
+            "stroke_width" => lit(3.0),
+            _ => lit(datafusion::scalar::ScalarValue::Null),
+        }
+    };
+
+    // Test radius expression for y dimension (should have radius)
+    let radius_expr = line.radius_expression("y", &resolve_channel);
+    assert!(matches!(radius_expr, Some(RadiusExpression::Symmetric(_))));
+
+    // Verify the expression multiplies stroke_width by 2
+    if let Some(RadiusExpression::Symmetric(expr)) = radius_expr {
+        let expr_str = format!("{:?}", expr);
+        assert!(expr_str.contains("3")); // our stroke_width value
+        assert!(expr_str.contains("2")); // the multiplier
+    }
+
+    // Test radius expression for x dimension (should return None)
+    let radius_expr = line.radius_expression("x", &resolve_channel);
+    assert!(radius_expr.is_none());
+
+    // Test radius expression for z dimension (should return None)
+    let radius_expr = line.radius_expression("z", &resolve_channel);
+    assert!(radius_expr.is_none());
 }

@@ -6,7 +6,7 @@ use avenger_chart::plot::Plot;
 use datafusion::arrow::array::{Float64Array, Int32Array};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::logical_expr::col;
+use datafusion::logical_expr::{col, lit};
 use datafusion::prelude::*;
 use std::sync::Arc;
 
@@ -262,4 +262,44 @@ async fn test_line_dash_patterns() {
         );
 
     assert_visual_match_default(plot, "line", "line_dash_patterns").await;
+}
+
+#[tokio::test]
+async fn test_line_vertical_padding_no_nice() {
+    // Create data that goes right to the edges
+    let x_values = Float64Array::from(vec![0.0, 1.0, 2.0, 3.0, 4.0]);
+    let y_values = Float64Array::from(vec![0.0, 50.0, 25.0, 75.0, 100.0]);
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("x", DataType::Float64, false),
+        Field::new("y", DataType::Float64, false),
+    ]));
+
+    let batch = RecordBatch::try_new(schema, vec![Arc::new(x_values), Arc::new(y_values)])
+        .expect("Failed to create RecordBatch");
+
+    let ctx = SessionContext::new();
+    let df = ctx
+        .read_batch(batch)
+        .expect("Failed to read batch into DataFrame");
+
+    let plot = Plot::new(Cartesian)
+        .preferred_size(600.0, 400.0)
+        .data(df)
+        .scale_x(|scale| scale.scale_type("linear").option("nice", lit(false)))
+        .scale_y(|scale| {
+            scale.scale_type("linear").option("nice", lit(false))
+            // Without radius padding, the line would be clipped at y=0 and y=100
+        })
+        .axis_x(|axis| axis.title("X Value"))
+        .axis_y(|axis| axis.title("Y Value"))
+        .mark(
+            Line::new()
+                .x(col("x"))
+                .y(col("y"))
+                .stroke("#e74c3c")
+                .stroke_width(10.0), // Large stroke width to make the effect visible
+        );
+
+    assert_visual_match_default(plot, "line", "line_vertical_padding_no_nice").await;
 }
