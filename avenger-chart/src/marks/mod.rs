@@ -18,7 +18,17 @@ use crate::transforms::DataContext;
 use avenger_common::types::SymbolShape;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::logical_expr::Expr;
 use datafusion::scalar::ScalarValue;
+
+/// Expression for computing radius/padding requirements
+#[derive(Debug, Clone)]
+pub enum RadiusExpression {
+    /// Same radius in all directions
+    Symmetric(Expr),
+    /// Different radius for negative and positive directions
+    Asymmetric { lower: Expr, upper: Expr },
+}
 
 /// Padding requirements computed by a mark
 #[derive(Debug, Default, Clone)]
@@ -142,6 +152,24 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
         _plot_area_height: f32,
     ) -> Result<MarkPadding, AvengerChartError> {
         Ok(MarkPadding::default())
+    }
+
+    /// Returns the default value expression for a channel if not explicitly mapped
+    fn default_channel_value(&self, _channel: &str) -> Option<Expr> {
+        None
+    }
+
+    /// Returns expressions for computing the radius/padding needed for this mark
+    /// along the specified dimension.
+    ///
+    /// The `resolve_channel` function returns an expression for any channel,
+    /// including defaults if the channel is not explicitly mapped.
+    fn radius_expression(
+        &self,
+        _dimension: &str,
+        _resolve_channel: &dyn Fn(&str) -> Expr,
+    ) -> Option<RadiusExpression> {
+        None
     }
 }
 

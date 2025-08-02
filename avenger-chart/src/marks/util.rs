@@ -70,6 +70,44 @@ pub fn coerce_numeric_channel(
     )
 }
 
+/// Get numeric channel values using Coercer with mark defaults
+pub fn coerce_numeric_channel_with_mark<C: crate::coords::CoordinateSystem>(
+    mark: &dyn crate::marks::Mark<C>,
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    fallback_default: f32,
+) -> Result<ScalarOrArray<f32>, AvengerChartError> {
+    use datafusion::scalar::ScalarValue;
+
+    // Get default from mark, falling back to provided default
+    let default = mark
+        .default_channel_value(channel)
+        .and_then(|expr| {
+            // Try to extract literal value from expression
+            if let datafusion::logical_expr::Expr::Literal(scalar, _) = expr {
+                match scalar {
+                    ScalarValue::Float32(Some(v)) => Some(v),
+                    ScalarValue::Float64(Some(v)) => Some(v as f32),
+                    ScalarValue::Int32(Some(v)) => Some(v as f32),
+                    ScalarValue::Int64(Some(v)) => Some(v as f32),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        })
+        .unwrap_or(fallback_default);
+
+    coerce_channel(
+        data,
+        scalars,
+        channel,
+        |c, a| c.to_numeric(a, Some(default)),
+        default,
+    )
+}
+
 /// Get color channel values using Coercer
 pub fn coerce_color_channel(
     data: Option<&RecordBatch>,
@@ -85,6 +123,60 @@ pub fn coerce_color_channel(
         |c, a| c.to_color(a, Some(ColorOrGradient::Color(default))),
         default_color,
     )
+}
+
+/// Get color channel values using Coercer with mark defaults
+pub fn coerce_color_channel_with_mark<C: crate::coords::CoordinateSystem>(
+    mark: &dyn crate::marks::Mark<C>,
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    fallback_default: [f32; 4],
+) -> Result<ScalarOrArray<ColorOrGradient>, AvengerChartError> {
+    use datafusion::scalar::ScalarValue;
+
+    // Get default from mark, falling back to provided default
+    let default_str = mark.default_channel_value(channel).and_then(|expr| {
+        // Try to extract literal value from expression
+        if let datafusion::logical_expr::Expr::Literal(scalar, _) = expr {
+            match scalar {
+                ScalarValue::Utf8(Some(s)) => Some(s),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    });
+
+    // Convert color string to RGBA array if we got one from the mark
+    let default = if let Some(color_str) = default_str {
+        // Parse hex color string to RGBA
+        parse_color_string(&color_str).unwrap_or(fallback_default)
+    } else {
+        fallback_default
+    };
+
+    let default_color = ColorOrGradient::Color(default);
+    coerce_channel(
+        data,
+        scalars,
+        channel,
+        |c, a| c.to_color(a, Some(ColorOrGradient::Color(default))),
+        default_color,
+    )
+}
+
+// Helper function to parse color strings
+fn parse_color_string(color: &str) -> Option<[f32; 4]> {
+    if let Some(hex) = color.strip_prefix('#') {
+        if hex.len() == 6 {
+            let r = u8::from_str_radix(&hex[0..2], 16).ok()? as f32 / 255.0;
+            let g = u8::from_str_radix(&hex[2..4], 16).ok()? as f32 / 255.0;
+            let b = u8::from_str_radix(&hex[4..6], 16).ok()? as f32 / 255.0;
+            return Some([r, g, b, 1.0]);
+        }
+    }
+    None
 }
 
 /// Get boolean channel values using Coercer

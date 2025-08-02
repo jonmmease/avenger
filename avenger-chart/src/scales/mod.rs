@@ -155,7 +155,7 @@ impl Scale {
     /// Internal method to set domain for data fields with radius without marking as explicit
     pub(crate) fn domain_data_fields_with_radius_internal(
         mut self,
-        fields: Vec<(Arc<DataFrame>, Expr, Option<Expr>)>,
+        fields: Vec<(Arc<DataFrame>, Expr, Option<crate::marks::RadiusExpression>)>,
     ) -> Self {
         self.domain = ScaleDomain {
             default_domain: ScaleDefaultDomain::DomainExprs(
@@ -333,11 +333,23 @@ impl Scale {
 
                         let df = field.dataframe.clone();
 
-                        // Select both position and radius (size) expressions
-                        let select_exprs = vec![
-                            field.expr.clone().alias("__position__"),
-                            radius_expr.clone().alias("__size__"),
-                        ];
+                        // Select both position and radius expressions based on RadiusExpression type
+                        let select_exprs = match radius_expr {
+                            crate::marks::RadiusExpression::Symmetric(expr) => {
+                                vec![
+                                    field.expr.clone().alias("__position__"),
+                                    expr.clone().alias("__radius_lower__"),
+                                    expr.clone().alias("__radius_upper__"),
+                                ]
+                            }
+                            crate::marks::RadiusExpression::Asymmetric { lower, upper } => {
+                                vec![
+                                    field.expr.clone().alias("__position__"),
+                                    lower.clone().alias("__radius_lower__"),
+                                    upper.clone().alias("__radius_upper__"),
+                                ]
+                            }
+                        };
 
                         let df_with_exprs = df.as_ref().clone().select(select_exprs)?;
                         let batches = df_with_exprs.collect().await?;
@@ -345,45 +357,52 @@ impl Scale {
                         if !batches.is_empty() && batches[0].num_rows() > 0 {
                             let batch = &batches[0];
                             let position_array = batch.column_by_name("__position__").unwrap();
-                            let size_array = batch.column_by_name("__size__").unwrap();
+                            let radius_lower_array =
+                                batch.column_by_name("__radius_lower__").unwrap();
+                            let radius_upper_array =
+                                batch.column_by_name("__radius_upper__").unwrap();
 
                             // Cast to Float64 using arrow's cast function
                             use datafusion::arrow::compute::cast;
                             use datafusion::arrow::datatypes::DataType as ArrowDataType;
 
                             let position_f64 = cast(position_array, &ArrowDataType::Float64)?;
-                            let size_f64 = cast(size_array, &ArrowDataType::Float64)?;
+                            let radius_lower_f64 =
+                                cast(radius_lower_array, &ArrowDataType::Float64)?;
+                            let radius_upper_f64 =
+                                cast(radius_upper_array, &ArrowDataType::Float64)?;
 
                             // Extract values as slices
                             use datafusion::arrow::array::AsArray;
                             use datafusion::arrow::datatypes::Float64Type;
 
                             let positions = position_f64.as_primitive::<Float64Type>();
-                            let sizes = size_f64.as_primitive::<Float64Type>();
+                            let radius_lower = radius_lower_f64.as_primitive::<Float64Type>();
+                            let radius_upper = radius_upper_f64.as_primitive::<Float64Type>();
 
                             // Convert to vectors, filtering out nulls
                             let position_vec: Vec<f64> = positions.iter().flatten().collect();
-
-                            // Convert area to radius: radius = sqrt(area)
-                            // Note: Symbol base shapes have radius 0.5, so actual rendered radius is 0.5 * sqrt(area)
-                            // We need to account for this when computing domain padding
-                            let radius_vec: Vec<f64> = sizes
-                                .iter()
-                                .filter_map(|v| v.map(|area| area.sqrt() * 0.5))
-                                .collect();
+                            let radius_lower_vec: Vec<f64> =
+                                radius_lower.iter().flatten().collect();
+                            let radius_upper_vec: Vec<f64> =
+                                radius_upper.iter().flatten().collect();
 
                             // Ensure matching lengths
-                            let min_len = position_vec.len().min(radius_vec.len());
+                            let min_len = position_vec
+                                .len()
+                                .min(radius_lower_vec.len())
+                                .min(radius_upper_vec.len());
                             let positions_slice = &position_vec[..min_len];
-                            let radii_slice = &radius_vec[..min_len];
+                            let radius_lower_slice = &radius_lower_vec[..min_len];
+                            let radius_upper_slice = &radius_upper_vec[..min_len];
 
                             // Use the padding solver
                             use avenger_scales::scales::domain_solver::compute_domain_from_data_with_padding_linear;
 
                             let (d_min, d_max) = compute_domain_from_data_with_padding_linear(
                                 positions_slice,
-                                radii_slice,
-                                radii_slice,
+                                radius_lower_slice,
+                                radius_upper_slice,
                                 range_width,
                             )?;
 
@@ -792,7 +811,7 @@ impl ScaleDomain {
             default_domain: ScaleDefaultDomain::DomainExprs(vec![DomainExpr {
                 dataframe,
                 expr,
-                radius: Some(radius),
+                radius: Some(crate::marks::RadiusExpression::Symmetric(radius)),
             }]),
             raw_domain: None,
         }
@@ -923,7 +942,7 @@ impl From<Vec<Expr>> for ScaleDomain {
 pub struct DomainExpr {
     pub dataframe: Arc<DataFrame>,
     pub expr: Expr,
-    pub radius: Option<Expr>,
+    pub radius: Option<crate::marks::RadiusExpression>,
 }
 
 #[derive(Debug, Clone)]
