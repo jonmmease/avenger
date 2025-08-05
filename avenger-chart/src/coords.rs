@@ -225,13 +225,8 @@ impl CoordinateSystem for Cartesian {
                 AxisPosition::Right => AxisOrientation::Right,
             };
 
-            // Calculate axis origin based on position
-            let axis_origin = match position {
-                AxisPosition::Bottom => [padding.left, padding.top + plot_height],
-                AxisPosition::Top => [padding.left, padding.top],
-                AxisPosition::Left => [padding.left, padding.top],
-                AxisPosition::Right => [padding.left + plot_width, padding.top],
-            };
+            // Axis origin is always the top-left corner of the plot area
+            let axis_origin = [padding.left, padding.top];
 
             // Create axis config with plot dimensions
             let axis_config = AxisConfig {
