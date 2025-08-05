@@ -21,54 +21,54 @@ pub fn make_colorbar_marks(
         ColorbarOrientation::Bottom => todo!(),
         ColorbarOrientation::Left => todo!(),
         ColorbarOrientation::Right => {
-            let scale_x_offset = 30.0;
-            let colorbar_width = 10.0;
+            // config.dimensions represents the plot area dimensions
+            let plot_width = config.dimensions[0];
+            let plot_height = config.dimensions[1];
 
-            // Make axis
-            let axis_config = AxisConfig {
-                orientation: AxisOrientation::Right,
-                dimensions: [config.dimensions[0] + scale_x_offset, config.dimensions[1]],
-                grid: false,
-            };
-
-            // Create a new scale with desired range for the axis
-            let numeric_scale = scale
-                .clone()
-                .with_range_interval((config.dimensions[1], 0.0));
-            let axis = make_numeric_axis_marks(&numeric_scale, title, origin, &axis_config)?;
+            // Colorbar properties
+            let colorbar_width = config.colorbar_width.unwrap_or(10.0);
+            let colorbar_height = config.colorbar_height.unwrap_or(plot_height.min(200.0));
+            let colorbar_margin = config.colorbar_margin.unwrap_or(20.0);
 
             // Create a gradient for the colorbar rect
             let gradient = Gradient::LinearGradient(LinearGradient {
                 x0: 0.0,
-                y0: config.dimensions[1],
+                y0: colorbar_height,
                 x1: 0.0,
                 y1: 0.0,
                 stops: scale.color_range_as_gradient_stops(10)?,
             });
 
+            // Position colorbar to the right of the plot area
+            let colorbar_x = origin[0] + plot_width + colorbar_margin;
+            let colorbar_y = origin[1];
+
             // Make colorbar rect
             let rect = SceneRectMark {
                 len: 1,
                 gradients: vec![gradient],
-                x: (config.dimensions[0] + scale_x_offset - colorbar_width).into(),
-                x2: Some((config.dimensions[0] + scale_x_offset).into()),
-                y: (-0.5).into(),
-                y2: Some((config.dimensions[1] + 0.5).into()),
+                x: colorbar_x.into(),
+                x2: Some((colorbar_x + colorbar_width).into()),
+                y: colorbar_y.into(),
+                y2: Some((colorbar_y + colorbar_height).into()),
                 fill: ColorOrGradient::GradientIndex(0).into(),
                 ..Default::default()
             };
 
-            // // Shift axis to the left
-            // axis.origin[0] -= config.dimensions[0];
+            // Make axis positioned to the right of the colorbar
+            let axis_origin = [colorbar_x + colorbar_width, colorbar_y];
+            let axis_config = AxisConfig {
+                orientation: AxisOrientation::Right,
+                dimensions: [0.0, colorbar_height],
+                grid: false,
+            };
 
-            // // Make rect
-            // let rect = SceneRectMark {
-            //     origin,
-            //     dimensions: config.dimensions,
-            //     ..Default::default()
-            // };
+            // Create a new scale with desired range for the axis
+            let numeric_scale = scale.clone().with_range_interval((colorbar_height, 0.0));
+            let axis = make_numeric_axis_marks(&numeric_scale, title, axis_origin, &axis_config)?;
+
             Ok(SceneGroup {
-                origin,
+                origin: [0.0, 0.0], // Group at root since we're positioning elements absolutely
                 marks: vec![rect.into(), axis.into()],
                 ..Default::default()
             })
@@ -87,7 +87,15 @@ pub enum ColorbarOrientation {
 #[derive(Debug, Clone)]
 pub struct ColorbarConfig {
     pub orientation: ColorbarOrientation,
+    /// Dimensions of the plot area (width, height) that the colorbar is attached to
     pub dimensions: [f32; 2],
+    /// Width of the colorbar (thickness)
+    pub colorbar_width: Option<f32>,
+    /// Height of the colorbar (length),
+    /// if None will use plot height limited to 200px
+    pub colorbar_height: Option<f32>,
+    /// Margin between plot area and colorbar
+    pub colorbar_margin: Option<f32>,
 }
 
 impl Default for ColorbarConfig {
@@ -95,6 +103,9 @@ impl Default for ColorbarConfig {
         Self {
             orientation: ColorbarOrientation::Right,
             dimensions: [100.0, 100.0],
+            colorbar_width: None,
+            colorbar_height: None,
+            colorbar_margin: None,
         }
     }
 }

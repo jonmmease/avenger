@@ -109,19 +109,39 @@ impl<C: CoordinateSystem + 'static> PlotTrait for Plot<C> {
     }
 
     fn measure_padding(&self, _plot_width: f32, _plot_height: f32) -> Padding {
-        // TODO: Calculate padding dynamically based on plot components
-        // For now, return default padding
-        // In the future, this should:
-        // 1. Measure axis label and tick sizes for each configured axis
-        // 2. Measure title height if present
-        // 3. Measure legend dimensions if present
-        // 4. Calculate required padding to accommodate all components
-        Padding {
+        // Start with base padding for axes and title
+        let mut padding = Padding {
             left: 60.0,   // Space for y-axis labels, ticks, and title
             right: 20.0,  // Space for right-side elements
             top: 20.0,    // Space for title
             bottom: 45.0, // Space for x-axis labels, ticks, and title
+        };
+
+        // Calculate additional space needed for legends
+        // Check for visible legends
+        let visible_legends: Vec<_> = self
+            .legends
+            .iter()
+            .filter(|(_, legend)| legend.visible)
+            .collect();
+
+        if !visible_legends.is_empty() {
+            // For now, we only support right-positioned legends
+            // Calculate space needed for legends on the right
+            let legend_width_estimate = 150.0; // Typical legend width including labels
+            let legend_margin = 20.0; // Space between plot and legend
+
+            // Add space for legends on the right side
+            padding.right += legend_width_estimate + legend_margin;
         }
+
+        // TODO: Calculate padding dynamically based on actual measurements:
+        // 1. Measure axis label and tick sizes for each configured axis
+        // 2. Measure title height if present
+        // 3. Measure legend dimensions more accurately
+        // 4. Support legends in other positions (top, bottom, left)
+
+        padding
     }
 
     fn render(&self, _bounds: Rect) {

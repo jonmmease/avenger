@@ -27,9 +27,6 @@ pub fn make_band_axis_marks(
     // Unwrap is safe because this band value is always valid
     let scale = scale.clone().with_option("band", 0.5);
 
-    // Get axis-specific dimensions for positioning axis elements
-    let axis_dims = config.axis_dimensions();
-
     // Build main group with origin [0, 0] to get local bounding box
     let mut main_group = SceneGroup {
         origin: [0.0, 0.0],
@@ -56,11 +53,12 @@ pub fn make_band_axis_marks(
         config.orientation,
         AxisOrientation::Left | AxisOrientation::Right
     );
+    // Calculate axis position based on orientation and plot dimensions
     let offset = match config.orientation {
-        AxisOrientation::Right => axis_dims[0],
-        AxisOrientation::Bottom => axis_dims[1],
-        AxisOrientation::Top => 0.0,
         AxisOrientation::Left => 0.0,
+        AxisOrientation::Right => config.dimensions[0],
+        AxisOrientation::Top => 0.0,
+        AxisOrientation::Bottom => config.dimensions[1],
     };
 
     // Add tick grid if enabled
@@ -84,12 +82,12 @@ pub fn make_band_axis_marks(
     // Add tick marks
     axis_elements_group
         .marks
-        .push(make_tick_marks(&scale, &config.orientation, &axis_dims)?.into());
+        .push(make_tick_marks(&scale, &config.orientation, &config.dimensions)?.into());
 
     // Add tick labels
     axis_elements_group
         .marks
-        .push(make_tick_labels(&scale, &config.orientation, &axis_dims)?.into());
+        .push(make_tick_labels(&scale, &config.orientation, &config.dimensions)?.into());
 
     // Add title
     axis_elements_group
@@ -204,12 +202,8 @@ fn make_tick_grid_marks(
         ..Default::default()
     };
 
-    // Grid lines need to be offset for bottom/right axes to align with plot area
-    let grid_origin = match orientation {
-        AxisOrientation::Bottom => [0.0, -dimensions[1]], // Move up by plot height
-        AxisOrientation::Right => [-dimensions[0], 0.0],  // Move left by plot width
-        _ => [0.0, 0.0],
-    };
+    // Grid lines are positioned relative to the axis group origin
+    let grid_origin = [0.0, 0.0];
 
     Ok(SceneGroup {
         origin: grid_origin,
