@@ -13,6 +13,7 @@ use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, PngCanvas};
+use datafusion::arrow::array::ArrayRef;
 use datafusion::arrow::datatypes::{Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::Expr;
@@ -687,12 +688,11 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         }
 
         // Check if any mark is a line mark
-        let has_line_mark = self.plot.marks.iter().any(|mark| {
-            // Check if this is a line mark by examining its type name
-            // This is a bit hacky but works for now
-            let mark_name = std::any::type_name_of_val(mark.as_ref());
-            mark_name.contains("Line")
-        });
+        let has_line_mark = self
+            .plot
+            .marks
+            .iter()
+            .any(|mark| mark.mark_type() == "line");
 
         // Use line legend for stroke properties on line marks
         if has_line_mark && matches!(channel, "stroke" | "stroke_width" | "stroke_dash") {
@@ -1135,6 +1135,101 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         }))
     }
 
+    /// Convert dash pattern names to numeric arrays using the coercer
+    fn convert_dash_pattern(pattern: &str) -> Option<Vec<f32>> {
+        use avenger_scales::scales::coerce::Coercer;
+        use datafusion::arrow::array::StringArray;
+
+        // Create a single-element string array with the pattern
+        let array = StringArray::from(vec![Some(pattern)]);
+        let array_ref = Arc::new(array) as ArrayRef;
+
+        // Use coercer to convert
+        let coercer = Coercer::default();
+        if let Ok(dash_result) = coercer.to_stroke_dash(&array_ref) {
+            // Get the first element from the ScalarOrArray result
+            if let Some(dash_vec) = dash_result.first() {
+                if dash_vec.is_empty() {
+                    None // solid pattern
+                } else {
+                    Some(dash_vec.clone())
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Map domain values to dash patterns through a scale
+    async fn map_dash_patterns(
+        &self,
+        domain_values: &[datafusion_common::ScalarValue],
+        scale: &Scale,
+    ) -> Result<Vec<Option<Vec<f32>>>, AvengerChartError> {
+        use datafusion::arrow::array::{Array, StringArray};
+
+        if scale.has_explicit_domain() {
+            // Create a ConfiguredScale
+            let configured_scale = scale.create_configured_scale(f32::NAN, f32::NAN).await?;
+
+            // Convert scalar values to an arrow array
+            let domain_array = ScalarValue::iter_to_array(domain_values.iter().cloned())?;
+
+            // Apply the scale transformation
+            let scaled_array = configured_scale.scale(&domain_array)?;
+
+            // The result could be string patterns or dictionary array
+            // Try to handle both cases
+            use datafusion::arrow::datatypes::DataType;
+
+            // Check if it's a dictionary array
+            if let DataType::Dictionary(_, _) = scaled_array.data_type() {
+                // It's a dictionary array - extract the values
+                use avenger_scales::scales::coerce::Coercer;
+                let coercer = Coercer::default();
+
+                // Convert the dictionary array to stroke dash patterns
+                if let Ok(dash_result) = coercer.to_stroke_dash(&scaled_array) {
+                    let patterns: Vec<Option<Vec<f32>>> = dash_result
+                        .as_vec(domain_values.len(), None)
+                        .into_iter()
+                        .map(|dash_vec| {
+                            if dash_vec.is_empty() {
+                                None // solid pattern
+                            } else {
+                                Some(dash_vec)
+                            }
+                        })
+                        .collect();
+                    Ok(patterns)
+                } else {
+                    // Default to solid for all
+                    Ok(vec![None; domain_values.len()])
+                }
+            } else if let Some(string_array) = scaled_array.as_any().downcast_ref::<StringArray>() {
+                // It's a string array - convert each pattern
+                let patterns: Vec<Option<Vec<f32>>> = (0..string_array.len())
+                    .map(|i| {
+                        if string_array.is_null(i) {
+                            None
+                        } else {
+                            Self::convert_dash_pattern(string_array.value(i))
+                        }
+                    })
+                    .collect();
+                Ok(patterns)
+            } else {
+                // Default to solid for all
+                Ok(vec![None; domain_values.len()])
+            }
+        } else {
+            // No explicit domain, use defaults
+            Ok(vec![None; domain_values.len()])
+        }
+    }
+
     /// Create a line legend
     async fn create_line_legend(
         &self,
@@ -1142,6 +1237,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
     ) -> Result<Option<SceneGroup>, AvengerChartError> {
         use avenger_common::value::ScalarOrArray;
         use avenger_guides::legend::line::{LineLegendConfig, make_line_legend};
+        use std::collections::HashMap;
 
         // Extract domain values from scale
         let legend_scale = params.scales.get(params.channel).ok_or_else(|| {
@@ -1155,7 +1251,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
             return Ok(None);
         }
 
-        // Create text labels
+        // Create text labels from domain values
         let text_values: Vec<String> = domain_values
             .iter()
             .map(|v| match v {
@@ -1164,36 +1260,192 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
             })
             .collect();
 
+        // Get mark defaults from a default line mark instance
+        use crate::coords::Cartesian;
+        use crate::marks::{Mark, line::Line};
+        let temp_line = Line::<Cartesian>::default();
+        let temp_line_ref: &dyn Mark<Cartesian> = &temp_line;
+
+        // Extract defaults using the mark's default_channel_value method
+        let default_stroke = temp_line_ref
+            .default_channel_value("stroke")
+            .and_then(|scalar| scalar.as_scalar_string().ok())
+            .unwrap_or_else(|| "#000000".to_string());
+
+        let default_stroke_width = temp_line_ref
+            .default_channel_value("stroke_width")
+            .and_then(|scalar| scalar.as_f32().ok())
+            .unwrap_or(2.0);
+
+        // Initialize config with defaults
+        // Use longer line length for better dash pattern visibility
         let mut config = LineLegendConfig {
             title: params.legend.title.clone(),
             text: ScalarOrArray::new_array(text_values),
-            inner_width: 0.0, // Don't offset internally, we'll position the whole group
+            inner_width: 0.0,
             inner_height: 100.0,
+            line_length: 20.0,
             ..Default::default()
         };
 
-        // Configure based on channel
-        match params.channel {
-            "stroke" => {
-                config.stroke =
-                    ScalarOrArray::new_scalar(avenger_common::types::ColorOrGradient::Color([
-                        0.5, 0.5, 0.5, 1.0,
-                    ]));
+        // Analyze mark encodings to determine how to set each channel
+        // We'll look at all marks to find line marks and check their encodings
+        let mut mark_encodings = HashMap::new();
+        for mark in &self.plot.marks {
+            // Check if this is a line mark by checking the mark type
+            let mark_type = mark.mark_type();
+            if mark_type == "line" {
+                let encodings = mark.data_context().encodings();
+                for (channel, value) in encodings {
+                    mark_encodings.insert(channel.clone(), value.clone());
+                }
             }
-            "stroke_width" => {
-                config.stroke_width = ScalarOrArray::new_scalar(2.0);
+        }
+
+        // Get the expression being used for the legend channel
+        let legend_channel_expr = mark_encodings.get(params.channel).map(|v| v.expr().clone());
+
+        // Set stroke color based on whether it varies with the legend channel
+        if params.channel == "stroke" {
+            // Legend is for stroke itself - vary stroke color
+            // Always map through the scale for the legend channel
+            let colors = self
+                .map_values_through_scale(legend_scale, &domain_values)
+                .await?;
+            config.stroke = ScalarOrArray::new_array(
+                colors
+                    .into_iter()
+                    .map(avenger_common::types::ColorOrGradient::Color)
+                    .collect(),
+            );
+        } else if let Some(channel_value) = mark_encodings.get("stroke") {
+            // Check if stroke uses the same expression as the legend channel
+            if let Some(legend_expr) = &legend_channel_expr {
+                if channel_value.expr() == legend_expr {
+                    // Same expression as legend channel - map through stroke scale if available
+                    if let Some(stroke_scale) = params.scales.get("stroke") {
+                        if stroke_scale.has_explicit_domain() {
+                            let colors = self
+                                .map_values_through_scale(stroke_scale, &domain_values)
+                                .await?;
+                            config.stroke = ScalarOrArray::new_array(
+                                colors
+                                    .into_iter()
+                                    .map(avenger_common::types::ColorOrGradient::Color)
+                                    .collect(),
+                            );
+                        }
+                    }
+                } else if !Self::references_columns(channel_value.expr()) {
+                    // Constant expression - evaluate it
+                    if let Ok(scalars) = crate::utils::eval_to_scalars(
+                        vec![channel_value.expr().clone()],
+                        None,
+                        None,
+                    )
+                    .await
+                    {
+                        if let Some(ScalarValue::Utf8(Some(color_str))) = scalars.into_iter().next()
+                        {
+                            if let Some(color) = parse_color_string(&color_str) {
+                                config.stroke = ScalarOrArray::new_scalar(color);
+                            }
+                        }
+                    }
+                }
             }
-            "stroke_dash" => {
-                config.stroke_dash = ScalarOrArray::new_scalar(Some(vec![5.0, 5.0]));
+        } else {
+            // Use default stroke color
+            if let Some(color) = parse_color_string(&default_stroke) {
+                config.stroke = ScalarOrArray::new_scalar(color);
             }
-            _ => {}
+        }
+
+        // Set stroke width based on whether it varies with the legend channel
+        if params.channel == "stroke_width" {
+            // Legend is for stroke_width itself - vary width
+            // Always map through the scale for the legend channel
+            let widths = self
+                .map_values_through_scale_numeric(legend_scale, &domain_values)
+                .await?;
+            config.stroke_width = ScalarOrArray::new_array(widths);
+        } else if let Some(channel_value) = mark_encodings.get("stroke_width") {
+            // Check if stroke_width uses the same expression as the legend channel
+            if let Some(legend_expr) = &legend_channel_expr {
+                if channel_value.expr() == legend_expr {
+                    // Same expression as legend channel - map through stroke_width scale if available
+                    let stroke_width_scale =
+                        params.scales.get("stroke_width").unwrap_or(legend_scale);
+                    if stroke_width_scale.has_explicit_domain() {
+                        let widths = self
+                            .map_values_through_scale_numeric(stroke_width_scale, &domain_values)
+                            .await?;
+                        config.stroke_width = ScalarOrArray::new_array(widths);
+                    }
+                } else if !Self::references_columns(channel_value.expr()) {
+                    // Constant expression - evaluate it
+                    if let Ok(scalars) = crate::utils::eval_to_scalars(
+                        vec![channel_value.expr().clone()],
+                        None,
+                        None,
+                    )
+                    .await
+                    {
+                        if let Some(value) =
+                            scalars.into_iter().next().and_then(|s| s.as_f32().ok())
+                        {
+                            config.stroke_width = ScalarOrArray::new_scalar(value);
+                        }
+                    }
+                }
+            }
+        } else {
+            // Use default stroke width
+            config.stroke_width = ScalarOrArray::new_scalar(default_stroke_width);
+        }
+
+        // Set stroke dash based on whether it varies with the legend channel
+        if params.channel == "stroke_dash" {
+            // Legend is for stroke_dash itself - vary dash pattern
+            let dash_patterns = self.map_dash_patterns(&domain_values, legend_scale).await?;
+            config.stroke_dash = ScalarOrArray::new_array(dash_patterns);
+        } else if let Some(channel_value) = mark_encodings.get("stroke_dash") {
+            // Check if stroke_dash uses the same expression as the legend channel
+            if let Some(legend_expr) = &legend_channel_expr {
+                if channel_value.expr() == legend_expr {
+                    // Same expression as legend channel - map through stroke_dash scale if available
+                    let stroke_dash_scale =
+                        params.scales.get("stroke_dash").unwrap_or(legend_scale);
+                    let dash_patterns = self
+                        .map_dash_patterns(&domain_values, stroke_dash_scale)
+                        .await?;
+                    config.stroke_dash = ScalarOrArray::new_array(dash_patterns);
+                } else if !Self::references_columns(channel_value.expr()) {
+                    // Constant expression - evaluate it
+                    if let Ok(scalars) = crate::utils::eval_to_scalars(
+                        vec![channel_value.expr().clone()],
+                        None,
+                        None,
+                    )
+                    .await
+                    {
+                        if let Some(ScalarValue::Utf8(Some(pattern_str))) =
+                            scalars.into_iter().next()
+                        {
+                            let dash = Self::convert_dash_pattern(&pattern_str);
+                            config.stroke_dash = ScalarOrArray::new_scalar(dash);
+                        }
+                    }
+                }
+            }
+        } else {
+            // Use default (solid)
+            config.stroke_dash = ScalarOrArray::new_scalar(None);
         }
 
         let legend_group = make_line_legend(&config)?;
-
         let x = params.padding.left + params.plot_width + params.legend_margin;
         let y = params.padding.top + params.y_offset;
-
         Ok(Some(SceneGroup {
             origin: [x, y],
             marks: legend_group.marks,

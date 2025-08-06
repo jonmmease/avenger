@@ -131,7 +131,7 @@ pub fn coerce_color_channel_with_mark<C: crate::coords::CoordinateSystem>(
     // Convert color string to RGBA array if we got one from the mark
     let default = if let Some(color_str) = default_str {
         // Parse hex color string to RGBA
-        parse_color_string(&color_str).unwrap_or(fallback_default)
+        parse_hex_color_simple(&color_str).unwrap_or(fallback_default)
     } else {
         fallback_default
     };
@@ -146,8 +146,8 @@ pub fn coerce_color_channel_with_mark<C: crate::coords::CoordinateSystem>(
     )
 }
 
-// Helper function to parse color strings
-fn parse_color_string(color: &str) -> Option<[f32; 4]> {
+// Helper function to parse hex color strings to RGBA arrays
+fn parse_hex_color_simple(color: &str) -> Option<[f32; 4]> {
     if let Some(hex) = color.strip_prefix('#') {
         if hex.len() == 6 {
             let r = u8::from_str_radix(&hex[0..2], 16).ok()? as f32 / 255.0;
