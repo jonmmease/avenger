@@ -14,7 +14,7 @@ async fn test_simple_bar_chart() {
     let df = datasets::simple_categories();
 
     let plot = Plot::new(Cartesian)
-        .preferred_size(400.0, 300.0)
+        
         .data(df)
         .scale_x(|scale| {
             scale.scale_type("band").domain_discrete(vec![
@@ -51,7 +51,7 @@ async fn test_bar_chart_with_custom_colors() {
     let df = datasets::simple_categories();
 
     let plot = Plot::new(Cartesian)
-        .preferred_size(400.0, 300.0)
+        
         .data(df)
         .scale_x(|s| {
             s.scale_type("band").domain_discrete(vec![
@@ -88,7 +88,7 @@ async fn test_bar_chart_with_narrow_bars() {
     let df = datasets::simple_categories();
 
     let plot = Plot::new(Cartesian)
-        .preferred_size(400.0, 300.0)
+        
         .data(df)
         .scale_x(|s| {
             s.scale_type("band").domain_discrete(vec![
@@ -125,7 +125,7 @@ async fn test_bar_chart_inferred_domains() {
     let df = datasets::simple_categories();
 
     let plot = Plot::new(Cartesian)
-        .preferred_size(400.0, 300.0)
+        
         .data(df)
         .axis_x(|a| a.title("Category").grid(false))
         .axis_y(|a| a.title("Value").grid(true))
@@ -152,7 +152,7 @@ async fn test_bar_chart_color_case_expression() {
     // Create a bar chart where each bar's color depends on its value
     // This demonstrates data-driven color encoding using conditional expressions
     let plot = Plot::new(Cartesian)
-        .preferred_size(400.0, 300.0)
+        
         .data(df)
         .scale_x(|s| {
             s.scale_type("band").domain_discrete(vec![

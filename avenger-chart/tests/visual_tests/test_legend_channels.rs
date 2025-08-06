@@ -33,7 +33,7 @@ async fn test_symbol_legend_with_scalar_expressions() {
 
     // Create plot with scalar expressions for various channels
     let plot = Plot::new(Cartesian)
-        .preferred_size(600.0, 400.0)
+        
         .data(df)
         .legend_shape(|legend| legend.title("Category"))
         .mark(
@@ -82,7 +82,7 @@ async fn test_symbol_legend_with_column_dependencies() {
 
     // Create plot where size depends on a column (not the legend channel)
     let plot = Plot::new(Cartesian)
-        .preferred_size(600.0, 400.0)
+        
         .data(df)
         .legend_fill(|legend| legend.title("Category"))
         .mark(
@@ -121,7 +121,7 @@ async fn test_ordinal_size_legend() {
 
     // Create plot with ordinal size scale
     let plot = Plot::new(Cartesian)
-        .preferred_size(600.0, 400.0)
+        
         .data(df)
         .legend_size(|legend| legend.title("Size Category"))
         .scale_size(|scale| {
@@ -170,7 +170,7 @@ async fn test_combined_size_color_shape_legend() {
     let df = ctx.read_batch(batch).unwrap();
 
     let plot = Plot::new(Cartesian)
-        .preferred_size(600.0, 400.0)
+        
         .data(df)
         // Configure scales for the shared category column
         .scale_size(|scale| {

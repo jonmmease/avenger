@@ -57,7 +57,7 @@ async fn test_symbol_automatic_shape_scale() {
     // This demonstrates that an ordinal scale is automatically created
     // with shape strings as the range values
     let plot = Plot::new(Cartesian)
-        .preferred_size(600.0, 400.0)
+        
         .data(df)
         // .scale_x(|scale| scale.scale_type("linear").domain((60.0, 130.0)))
         // .scale_y(|scale| scale.scale_type("linear").domain((10.0, 30.0)))
@@ -110,7 +110,7 @@ async fn test_symbol_custom_enumeration() {
 
     // Create plot demonstrating automatic ordinal scale for custom enumeration
     let plot = Plot::new(Cartesian)
-        .preferred_size(600.0, 400.0)
+        
         .data(df)
         .scale_x(|scale| scale.scale_type("linear"))
         .scale_y(|scale| scale.scale_type("linear").domain((0.0, 100.0)))

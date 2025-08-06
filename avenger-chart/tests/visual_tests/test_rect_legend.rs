@@ -37,7 +37,7 @@ async fn test_rect_discrete_fill_legend() {
 
     // Create a bar chart with fill legend
     let plot = Plot::new(Cartesian)
-        .preferred_size(600.0, 400.0)
+        
         .data(df)
         .scale_x(|scale| scale.scale_type("band").option("padding_inner", lit(0.1)))
         .scale_y(|scale| scale.domain((0.0, 60.0)))
@@ -84,7 +84,7 @@ async fn test_rect_continuous_fill_legend() {
 
     // Create a bar chart with continuous color legend
     let plot = Plot::new(Cartesian)
-        .preferred_size(600.0, 400.0)
+        
         .data(df)
         .scale_x(|scale| scale.scale_type("band").option("padding_inner", lit(0.15)))
         .scale_y(|scale| scale.domain((0.0, 70.0)))
@@ -132,7 +132,7 @@ async fn test_rect_stroke_legend() {
 
     // Create a bar chart with stroke legend
     let plot = Plot::new(Cartesian)
-        .preferred_size(600.0, 400.0)
+        
         .data(df)
         .scale_x(|scale| scale.scale_type("band").option("padding_inner", lit(0.1)))
         .scale_y(|scale| scale.domain((0.0, 60.0)))

@@ -81,7 +81,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         scales: &HashMap<String, crate::scales::Scale>,
         plot_width: f32,
         plot_height: f32,
-        padding: &crate::layout::Padding,
+        padding: &crate::render::Padding,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
 }
 
@@ -183,7 +183,7 @@ impl CoordinateSystem for Cartesian {
         scales: &HashMap<String, crate::scales::Scale>,
         plot_width: f32,
         plot_height: f32,
-        padding: &crate::layout::Padding,
+        padding: &crate::render::Padding,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         use avenger_guides::axis::{
             band::make_band_axis_marks,
@@ -359,7 +359,7 @@ impl CoordinateSystem for Polar {
         _scales: &HashMap<String, crate::scales::Scale>,
         _plot_width: f32,
         _plot_height: f32,
-        _padding: &crate::layout::Padding,
+        _padding: &crate::render::Padding,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // TODO: Implement polar axis rendering when PolarAxis is available
         // Polar axes would include:

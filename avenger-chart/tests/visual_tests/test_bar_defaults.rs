@@ -15,7 +15,7 @@ async fn test_bar_chart_y_scale_auto_zero() {
     let df = datasets::simple_categories();
 
     let plot = Plot::new(Cartesian)
-        .preferred_size(400.0, 300.0)
+        
         .data(df)
         // No explicit options:
         // - y scale should get nice=true,zero=true by default
@@ -43,7 +43,7 @@ async fn test_bar_chart_y_scale_no_zero() {
     let df = datasets::simple_categories();
 
     let plot = Plot::new(Cartesian)
-        .preferred_size(400.0, 300.0)
+        
         .data(df)
         // Explicitly disable zero option - should show data range only
         .scale_x(|s| s)
