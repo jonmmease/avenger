@@ -22,6 +22,11 @@ pub trait ChannelExpr: Sized {
 
     /// Use this value as-is without scaling (identity)
     fn identity(self) -> ChannelValue;
+
+    /// Scale this value with a band parameter (convenience for .scaled().with_band())
+    fn band(self, band: f64) -> ChannelValue {
+        self.scaled().with_band(band)
+    }
 }
 
 impl ChannelValue {
@@ -182,6 +187,7 @@ impl From<bool> for ChannelValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use datafusion::prelude::col;
 
     #[test]
     fn test_strip_trailing_numbers() {
@@ -201,6 +207,26 @@ mod tests {
         // Test identity
         let cv = lit(5).identity();
         assert!(matches!(cv, ChannelValue::Identity { .. }));
+
+        // Test band
+        let cv = col("x").band(0.5);
+        assert!(matches!(
+            cv,
+            ChannelValue::Scaled {
+                band: Some(0.5),
+                ..
+            }
+        ));
+
+        // Test band is equivalent to scaled().with_band()
+        let cv1 = col("x").band(1.0);
+        let cv2 = col("x").scaled().with_band(1.0);
+        match (cv1, cv2) {
+            (ChannelValue::Scaled { band: b1, .. }, ChannelValue::Scaled { band: b2, .. }) => {
+                assert_eq!(b1, b2);
+            }
+            _ => panic!("Expected both to be scaled"),
+        }
     }
 
     #[test]

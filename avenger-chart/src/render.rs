@@ -732,42 +732,83 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
             })
             .collect();
 
-        // Get mark defaults from a default symbol mark instance
+        // Check if any mark is a rect mark
+        let has_rect_mark = self
+            .plot
+            .marks
+            .iter()
+            .any(|mark| mark.mark_type() == "rect");
+
+        // Get mark defaults - use rect defaults if we have rect marks, otherwise symbol defaults
         use crate::coords::Cartesian;
-        use crate::marks::{Mark, symbol::Symbol};
-        let temp_symbol = Symbol::<Cartesian>::default();
-        let temp_symbol_ref: &dyn Mark<Cartesian> = &temp_symbol;
+        use crate::marks::{Mark, rect::Rect, symbol::Symbol};
 
-        // Extract defaults using the mark's default_channel_value method
-        let default_size = temp_symbol_ref
-            .default_channel_value("size")
-            .and_then(|scalar| scalar.as_f32().ok())
-            .unwrap_or(64.0);
+        let (
+            default_size,
+            default_shape,
+            default_angle,
+            default_fill,
+            default_stroke,
+            default_stroke_width,
+        ) = if has_rect_mark {
+            // For rect marks, use fixed square shape and appropriate size
+            let temp_rect = Rect::<Cartesian>::default();
+            let temp_rect_ref: &dyn Mark<Cartesian> = &temp_rect;
 
-        let default_shape = temp_symbol_ref
-            .default_channel_value("shape")
-            .and_then(|scalar| scalar.as_scalar_string().ok())
-            .unwrap_or_else(|| "circle".to_string());
+            let fill = temp_rect_ref
+                .default_channel_value("fill")
+                .and_then(|scalar| scalar.as_scalar_string().ok())
+                .unwrap_or_else(|| "#4682b4".to_string());
 
-        let default_angle = temp_symbol_ref
-            .default_channel_value("angle")
-            .and_then(|scalar| scalar.as_f32().ok())
-            .unwrap_or(0.0);
+            let stroke = temp_rect_ref
+                .default_channel_value("stroke")
+                .and_then(|scalar| scalar.as_scalar_string().ok())
+                .unwrap_or_else(|| "#000000".to_string());
 
-        let default_fill = temp_symbol_ref
-            .default_channel_value("fill")
-            .and_then(|scalar| scalar.as_scalar_string().ok())
-            .unwrap_or_else(|| "#4682b4".to_string());
+            let stroke_width = temp_rect_ref
+                .default_channel_value("stroke_width")
+                .and_then(|scalar| scalar.as_f32().ok())
+                .unwrap_or(1.0);
 
-        let default_stroke = temp_symbol_ref
-            .default_channel_value("stroke")
-            .and_then(|scalar| scalar.as_scalar_string().ok())
-            .unwrap_or_else(|| "#000000".to_string());
+            // Use fixed square shape and appropriate size for rect legends
+            (100.0, "square".to_string(), 0.0, fill, stroke, stroke_width)
+        } else {
+            // Use symbol defaults
+            let temp_symbol = Symbol::<Cartesian>::default();
+            let temp_symbol_ref: &dyn Mark<Cartesian> = &temp_symbol;
 
-        let default_stroke_width = temp_symbol_ref
-            .default_channel_value("stroke_width")
-            .and_then(|scalar| scalar.as_f32().ok())
-            .unwrap_or(1.0);
+            let size = temp_symbol_ref
+                .default_channel_value("size")
+                .and_then(|scalar| scalar.as_f32().ok())
+                .unwrap_or(64.0);
+
+            let shape = temp_symbol_ref
+                .default_channel_value("shape")
+                .and_then(|scalar| scalar.as_scalar_string().ok())
+                .unwrap_or_else(|| "circle".to_string());
+
+            let angle = temp_symbol_ref
+                .default_channel_value("angle")
+                .and_then(|scalar| scalar.as_f32().ok())
+                .unwrap_or(0.0);
+
+            let fill = temp_symbol_ref
+                .default_channel_value("fill")
+                .and_then(|scalar| scalar.as_scalar_string().ok())
+                .unwrap_or_else(|| "#4682b4".to_string());
+
+            let stroke = temp_symbol_ref
+                .default_channel_value("stroke")
+                .and_then(|scalar| scalar.as_scalar_string().ok())
+                .unwrap_or_else(|| "#000000".to_string());
+
+            let stroke_width = temp_symbol_ref
+                .default_channel_value("stroke_width")
+                .and_then(|scalar| scalar.as_f32().ok())
+                .unwrap_or(1.0);
+
+            (size, shape, angle, fill, stroke, stroke_width)
+        };
 
         // Initialize config with defaults
         let mut config = SymbolLegendConfig {
@@ -779,12 +820,13 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         };
 
         // Analyze mark encodings to determine how to set each channel
-        // We'll look at all marks to find symbol marks and check their encodings
+        // We'll look at all marks to find symbol or rect marks and check their encodings
         let mut mark_encodings = HashMap::new();
         for mark in &self.plot.marks {
-            // Check if this is a symbol mark by checking the mark type
-            let is_symbol = mark.mark_type() == "symbol";
-            if is_symbol {
+            // Check if this is a symbol or rect mark by checking the mark type
+            let mark_type = mark.mark_type();
+            let is_relevant = mark_type == "symbol" || mark_type == "rect";
+            if is_relevant {
                 let encodings = mark.data_context().encodings();
                 for (channel, value) in encodings {
                     mark_encodings.insert(channel.clone(), value.clone());
@@ -924,7 +966,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                     let fill_scale = params.scales.get("fill").unwrap_or(legend_scale); // Fall back to legend scale
                     if fill_scale.has_explicit_domain() {
                         let colors = self
-                            .map_values_through_scale(&fill_scale, &domain_values)
+                            .map_values_through_scale(fill_scale, &domain_values)
                             .await?;
                         config.fill = ScalarOrArray::new_array(
                             colors
@@ -982,7 +1024,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                     if let Some(stroke_scale) = params.scales.get("stroke") {
                         if stroke_scale.has_explicit_domain() {
                             let colors = self
-                                .map_values_through_scale(&stroke_scale, &domain_values)
+                                .map_values_through_scale(stroke_scale, &domain_values)
                                 .await?;
                             config.stroke = ScalarOrArray::new_array(
                                 colors
@@ -1051,7 +1093,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                     let angle_scale = params.scales.get("angle").unwrap_or(legend_scale); // Fall back to legend scale
                     if angle_scale.has_explicit_domain() {
                         let angles = self
-                            .map_values_through_scale_numeric(&angle_scale, &domain_values)
+                            .map_values_through_scale_numeric(angle_scale, &domain_values)
                             .await?;
                         config.angle = ScalarOrArray::new_array(angles);
                     } else {
