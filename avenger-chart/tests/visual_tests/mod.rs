@@ -12,6 +12,7 @@ pub mod test_legend;
 pub mod test_legend_channels;
 pub mod test_line;
 pub mod test_line_multi_series;
+pub mod test_rect_legend;
 pub mod test_symbol;
 pub mod test_symbol_ordinal;
 pub mod test_symbol_padding;
