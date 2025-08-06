@@ -3,6 +3,7 @@
 use avenger_chart::marks::Mark;
 use avenger_chart::marks::symbol::Symbol;
 use datafusion::prelude::*;
+use datafusion::scalar::ScalarValue;
 use std::sync::Arc;
 
 #[tokio::test]
@@ -21,11 +22,14 @@ async fn test_symbol_defaults_used_in_rendering() {
     let shape_default = symbol.default_channel_value("shape").unwrap();
 
     // Expected values from our consolidation
-    assert_eq!(size_default, lit(64.0));
-    assert_eq!(fill_default, lit("#4682b4"));
-    assert_eq!(stroke_default, lit("#000000"));
-    assert_eq!(stroke_width_default, lit(1.0));
-    assert_eq!(shape_default, lit("circle"));
+    assert_eq!(size_default, ScalarValue::Float32(Some(64.0)));
+    assert_eq!(fill_default, ScalarValue::Utf8(Some("#4682b4".to_string())));
+    assert_eq!(
+        stroke_default,
+        ScalarValue::Utf8(Some("#000000".to_string()))
+    );
+    assert_eq!(stroke_width_default, ScalarValue::Float32(Some(1.0)));
+    assert_eq!(shape_default, ScalarValue::Utf8(Some("circle".to_string())));
 
     // The symbol mark instance can directly render
 

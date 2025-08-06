@@ -1,6 +1,7 @@
 //! Utility functions for extracting channel values from batches
 
 use crate::error::AvengerChartError;
+use crate::utils::ScalarValueHelpers;
 use avenger_common::types::{ColorOrGradient, StrokeCap, StrokeJoin};
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_scales::scales::coerce::Coercer;
@@ -78,25 +79,12 @@ pub fn coerce_numeric_channel_with_mark<C: crate::coords::CoordinateSystem>(
     channel: &str,
     fallback_default: f32,
 ) -> Result<ScalarOrArray<f32>, AvengerChartError> {
-    use datafusion::scalar::ScalarValue;
+    use crate::utils::ScalarValueHelpers;
 
     // Get default from mark, falling back to provided default
     let default = mark
         .default_channel_value(channel)
-        .and_then(|expr| {
-            // Try to extract literal value from expression
-            if let datafusion::logical_expr::Expr::Literal(scalar, _) = expr {
-                match scalar {
-                    ScalarValue::Float32(Some(v)) => Some(v),
-                    ScalarValue::Float64(Some(v)) => Some(v as f32),
-                    ScalarValue::Int32(Some(v)) => Some(v as f32),
-                    ScalarValue::Int64(Some(v)) => Some(v as f32),
-                    _ => None,
-                }
-            } else {
-                None
-            }
-        })
+        .and_then(|scalar| scalar.as_f32().ok())
         .unwrap_or(fallback_default);
 
     coerce_channel(
@@ -133,20 +121,12 @@ pub fn coerce_color_channel_with_mark<C: crate::coords::CoordinateSystem>(
     channel: &str,
     fallback_default: [f32; 4],
 ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerChartError> {
-    use datafusion::scalar::ScalarValue;
+    use crate::utils::ScalarValueHelpers;
 
     // Get default from mark, falling back to provided default
-    let default_str = mark.default_channel_value(channel).and_then(|expr| {
-        // Try to extract literal value from expression
-        if let datafusion::logical_expr::Expr::Literal(scalar, _) = expr {
-            match scalar {
-                ScalarValue::Utf8(Some(s)) => Some(s),
-                _ => None,
-            }
-        } else {
-            None
-        }
-    });
+    let default_str = mark
+        .default_channel_value(channel)
+        .and_then(|scalar| scalar.as_scalar_string().ok());
 
     // Convert color string to RGBA array if we got one from the mark
     let default = if let Some(color_str) = default_str {
@@ -272,7 +252,7 @@ pub fn get_numeric_channel(
         if let Some(array) = batch.column_by_name(channel) {
             extract_numeric_array(array)
         } else if let Some(scalar) = scalars.get(channel) {
-            let value = scalar_to_f32(scalar).unwrap_or(default);
+            let value = scalar.as_f32().unwrap_or(default);
             Ok(vec![value; batch.num_rows()])
         } else {
             Ok(vec![default; batch.num_rows()])
@@ -281,7 +261,7 @@ pub fn get_numeric_channel(
         // Pure scalar case - single mark
         let value = scalars
             .get(channel)
-            .and_then(scalar_to_f32)
+            .and_then(|s| s.as_f32().ok())
             .unwrap_or(default);
         Ok(vec![value])
     }
@@ -296,7 +276,7 @@ pub fn get_numeric_channel_scalar_or_array(
 ) -> Result<ScalarOrArray<f32>, AvengerChartError> {
     // Check if we have a scalar value
     if let Some(scalar) = scalars.get(channel) {
-        let value = scalar_to_f32(scalar).unwrap_or(default);
+        let value = scalar.as_f32().unwrap_or(default);
         return Ok(ScalarOrArray::new_scalar(value));
     }
 
@@ -323,7 +303,9 @@ pub fn get_text_channel(
         if let Some(array) = batch.column_by_name(channel) {
             extract_text_array(array)
         } else if let Some(scalar) = scalars.get(channel) {
-            let value = scalar_to_string(scalar).unwrap_or_else(|| default.to_string());
+            let value = scalar
+                .as_scalar_string()
+                .unwrap_or_else(|_| default.to_string());
             Ok(vec![value; batch.num_rows()])
         } else {
             Ok(vec![default.to_string(); batch.num_rows()])
@@ -332,7 +314,7 @@ pub fn get_text_channel(
         // Pure scalar case
         let value = scalars
             .get(channel)
-            .and_then(scalar_to_string)
+            .and_then(|s| s.as_scalar_string().ok())
             .unwrap_or_else(|| default.to_string());
         Ok(vec![value])
     }
@@ -375,27 +357,5 @@ pub fn extract_text_array(array: &dyn Array) -> Result<Vec<String>, AvengerChart
             "Expected string array but got {:?}",
             array.data_type()
         )))
-    }
-}
-
-/// Convert ScalarValue to f32
-pub fn scalar_to_f32(scalar: &ScalarValue) -> Option<f32> {
-    match scalar {
-        ScalarValue::Float32(Some(v)) => Some(*v),
-        ScalarValue::Float64(Some(v)) => Some(*v as f32),
-        ScalarValue::Int32(Some(v)) => Some(*v as f32),
-        ScalarValue::Int64(Some(v)) => Some(*v as f32),
-        ScalarValue::UInt32(Some(v)) => Some(*v as f32),
-        ScalarValue::UInt64(Some(v)) => Some(*v as f32),
-        _ => None,
-    }
-}
-
-/// Convert ScalarValue to string
-pub fn scalar_to_string(scalar: &ScalarValue) -> Option<String> {
-    match scalar {
-        ScalarValue::Utf8(Some(s)) => Some(s.clone()),
-        ScalarValue::LargeUtf8(Some(s)) => Some(s.clone()),
-        _ => None,
     }
 }

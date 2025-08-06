@@ -1,4 +1,5 @@
 pub mod color_defaults;
+pub mod shape_defaults;
 // pub mod defaults;
 pub mod inference;
 pub mod udf;
@@ -647,15 +648,8 @@ impl Scale {
                 avenger_scales::scalar::Scalar::arrays_into_list_array(color_arrays)?
             }
             ScaleRange::Enum(values) => {
-                // Create a string array for enum values
-                let strings: Vec<Option<&str>> = values
-                    .iter()
-                    .map(|v| match v {
-                        ScalarValue::Utf8(Some(s)) => Some(s.as_str()),
-                        _ => None,
-                    })
-                    .collect();
-                Arc::new(StringArray::from(strings)) as datafusion::arrow::array::ArrayRef
+                // Convert the scalar values to an array
+                ScalarValue::iter_to_array(values.iter().cloned())?
             }
         };
 

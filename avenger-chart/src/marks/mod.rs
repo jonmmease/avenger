@@ -154,8 +154,8 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
         Ok(MarkPadding::default())
     }
 
-    /// Returns the default value expression for a channel if not explicitly mapped
-    fn default_channel_value(&self, _channel: &str) -> Option<Expr> {
+    /// Returns the default value for a channel if not explicitly mapped
+    fn default_channel_value(&self, _channel: &str) -> Option<ScalarValue> {
         None
     }
 

@@ -86,7 +86,7 @@ let points = vec![5.0, 20.0, 40.0, 50.0, 60.0, 80.0, 95.0];
 let sizes = vec![3.0, 50.0, 70.0, 80.0, 70.0, 50.0, 3.0];
 let screen_width = 200.0;
 
-let solution = compute_domain_from_data_with_padding_linear(&points, &sizes, screen_width)?;
+let solution = compute_domain_from_data_with_padding_linear(&points, &sizes, &sizes, screen_width).unwrap();
 println!("Optimal domain: [{}, {}]", solution.0, solution.1);
 ```
 */

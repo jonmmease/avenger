@@ -3,6 +3,7 @@ use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::marks::{Mark, RadiusExpression};
 use datafusion::logical_expr::{col, lit};
 use datafusion::prelude::SessionContext;
+use datafusion::scalar::ScalarValue;
 use std::sync::Arc;
 
 #[tokio::test]
@@ -13,21 +14,30 @@ async fn test_symbol_default_channel_values() {
     let symbol = Symbol::new().data(df).x(col("x")).y(col("y"));
 
     // Test default channel values
-    assert_eq!(symbol.default_channel_value("size").unwrap(), lit(64.0));
+    assert_eq!(
+        symbol.default_channel_value("size").unwrap(),
+        ScalarValue::Float32(Some(64.0))
+    );
     assert_eq!(
         symbol.default_channel_value("shape").unwrap(),
-        lit("circle")
+        ScalarValue::Utf8(Some("circle".to_string()))
     );
-    assert_eq!(symbol.default_channel_value("angle").unwrap(), lit(0.0));
+    assert_eq!(
+        symbol.default_channel_value("angle").unwrap(),
+        ScalarValue::Float32(Some(0.0))
+    );
     assert_eq!(
         symbol.default_channel_value("fill").unwrap(),
-        lit("#4682b4")
+        ScalarValue::Utf8(Some("#4682b4".to_string()))
     );
     assert_eq!(
         symbol.default_channel_value("stroke").unwrap(),
-        lit("#000000")
+        ScalarValue::Utf8(Some("#000000".to_string()))
     );
-    assert_eq!(symbol.default_channel_value("opacity").unwrap(), lit(1.0));
+    assert_eq!(
+        symbol.default_channel_value("opacity").unwrap(),
+        ScalarValue::Float32(Some(1.0))
+    );
 
     // Test unknown channel returns None
     assert!(symbol.default_channel_value("unknown").is_none());

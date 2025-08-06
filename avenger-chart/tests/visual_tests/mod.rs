@@ -9,6 +9,7 @@ pub mod test_data_domain;
 pub mod test_default_axes_visual;
 pub mod test_grid_zindex;
 pub mod test_legend;
+pub mod test_legend_channels;
 pub mod test_line;
 pub mod test_line_multi_series;
 pub mod test_symbol;
