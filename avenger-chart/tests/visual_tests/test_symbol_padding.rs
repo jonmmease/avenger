@@ -34,7 +34,7 @@ async fn test_symbol_padding_no_nice() {
     let df = create_simple_scatter_data().await;
 
     let plot = Plot::new(Cartesian)
-        .preferred_size(400.0, 400.0)
+        
         .data(df)
         .scale_x(|s| s.domain((0.0, 100.0)).nice(lit(false)))
         .scale_y(|s| s.domain((0.0, 100.0)).nice(lit(false)))
@@ -54,7 +54,7 @@ async fn test_symbol_padding_with_nice() {
     let df = create_simple_scatter_data().await;
 
     let plot = Plot::new(Cartesian)
-        .preferred_size(400.0, 400.0)
+        
         .data(df)
         .scale_x(|s| s.domain((0.0, 100.0)).nice(lit(true)))
         .scale_y(|s| s.domain((0.0, 100.0)).nice(lit(true)))
@@ -94,7 +94,7 @@ async fn test_arrow_symbol_asymmetric_padding() {
     let df = ctx.table("data").await.unwrap();
 
     let plot = Plot::new(Cartesian)
-        .preferred_size(400.0, 300.0)
+        
         .data(df)
         .scale_x(|s| s.nice(lit(false))) // No nice to see exact padding
         .scale_y(|s| s.nice(lit(false)))
@@ -132,7 +132,7 @@ async fn test_exact_geometry_containment() {
     let df = ctx.table("data").await.unwrap();
 
     let plot = Plot::new(Cartesian)
-        .preferred_size(400.0, 400.0)
+        
         .data(df)
         .scale_x(|s| s.domain((0.0, 100.0)).nice(lit(false)))
         .scale_y(|s| s.domain((0.0, 100.0)).nice(lit(false)))

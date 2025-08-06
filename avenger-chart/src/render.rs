@@ -4,7 +4,6 @@
 
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
-use crate::layout::PlotTrait;
 use crate::marks::{ChannelValue, Mark};
 use crate::plot::Plot;
 use crate::scales::Scale;
@@ -22,6 +21,15 @@ use datafusion_common::ScalarValue;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// Padding around a plot area
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Padding {
+    pub left: f32,
+    pub right: f32,
+    pub top: f32,
+    pub bottom: f32,
+}
+
 /// Type of legend to create based on mark type and channel
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum LegendType {
@@ -38,7 +46,7 @@ struct LegendParams<'a> {
     scales: &'a HashMap<String, Scale>, // All available scales
     plot_width: f32,
     plot_height: f32,
-    padding: &'a crate::layout::Padding,
+    padding: &'a Padding,
     legend_margin: f32,
     y_offset: f32,
 }
@@ -88,7 +96,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
     /// Render the plot to a scene graph
     pub async fn render(&self) -> Result<RenderResult, AvengerChartError> {
         // Get plot dimensions from preferred size or default
-        let (width, height) = self.plot.get_preferred_size().unwrap_or((800.0, 600.0));
+        let (width, height) = self.plot.get_preferred_size().unwrap_or((400.0, 300.0));
 
         // Calculate padding for axes, title, etc.
         let padding = self.plot.measure_padding(width as f32, height as f32);
@@ -484,7 +492,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         scales: &HashMap<String, Scale>,
         plot_width: f32,
         plot_height: f32,
-        padding: &crate::layout::Padding,
+        padding: &Padding,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Get default axes from the coordinate system
         let default_axes =
@@ -511,7 +519,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         scales: &HashMap<String, Scale>,
         plot_width: f32,
         plot_height: f32,
-        padding: &crate::layout::Padding,
+        padding: &Padding,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         use crate::legend::LegendPosition;
 
@@ -1715,7 +1723,7 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
     fn create_title(
         &self,
         _total_width: f32,
-        _padding: &crate::layout::Padding,
+        _padding: &Padding,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // TODO: Create title text mark if plot.title is set
         // When implemented, wrap in a group with zindex: Some(20)

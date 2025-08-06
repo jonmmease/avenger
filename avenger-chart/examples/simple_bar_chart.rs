@@ -34,7 +34,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create bar chart using avenger-chart API
     let plot = Plot::new(Cartesian)
-        .preferred_size(400.0, 300.0)
         .data(df.clone())
         // Configure scales
         .scale_x(|scale| {

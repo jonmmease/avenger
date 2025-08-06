@@ -37,7 +37,7 @@ async fn test_simple_line_chart() {
     let df = create_line_data();
 
     let plot = Plot::new(Cartesian)
-        .preferred_size(600.0, 400.0)
+        
         .data(df)
         .scale_x(|scale| scale.scale_type("linear"))
         .scale_y(|scale| scale.scale_type("linear"))
@@ -59,7 +59,7 @@ async fn test_line_with_dashed_stroke() {
     let df = create_line_data();
 
     let plot = Plot::new(Cartesian)
-        .preferred_size(600.0, 400.0)
+        
         .data(df)
         .scale_x(|scale| scale.scale_type("linear"))
         .scale_y(|scale| scale.scale_type("linear"))
@@ -109,7 +109,7 @@ async fn test_line_with_gaps() {
         .expect("Failed to read batch into DataFrame");
 
     let plot = Plot::new(Cartesian)
-        .preferred_size(600.0, 400.0)
+        
         .data(df)
         .scale_x(|scale| scale.scale_type("linear"))
         .scale_y(|scale| scale.scale_type("linear"))
@@ -164,7 +164,7 @@ async fn test_multiple_lines() {
         .expect("Failed to read batch into DataFrame");
 
     let plot = Plot::new(Cartesian)
-        .preferred_size(600.0, 400.0)
+        
         .data(df.clone())
         .scale_x(|scale| scale.scale_type("linear"))
         .scale_y(|scale| scale.scale_type("linear"))
@@ -214,7 +214,7 @@ async fn test_line_dash_patterns() {
     let df = create_line_data();
 
     let plot = Plot::new(Cartesian)
-        .preferred_size(600.0, 400.0)
+        
         .data(df.clone())
         .scale_x(|scale| scale.scale_type("linear"))
         .scale_y(|scale| scale.scale_type("linear").domain((0.0, 100.0)))
@@ -284,7 +284,7 @@ async fn test_line_vertical_padding_no_nice() {
         .expect("Failed to read batch into DataFrame");
 
     let plot = Plot::new(Cartesian)
-        .preferred_size(600.0, 400.0)
+        
         .data(df)
         .scale_x(|scale| scale.scale_type("linear").option("nice", lit(false)))
         .scale_y(|scale| {

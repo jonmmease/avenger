@@ -32,7 +32,7 @@ async fn test_discrete_color_legend() {
     let df = ctx.read_batch(batch).unwrap();
 
     let plot = Plot::new(Cartesian)
-        .preferred_size(600.0, 400.0)
+        
         .data(df)
         .legend_fill(|legend| legend.title("Category"))
         .mark(
@@ -69,7 +69,7 @@ async fn test_legend_visibility() {
     let df = ctx.read_batch(batch).unwrap();
 
     let plot = Plot::new(Cartesian)
-        .preferred_size(600.0, 400.0)
+        
         .data(df)
         .scale_x(|scale| scale.domain((0.0, 10.0)))
         .scale_y(|scale| scale.domain((0.0, 12.0)))
@@ -114,7 +114,7 @@ async fn test_continuous_color_legend() {
     let df = ctx.read_batch(batch).unwrap();
 
     let plot = Plot::new(Cartesian)
-        .preferred_size(600.0, 400.0)
+        
         .data(df)
         .scale_x(|scale| scale.domain((0.0, 10.0)))
         .scale_y(|scale| scale.domain((0.0, 12.0)))
@@ -155,7 +155,7 @@ async fn test_continuous_color_legend() {
 //     let df = ctx.read_batch(batch).unwrap();
 //
 //     let plot = Plot::new(Cartesian)
-//         .preferred_size(600.0, 400.0)
+//         
 //         .data(df)
 //         .scale_x(|scale| scale.domain((0.0, 7.0)))
 //         .scale_y(|scale| scale.domain((0.0, 8.0)))
@@ -197,7 +197,7 @@ async fn test_shape_legend() {
     let df = ctx.read_batch(batch).unwrap();
 
     let plot = Plot::new(Cartesian)
-        .preferred_size(600.0, 400.0)
+        
         .data(df)
         .scale_x(|scale| scale.domain((0.0, 7.0)))
         .scale_y(|scale| scale.domain((0.0, 8.0)))
@@ -240,7 +240,7 @@ async fn test_combined_fill_and_shape_legend() {
     let df = ctx.read_batch(batch).unwrap();
 
     let plot = Plot::new(Cartesian)
-        .preferred_size(600.0, 400.0)
+        
         .data(df)
         .legend_fill(|legend| legend.title("Category"))
         .mark(
@@ -280,7 +280,7 @@ async fn test_combined_fill_and_shape_legend() {
 //     let df = ctx.read_batch(batch).unwrap();
 //
 //     let plot = Plot::new(Cartesian)
-//         .preferred_size(600.0, 400.0)
+//         
 //         .data(df)
 //         .scale_x(|scale| scale.domain((0.0, 7.0)))
 //         .scale_y(|scale| scale.domain((0.0, 8.0)))

@@ -28,7 +28,7 @@ async fn test_bar_chart_inferred_domain() {
 
     // Create a bar chart without explicit domains
     let plot = Plot::new(Cartesian)
-        .preferred_size(400.0, 300.0)
+        
         .data(df)
         // No explicit domain specifications - should be inferred
         .scale_x(|s| s)
@@ -68,7 +68,7 @@ async fn test_scatter_plot_inferred_domain() {
 
     // Create a scatter plot without explicit domains
     let plot = Plot::new(Cartesian)
-        .preferred_size(400.0, 300.0)
+        
         .data(df)
         // No explicit domain specifications - should compute min/max from expressions
         // The issue was that nice=true was rounding 13.5 down to 10
