@@ -588,9 +588,9 @@ impl<C: CoordinateSystem> Plot<C> {
                         }
                     }
                 }
-            } else if let Some(default_expr) = mark.default_channel_value(channel_name) {
+            } else if let Some(default_scalar) = mark.default_channel_value(channel_name) {
                 // Use mark-provided default
-                default_expr
+                lit(default_scalar)
             } else {
                 // No mapping and no default
                 lit(datafusion::scalar::ScalarValue::Null)
@@ -712,23 +712,15 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Apply default shape range to a scale if no explicit range is set
     /// This is called during rendering for shape channels
     pub fn apply_default_shape_range(&self, scale: &mut Scale) {
+        use crate::scales::shape_defaults::DEFAULT_SHAPES;
         use datafusion::logical_expr::lit;
 
         if !scale.has_explicit_range() && scale.get_scale_type() == "ordinal" {
             // Get domain cardinality
             let domain_cardinality = scale.get_domain_cardinality();
 
-            // Define available shapes in order of preference
-            let all_shapes = vec![
-                lit("circle"),
-                lit("square"),
-                lit("triangle-up"),
-                lit("cross"),
-                lit("diamond"),
-                lit("triangle-down"),
-                lit("triangle-left"),
-                lit("triangle-right"),
-            ];
+            // Use the shared default shapes
+            let all_shapes: Vec<_> = DEFAULT_SHAPES.iter().map(|&s| lit(s)).collect();
 
             // Use only as many shapes as needed based on domain cardinality
             let shape_range = if let Some(n) = domain_cardinality {

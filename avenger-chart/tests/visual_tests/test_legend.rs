@@ -217,6 +217,44 @@ async fn test_shape_legend() {
     assert_visual_match_default(plot, "legend", "shape_legend").await;
 }
 
+#[tokio::test]
+async fn test_combined_fill_and_shape_legend() {
+    // Create test data where both fill and shape are encoded to the same column
+    let categories = StringArray::from(vec!["A", "B", "C", "A", "B", "C", "A", "B", "C"]);
+    let x_values = Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
+    let y_values = Float64Array::from(vec![2.0, 4.0, 3.0, 5.0, 7.0, 6.0, 8.0, 10.0, 9.0]);
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("category", DataType::Utf8, false),
+        Field::new("x", DataType::Float64, false),
+        Field::new("y", DataType::Float64, false),
+    ]));
+
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![Arc::new(categories), Arc::new(x_values), Arc::new(y_values)],
+    )
+    .unwrap();
+
+    let ctx = SessionContext::new();
+    let df = ctx.read_batch(batch).unwrap();
+
+    let plot = Plot::new(Cartesian)
+        .preferred_size(600.0, 400.0)
+        .data(df)
+        .legend_fill(|legend| legend.title("Category"))
+        .mark(
+            Symbol::new()
+                .x(col("x"))
+                .y(col("y"))
+                .fill(col("category")) // Both fill and shape map to same column
+                .shape(col("category")) // This should result in legend with both color AND shape varying
+                .size(lit(100.0).identity()),
+        );
+
+    assert_visual_match_default(plot, "legend", "combined_fill_and_shape_legend").await;
+}
+
 // TODO: Re-enable when size scales support discrete domains with numeric ranges
 // #[tokio::test]
 // async fn test_multiple_legends() {

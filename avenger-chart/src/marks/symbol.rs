@@ -1,6 +1,7 @@
 use crate::coords::{Cartesian, CoordinateSystem, Polar};
 use crate::error::AvengerChartError;
 use crate::marks::{ChannelType, Mark, MarkState, RadiusExpression};
+use crate::utils::ScalarValueHelpers;
 use crate::{
     define_common_mark_channels, define_position_mark_channels, impl_mark_common,
     impl_mark_trait_common,
@@ -18,7 +19,7 @@ pub struct Symbol<C: CoordinateSystem> {
     __phantom: std::marker::PhantomData<C>,
 }
 
-// Generate common methods
+// Generate common methods (includes Default implementation)
 impl_mark_common!(Symbol, "symbol");
 
 // Define common channels for all coordinate systems
@@ -76,15 +77,15 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
         vec!["size", "stroke_width", "shape", "angle"]
     }
 
-    fn default_channel_value(&self, channel: &str) -> Option<Expr> {
+    fn default_channel_value(&self, channel: &str) -> Option<ScalarValue> {
         match channel {
-            "size" => Some(lit(64.0)),        // Default area
-            "shape" => Some(lit("circle")),   // Default shape
-            "angle" => Some(lit(0.0)),        // Default angle
-            "fill" => Some(lit("#4682b4")),   // Default blue
-            "stroke" => Some(lit("#000000")), // Default blac
-            "stroke_width" => Some(lit(1.0)), // Default stroke width
-            "opacity" => Some(lit(1.0)),      // Fully opaque
+            "size" => Some(ScalarValue::Float32(Some(64.0))), // Default area
+            "shape" => Some(ScalarValue::Utf8(Some("circle".to_string()))), // Default shape
+            "angle" => Some(ScalarValue::Float32(Some(0.0))), // Default angle
+            "fill" => Some(ScalarValue::Utf8(Some("#4682b4".to_string()))), // Default blue
+            "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))), // Default black
+            "stroke_width" => Some(ScalarValue::Float32(Some(1.0))), // Default stroke width
+            "opacity" => Some(ScalarValue::Float32(Some(1.0))), // Fully opaque
             _ => None,
         }
     }
@@ -149,17 +150,13 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
         // Handle shape channel efficiently - get default from mark
         let shape_default = self
             .default_channel_value("shape")
-            .and_then(|expr| {
-                if let datafusion::logical_expr::Expr::Literal(scalar, _) = expr {
-                    match scalar {
-                        datafusion::scalar::ScalarValue::Utf8(Some(s)) => {
-                            // Convert string to SymbolShape using from_vega_str
-                            avenger_common::types::SymbolShape::from_vega_str(&s).ok()
-                        }
-                        _ => None,
+            .and_then(|scalar| {
+                match scalar {
+                    ScalarValue::Utf8(Some(s)) => {
+                        // Convert string to SymbolShape using from_vega_str
+                        avenger_common::types::SymbolShape::from_vega_str(&s).ok()
                     }
-                } else {
-                    None
+                    _ => None,
                 }
             })
             .unwrap_or(avenger_common::types::SymbolShape::Circle);
@@ -179,19 +176,7 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
         // Stroke width is scalar only - get default from mark
         let stroke_width_default = self
             .default_channel_value("stroke_width")
-            .and_then(|expr| {
-                if let datafusion::logical_expr::Expr::Literal(scalar, _) = expr {
-                    match scalar {
-                        datafusion::scalar::ScalarValue::Float32(Some(v)) => Some(v),
-                        datafusion::scalar::ScalarValue::Float64(Some(v)) => Some(v as f32),
-                        datafusion::scalar::ScalarValue::Int32(Some(v)) => Some(v as f32),
-                        datafusion::scalar::ScalarValue::Int64(Some(v)) => Some(v as f32),
-                        _ => None,
-                    }
-                } else {
-                    None
-                }
-            })
+            .and_then(|scalar| scalar.as_f32().ok())
             .unwrap_or(1.0);
 
         let stroke_width = if let Some(width_scalar) = scalars.column_by_name("stroke_width") {
@@ -233,15 +218,15 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
 impl Mark<Polar> for Symbol<Polar> {
     impl_mark_trait_common!(Symbol, Polar, "symbol");
 
-    fn default_channel_value(&self, channel: &str) -> Option<Expr> {
+    fn default_channel_value(&self, channel: &str) -> Option<ScalarValue> {
         match channel {
-            "size" => Some(lit(64.0)), // Default area (matches define_common_mark_channels)
-            "shape" => Some(lit("circle")), // Default shape
-            "angle" => Some(lit(0.0)), // Default angle
-            "fill" => Some(lit("#4682b4")), // Default blue
-            "stroke" => Some(lit("#000000")), // Default black (matches define_common_mark_channels)
-            "stroke_width" => Some(lit(1.0)), // Default stroke width (matches define_common_mark_channels)
-            "opacity" => Some(lit(1.0)),      // Fully opaque
+            "size" => Some(ScalarValue::Float32(Some(64.0))), // Default area
+            "shape" => Some(ScalarValue::Utf8(Some("circle".to_string()))), // Default shape
+            "angle" => Some(ScalarValue::Float32(Some(0.0))), // Default angle
+            "fill" => Some(ScalarValue::Utf8(Some("#4682b4".to_string()))), // Default blue
+            "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))), // Default black
+            "stroke_width" => Some(ScalarValue::Float32(Some(1.0))), // Default stroke width
+            "opacity" => Some(ScalarValue::Float32(Some(1.0))), // Fully opaque
             _ => None,
         }
     }

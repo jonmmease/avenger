@@ -26,7 +26,7 @@ pub struct Line<C: CoordinateSystem> {
     __phantom: std::marker::PhantomData<C>,
 }
 
-// Generate common methods
+// Generate common methods (includes Default implementation)
 impl_mark_common!(Line, "line");
 
 // Define common channels for all coordinate systems
@@ -125,15 +125,15 @@ impl Mark<Cartesian> for Line<Cartesian> {
         true
     }
 
-    fn default_channel_value(&self, channel: &str) -> Option<Expr> {
+    fn default_channel_value(&self, channel: &str) -> Option<ScalarValue> {
         match channel {
-            "stroke" => Some(lit("#000000")),     // Default black
-            "stroke_width" => Some(lit(2.0)),     // Default line width
-            "stroke_cap" => Some(lit("butt")),    // Default cap style
-            "stroke_join" => Some(lit("miter")),  // Default join style
-            "opacity" => Some(lit(1.0)),          // Fully opaque
-            "interpolate" => Some(lit("linear")), // Linear interpolation
-            "defined" => Some(lit(true)),         // All points defined
+            "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))), // Default black
+            "stroke_width" => Some(ScalarValue::Float32(Some(2.0))),          // Default line width
+            "stroke_cap" => Some(ScalarValue::Utf8(Some("butt".to_string()))), // Default cap style
+            "stroke_join" => Some(ScalarValue::Utf8(Some("miter".to_string()))), // Default join style
+            "opacity" => Some(ScalarValue::Float32(Some(1.0))),                  // Fully opaque
+            "interpolate" => Some(ScalarValue::Utf8(Some("linear".to_string()))), // Linear interpolation
+            "defined" => Some(ScalarValue::Boolean(Some(true))), // All points defined
             _ => None,
         }
     }
@@ -494,15 +494,15 @@ impl Mark<Cartesian> for Line<Cartesian> {
 impl Mark<Polar> for Line<Polar> {
     impl_mark_trait_common!(Line, Polar, "line");
 
-    fn default_channel_value(&self, channel: &str) -> Option<Expr> {
+    fn default_channel_value(&self, channel: &str) -> Option<ScalarValue> {
         match channel {
-            "stroke" => Some(lit("#000000")),     // Default black
-            "stroke_width" => Some(lit(2.0)),     // Default line width
-            "stroke_cap" => Some(lit("butt")),    // Default cap style
-            "stroke_join" => Some(lit("miter")),  // Default join style
-            "opacity" => Some(lit(1.0)),          // Fully opaque
-            "interpolate" => Some(lit("linear")), // Linear interpolation
-            "defined" => Some(lit(true)),         // All points defined
+            "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))), // Default black
+            "stroke_width" => Some(ScalarValue::Float32(Some(2.0))),          // Default line width
+            "stroke_cap" => Some(ScalarValue::Utf8(Some("butt".to_string()))), // Default cap style
+            "stroke_join" => Some(ScalarValue::Utf8(Some("miter".to_string()))), // Default join style
+            "opacity" => Some(ScalarValue::Float32(Some(1.0))),                  // Fully opaque
+            "interpolate" => Some(ScalarValue::Utf8(Some("linear".to_string()))), // Linear interpolation
+            "defined" => Some(ScalarValue::Boolean(Some(true))), // All points defined
             _ => None,
         }
     }

@@ -44,9 +44,9 @@ pub fn infer_scale_type_with_mark(
         // Other marks use point scales for categorical position data
         ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View, _) => "point",
 
-        // Color and shape channels use ordinal scales for categorical data
+        // Color, shape, and size channels use ordinal scales for categorical data
         (
-            "fill" | "stroke" | "color" | "shape",
+            "fill" | "stroke" | "color" | "shape" | "size",
             DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
             _,
         ) => "ordinal",
