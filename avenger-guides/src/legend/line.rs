@@ -112,8 +112,26 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
         y += legend_group_height;
     }
 
+    // Measure the overall bounds to create a clip rect
+    let temp_group = SceneGroup {
+        marks: groups.clone(),
+        ..Default::default()
+    };
+    let bbox = temp_group.bounding_box();
+    // The bounding box should include all content
+    // Add 4px padding all around to prevent clipping (matches symbol legend)
+    let padding = 4.0;
+    let width = bbox.width() + 2.0 * padding;
+    let height = bbox.height() + 2.0 * padding;
+
     Ok(SceneGroup {
         marks: groups,
+        clip: avenger_scenegraph::marks::group::Clip::Rect {
+            x: -padding,
+            y: -padding,
+            width,
+            height,
+        },
         ..Default::default()
     })
 }

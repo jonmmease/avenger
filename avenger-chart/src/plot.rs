@@ -39,6 +39,9 @@ pub struct Plot<C: CoordinateSystem> {
     /// Mapping from scale names to their coordinate channel
     /// e.g., "y_squared" -> "y", "y_temperature" -> "y"
     scale_to_coord_channel: HashMap<String, String>,
+
+    /// Preferred size for the plot canvas
+    preferred_size: Option<(f32, f32)>,
 }
 
 /// Enhanced resolution options with row/column specificity
@@ -340,6 +343,7 @@ impl<C: CoordinateSystem> Plot<C> {
             controllers: Vec::new(),
             scale_specs: HashMap::new(),
             scale_to_coord_channel: HashMap::new(),
+            preferred_size: None,
         }
     }
 
@@ -734,7 +738,6 @@ impl<C: CoordinateSystem> Plot<C> {
         self
     }
 
-
     /// Collect all channels that need scales
     pub fn collect_channels_needing_scales(&self) -> std::collections::HashSet<String> {
         use std::collections::HashSet;
@@ -754,10 +757,15 @@ impl<C: CoordinateSystem> Plot<C> {
         Some(self.create_default_scale_for_channel_internal(channel))
     }
 
-    /// Get preferred size for the plot (temporary placeholder)
+    /// Get preferred size for the plot
     pub fn get_preferred_size(&self) -> Option<(f32, f32)> {
-        // Return None to use defaults in renderer
-        None
+        self.preferred_size
+    }
+
+    /// Set a preferred size for the plot canvas
+    pub fn with_size(mut self, width: f32, height: f32) -> Self {
+        self.preferred_size = Some((width, height));
+        self
     }
 
     /// Measure padding required for axes, legends, etc. (temporary placeholder)

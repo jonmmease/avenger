@@ -33,7 +33,6 @@ async fn test_symbol_legend_with_scalar_expressions() {
 
     // Create plot with scalar expressions for various channels
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .legend_shape(|legend| legend.title("Category"))
         .mark(
@@ -82,7 +81,6 @@ async fn test_symbol_legend_with_column_dependencies() {
 
     // Create plot where size depends on a column (not the legend channel)
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .legend_fill(|legend| legend.title("Category"))
         .mark(
@@ -121,7 +119,6 @@ async fn test_ordinal_size_legend() {
 
     // Create plot with ordinal size scale
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .legend_size(|legend| legend.title("Size Category"))
         .scale_size(|scale| {
@@ -143,6 +140,11 @@ async fn test_ordinal_size_legend() {
 
 #[tokio::test]
 async fn test_combined_size_color_shape_legend() {
+    // Set environment variable to save layout SVG for debugging
+    unsafe {
+        std::env::set_var("AVENGER_DEBUG_LAYOUT", "tests/failures/legend");
+    }
+
     // Create test data with a single category column that will drive size, color, and shape
     let categories = StringArray::from(vec![
         "Type A", "Type B", "Type C", "Type A", "Type B", "Type C",
@@ -170,7 +172,6 @@ async fn test_combined_size_color_shape_legend() {
     let df = ctx.read_batch(batch).unwrap();
 
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         // Configure scales for the shared category column
         .scale_size(|scale| {

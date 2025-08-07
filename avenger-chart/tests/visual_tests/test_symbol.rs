@@ -35,7 +35,6 @@ async fn test_simple_scatter_plot() {
     let df = create_scatter_data();
 
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .scale_x(|scale| scale.scale_type("linear"))
         .scale_y(|scale| scale.scale_type("linear"))
@@ -135,7 +134,6 @@ async fn test_scatter_with_shapes() {
         .expect("Failed to read batch into DataFrame");
 
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .scale_x(|scale| scale.scale_type("linear"))
         .scale_y(|scale| scale.scale_type("linear"))
@@ -213,7 +211,7 @@ async fn test_scatter_with_size_encoding() {
         .expect("Failed to read batch into DataFrame");
 
     let plot = Plot::new(Cartesian)
-        
+        .with_size(600.0, 450.0)
         .data(df)
         .scale_x(|scale| scale.scale_type("linear").option("nice", lit(false)))
         .scale_y(|scale| {
@@ -268,7 +266,6 @@ async fn test_scatter_with_angle() {
         .expect("Failed to read batch into DataFrame");
 
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .axis_x(|axis| axis.title("X Position"))
         .axis_y(|axis| axis.title("Y Position"))
@@ -316,20 +313,17 @@ async fn test_scatter_with_angle_scale() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::new(Cartesian)
-        
-        .data(df)
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .shape("arrow")
-                .angle(col("angle"))
-                .size(400.0)
-                .fill("#2ecc71")
-                .stroke("#27ae60")
-                .stroke_width(2.0),
-        );
+    let plot = Plot::new(Cartesian).data(df).mark(
+        Symbol::new()
+            .x(col("x"))
+            .y(col("y"))
+            .shape("arrow")
+            .angle(col("angle"))
+            .size(400.0)
+            .fill("#2ecc71")
+            .stroke("#27ae60")
+            .stroke_width(2.0),
+    );
 
     assert_visual_match_default(plot, "symbol", "scatter_with_angle_scale").await;
 }
@@ -368,7 +362,6 @@ async fn test_scatter_with_default_shape_scale() {
         .expect("Failed to read batch into DataFrame");
 
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .axis_x(|axis| axis.title("X Value"))
         .axis_y(|axis| axis.title("Y Value"))

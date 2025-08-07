@@ -40,16 +40,13 @@ async fn test_default_axes_numeric_with_grid() {
     let df = create_test_data();
 
     // Create a plot without explicit axes
-    let plot = Plot::new(Cartesian)
-        .data(df)
-        
-        .mark(
-            Line::new()
-                .x(col("x_val"))
-                .y(col("y_val"))
-                .stroke("#4682b4")
-                .stroke_width(2.0),
-        );
+    let plot = Plot::new(Cartesian).data(df).mark(
+        Line::new()
+            .x(col("x_val"))
+            .y(col("y_val"))
+            .stroke("#4682b4")
+            .stroke_width(2.0),
+    );
 
     // Should create default axes with:
     // - x axis titled "x_val" with grid enabled
@@ -62,17 +59,14 @@ async fn test_default_axes_band_without_grid() {
     let df = create_test_data();
 
     // Create a plot with band scale on x
-    let plot = Plot::new(Cartesian)
-        .data(df)
-        
-        .mark(
-            Rect::new()
-                .x(col("category"))
-                .x2(col("category").scaled().with_band(1.0))
-                .y(lit(0.0))
-                .y2(col("y_val"))
-                .fill("#4682b4"),
-        );
+    let plot = Plot::new(Cartesian).data(df).mark(
+        Rect::new()
+            .x(col("category"))
+            .x2(col("category").scaled().with_band(1.0))
+            .y(lit(0.0))
+            .y2(col("y_val"))
+            .fill("#4682b4"),
+    );
 
     // Should create default axes with:
     // - x axis titled "category" with grid disabled (band scale)
@@ -87,7 +81,6 @@ async fn test_default_axes_disabled() {
     // Create a plot and explicitly disable x axis
     let plot = Plot::new(Cartesian)
         .data(df)
-        
         .axis_x(|axis| axis.visible(false))
         .mark(
             Line::new()
@@ -108,7 +101,6 @@ async fn test_default_axes_custom_title() {
     // Create a plot and override some default axis properties
     let plot = Plot::new(Cartesian)
         .data(df)
-        
         .axis_x(|axis| axis.title("Custom X Title").grid(false))
         .mark(
             Line::new()

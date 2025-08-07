@@ -59,7 +59,6 @@ async fn test_line_discrete_stroke_legend() {
 
     // Create a multi-series line chart with stroke legend
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .scale_x(|scale| scale.domain((0.0, 6.0)))
         .scale_y(|scale| scale.domain((0.0, 35.0)))
@@ -124,7 +123,6 @@ async fn test_line_stroke_width_legend() {
 
     // Create a line chart with stroke width legend
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .scale_x(|scale| scale.domain((0.0, 6.0)))
         .scale_y(|scale| scale.domain((0.0, 15.0)))
@@ -207,7 +205,6 @@ async fn test_line_stroke_dash_legend() {
 
     // Create a line chart with stroke dash legend
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .scale_x(|scale| scale.domain((0.0, 6.0)))
         .scale_y(|scale| scale.domain((0.0, 20.0)))
@@ -277,7 +274,6 @@ async fn test_line_combined_stroke_width_legend() {
 
     // Create a line chart where priority encodes both stroke color and width
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .scale_x(|scale| scale.domain((0.0, 6.0)))
         .scale_y(|scale| scale.domain((0.0, 25.0)))
