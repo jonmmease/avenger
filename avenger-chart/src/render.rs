@@ -18,6 +18,7 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::Expr;
 use datafusion::prelude::DataFrame;
 use datafusion_common::ScalarValue;
+use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -28,6 +29,38 @@ pub struct Padding {
     pub right: f32,
     pub top: f32,
     pub bottom: f32,
+}
+
+/// Cache for pre-created legend scene groups
+/// Ensures exact matching between measurement and rendering
+#[derive(Debug, Clone, Default)]
+pub struct LegendCache {
+    /// Maps channel names to their pre-created legend scene groups
+    legends: HashMap<String, SceneGroup>,
+}
+
+impl LegendCache {
+    /// Create a new empty legend cache
+    pub fn new() -> Self {
+        Self {
+            legends: HashMap::new(),
+        }
+    }
+
+    /// Add a legend to the cache
+    pub fn insert(&mut self, channel: String, legend: SceneGroup) {
+        self.legends.insert(channel, legend);
+    }
+
+    /// Get a legend from the cache
+    pub fn get(&self, channel: &str) -> Option<&SceneGroup> {
+        self.legends.get(channel)
+    }
+
+    /// Get a mutable reference to a legend from the cache
+    pub fn get_mut(&mut self, channel: &str) -> Option<&mut SceneGroup> {
+        self.legends.get_mut(channel)
+    }
 }
 
 /// Type of legend to create based on mark type and channel
@@ -88,7 +121,7 @@ fn parse_color_string(color_str: &str) -> Option<avenger_common::types::ColorOrG
         .and_then(|colors| colors.as_vec(1, None).first().cloned())
 }
 
-impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
+impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
     pub fn new(plot: &'a Plot<C>) -> Self {
         Self { plot }
     }
@@ -98,8 +131,19 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         // Get plot dimensions from preferred size or default
         let (width, height) = self.plot.get_preferred_size().unwrap_or((400.0, 300.0));
 
-        // Calculate padding for axes, title, etc.
-        let padding = self.plot.measure_padding(width as f32, height as f32);
+        // Use dynamic Taffy layout for Cartesian plots, fixed padding for others
+        let use_taffy_layout =
+            std::any::TypeId::of::<C>() == std::any::TypeId::of::<crate::coords::Cartesian>();
+
+        let (padding, layout_result) = if use_taffy_layout {
+            // Use Taffy layout for accurate legend and axis positioning
+            self.compute_layout_with_taffy(width as f32, height as f32)
+                .await?
+        } else {
+            // Fallback to fixed padding for non-Cartesian plots
+            let padding = self.plot.measure_padding(width as f32, height as f32);
+            (padding, None)
+        };
 
         // Calculate plot area (inside padding)
         let plot_area_x = padding.left;
@@ -209,9 +253,15 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
             .await?;
 
         // Create legends
-        let legend_marks = self
-            .create_legends(&all_scales, plot_area_width, plot_area_height, &padding)
-            .await?;
+        let legend_marks = if let Some(layout) = &layout_result {
+            // Use Taffy layout positions for legends
+            self.create_legends_with_layout(&all_scales, layout, plot_area_width, plot_area_height)
+                .await?
+        } else {
+            // Fallback to fixed positioning
+            self.create_legends(&all_scales, plot_area_width, plot_area_height, &padding)
+                .await?
+        };
 
         // Create title if present
         let title_marks = self.create_title(width as f32, &padding)?;
@@ -514,6 +564,75 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
     }
 
     /// Create legend marks based on configured legends
+    /// Create legends using Taffy layout positions
+    async fn create_legends_with_layout(
+        &self,
+        scales: &HashMap<String, Scale>,
+        layout: &crate::chart_layout::LayoutResult,
+        _plot_width: f32,
+        _plot_height: f32,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        // Get default legends for channels with data-driven scales
+        let default_legends = self.create_default_legends(scales);
+
+        // Combine existing legends with defaults
+        let mut all_legends = self.plot.legends.clone();
+        for (channel, default_legend) in default_legends {
+            all_legends.entry(channel).or_insert(default_legend);
+        }
+
+        // Create legend marks positioned according to layout
+        let mut legend_marks = Vec::new();
+
+        for (channel, legend) in &all_legends {
+            if !legend.visible {
+                continue;
+            }
+
+            // Get layout bounds for this legend
+            if let Some(bounds) = layout.legends.get(channel) {
+                // Determine legend type and create it
+                let scale = scales.get(channel).ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Scale for channel '{}' not found",
+                        channel
+                    ))
+                })?;
+                let legend_type = self.determine_legend_type(&channel, scale);
+
+                let params = LegendParams {
+                    channel: &channel,
+                    legend: &legend,
+                    scales,
+                    plot_width: bounds.width,
+                    plot_height: bounds.height,
+                    padding: &Padding {
+                        left: 0.0,
+                        right: 0.0,
+                        top: 0.0,
+                        bottom: 0.0,
+                    },
+                    legend_margin: 0.0,
+                    y_offset: 0.0,
+                };
+
+                let legend_group = match legend_type {
+                    LegendType::Symbol => self.create_symbol_legend(params).await?,
+                    LegendType::Line => self.create_line_legend(params).await?,
+                    LegendType::Colorbar => self.create_colorbar_legend(params).await?,
+                };
+
+                // Position the legend according to layout bounds
+                if let Some(mut group) = legend_group {
+                    group.origin = [bounds.x, bounds.y];
+                    legend_marks.push(SceneMark::Group(group));
+                }
+            }
+        }
+
+        Ok(legend_marks)
+    }
+
     async fn create_legends(
         &self,
         scales: &HashMap<String, Scale>,
@@ -779,7 +898,8 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                 .unwrap_or(1.0);
 
             // Use fixed square shape and appropriate size for rect legends
-            (100.0, "square".to_string(), 0.0, fill, stroke, stroke_width)
+            // Use smaller size for legend to match symbol legends
+            (64.0, "square".to_string(), 0.0, fill, stroke, stroke_width)
         } else {
             // Use symbol defaults
             let temp_symbol = Symbol::<Cartesian>::default();
@@ -824,6 +944,8 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
             text: ScalarOrArray::new_array(text_values),
             inner_width: 0.0, // Don't offset internally, we'll position the whole group
             inner_height: 100.0, // Will be calculated by legend
+            outer_margin: 0.0, // Don't offset legend entries
+            text_padding: 2.0, // Consistent padding
             ..Default::default()
         };
 
@@ -1129,18 +1251,17 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         }
 
         // Create the legend marks
-        let legend_group = make_symbol_legend(&config)?;
+        let mut legend_group = make_symbol_legend(&config)?;
 
         // Position the legend
         let x = params.padding.left + params.plot_width + params.legend_margin;
         let y = params.padding.top + params.y_offset;
 
-        Ok(Some(SceneGroup {
-            origin: [x, y],
-            marks: legend_group.marks,
-            zindex: Some(10), // Legends above data but below title
-            ..Default::default()
-        }))
+        // Update position
+        legend_group.origin = [x, y];
+        legend_group.zindex = Some(10); // Legends above data but below title
+
+        Ok(Some(legend_group))
     }
 
     /// Convert dash pattern names to numeric arrays using the coercer
@@ -1292,7 +1413,9 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
             text: ScalarOrArray::new_array(text_values),
             inner_width: 0.0,
             inner_height: 100.0,
-            line_length: 20.0,
+            outer_margin: 0.0, // Don't offset legend entries
+            line_length: 16.0, // Consistent with measurement
+            text_padding: 4.0, // Consistent with symbol legend
             ..Default::default()
         };
 
@@ -1451,15 +1574,15 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
             config.stroke_dash = ScalarOrArray::new_scalar(None);
         }
 
-        let legend_group = make_line_legend(&config)?;
+        let mut legend_group = make_line_legend(&config)?;
         let x = params.padding.left + params.plot_width + params.legend_margin;
         let y = params.padding.top + params.y_offset;
-        Ok(Some(SceneGroup {
-            origin: [x, y],
-            marks: legend_group.marks,
-            zindex: Some(10),
-            ..Default::default()
-        }))
+
+        // Update position and add debug stroke
+        legend_group.origin = [x, y];
+        legend_group.zindex = Some(10);
+
+        Ok(Some(legend_group))
     }
 
     /// Create a colorbar legend
@@ -1478,29 +1601,37 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
                 params.channel
             ))
         })?;
-        let configured_scale = legend_scale
+
+        // Apply default color range if not explicitly set
+        let mut legend_scale_copy = legend_scale.clone();
+        if !legend_scale_copy.has_explicit_range() {
+            self.plot
+                .apply_default_color_range(&mut legend_scale_copy, params.channel);
+        }
+
+        let configured_scale = legend_scale_copy
             .create_configured_scale(100.0, params.plot_height)
             .await?;
 
-        // Determine colorbar dimensions
+        // Determine colorbar dimensions based on available space
+        let available_height = params.plot_height; // This is the bounds height when using Taffy
         let colorbar_height = params
             .legend
             .gradient_length
-            .unwrap_or((params.plot_height * 0.5) as f64)
+            .unwrap_or((available_height * 0.8) as f64)
             .min(200.0) as f32;
-        let colorbar_width = params.legend.gradient_thickness.unwrap_or(10.0) as f32;
+        let colorbar_width = params.legend.gradient_thickness.unwrap_or(15.0) as f32;
 
         let config = ColorbarConfig {
             orientation: ColorbarOrientation::Right,
-            dimensions: [params.plot_width, params.plot_height],
+            dimensions: [params.plot_width, available_height], // Available space for the colorbar
             colorbar_width: Some(colorbar_width),
             colorbar_height: Some(colorbar_height),
-            colorbar_margin: Some(params.legend_margin),
+            colorbar_margin: Some(0.0), // No margin - align exactly with axis
         };
 
-        // Create the colorbar marks
-        // Pass the plot area origin - the colorbar will position itself relative to this
-        let plot_origin = [params.padding.left, params.padding.top];
+        // Create the colorbar marks at origin [0, 0] (will be positioned by group origin)
+        let plot_origin = [0.0, 0.0];
         let title = params.legend.title.as_deref().unwrap_or("");
 
         let mut colorbar_group =
@@ -1793,6 +1924,134 @@ impl<'a, C: CoordinateSystem> PlotRenderer<'a, C> {
         }
 
         Ok(())
+    }
+
+    /// Compute layout using Taffy for accurate positioning
+    async fn compute_layout_with_taffy(
+        &self,
+        width: f32,
+        height: f32,
+    ) -> Result<(Padding, Option<crate::chart_layout::LayoutResult>), AvengerChartError> {
+        use crate::chart_layout::ChartLayout;
+
+        // Build all scales to determine what legends we need
+        let channels_with_scales = self.plot.collect_channels_needing_scales();
+        let mut all_scales = HashMap::new();
+        for channel in &channels_with_scales {
+            let scale = self.plot.get_scale(channel);
+            all_scales.insert(channel.clone(), scale);
+        }
+
+        // Process scales to infer domains
+        let mut configured_scales = HashMap::new();
+        let all_scales_for_defaults = all_scales.clone();
+        for (name, mut scale) in all_scales {
+            // Infer domain if needed
+            if !scale.has_explicit_domain() {
+                let data_expressions = self.plot.gather_scale_domain_expressions(&name);
+                if !data_expressions.is_empty() {
+                    scale = scale.domain_data_fields_internal(data_expressions);
+                }
+            }
+
+            // Infer domain from data
+            if matches!(
+                &scale.domain.default_domain,
+                crate::scales::ScaleDefaultDomain::DomainExprs(_)
+            ) {
+                scale = scale.infer_domain_from_data(None).await?;
+            }
+
+            // Apply default range
+            self.plot
+                .apply_default_range(&mut scale, &name, width as f64, height as f64);
+
+            // Apply default color range for color channels
+            if matches!(name.as_str(), "fill" | "stroke" | "color") {
+                self.plot.apply_default_color_range(&mut scale, &name);
+            }
+
+            // Apply default shape range for shape channel
+            if name == "shape" {
+                self.plot.apply_default_shape_range(&mut scale);
+            }
+
+            // Create configured scale for measurement
+            let configured = scale.create_configured_scale(width, height).await?;
+            configured_scales.insert(name, configured);
+        }
+
+        // Get default legends for channels with data-driven scales
+        let default_legends = self.create_default_legends(&all_scales_for_defaults);
+        let mut all_legends = self.plot.legends.clone();
+        for (channel, default_legend) in default_legends {
+            all_legends.entry(channel).or_insert(default_legend);
+        }
+
+        // Filter to visible legends
+        let visible_legends: Vec<_> = all_legends
+            .iter()
+            .filter(|(_, legend)| legend.visible)
+            .map(|(channel, legend)| (channel.clone(), legend.clone()))
+            .collect();
+
+        // Create axes map for ChartLayout
+        // For Cartesian coordinates, we need to get the axes configuration
+        let axes_map =
+            if std::any::TypeId::of::<C>() == std::any::TypeId::of::<crate::coords::Cartesian>() {
+                // Get default axes from the coordinate system
+                let default_axes = self.plot.coord_system().create_default_axes(
+                    &all_scales_for_defaults,
+                    &self.plot.axes,
+                    &self.plot.marks,
+                );
+
+                // Combine existing axes with defaults
+                let mut all_axes = self.plot.axes.clone();
+                for (channel, default_axis) in default_axes {
+                    all_axes.entry(channel).or_insert(default_axis);
+                }
+
+                // Convert to the expected type - since we know we're dealing with Cartesian,
+                // the axes should be CartesianAxis type
+                let mut cartesian_axes = HashMap::new();
+                for (channel, axis) in all_axes {
+                    // We need to do an unsafe transmute here because we can't directly
+                    // access the associated type. This is safe because we checked the TypeId.
+                    let axis_ptr = &axis as *const C::Axis;
+                    let cartesian_axis_ptr = axis_ptr as *const crate::axis::CartesianAxis;
+                    let cartesian_axis = unsafe { (*cartesian_axis_ptr).clone() };
+                    cartesian_axes.insert(channel, cartesian_axis);
+                }
+                cartesian_axes
+            } else {
+                HashMap::new()
+            };
+
+        // Create legends map
+        let legends_map: HashMap<String, crate::legend::Legend> =
+            visible_legends.into_iter().collect();
+
+        // Create ChartLayout
+        let mut layout = ChartLayout::new(
+            &axes_map,
+            &legends_map,
+            &configured_scales,
+            Some((width, height)),
+        )?;
+
+        // Compute layout
+        let layout_result = layout.compute(width, height)?;
+
+        // Convert layout bounds to padding
+        let padding = Padding {
+            left: layout_result.plot_area.x,
+            right: width - (layout_result.plot_area.x + layout_result.plot_area.width),
+            top: layout_result.plot_area.y,
+            bottom: height - (layout_result.plot_area.y + layout_result.plot_area.height),
+        };
+
+        Ok((padding, Some(layout_result)))
     }
 
     /// Process a scale with common workflow

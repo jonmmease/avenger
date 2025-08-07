@@ -62,6 +62,15 @@ pub enum AvengerChartError {
 
     #[error("Wgpu error: `{0}`")]
     WgpuError(#[from] AvengerWgpuError),
+
+    #[error("Layout error: `{0}`")]
+    LayoutError(String),
+}
+
+impl From<taffy::TaffyError> for AvengerChartError {
+    fn from(err: taffy::TaffyError) -> Self {
+        AvengerChartError::LayoutError(err.to_string())
+    }
 }
 
 impl From<AvengerChartError> for DataFusionError {

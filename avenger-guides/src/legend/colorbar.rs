@@ -1,4 +1,5 @@
 use avenger_common::types::{ColorOrGradient, Gradient, LinearGradient};
+use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{group::SceneGroup, rect::SceneRectMark};
 
@@ -21,14 +22,16 @@ pub fn make_colorbar_marks(
         ColorbarOrientation::Bottom => todo!(),
         ColorbarOrientation::Left => todo!(),
         ColorbarOrientation::Right => {
-            // config.dimensions represents the plot area dimensions
-            let plot_width = config.dimensions[0];
-            let plot_height = config.dimensions[1];
+            // config.dimensions represents available space for the colorbar
+            let _available_width = config.dimensions[0];
+            let available_height = config.dimensions[1];
 
             // Colorbar properties
             let colorbar_width = config.colorbar_width.unwrap_or(10.0);
-            let colorbar_height = config.colorbar_height.unwrap_or(plot_height.min(200.0));
-            let colorbar_margin = config.colorbar_margin.unwrap_or(20.0);
+            let colorbar_height = config
+                .colorbar_height
+                .unwrap_or(available_height.min(200.0));
+            let colorbar_margin = config.colorbar_margin.unwrap_or(5.0);
 
             // Create a gradient for the colorbar rect
             let gradient = Gradient::LinearGradient(LinearGradient {
@@ -39,8 +42,8 @@ pub fn make_colorbar_marks(
                 stops: scale.color_range_as_gradient_stops(10)?,
             });
 
-            // Position colorbar to the right of the plot area
-            let colorbar_x = origin[0] + plot_width + colorbar_margin;
+            // Position colorbar at origin (relative positioning)
+            let colorbar_x = origin[0];
             let colorbar_y = origin[1];
 
             // Make colorbar rect
@@ -55,8 +58,8 @@ pub fn make_colorbar_marks(
                 ..Default::default()
             };
 
-            // Make axis positioned to the right of the colorbar
-            let axis_origin = [colorbar_x + colorbar_width, colorbar_y];
+            // Make axis positioned to the right of the colorbar with small margin
+            let axis_origin = [colorbar_x + colorbar_width + colorbar_margin, colorbar_y];
             let axis_config = AxisConfig {
                 orientation: AxisOrientation::Right,
                 dimensions: [0.0, colorbar_height],
@@ -67,9 +70,30 @@ pub fn make_colorbar_marks(
             let numeric_scale = scale.clone().with_range_interval((colorbar_height, 0.0));
             let axis = make_numeric_axis_marks(&numeric_scale, title, axis_origin, &axis_config)?;
 
+            // Measure the overall bounds to create a clip rect
+            let marks = vec![rect.into(), axis.into()];
+            let temp_group = SceneGroup {
+                marks: marks.clone(),
+                ..Default::default()
+            };
+            let bbox = temp_group.bounding_box();
+
+            // Use actual bounding box coordinates for clip rect to avoid clipping content
+            let padding = 2.0;
+            let clip_x = bbox.lower()[0] - padding;
+            let clip_y = bbox.lower()[1] - padding;
+            let clip_width = bbox.width() + 2.0 * padding;
+            let clip_height = bbox.height() + 2.0 * padding;
+
             Ok(SceneGroup {
                 origin: [0.0, 0.0], // Group at root since we're positioning elements absolutely
-                marks: vec![rect.into(), axis.into()],
+                marks,
+                clip: avenger_scenegraph::marks::group::Clip::Rect {
+                    x: clip_x,
+                    y: clip_y,
+                    width: clip_width,
+                    height: clip_height,
+                },
                 ..Default::default()
             })
         }

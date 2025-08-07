@@ -32,7 +32,6 @@ async fn test_zindex_ordering() {
         .expect("Failed to read batch into DataFrame");
 
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .scale_x(|scale| scale.scale_type("linear").domain((0.0, 6.0)))
         .scale_y(|scale| scale.scale_type("linear").domain((0.0, 60.0)))
@@ -91,7 +90,6 @@ async fn test_zindex_default_order() {
         .expect("Failed to read batch into DataFrame");
 
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .scale_x(|scale| scale.scale_type("linear").domain((0.0, 6.0)))
         .scale_y(|scale| scale.scale_type("linear").domain((0.0, 60.0)))

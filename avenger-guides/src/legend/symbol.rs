@@ -113,8 +113,25 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
         y += height;
     }
 
+    // Measure the overall bounds to create a clip rect
+    let temp_group = SceneGroup {
+        marks: groups.clone(),
+        ..Default::default()
+    };
+    let bbox = temp_group.bounding_box();
+    // Add 4px padding all around to prevent clipping
+    let padding = 4.0;
+    let width = bbox.width() + 2.0 * padding;
+    let height = bbox.height() + 2.0 * padding;
+
     Ok(SceneGroup {
         marks: groups,
+        clip: avenger_scenegraph::marks::group::Clip::Rect {
+            x: -padding,
+            y: -padding,
+            width,
+            height,
+        },
         ..Default::default()
     })
 }

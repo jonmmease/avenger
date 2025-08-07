@@ -155,7 +155,6 @@ async fn test_multi_series_line_with_color() {
 
     // Create a plot with lines colored by series
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .scale_stroke(|s| s.scale_type("ordinal"))
         .axis_x(|axis| axis.title("X").grid(true))
@@ -177,7 +176,6 @@ async fn test_multi_series_line_with_width() {
 
     // Create a plot with lines having different widths per series
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .axis_x(|axis| axis.title("X").grid(true))
         .axis_y(|axis| axis.title("Y").grid(true))
@@ -198,7 +196,6 @@ async fn test_multi_series_with_color_and_width() {
 
     // Create a plot where color and width vary by series
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .scale_stroke(|s| s.scale_type("ordinal"))
         .axis_x(|axis| axis.title("X").grid(true))
@@ -220,7 +217,6 @@ async fn test_line_with_order_channel() {
 
     // Create a plot using order channel to sort points
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .scale_stroke(|s| s.scale_type("ordinal"))
         .axis_x(|axis| axis.title("X").grid(true))
@@ -266,7 +262,6 @@ async fn test_multi_series_line_with_dash() {
     let df = ctx.read_batch(batch).unwrap();
 
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .scale_stroke_dash(|s| {
             s.scale_type("ordinal")
@@ -329,7 +324,6 @@ async fn test_multi_series_line_with_color_and_dash() {
     let df = ctx.read_batch(batch).unwrap();
 
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .scale_stroke(|s| s.scale_type("ordinal"))
         .scale_stroke_dash(|s| {
@@ -394,7 +388,6 @@ async fn test_multi_series_line_all_encodings() {
     let df = ctx.read_batch(batch).unwrap();
 
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .scale_stroke(|s| s.scale_type("ordinal"))
         .scale_stroke_width(|s| s.scale_type("linear").range_numeric(lit(1.0), lit(4.0)))

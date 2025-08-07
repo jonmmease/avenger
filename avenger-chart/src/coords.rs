@@ -168,7 +168,12 @@ impl CoordinateSystem for Cartesian {
                     false
                 };
 
-                let axis = CartesianAxis::new().title(title).grid(grid);
+                // Get default axis with position
+                let mut axis =
+                    Self::default_axis(channel, 0).unwrap_or_else(|| CartesianAxis::new());
+
+                // Update with title and grid
+                axis = axis.title(title).grid(grid);
 
                 default_axes.insert(channel.to_string(), axis);
             }

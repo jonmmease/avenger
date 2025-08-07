@@ -16,7 +16,6 @@ async fn test_bar_chart_linear_color_interpolation() {
     let df = datasets::simple_categories();
 
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .scale_x(|s| {
             s.scale_type("band").domain_discrete(vec![
@@ -69,7 +68,6 @@ async fn test_bar_chart_log_color_interpolation() {
     let df = datasets::simple_categories();
 
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .scale_x(|s| {
             s.scale_type("band").domain_discrete(vec![
@@ -118,7 +116,6 @@ async fn test_bar_chart_pow_color_interpolation() {
     let df = datasets::simple_categories();
 
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .scale_x(|s| {
             s.scale_type("band").domain_discrete(vec![
@@ -167,7 +164,6 @@ async fn test_bar_chart_sqrt_color_interpolation() {
     let df = datasets::simple_categories();
 
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .scale_x(|s| {
             s.scale_type("band").domain_discrete(vec![
@@ -219,7 +215,6 @@ async fn test_bar_chart_threshold_scale_colors() {
     let df = datasets::simple_categories();
 
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .scale_x(|s| {
             s.scale_type("band").domain_discrete(vec![
@@ -269,7 +264,6 @@ async fn test_bar_chart_linear_color_default_colors() {
     let df = datasets::simple_categories();
 
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .axis_x(|a| a.title("Category").grid(false))
         .axis_y(|a| a.title("Value").grid(true))
@@ -297,7 +291,6 @@ async fn test_bar_chart_ordinal_scale_colors() {
     let df = datasets::simple_categories();
 
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .scale_x(|s| s.scale_type("band")) // Domain will be inferred from data
         .scale_y(|s| s.domain((0.0, 100.0)))

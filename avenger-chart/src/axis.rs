@@ -12,7 +12,7 @@ pub trait AxisTrait: Send + Sync {
 }
 
 /// Position for Cartesian axes
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AxisPosition {
     Top,
     Right,

@@ -1,6 +1,7 @@
 use arrow::array::ArrayRef;
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 use avenger_geometry::marks::MarkGeometryUtils;
+use avenger_geometry::rtree::EnvelopeUtils;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
 use avenger_text::types::{FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
@@ -106,6 +107,19 @@ pub fn make_numeric_axis_marks(
 
     // Add the axis elements group to the main group
     main_group.marks.push(axis_elements_group.into());
+
+    // Measure the overall bounds to create a clip rect
+    let bbox = main_group.bounding_box();
+
+    // Add clip rect to define bounds
+    // Use the actual bounding box coordinates, not assuming 0,0
+    let padding = 2.0;
+    main_group.clip = avenger_scenegraph::marks::group::Clip::Rect {
+        x: bbox.lower()[0] - padding,
+        y: bbox.lower()[1] - padding,
+        width: bbox.width() + 2.0 * padding,
+        height: bbox.height() + 2.0 * padding,
+    };
 
     // Now set the actual origin
     main_group.origin = origin;

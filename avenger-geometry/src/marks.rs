@@ -516,6 +516,35 @@ impl MarkGeometryUtils for SceneGroup {
                 }),
         )
     }
+
+    fn bounding_box(&self) -> AABB<[f32; 2]> {
+        use avenger_scenegraph::marks::group::Clip;
+
+        // If the group has a clip rect, use that as the bounding box
+        match &self.clip {
+            Clip::Rect {
+                x,
+                y,
+                width,
+                height,
+            } => {
+                // Clip coordinates are relative to the group's origin
+                let min_x = self.origin[0] + x;
+                let min_y = self.origin[1] + y;
+                let max_x = min_x + width;
+                let max_y = min_y + height;
+                AABB::from_corners([min_x, min_y], [max_x, max_y])
+            }
+            _ => {
+                // For other clip types or no clip, use the default implementation
+                // which computes the union of children's bounding boxes
+                self.geometry_iter(Vec::new(), [0.0, 0.0])
+                    .map(|g| g.envelope())
+                    .reduce(|a, b| a.merged(&b))
+                    .unwrap_or(AABB::from_corners([0.0, 0.0], [0.0, 0.0]))
+            }
+        }
+    }
 }
 
 impl MarkGeometryUtils for SceneMark {

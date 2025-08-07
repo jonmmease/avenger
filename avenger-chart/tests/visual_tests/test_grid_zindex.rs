@@ -17,7 +17,6 @@ async fn test_grid_lines_behind_data() {
     let df = ctx.read_empty().expect("Failed to create empty DataFrame");
 
     let plot = Plot::new(Cartesian)
-        
         .data(df)
         .scale_x(|scale| scale.scale_type("linear").domain((0.0, 10.0)))
         .scale_y(|scale| scale.scale_type("linear").domain((0.0, 10.0)))
