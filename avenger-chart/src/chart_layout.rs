@@ -657,6 +657,7 @@ impl ChartLayout {
                 colorbar_width: Some(15.0),
                 colorbar_height: Some(150.0),
                 colorbar_margin: Some(0.0),
+                left_padding: None,
             };
 
             // Use the scale that's already configured (passed to this function)

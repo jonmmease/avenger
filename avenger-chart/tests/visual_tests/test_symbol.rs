@@ -276,17 +276,18 @@ async fn test_scatter_with_size_encoding_legend() {
         })
         .axis_x(|axis| axis.title("X Value").grid(true))
         .axis_y(|axis| axis.title("Y Value").grid(true))
+        .legend_fill(|legend| legend)
         .mark(
             Symbol::new()
                 .x(col("x"))
                 .y(col("y"))
                 .size(col("size").identity())
-                .fill("rgba(255, 99, 71, 0.5)")
+                .fill(col("size"))
                 .stroke("#8b0000")
                 .stroke_width(2.0),
         );
 
-    assert_visual_match_default(plot, "symbol", "scatter_with_size").await;
+    assert_visual_match_default(plot, "symbol", "scatter_with_size_legend").await;
 }
 
 #[tokio::test]
