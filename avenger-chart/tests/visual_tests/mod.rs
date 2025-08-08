@@ -15,6 +15,7 @@ pub mod test_line_legend;
 pub mod test_line_multi_series;
 pub mod test_rect_legend;
 pub mod test_right_axis;
+pub mod test_title;
 pub mod test_symbol;
 pub mod test_symbol_ordinal;
 pub mod test_symbol_padding;

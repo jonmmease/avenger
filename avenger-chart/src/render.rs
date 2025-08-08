@@ -276,7 +276,15 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         };
 
         // Create title if present
-        let title_marks = self.create_title(width as f32, &padding)?;
+        let title_marks = if let Some((layout, _legend_cache)) = &layout_bundle {
+            if let Some(title_bounds) = &layout.title {
+                self.create_title(width as f32, &padding, Some(*title_bounds))?
+            } else {
+                Vec::new()
+            }
+        } else {
+            self.create_title(width as f32, &padding, None)?
+        };
 
         // Compose all elements into a scene graph
         // A single Plot should produce a single top-level group
@@ -1882,10 +1890,40 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         &self,
         _total_width: f32,
         _padding: &Padding,
+        layout_bounds: Option<crate::chart_layout::LayoutBounds>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // TODO: Create title text mark if plot.title is set
-        // When implemented, wrap in a group with zindex: Some(20)
-        Ok(Vec::new())
+        use avenger_scenegraph::marks::text::SceneTextMark;
+        use avenger_text::types::{TextAlign, TextBaseline};
+
+        let Some(title) = self.plot.get_title() else {
+            return Ok(Vec::new());
+        };
+
+        // If we have layout bounds from Taffy, place the title accordingly
+        let (x, y) = if let Some(bounds) = layout_bounds {
+            (bounds.x + bounds.width / 2.0, bounds.y + bounds.height / 2.0)
+        } else {
+            // Fallback: center at top with small margin
+            (0.0 + _total_width / 2.0, 16.0)
+        };
+
+        let text = SceneTextMark {
+            text: title.text.clone().into(),
+            x: x.into(),
+            y: y.into(),
+            align: TextAlign::Center.into(),
+            baseline: TextBaseline::Middle.into(),
+            font: title.font_family.clone().into(),
+            font_size: title.font_size.into(),
+            ..Default::default()
+        };
+
+        let group = SceneGroup {
+            marks: vec![SceneMark::Text(text.into())],
+            zindex: Some(20),
+            ..Default::default()
+        };
+        Ok(vec![SceneMark::Group(group)])
     }
 
     /// Infer and apply domain for a scale if not explicitly set
@@ -2060,6 +2098,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             &legends_map,
             &configured_scales,
             Some((width, height)),
+            self.plot.get_title(),
         )?;
 
         // Compute layout

@@ -80,7 +80,7 @@ struct GridBuilder {
     // Track components by position for dynamic grid building
     left_components: Vec<ComponentType>, // Order: axis first, then legends
     right_components: Vec<ComponentType>, // Order: axis first, then legends
-    top_components: Vec<ComponentType>,  // Order: axis first, then legends
+    top_components: Vec<ComponentType>,  // Order: axis first, then legends, then title
     bottom_components: Vec<ComponentType>, // Order: axis first, then legends
 }
 
@@ -105,6 +105,7 @@ impl ChartLayout {
         legends: &HashMap<String, Legend>,
         scales: &HashMap<String, ConfiguredScale>,
         preferred_size: Option<(f32, f32)>,
+        title: Option<&crate::plot::PlotTitle>,
     ) -> Result<Self, AvengerChartError> {
         let mut taffy = TaffyTree::new();
         let mut builder = GridBuilder::new();
@@ -114,6 +115,11 @@ impl ChartLayout {
 
         // Build grid structure dynamically
         builder.add_plot_area(); // Always present
+
+        // Add optional title
+        if title.is_some() {
+            builder.add_title();
+        }
 
         // Add axes by position
         for (position, axis_channels) in &axes_by_position {
@@ -272,6 +278,22 @@ impl ChartLayout {
             self.legend_nodes.insert(channel.clone(), node);
         }
 
+        // Create title node if present in component map
+        for ((row, col), component) in &self.component_map.cells {
+            if matches!(component, ComponentType::Title) {
+                let style = Style {
+                    grid_row: line((*row + 1) as i16),
+                    grid_column: line((*col + 1) as i16),
+                    justify_content: Some(JustifyContent::Center),
+                    align_items: Some(AlignItems::Center),
+                    ..Default::default()
+                };
+                let node = self.taffy.new_leaf(style)?;
+                self.title_node = Some(node);
+                break;
+            }
+        }
+
         // Set children of root node
         let mut children = vec![];
         if let Some(plot_node) = self.plot_area_node {
@@ -279,6 +301,9 @@ impl ChartLayout {
         }
         children.extend(self.axis_nodes.values());
         children.extend(self.legend_nodes.values());
+        if let Some(title_node) = self.title_node {
+            children.push(title_node);
+        }
 
         self.taffy.set_children(self.root_node, &children)?;
 
@@ -483,6 +508,17 @@ impl ChartLayout {
                     height: layout.size.height,
                 },
             );
+        }
+
+        // Get title bounds
+        if let Some(title_node) = self.title_node {
+            let layout = self.taffy.layout(title_node)?;
+            result.title = Some(LayoutBounds {
+                x: layout.location.x,
+                y: layout.location.y,
+                width: layout.size.width,
+                height: layout.size.height,
+            });
         }
 
         Ok(result)
@@ -1001,6 +1037,11 @@ impl GridBuilder {
         ));
     }
 
+    fn add_title(&mut self) {
+        // Title sits at the top area before axes/legends
+        self.top_components.insert(0, ComponentType::Title);
+    }
+
     fn add_axes_at_position(&mut self, position: AxisPosition, _count: usize) {
         let component = ComponentType::Axis(position);
         match position {
@@ -1113,13 +1154,24 @@ impl GridBuilder {
 
         // Add top components
         for component in &self.top_components {
-            let height =
-                self.measure_component_height(component, axes, legends, scales, available_space)?;
+            let height = match component {
+                ComponentType::Title => {
+                    // Simple fixed height for now; could measure actual text later
+                    28.0
+                }
+                _ => self.measure_component_height(
+                    component, axes, legends, scales, available_space,
+                )?,
+            };
             rows.push(length(height));
 
             // Track component position
             match component {
                 ComponentType::Axis(_pos) => {
+                    map.cells
+                        .insert((row_index, plot_col_index), component.clone());
+                }
+                ComponentType::Title => {
                     map.cells
                         .insert((row_index, plot_col_index), component.clone());
                 }

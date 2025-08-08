@@ -18,6 +18,14 @@ pub enum ScaleSpec {
     Reference(String),
 }
 
+/// Minimal plot title configuration
+#[derive(Clone, Debug)]
+pub struct PlotTitle {
+    pub text: String,
+    pub font_size: f32,
+    pub font_family: String,
+}
+
 pub struct Plot<C: CoordinateSystem> {
     coord_system: C,
     pub(crate) axes: HashMap<String, C::Axis>,
@@ -42,6 +50,9 @@ pub struct Plot<C: CoordinateSystem> {
 
     /// Preferred size for the plot canvas
     preferred_size: Option<(f32, f32)>,
+
+    /// Optional plot title rendered by the layout system
+    pub(crate) title: Option<PlotTitle>,
 }
 
 /// Enhanced resolution options with row/column specificity
@@ -344,6 +355,7 @@ impl<C: CoordinateSystem> Plot<C> {
             scale_specs: HashMap::new(),
             scale_to_coord_channel: HashMap::new(),
             preferred_size: None,
+            title: None,
         }
     }
 
@@ -766,6 +778,21 @@ impl<C: CoordinateSystem> Plot<C> {
     pub fn with_size(mut self, width: f32, height: f32) -> Self {
         self.preferred_size = Some((width, height));
         self
+    }
+
+    /// Set a simple plot title. For advanced styling, a richer API can be added later.
+    pub fn title(mut self, text: impl Into<String>) -> Self {
+        self.title = Some(PlotTitle {
+            text: text.into(),
+            font_size: 16.0,
+            font_family: "sans-serif".to_string(),
+        });
+        self
+    }
+
+    /// Access the configured title
+    pub fn get_title(&self) -> Option<&PlotTitle> {
+        self.title.as_ref()
     }
 
     /// Measure padding required for axes, legends, etc. (temporary placeholder)
