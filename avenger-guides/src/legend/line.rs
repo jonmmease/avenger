@@ -119,8 +119,8 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
     };
     let bbox = temp_group.bounding_box();
     // The bounding box should include all content
-    // Add 4px padding all around to prevent clipping (matches symbol legend)
-    let padding = 4.0;
+    // Add padding all around to prevent clipping (matches symbol legend)
+    let padding = 4.0; // keep local to avoid cross-crate cycle
     let width = bbox.width() + 2.0 * padding;
     let height = bbox.height() + 2.0 * padding;
 

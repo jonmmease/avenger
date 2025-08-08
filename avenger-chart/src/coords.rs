@@ -83,6 +83,12 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         plot_height: f32,
         padding: &crate::render::Padding,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
+
+    /// Attempt to convert an axis of this coordinate system into a `CartesianAxis`.
+    /// Defaults to `None` for non-Cartesian coordinate systems.
+    fn to_cartesian_axis(_axis: &Self::Axis) -> Option<CartesianAxis> {
+        None
+    }
 }
 
 pub struct Cartesian;
@@ -270,6 +276,10 @@ impl CoordinateSystem for Cartesian {
         }
 
         Ok(axis_marks)
+    }
+
+    fn to_cartesian_axis(axis: &Self::Axis) -> Option<CartesianAxis> {
+        Some(axis.clone())
     }
 }
 

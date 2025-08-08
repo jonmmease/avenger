@@ -8,6 +8,7 @@ use avenger_guides::axis::{
     opts::{AxisConfig, AxisOrientation},
 };
 use avenger_scales::scales::ConfiguredScale;
+// Use stable ordering by iterating sorted keys, not map type
 use std::collections::HashMap;
 use taffy::prelude::*;
 use taffy::{NodeId, TaffyTree};
@@ -120,7 +121,7 @@ impl ChartLayout {
         }
 
         // Add legends
-        for (channel, legend) in legends {
+        for (channel, legend) in legends.iter() {
             builder.add_legend(channel.clone(), legend);
         }
 
@@ -171,7 +172,7 @@ impl ChartLayout {
 
         // Measure legend sizes first
         let mut legend_sizes = HashMap::new();
-        for (channel, legend) in legends {
+        for (channel, legend) in legends.iter() {
             if let Some(scale) = scales.get(channel) {
                 let size = ChartLayout::measure_legend_size(
                     channel,
@@ -200,7 +201,7 @@ impl ChartLayout {
     ) -> HashMap<AxisPosition, Vec<String>> {
         let mut by_position = HashMap::new();
 
-        for (channel, axis) in axes {
+        for (channel, axis) in axes.iter() {
             if let Some(position) = axis.position {
                 by_position
                     .entry(position)
@@ -259,7 +260,7 @@ impl ChartLayout {
         }
 
         // Create legend nodes
-        for (channel, legend) in legends {
+        for (channel, legend) in legends.iter() {
             let legend_style = self.create_legend_style_from_grid(
                 legend,
                 channel,
@@ -396,187 +397,6 @@ impl ChartLayout {
             grid_column: line(plot_col),
             ..Default::default()
         })
-    }
-    fn create_axis_style(&self, position: AxisPosition) -> Style {
-        match position {
-            AxisPosition::Left => Style {
-                grid_row: line(2),
-                grid_column: line(1),
-                align_items: Some(AlignItems::Center),
-                justify_content: Some(JustifyContent::FlexEnd),
-                padding: Rect {
-                    left: length(0.0),
-                    right: length(5.0),
-                    top: length(0.0),
-                    bottom: length(0.0),
-                },
-                ..Default::default()
-            },
-            AxisPosition::Bottom => Style {
-                grid_row: line(3),
-                grid_column: line(2),
-                align_items: Some(AlignItems::FlexStart),
-                justify_content: Some(JustifyContent::Center),
-                padding: Rect {
-                    left: length(0.0),
-                    right: length(0.0),
-                    top: length(5.0),
-                    bottom: length(0.0),
-                },
-                ..Default::default()
-            },
-            AxisPosition::Right => Style {
-                grid_row: line(2),
-                grid_column: line(3),
-                align_items: Some(AlignItems::Center),
-                justify_content: Some(JustifyContent::FlexStart),
-                padding: Rect {
-                    left: length(5.0),
-                    right: length(0.0),
-                    top: length(0.0),
-                    bottom: length(0.0),
-                },
-                ..Default::default()
-            },
-            AxisPosition::Top => Style {
-                grid_row: line(1),
-                grid_column: line(2),
-                align_items: Some(AlignItems::FlexEnd),
-                justify_content: Some(JustifyContent::Center),
-                padding: Rect {
-                    left: length(0.0),
-                    right: length(0.0),
-                    top: length(0.0),
-                    bottom: length(5.0),
-                },
-                ..Default::default()
-            },
-        }
-    }
-
-    /// Create style for legend based on position with dynamic grid positions
-    fn create_legend_style_dynamic(
-        &self,
-        legend: &Legend,
-        has_top: bool,
-        _has_bottom: bool,
-        has_left: bool,
-        _has_right: bool,
-    ) -> Style {
-        // Use legend position if specified, otherwise default to right
-        match legend.position.unwrap_or(LegendPosition::Right) {
-            LegendPosition::Right => Style {
-                grid_row: line(if has_top { 2 } else { 1 }),
-                grid_column: line(if has_left { 3 } else { 2 }),
-                align_items: Some(AlignItems::Center),
-                justify_content: Some(JustifyContent::FlexStart),
-                padding: Rect {
-                    left: length(10.0),
-                    right: length(10.0),
-                    top: length(10.0),
-                    bottom: length(10.0),
-                },
-                ..Default::default()
-            },
-            LegendPosition::Left => Style {
-                grid_row: line(if has_top { 2 } else { 1 }),
-                grid_column: line(1),
-                align_items: Some(AlignItems::Center),
-                justify_content: Some(JustifyContent::FlexEnd),
-                padding: Rect {
-                    left: length(10.0),
-                    right: length(10.0),
-                    top: length(10.0),
-                    bottom: length(10.0),
-                },
-                ..Default::default()
-            },
-            LegendPosition::Top => Style {
-                grid_row: line(1),
-                grid_column: line(if has_left { 2 } else { 1 }),
-                align_items: Some(AlignItems::FlexStart),
-                justify_content: Some(JustifyContent::Center),
-                padding: Rect {
-                    left: length(10.0),
-                    right: length(10.0),
-                    top: length(10.0),
-                    bottom: length(10.0),
-                },
-                ..Default::default()
-            },
-            LegendPosition::Bottom => Style {
-                grid_row: line(if has_top { 3 } else { 2 }),
-                grid_column: line(if has_left { 2 } else { 1 }),
-                align_items: Some(AlignItems::FlexEnd),
-                justify_content: Some(JustifyContent::Center),
-                padding: Rect {
-                    left: length(10.0),
-                    right: length(10.0),
-                    top: length(10.0),
-                    bottom: length(10.0),
-                },
-                ..Default::default()
-            },
-        }
-    }
-
-    /// Create style for legend
-    fn create_legend_style(&self, legend: &Legend) -> Style {
-        // Use legend position if specified, otherwise default to right
-        match legend.position.unwrap_or(LegendPosition::Right) {
-            LegendPosition::Right => Style {
-                grid_row: line(2),
-                grid_column: line(3),
-                align_items: Some(AlignItems::Center),
-                justify_content: Some(JustifyContent::FlexStart),
-                padding: Rect {
-                    left: length(10.0),
-                    right: length(10.0),
-                    top: length(10.0),
-                    bottom: length(10.0),
-                },
-                ..Default::default()
-            },
-            LegendPosition::Left => Style {
-                grid_row: line(2),
-                grid_column: line(1),
-                align_items: Some(AlignItems::Center),
-                justify_content: Some(JustifyContent::FlexEnd),
-                padding: Rect {
-                    left: length(10.0),
-                    right: length(10.0),
-                    top: length(10.0),
-                    bottom: length(10.0),
-                },
-                ..Default::default()
-            },
-            LegendPosition::Top => Style {
-                grid_row: line(1),
-                grid_column: line(2),
-                align_items: Some(AlignItems::FlexStart),
-                justify_content: Some(JustifyContent::Center),
-                padding: Rect {
-                    left: length(10.0),
-                    right: length(10.0),
-                    top: length(10.0),
-                    bottom: length(10.0),
-                },
-                ..Default::default()
-            },
-            LegendPosition::Bottom => Style {
-                grid_row: line(3),
-                grid_column: line(2),
-                align_items: Some(AlignItems::FlexEnd),
-                justify_content: Some(JustifyContent::Center),
-                padding: Rect {
-                    left: length(10.0),
-                    right: length(10.0),
-                    top: length(10.0),
-                    bottom: length(10.0),
-                },
-                ..Default::default()
-            },
-        }
     }
 
     /// Compute layout for given dimensions

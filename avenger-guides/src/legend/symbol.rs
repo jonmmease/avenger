@@ -119,8 +119,8 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
         ..Default::default()
     };
     let bbox = temp_group.bounding_box();
-    // Add 4px padding all around to prevent clipping
-    let padding = 4.0;
+    // Add padding all around to prevent clipping
+    let padding = 4.0; // keep local to avoid cross-crate cycle
     let width = bbox.width() + 2.0 * padding;
     let height = bbox.height() + 2.0 * padding;
 
