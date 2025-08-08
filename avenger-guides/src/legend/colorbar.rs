@@ -67,6 +67,7 @@ pub fn make_colorbar_marks(
                 grid: false,
                 format_number: None,
             };
+            let axis_config = AxisConfig { format_number: config.format_number.clone(), ..axis_config };
 
             // Create a new scale with desired range for the axis
             let numeric_scale = scale.clone().with_range_interval((colorbar_height, 0.0));
@@ -126,6 +127,8 @@ pub struct ColorbarConfig {
     pub colorbar_margin: Option<f32>,
     /// Extra left padding before the colorbar rectangle (gap from plot edge)
     pub left_padding: Option<f32>,
+    /// Optional numeric formatting string for colorbar tick labels
+    pub format_number: Option<String>,
 }
 
 impl Default for ColorbarConfig {
@@ -137,6 +140,7 @@ impl Default for ColorbarConfig {
             colorbar_height: None,
             colorbar_margin: None,
             left_padding: None,
+            format_number: None,
         }
     }
 }

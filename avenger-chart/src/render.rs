@@ -1662,6 +1662,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             colorbar_height: Some(colorbar_height),
             colorbar_margin: Some(0.0), // No margin - align exactly with axis
             left_padding: None,
+            format_number: params.legend.format_number.clone(),
         };
 
         // Create the colorbar marks at origin [0, 0] (will be positioned by group origin)
