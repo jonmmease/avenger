@@ -42,8 +42,9 @@ pub fn make_colorbar_marks(
                 stops: scale.color_range_as_gradient_stops(10)?,
             });
 
-            // Position colorbar at origin (relative positioning)
-            let colorbar_x = origin[0];
+            // Position colorbar at origin with optional additional left padding
+            let left_padding = config.left_padding.unwrap_or(8.0);
+            let colorbar_x = origin[0] + left_padding;
             let colorbar_y = origin[1];
 
             // Make colorbar rect
@@ -79,11 +80,13 @@ pub fn make_colorbar_marks(
             let bbox = temp_group.bounding_box();
 
             // Use actual bounding box coordinates for clip rect to avoid clipping content
-            let padding = 2.0;
-            let clip_x = bbox.lower()[0] - padding;
-            let clip_y = bbox.lower()[1] - padding;
-            let clip_width = bbox.width() + 2.0 * padding;
-            let clip_height = bbox.height() + 2.0 * padding;
+            // Add a bit more outer padding so the colorbar legend has breathing room
+            // Respect asymmetric left padding as well
+            let outer_padding = 6.0;
+            let clip_x = bbox.lower()[0] - outer_padding - left_padding;
+            let clip_y = bbox.lower()[1] - outer_padding;
+            let clip_width = bbox.width() + 2.0 * outer_padding + left_padding;
+            let clip_height = bbox.height() + 2.0 * outer_padding;
 
             Ok(SceneGroup {
                 origin: [0.0, 0.0], // Group at root since we're positioning elements absolutely
@@ -120,6 +123,8 @@ pub struct ColorbarConfig {
     pub colorbar_height: Option<f32>,
     /// Margin between plot area and colorbar
     pub colorbar_margin: Option<f32>,
+    /// Extra left padding before the colorbar rectangle (gap from plot edge)
+    pub left_padding: Option<f32>,
 }
 
 impl Default for ColorbarConfig {
@@ -130,6 +135,7 @@ impl Default for ColorbarConfig {
             colorbar_width: None,
             colorbar_height: None,
             colorbar_margin: None,
+            left_padding: None,
         }
     }
 }
