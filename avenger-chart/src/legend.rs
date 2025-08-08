@@ -10,6 +10,7 @@ pub struct Legend {
     pub gradient_thickness: Option<f64>,
     pub columns: Option<usize>,
     pub label_limit: Option<f64>,
+    pub format_number: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -38,6 +39,7 @@ impl Legend {
             gradient_thickness: None,
             columns: None,
             label_limit: None,
+            format_number: None,
         }
     }
 
@@ -83,6 +85,12 @@ impl Legend {
 
     pub fn label_limit(mut self, limit: f64) -> Self {
         self.label_limit = Some(limit);
+        self
+    }
+
+    /// Set a numeric formatting string for legend labels.
+    pub fn format_number(mut self, pattern: impl Into<String>) -> Self {
+        self.format_number = Some(pattern.into());
         self
     }
 }

@@ -96,9 +96,16 @@ pub fn make_numeric_axis_marks(
         .push(make_tick_marks(&ticks, &scale, &config.orientation, &config.dimensions)?.into());
 
     // Add tick labels
-    axis_elements_group
-        .marks
-        .push(make_tick_labels(&ticks, &scale, &config.orientation, &config.dimensions)?.into());
+    axis_elements_group.marks.push(
+        make_tick_labels(
+            &ticks,
+            &scale,
+            &config.orientation,
+            &config.dimensions,
+            config.format_number.as_deref(),
+        )?
+        .into(),
+    );
 
     // Add title
     axis_elements_group
@@ -256,8 +263,30 @@ fn make_tick_labels(
     scale: &ConfiguredScale,
     orientation: &AxisOrientation,
     dimensions: &[f32; 2],
+    format_number: Option<&str>,
 ) -> Result<SceneTextMark, AvengerGuidesError> {
-    let tick_text = scale.format(ticks)?;
+    // If a numeric format string is provided, override the scale's number formatter
+    let tick_text = if let Some(pattern) = format_number {
+        use arrow::datatypes::DataType;
+        use arrow::compute::kernels::cast;
+        use arrow::array::AsArray;
+        if ticks.data_type().is_numeric() {
+            let values = cast(ticks, &DataType::Float32)
+                .map_err(|e| AvengerGuidesError::InvalidScale(e.into()))?;
+            let values = values.as_primitive::<arrow::datatypes::Float32Type>();
+            let nums: Vec<Option<f32>> = values.iter().collect();
+            let formatter = avenger_scales::format_num::NumberFormat::new();
+            let labels: Vec<String> = nums
+                .iter()
+                .map(|v| v.map(|v| formatter.format(pattern, v)).unwrap_or_default())
+                .collect();
+            ScalarOrArray::new_array(labels)
+        } else {
+            scale.format(ticks)?
+        }
+    } else {
+        scale.format(ticks)?
+    };
     let scaled_values = scale.scale_to_numeric(ticks)?;
 
     let (x, y, align, baseline, angle) = match orientation {

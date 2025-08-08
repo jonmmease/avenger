@@ -244,6 +244,7 @@ impl CoordinateSystem for Cartesian {
                 orientation,
                 dimensions: [plot_width, plot_height],
                 grid: axis.grid,
+                format_number: axis.format_number.clone(),
             };
 
             // Create configured scale for avenger-guides (without re-normalization)

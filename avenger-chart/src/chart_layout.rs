@@ -574,6 +574,7 @@ impl ChartLayout {
             orientation,
             dimensions,
             grid: axis.grid,
+            format_number: axis.format_number.clone(),
         };
 
         // Create axis marks
