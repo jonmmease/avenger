@@ -65,6 +65,7 @@ pub fn make_colorbar_marks(
                 orientation: AxisOrientation::Right,
                 dimensions: [0.0, colorbar_height],
                 grid: false,
+                format_number: None,
             };
 
             // Create a new scale with desired range for the axis

@@ -532,6 +532,7 @@ impl NumberFormat {
                 Some("X") => "0x",
                 _ => "",
             },
+            Some("$") => "$",
             _ => "",
         };
 

@@ -29,6 +29,7 @@ pub struct CartesianAxis {
     pub grid: bool,
     pub tick_count: Option<usize>,
     pub label_angle: Option<f64>,
+    pub format_number: Option<String>,
 }
 
 impl CartesianAxis {
@@ -40,6 +41,7 @@ impl CartesianAxis {
             grid: false,
             tick_count: None,
             label_angle: None,
+            format_number: None,
         }
     }
 
@@ -70,6 +72,13 @@ impl CartesianAxis {
 
     pub fn label_angle(mut self, angle: f64) -> Self {
         self.label_angle = Some(angle);
+        self
+    }
+
+    /// Set a numeric formatting string (e.g., "$,.2f", ".1%", ".2s").
+    /// This passes directly to the number formatter used by scales.
+    pub fn format_number(mut self, pattern: impl Into<String>) -> Self {
+        self.format_number = Some(pattern.into());
         self
     }
 }
