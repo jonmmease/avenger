@@ -695,6 +695,7 @@ impl ChartLayout {
                 colorbar_height: Some(150.0),
                 colorbar_margin: Some(0.0),
                 left_padding: None,
+                format_number: legend.format_number.clone(),
             };
 
             // Use the scale that's already configured (passed to this function)

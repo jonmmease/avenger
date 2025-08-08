@@ -20,6 +20,24 @@ fn make_df_xy(x: &[f64], y: &[f64]) -> DataFrame {
     ctx.read_batch(batch).unwrap()
 }
 
+fn make_df_xyv(x: &[f64], y: &[f64], v: &[f64]) -> DataFrame {
+    let x_values = Float64Array::from(x.to_vec());
+    let y_values = Float64Array::from(y.to_vec());
+    let v_values = Float64Array::from(v.to_vec());
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("x", DataType::Float64, false),
+        Field::new("y", DataType::Float64, false),
+        Field::new("v", DataType::Float64, false),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![Arc::new(x_values), Arc::new(y_values), Arc::new(v_values)],
+    )
+    .unwrap();
+    let ctx = SessionContext::new();
+    ctx.read_batch(batch).unwrap()
+}
+
 #[tokio::test]
 async fn axis_y_currency_fixed() {
     let df = make_df_xy(
@@ -69,6 +87,63 @@ async fn axis_y_si_prefix() {
         .mark(Symbol::new().x(col("x")).y(col("y")).size(80.0).fill("#e6550d"));
 
     assert_visual_match_default(plot, "layout", "format_axis_y_si_prefix").await;
+}
+
+#[tokio::test]
+async fn colorbar_percent() {
+    let df = make_df_xyv(
+        &[1.0, 2.0, 3.0, 4.0, 5.0],
+        &[2.0, 4.0, 6.0, 8.0, 10.0],
+        &[0.05, 0.12, 0.38, 0.67, 0.91],
+    );
+
+    let plot = Plot::new(Cartesian)
+        .data(df)
+        .scale_x(|s| s.domain((0.0, 6.0)))
+        .scale_y(|s| s.domain((0.0, 12.0)))
+        .scale_fill(|s| s.domain((0.0, 1.0)))
+        .legend_fill(|l| l.title("Percent").format_number(".0%"))
+        .mark(Symbol::new().x(col("x")).y(col("y")).size(100.0).fill(col("v")));
+
+    assert_visual_match_default(plot, "layout", "format_colorbar_percent").await;
+}
+
+#[tokio::test]
+async fn colorbar_currency_fixed() {
+    let df = make_df_xyv(
+        &[1.0, 2.0, 3.0, 4.0, 5.0],
+        &[2.0, 4.0, 6.0, 8.0, 10.0],
+        &[1200.0, 3400.0, 5600.0, 12345.0, 98765.0],
+    );
+
+    let plot = Plot::new(Cartesian)
+        .data(df)
+        .scale_x(|s| s.domain((0.0, 6.0)))
+        .scale_y(|s| s.domain((0.0, 12.0)))
+        .scale_fill(|s| s.domain((0.0, 100000.0)))
+        .legend_fill(|l| l.title("Revenue").format_number("$,.0f"))
+        .mark(Symbol::new().x(col("x")).y(col("y")).size(100.0).fill(col("v")));
+
+    assert_visual_match_default(plot, "layout", "format_colorbar_currency_fixed").await;
+}
+
+#[tokio::test]
+async fn colorbar_si_prefix() {
+    let df = make_df_xyv(
+        &[1.0, 2.0, 3.0, 4.0, 5.0],
+        &[2.0, 4.0, 6.0, 8.0, 10.0],
+        &[1.2e3, 4.5e4, 7.8e5, 2.3e6, 9.9e7],
+    );
+
+    let plot = Plot::new(Cartesian)
+        .data(df)
+        .scale_x(|s| s.domain((0.0, 6.0)))
+        .scale_y(|s| s.domain((0.0, 12.0)))
+        .scale_fill(|s| s.domain((0.0, 1.0e8)))
+        .legend_fill(|l| l.title("Population").format_number(".2s"))
+        .mark(Symbol::new().x(col("x")).y(col("y")).size(100.0).fill(col("v")));
+
+    assert_visual_match_default(plot, "layout", "format_colorbar_si_prefix").await;
 }
 
 
