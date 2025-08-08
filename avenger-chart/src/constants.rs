@@ -16,4 +16,3 @@ pub const LEGEND_CLIP_PADDING: f32 = 4.0;
 // Colorbar defaults
 pub const COLORBAR_WIDTH_DEFAULT: f32 = 15.0;
 pub const COLORBAR_MARGIN_DEFAULT: f32 = 5.0;
-
