@@ -2,8 +2,8 @@
 //!
 //! This module bridges the high-level chart API with the low-level rendering components.
 
-use crate::coords::CoordinateSystem;
 use crate::coords::Cartesian;
+use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::marks::{ChannelValue, Mark};
 use crate::plot::Plot;
@@ -268,7 +268,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 plot_area_width,
                 plot_area_height,
             )
-                .await?
+            .await?
         } else {
             // Fallback to fixed positioning
             self.create_legends(&all_scales, plot_area_width, plot_area_height, &padding)
@@ -1691,8 +1691,10 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             ScaleDefaultDomain::Interval(start, end) => {
                 // For interval domains, prefer discrete values if range implies categories
                 // Otherwise, sample endpoints
-                let start_val = crate::utils::eval_to_scalars(vec![start.clone()], None, None).await?;
-                let end_val = crate::utils::eval_to_scalars(vec![end.as_ref().clone()], None, None).await?;
+                let start_val =
+                    crate::utils::eval_to_scalars(vec![start.clone()], None, None).await?;
+                let end_val =
+                    crate::utils::eval_to_scalars(vec![end.as_ref().clone()], None, None).await?;
                 let mut out = Vec::new();
                 out.extend(start_val);
                 out.extend(end_val);
@@ -2028,10 +2030,11 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             .collect();
 
         // Create axes map for ChartLayout (Cartesian-only specialization, no unsafe casts)
-        let default_axes = self
-            .plot
-            .coord_system()
-            .create_default_axes(&processed_scales, &self.plot.axes, &self.plot.marks);
+        let default_axes = self.plot.coord_system().create_default_axes(
+            &processed_scales,
+            &self.plot.axes,
+            &self.plot.marks,
+        );
 
         // Combine existing axes with defaults
         let mut all_axes = self.plot.axes.clone();

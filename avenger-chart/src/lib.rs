@@ -1,7 +1,7 @@
 pub mod adjust;
 pub mod axis;
-pub mod constants;
 mod chart_layout;
+pub mod constants;
 pub mod controllers;
 pub mod coords;
 pub mod derive;
@@ -16,6 +16,9 @@ pub mod render;
 pub mod scales;
 pub mod transforms;
 pub mod utils;
+
+// Re-export selected types for external tests and users
+pub use crate::legend::LegendPosition;
 
 #[cfg(test)]
 pub mod test_utils;

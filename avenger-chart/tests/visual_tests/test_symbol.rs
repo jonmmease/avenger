@@ -257,7 +257,7 @@ async fn test_scatter_with_size_encoding_legend() {
             Arc::new(size_values),
         ],
     )
-        .expect("Failed to create RecordBatch");
+    .expect("Failed to create RecordBatch");
 
     let ctx = SessionContext::new();
     let df = ctx
