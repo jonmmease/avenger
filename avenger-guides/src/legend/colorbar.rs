@@ -27,7 +27,7 @@ pub fn make_colorbar_marks(
             let available_height = config.dimensions[1];
 
             // Colorbar properties
-            let colorbar_width = config.colorbar_width.unwrap_or(10.0);
+            let colorbar_width = config.colorbar_width.unwrap_or(15.0);
             let colorbar_height = config
                 .colorbar_height
                 .unwrap_or(available_height.min(200.0));

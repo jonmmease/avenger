@@ -236,6 +236,60 @@ async fn test_scatter_with_size_encoding() {
 }
 
 #[tokio::test]
+async fn test_scatter_with_size_encoding_legend() {
+    let x_values = Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 5.0, 8.0]);
+    let y_values = Float64Array::from(vec![2.0, 3.5, 2.8, 4.2, 5.1, 4.8, 6.2, 5.5]);
+    let size_values = Float64Array::from(vec![
+        50.0, 50000.0, 75.0, 150.0, 200.0, 125.0, 175.0, 30625.0,
+    ]);
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("x", DataType::Float64, false),
+        Field::new("y", DataType::Float64, false),
+        Field::new("size", DataType::Float64, false),
+    ]));
+
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(x_values),
+            Arc::new(y_values),
+            Arc::new(size_values),
+        ],
+    )
+        .expect("Failed to create RecordBatch");
+
+    let ctx = SessionContext::new();
+    let df = ctx
+        .read_batch(batch)
+        .expect("Failed to read batch into DataFrame");
+
+    let plot = Plot::new(Cartesian)
+        .with_size(600.0, 450.0)
+        .data(df)
+        .scale_x(|scale| scale.scale_type("linear").option("nice", lit(false)))
+        .scale_y(|scale| {
+            scale
+                .scale_type("linear")
+                .option("nice", lit(false))
+                .option("zero", lit(false))
+        })
+        .axis_x(|axis| axis.title("X Value").grid(true))
+        .axis_y(|axis| axis.title("Y Value").grid(true))
+        .mark(
+            Symbol::new()
+                .x(col("x"))
+                .y(col("y"))
+                .size(col("size").identity())
+                .fill("rgba(255, 99, 71, 0.5)")
+                .stroke("#8b0000")
+                .stroke_width(2.0),
+        );
+
+    assert_visual_match_default(plot, "symbol", "scatter_with_size").await;
+}
+
+#[tokio::test]
 async fn test_scatter_with_angle() {
     // Create data for triangles with different rotations
     let x_values = Float64Array::from(vec![2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0]);

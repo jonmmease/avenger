@@ -1,5 +1,6 @@
 pub mod adjust;
 pub mod axis;
+pub mod constants;
 mod chart_layout;
 pub mod controllers;
 pub mod coords;
