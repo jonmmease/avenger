@@ -973,6 +973,24 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             ..Default::default()
         };
 
+        // Apply legend background styling if provided
+        if let Some(pad) = params.legend.background_padding {
+            config.background_padding = Some(pad);
+        }
+        if let Some(r) = params.legend.background_corner_radius {
+            config.background_corner_radius = Some(r);
+        }
+        if let Some(ref fill_str) = params.legend.background_fill {
+            if let Some(color) = parse_color_string(fill_str) {
+                config.background_fill = Some(color);
+            }
+        }
+        if let Some(ref stroke_str) = params.legend.background_stroke {
+            if let Some(color) = parse_color_string(stroke_str) {
+                config.background_stroke = Some(color);
+            }
+        }
+
         // Analyze mark encodings to determine how to set each channel
         // We'll look at all marks to find symbol or rect marks and check their encodings
         let mut mark_encodings = HashMap::new();
@@ -1452,6 +1470,24 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             ..Default::default()
         };
 
+        // Apply legend background styling if provided
+        if let Some(pad) = params.legend.background_padding {
+            config.background_padding = Some(pad);
+        }
+        if let Some(r) = params.legend.background_corner_radius {
+            config.background_corner_radius = Some(r);
+        }
+        if let Some(ref fill_str) = params.legend.background_fill {
+            if let Some(color) = parse_color_string(fill_str) {
+                config.background_fill = Some(color);
+            }
+        }
+        if let Some(ref stroke_str) = params.legend.background_stroke {
+            if let Some(color) = parse_color_string(stroke_str) {
+                config.background_stroke = Some(color);
+            }
+        }
+
         // Analyze mark encodings to determine how to set each channel
         // We'll look at all marks to find line marks and check their encodings
         let mut mark_encodings = HashMap::new();
@@ -1655,15 +1691,36 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             .min(200.0) as f32;
         let colorbar_width = params.legend.gradient_thickness.unwrap_or(15.0) as f32;
 
-        let config = ColorbarConfig {
+        let mut config = ColorbarConfig {
             orientation: ColorbarOrientation::Right,
             dimensions: [params.plot_width, available_height], // Available space for the colorbar
             colorbar_width: Some(colorbar_width),
             colorbar_height: Some(colorbar_height),
             colorbar_margin: Some(0.0), // No margin - align exactly with axis
-            left_padding: None,
             format_number: params.legend.format_number.clone(),
+            background_fill: None,
+            background_stroke: None,
+            background_corner_radius: None,
+            background_padding: None,
         };
+
+        // Apply legend background styling if provided
+        if let Some(pad) = params.legend.background_padding {
+            config.background_padding = Some(pad);
+        }
+        if let Some(r) = params.legend.background_corner_radius {
+            config.background_corner_radius = Some(r);
+        }
+        if let Some(ref fill_str) = params.legend.background_fill {
+            if let Some(color) = parse_color_string(fill_str) {
+                config.background_fill = Some(color);
+            }
+        }
+        if let Some(ref stroke_str) = params.legend.background_stroke {
+            if let Some(color) = parse_color_string(stroke_str) {
+                config.background_stroke = Some(color);
+            }
+        }
 
         // Create the colorbar marks at origin [0, 0] (will be positioned by group origin)
         let plot_origin = [0.0, 0.0];
@@ -1902,7 +1959,10 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         // If we have layout bounds from Taffy, place the title accordingly
         let (x, y) = if let Some(bounds) = layout_bounds {
-            (bounds.x + bounds.width / 2.0, bounds.y + bounds.height / 2.0)
+            (
+                bounds.x + bounds.width / 2.0,
+                bounds.y + bounds.height / 2.0,
+            )
         } else {
             // Fallback: center at top with small margin
             (0.0 + _total_width / 2.0, 16.0)
@@ -2061,10 +2121,10 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             all_legends.entry(channel).or_insert(default_legend);
         }
 
-        // Filter to visible legends
+        // Filter to visible legends that have corresponding scales
         let visible_legends: Vec<_> = all_legends
             .iter()
-            .filter(|(_, legend)| legend.visible)
+            .filter(|(channel, legend)| legend.visible && processed_scales.contains_key(*channel))
             .map(|(channel, legend)| (channel.clone(), legend.clone()))
             .collect();
 

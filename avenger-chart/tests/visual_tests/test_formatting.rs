@@ -51,7 +51,13 @@ async fn axis_y_currency_fixed() {
         .scale_y(|s| s.domain((0.0, 100000.0)))
         .axis_y(|a| a.title("Revenue").format_number("$,.2f"))
         .legend_fill(|l| l.visible(false))
-        .mark(Symbol::new().x(col("x")).y(col("y")).size(80.0).fill("#2ca25f"));
+        .mark(
+            Symbol::new()
+                .x(col("x"))
+                .y(col("y"))
+                .size(80.0)
+                .fill("#2ca25f"),
+        );
 
     assert_visual_match_default(plot, "layout", "format_axis_y_currency_fixed").await;
 }
@@ -66,7 +72,13 @@ async fn axis_y_percent() {
         .scale_y(|s| s.domain((0.0, 1.0)))
         .axis_y(|a| a.title("Completion").format_number(".0%"))
         .legend_fill(|l| l.visible(false))
-        .mark(Symbol::new().x(col("x")).y(col("y")).size(80.0).fill("#3182bd"));
+        .mark(
+            Symbol::new()
+                .x(col("x"))
+                .y(col("y"))
+                .size(80.0)
+                .fill("#3182bd"),
+        );
 
     assert_visual_match_default(plot, "layout", "format_axis_y_percent").await;
 }
@@ -84,7 +96,13 @@ async fn axis_y_si_prefix() {
         .scale_y(|s| s.domain((0.0, 1.0e8)))
         .axis_y(|a| a.title("Population").format_number(".2s"))
         .legend_fill(|l| l.visible(false))
-        .mark(Symbol::new().x(col("x")).y(col("y")).size(80.0).fill("#e6550d"));
+        .mark(
+            Symbol::new()
+                .x(col("x"))
+                .y(col("y"))
+                .size(80.0)
+                .fill("#e6550d"),
+        );
 
     assert_visual_match_default(plot, "layout", "format_axis_y_si_prefix").await;
 }
@@ -103,7 +121,13 @@ async fn colorbar_percent() {
         .scale_y(|s| s.domain((0.0, 12.0)))
         .scale_fill(|s| s.domain((0.0, 1.0)))
         .legend_fill(|l| l.title("Percent").format_number(".0%"))
-        .mark(Symbol::new().x(col("x")).y(col("y")).size(100.0).fill(col("v")));
+        .mark(
+            Symbol::new()
+                .x(col("x"))
+                .y(col("y"))
+                .size(100.0)
+                .fill(col("v")),
+        );
 
     assert_visual_match_default(plot, "layout", "format_colorbar_percent").await;
 }
@@ -122,7 +146,13 @@ async fn colorbar_currency_fixed() {
         .scale_y(|s| s.domain((0.0, 12.0)))
         .scale_fill(|s| s.domain((0.0, 100000.0)))
         .legend_fill(|l| l.title("Revenue").format_number("$,.0f"))
-        .mark(Symbol::new().x(col("x")).y(col("y")).size(100.0).fill(col("v")));
+        .mark(
+            Symbol::new()
+                .x(col("x"))
+                .y(col("y"))
+                .size(100.0)
+                .fill(col("v")),
+        );
 
     assert_visual_match_default(plot, "layout", "format_colorbar_currency_fixed").await;
 }
@@ -141,9 +171,13 @@ async fn colorbar_si_prefix() {
         .scale_y(|s| s.domain((0.0, 12.0)))
         .scale_fill(|s| s.domain((0.0, 1.0e8)))
         .legend_fill(|l| l.title("Population").format_number(".2s"))
-        .mark(Symbol::new().x(col("x")).y(col("y")).size(100.0).fill(col("v")));
+        .mark(
+            Symbol::new()
+                .x(col("x"))
+                .y(col("y"))
+                .size(100.0)
+                .fill(col("v")),
+        );
 
     assert_visual_match_default(plot, "layout", "format_colorbar_si_prefix").await;
 }
-
-
