@@ -5,6 +5,7 @@ use avenger_common::types::StrokeCap;
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scenegraph::marks::line::SceneLineMark;
+use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark, text::SceneTextMark};
 use avenger_text::types::{TextAlign, TextBaseline};
 
@@ -32,11 +33,17 @@ pub struct LineLegendConfig {
     /// Margin around the legend, separating it from the chart area
     pub entry_margin: f32,
 
-    /// Padding between the symbol and the text
+    /// Padding between the line segment and the text
     pub text_padding: f32,
 
     /// Length of the line in the legend
     pub line_length: f32,
+
+    /// Background rect styling
+    pub background_fill: Option<ColorOrGradient>,
+    pub background_stroke: Option<ColorOrGradient>,
+    pub background_corner_radius: Option<f32>,
+    pub background_padding: Option<f32>,
 }
 
 impl Default for LineLegendConfig {
@@ -56,6 +63,10 @@ impl Default for LineLegendConfig {
             text_padding: 2.0,
             entry_margin: 2.0,
             line_length: 10.0,
+            background_fill: None,
+            background_stroke: None,
+            background_corner_radius: None,
+            background_padding: None,
         }
     }
 }
@@ -84,10 +95,13 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
     let all_text_bbox = all_text_mark.bounding_box();
     let _max_text_width = all_text_bbox.width();
     let max_text_height = all_text_bbox.height();
-    let legend_group_height = max_text_height + config.entry_margin * 2.0;
+    let legend_group_height = max_text_height;
 
-    let mut y = 0.0;
-    let center_y = y + legend_group_height / 2.0;
+    // Always use consistent padding for layout stability
+    let bg_padding = config.background_padding.unwrap_or(max_text_height / 2.0);
+
+    // Position legend content with padding from the background rect origin
+    let mut line_group_y = bg_padding + legend_group_height / 2.0;
 
     // Expand encodings
     let text_strs = config.text.as_vec(len, None);
@@ -97,8 +111,8 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
 
     for i in 0..len {
         let group = make_line_group(
-            y,
-            center_y,
+            line_group_y,
+            bg_padding,
             &text_strs[i],
             stroke_widths[i],
             &stroke_dashes[i],
@@ -106,31 +120,63 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
             config.stroke_cap,
             config,
         );
-        // let group_rtree = MarkRTree::from_scene_group(&group);
-
         groups.push(SceneMark::Group(group));
-        y += legend_group_height;
+        line_group_y += legend_group_height;
     }
 
-    // Measure the overall bounds to create a clip rect
+    // Measure the content bounds
     let temp_group = SceneGroup {
         marks: groups.clone(),
         ..Default::default()
     };
-    let bbox = temp_group.bounding_box();
-    // The bounding box should include all content
-    // Add padding all around to prevent clipping (matches symbol legend)
-    let padding = 4.0; // keep local to avoid cross-crate cycle
-    let width = bbox.width() + 2.0 * padding;
-    let height = bbox.height() + 2.0 * padding;
+    let content_bbox = temp_group.bounding_box();
 
+    // Calculate total dimensions including padding
+    // The background rect always exists and defines our coordinate system
+    // Add symmetric padding on all sides
+    let bg_width = content_bbox.width() + bg_padding * 2.0;
+    let bg_height = legend_group_height * len as f32 + bg_padding * 2.0;
+
+    // Create a background rect at origin (0, 0)
+    // This provides consistent layout whether visible or not
+    let bg = SceneRectMark {
+        x: 0.0.into(),
+        y: 0.0.into(),
+        width: Some(bg_width.into()),
+        height: Some(bg_height.into()),
+        fill: config
+            .background_fill
+            .clone()
+            .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])) // Transparent by default
+            .into(),
+        stroke: config
+            .background_stroke
+            .clone()
+            .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])) // No stroke by default
+            .into(),
+        stroke_width: if config.background_stroke.is_some() {
+            1.0.into()
+        } else {
+            0.0.into()
+        },
+        corner_radius: config.background_corner_radius.unwrap_or(0.0).into(),
+        zindex: Some(0), // Background should be behind content
+        ..Default::default()
+    };
+
+    // Insert background rect first, then legend content
+    let mut final_marks = vec![SceneMark::Rect(bg)];
+    final_marks.extend(groups);
+
+    // Clip rect matches the background rect dimensions
+    // No additional clipping needed since everything is within the background
     Ok(SceneGroup {
-        marks: groups,
+        marks: final_marks,
         clip: avenger_scenegraph::marks::group::Clip::Rect {
-            x: -padding,
-            y: -padding,
-            width,
-            height,
+            x: 0.0,
+            y: 0.0,
+            width: bg_width,
+            height: bg_height,
         },
         ..Default::default()
     })
@@ -139,7 +185,7 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
 #[allow(clippy::too_many_arguments)]
 fn make_line_group(
     y: f32,
-    center_y: f32,
+    x_offset: f32,
     text: &str,
     stroke_width: f32,
     stroke_dash: &Option<Vec<f32>>,
@@ -147,17 +193,16 @@ fn make_line_group(
     stroke_cap: StrokeCap,
     config: &LineLegendConfig,
 ) -> SceneGroup {
-    //
+    // Line and text should be positioned relative to the group's local origin
     let x0 = 0.0;
     let x1 = config.line_length;
-
     let text_x = x1 + config.text_padding;
 
     // Line
     let single_line_mark = SceneLineMark {
         len: 2,
         x: vec![x0, x1].into(),
-        y: vec![center_y, center_y].into(),
+        y: vec![0.0, 0.0].into(),
         stroke_width,
         stroke_dash: stroke_dash.clone(),
         stroke: stroke_color.clone(),
@@ -169,17 +214,15 @@ fn make_line_group(
     let text_mark = SceneTextMark {
         text: text.to_string().into(),
         x: text_x.into(),
-        y: center_y.into(),
+        y: 0.0.into(),
         align: TextAlign::Left.into(),
         baseline: TextBaseline::Middle.into(),
         font_size: 10.0.into(),
         ..Default::default()
     };
 
-    // Legend entry group
-
     SceneGroup {
-        origin: [config.inner_width + config.outer_margin, y],
+        origin: [config.inner_width + x_offset, y],
         marks: vec![
             SceneMark::Line(single_line_mark),
             SceneMark::Text(Arc::new(text_mark)),

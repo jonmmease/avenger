@@ -34,6 +34,12 @@ pub struct SymbolLegendConfig {
 
     /// Padding between the symbol and the text
     pub text_padding: f32,
+
+    /// Background rect styling
+    pub background_fill: Option<ColorOrGradient>,
+    pub background_stroke: Option<ColorOrGradient>,
+    pub background_corner_radius: Option<f32>,
+    pub background_padding: Option<f32>,
 }
 
 impl Default for SymbolLegendConfig {
@@ -52,6 +58,10 @@ impl Default for SymbolLegendConfig {
 
             outer_margin: 4.0,
             text_padding: 2.0,
+            background_fill: None,
+            background_stroke: None,
+            background_corner_radius: None,
+            background_padding: None,
         }
     }
 }
@@ -93,8 +103,15 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
     let max_width = symbol_mark.bounding_box().width();
     let center_x = max_width / 2.0;
 
+    // Always use consistent padding for layout stability
+    let bg_padding = config.background_padding.unwrap_or(6.0);
+
+    // Position legend content with padding from the background rect origin
+    let content_offset_x = bg_padding + config.outer_margin;
+    let content_offset_y = bg_padding;
+
     let mut groups: Vec<SceneMark> = Vec::with_capacity(len);
-    let mut y = 0.0;
+    let mut y = content_offset_y;
 
     let text_strs = config.text.as_vec(len, None);
 
@@ -106,31 +123,66 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
             config.text_padding,
             max_width,
             i,
-            [config.inner_width + config.outer_margin, y],
+            [config.inner_width + content_offset_x, y],
         );
         let height = group.bounding_box().height();
         groups.push(SceneMark::Group(group));
         y += height;
     }
 
-    // Measure the overall bounds to create a clip rect
+    // Measure the content bounds
     let temp_group = SceneGroup {
         marks: groups.clone(),
         ..Default::default()
     };
-    let bbox = temp_group.bounding_box();
-    // Add padding all around to prevent clipping
-    let padding = 4.0; // keep local to avoid cross-crate cycle
-    let width = bbox.width() + 2.0 * padding;
-    let height = bbox.height() + 2.0 * padding;
+    let content_bbox = temp_group.bounding_box();
 
+    // Calculate total dimensions including padding
+    // The background rect always exists and defines our coordinate system
+    // Add symmetric padding on all sides (content is already offset by bg_padding on left/top)
+    let bg_width = content_bbox.width() + bg_padding * 2.0; // Left padding (in content offset) + right padding
+    let bg_height = content_bbox.height() + bg_padding * 2.0; // Top padding (in content offset) + bottom padding
+
+    // Always create a background rect at origin (0, 0)
+    // This provides consistent layout whether visible or not
+    let bg = SceneRectMark {
+        x: 0.0.into(),
+        y: 0.0.into(),
+        width: Some(bg_width.into()),
+        height: Some(bg_height.into()),
+        fill: config
+            .background_fill
+            .clone()
+            .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])) // Transparent by default
+            .into(),
+        stroke: config
+            .background_stroke
+            .clone()
+            .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])) // No stroke by default
+            .into(),
+        stroke_width: if config.background_stroke.is_some() {
+            1.0.into()
+        } else {
+            0.0.into()
+        },
+        corner_radius: config.background_corner_radius.unwrap_or(0.0).into(),
+        zindex: Some(0), // Background should be behind content
+        ..Default::default()
+    };
+
+    // Insert background rect first, then legend content
+    let mut final_marks = vec![SceneMark::Rect(bg)];
+    final_marks.extend(groups);
+
+    // Clip rect matches the background rect dimensions
+    // No additional clipping needed since everything is within the background
     Ok(SceneGroup {
-        marks: groups,
+        marks: final_marks,
         clip: avenger_scenegraph::marks::group::Clip::Rect {
-            x: -padding,
-            y: -padding,
-            width,
-            height,
+            x: 0.0,
+            y: 0.0,
+            width: bg_width,
+            height: bg_height,
         },
         ..Default::default()
     })

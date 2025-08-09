@@ -614,6 +614,23 @@ impl ChartLayout {
         scales: &HashMap<String, ConfiguredScale>,
         _available_space: Size<f32>,
     ) -> Result<Size<f32>, AvengerChartError> {
+        // Helper function to parse color strings
+        fn parse_color_string(color_str: &str) -> Option<avenger_common::types::ColorOrGradient> {
+            use avenger_scales::scales::coerce::Coercer;
+            use datafusion_common::ScalarValue;
+
+            let coercer = Coercer::default();
+            let array = ScalarValue::iter_to_array(
+                [ScalarValue::Utf8(Some(color_str.to_string()))]
+                    .iter()
+                    .cloned(),
+            )
+            .ok()?;
+            coercer
+                .to_color(&array, None)
+                .ok()
+                .and_then(|colors| colors.as_vec(1, None).first().cloned())
+        }
         // Skip invisible legends
         if !legend.visible {
             return Ok(Size {
@@ -694,8 +711,17 @@ impl ChartLayout {
                 colorbar_width: Some(15.0),
                 colorbar_height: Some(150.0),
                 colorbar_margin: Some(0.0),
-                left_padding: None,
                 format_number: legend.format_number.clone(),
+                background_fill: legend
+                    .background_fill
+                    .as_ref()
+                    .and_then(|s| parse_color_string(s)),
+                background_stroke: legend
+                    .background_stroke
+                    .as_ref()
+                    .and_then(|s| parse_color_string(s)),
+                background_corner_radius: legend.background_corner_radius,
+                background_padding: legend.background_padding,
             };
 
             // Use the scale that's already configured (passed to this function)
@@ -755,6 +781,16 @@ impl ChartLayout {
                 entry_margin: 2.0,
                 text_padding: 4.0, // Consistent with symbol legend spacing
                 line_length: 16.0, // Similar to symbol size, enough for dash patterns
+                background_fill: legend
+                    .background_fill
+                    .as_ref()
+                    .and_then(|s| parse_color_string(s)),
+                background_stroke: legend
+                    .background_stroke
+                    .as_ref()
+                    .and_then(|s| parse_color_string(s)),
+                background_corner_radius: legend.background_corner_radius,
+                background_padding: legend.background_padding,
             };
 
             make_line_legend(&config)
@@ -971,6 +1007,16 @@ impl ChartLayout {
                 inner_height: 100.0, // Match the render config
                 outer_margin: 0.0,
                 text_padding: 2.0, // Match the default from legend config
+                background_fill: legend
+                    .background_fill
+                    .as_ref()
+                    .and_then(|s| parse_color_string(s)),
+                background_stroke: legend
+                    .background_stroke
+                    .as_ref()
+                    .and_then(|s| parse_color_string(s)),
+                background_corner_radius: legend.background_corner_radius,
+                background_padding: legend.background_padding,
             };
 
             make_symbol_legend(&config)
@@ -1162,7 +1208,11 @@ impl GridBuilder {
                     28.0
                 }
                 _ => self.measure_component_height(
-                    component, axes, legends, scales, available_space,
+                    component,
+                    axes,
+                    legends,
+                    scales,
+                    available_space,
                 )?,
             };
             rows.push(length(height));

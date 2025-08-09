@@ -1,7 +1,7 @@
 use crate::visual_tests::helpers::assert_visual_match_default;
+use avenger_chart::LegendPosition;
 use avenger_chart::axis::AxisPosition;
 use avenger_chart::coords::Cartesian;
-use avenger_chart::LegendPosition;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
 use datafusion::arrow::array::{Float64Array, StringArray};
@@ -42,8 +42,11 @@ fn make_df_numeric() -> DataFrame {
         Field::new("value", DataType::Float64, false),
     ]));
 
-    let batch = RecordBatch::try_new(schema, vec![Arc::new(x_values), Arc::new(y_values), Arc::new(value)])
-        .unwrap();
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![Arc::new(x_values), Arc::new(y_values), Arc::new(value)],
+    )
+    .unwrap();
 
     let ctx = SessionContext::new();
     ctx.read_batch(batch).unwrap()
@@ -58,7 +61,13 @@ async fn title_basic_symbol() {
         .scale_x(|s| s.domain((0.0, 10.0)))
         .scale_y(|s| s.domain((0.0, 12.0)))
         .legend_fill(|l| l.visible(false))
-        .mark(Symbol::new().x(col("x")).y(col("y")).size(100.0).fill("#2ca25f"));
+        .mark(
+            Symbol::new()
+                .x(col("x"))
+                .y(col("y"))
+                .size(100.0)
+                .fill("#2ca25f"),
+        );
 
     assert_visual_match_default(plot, "layout", "title_basic_symbol").await;
 }
@@ -94,7 +103,13 @@ async fn title_top_x_right_y() {
         .axis_x(|a| a.position(AxisPosition::Top).title("Top X").grid(true))
         .axis_y(|a| a.position(AxisPosition::Right).title("Right Y").grid(true))
         .legend_fill(|l| l.visible(false))
-        .mark(Symbol::new().x(col("x")).y(col("y")).size(100.0).fill("#2ca25f"));
+        .mark(
+            Symbol::new()
+                .x(col("x"))
+                .y(col("y"))
+                .size(100.0)
+                .fill("#2ca25f"),
+        );
 
     assert_visual_match_default(plot, "layout", "title_top_x_right_y").await;
 }
@@ -119,5 +134,3 @@ async fn title_with_colorbar_legend() {
 
     assert_visual_match_default(plot, "layout", "title_with_colorbar_legend").await;
 }
-
-

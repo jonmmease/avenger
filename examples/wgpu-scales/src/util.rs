@@ -328,8 +328,11 @@ pub async fn run() {
             colorbar_width: None,
             colorbar_height: None,
             colorbar_margin: Some(8.0),
-            left_padding: None,
             format_number: None,
+            background_fill: None,
+            background_stroke: None,
+            background_corner_radius: None,
+            background_padding: None,
         },
     )
     .unwrap();

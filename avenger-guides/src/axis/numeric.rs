@@ -267,9 +267,9 @@ fn make_tick_labels(
 ) -> Result<SceneTextMark, AvengerGuidesError> {
     // If a numeric format string is provided, override the scale's number formatter
     let tick_text = if let Some(pattern) = format_number {
-        use arrow::datatypes::DataType;
-        use arrow::compute::kernels::cast;
         use arrow::array::AsArray;
+        use arrow::compute::kernels::cast;
+        use arrow::datatypes::DataType;
         if ticks.data_type().is_numeric() {
             let values = cast(ticks, &DataType::Float32)
                 .map_err(|e| AvengerGuidesError::InvalidScale(e.into()))?;

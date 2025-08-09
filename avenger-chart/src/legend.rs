@@ -11,6 +11,10 @@ pub struct Legend {
     pub columns: Option<usize>,
     pub label_limit: Option<f64>,
     pub format_number: Option<String>,
+    pub background_fill: Option<String>,
+    pub background_stroke: Option<String>,
+    pub background_corner_radius: Option<f32>,
+    pub background_padding: Option<f32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -40,6 +44,10 @@ impl Legend {
             columns: None,
             label_limit: None,
             format_number: None,
+            background_fill: None,
+            background_stroke: None,
+            background_corner_radius: None,
+            background_padding: None,
         }
     }
 
@@ -91,6 +99,26 @@ impl Legend {
     /// Set a numeric formatting string for legend labels.
     pub fn format_number(mut self, pattern: impl Into<String>) -> Self {
         self.format_number = Some(pattern.into());
+        self
+    }
+
+    pub fn background_fill(mut self, color: impl Into<String>) -> Self {
+        self.background_fill = Some(color.into());
+        self
+    }
+
+    pub fn background_stroke(mut self, color: impl Into<String>) -> Self {
+        self.background_stroke = Some(color.into());
+        self
+    }
+
+    pub fn background_corner_radius(mut self, r: f32) -> Self {
+        self.background_corner_radius = Some(r);
+        self
+    }
+
+    pub fn background_padding(mut self, pad: f32) -> Self {
+        self.background_padding = Some(pad);
         self
     }
 }
