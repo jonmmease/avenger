@@ -12,6 +12,7 @@ pub mod test_grid_zindex;
 pub mod test_legend;
 pub mod test_legend_background;
 pub mod test_legend_channels;
+pub mod test_legend_titles;
 pub mod test_line;
 pub mod test_line_legend;
 pub mod test_line_multi_series;
