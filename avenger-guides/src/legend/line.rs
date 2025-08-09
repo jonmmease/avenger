@@ -168,16 +168,9 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
     let mut final_marks = vec![SceneMark::Rect(bg)];
     final_marks.extend(groups);
 
-    // Clip rect matches the background rect dimensions
-    // No additional clipping needed since everything is within the background
     Ok(SceneGroup {
         marks: final_marks,
-        clip: avenger_scenegraph::marks::group::Clip::Rect {
-            x: 0.0,
-            y: 0.0,
-            width: bg_width,
-            height: bg_height,
-        },
+        clip: avenger_scenegraph::marks::group::Clip::None,
         ..Default::default()
     })
 }

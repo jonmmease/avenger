@@ -15,9 +15,11 @@ pub struct Legend {
     pub background_stroke: Option<String>,
     pub background_corner_radius: Option<f32>,
     pub background_padding: Option<f32>,
+    pub order: Option<i32>,
+    pub contributing_marks: Vec<String>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum LegendPosition {
     Top,
     Right,
@@ -48,6 +50,8 @@ impl Legend {
             background_stroke: None,
             background_corner_radius: None,
             background_padding: None,
+            order: None,
+            contributing_marks: Vec::new(),
         }
     }
 
@@ -119,6 +123,16 @@ impl Legend {
 
     pub fn background_padding(mut self, pad: f32) -> Self {
         self.background_padding = Some(pad);
+        self
+    }
+
+    pub fn order(mut self, order: i32) -> Self {
+        self.order = Some(order);
+        self
+    }
+
+    pub fn add_contributing_mark(mut self, mark_id: impl Into<String>) -> Self {
+        self.contributing_marks.push(mark_id.into());
         self
     }
 }

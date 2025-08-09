@@ -34,7 +34,6 @@ pub async fn render_plot<C: CoordinateSystem>(plot: &Plot<C>) -> RgbaImage {
     // Use plot's preferred size if available, otherwise use default
     let (width, height) = plot
         .get_preferred_size()
-        .map(|(w, h)| (w as f32, h as f32))
         .unwrap_or(DEFAULT_SIZE);
 
     let dimensions = CanvasDimensions {

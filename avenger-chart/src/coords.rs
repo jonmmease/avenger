@@ -176,7 +176,7 @@ impl CoordinateSystem for Cartesian {
 
                 // Get default axis with position
                 let mut axis =
-                    Self::default_axis(channel, 0).unwrap_or_else(|| CartesianAxis::new());
+                    Self::default_axis(channel, 0).unwrap_or_else(CartesianAxis::new);
 
                 // Update with title and grid
                 axis = axis.title(title).grid(grid);
