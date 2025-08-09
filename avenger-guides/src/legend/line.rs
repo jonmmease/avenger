@@ -7,7 +7,7 @@ use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scenegraph::marks::line::SceneLineMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark, text::SceneTextMark};
-use avenger_text::types::{TextAlign, TextBaseline};
+use avenger_text::types::{FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
 
 /// Symbol legends
 pub struct LineLegendConfig {
@@ -80,7 +80,7 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
         config.stroke_dash.len(),
     ])?;
 
-    let mut groups: Vec<SceneMark> = Vec::with_capacity(len);
+    let mut groups: Vec<SceneMark> = Vec::with_capacity(len + 1);
 
     let text_strs = config.text.as_vec(len, None);
 
@@ -102,6 +102,31 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
 
     // Position legend content with padding from the background rect origin
     let mut line_group_y = bg_padding + legend_group_height / 2.0;
+
+    // Add title if present
+    let title_height = if let Some(ref title_text) = config.title {
+        // Use same font size as legend items for consistency
+        let legend_font_size = 10.0;
+        let title_mark = SceneTextMark {
+            text: title_text.clone().into(),
+            x: bg_padding.into(),
+            y: (bg_padding + legend_font_size / 2.0).into(), // Center title vertically in its space
+            font_size: legend_font_size.into(),
+            font_weight: FontWeight::Name(FontWeightNameSpec::Bold).into(),
+            font: config.font_family.as_vec(1, None)[0].clone().into(),
+            color: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
+            align: TextAlign::Left.into(),
+            baseline: TextBaseline::Middle.into(),
+            ..Default::default()
+        };
+        groups.push(SceneMark::Text(Arc::new(title_mark)));
+
+        let title_space = legend_font_size + 4.0;
+        line_group_y += title_space;
+        title_space
+    } else {
+        0.0
+    };
 
     // Expand encodings
     let text_strs = config.text.as_vec(len, None);
@@ -135,7 +160,7 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
     // The background rect always exists and defines our coordinate system
     // Add symmetric padding on all sides
     let bg_width = content_bbox.width() + bg_padding * 2.0;
-    let bg_height = legend_group_height * len as f32 + bg_padding * 2.0;
+    let bg_height = legend_group_height * len as f32 + bg_padding * 2.0 + title_height;
 
     // Create a background rect at origin (0, 0)
     // This provides consistent layout whether visible or not

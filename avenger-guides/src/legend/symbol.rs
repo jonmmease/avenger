@@ -7,7 +7,7 @@ use avenger_scenegraph::marks::{
     group::SceneGroup, mark::SceneMark, rect::SceneRectMark, symbol::SceneSymbolMark,
     text::SceneTextMark,
 };
-use avenger_text::types::{TextAlign, TextBaseline};
+use avenger_text::types::{FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
 
 use crate::{error::AvengerGuidesError, legend::compute_encoding_length};
 
@@ -115,9 +115,33 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
 
     // Position legend content with padding from the background rect origin
     let content_offset_x = bg_padding + config.outer_margin;
-    let content_offset_y = bg_padding;
+    let mut content_offset_y = bg_padding;
 
-    let mut groups: Vec<SceneMark> = Vec::with_capacity(len);
+    let mut groups: Vec<SceneMark> = Vec::with_capacity(len + 1); // +1 for potential title
+
+    // Add title if present
+    if let Some(ref title_text) = config.title {
+        // Use same font size as legend items for consistency
+        let legend_font_size = 10.0;
+        let title_mark = SceneTextMark {
+            text: title_text.clone().into(),
+            x: content_offset_x.into(),
+            y: (content_offset_y + legend_font_size / 2.0).into(), // Center title vertically in its space
+            font_size: legend_font_size.into(),
+            font_weight: FontWeight::Name(FontWeightNameSpec::Bold).into(),
+            font: "sans-serif".to_string().into(),
+            color: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
+            align: TextAlign::Left.into(),
+            baseline: TextBaseline::Middle.into(),
+            ..Default::default()
+        };
+        groups.push(SceneMark::Text(Arc::new(title_mark)));
+
+        // Title height (same as legend font) + spacing between title and items
+        let title_space = legend_font_size + 4.0; // Tighter spacing
+        content_offset_y += title_space;
+    }
+
     let mut y = content_offset_y;
 
     let text_strs = config.text.as_vec(len, None);
