@@ -9,6 +9,8 @@ use crate::marks::{ChannelValue, Mark};
 use crate::plot::Plot;
 use crate::scales::Scale;
 use crate::utils::ScalarValueHelpers;
+use avenger_geometry::marks::MarkGeometryUtils;
+use avenger_geometry::rtree::EnvelopeUtils;
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
@@ -143,19 +145,19 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         let (padding, layout_bundle) = if use_taffy_layout {
             // Use Taffy layout for accurate legend and axis positioning
-            self.compute_layout_with_taffy_cartesian(width as f32, height as f32)
+            self.compute_layout_with_taffy_cartesian(width, height)
                 .await?
         } else {
             // Fallback to fixed padding for non-Cartesian plots
-            let padding = self.plot.measure_padding(width as f32, height as f32);
+            let padding = self.plot.measure_padding(width, height);
             (padding, None)
         };
 
         // Calculate plot area (inside padding)
         let plot_area_x = padding.left;
         let plot_area_y = padding.top;
-        let plot_area_width = width as f32 - padding.left - padding.right;
-        let plot_area_height = height as f32 - padding.top - padding.bottom;
+        let plot_area_width = width - padding.left - padding.right;
+        let plot_area_height = height - padding.top - padding.bottom;
 
         // First, collect all channels that need scales
         let channels_with_scales = self.plot.collect_channels_needing_scales();
@@ -278,12 +280,12 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // Create title if present
         let title_marks = if let Some((layout, _legend_cache)) = &layout_bundle {
             if let Some(title_bounds) = &layout.title {
-                self.create_title(width as f32, &padding, Some(*title_bounds))?
+                self.create_title(width, &padding, Some(*title_bounds))?
             } else {
                 Vec::new()
             }
         } else {
-            self.create_title(width as f32, &padding, None)?
+            self.create_title(width, &padding, None)?
         };
 
         // Compose all elements into a scene graph
@@ -318,6 +320,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // 4. Title (can overflow, rendered on top)
         all_marks.extend(title_marks);
 
+        // 5. Debug: Add Taffy layout bounds visualization if debug mode is enabled
+        if std::env::var("AVENGER_DEBUG_LAYOUT_RECTS").is_ok() {
+            if let Some((layout, _)) = &layout_bundle {
+                all_marks.extend(Self::create_debug_layout_rects(layout));
+            }
+        }
+
         // Wrap everything in a single root group
         let root_group = SceneGroup {
             marks: all_marks,
@@ -326,8 +335,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         let scene_graph = SceneGraph {
             marks: vec![SceneMark::Group(root_group)],
-            width: width as f32,
-            height: height as f32,
+            width,
+            height,
             origin: [0.0, 0.0],
         };
 
@@ -338,6 +347,133 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             scene_graph,
             rtree: Some(rtree),
         })
+    }
+
+    /// Create debug rectangles to visualize Taffy layout bounds
+    fn create_debug_layout_rects(layout: &crate::chart_layout::LayoutResult) -> Vec<SceneMark> {
+        use avenger_common::types::ColorOrGradient;
+        use avenger_scenegraph::marks::rect::SceneRectMark;
+        use avenger_scenegraph::marks::text::SceneTextMark;
+
+        let mut debug_marks = Vec::new();
+
+        // Plot area - magenta outline
+        let plot_rect = SceneRectMark {
+            x: layout.plot_area.x.into(),
+            y: layout.plot_area.y.into(),
+            width: Some(layout.plot_area.width.into()),
+            height: Some(layout.plot_area.height.into()),
+            fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(), // Transparent
+            stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.8]).into(), // Magenta
+            stroke_width: 2.0.into(),
+            zindex: Some(20),
+            ..Default::default()
+        };
+        debug_marks.push(SceneMark::Rect(plot_rect));
+
+        // Plot area label
+        let plot_label = SceneTextMark {
+            text: "plot-area".into(),
+            x: (layout.plot_area.x + 2.0).into(),
+            y: (layout.plot_area.y + 10.0).into(),
+            font_size: 8.0.into(),
+            color: ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0]).into(), // Magenta
+            zindex: Some(20),
+            ..Default::default()
+        };
+        debug_marks.push(SceneMark::Text(std::sync::Arc::new(plot_label)));
+
+        // Axes - magenta outlines with labels
+        for (position, bounds) in &layout.axes {
+            let axis_rect = SceneRectMark {
+                x: bounds.x.into(),
+                y: bounds.y.into(),
+                width: Some(bounds.width.into()),
+                height: Some(bounds.height.into()),
+                fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
+                stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.8]).into(), // Magenta
+                stroke_width: 1.0.into(),
+                zindex: Some(20),
+                ..Default::default()
+            };
+            debug_marks.push(SceneMark::Rect(axis_rect));
+
+            // Add axis label
+            let axis_label = match position {
+                crate::axis::AxisPosition::Left => "y-axis",
+                crate::axis::AxisPosition::Right => "y-axis-right",
+                crate::axis::AxisPosition::Top => "x-axis-top",
+                crate::axis::AxisPosition::Bottom => "x-axis",
+            };
+            let label = SceneTextMark {
+                text: axis_label.into(),
+                x: (bounds.x + 2.0).into(),
+                y: (bounds.y + 10.0).into(),
+                font_size: 8.0.into(),
+                color: ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0]).into(), // Magenta
+                zindex: Some(20),
+                ..Default::default()
+            };
+            debug_marks.push(SceneMark::Text(std::sync::Arc::new(label)));
+        }
+
+        // Legends - magenta outlines
+        for (channel, bounds) in &layout.legends {
+            let legend_rect = SceneRectMark {
+                x: bounds.x.into(),
+                y: bounds.y.into(),
+                width: Some(bounds.width.into()),
+                height: Some(bounds.height.into()),
+                fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
+                stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.8]).into(), // Magenta
+                stroke_width: 1.0.into(),
+                zindex: Some(20),
+                ..Default::default()
+            };
+            debug_marks.push(SceneMark::Rect(legend_rect));
+
+            // Add label for legend channel
+            let label = SceneTextMark {
+                text: channel.clone().into(),
+                x: (bounds.x + 2.0).into(),
+                y: (bounds.y + 10.0).into(),
+                font_size: 8.0.into(),
+                color: ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0]).into(), // Magenta
+                zindex: Some(20),
+                ..Default::default()
+            };
+            debug_marks.push(SceneMark::Text(std::sync::Arc::new(label)));
+        }
+
+        // Title - magenta outline
+        if let Some(bounds) = &layout.title {
+            let title_rect = SceneRectMark {
+                x: bounds.x.into(),
+                y: bounds.y.into(),
+                width: Some(bounds.width.into()),
+                height: Some(bounds.height.into()),
+                fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
+                stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.8]).into(), // Magenta
+                stroke_width: 1.0.into(),
+                zindex: Some(20),
+                ..Default::default()
+            };
+            debug_marks.push(SceneMark::Rect(title_rect));
+
+            // Add title label
+            let title_label = SceneTextMark {
+                text: "title".into(),
+                x: (bounds.x + 2.0).into(),
+                y: (bounds.y + 10.0).into(),
+                font_size: 8.0.into(),
+                color: ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0]).into(), // Magenta
+                zindex: Some(20),
+                ..Default::default()
+            };
+            debug_marks.push(SceneMark::Text(std::sync::Arc::new(title_label)));
+        }
+
+        debug_marks
     }
 
     /// Check if an expression references any columns
@@ -619,11 +755,11 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                         channel
                     ))
                 })?;
-                let legend_type = self.determine_legend_type(&channel, scale);
+                let legend_type = self.determine_legend_type(channel, scale);
 
                 let params = LegendParams {
-                    channel: &channel,
-                    legend: &legend,
+                    channel,
+                    legend,
                     scales,
                     plot_width: bounds.width,
                     plot_height: bounds.height,
@@ -647,7 +783,14 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                         LegendType::Colorbar => self.create_colorbar_legend(params).await?,
                     };
                     if let Some(mut group) = legend_group {
-                        group.origin = [bounds.x, bounds.y];
+                        // For symbol legends, shift down slightly to account for stroke extending beyond bounds
+                        let y_offset = if matches!(legend_type, LegendType::Symbol) {
+                            // The stroke width is 1.0 by default for symbol legends
+                            1.0
+                        } else {
+                            0.0
+                        };
+                        group.origin = [bounds.x, bounds.y + y_offset];
                         legend_marks.push(SceneMark::Group(group));
                     }
                 }
@@ -879,7 +1022,30 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             .iter()
             .map(|v| match v {
                 datafusion_common::ScalarValue::Utf8(Some(s)) => s.clone(),
-                _ => format!("{:?}", v),
+                datafusion_common::ScalarValue::Float64(Some(f)) => {
+                    // Format float nicely - remove trailing zeros
+                    if f.fract() == 0.0 && f.abs() < 1e10 {
+                        format!("{:.0}", f)
+                    } else {
+                        format!("{}", f)
+                    }
+                }
+                datafusion_common::ScalarValue::Float32(Some(f)) => {
+                    if f.fract() == 0.0 && f.abs() < 1e10 {
+                        format!("{:.0}", f)
+                    } else {
+                        format!("{}", f)
+                    }
+                }
+                datafusion_common::ScalarValue::Int64(Some(i)) => i.to_string(),
+                datafusion_common::ScalarValue::Int32(Some(i)) => i.to_string(),
+                datafusion_common::ScalarValue::Int16(Some(i)) => i.to_string(),
+                datafusion_common::ScalarValue::Int8(Some(i)) => i.to_string(),
+                datafusion_common::ScalarValue::UInt64(Some(i)) => i.to_string(),
+                datafusion_common::ScalarValue::UInt32(Some(i)) => i.to_string(),
+                datafusion_common::ScalarValue::UInt16(Some(i)) => i.to_string(),
+                datafusion_common::ScalarValue::UInt8(Some(i)) => i.to_string(),
+                _ => format!("{:?}", v), // Fallback for other types
             })
             .collect();
 
@@ -963,6 +1129,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         };
 
         // Initialize config with defaults
+        if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+            eprintln!("FINAL: Creating symbol legend '{}' with:", params.channel);
+            eprintln!("  text_values: {:?}", text_values);
+            eprintln!("  default_size: {}", default_size);
+            eprintln!("  inner_width: 0.0, inner_height: 100.0");
+            eprintln!("  outer_margin: 0.0, text_padding: 2.0");
+        }
         let mut config = SymbolLegendConfig {
             title: params.legend.title.clone(),
             text: ScalarOrArray::new_array(text_values),
@@ -976,6 +1149,11 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // Apply legend background styling if provided
         if let Some(pad) = params.legend.background_padding {
             config.background_padding = Some(pad);
+            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+                eprintln!("  padding: Some({})", pad);
+            }
+        } else if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+            eprintln!("  padding: None (will use default)");
         }
         if let Some(r) = params.legend.background_corner_radius {
             config.background_corner_radius = Some(r);
@@ -1078,6 +1256,9 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         // Size channel
         config.size = ScalarOrArray::new_scalar(default_size);
+        if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() && params.channel == "shape" {
+            eprintln!("  Initial size set to default: {}", default_size);
+        }
 
         if params.channel == "size" {
             // Size is the legend channel - map through scale
@@ -1086,6 +1267,9 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 .await?;
             config.size = ScalarOrArray::new_array(sizes);
         } else if let Some(channel_value) = mark_encodings.get("size") {
+            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() && params.channel == "shape" {
+                eprintln!("  Found size in mark_encodings");
+            }
             // Check if this uses the same expression as the legend channel
             if let Some(legend_expr) = legend_channel_expr {
                 if channel_value.expr() == legend_expr {
@@ -1119,6 +1303,11 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                     }
                 }
             }
+        }
+
+        if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() && params.channel == "shape" {
+            let sizes = config.size.as_vec(3, None);
+            eprintln!("  After size logic, size is: {:?}", sizes);
         }
 
         // Fill channel
@@ -1241,6 +1430,9 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         // Stroke width channel - start with default
         config.stroke_width = Some(default_stroke_width);
+        if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() && params.channel == "shape" {
+            eprintln!("  stroke_width: Some({})", default_stroke_width);
+        }
 
         if let Some(channel_value) = mark_encodings.get("stroke_width") {
             if !Self::references_columns(channel_value.expr()) {
@@ -1302,6 +1494,10 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         }
 
         // Create the legend marks
+        if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() && params.channel == "shape" {
+            let sizes = config.size.as_vec(3, None);
+            eprintln!("  Final config.size for shape: {:?}", sizes);
+        }
         let mut legend_group = make_symbol_legend(&config)?;
 
         // Position the legend
@@ -1436,7 +1632,30 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             .iter()
             .map(|v| match v {
                 datafusion_common::ScalarValue::Utf8(Some(s)) => s.clone(),
-                _ => format!("{:?}", v),
+                datafusion_common::ScalarValue::Float64(Some(f)) => {
+                    // Format float nicely - remove trailing zeros
+                    if f.fract() == 0.0 && f.abs() < 1e10 {
+                        format!("{:.0}", f)
+                    } else {
+                        format!("{}", f)
+                    }
+                }
+                datafusion_common::ScalarValue::Float32(Some(f)) => {
+                    if f.fract() == 0.0 && f.abs() < 1e10 {
+                        format!("{:.0}", f)
+                    } else {
+                        format!("{}", f)
+                    }
+                }
+                datafusion_common::ScalarValue::Int64(Some(i)) => i.to_string(),
+                datafusion_common::ScalarValue::Int32(Some(i)) => i.to_string(),
+                datafusion_common::ScalarValue::Int16(Some(i)) => i.to_string(),
+                datafusion_common::ScalarValue::Int8(Some(i)) => i.to_string(),
+                datafusion_common::ScalarValue::UInt64(Some(i)) => i.to_string(),
+                datafusion_common::ScalarValue::UInt32(Some(i)) => i.to_string(),
+                datafusion_common::ScalarValue::UInt16(Some(i)) => i.to_string(),
+                datafusion_common::ScalarValue::UInt8(Some(i)) => i.to_string(),
+                _ => format!("{:?}", v), // Fallback for other types
             })
             .collect();
 
@@ -1473,6 +1692,17 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // Apply legend background styling if provided
         if let Some(pad) = params.legend.background_padding {
             config.background_padding = Some(pad);
+            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "Line legend '{}' setting padding to {}",
+                    params.channel, pad
+                );
+            }
+        } else if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "Line legend '{}' has no padding specified, will use default",
+                params.channel
+            );
         }
         if let Some(r) = params.legend.background_corner_radius {
             config.background_corner_radius = Some(r);
@@ -1682,18 +1912,15 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             .create_configured_scale(100.0, params.plot_height)
             .await?;
 
-        // Determine colorbar dimensions based on available space
-        let available_height = params.plot_height; // This is the bounds height when using Taffy
-        let colorbar_height = params
-            .legend
-            .gradient_length
-            .unwrap_or((available_height * 0.8) as f64)
-            .min(200.0) as f32;
+        // Determine colorbar dimensions
+        // When using Taffy layout, params.plot_height is the allocated height
+        // We should use this directly as the total colorbar height
+        let colorbar_height = params.plot_height;
         let colorbar_width = params.legend.gradient_thickness.unwrap_or(15.0) as f32;
 
         let mut config = ColorbarConfig {
             orientation: ColorbarOrientation::Right,
-            dimensions: [params.plot_width, available_height], // Available space for the colorbar
+            dimensions: [params.plot_width, params.plot_height], // Available space for the colorbar
             colorbar_width: Some(colorbar_width),
             colorbar_height: Some(colorbar_height),
             colorbar_margin: Some(0.0), // No margin - align exactly with axis
@@ -2160,6 +2387,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             &configured_scales,
             Some((width, height)),
             self.plot.get_title(),
+            &self.plot.marks,
         )?;
 
         // Compute layout
@@ -2178,6 +2406,12 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         for (channel, legend) in visible_legends.into_iter() {
             if let Some(bounds) = layout_result.legends.get(&channel) {
                 // Create a temporary legend group using the same params used by create_legends_with_layout
+                if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "Creating cached legend '{}' with bounds w={}, h={}",
+                        channel, bounds.width, bounds.height
+                    );
+                }
                 let params = LegendParams {
                     channel: &channel,
                     legend: &legend,
@@ -2197,13 +2431,39 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                     .get(&channel)
                     .ok_or_else(|| AvengerChartError::InternalError("Missing scale".into()))?;
                 let legend_type = self.determine_legend_type(&channel, scale);
+                if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "Creating cached legend '{}' with type: {:?}",
+                        channel, legend_type
+                    );
+                }
                 let group_opt = match legend_type {
                     LegendType::Symbol => self.create_symbol_legend(params).await?,
                     LegendType::Line => self.create_line_legend(params).await?,
                     LegendType::Colorbar => self.create_colorbar_legend(params).await?,
                 };
                 if let Some(mut group) = group_opt {
-                    group.origin = [bounds.x, bounds.y];
+                    if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+                        let bbox = group.bounding_box();
+                        eprintln!(
+                            "Legend '{}' bounds from Taffy: x={}, y={}, w={}, h={}",
+                            channel, bounds.x, bounds.y, bounds.width, bounds.height
+                        );
+                        eprintln!(
+                            "Legend '{}' actual bbox: w={}, h={}",
+                            channel,
+                            bbox.width(),
+                            bbox.height()
+                        );
+                    }
+                    // For symbol legends, shift down slightly to account for stroke extending beyond bounds
+                    let y_offset = if matches!(legend_type, LegendType::Symbol) {
+                        // The stroke width is 1.0 by default for symbol legends
+                        1.0
+                    } else {
+                        0.0
+                    };
+                    group.origin = [bounds.x, bounds.y + y_offset];
                     legend_cache.insert(channel.clone(), group);
                 }
             }

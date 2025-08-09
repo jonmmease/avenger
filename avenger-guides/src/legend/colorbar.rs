@@ -27,23 +27,26 @@ pub fn make_colorbar_marks(
             let available_height = config.dimensions[1];
 
             // Colorbar properties
-            let colorbar_width = config.colorbar_width.unwrap_or(15.0);
-            let colorbar_height = config
+            // colorbar_height now refers to the total height including background padding
+            let total_height = config
                 .colorbar_height
                 .unwrap_or(available_height.min(200.0));
+            let bg_padding = config.background_padding.unwrap_or(8.0);
+
+            // Calculate the actual gradient height by subtracting padding
+            let gradient_height = (total_height - 2.0 * bg_padding).max(10.0);
+
+            let colorbar_width = config.colorbar_width.unwrap_or(15.0);
             let colorbar_margin = config.colorbar_margin.unwrap_or(5.0);
 
             // Create a gradient for the colorbar rect
             let gradient = Gradient::LinearGradient(LinearGradient {
                 x0: 0.0,
-                y0: colorbar_height,
+                y0: gradient_height,
                 x1: 0.0,
                 y1: 0.0,
                 stops: scale.color_range_as_gradient_stops(10)?,
             });
-
-            // Always use consistent padding for layout stability
-            let bg_padding = config.background_padding.unwrap_or(8.0);
 
             // Make colorbar rect
             let rect = SceneRectMark {
@@ -52,7 +55,7 @@ pub fn make_colorbar_marks(
                 x: 0.0.into(),
                 x2: Some((colorbar_width).into()),
                 y: 0.0.into(),
-                y2: Some((colorbar_height).into()),
+                y2: Some((gradient_height).into()),
                 fill: ColorOrGradient::GradientIndex(0).into(),
                 ..Default::default()
             };
@@ -61,7 +64,7 @@ pub fn make_colorbar_marks(
             let axis_origin = [colorbar_width + colorbar_margin, 0.0];
             let axis_config = AxisConfig {
                 orientation: AxisOrientation::Right,
-                dimensions: [0.0, colorbar_height],
+                dimensions: [0.0, gradient_height],
                 grid: false,
                 format_number: None,
             };
@@ -71,7 +74,7 @@ pub fn make_colorbar_marks(
             };
 
             // Create a new scale with desired range for the axis
-            let numeric_scale = scale.clone().with_range_interval((colorbar_height, 0.0));
+            let numeric_scale = scale.clone().with_range_interval((gradient_height, 0.0));
             let axis = make_numeric_axis_marks(&numeric_scale, title, axis_origin, &axis_config)?;
 
             // Content marks
@@ -84,9 +87,9 @@ pub fn make_colorbar_marks(
 
             // Calculate total dimensions including padding
             // The background rect always exists and defines our coordinate system
-            // Add symmetric padding on all sides (content is already offset by bg_padding on left/top)
+            // total_height already includes the padding
             let bg_width = content_bbox.width() + bg_padding * 2.0;
-            let bg_height = colorbar_height + bg_padding * 2.0;
+            let bg_height = total_height;
 
             // Always create a background rect at origin (0, 0)
             // This provides consistent layout whether visible or not
@@ -119,29 +122,17 @@ pub fn make_colorbar_marks(
             let colorbar_axis_group = SceneGroup {
                 origin: [bg_padding, bg_padding],
                 marks: vec![rect.into(), axis.into()],
-                clip: avenger_scenegraph::marks::group::Clip::Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: bg_width,
-                    height: bg_height,
-                },
+                clip: avenger_scenegraph::marks::group::Clip::None,
                 ..Default::default()
             };
 
             // Insert background rect first, then legend content
             let marks = vec![bg_rect.into(), colorbar_axis_group.into()];
 
-            // Clip rect matches the background rect dimensions
-            // No additional clipping needed since everything is within the background
             Ok(SceneGroup {
                 origin: [0.0, 0.0],
                 marks,
-                clip: avenger_scenegraph::marks::group::Clip::Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: bg_width,
-                    height: bg_height,
-                },
+                clip: avenger_scenegraph::marks::group::Clip::None,
                 ..Default::default()
             })
         }
@@ -163,7 +154,7 @@ pub struct ColorbarConfig {
     pub dimensions: [f32; 2],
     /// Width of the colorbar (thickness)
     pub colorbar_width: Option<f32>,
-    /// Height of the colorbar (length),
+    /// Total height of the colorbar including background padding,
     /// if None will use plot height limited to 200px
     pub colorbar_height: Option<f32>,
     /// Margin between plot area and colorbar

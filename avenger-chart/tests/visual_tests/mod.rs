@@ -15,6 +15,8 @@ pub mod test_legend_channels;
 pub mod test_line;
 pub mod test_line_legend;
 pub mod test_line_multi_series;
+pub mod test_multiple_legends;
+pub mod test_multiple_legends_background;
 pub mod test_rect_legend;
 pub mod test_right_axis;
 pub mod test_symbol;

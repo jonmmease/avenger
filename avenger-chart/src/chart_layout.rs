@@ -21,7 +21,8 @@ pub struct ChartLayout {
     // Component nodes
     plot_area_node: Option<NodeId>,
     axis_nodes: HashMap<AxisPosition, NodeId>,
-    legend_nodes: HashMap<String, NodeId>, // Keyed by legend channel
+    legend_container_nodes: HashMap<LegendPosition, NodeId>, // Flex containers for each position
+    legend_nodes: HashMap<String, NodeId>, // Individual legend nodes keyed by channel
     legend_sizes: HashMap<String, Size<f32>>, // Store measured sizes
     #[allow(dead_code)]
     title_node: Option<NodeId>,
@@ -48,7 +49,8 @@ struct ComponentGridMap {
 enum ComponentType {
     PlotArea,
     Axis(AxisPosition),
-    Legend(String), // Channel name
+    Legend(String),                  // Channel name
+    LegendContainer(LegendPosition), // Container for legends at a position
     Title,
     Padding, // Empty space
 }
@@ -78,10 +80,13 @@ struct GridBuilder {
     components: Vec<(ComponentType, GridPlacement)>,
 
     // Track components by position for dynamic grid building
-    left_components: Vec<ComponentType>, // Order: axis first, then legends
-    right_components: Vec<ComponentType>, // Order: axis first, then legends
-    top_components: Vec<ComponentType>,  // Order: axis first, then legends, then title
-    bottom_components: Vec<ComponentType>, // Order: axis first, then legends
+    left_components: Vec<ComponentType>, // Order: axis first, then legend container
+    right_components: Vec<ComponentType>, // Order: axis first, then legend container
+    top_components: Vec<ComponentType>,  // Order: axis first, then legend container, then title
+    bottom_components: Vec<ComponentType>, // Order: axis first, then legend container
+
+    // Track legends by position for container creation
+    legends_by_position: HashMap<LegendPosition, Vec<(String, Legend)>>,
 }
 
 #[derive(Debug)]
@@ -100,12 +105,13 @@ struct GridTemplate {
 
 impl ChartLayout {
     /// Create a new chart layout with default axes and legends included
-    pub fn new(
+    pub fn new<C: crate::coords::CoordinateSystem>(
         axes: &HashMap<String, CartesianAxis>,
         legends: &HashMap<String, Legend>,
         scales: &HashMap<String, ConfiguredScale>,
         preferred_size: Option<(f32, f32)>,
         title: Option<&crate::plot::PlotTitle>,
+        marks: &[Box<dyn crate::marks::Mark<C>>],
     ) -> Result<Self, AvengerChartError> {
         let mut taffy = TaffyTree::new();
         let mut builder = GridBuilder::new();
@@ -131,6 +137,9 @@ impl ChartLayout {
             builder.add_legend(channel.clone(), legend);
         }
 
+        // Finalize legend containers after all legends are added
+        builder.finalize_legend_containers();
+
         // Measure components and generate optimal grid template
         let available_size = preferred_size.unwrap_or((400.0, 300.0));
         let (grid_template, component_map) = builder.build_with_measurements(
@@ -141,6 +150,7 @@ impl ChartLayout {
                 width: available_size.0,
                 height: available_size.1,
             },
+            marks,
         )?;
 
         // Create root node with grid layout
@@ -169,6 +179,7 @@ impl ChartLayout {
             root_node,
             plot_area_node: None,
             axis_nodes: HashMap::new(),
+            legend_container_nodes: HashMap::new(),
             legend_nodes: HashMap::new(),
             legend_sizes: HashMap::new(),
             title_node: None,
@@ -189,6 +200,7 @@ impl ChartLayout {
                         width: available_size.0,
                         height: available_size.1,
                     },
+                    marks,
                 )?;
                 legend_sizes.insert(channel.clone(), size);
             }
@@ -196,7 +208,7 @@ impl ChartLayout {
         layout.legend_sizes = legend_sizes;
 
         // Create nodes for each component
-        layout.create_component_nodes(&axes_by_position, legends)?;
+        layout.create_component_nodes(&axes_by_position, legends, scales)?;
 
         Ok(layout)
     }
@@ -224,6 +236,7 @@ impl ChartLayout {
         &mut self,
         axes_by_position: &HashMap<AxisPosition, Vec<String>>,
         legends: &HashMap<String, Legend>,
+        scales: &HashMap<String, ConfiguredScale>,
     ) -> Result<(), AvengerChartError> {
         // With the new dynamic grid, we need to find the plot area position from the component map
         let mut plot_row = 0;
@@ -254,7 +267,7 @@ impl ChartLayout {
         self.plot_area_node = Some(self.taffy.new_leaf(plot_style)?);
 
         // Create axis nodes - we need to map each axis to its grid position
-        for (position, _channels) in axes_by_position {
+        for position in axes_by_position.keys() {
             let axis_style = self.create_axis_style_from_grid(
                 *position,
                 &self.component_map,
@@ -265,17 +278,77 @@ impl ChartLayout {
             self.axis_nodes.insert(*position, node);
         }
 
-        // Create legend nodes
+        // Create legend container nodes and their children
+        // First, group legends by position
+        let mut legends_by_position: HashMap<LegendPosition, Vec<(String, Legend)>> =
+            HashMap::new();
         for (channel, legend) in legends.iter() {
-            let legend_style = self.create_legend_style_from_grid(
-                legend,
-                channel,
-                &self.component_map,
-                plot_row as i16,
-                plot_col as i16,
-            )?;
-            let node = self.taffy.new_leaf(legend_style)?;
-            self.legend_nodes.insert(channel.clone(), node);
+            let position = legend.position.unwrap_or(LegendPosition::Right);
+            legends_by_position
+                .entry(position)
+                .or_default()
+                .push((channel.clone(), legend.clone()));
+        }
+
+        // Create container nodes for each position with legends
+        for ((row, col), component) in &self.component_map.cells {
+            if let ComponentType::LegendContainer(position) = component {
+                // Create flex container for this position
+                if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "Legend container {:?} at grid position: row={}, col={}",
+                        position,
+                        *row + 1,
+                        *col + 1
+                    );
+                }
+                let container_style = Style {
+                    grid_row: line((*row + 1) as i16),
+                    grid_column: line((*col + 1) as i16),
+                    display: Display::Flex,
+                    flex_direction: match position {
+                        LegendPosition::Left | LegendPosition::Right => FlexDirection::Column,
+                        LegendPosition::Top | LegendPosition::Bottom => FlexDirection::Row,
+                    },
+                    align_items: Some(AlignItems::FlexStart),
+                    gap: Size {
+                        width: length(10.0),
+                        height: length(10.0),
+                    },
+                    ..Default::default()
+                };
+
+                let container_node = self.taffy.new_leaf(container_style)?;
+                self.legend_container_nodes
+                    .insert(*position, container_node);
+
+                // Create individual legend nodes as children of this container
+                if let Some(legends_at_position) = legends_by_position.get(position) {
+                    // Sort legends by order field and channel name
+                    let mut sorted_legends = legends_at_position.clone();
+                    sorted_legends.sort_by(|(channel_a, legend_a), (channel_b, legend_b)| {
+                        match (legend_a.order, legend_b.order) {
+                            (Some(o1), Some(o2)) => o1.cmp(&o2),
+                            (Some(_), None) => std::cmp::Ordering::Less,
+                            (None, Some(_)) => std::cmp::Ordering::Greater,
+                            (None, None) => channel_a.cmp(channel_b),
+                        }
+                    });
+
+                    let mut legend_children = vec![];
+                    for (channel, legend) in sorted_legends {
+                        // Determine legend type and configure flex style accordingly
+                        let legend_style =
+                            self.configure_legend_flex_style(&legend, &channel, position, scales)?;
+                        let legend_node = self.taffy.new_leaf(legend_style)?;
+                        self.legend_nodes.insert(channel.clone(), legend_node);
+                        legend_children.push(legend_node);
+                    }
+
+                    // Set children of container
+                    self.taffy.set_children(container_node, &legend_children)?;
+                }
+            }
         }
 
         // Create title node if present in component map
@@ -300,7 +373,8 @@ impl ChartLayout {
             children.push(plot_node);
         }
         children.extend(self.axis_nodes.values());
-        children.extend(self.legend_nodes.values());
+        // Add legend containers instead of individual legends
+        children.extend(self.legend_container_nodes.values());
         if let Some(title_node) = self.title_node {
             children.push(title_node);
         }
@@ -371,57 +445,85 @@ impl ChartLayout {
         })
     }
 
-    /// Create legend style based on grid component map
-    fn create_legend_style_from_grid(
+    /// Configure flex style for individual legend based on type
+    fn configure_legend_flex_style(
         &self,
-        legend: &Legend,
+        _legend: &Legend,
         channel: &str,
-        component_map: &ComponentGridMap,
-        plot_row: i16,
-        plot_col: i16,
+        position: &LegendPosition,
+        scales: &HashMap<String, ConfiguredScale>,
     ) -> Result<Style, AvengerChartError> {
-        // Find the grid position for this legend
-        for ((row, col), component) in &component_map.cells {
-            if let ComponentType::Legend(legend_channel) = component {
-                if legend_channel == channel {
-                    let _position = legend.position.unwrap_or(LegendPosition::Right);
+        // Get the scale to determine legend type
+        let scale = scales
+            .get(channel)
+            .ok_or_else(|| AvengerChartError::ScaleNotFound(channel.to_string()))?;
 
-                    // Use the measured legend size if available
-                    let size = if let Some(measured_size) = self.legend_sizes.get(channel) {
-                        Size {
-                            width: length(measured_size.width),
-                            height: length(measured_size.height),
-                        }
-                    } else {
-                        // Fallback to default size
-                        Size {
-                            width: length(120.0),
-                            height: length(100.0),
-                        }
-                    };
+        // Determine if this is a colorbar legend
+        let scale_type = scale.scale_impl.scale_type();
+        let is_continuous = matches!(scale_type, "linear" | "log" | "pow" | "sqrt");
+        let is_colorbar = matches!(channel, "fill" | "stroke" | "color") && is_continuous;
 
-                    return Ok(Style {
-                        grid_row: line((*row + 1) as i16),    // Convert to 1-based
-                        grid_column: line((*col + 1) as i16), // Convert to 1-based
-                        size,                                 // Set explicit size for the legend
-                        padding: Rect {
-                            left: length(0.0),
-                            right: length(0.0),
-                            top: length(0.0),
-                            bottom: length(0.0),
-                        },
-                        ..Default::default()
-                    });
+        // Get measured size if available
+        let measured_size = self.legend_sizes.get(channel);
+
+        let mut style = Style {
+            display: Display::Flex,
+            ..Default::default()
+        };
+
+        if is_colorbar {
+            // Colorbar legends can grow to fill space and shrink if needed
+            style.flex_grow = 1.0;
+            style.flex_shrink = 1.0;
+            style.align_self = Some(AlignSelf::Stretch);
+
+            // Set preferred size from measurement, but allow flexibility
+            if let Some(size) = measured_size {
+                if matches!(position, LegendPosition::Right | LegendPosition::Left) {
+                    // For vertical legends, width is fixed, height is flexible
+                    style.size.width = length(size.width);
+                    style.min_size.height = length(50.0); // Minimum height
+                // Don't set max height - let colorbar stretch to fill available space
+                } else {
+                    // For horizontal legends, height is fixed, width is flexible
+                    style.size.height = length(size.height);
+                    style.min_size.width = length(50.0); // Minimum width
+                    style.max_size.width = length(size.width); // Maximum from measurement
                 }
+            } else {
+                // Default size if measurement failed
+                if matches!(position, LegendPosition::Right | LegendPosition::Left) {
+                    style.size.width = length(80.0);
+                    style.min_size.height = length(50.0);
+                    // Don't set max height - let colorbar stretch to fill available space
+                } else {
+                    style.size.height = length(80.0);
+                    style.min_size.width = length(50.0);
+                    style.max_size.width = length(170.0);
+                }
+            }
+        } else {
+            // Symbol and Line legends have fixed size
+            style.flex_grow = 0.0;
+            style.flex_shrink = 0.0;
+            style.align_self = Some(AlignSelf::FlexStart);
+
+            // Use measured size if available
+            if let Some(size) = measured_size {
+                style.size = Size {
+                    width: length(size.width),
+                    height: length(size.height),
+                };
+            } else {
+                // Default size
+                style.size = Size {
+                    width: length(120.0),
+                    height: length(100.0),
+                };
             }
         }
 
-        // Fallback to plot-adjacent position if not found in map
-        Ok(Style {
-            grid_row: line(plot_row),
-            grid_column: line(plot_col),
-            ..Default::default()
-        })
+        Ok(style)
     }
 
     /// Compute layout for given dimensions
@@ -470,6 +572,12 @@ impl ChartLayout {
         // Get plot area bounds
         if let Some(plot_node) = self.plot_area_node {
             let layout = self.taffy.layout(plot_node)?;
+            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "Plot area bounds: x={}, y={}, w={}, h={}",
+                    layout.location.x, layout.location.y, layout.size.width, layout.size.height
+                );
+            }
             result.plot_area = LayoutBounds {
                 x: layout.location.x,
                 y: layout.location.y,
@@ -481,6 +589,16 @@ impl ChartLayout {
         // Get axis bounds
         for (position, node) in &self.axis_nodes {
             let layout = self.taffy.layout(*node)?;
+            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "Axis {:?} bounds: x={}, y={}, w={}, h={}",
+                    position,
+                    layout.location.x,
+                    layout.location.y,
+                    layout.size.width,
+                    layout.size.height
+                );
+            }
             result.axes.insert(
                 *position,
                 LayoutBounds {
@@ -493,19 +611,67 @@ impl ChartLayout {
         }
 
         // Get legend bounds
-        for (channel, node) in &self.legend_nodes {
-            let layout = self.taffy.layout(*node)?;
-            // Debug: Show legend computed bounds
-            // eprintln!("Legend {} computed bounds: x={}, y={}, width={}, height={}",
-            //          channel, layout.location.x, layout.location.y,
-            //          layout.size.width, layout.size.height);
+        // Legends are children of containers, so we need to add container position to get absolute position
+        // First, get container positions
+        let mut container_positions = HashMap::new();
+        for (position, container_node) in &self.legend_container_nodes {
+            let container_layout = self.taffy.layout(*container_node)?;
+            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+                eprintln!(
+                    "Legend container {:?} bounds: x={}, y={}, w={}, h={}",
+                    position,
+                    container_layout.location.x,
+                    container_layout.location.y,
+                    container_layout.size.width,
+                    container_layout.size.height
+                );
+            }
+            container_positions.insert(
+                position,
+                (container_layout.location.x, container_layout.location.y),
+            );
+        }
+
+        // Now get legend bounds relative to their containers
+        for (channel, legend_node) in &self.legend_nodes {
+            let legend_layout = self.taffy.layout(*legend_node)?;
+            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() && channel == "stroke" {
+                eprintln!(
+                    "Individual legend '{}' node bounds: x={}, y={}, w={}, h={}",
+                    channel,
+                    legend_layout.location.x,
+                    legend_layout.location.y,
+                    legend_layout.size.width,
+                    legend_layout.size.height
+                );
+            }
+
+            // Find which container this legend belongs to by checking the legend configuration
+            // We need to determine the legend's position to know its container
+            // For now, we'll need to iterate through containers to find the parent
+            let mut absolute_x = legend_layout.location.x;
+            let mut absolute_y = legend_layout.location.y;
+
+            // Check if this legend is a child of any container
+            for (position, container_node) in &self.legend_container_nodes {
+                let children = self.taffy.children(*container_node)?;
+                if children.contains(legend_node) {
+                    // Found the parent container
+                    if let Some((container_x, container_y)) = container_positions.get(position) {
+                        absolute_x += container_x;
+                        absolute_y += container_y;
+                    }
+                    break;
+                }
+            }
+
             result.legends.insert(
                 channel.clone(),
                 LayoutBounds {
-                    x: layout.location.x,
-                    y: layout.location.y,
-                    width: layout.size.width,
-                    height: layout.size.height,
+                    x: absolute_x,
+                    y: absolute_y,
+                    width: legend_layout.size.width,
+                    height: legend_layout.size.height,
                 },
             );
         }
@@ -584,7 +750,7 @@ impl ChartLayout {
         // Generate axis marks based on scale type
         let scale_type = scale.scale_impl.scale_type();
 
-        let axis_group = match &*scale_type {
+        let axis_group = match scale_type {
             "band" | "point" => make_band_axis_marks(scale, title, origin, &config)
                 .map_err(|e| AvengerChartError::InternalError(e.to_string()))?,
             _ => {
@@ -605,14 +771,68 @@ impl ChartLayout {
         Ok(Size { width, height })
     }
 
+    /// Measure legend size with mark encodings
+    pub fn measure_legend_size<C: crate::coords::CoordinateSystem>(
+        channel: &str,
+        legend: &Legend,
+        scale: &ConfiguredScale,
+        scales: &HashMap<String, ConfiguredScale>,
+        available_space: Size<f32>,
+        marks: &[Box<dyn crate::marks::Mark<C>>],
+    ) -> Result<Size<f32>, AvengerChartError> {
+        use std::collections::HashMap;
+
+        // Extract mark encodings from provided marks and check for line marks
+        let mut mark_encodings = HashMap::new();
+        let mut has_line_mark = false;
+        if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() && channel == "stroke" {
+            eprintln!(
+                "  measure_legend_size: checking {} marks for line type",
+                marks.len()
+            );
+        }
+        for mark in marks {
+            let mark_type = mark.mark_type();
+            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() && channel == "stroke" {
+                eprintln!("    Mark type: {}", mark_type);
+            }
+
+            // Check for line marks
+            if mark_type == "line" {
+                has_line_mark = true;
+            }
+
+            // Extract encodings from symbol or rect marks
+            let is_relevant = mark_type == "symbol" || mark_type == "rect";
+            if is_relevant {
+                let encodings = mark.data_context().encodings();
+                for (channel_name, value) in encodings {
+                    mark_encodings.insert(channel_name.clone(), value.clone());
+                }
+            }
+        }
+
+        Self::measure_legend_size_impl(
+            channel,
+            legend,
+            scale,
+            scales,
+            available_space,
+            Some(&mark_encodings),
+            has_line_mark,
+        )
+    }
+
     /// Measure legend size by creating the actual SceneGroup and measuring its bounding box
     #[allow(dead_code)]
-    pub fn measure_legend_size(
+    fn measure_legend_size_impl(
         channel: &str,
         legend: &Legend,
         scale: &ConfiguredScale,
         scales: &HashMap<String, ConfiguredScale>,
         _available_space: Size<f32>,
+        mark_encodings: Option<&HashMap<String, crate::marks::ChannelValue>>,
+        has_line_mark: bool,
     ) -> Result<Size<f32>, AvengerChartError> {
         // Helper function to parse color strings
         fn parse_color_string(color_str: &str) -> Option<avenger_common::types::ColorOrGradient> {
@@ -659,27 +879,50 @@ impl ChartLayout {
         // eprintln!("Domain array data type: {:?}", domain_values.data_type());
 
         // Try to cast to Utf8 to handle various string types (LargeUtf8, Dictionary, etc.)
-        let text_values: Vec<String> =
-            if let Ok(string_array) = cast(&domain_values, &DataType::Utf8) {
-                // Successfully cast to Utf8 - extract the values
-                use datafusion::arrow::array::StringArray;
-                if let Some(string_array) = string_array.as_any().downcast_ref::<StringArray>() {
-                    let values: Vec<String> = (0..domain_len)
-                        .map(|i| string_array.value(i).to_string())
-                        .collect();
-                    values
-                } else {
-                    // Fallback if downcast fails
-                    (0..domain_len)
-                        .map(|i| format!("Type {}", (b'A' + (i as u8 % 26)) as char))
-                        .collect()
-                }
+        let text_values: Vec<String> = if let Ok(string_array) =
+            cast(&domain_values, &DataType::Utf8)
+        {
+            // Successfully cast to Utf8 - extract the values
+            use datafusion::arrow::array::StringArray;
+            if let Some(string_array) = string_array.as_any().downcast_ref::<StringArray>() {
+                let values: Vec<String> = (0..domain_len)
+                    .map(|i| string_array.value(i).to_string())
+                    .collect();
+                values
             } else {
-                // Cast failed - use fallback labels
+                // Fallback if downcast fails
                 (0..domain_len)
                     .map(|i| format!("Type {}", (b'A' + (i as u8 % 26)) as char))
                     .collect()
-            };
+            }
+        } else {
+            // Cast failed - try to handle numeric arrays
+            use datafusion::arrow::array::{Float64Array, Int64Array};
+
+            if let Some(float_array) = domain_values.as_any().downcast_ref::<Float64Array>() {
+                // Handle Float64 arrays
+                (0..domain_len)
+                    .map(|i| {
+                        let value = float_array.value(i);
+                        if value.fract() == 0.0 && value.abs() < 1e10 {
+                            format!("{:.0}", value)
+                        } else {
+                            format!("{}", value)
+                        }
+                    })
+                    .collect()
+            } else if let Some(int_array) = domain_values.as_any().downcast_ref::<Int64Array>() {
+                // Handle Int64 arrays
+                (0..domain_len)
+                    .map(|i| format!("{}", int_array.value(i)))
+                    .collect()
+            } else {
+                // Fallback if we can't handle the type
+                (0..domain_len)
+                    .map(|i| format!("Type {}", (b'A' + (i as u8 % 26)) as char))
+                    .collect()
+            }
+        };
 
         // Determine legend type based on the channel it represents
         use avenger_common::types::ColorOrGradient;
@@ -693,10 +936,11 @@ impl ChartLayout {
         // Use colorbar for continuous color scales
         let should_use_colorbar = is_color_channel && is_continuous;
 
-        // Determine if this should be a line legend based on channel name
-        // Line-specific channels: stroke_dash, stroke_width, stroke (when used with line marks)
-        let should_use_line_legend =
-            !should_use_colorbar && matches!(channel, "stroke" | "stroke_dash" | "stroke_width");
+        // Determine if this should be a line legend based on channel name and mark type
+        // Use line legend for stroke properties on line marks (matching render.rs logic)
+        let should_use_line_legend = !should_use_colorbar
+            && has_line_mark
+            && matches!(channel, "stroke" | "stroke_dash" | "stroke_width");
 
         let legend_group = if should_use_colorbar {
             // Create a colorbar for continuous color scales
@@ -705,11 +949,14 @@ impl ChartLayout {
             };
 
             // For measurement, use a reasonable size
+            // colorbar_height now refers to total height including padding
+            let padding = legend.background_padding.unwrap_or(8.0);
+            let total_height = 150.0 + 2.0 * padding; // 166px with default 8px padding
             let config = ColorbarConfig {
                 orientation: ColorbarOrientation::Right,
                 dimensions: [100.0, 200.0], // Available space for measurement
                 colorbar_width: Some(15.0),
-                colorbar_height: Some(150.0),
+                colorbar_height: Some(total_height),
                 colorbar_margin: Some(0.0),
                 format_number: legend.format_number.clone(),
                 background_fill: legend
@@ -736,7 +983,7 @@ impl ChartLayout {
             let (stroke_widths, stroke_dashes) = if channel == "stroke_dash" {
                 // Vary stroke dash if that's the legend channel
                 // Use common dash patterns for measurement
-                let dash_patterns = vec![
+                let dash_patterns = [
                     None,                 // Solid
                     Some(vec![4.0, 4.0]), // Dashed
                     Some(vec![1.0, 3.0]), // Dotted
@@ -901,6 +1148,31 @@ impl ChartLayout {
                 ScalarOrArray::new_scalar(legend.symbol_size.unwrap_or(64.0) as f32)
             };
 
+            // Check if mark encodings have a scalar size value (like .size(100.0) in the test)
+            // This must override the default size to match what's used in final legend creation
+            let size_values = if let Some(mark_encodings) = mark_encodings {
+                if let Some(size_encoding) = mark_encodings.get("size") {
+                    // Check if this is a scalar expression (not referencing columns)
+                    use crate::utils::ScalarValueHelpers;
+                    use datafusion::logical_expr::Expr;
+                    match size_encoding.expr() {
+                        Expr::Literal(scalar_value, _) => {
+                            // It's a literal value - try to extract as f32
+                            if let Ok(f_val) = scalar_value.as_f32() {
+                                ScalarOrArray::new_scalar(f_val)
+                            } else {
+                                size_values
+                            }
+                        }
+                        _ => size_values,
+                    }
+                } else {
+                    size_values
+                }
+            } else {
+                size_values
+            };
+
             // Check for shape scale
             let shape_values = if let Some(shape_scale) = scales.get("shape") {
                 let shape_domain = shape_scale.domain();
@@ -994,6 +1266,34 @@ impl ChartLayout {
                 ScalarOrArray::new_scalar(ColorOrGradient::Color([0.5, 0.5, 0.5, 1.0]))
             };
 
+            // Extract stroke_width from mark encodings if available
+            let stroke_width = if let Some(mark_encodings) = mark_encodings {
+                if let Some(stroke_width_encoding) = mark_encodings.get("stroke_width") {
+                    // Check if this is a scalar expression (not referencing columns)
+                    use crate::utils::ScalarValueHelpers;
+                    use datafusion::logical_expr::Expr;
+                    match stroke_width_encoding.expr() {
+                        Expr::Literal(scalar_value, _) => {
+                            // It's a literal value - try to extract as f32
+                            scalar_value.as_f32().unwrap_or(1.0)
+                        }
+                        _ => 1.0, // Default if expression references columns
+                    }
+                } else {
+                    1.0 // Default if no stroke_width encoding
+                }
+            } else {
+                1.0 // Default if no mark encodings
+            };
+
+            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+                eprintln!("MEASUREMENT: Creating symbol legend '{}' with:", channel);
+                eprintln!("  padding: {:?}", legend.background_padding);
+                eprintln!("  text_values: {:?}", text_values);
+                eprintln!("  inner_width: 0.0, inner_height: 100.0");
+                eprintln!("  outer_margin: 0.0, text_padding: 2.0");
+                eprintln!("  stroke_width: Some({})", stroke_width);
+            }
             let config = SymbolLegendConfig {
                 title: legend.title.clone(),
                 text: ScalarOrArray::new_array(text_values.clone()),
@@ -1001,7 +1301,7 @@ impl ChartLayout {
                 size: size_values,
                 fill: fill_values,
                 stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
-                stroke_width: Some(1.0),
+                stroke_width: Some(stroke_width),
                 angle: ScalarOrArray::new_scalar(0.0),
                 inner_width: 0.0,
                 inner_height: 100.0, // Match the render config
@@ -1069,6 +1369,7 @@ impl GridBuilder {
             right_components: Vec::new(),
             top_components: Vec::new(),
             bottom_components: Vec::new(),
+            legends_by_position: HashMap::new(),
         }
     }
 
@@ -1113,35 +1414,48 @@ impl GridBuilder {
     }
 
     fn add_legend(&mut self, channel: String, legend: &Legend) {
-        let component = ComponentType::Legend(channel);
         let position = legend.position.unwrap_or(LegendPosition::Right);
 
-        match position {
-            LegendPosition::Right => {
-                // Add legend after axes (farther from plot)
-                self.right_components.push(component);
-            }
-            LegendPosition::Left => {
-                // Add legend after axes (farther from plot)
-                self.left_components.push(component);
-            }
-            LegendPosition::Top => {
-                // Add legend before axes (farther from plot)
-                self.top_components.insert(0, component);
-            }
-            LegendPosition::Bottom => {
-                // Add legend after axes (farther from plot)
-                self.bottom_components.push(component);
+        // Collect legends by position for later container creation
+        self.legends_by_position
+            .entry(position)
+            .or_default()
+            .push((channel, legend.clone()));
+    }
+
+    fn finalize_legend_containers(&mut self) {
+        // Create a container component for each position that has legends
+        for position in self.legends_by_position.keys() {
+            let component = ComponentType::LegendContainer(*position);
+
+            match position {
+                LegendPosition::Right => {
+                    // Add container after axes (farther from plot)
+                    self.right_components.push(component);
+                }
+                LegendPosition::Left => {
+                    // Add container after axes (farther from plot)
+                    self.left_components.push(component);
+                }
+                LegendPosition::Top => {
+                    // Add container before axes (farther from plot)
+                    self.top_components.insert(0, component);
+                }
+                LegendPosition::Bottom => {
+                    // Add container after axes (farther from plot)
+                    self.bottom_components.push(component);
+                }
             }
         }
     }
 
-    fn build_with_measurements(
+    fn build_with_measurements<C: crate::coords::CoordinateSystem>(
         &self,
         axes: &HashMap<String, CartesianAxis>,
         legends: &HashMap<String, Legend>,
         scales: &HashMap<String, ConfiguredScale>,
         available_space: Size<f32>,
+        marks: &[Box<dyn crate::marks::Mark<C>>],
     ) -> Result<(GridTemplate, ComponentGridMap), AvengerChartError> {
         // Use minimal edge margins since components are measured with their own padding
         // Only add a small margin to ensure edges aren't clipped
@@ -1169,8 +1483,14 @@ impl GridBuilder {
 
         // Add left components
         for component in &self.left_components {
-            let width =
-                self.measure_component_width(component, axes, legends, scales, available_space)?;
+            let width = self.measure_component_width(
+                component,
+                axes,
+                legends,
+                scales,
+                available_space,
+                marks,
+            )?;
             cols.push(length(width));
 
             // Don't track component position here - will do it after we know plot row
@@ -1184,8 +1504,14 @@ impl GridBuilder {
 
         // Add right components
         for component in &self.right_components {
-            let width =
-                self.measure_component_width(component, axes, legends, scales, available_space)?;
+            let width = self.measure_component_width(
+                component,
+                axes,
+                legends,
+                scales,
+                available_space,
+                marks,
+            )?;
             cols.push(length(width));
 
             // Don't track component position here - will do it after we know plot row
@@ -1194,6 +1520,14 @@ impl GridBuilder {
 
         // End with right margin (doubled if no right components)
         cols.push(length(right_margin));
+
+        if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "Grid columns count: {}, right margin: {}",
+                cols.len(),
+                right_margin
+            );
+        }
 
         // === Build Row Template ===
         // Start with top margin (doubled if no top components)
@@ -1231,6 +1565,10 @@ impl GridBuilder {
                     map.cells
                         .insert((row_index, plot_col_index), component.clone());
                 }
+                ComponentType::LegendContainer(_position) => {
+                    map.cells
+                        .insert((row_index, plot_col_index), component.clone());
+                }
                 _ => {}
             }
             row_index += 1;
@@ -1254,6 +1592,10 @@ impl GridBuilder {
                         .insert((row_index, plot_col_index), component.clone());
                 }
                 ComponentType::Legend(_channel) => {
+                    map.cells
+                        .insert((row_index, plot_col_index), component.clone());
+                }
+                ComponentType::LegendContainer(_position) => {
                     map.cells
                         .insert((row_index, plot_col_index), component.clone());
                 }
@@ -1291,13 +1633,14 @@ impl GridBuilder {
         Ok((GridTemplate { rows, cols }, map))
     }
 
-    fn measure_component_width(
+    fn measure_component_width<C: crate::coords::CoordinateSystem>(
         &self,
         component: &ComponentType,
         axes: &HashMap<String, CartesianAxis>,
         legends: &HashMap<String, Legend>,
         scales: &HashMap<String, ConfiguredScale>,
         available_space: Size<f32>,
+        marks: &[Box<dyn crate::marks::Mark<C>>],
     ) -> Result<f32, AvengerChartError> {
         match component {
             ComponentType::Axis(position) => {
@@ -1316,18 +1659,48 @@ impl GridBuilder {
             ComponentType::Legend(channel) => {
                 if let Some(legend) = legends.get(channel) {
                     if let Some(scale) = scales.get(channel) {
-                        let size = ChartLayout::measure_legend_size(
+                        let size = ChartLayout::measure_legend_size_impl(
                             channel,
                             legend,
                             scale,
                             scales,
                             available_space,
+                            None,  // No mark encodings available in this context
+                            false, // No line mark information in this context
                         )?;
                         // No padding compensation needed since we removed all padding
                         return Ok(size.width);
                     }
                 }
                 Ok(120.0) // Default width
+            }
+            ComponentType::LegendContainer(position) => {
+                // Measure the width needed for all legends at this position
+                // For left/right positions, use the maximum width of all legends
+                // For top/bottom positions, this would be the sum of widths (for horizontal layout)
+                let mut max_width = 0.0f32;
+
+                if let Some(legends_at_position) = self.legends_by_position.get(position) {
+                    for (channel, legend) in legends_at_position {
+                        if let Some(scale) = scales.get(channel) {
+                            let size = ChartLayout::measure_legend_size(
+                                channel,
+                                legend,
+                                scale,
+                                scales,
+                                available_space,
+                                marks,
+                            )?;
+                            max_width = max_width.max(size.width);
+                        }
+                    }
+                }
+
+                if max_width > 0.0 {
+                    Ok(max_width)
+                } else {
+                    Ok(120.0) // Default width
+                }
             }
             _ => Ok(0.0),
         }
@@ -1358,18 +1731,85 @@ impl GridBuilder {
             ComponentType::Legend(channel) => {
                 if let Some(legend) = legends.get(channel) {
                     if let Some(scale) = scales.get(channel) {
-                        let size = ChartLayout::measure_legend_size(
+                        let size = ChartLayout::measure_legend_size_impl(
                             channel,
                             legend,
                             scale,
                             scales,
                             available_space,
+                            None,  // No mark encodings available in this context
+                            false, // No line mark information in this context
                         )?;
                         // No padding compensation needed since we removed all padding
                         return Ok(size.height);
                     }
                 }
                 Ok(100.0) // Default height
+            }
+            ComponentType::LegendContainer(position) => {
+                // Measure the height needed for all legends at this position
+                // Taffy will handle gaps, so we just sum the content heights
+
+                if let Some(legends_at_position) = self.legends_by_position.get(position) {
+                    match position {
+                        LegendPosition::Left | LegendPosition::Right => {
+                            // Vertical layout - sum heights (Taffy handles gaps)
+                            let mut total_height = 0.0f32;
+                            let mut legend_count = 0;
+                            for (channel, legend) in legends_at_position {
+                                if let Some(scale) = scales.get(channel) {
+                                    let size = ChartLayout::measure_legend_size_impl(
+                                        channel,
+                                        legend,
+                                        scale,
+                                        scales,
+                                        available_space,
+                                        None,  // No mark encodings available in this context
+                                        false, // No line mark information in this context
+                                    )?;
+                                    total_height += size.height;
+                                    legend_count += 1;
+                                }
+                            }
+
+                            // Add gap space that Taffy will include (n-1 gaps of 10px each)
+                            if legend_count > 1 {
+                                total_height += (legend_count - 1) as f32 * 10.0;
+                            }
+
+                            if total_height > 0.0 {
+                                Ok(total_height)
+                            } else {
+                                Ok(100.0) // Default height
+                            }
+                        }
+                        LegendPosition::Top | LegendPosition::Bottom => {
+                            // Horizontal layout - use max height
+                            let mut max_height = 0.0f32;
+                            for (channel, legend) in legends_at_position {
+                                if let Some(scale) = scales.get(channel) {
+                                    let size = ChartLayout::measure_legend_size_impl(
+                                        channel,
+                                        legend,
+                                        scale,
+                                        scales,
+                                        available_space,
+                                        None,  // No mark encodings available in this context
+                                        false, // No line mark information in this context
+                                    )?;
+                                    max_height = max_height.max(size.height);
+                                }
+                            }
+                            if max_height > 0.0 {
+                                Ok(max_height)
+                            } else {
+                                Ok(100.0) // Default height
+                            }
+                        }
+                    }
+                } else {
+                    Ok(100.0) // Default height
+                }
             }
             _ => Ok(0.0),
         }

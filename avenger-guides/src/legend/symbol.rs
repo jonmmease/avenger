@@ -77,6 +77,13 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
         config.angle.len(),
     ])?;
 
+    if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+        eprintln!(
+            "make_symbol_legend: len={}, stroke_width={:?}",
+            len, config.stroke_width
+        );
+    }
+
     // Compute the max width of all marks so that we can align the text next to them.
     let symbol_mark = SceneSymbolMark {
         len: len as u32,
@@ -126,6 +133,9 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
             [config.inner_width + content_offset_x, y],
         );
         let height = group.bounding_box().height();
+        if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() && i == 0 {
+            eprintln!("  First symbol group height: {}", height);
+        }
         groups.push(SceneMark::Group(group));
         y += height;
     }
@@ -174,16 +184,9 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
     let mut final_marks = vec![SceneMark::Rect(bg)];
     final_marks.extend(groups);
 
-    // Clip rect matches the background rect dimensions
-    // No additional clipping needed since everything is within the background
     Ok(SceneGroup {
         marks: final_marks,
-        clip: avenger_scenegraph::marks::group::Clip::Rect {
-            x: 0.0,
-            y: 0.0,
-            width: bg_width,
-            height: bg_height,
-        },
+        clip: avenger_scenegraph::marks::group::Clip::None,
         ..Default::default()
     })
 }
@@ -201,10 +204,21 @@ fn make_symbol_group(
     let mut single_symbol_mark = symbols_mark.single_symbol_mark(index);
     single_symbol_mark.x = center_x.into();
 
+    if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() && index == 0 && text.len() > 3 {
+        // Debug symbol size for shape legend
+        let sizes = single_symbol_mark.size.as_vec(1, None);
+        eprintln!("    Symbol '{}' size: {}", text, sizes[0]);
+    }
+
     let padding = 2.0;
     let bbox = single_symbol_mark.bounding_box();
     let symbol_height = bbox.height();
     let symbol_width = bbox.width();
+
+    if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() && index == 0 && text.len() > 3 {
+        // Only debug for shape legend (has longer text like "circle")
+        eprintln!("    Symbol '{}' height: {}", text, symbol_height);
+    }
 
     single_symbol_mark.y = (symbol_height / 2.0 + padding).into();
 
