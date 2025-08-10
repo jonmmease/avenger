@@ -1,6 +1,7 @@
 use crate::axis::{AxisPosition, CartesianAxis};
 use crate::error::AvengerChartError;
 use crate::legend::{Legend, LegendPosition};
+use crate::plot::{PlotSubtitle, PlotTitle};
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_guides::axis::{
     band::make_band_axis_marks,
@@ -24,13 +25,21 @@ pub struct ChartLayout {
     legend_container_nodes: HashMap<LegendPosition, NodeId>, // Flex containers for each position
     legend_nodes: HashMap<String, NodeId>, // Individual legend nodes keyed by channel
     legend_sizes: HashMap<String, Size<f32>>, // Store measured sizes
-    #[allow(dead_code)]
     title_node: Option<NodeId>,
+    subtitle_node: Option<NodeId>,
 
     // Grid configuration
     grid_template: GridTemplate,
-    #[allow(dead_code)]
     component_map: ComponentGridMap,
+    // Text properties for calculating heights
+    #[allow(dead_code)]
+    title_font_size: Option<f32>,
+    #[allow(dead_code)]
+    title_font_family: Option<String>,
+    #[allow(dead_code)]
+    subtitle_font_size: Option<f32>,
+    #[allow(dead_code)]
+    subtitle_font_family: Option<String>,
 }
 
 /// Maps components to their grid positions
@@ -52,6 +61,7 @@ enum ComponentType {
     Legend(String),                  // Channel name
     LegendContainer(LegendPosition), // Container for legends at a position
     Title,
+    Subtitle,
     Padding, // Empty space
 }
 
@@ -61,8 +71,8 @@ pub struct LayoutResult {
     pub plot_area: LayoutBounds,
     pub axes: HashMap<AxisPosition, LayoutBounds>,
     pub legends: HashMap<String, LayoutBounds>,
-    #[allow(dead_code)]
     pub title: Option<LayoutBounds>,
+    pub subtitle: Option<LayoutBounds>,
     #[allow(dead_code)]
     pub total_bounds: LayoutBounds,
 }
@@ -104,13 +114,38 @@ struct GridTemplate {
 }
 
 impl ChartLayout {
+    /// Measure the actual text to get accurate bounds
+    /// Returns (height, width) for the measured text
+    fn measure_text(text: &str, font_size: f32, font_family: &str) -> (f32, f32) {
+        use avenger_text::measurement::cosmic::CosmicTextMeasurer;
+        use avenger_text::measurement::{TextMeasurementConfig, TextMeasurer};
+        use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec};
+
+        let measurer = CosmicTextMeasurer::new();
+
+        let config = TextMeasurementConfig {
+            text,
+            font: font_family,
+            font_size,
+            font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
+            font_style: &FontStyle::Normal,
+        };
+
+        let bounds = measurer.measure_text_bounds(&config);
+
+        // Return height with padding and width
+        // Add a small padding (10%) for visual breathing room on height
+        (bounds.line_height * 1.1, bounds.width)
+    }
+
     /// Create a new chart layout with default axes and legends included
     pub fn new<C: crate::coords::CoordinateSystem>(
         axes: &HashMap<String, CartesianAxis>,
         legends: &HashMap<String, Legend>,
         scales: &HashMap<String, ConfiguredScale>,
         preferred_size: Option<(f32, f32)>,
-        title: Option<&crate::plot::PlotTitle>,
+        title: Option<&PlotTitle>,
+        subtitle: Option<&PlotSubtitle>,
         marks: &[Box<dyn crate::marks::Mark<C>>],
     ) -> Result<Self, AvengerChartError> {
         let mut taffy = TaffyTree::new();
@@ -122,9 +157,12 @@ impl ChartLayout {
         // Build grid structure dynamically
         builder.add_plot_area(); // Always present
 
-        // Add optional title
+        // Add optional title and subtitle
         if title.is_some() {
             builder.add_title();
+        }
+        if subtitle.is_some() {
+            builder.add_subtitle();
         }
 
         // Add axes by position
@@ -151,6 +189,8 @@ impl ChartLayout {
                 height: available_size.1,
             },
             marks,
+            title,
+            subtitle,
         )?;
 
         // Create root node with grid layout
@@ -183,8 +223,13 @@ impl ChartLayout {
             legend_nodes: HashMap::new(),
             legend_sizes: HashMap::new(),
             title_node: None,
+            subtitle_node: None,
             grid_template,
             component_map,
+            title_font_size: title.map(|t| t.font_size),
+            title_font_family: title.map(|t| t.font_family.clone()),
+            subtitle_font_size: subtitle.map(|s| s.font_size),
+            subtitle_font_family: subtitle.map(|s| s.font_family.clone()),
         };
 
         // Measure legend sizes first
@@ -357,12 +402,28 @@ impl ChartLayout {
                 let style = Style {
                     grid_row: line((*row + 1) as i16),
                     grid_column: line((*col + 1) as i16),
-                    justify_content: Some(JustifyContent::Center),
+                    justify_content: Some(JustifyContent::FlexStart), // Left align
                     align_items: Some(AlignItems::Center),
                     ..Default::default()
                 };
                 let node = self.taffy.new_leaf(style)?;
                 self.title_node = Some(node);
+                break;
+            }
+        }
+
+        // Create subtitle node if present in component map
+        for ((row, col), component) in &self.component_map.cells {
+            if matches!(component, ComponentType::Subtitle) {
+                let style = Style {
+                    grid_row: line((*row + 1) as i16),
+                    grid_column: line((*col + 1) as i16),
+                    justify_content: Some(JustifyContent::FlexStart), // Left align
+                    align_items: Some(AlignItems::Center),
+                    ..Default::default()
+                };
+                let node = self.taffy.new_leaf(style)?;
+                self.subtitle_node = Some(node);
                 break;
             }
         }
@@ -377,6 +438,9 @@ impl ChartLayout {
         children.extend(self.legend_container_nodes.values());
         if let Some(title_node) = self.title_node {
             children.push(title_node);
+        }
+        if let Some(subtitle_node) = self.subtitle_node {
+            children.push(subtitle_node);
         }
 
         self.taffy.set_children(self.root_node, &children)?;
@@ -561,6 +625,7 @@ impl ChartLayout {
             axes: HashMap::new(),
             legends: HashMap::new(),
             title: None,
+            subtitle: None,
             total_bounds: LayoutBounds {
                 x: 0.0,
                 y: 0.0,
@@ -680,6 +745,17 @@ impl ChartLayout {
         if let Some(title_node) = self.title_node {
             let layout = self.taffy.layout(title_node)?;
             result.title = Some(LayoutBounds {
+                x: layout.location.x,
+                y: layout.location.y,
+                width: layout.size.width,
+                height: layout.size.height,
+            });
+        }
+
+        // Get subtitle bounds
+        if let Some(subtitle_node) = self.subtitle_node {
+            let layout = self.taffy.layout(subtitle_node)?;
+            result.subtitle = Some(LayoutBounds {
                 x: layout.location.x,
                 y: layout.location.y,
                 width: layout.size.width,
@@ -1391,6 +1467,19 @@ impl GridBuilder {
         self.top_components.insert(0, ComponentType::Title);
     }
 
+    fn add_subtitle(&mut self) {
+        // Subtitle sits directly after the title
+        // Find the position after the title if it exists, otherwise at the beginning
+        let insert_pos = self
+            .top_components
+            .iter()
+            .position(|c| matches!(c, ComponentType::Title))
+            .map(|pos| pos + 1)
+            .unwrap_or(0);
+        self.top_components
+            .insert(insert_pos, ComponentType::Subtitle);
+    }
+
     fn add_axes_at_position(&mut self, position: AxisPosition, _count: usize) {
         let component = ComponentType::Axis(position);
         match position {
@@ -1456,6 +1545,8 @@ impl GridBuilder {
         scales: &HashMap<String, ConfiguredScale>,
         available_space: Size<f32>,
         marks: &[Box<dyn crate::marks::Mark<C>>],
+        title: Option<&PlotTitle>,
+        subtitle: Option<&PlotSubtitle>,
     ) -> Result<(GridTemplate, ComponentGridMap), AvengerChartError> {
         // Use minimal edge margins since components are measured with their own padding
         // Only add a small margin to ensure edges aren't clipped
@@ -1538,8 +1629,24 @@ impl GridBuilder {
         for component in &self.top_components {
             let height = match component {
                 ComponentType::Title => {
-                    // Simple fixed height for now; could measure actual text later
-                    28.0
+                    // Measure actual title text
+                    if let Some(t) = title {
+                        let (height, _width) =
+                            ChartLayout::measure_text(&t.text, t.font_size, &t.font_family);
+                        height
+                    } else {
+                        28.0 // Fallback
+                    }
+                }
+                ComponentType::Subtitle => {
+                    // Measure actual subtitle text
+                    if let Some(s) = subtitle {
+                        let (height, _width) =
+                            ChartLayout::measure_text(&s.text, s.font_size, &s.font_family);
+                        height
+                    } else {
+                        20.0 // Fallback
+                    }
                 }
                 _ => self.measure_component_height(
                     component,
@@ -1558,6 +1665,10 @@ impl GridBuilder {
                         .insert((row_index, plot_col_index), component.clone());
                 }
                 ComponentType::Title => {
+                    map.cells
+                        .insert((row_index, plot_col_index), component.clone());
+                }
+                ComponentType::Subtitle => {
                     map.cells
                         .insert((row_index, plot_col_index), component.clone());
                 }

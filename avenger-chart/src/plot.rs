@@ -26,6 +26,14 @@ pub struct PlotTitle {
     pub font_family: String,
 }
 
+/// Minimal plot subtitle configuration
+#[derive(Clone, Debug)]
+pub struct PlotSubtitle {
+    pub text: String,
+    pub font_size: f32,
+    pub font_family: String,
+}
+
 pub struct Plot<C: CoordinateSystem> {
     coord_system: C,
     pub(crate) axes: HashMap<String, C::Axis>,
@@ -53,6 +61,9 @@ pub struct Plot<C: CoordinateSystem> {
 
     /// Optional plot title rendered by the layout system
     pub(crate) title: Option<PlotTitle>,
+
+    /// Optional plot subtitle rendered by the layout system
+    pub(crate) subtitle: Option<PlotSubtitle>,
 }
 
 /// Enhanced resolution options with row/column specificity
@@ -356,6 +367,7 @@ impl<C: CoordinateSystem> Plot<C> {
             scale_to_coord_channel: HashMap::new(),
             preferred_size: None,
             title: None,
+            subtitle: None,
         }
     }
 
@@ -784,7 +796,17 @@ impl<C: CoordinateSystem> Plot<C> {
     pub fn title(mut self, text: impl Into<String>) -> Self {
         self.title = Some(PlotTitle {
             text: text.into(),
-            font_size: 16.0,
+            font_size: 14.0,
+            font_family: "sans-serif".to_string(),
+        });
+        self
+    }
+
+    /// Set a simple plot subtitle. For advanced styling, a richer API can be added later.
+    pub fn subtitle(mut self, text: impl Into<String>) -> Self {
+        self.subtitle = Some(PlotSubtitle {
+            text: text.into(),
+            font_size: 10.0,
             font_family: "sans-serif".to_string(),
         });
         self
@@ -793,6 +815,11 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Access the configured title
     pub fn get_title(&self) -> Option<&PlotTitle> {
         self.title.as_ref()
+    }
+
+    /// Access the configured subtitle
+    pub fn get_subtitle(&self) -> Option<&PlotSubtitle> {
+        self.subtitle.as_ref()
     }
 
     /// Measure padding required for axes, legends, etc. (temporary placeholder)
