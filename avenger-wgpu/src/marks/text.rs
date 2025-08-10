@@ -1,5 +1,5 @@
 use crate::error::AvengerWgpuError;
-use crate::marks::multi::{MultiVertex, TEXT_TEXTURE_CODE};
+use crate::marks::multi::{MultiVertex, TEXT_TEXTURE_CODE, TEXT_TEXTURE_NEAREST_CODE};
 use avenger_common::canvas::CanvasDimensions;
 use avenger_common::types::PathTransform;
 use avenger_text::rasterization::{GlyphBBox, TextRasterizationConfig, TextRasterizer};
@@ -137,6 +137,7 @@ where
         let baseline = *text.baseline;
         let position = text.position;
         let angle = text.angle;
+        let use_nearest_filter = text.use_nearest_filter;
 
         let buffer = self.rasterizer.rasterize(
             &TextRasterizationConfig {
@@ -296,27 +297,33 @@ where
 
             let offset = verts.len() as u32;
 
+            let texture_code = if use_nearest_filter {
+                TEXT_TEXTURE_NEAREST_CODE
+            } else {
+                TEXT_TEXTURE_CODE
+            };
+
             verts.push(MultiVertex {
                 position: top_left,
-                color: [TEXT_TEXTURE_CODE, tex_x0, tex_y0, 0.0],
+                color: [texture_code, tex_x0, tex_y0, 0.0],
                 top_left,
                 bottom_right,
             });
             verts.push(MultiVertex {
                 position: bottom_left,
-                color: [TEXT_TEXTURE_CODE, tex_x0, tex_y1, 0.0],
+                color: [texture_code, tex_x0, tex_y1, 0.0],
                 top_left,
                 bottom_right,
             });
             verts.push(MultiVertex {
                 position: bottom_right,
-                color: [TEXT_TEXTURE_CODE, tex_x1, tex_y1, 0.0],
+                color: [texture_code, tex_x1, tex_y1, 0.0],
                 top_left,
                 bottom_right,
             });
             verts.push(MultiVertex {
                 position: top_right,
-                color: [TEXT_TEXTURE_CODE, tex_x1, tex_y0, 0.0],
+                color: [texture_code, tex_x1, tex_y0, 0.0],
                 top_left,
                 bottom_right,
             });
@@ -368,4 +375,5 @@ pub struct TextInstance<'a> {
     pub font_weight: &'a FontWeight,
     pub font_style: &'a FontStyle,
     pub limit: f32,
+    pub use_nearest_filter: bool,
 }
