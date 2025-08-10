@@ -178,9 +178,9 @@ mod test_image_baselines {
         case("vl-convert", "maptile_background", 0.01),
         case("vl-convert", "no_text_in_font_metrics", 0.03),
         case("clip", "clip_mixed_marks", 0.0001),
-        case("clip", "text_clip", 0.02),
+        case("clip", "text_clip", 0.025),
         case("clip", "clip_rounded", 0.0001),
-        case("clip", "text_clip_rounded", 0.02),
+        case("clip", "text_clip_rounded", 0.025),
         case("clip", "bar_rounded", 0.02),
     )]
     fn test_image_baseline(category: &str, spec_name: &str, tolerance: f64) {

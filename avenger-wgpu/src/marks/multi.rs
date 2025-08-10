@@ -47,8 +47,17 @@ use {crate::par_izip, rayon::prelude::*};
 pub const GRADIENT_TEXTURE_CODE: f32 = -1.0;
 pub const IMAGE_TEXTURE_CODE: f32 = -2.0;
 pub const TEXT_TEXTURE_CODE: f32 = -3.0;
+pub const TEXT_TEXTURE_NEAREST_CODE: f32 = -4.0;
 
 const NORMALIZED_SYMBOL_STROKE_WIDTH: f32 = 0.1;
+
+fn is_axis_aligned_angle(angle: f32) -> bool {
+    let normalized = angle.rem_euclid(360.0);
+    (normalized < 0.001)
+        || ((normalized - 90.0).abs() < 0.001)
+        || ((normalized - 180.0).abs() < 0.001)
+        || ((normalized - 270.0).abs() < 0.001)
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -1083,6 +1092,7 @@ impl MultiMarkRenderer {
                 font_style,
                 limit,
             )| {
+                let use_nearest_filter = is_axis_aligned_angle(*angle);
                 let instance = TextInstance {
                     text,
                     position: [*x + origin[0], *y + origin[1]],
@@ -1095,6 +1105,7 @@ impl MultiMarkRenderer {
                     font_weight,
                     font_style,
                     limit: *limit,
+                    use_nearest_filter,
                 };
                 self.text_atlas_builder
                     .register_text(instance, self.dimensions)
@@ -1224,15 +1235,13 @@ impl MultiMarkRenderer {
             wgpu::FilterMode::Linear,
         );
 
-        // Text Textures
+        // Text Textures with dual samplers (Linear and Nearest)
         let (text_texture_size, text_images) = self.text_atlas_builder.build();
-        let (text_layout, text_texture_bind_groups) = Self::make_texture_bind_groups(
+        let (text_layout, text_bind_groups) = Self::make_text_bind_groups_dual_sampler(
             device,
             queue,
             text_texture_size,
             &text_images,
-            wgpu::FilterMode::Linear,
-            wgpu::FilterMode::Linear,
         );
 
         // Shaders
@@ -1467,7 +1476,7 @@ impl MultiMarkRenderer {
                 let mut stencil_index: u32 = 1;
                 render_pass.set_bind_group(1, &gradient_texture_bind_groups[last_grad_ind], &[]);
                 render_pass.set_bind_group(2, &image_texture_bind_groups[last_img_ind], &[]);
-                render_pass.set_bind_group(3, &text_texture_bind_groups[last_img_ind], &[]);
+                render_pass.set_bind_group(3, &text_bind_groups[last_text_ind], &[]);
                 render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
                 render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
@@ -1557,7 +1566,7 @@ impl MultiMarkRenderer {
 
                     if let Some(text_ind) = batch.text_atlas_index {
                         if text_ind != last_text_ind {
-                            render_pass.set_bind_group(3, &text_texture_bind_groups[text_ind], &[]);
+                            render_pass.set_bind_group(3, &text_bind_groups[text_ind], &[]);
                         }
                         last_text_ind = text_ind;
                     }
@@ -1569,6 +1578,125 @@ impl MultiMarkRenderer {
         }
 
         mark_encoder.finish()
+    }
+
+    fn make_text_bind_groups_dual_sampler(
+        device: &Device,
+        queue: &Queue,
+        size: Extent3d,
+        images: &[DynamicImage],
+    ) -> (BindGroupLayout, Vec<BindGroup>) {
+        // Create texture for each image
+        let mut texture_bind_groups: Vec<BindGroup> = Vec::new();
+
+        // Create texture/sampler bind group layout with two samplers
+        let texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some("text_dual_sampler_bind_group_layout"),
+            });
+
+        for image in images {
+            // Create Texture
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                label: Some("text_texture"),
+                view_formats: &[],
+            });
+            let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+            // Create linear sampler
+            let linear_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
+                mipmap_filter: wgpu::FilterMode::Nearest,
+                ..Default::default()
+            });
+
+            // Create nearest sampler
+            let nearest_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                mag_filter: wgpu::FilterMode::Nearest,
+                min_filter: wgpu::FilterMode::Nearest,
+                mipmap_filter: wgpu::FilterMode::Nearest,
+                ..Default::default()
+            });
+
+            let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &texture_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&texture_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&linear_sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&nearest_sampler),
+                    },
+                ],
+                label: Some("text_dual_sampler_bind_group"),
+            });
+
+            queue.write_texture(
+                // Tells wgpu where to copy the pixel data
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                // The actual pixel data
+                image.to_rgba8().as_raw(),
+                // The layout of the texture
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4 * image.width()),
+                    rows_per_image: Some(image.height()),
+                },
+                size,
+            );
+
+            texture_bind_groups.push(texture_bind_group);
+        }
+
+        (texture_bind_group_layout, texture_bind_groups)
     }
 
     fn make_texture_bind_groups(
