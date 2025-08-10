@@ -134,3 +134,87 @@ async fn title_with_colorbar_legend() {
 
     assert_visual_match_default(plot, "layout", "title_with_colorbar_legend").await;
 }
+
+#[tokio::test]
+async fn subtitle_basic_symbol() {
+    let df = make_df_categories();
+    let plot = Plot::new(Cartesian)
+        .title("Main Title")
+        .subtitle("This is a subtitle")
+        .data(df)
+        .scale_x(|s| s.domain((0.0, 10.0)))
+        .scale_y(|s| s.domain((0.0, 12.0)))
+        .legend_fill(|l| l.visible(false))
+        .mark(
+            Symbol::new()
+                .x(col("x"))
+                .y(col("y"))
+                .size(100.0)
+                .fill("#2ca25f"),
+        );
+
+    assert_visual_match_default(plot, "layout", "subtitle_basic_symbol").await;
+}
+
+#[tokio::test]
+async fn subtitle_with_symbol_legend() {
+    let df = make_df_categories();
+    let plot = Plot::new(Cartesian)
+        .title("Main Title")
+        .subtitle("Subtitle with legend")
+        .data(df)
+        .scale_x(|s| s.domain((0.0, 10.0)))
+        .scale_y(|s| s.domain((0.0, 12.0)))
+        .legend_fill(|l| l.title("Category").position(LegendPosition::Right))
+        .mark(
+            Symbol::new()
+                .x(col("x"))
+                .y(col("y"))
+                .size(100.0)
+                .fill(col("category")),
+        );
+
+    assert_visual_match_default(plot, "layout", "subtitle_with_symbol_legend").await;
+}
+
+#[tokio::test]
+async fn subtitle_with_colorbar() {
+    let df = make_df_numeric();
+    let plot = Plot::new(Cartesian)
+        .title("Temperature Distribution")
+        .subtitle("Measured across different locations")
+        .data(df)
+        .scale_x(|s| s.domain((0.0, 10.0)))
+        .scale_y(|s| s.domain((0.0, 12.0)))
+        .scale_fill(|s| s.domain((0.0, 100.0)))
+        .legend_fill(|l| l.title("Value").position(LegendPosition::Right))
+        .mark(
+            Symbol::new()
+                .x(col("x"))
+                .y(col("y"))
+                .size(100.0)
+                .fill(col("value")),
+        );
+
+    assert_visual_match_default(plot, "layout", "subtitle_with_colorbar").await;
+}
+
+#[tokio::test]
+async fn subtitle_only() {
+    let df = make_df_categories();
+    let plot = Plot::new(Cartesian)
+        .subtitle("Only a subtitle, no title")
+        .data(df)
+        .scale_x(|s| s.domain((0.0, 10.0)))
+        .scale_y(|s| s.domain((0.0, 12.0)))
+        .legend_fill(|l| l.visible(false))
+        .mark(
+            Symbol::new()
+                .x(col("x"))
+                .y(col("y"))
+                .size(100.0)
+                .fill("#2ca25f"),
+        );
+
+    assert_visual_match_default(plot, "layout", "subtitle_only").await;
+}

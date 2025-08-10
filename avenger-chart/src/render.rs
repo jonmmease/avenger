@@ -280,12 +280,28 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // Create title if present
         let title_marks = if let Some((layout, _legend_cache)) = &layout_bundle {
             if let Some(title_bounds) = &layout.title {
-                self.create_title(width, &padding, Some(*title_bounds))?
+                self.create_title(width, &padding, Some(*title_bounds), Some(layout.plot_area))?
             } else {
                 Vec::new()
             }
         } else {
-            self.create_title(width, &padding, None)?
+            self.create_title(width, &padding, None, None)?
+        };
+
+        // Create subtitle if present
+        let subtitle_marks = if let Some((layout, _legend_cache)) = &layout_bundle {
+            if let Some(subtitle_bounds) = &layout.subtitle {
+                self.create_subtitle(
+                    width,
+                    &padding,
+                    Some(*subtitle_bounds),
+                    Some(layout.plot_area),
+                )?
+            } else {
+                Vec::new()
+            }
+        } else {
+            self.create_subtitle(width, &padding, None, None)?
         };
 
         // Compose all elements into a scene graph
@@ -320,7 +336,10 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // 4. Title (can overflow, rendered on top)
         all_marks.extend(title_marks);
 
-        // 5. Debug: Add Taffy layout bounds visualization if debug mode is enabled
+        // 5. Subtitle (can overflow, rendered on top)
+        all_marks.extend(subtitle_marks);
+
+        // 6. Debug: Add Taffy layout bounds visualization if debug mode is enabled
         if std::env::var("AVENGER_DEBUG_LAYOUT_RECTS").is_ok() {
             if let Some((layout, _)) = &layout_bundle {
                 all_marks.extend(Self::create_debug_layout_rects(layout));
@@ -364,8 +383,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             width: Some(layout.plot_area.width.into()),
             height: Some(layout.plot_area.height.into()),
             fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(), // Transparent
-            stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.8]).into(), // Magenta
-            stroke_width: 2.0.into(),
+            stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.7]).into(), // Magenta with 0.7 opacity
+            stroke_width: 1.0.into(),                                  // Match other rectangles
             zindex: Some(20),
             ..Default::default()
         };
@@ -377,7 +396,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             x: (layout.plot_area.x + 2.0).into(),
             y: (layout.plot_area.y + 10.0).into(),
             font_size: 8.0.into(),
-            color: ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0]).into(), // Magenta
+            color: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.7]).into(), // Magenta with 0.7 opacity
             zindex: Some(20),
             ..Default::default()
         };
@@ -391,7 +410,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 width: Some(bounds.width.into()),
                 height: Some(bounds.height.into()),
                 fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
-                stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.8]).into(), // Magenta
+                stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.7]).into(), // Magenta with 0.7 opacity
                 stroke_width: 1.0.into(),
                 zindex: Some(20),
                 ..Default::default()
@@ -410,7 +429,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 x: (bounds.x + 2.0).into(),
                 y: (bounds.y + 10.0).into(),
                 font_size: 8.0.into(),
-                color: ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0]).into(), // Magenta
+                color: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.7]).into(), // Magenta with 0.7 opacity
                 zindex: Some(20),
                 ..Default::default()
             };
@@ -425,7 +444,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 width: Some(bounds.width.into()),
                 height: Some(bounds.height.into()),
                 fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
-                stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.8]).into(), // Magenta
+                stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.7]).into(), // Magenta with 0.7 opacity
                 stroke_width: 1.0.into(),
                 zindex: Some(20),
                 ..Default::default()
@@ -438,7 +457,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 x: (bounds.x + 2.0).into(),
                 y: (bounds.y + 10.0).into(),
                 font_size: 8.0.into(),
-                color: ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0]).into(), // Magenta
+                color: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.7]).into(), // Magenta with 0.7 opacity
                 zindex: Some(20),
                 ..Default::default()
             };
@@ -453,24 +472,54 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 width: Some(bounds.width.into()),
                 height: Some(bounds.height.into()),
                 fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
-                stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.8]).into(), // Magenta
+                stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.7]).into(), // Magenta with 0.7 opacity
                 stroke_width: 1.0.into(),
                 zindex: Some(20),
                 ..Default::default()
             };
             debug_marks.push(SceneMark::Rect(title_rect));
 
-            // Add title label
+            // Add title label - right aligned to avoid overlapping with text
             let title_label = SceneTextMark {
                 text: "title".into(),
-                x: (bounds.x + 2.0).into(),
+                x: (bounds.x + bounds.width - 5.0).into(), // Right side with small padding
                 y: (bounds.y + 10.0).into(),
                 font_size: 8.0.into(),
-                color: ColorOrGradient::Color([1.0, 0.0, 1.0, 1.0]).into(), // Magenta
+                color: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.7]).into(), // Magenta with 0.7 opacity
+                align: avenger_text::types::TextAlign::Right.into(),
                 zindex: Some(20),
                 ..Default::default()
             };
             debug_marks.push(SceneMark::Text(std::sync::Arc::new(title_label)));
+        }
+
+        // Subtitle - magenta outline
+        if let Some(bounds) = &layout.subtitle {
+            let subtitle_rect = SceneRectMark {
+                x: bounds.x.into(),
+                y: bounds.y.into(),
+                width: Some(bounds.width.into()),
+                height: Some(bounds.height.into()),
+                fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
+                stroke: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.7]).into(), // Magenta with 0.7 opacity
+                stroke_width: 1.0.into(),
+                zindex: Some(20),
+                ..Default::default()
+            };
+            debug_marks.push(SceneMark::Rect(subtitle_rect));
+
+            // Add subtitle label - right aligned to avoid overlapping with text
+            let subtitle_label = SceneTextMark {
+                text: "subtitle".into(),
+                x: (bounds.x + bounds.width - 5.0).into(), // Right side with small padding
+                y: (bounds.y + 10.0).into(),
+                font_size: 8.0.into(),
+                color: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.7]).into(), // Magenta with 0.7 opacity
+                align: avenger_text::types::TextAlign::Right.into(),
+                zindex: Some(20),
+                ..Default::default()
+            };
+            debug_marks.push(SceneMark::Text(std::sync::Arc::new(subtitle_label)));
         }
 
         debug_marks
@@ -2176,6 +2225,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         _total_width: f32,
         _padding: &Padding,
         layout_bounds: Option<crate::chart_layout::LayoutBounds>,
+        plot_area: Option<crate::chart_layout::LayoutBounds>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         use avenger_scenegraph::marks::text::SceneTextMark;
         use avenger_text::types::{TextAlign, TextBaseline};
@@ -2184,25 +2234,74 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             return Ok(Vec::new());
         };
 
-        // If we have layout bounds from Taffy, place the title accordingly
+        // If we have layout bounds from Taffy, place the title left-aligned with plot area
         let (x, y) = if let Some(bounds) = layout_bounds {
-            (
-                bounds.x + bounds.width / 2.0,
-                bounds.y + bounds.height / 2.0,
-            )
+            let x_pos = if let Some(plot) = plot_area {
+                plot.x // Align with plot area left edge
+            } else {
+                bounds.x
+            };
+            (x_pos, bounds.y + bounds.height / 2.0)
         } else {
-            // Fallback: center at top with small margin
-            (0.0 + _total_width / 2.0, 16.0)
+            // Fallback: left-aligned at top with small margin
+            (10.0, 16.0)
         };
 
         let text = SceneTextMark {
             text: title.text.clone().into(),
             x: x.into(),
             y: y.into(),
-            align: TextAlign::Center.into(),
+            align: TextAlign::Left.into(),
             baseline: TextBaseline::Middle.into(),
             font: title.font_family.clone().into(),
             font_size: title.font_size.into(),
+            ..Default::default()
+        };
+
+        let group = SceneGroup {
+            marks: vec![SceneMark::Text(text.into())],
+            zindex: Some(20),
+            ..Default::default()
+        };
+        Ok(vec![SceneMark::Group(group)])
+    }
+
+    /// Create subtitle mark if configured
+    fn create_subtitle(
+        &self,
+        _total_width: f32,
+        _padding: &Padding,
+        layout_bounds: Option<crate::chart_layout::LayoutBounds>,
+        plot_area: Option<crate::chart_layout::LayoutBounds>,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        use avenger_scenegraph::marks::text::SceneTextMark;
+        use avenger_text::types::{TextAlign, TextBaseline};
+
+        let Some(subtitle) = self.plot.get_subtitle() else {
+            return Ok(Vec::new());
+        };
+
+        // If we have layout bounds from Taffy, place the subtitle left-aligned with plot area
+        let (x, y) = if let Some(bounds) = layout_bounds {
+            let x_pos = if let Some(plot) = plot_area {
+                plot.x // Align with plot area left edge
+            } else {
+                bounds.x
+            };
+            (x_pos, bounds.y + bounds.height / 2.0)
+        } else {
+            // Fallback: left-aligned below title
+            (10.0, 30.0)
+        };
+
+        let text = SceneTextMark {
+            text: subtitle.text.clone().into(),
+            x: x.into(),
+            y: y.into(),
+            align: TextAlign::Left.into(),
+            baseline: TextBaseline::Middle.into(),
+            font: subtitle.font_family.clone().into(),
+            font_size: subtitle.font_size.into(),
             ..Default::default()
         };
 
@@ -2387,6 +2486,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             &configured_scales,
             Some((width, height)),
             self.plot.get_title(),
+            self.plot.get_subtitle(),
             &self.plot.marks,
         )?;
 
