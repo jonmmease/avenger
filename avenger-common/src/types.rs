@@ -420,8 +420,9 @@ impl SymbolShape {
                 let k = 1.0 / 12.0f32.sqrt();
                 let a = (k / 2.0 + 1.0) * 3.0;
 
-                // Normalize for unit area
-                let r = 0.5 / a.sqrt();
+                // Scale up for better visibility - increase by ~1.4x to match cross width
+                let scale_factor = 1.4;
+                let r = 0.5 * scale_factor / a.sqrt();
                 let x0 = r / 2.0;
                 let y0 = r * k;
                 let x1 = x0;
@@ -439,6 +440,64 @@ impl SymbolShape {
                 builder.line_to(Point::new(c * x0 + s * y0, c * y0 - s * x0));
                 builder.line_to(Point::new(c * x1 + s * y1, c * y1 - s * x1));
                 builder.line_to(Point::new(c * x2 + s * y2, c * y2 - s * x2));
+                builder.close();
+                SymbolShape::Path(builder.build())
+            }
+            "pentagon" => {
+                // Regular pentagon centered at origin
+                let r = 0.5; // radius to vertices
+                let n = 5; // number of sides
+                let mut builder = lyon_path::Path::builder().with_svg();
+
+                // Start from top vertex (rotated by -90 degrees)
+                for i in 0..n {
+                    let angle = (2.0 * std::f32::consts::PI * i as f32 / n as f32)
+                        - std::f32::consts::PI / 2.0;
+                    let x = r * angle.cos();
+                    let y = r * angle.sin();
+                    if i == 0 {
+                        builder.move_to(Point::new(x, y));
+                    } else {
+                        builder.line_to(Point::new(x, y));
+                    }
+                }
+                builder.close();
+                SymbolShape::Path(builder.build())
+            }
+            "cushion" | "concave-square" => {
+                // Square with concave sides - like a cushion or pillow shape
+                let r = 0.5; // half-width/height
+                let curve_depth = 0.6; // how much the sides curve inward (as fraction of r) - very deep concavity
+
+                let mut builder = lyon_path::Path::builder().with_svg();
+
+                // Start at top-left corner
+                builder.move_to(Point::new(-r, -r));
+
+                // Top edge - curves inward
+                builder.quadratic_bezier_to(
+                    Point::new(0.0, -r + curve_depth * r), // control point (middle, pushed down)
+                    Point::new(r, -r),                     // end point (top-right)
+                );
+
+                // Right edge - curves inward
+                builder.quadratic_bezier_to(
+                    Point::new(r - curve_depth * r, 0.0), // control point (pushed left)
+                    Point::new(r, r),                     // end point (bottom-right)
+                );
+
+                // Bottom edge - curves inward
+                builder.quadratic_bezier_to(
+                    Point::new(0.0, r - curve_depth * r), // control point (middle, pushed up)
+                    Point::new(-r, r),                    // end point (bottom-left)
+                );
+
+                // Left edge - curves inward
+                builder.quadratic_bezier_to(
+                    Point::new(-r + curve_depth * r, 0.0), // control point (pushed right)
+                    Point::new(-r, -r),                    // end point (back to top-left)
+                );
+
                 builder.close();
                 SymbolShape::Path(builder.build())
             }

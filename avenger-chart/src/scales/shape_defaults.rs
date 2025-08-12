@@ -13,6 +13,7 @@ pub const DEFAULT_SHAPES: &[&str] = &[
     "star",
     "triangle-up",
     "wye",
+    "cushion",
 ];
 
 /// Get the default shape names as scalar values, limited to the specified count

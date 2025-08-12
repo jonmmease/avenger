@@ -1290,33 +1290,63 @@ impl ChartLayout {
             // Check for fill scale
             let fill_values = if let Some(fill_scale) = scales.get("fill") {
                 let fill_domain = fill_scale.domain();
+                if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "  Fill scale domain len: {}, legend scale domain len: {}",
+                        fill_domain.len(),
+                        scale.domain().len()
+                    );
+                }
                 if fill_domain.len() == scale.domain().len() {
                     // Map domain through fill scale to get colors
                     match fill_scale.scale(scale.domain()) {
                         Ok(scaled_array) => {
-                            use datafusion::arrow::array::{Array, Float32Array};
-                            use datafusion::arrow::compute::cast;
-                            use datafusion::arrow::datatypes::DataType;
+                            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+                                eprintln!(
+                                    "  Scaled array len: {}, dtype: {:?}",
+                                    scaled_array.len(),
+                                    scaled_array.data_type()
+                                );
+                            }
 
-                            // Try to cast to Float32Array (colors are typically RGBA values)
-                            if let Ok(color_array) = cast(&scaled_array, &DataType::Float32) {
-                                if let Some(float_array) =
-                                    color_array.as_any().downcast_ref::<Float32Array>()
-                                {
-                                    // Group into RGBA colors (4 values per color)
-                                    let mut colors = Vec::new();
-                                    let mut i = 0;
-                                    while i + 3 < float_array.len() {
-                                        colors.push(ColorOrGradient::Color([
-                                            float_array.value(i),
-                                            float_array.value(i + 1),
-                                            float_array.value(i + 2),
-                                            float_array.value(i + 3),
-                                        ]));
-                                        i += 4;
-                                    }
-                                    if !colors.is_empty() {
-                                        ScalarOrArray::new_array(colors)
+                            // Use Coercer to handle color conversion
+                            use avenger_scales::scales::coerce::Coercer;
+                            let coercer = Coercer::default();
+
+                            if let Ok(colors) = coercer.to_color(&scaled_array, None) {
+                                if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+                                    eprintln!("  Converted to {} colors", colors.len());
+                                }
+                                colors
+                            } else {
+                                // Fallback: try the old Float32 approach for backwards compatibility
+                                use datafusion::arrow::array::{Array, Float32Array};
+                                use datafusion::arrow::compute::cast;
+                                use datafusion::arrow::datatypes::DataType;
+
+                                if let Ok(color_array) = cast(&scaled_array, &DataType::Float32) {
+                                    if let Some(float_array) =
+                                        color_array.as_any().downcast_ref::<Float32Array>()
+                                    {
+                                        // Group into RGBA colors (4 values per color)
+                                        let mut colors = Vec::new();
+                                        let mut i = 0;
+                                        while i + 4 <= float_array.len() {
+                                            colors.push(ColorOrGradient::Color([
+                                                float_array.value(i),
+                                                float_array.value(i + 1),
+                                                float_array.value(i + 2),
+                                                float_array.value(i + 3),
+                                            ]));
+                                            i += 4;
+                                        }
+                                        if !colors.is_empty() {
+                                            ScalarOrArray::new_array(colors)
+                                        } else {
+                                            ScalarOrArray::new_scalar(ColorOrGradient::Color([
+                                                0.5, 0.5, 0.5, 1.0,
+                                            ]))
+                                        }
                                     } else {
                                         ScalarOrArray::new_scalar(ColorOrGradient::Color([
                                             0.5, 0.5, 0.5, 1.0,
@@ -1327,10 +1357,6 @@ impl ChartLayout {
                                         0.5, 0.5, 0.5, 1.0,
                                     ]))
                                 }
-                            } else {
-                                ScalarOrArray::new_scalar(ColorOrGradient::Color([
-                                    0.5, 0.5, 0.5, 1.0,
-                                ]))
                             }
                         }
                         Err(_) => {
