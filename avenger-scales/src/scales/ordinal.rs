@@ -141,12 +141,6 @@ fn range_dict_array_for_values(
         values.clone()
     };
 
-    if range_length != domain.len() {
-        return Err(AvengerScaleError::ScaleOperationNotSupported(
-            "range length does not match domain length".to_string(),
-        ));
-    }
-
     // Convert domain and range to vectors of Scalars
     let domain_values = (0..domain.len())
         .map(|i| Scalar::try_from_array(domain.as_ref(), i).unwrap())
@@ -169,10 +163,18 @@ fn range_dict_array_for_values(
         .collect::<Result<Vec<_>, AvengerScaleError>>()?;
 
     // Create a mapping from domain values to indices into range values
+    // If there are more domain values than range values, cycle through the range
     let mapping = domain_values
         .into_iter()
         .enumerate()
-        .map(|(i, v)| (v, i as u32))
+        .map(|(i, v)| {
+            let range_index = if range_length > 0 {
+                (i % range_length) as u32
+            } else {
+                0
+            };
+            (v, range_index)
+        })
         .collect::<HashMap<_, _>>();
 
     // Build corresponding array of range value indices that correspond to the observed domain values

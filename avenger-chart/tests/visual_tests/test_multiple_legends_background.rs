@@ -27,8 +27,7 @@ async fn test_multiple_legends_with_backgrounds() {
     let category_data = StringArray::from(vec!["A", "B", "A", "B", "C", "A", "C", "B", "C"]);
     let size_data = Float64Array::from(vec![10.0, 20.0, 15.0, 25.0, 30.0, 12.0, 35.0, 22.0, 28.0]);
     let shape_data = StringArray::from(vec![
-        "circle", "square", "circle", "triangle", "square", "triangle", "circle", "square",
-        "triangle",
+        "Type 1", "Type 2", "Type 1", "Type 3", "Type 2", "Type 3", "Type 1", "Type 2", "Type 3",
     ]);
 
     let batch = RecordBatch::try_new(
@@ -113,7 +112,7 @@ async fn test_colorbar_with_symbols_backgrounds() {
     let y_data = Float64Array::from(vec![2.0, 4.0, 3.0, 5.0, 7.0, 6.0, 8.0, 7.5]);
     let temp_data = Float64Array::from(vec![10.0, 20.0, 30.0, 25.0, 15.0, 35.0, 28.0, 22.0]);
     let shape_data = StringArray::from(vec![
-        "circle", "square", "circle", "triangle", "square", "triangle", "circle", "square",
+        "Sensor", "Device", "Sensor", "Monitor", "Device", "Monitor", "Sensor", "Device",
     ]);
     let series_data = StringArray::from(vec!["A", "B", "A", "B", "A", "B", "A", "B"]);
 
