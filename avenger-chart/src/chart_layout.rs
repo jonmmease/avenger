@@ -1539,6 +1539,7 @@ impl GridBuilder {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn build_with_measurements<C: crate::coords::CoordinateSystem>(
         &self,
         axes: &HashMap<String, CartesianAxis>,
