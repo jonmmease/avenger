@@ -32,9 +32,7 @@ impl Default for VisualTestConfig {
 /// Render a plot to an image with default dimensions
 pub async fn render_plot<C: CoordinateSystem>(plot: &Plot<C>) -> RgbaImage {
     // Use plot's preferred size if available, otherwise use default
-    let (width, height) = plot
-        .get_preferred_size()
-        .unwrap_or(DEFAULT_SIZE);
+    let (width, height) = plot.get_preferred_size().unwrap_or(DEFAULT_SIZE);
 
     let dimensions = CanvasDimensions {
         size: [width, height],

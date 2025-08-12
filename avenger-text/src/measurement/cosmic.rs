@@ -17,7 +17,7 @@ fn build_font_system() -> FontSystem {
     // Load embedded fonts first
     let fontdb = font_system.db_mut();
     crate::fonts::load_embedded_fonts(fontdb);
-    
+
     // Override default families based on what system fonts are available
     setup_default_fonts(fontdb);
     font_system
