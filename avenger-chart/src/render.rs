@@ -1932,23 +1932,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             // Legend is for stroke_dash itself - vary dash pattern
             let dash_patterns = self.map_dash_patterns(&domain_values, legend_scale).await?;
 
-            // First, find the long-short pattern (Type F) to determine max length
-            // It should be [12,4,2,4] and we want one cycle plus the next long segment
-            let max_legend_length = {
-                let mut found_max = 34.0f32; // Default if not found
-                for pattern in dash_patterns.iter() {
-                    if let Some(p) = pattern.as_ref() {
-                        if p.len() == 4 && p[0] == 12.0 && p[1] == 4.0 && p[2] == 2.0 && p[3] == 4.0
-                        {
-                            // This is the long-short pattern
-                            // One full cycle (22) + next long segment (12) = 34
-                            found_max = p.iter().sum::<f32>() + p[0];
-                            break;
-                        }
-                    }
-                }
-                found_max
-            };
+            // Use 32 as the target legend length - all patterns are designed to align at this length
+            let max_legend_length = 32.0;
 
             // Now calculate optimal length for each pattern
             let mut individual_lengths = Vec::new();
