@@ -8,22 +8,20 @@ use palette::Srgba;
 pub fn get_default_color_range(scale_type: &str, domain_cardinality: Option<usize>) -> ScaleRange {
     match scale_type {
         "ordinal" => {
-            // Category10 palette from D3 for categorical data
+            // Okabe-Ito colorblind-safe palette
             let colors = vec![
-                ScalarValue::Utf8(Some("#1f77b4".to_string())), // Blue
-                ScalarValue::Utf8(Some("#ff7f0e".to_string())), // Orange
-                ScalarValue::Utf8(Some("#2ca02c".to_string())), // Green
-                ScalarValue::Utf8(Some("#d62728".to_string())), // Red
-                ScalarValue::Utf8(Some("#9467bd".to_string())), // Purple
-                ScalarValue::Utf8(Some("#8c564b".to_string())), // Brown
-                ScalarValue::Utf8(Some("#e377c2".to_string())), // Pink
-                ScalarValue::Utf8(Some("#7f7f7f".to_string())), // Gray
-                ScalarValue::Utf8(Some("#bcbd22".to_string())), // Olive
-                ScalarValue::Utf8(Some("#17becf".to_string())), // Cyan
+                ScalarValue::Utf8(Some("#0072B2".to_string())), // Blue
+                ScalarValue::Utf8(Some("#E69F00".to_string())), // Orange
+                ScalarValue::Utf8(Some("#009E73".to_string())), // Bluish Green
+                ScalarValue::Utf8(Some("#F0E442".to_string())), // Yellow
+                ScalarValue::Utf8(Some("#D55E00".to_string())), // Vermillion
+                ScalarValue::Utf8(Some("#56B4E9".to_string())), // Sky Blue
+                ScalarValue::Utf8(Some("#CC79A7".to_string())), // Reddish Purple
+                ScalarValue::Utf8(Some("#999999".to_string())), // Grey (for additional colors if needed)
             ];
 
             // If we know the domain cardinality, only return that many colors
-            // Otherwise return all 10
+            // Otherwise return all 8
             match domain_cardinality {
                 Some(n) if n <= colors.len() => {
                     ScaleRange::Enum(colors.into_iter().take(n).collect())
@@ -88,7 +86,7 @@ mod tests {
         let range = get_default_color_range("ordinal", None);
         match range {
             ScaleRange::Enum(colors) => {
-                assert_eq!(colors.len(), 10);
+                assert_eq!(colors.len(), 8);
             }
             _ => panic!("Expected enum range for ordinal scale"),
         }

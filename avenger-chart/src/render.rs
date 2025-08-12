@@ -203,6 +203,11 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                     if name == "shape" {
                         self.plot.apply_default_shape_range(scale_copy);
                     }
+
+                    // Apply default dash range for stroke_dash channel
+                    if name == "stroke_dash" {
+                        self.plot.apply_default_dash_range(scale_copy);
+                    }
                 },
             )
             .await?;
@@ -1726,16 +1731,54 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             .and_then(|scalar| scalar.as_f32().ok())
             .unwrap_or(2.0);
 
+        // Get stroke_cap and stroke_join from line marks
+        let (stroke_cap, stroke_join) = {
+            let mut cap = avenger_common::types::StrokeCap::Round; // Default to round
+            let mut join = avenger_common::types::StrokeJoin::Round; // Default to round
+
+            // Find the first line mark and use its stroke_cap/stroke_join settings
+            for mark in &self.plot.marks {
+                if mark.mark_type() == "line" {
+                    // Try to get stroke_cap from mark's default channel values
+                    if let Some(cap_value) = mark.default_channel_value("stroke_cap") {
+                        if let Ok(cap_str) = cap_value.as_scalar_string() {
+                            cap = match cap_str.as_str() {
+                                "butt" => avenger_common::types::StrokeCap::Butt,
+                                "round" => avenger_common::types::StrokeCap::Round,
+                                "square" => avenger_common::types::StrokeCap::Square,
+                                _ => cap,
+                            };
+                        }
+                    }
+                    // Try to get stroke_join from mark's default channel values
+                    if let Some(join_value) = mark.default_channel_value("stroke_join") {
+                        if let Ok(join_str) = join_value.as_scalar_string() {
+                            join = match join_str.as_str() {
+                                "miter" => avenger_common::types::StrokeJoin::Miter,
+                                "round" => avenger_common::types::StrokeJoin::Round,
+                                "bevel" => avenger_common::types::StrokeJoin::Bevel,
+                                _ => join,
+                            };
+                        }
+                    }
+                    break;
+                }
+            }
+            (cap, join)
+        };
+
         // Initialize config with defaults
         // Use longer line length for better dash pattern visibility
         let mut config = LineLegendConfig {
             title: params.legend.title.clone(),
             text: ScalarOrArray::new_array(text_values),
+            stroke_cap,
+            stroke_join: Some(stroke_join), // Add stroke_join to config
             inner_width: 0.0,
             inner_height: 100.0,
             outer_margin: 0.0, // Don't offset legend entries
-            line_length: 16.0, // Consistent with measurement
-            text_padding: 4.0, // Consistent with symbol legend
+            line_length: ScalarOrArray::new_scalar(16.0), // Default, will be adjusted for dash patterns
+            text_padding: 4.0,                            // Consistent with symbol legend
             ..Default::default()
         };
 
@@ -1888,6 +1931,104 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         if params.channel == "stroke_dash" {
             // Legend is for stroke_dash itself - vary dash pattern
             let dash_patterns = self.map_dash_patterns(&domain_values, legend_scale).await?;
+
+            // First, find the long-short pattern (Type F) to determine max length
+            // It should be [12,4,2,4] and we want one cycle plus the next long segment
+            let max_legend_length = {
+                let mut found_max = 34.0f32; // Default if not found
+                for pattern in dash_patterns.iter() {
+                    if let Some(p) = pattern.as_ref() {
+                        if p.len() == 4 && p[0] == 12.0 && p[1] == 4.0 && p[2] == 2.0 && p[3] == 4.0
+                        {
+                            // This is the long-short pattern
+                            // One full cycle (22) + next long segment (12) = 34
+                            found_max = p.iter().sum::<f32>() + p[0];
+                            break;
+                        }
+                    }
+                }
+                found_max
+            };
+
+            // Now calculate optimal length for each pattern
+            let mut individual_lengths = Vec::new();
+
+            for (i, pattern) in dash_patterns.iter().enumerate() {
+                let optimal_length = if let Some(pattern) = pattern.as_ref() {
+                    if pattern.is_empty() {
+                        // Solid line - should be exactly the same as max length
+                        max_legend_length
+                    } else {
+                        // Calculate how many complete dash segments fit within max_legend_length
+                        let mut current_pos = 0.0;
+                        let mut last_valid_length = 0.0;
+                        let mut is_dash = true; // Start with a dash segment
+                        let mut pattern_idx = 0;
+
+                        // Simulate drawing the pattern
+                        while current_pos < max_legend_length {
+                            let segment_length = pattern[pattern_idx];
+                            let next_pos = current_pos + segment_length;
+
+                            if next_pos > max_legend_length {
+                                // This segment would exceed our limit
+                                break;
+                            }
+
+                            if is_dash {
+                                // This is a dash segment - update our valid length
+                                last_valid_length = next_pos;
+                            }
+
+                            current_pos = next_pos;
+                            is_dash = !is_dash;
+                            pattern_idx = (pattern_idx + 1) % pattern.len();
+                        }
+
+                        // Make sure we show at least some pattern
+                        if last_valid_length == 0.0 && !pattern.is_empty() {
+                            last_valid_length = pattern[0]; // At least show first dash
+                        }
+
+                        last_valid_length
+                    }
+                } else {
+                    // No pattern (solid line)
+                    max_legend_length
+                };
+
+                individual_lengths.push(optimal_length);
+
+                if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+                    eprintln!(
+                        "Dash pattern {}: {:?}, length={} (max={})",
+                        i, pattern, optimal_length, max_legend_length
+                    );
+                }
+            }
+
+            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+                eprintln!("Max legend length: {}", max_legend_length);
+            }
+
+            // Add some extra for rounded caps if used
+            let cap_extension = if stroke_cap == avenger_common::types::StrokeCap::Round {
+                default_stroke_width // Add stroke width for rounded caps at both ends
+            } else {
+                0.0
+            };
+
+            // Set individual lengths for each pattern
+            config.line_length = ScalarOrArray::new_array(
+                individual_lengths
+                    .into_iter()
+                    .map(|l| l + cap_extension)
+                    .collect(),
+            );
+
+            // Keep the same stroke width as the chart lines for consistency
+            // The default is already set to match the chart
+
             config.stroke_dash = ScalarOrArray::new_array(dash_patterns);
         } else if let Some(channel_value) = mark_encodings.get("stroke_dash") {
             // Check if stroke_dash uses the same expression as the legend channel
@@ -2437,6 +2578,11 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             // Apply default shape range for shape channel
             if name == "shape" {
                 self.plot.apply_default_shape_range(&mut scale);
+            }
+
+            // Apply default dash range for stroke_dash channel
+            if name == "stroke_dash" {
+                self.plot.apply_default_dash_range(&mut scale);
             }
 
             // Create configured scale for measurement

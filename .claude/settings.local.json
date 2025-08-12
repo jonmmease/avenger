@@ -37,7 +37,8 @@
       "Bash(RUSTFLAGS=\"-D warnings\" cargo check)",
       "Bash(AVENGER_DEBUG_LAYOUT=1 cargo test -p avenger-chart --test visual_regression test_line_stroke_dash_legend -- --nocapture)",
       "Bash(AVENGER_DEBUG_LAYOUT=1 cargo test -p avenger-chart --test visual_regression test_combined_size_color_shape_legend -- --nocapture)",
-      "Bash(RUST_BACKTRACE=1 cargo test -p avenger-chart --test visual_regression test_continuous_color_legend -- --nocapture)"
+      "Bash(RUST_BACKTRACE=1 cargo test -p avenger-chart --test visual_regression test_continuous_color_legend -- --nocapture)",
+      "Bash(RUSTFLAGS=\"-D warnings\" cargo clippy --all-targets)"
     ]
   },
   "enableAllProjectMcpServers": false

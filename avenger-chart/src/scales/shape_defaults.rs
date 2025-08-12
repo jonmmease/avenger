@@ -7,13 +7,12 @@ use datafusion_common::ScalarValue;
 /// and when creating legends for shape channels
 pub const DEFAULT_SHAPES: &[&str] = &[
     "circle",
-    "square",
-    "triangle-up",
     "cross",
     "diamond",
-    "triangle-down",
-    "triangle-left",
-    "triangle-right",
+    "square",
+    "star",
+    "triangle-up",
+    "wye",
 ];
 
 /// Get the default shape names as scalar values, limited to the specified count

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{error::AvengerGuidesError, legend::compute_encoding_length};
-use avenger_common::types::StrokeCap;
+use avenger_common::types::{StrokeCap, StrokeJoin};
 use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scenegraph::marks::line::SceneLineMark;
@@ -17,6 +17,7 @@ pub struct LineLegendConfig {
     pub stroke: ScalarOrArray<ColorOrGradient>,
     pub stroke_dash: ScalarOrArray<Option<Vec<f32>>>,
     pub stroke_cap: StrokeCap,
+    pub stroke_join: Option<StrokeJoin>,
 
     pub font_size: ScalarOrArray<f32>,
     pub font_family: ScalarOrArray<String>,
@@ -36,8 +37,8 @@ pub struct LineLegendConfig {
     /// Padding between the line segment and the text
     pub text_padding: f32,
 
-    /// Length of the line in the legend
-    pub line_length: f32,
+    /// Length of the line in the legend (can be different for each entry)
+    pub line_length: ScalarOrArray<f32>,
 
     /// Background rect styling
     pub background_fill: Option<ColorOrGradient>,
@@ -55,6 +56,7 @@ impl Default for LineLegendConfig {
             stroke_dash: None.into(),
             stroke_width: 2.0.into(),
             stroke_cap: StrokeCap::Butt,
+            stroke_join: Some(StrokeJoin::Miter),
             font_size: 10.0.into(),
             font_family: "Atkinson Hyperlegible Next".into(),
             inner_width: 100.0,
@@ -62,7 +64,7 @@ impl Default for LineLegendConfig {
             outer_margin: 4.0,
             text_padding: 2.0,
             entry_margin: 2.0,
-            line_length: 10.0,
+            line_length: ScalarOrArray::new_scalar(10.0),
             background_fill: None,
             background_stroke: None,
             background_corner_radius: None,
@@ -133,6 +135,10 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
     let stroke_widths = config.stroke_width.as_vec(len, None);
     let stroke_dashes = config.stroke_dash.as_vec(len, None);
     let stroke_colors = config.stroke.as_vec(len, None);
+    let line_lengths = config.line_length.as_vec(len, None);
+
+    // Find the maximum line length for text alignment
+    let max_line_length = line_lengths.iter().fold(0.0f32, |max, &len| max.max(len));
 
     for i in 0..len {
         let group = make_line_group(
@@ -143,7 +149,10 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
             &stroke_dashes[i],
             &stroke_colors[i],
             config.stroke_cap,
-            config,
+            config.stroke_join,
+            line_lengths[i],
+            max_line_length,
+            config.text_padding,
         );
         groups.push(SceneMark::Group(group));
         line_group_y += legend_group_height;
@@ -209,12 +218,16 @@ fn make_line_group(
     stroke_dash: &Option<Vec<f32>>,
     stroke_color: &ColorOrGradient,
     stroke_cap: StrokeCap,
-    config: &LineLegendConfig,
+    stroke_join: Option<StrokeJoin>,
+    line_length: f32,
+    max_line_length: f32,
+    text_padding: f32,
 ) -> SceneGroup {
     // Line and text should be positioned relative to the group's local origin
     let x0 = 0.0;
-    let x1 = config.line_length;
-    let text_x = x1 + config.text_padding;
+    let x1 = line_length;
+    // Text position is based on max_line_length to ensure horizontal alignment
+    let text_x = max_line_length + text_padding;
 
     // Line
     let single_line_mark = SceneLineMark {
@@ -225,6 +238,7 @@ fn make_line_group(
         stroke_dash: stroke_dash.clone(),
         stroke: stroke_color.clone(),
         stroke_cap,
+        stroke_join: stroke_join.unwrap_or(StrokeJoin::Miter),
         ..Default::default()
     };
 
@@ -242,7 +256,7 @@ fn make_line_group(
     };
 
     SceneGroup {
-        origin: [config.inner_width + x_offset, y],
+        origin: [x_offset, y],
         marks: vec![
             SceneMark::Line(single_line_mark),
             SceneMark::Text(Arc::new(text_mark)),

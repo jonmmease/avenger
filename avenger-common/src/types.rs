@@ -384,6 +384,64 @@ impl SymbolShape {
                 builder.close();
                 SymbolShape::Path(builder.build())
             }
+            "star" => {
+                // Based on d3-shape star symbol
+                let ka: f32 = 0.890_813_1;
+                let kr =
+                    (std::f32::consts::PI / 10.0).sin() / (7.0 * std::f32::consts::PI / 10.0).sin();
+                let kx = (std::f32::consts::TAU / 10.0).sin() * kr;
+                let ky = -(std::f32::consts::TAU / 10.0).cos() * kr;
+
+                // Size 1 means area = 1, so r = sqrt(1 * ka)
+                // But we normalize to 0.5 radius for unit area
+                let r = 0.5;
+                let x = kx * r / ka.sqrt();
+                let y = ky * r / ka.sqrt();
+                let scaled_r = r / ka.sqrt();
+
+                let mut builder = lyon_path::Path::builder().with_svg();
+                builder.move_to(Point::new(0.0, -scaled_r));
+                builder.line_to(Point::new(x, y));
+
+                for i in 1..5 {
+                    let a = std::f32::consts::TAU * i as f32 / 5.0;
+                    let c = a.cos();
+                    let s = a.sin();
+                    builder.line_to(Point::new(s * scaled_r, -c * scaled_r));
+                    builder.line_to(Point::new(c * x - s * y, s * x + c * y));
+                }
+                builder.close();
+                SymbolShape::Path(builder.build())
+            }
+            "wye" => {
+                // Based on d3-shape wye symbol
+                let c = -0.5;
+                let s = sqrt3 / 2.0;
+                let k = 1.0 / 12.0f32.sqrt();
+                let a = (k / 2.0 + 1.0) * 3.0;
+
+                // Normalize for unit area
+                let r = 0.5 / a.sqrt();
+                let x0 = r / 2.0;
+                let y0 = r * k;
+                let x1 = x0;
+                let y1 = r * k + r;
+                let x2 = -x1;
+                let y2 = y1;
+
+                let mut builder = lyon_path::Path::builder().with_svg();
+                builder.move_to(Point::new(x0, y0));
+                builder.line_to(Point::new(x1, y1));
+                builder.line_to(Point::new(x2, y2));
+                builder.line_to(Point::new(c * x0 - s * y0, s * x0 + c * y0));
+                builder.line_to(Point::new(c * x1 - s * y1, s * x1 + c * y1));
+                builder.line_to(Point::new(c * x2 - s * y2, s * x2 + c * y2));
+                builder.line_to(Point::new(c * x0 + s * y0, c * y0 - s * x0));
+                builder.line_to(Point::new(c * x1 + s * y1, c * y1 - s * x1));
+                builder.line_to(Point::new(c * x2 + s * y2, c * y2 - s * x2));
+                builder.close();
+                SymbolShape::Path(builder.build())
+            }
             _ => {
                 // General SVG string
                 let path = parse_svg_path(shape)?;
