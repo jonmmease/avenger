@@ -12,4 +12,5 @@ pub struct AxisConfig {
     pub dimensions: [f32; 2],
     pub grid: bool,
     pub format_number: Option<String>,
+    pub title_font_size: Option<f32>,
 }

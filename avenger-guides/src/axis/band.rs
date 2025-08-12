@@ -4,7 +4,7 @@ use avenger_geometry::rtree::EnvelopeUtils;
 use avenger_scales::{error::AvengerScaleError, scales::ConfiguredScale};
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
 
-use avenger_text::types::{FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
+use avenger_text::types::{FontWeight, TextAlign, TextBaseline};
 use rstar::AABB;
 
 use crate::error::AvengerGuidesError;
@@ -14,8 +14,8 @@ use super::opts::{AxisConfig, AxisOrientation};
 const TICK_LENGTH: f32 = 5.0;
 const TEXT_MARGIN: f32 = 3.0;
 const TITLE_MARGIN: f32 = 4.0;
-const TITLE_FONT_SIZE: f32 = 10.0;
-const TICK_FONT_SIZE: f32 = 8.0;
+const TITLE_FONT_SIZE: f32 = 12.0;
+const TICK_FONT_SIZE: f32 = 10.0;
 const PIXEL_OFFSET: f32 = 0.5;
 
 pub fn make_band_axis_marks(
@@ -211,7 +211,7 @@ fn make_tick_grid_marks(
         x2: x1,
         y: y0,
         y2: y1,
-        stroke: ColorOrGradient::Color([0.6, 0.6, 0.6, 0.2]).into(),
+        stroke: ColorOrGradient::Color([0.878, 0.878, 0.878, 0.5]).into(), // #E0E0E0 with opacity 0.5
         stroke_width: 0.5.into(),
         ..Default::default()
     };
@@ -234,17 +234,26 @@ fn make_tick_labels(
 ) -> Result<SceneTextMark, AvengerScaleError> {
     let scaled_values = scale.scale_to_numeric(scale.domain())?;
 
+    // Adjust y position slightly for Atkinson Hyperlegible Next font's metrics
+    // Text appears too low with Middle baseline, shift up by ~10% of font size
+    let font_adjustment = TICK_FONT_SIZE * 0.10;
+    let adjusted_values_left_right = scaled_values
+        .as_vec(scale.domain().len(), None)
+        .into_iter()
+        .map(|v| v - font_adjustment)
+        .collect::<Vec<_>>();
+
     let (x, y, align, baseline, angle) = match orientation {
         AxisOrientation::Left => (
             ScalarOrArray::new_scalar(-TICK_LENGTH - TEXT_MARGIN),
-            scaled_values,
+            ScalarOrArray::new_array(adjusted_values_left_right.clone()),
             TextAlign::Right,
             TextBaseline::Middle,
             0.0,
         ),
         AxisOrientation::Right => (
             ScalarOrArray::new_scalar(dimensions[0] + TICK_LENGTH + TEXT_MARGIN),
-            scaled_values,
+            ScalarOrArray::new_array(adjusted_values_left_right),
             TextAlign::Left,
             TextBaseline::Middle,
             0.0,
@@ -273,8 +282,9 @@ fn make_tick_labels(
         align: align.into(),
         baseline: baseline.into(),
         angle: angle.into(),
-        color: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
+        color: ColorOrGradient::Color([0.353, 0.353, 0.353, 1.0]).into(), // #5A5A5A
         font_size: TICK_FONT_SIZE.into(),
+        font_weight: FontWeight::Number(300.0).into(), // Light weight for tick labels
         ..Default::default()
     })
 }
@@ -347,9 +357,9 @@ fn make_title(
         align: align.into(),
         baseline: baseline.into(),
         angle: angle.into(),
-        color: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
-        font_size: TITLE_FONT_SIZE.into(),
-        font_weight: FontWeight::Name(FontWeightNameSpec::Bold).into(),
+        color: ColorOrGradient::Color([0.173, 0.173, 0.173, 1.0]).into(), // #2C2C2C
+        font_size: config.title_font_size.unwrap_or(TITLE_FONT_SIZE).into(),
+        font_weight: FontWeight::Number(400.0).into(),
         ..Default::default()
     })
 }

@@ -817,6 +817,7 @@ impl ChartLayout {
             dimensions,
             grid: axis.grid,
             format_number: axis.format_number.clone(),
+            title_font_size: None, // Use default for regular axes
         };
 
         // Create axis marks
@@ -1097,7 +1098,7 @@ impl ChartLayout {
                 stroke_dash: stroke_dashes,
                 stroke_cap: avenger_common::types::StrokeCap::Butt,
                 font_size: ScalarOrArray::new_scalar(10.0),
-                font_family: ScalarOrArray::new_scalar("sans-serif".to_string()),
+                font_family: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
                 inner_width: 0.0,
                 inner_height: 100.0,
                 outer_margin: 0.0,
@@ -1548,9 +1549,9 @@ impl GridBuilder {
         title: Option<&PlotTitle>,
         subtitle: Option<&PlotSubtitle>,
     ) -> Result<(GridTemplate, ComponentGridMap), AvengerChartError> {
-        // Use minimal edge margins since components are measured with their own padding
-        // Only add a small margin to ensure edges aren't clipped
-        const EDGE_MARGIN: f32 = 5.0;
+        // Use edge margins from constants to ensure consistent padding
+        // This provides proper spacing even when there's no title
+        use crate::constants::EDGE_MARGIN;
 
         // Use the same margin on all sides for consistent appearance
         let left_margin = EDGE_MARGIN;
@@ -1633,7 +1634,7 @@ impl GridBuilder {
                     if let Some(t) = title {
                         let (height, _width) =
                             ChartLayout::measure_text(&t.text, t.font_size, &t.font_family);
-                        height
+                        height * 1.15 // Reduced spacing below title
                     } else {
                         28.0 // Fallback
                     }
@@ -1643,7 +1644,7 @@ impl GridBuilder {
                     if let Some(s) = subtitle {
                         let (height, _width) =
                             ChartLayout::measure_text(&s.text, s.font_size, &s.font_family);
-                        height
+                        height * 1.5 // More spacing below subtitle
                     } else {
                         20.0 // Fallback
                     }

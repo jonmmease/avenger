@@ -92,7 +92,7 @@ impl Default for SceneTextMark {
             baseline: ScalarOrArray::new_scalar(TextBaseline::Alphabetic),
             angle: ScalarOrArray::new_scalar(0.0),
             color: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
-            font: ScalarOrArray::new_scalar("sans serif".to_string()),
+            font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
             font_size: ScalarOrArray::new_scalar(10.0),
             font_weight: ScalarOrArray::new_scalar(FontWeight::Name(FontWeightNameSpec::Normal)),
             font_style: ScalarOrArray::new_scalar(FontStyle::Normal),

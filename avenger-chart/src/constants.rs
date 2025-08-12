@@ -1,7 +1,7 @@
 // Centralized layout and legend constants for avenger-chart
 
 // Edge margin around the entire chart area (outside axes/legends)
-pub const EDGE_MARGIN: f32 = 5.0;
+pub const EDGE_MARGIN: f32 = 10.0;
 
 // Symbol legend spacing
 pub const SYMBOL_LEGEND_TEXT_PADDING: f32 = 2.0;
