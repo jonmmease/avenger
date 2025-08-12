@@ -89,24 +89,31 @@ pub fn get_default_scale_options(
 
     match (channel, scale_type) {
         // Y-axis linear scales typically include zero
-        ("y", "linear") => {
+        ("y" | "y2", "linear") => {
             options.insert("zero".to_string(), lit(true));
             options.insert("nice".to_string(), lit(true));
+            options.insert("round".to_string(), lit(true)); // Pixel-aligned for crisp grid lines
         }
 
         // X-axis linear scales don't necessarily need zero
-        ("x", "linear") => {
+        ("x" | "x2", "linear") => {
             options.insert("nice".to_string(), lit(true));
+            options.insert("round".to_string(), lit(true)); // Pixel-aligned for crisp grid lines
         }
 
-        // Band scales have padding
+        // For any numeric positional scale (not just linear), enable rounding for pixel alignment
+        ("x" | "x2" | "y" | "y2", "log" | "pow" | "sqrt" | "symlog" | "time") => {
+            options.insert("round".to_string(), lit(true)); // Pixel-aligned positions
+        }
+
+        // Band scales have padding (already have round by default)
         (_, "band") => {
             options.insert("padding_inner".to_string(), lit(0.1));
             options.insert("padding".to_string(), lit(0.1));
             options.insert("align".to_string(), lit(0.5));
         }
 
-        // Point scales have padding too
+        // Point scales have padding too (already have round by default)
         (_, "point") => {
             options.insert("padding".to_string(), lit(0.5));
             options.insert("align".to_string(), lit(0.5));

@@ -7,7 +7,8 @@ use avenger_scenegraph::marks::{
     group::SceneGroup, mark::SceneMark, rect::SceneRectMark, symbol::SceneSymbolMark,
     text::SceneTextMark,
 };
-use avenger_text::types::{FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
+use avenger_text::measurement::{default_text_measurer, TextMeasurementConfig, TextMeasurer};
+use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 
 use crate::{error::AvengerGuidesError, legend::compute_encoding_length};
 
@@ -110,36 +111,52 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
     let max_width = symbol_mark.bounding_box().width();
     let center_x = max_width / 2.0;
 
-    // Always use consistent padding for layout stability
-    let bg_padding = config.background_padding.unwrap_or(6.0);
+    // Use fixed 4px padding for top/bottom
+    let vertical_padding = 4.0;
+    let horizontal_padding = config.background_padding.unwrap_or(4.0);
 
     // Position legend content with padding from the background rect origin
-    let content_offset_x = bg_padding + config.outer_margin;
-    let mut content_offset_y = bg_padding;
+    let content_offset_x = horizontal_padding + config.outer_margin;
+    let mut content_offset_y = vertical_padding;
 
     let mut groups: Vec<SceneMark> = Vec::with_capacity(len + 1); // +1 for potential title
 
     // Add title if present
     if let Some(ref title_text) = config.title {
-        // Use same font size as legend items for consistency
-        let legend_font_size = 10.0;
+        let title_font_size = 12.0; // Legend title font size
+        let title_font = "Atkinson Hyperlegible Next".to_string();
+        let title_font_weight = FontWeight::Number(400.0);
+
+        // Measure the actual title text height
+        let measurer = default_text_measurer();
+        let title_config = TextMeasurementConfig {
+            text: title_text,
+            font: &title_font,
+            font_size: title_font_size,
+            font_weight: &title_font_weight,
+            font_style: &FontStyle::Normal,
+        };
+        let title_bounds = measurer.measure_text_bounds(&title_config);
+
+        // Use Top baseline and position title exactly at the desired padding from top
+        let title_y = vertical_padding; // Use the vertical padding variable
+
         let title_mark = SceneTextMark {
             text: title_text.clone().into(),
             x: content_offset_x.into(),
-            y: (content_offset_y + legend_font_size / 2.0).into(), // Center title vertically in its space
-            font_size: legend_font_size.into(),
-            font_weight: FontWeight::Name(FontWeightNameSpec::Bold).into(),
-            font: "sans-serif".to_string().into(),
-            color: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
+            y: title_y.into(),
+            font_size: title_font_size.into(),
+            font_weight: title_font_weight.into(),
+            font: title_font.into(),
+            color: ColorOrGradient::Color([0.173, 0.173, 0.173, 1.0]).into(), // #2C2C2C
             align: TextAlign::Left.into(),
-            baseline: TextBaseline::Middle.into(),
+            baseline: TextBaseline::Top.into(), // Changed to Top baseline
             ..Default::default()
         };
         groups.push(SceneMark::Text(Arc::new(title_mark)));
 
-        // Title height (same as legend font) + spacing between title and items
-        let title_space = legend_font_size + 4.0; // Tighter spacing
-        content_offset_y += title_space;
+        // Set content offset to title + its height + small gap
+        content_offset_y = title_y + title_bounds.height + 2.0; // Title position + height + 2px gap
     }
 
     let mut y = content_offset_y;
@@ -173,9 +190,9 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
 
     // Calculate total dimensions including padding
     // The background rect always exists and defines our coordinate system
-    // Add symmetric padding on all sides (content is already offset by bg_padding on left/top)
-    let bg_width = content_bbox.width() + bg_padding * 2.0; // Left padding (in content offset) + right padding
-    let bg_height = content_bbox.height() + bg_padding * 2.0; // Top padding (in content offset) + bottom padding
+    // Use fixed vertical padding and configurable horizontal padding
+    let bg_width = content_bbox.width() + horizontal_padding * 2.0; // Left + right padding
+    let bg_height = content_bbox.height() + vertical_padding * 2.0; // Fixed 4px top + 4px bottom
 
     // Always create a background rect at origin (0, 0)
     // This provides consistent layout whether visible or not
@@ -234,7 +251,7 @@ fn make_symbol_group(
         eprintln!("    Symbol '{}' size: {}", text, sizes[0]);
     }
 
-    let padding = 2.0;
+    let padding = 0.5; // Further reduced vertical padding between legend items
     let bbox = single_symbol_mark.bounding_box();
     let symbol_height = bbox.height();
     let symbol_width = bbox.width();
@@ -252,7 +269,10 @@ fn make_symbol_group(
         y: single_symbol_mark.y.clone(),
         align: TextAlign::Left.into(),
         baseline: TextBaseline::Middle.into(),
-        font_size: 10.0.into(),
+        font_size: 11.0.into(), // Legend item size
+        font: "Atkinson Hyperlegible Next".to_string().into(),
+        font_weight: FontWeight::Number(300.0).into(), // Regular weight for legend items
+        color: ColorOrGradient::Color([0.235, 0.235, 0.235, 1.0]).into(), // #3C3C3C
         ..Default::default()
     };
 

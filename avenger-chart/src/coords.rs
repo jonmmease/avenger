@@ -175,8 +175,7 @@ impl CoordinateSystem for Cartesian {
                 };
 
                 // Get default axis with position
-                let mut axis =
-                    Self::default_axis(channel, 0).unwrap_or_else(CartesianAxis::new);
+                let mut axis = Self::default_axis(channel, 0).unwrap_or_else(CartesianAxis::new);
 
                 // Update with title and grid
                 axis = axis.title(title).grid(grid);
@@ -245,6 +244,7 @@ impl CoordinateSystem for Cartesian {
                 dimensions: [plot_width, plot_height],
                 grid: axis.grid,
                 format_number: axis.format_number.clone(),
+                title_font_size: None, // Use default for regular axes
             };
 
             // Create configured scale for avenger-guides (without re-normalization)

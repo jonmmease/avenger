@@ -7,7 +7,7 @@ use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scenegraph::marks::line::SceneLineMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark, text::SceneTextMark};
-use avenger_text::types::{FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
+use avenger_text::types::{FontWeight, TextAlign, TextBaseline};
 
 /// Symbol legends
 pub struct LineLegendConfig {
@@ -56,7 +56,7 @@ impl Default for LineLegendConfig {
             stroke_width: 2.0.into(),
             stroke_cap: StrokeCap::Butt,
             font_size: 10.0.into(),
-            font_family: "sans-serif".into(),
+            font_family: "Atkinson Hyperlegible Next".into(),
             inner_width: 100.0,
             inner_height: 100.0,
             outer_margin: 4.0,
@@ -111,10 +111,10 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
             text: title_text.clone().into(),
             x: bg_padding.into(),
             y: (bg_padding + legend_font_size / 2.0).into(), // Center title vertically in its space
-            font_size: legend_font_size.into(),
-            font_weight: FontWeight::Name(FontWeightNameSpec::Bold).into(),
+            font_size: 12.0.into(),                          // Legend title size
+            font_weight: FontWeight::Number(400.0).into(),   // Medium weight for titles
             font: config.font_family.as_vec(1, None)[0].clone().into(),
-            color: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
+            color: ColorOrGradient::Color([0.173, 0.173, 0.173, 1.0]).into(), // #2C2C2C
             align: TextAlign::Left.into(),
             baseline: TextBaseline::Middle.into(),
             ..Default::default()
@@ -235,7 +235,9 @@ fn make_line_group(
         y: 0.0.into(),
         align: TextAlign::Left.into(),
         baseline: TextBaseline::Middle.into(),
-        font_size: 10.0.into(),
+        font_size: 11.0.into(),                        // Legend item size
+        font_weight: FontWeight::Number(300.0).into(), // Regular weight for legend items
+        color: ColorOrGradient::Color([0.235, 0.235, 0.235, 1.0]).into(), // #3C3C3C
         ..Default::default()
     };
 

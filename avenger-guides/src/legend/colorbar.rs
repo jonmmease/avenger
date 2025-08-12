@@ -31,7 +31,7 @@ pub fn make_colorbar_marks(
             let total_height = config
                 .colorbar_height
                 .unwrap_or(available_height.min(200.0));
-            let bg_padding = config.background_padding.unwrap_or(8.0);
+            let bg_padding = config.background_padding.unwrap_or(4.0);
 
             // Calculate the actual gradient height by subtracting padding
             let gradient_height = (total_height - 2.0 * bg_padding).max(10.0);
@@ -67,6 +67,7 @@ pub fn make_colorbar_marks(
                 dimensions: [0.0, gradient_height],
                 grid: false,
                 format_number: None,
+                title_font_size: Some(12.0), // Use smaller font for colorbar titles
             };
             let axis_config = AxisConfig {
                 format_number: config.format_number.clone(),

@@ -796,8 +796,8 @@ impl<C: CoordinateSystem> Plot<C> {
     pub fn title(mut self, text: impl Into<String>) -> Self {
         self.title = Some(PlotTitle {
             text: text.into(),
-            font_size: 14.0,
-            font_family: "sans-serif".to_string(),
+            font_size: 18.0,
+            font_family: "Atkinson Hyperlegible Next".to_string(),
         });
         self
     }
@@ -806,8 +806,8 @@ impl<C: CoordinateSystem> Plot<C> {
     pub fn subtitle(mut self, text: impl Into<String>) -> Self {
         self.subtitle = Some(PlotSubtitle {
             text: text.into(),
-            font_size: 10.0,
-            font_family: "sans-serif".to_string(),
+            font_size: 14.0,
+            font_family: "Atkinson Hyperlegible Next".to_string(),
         });
         self
     }

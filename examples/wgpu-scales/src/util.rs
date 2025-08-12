@@ -259,6 +259,7 @@ pub async fn run() {
             orientation: AxisOrientation::Left,
             grid: true,
             format_number: None,
+            title_font_size: None,
         },
     )
     .unwrap();
@@ -273,6 +274,7 @@ pub async fn run() {
             orientation: AxisOrientation::Bottom,
             grid: false,
             format_number: None,
+            title_font_size: None,
         },
     )
     .unwrap();

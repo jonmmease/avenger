@@ -287,6 +287,7 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
             orientation: AxisOrientation::Left,
             grid: true,
             format_number: None,
+            title_font_size: None,
         },
     )
     .unwrap();
@@ -301,6 +302,7 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
             orientation: AxisOrientation::Bottom,
             grid: true,
             format_number: None,
+            title_font_size: None,
         },
     )
     .unwrap();

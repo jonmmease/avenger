@@ -1069,16 +1069,22 @@ fn create_scale_impl(scale_type: &str) -> Arc<dyn ScaleImpl> {
 /// Apply default options for each scale type
 fn apply_scale_defaults(scale_type: &str, options: &mut HashMap<String, Expr>) {
     match scale_type {
+        "linear" => {
+            // Don't set round by default - it should only be set for positional scales
+            // Color scales need continuous values, not rounded integers
+        }
         "band" => {
             options
                 .entry("padding_inner".to_string())
                 .or_insert(lit(0.1));
             options.entry("padding".to_string()).or_insert(lit(0.1));
             options.entry("align".to_string()).or_insert(lit(0.5));
+            options.entry("round".to_string()).or_insert(lit(true));
         }
         "point" => {
             options.entry("padding".to_string()).or_insert(lit(0.5));
             options.entry("align".to_string()).or_insert(lit(0.5));
+            options.entry("round".to_string()).or_insert(lit(true));
         }
         "log" | "logarithmic" => {
             options.entry("base".to_string()).or_insert(lit(10.0));
@@ -1093,9 +1099,9 @@ fn apply_scale_defaults(scale_type: &str, options: &mut HashMap<String, Expr>) {
         "symlog" => {
             options.entry("constant".to_string()).or_insert(lit(1.0));
         }
-        "linear" => {
-            // Linear scales might have nice=true by default
-            options.entry("nice".to_string()).or_insert(lit(true));
+        "time" | "temporal" => {
+            // Time scales might benefit from rounding for positional use
+            // but not for color mapping
         }
         _ => {
             // No specific defaults for other scale types

@@ -9,6 +9,7 @@ use crate::marks::{ChannelValue, Mark};
 use crate::plot::Plot;
 use crate::scales::Scale;
 use crate::utils::ScalarValueHelpers;
+use avenger_common::types::ColorOrGradient;
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_geometry::rtree::EnvelopeUtils;
 use avenger_scenegraph::marks::group::{Clip, SceneGroup};
@@ -2255,6 +2256,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             baseline: TextBaseline::Middle.into(),
             font: title.font_family.clone().into(),
             font_size: title.font_size.into(),
+            font_weight: avenger_text::types::FontWeight::Number(500.0).into(),
+            color: ColorOrGradient::Color([0.102, 0.102, 0.102, 1.0]).into(), // #1A1A1A
             ..Default::default()
         };
 
@@ -2302,6 +2305,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             baseline: TextBaseline::Middle.into(),
             font: subtitle.font_family.clone().into(),
             font_size: subtitle.font_size.into(),
+            font_weight: avenger_text::types::FontWeight::Number(200.0).into(),
+            color: ColorOrGradient::Color([0.290, 0.290, 0.290, 1.0]).into(), // #4A4A4A
             ..Default::default()
         };
 
