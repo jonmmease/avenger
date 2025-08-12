@@ -1096,7 +1096,8 @@ impl ChartLayout {
                 stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.5, 0.5, 0.5, 1.0])),
                 stroke_width: stroke_widths,
                 stroke_dash: stroke_dashes,
-                stroke_cap: avenger_common::types::StrokeCap::Butt,
+                stroke_cap: avenger_common::types::StrokeCap::Round,
+                stroke_join: Some(avenger_common::types::StrokeJoin::Round),
                 font_size: ScalarOrArray::new_scalar(10.0),
                 font_family: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
                 inner_width: 0.0,
@@ -1104,7 +1105,7 @@ impl ChartLayout {
                 outer_margin: 0.0,
                 entry_margin: 2.0,
                 text_padding: 4.0, // Consistent with symbol legend spacing
-                line_length: 16.0, // Similar to symbol size, enough for dash patterns
+                line_length: ScalarOrArray::new_scalar(16.0), // Similar to symbol size, enough for dash patterns
                 background_fill: legend
                     .background_fill
                     .as_ref()

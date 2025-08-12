@@ -147,39 +147,35 @@ async fn test_line_stroke_width_legend() {
 
 #[tokio::test]
 async fn test_line_stroke_dash_legend() {
-    // Create test data with varying dash patterns
+    // Create test data with all 6 dash patterns
     let x_values = Float32Array::from(vec![
-        1.0, 2.0, 3.0, 4.0, 5.0, // Solid line
-        1.0, 2.0, 3.0, 4.0, 5.0, // Dashed line
-        1.0, 2.0, 3.0, 4.0, 5.0, // Dotted line
+        1.0, 2.0, 3.0, 4.0, 5.0, // Line 1
+        1.0, 2.0, 3.0, 4.0, 5.0, // Line 2
+        1.0, 2.0, 3.0, 4.0, 5.0, // Line 3
+        1.0, 2.0, 3.0, 4.0, 5.0, // Line 4
+        1.0, 2.0, 3.0, 4.0, 5.0, // Line 5
+        1.0, 2.0, 3.0, 4.0, 5.0, // Line 6
     ]);
 
     let y_values = Float32Array::from(vec![
-        10.0, 14.0, 12.0, 16.0, 18.0, // Solid line
-        8.0, 12.0, 10.0, 14.0, 16.0, // Dashed line
-        6.0, 10.0, 8.0, 12.0, 14.0, // Dotted line
+        18.0, 19.0, 17.0, 20.0, 21.0, // Line 1
+        15.0, 16.0, 14.0, 17.0, 18.0, // Line 2
+        12.0, 13.0, 11.0, 14.0, 15.0, // Line 3
+        9.0, 10.0, 8.0, 11.0, 12.0, // Line 4
+        6.0, 7.0, 5.0, 8.0, 9.0, // Line 5
+        3.0, 4.0, 2.0, 5.0, 6.0, // Line 6
     ]);
 
     let line_type = StringArray::from(vec![
-        "Actual",
-        "Actual",
-        "Actual",
-        "Actual",
-        "Actual",
-        "Predicted",
-        "Predicted",
-        "Predicted",
-        "Predicted",
-        "Predicted",
-        "Baseline",
-        "Baseline",
-        "Baseline",
-        "Baseline",
-        "Baseline",
+        "Type A", "Type A", "Type A", "Type A", "Type A", "Type B", "Type B", "Type B", "Type B",
+        "Type B", "Type C", "Type C", "Type C", "Type C", "Type C", "Type D", "Type D", "Type D",
+        "Type D", "Type D", "Type E", "Type E", "Type E", "Type E", "Type E", "Type F", "Type F",
+        "Type F", "Type F", "Type F",
     ]);
 
     let order = Float32Array::from(vec![
-        1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0, 5.0,
+        1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0,
+        4.0, 5.0, 1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0, 5.0,
     ]);
 
     let schema = Arc::new(Schema::new(vec![
@@ -203,23 +199,48 @@ async fn test_line_stroke_dash_legend() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    // Create a line chart with stroke dash legend
+    // Create a line chart with both stroke color and dash pattern varying by line_type
+    // This showcases the default Okabe-Ito color palette along with dash patterns
     let plot = Plot::new(Cartesian)
         .data(df)
+        .title("Multi-Series Time Series Analysis")
+        .subtitle("Six distinct categories with accessible visualization")
         .scale_x(|scale| scale.domain((0.0, 6.0)))
-        .scale_y(|scale| scale.domain((0.0, 20.0)))
+        .scale_y(|scale| scale.domain((0.0, 22.0)))
+        .axis_x(|axis| axis.title("Sample Index").grid(true))
+        .axis_y(|axis| axis.title("Performance Metric (%)").grid(true))
+        .scale_stroke(|scale| {
+            scale
+                .scale_type("ordinal")
+                // Don't specify range - let it use the default Okabe-Ito color palette
+                .domain(vec![
+                    lit("Type A"),
+                    lit("Type B"),
+                    lit("Type C"),
+                    lit("Type D"),
+                    lit("Type E"),
+                    lit("Type F"),
+                ])
+        })
         .scale_stroke_dash(|scale| {
             scale
                 .scale_type("ordinal")
-                .range_discrete(vec![lit("solid"), lit("dashed"), lit("dotted")])
-                .domain(vec![lit("Actual"), lit("Predicted"), lit("Baseline")])
+                // Don't specify range - let it use the default dash patterns
+                .domain(vec![
+                    lit("Type A"),
+                    lit("Type B"),
+                    lit("Type C"),
+                    lit("Type D"),
+                    lit("Type E"),
+                    lit("Type F"),
+                ])
         })
-        .legend_stroke_dash(|legend| legend.title("Line Type"))
+        .legend_stroke_dash(|legend| legend.title("Line Pattern"))
         .mark(
             Line::new()
                 .x(col("x"))
                 .y(col("y"))
-                .stroke(lit("#333333").identity())
+                .stroke(col("line_type")) // Now varies by line_type to show colors
                 .stroke_dash(col("line_type"))
                 .order(col("order")),
         );

@@ -756,6 +756,34 @@ impl<C: CoordinateSystem> Plot<C> {
         }
     }
 
+    /// Apply default dash range to a scale if no explicit range is set
+    /// This is called during rendering for stroke_dash channels
+    pub fn apply_default_dash_range(&self, scale: &mut Scale) {
+        use crate::scales::dash_defaults::DEFAULT_DASH_PATTERNS;
+        use datafusion::logical_expr::lit;
+
+        if !scale.has_explicit_range() && scale.get_scale_type() == "ordinal" {
+            // Get domain cardinality
+            let domain_cardinality = scale.get_domain_cardinality();
+
+            // Use the shared default dash patterns
+            let all_patterns: Vec<_> = DEFAULT_DASH_PATTERNS
+                .iter()
+                .map(|(name, _)| lit(*name))
+                .collect();
+
+            // Use only as many patterns as needed based on domain cardinality
+            let dash_range = if let Some(n) = domain_cardinality {
+                all_patterns.into_iter().take(n).collect()
+            } else {
+                // If cardinality unknown, use all patterns
+                all_patterns
+            };
+
+            *scale = scale.clone().range_discrete(dash_range);
+        }
+    }
+
     /// Add a controller for interactivity
     pub fn controller<T: Controller + 'static>(mut self, controller: T) -> Self {
         self.controllers.push(Box::new(controller));

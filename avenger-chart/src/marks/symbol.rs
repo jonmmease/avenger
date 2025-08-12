@@ -43,7 +43,7 @@ define_common_mark_channels! {
             allow_column: false  // Symbol stroke width must be constant
         },
         shape: {
-            type: ChannelType::Enum { values: &["circle", "square", "cross", "diamond", "triangle-up", "triangle-down", "triangle-left", "triangle-right"] },
+            type: ChannelType::Enum { values: &["circle", "square", "cross", "diamond", "triangle-up", "triangle-down", "triangle-left", "triangle-right", "star", "wye"] },
             default: ScalarValue::Utf8(Some("circle".to_string()))
         },
         angle: {

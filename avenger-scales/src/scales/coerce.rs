@@ -400,9 +400,12 @@ Expected struct with fields [width(UInt32), height(UInt32), data(List[UInt8])]"
                         // Handle named patterns
                         let v = match s {
                             "solid" => vec![],
-                            "dashed" => vec![8.0, 4.0],
-                            "dotted" => vec![2.0, 2.0],
-                            "dashdot" => vec![8.0, 4.0, 2.0, 4.0],
+                            "dashed" => vec![6.0, 6.0],
+                            "dotted" => vec![2.0, 6.0],
+                            "longdash" | "long-dash" => vec![12.0, 4.0],
+                            "dashdot" | "dash-dot" => vec![6.0, 4.0, 1.0, 4.0],
+                            "longshort" | "long-short" => vec![12.0, 4.0, 2.0, 4.0],
+                            "densedash" | "dense-dash" => vec![4.0, 4.0], // Keep for compatibility, not in default cycle
                             _ => {
                                 // Try to parse as space-separated numbers
                                 let s = s.replace(",", "");

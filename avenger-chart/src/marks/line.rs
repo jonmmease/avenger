@@ -43,18 +43,18 @@ define_common_mark_channels! {
             allow_column: true
         },
         stroke_dash: {
-            type: ChannelType::Enum { values: &["solid", "dashed", "dotted", "dashdot"] },
+            type: ChannelType::Enum { values: &["solid", "dashed", "dotted", "dash-dot", "long-dash", "dense-dash"] },
             default: ScalarValue::Utf8(Some("solid".to_string())),
             allow_column: true
         },
         stroke_cap: {
             type: ChannelType::Enum { values: &["butt", "round", "square"] },
-            default: ScalarValue::Utf8(Some("butt".to_string())),
+            default: ScalarValue::Utf8(Some("round".to_string())),
             allow_column: false
         },
         stroke_join: {
             type: ChannelType::Enum { values: &["bevel", "miter", "round"] },
-            default: ScalarValue::Utf8(Some("miter".to_string())),
+            default: ScalarValue::Utf8(Some("round".to_string())),
             allow_column: false
         },
         opacity: {
@@ -129,8 +129,8 @@ impl Mark<Cartesian> for Line<Cartesian> {
         match channel {
             "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))), // Default black
             "stroke_width" => Some(ScalarValue::Float32(Some(2.0))),          // Default line width
-            "stroke_cap" => Some(ScalarValue::Utf8(Some("butt".to_string()))), // Default cap style
-            "stroke_join" => Some(ScalarValue::Utf8(Some("miter".to_string()))), // Default join style
+            "stroke_cap" => Some(ScalarValue::Utf8(Some("round".to_string()))), // Default cap style
+            "stroke_join" => Some(ScalarValue::Utf8(Some("round".to_string()))), // Default join style
             "opacity" => Some(ScalarValue::Float32(Some(1.0))),                  // Fully opaque
             "interpolate" => Some(ScalarValue::Utf8(Some("linear".to_string()))), // Linear interpolation
             "defined" => Some(ScalarValue::Boolean(Some(true))), // All points defined
@@ -188,10 +188,18 @@ impl Mark<Cartesian> for Line<Cartesian> {
         let defined = coerce_bool_channel(Some(data), scalars, "defined", true)?;
 
         // These remain scalar-only
-        let stroke_cap =
-            coerce_stroke_cap_channel(None, scalars, "stroke_cap", Default::default())?;
-        let stroke_join =
-            coerce_stroke_join_channel(None, scalars, "stroke_join", Default::default())?;
+        let stroke_cap = coerce_stroke_cap_channel(
+            None,
+            scalars,
+            "stroke_cap",
+            avenger_common::types::StrokeCap::Round,
+        )?;
+        let stroke_join = coerce_stroke_join_channel(
+            None,
+            scalars,
+            "stroke_join",
+            avenger_common::types::StrokeJoin::Round,
+        )?;
 
         // Check which style properties vary
         let stroke_array = data.column_by_name("stroke");
@@ -498,8 +506,8 @@ impl Mark<Polar> for Line<Polar> {
         match channel {
             "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))), // Default black
             "stroke_width" => Some(ScalarValue::Float32(Some(2.0))),          // Default line width
-            "stroke_cap" => Some(ScalarValue::Utf8(Some("butt".to_string()))), // Default cap style
-            "stroke_join" => Some(ScalarValue::Utf8(Some("miter".to_string()))), // Default join style
+            "stroke_cap" => Some(ScalarValue::Utf8(Some("round".to_string()))), // Default cap style
+            "stroke_join" => Some(ScalarValue::Utf8(Some("round".to_string()))), // Default join style
             "opacity" => Some(ScalarValue::Float32(Some(1.0))),                  // Fully opaque
             "interpolate" => Some(ScalarValue::Utf8(Some("linear".to_string()))), // Linear interpolation
             "defined" => Some(ScalarValue::Boolean(Some(true))), // All points defined
