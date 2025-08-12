@@ -398,13 +398,20 @@ Expected struct with fields [width(UInt32), height(UInt32), data(List[UInt8])]"
                 for s in cast_array.iter() {
                     if let Some(s) = s {
                         // Handle named patterns
+                        // Use the default patterns from avenger-chart
                         let v = match s {
                             "solid" => vec![],
-                            "dashed" => vec![6.0, 6.0],
-                            "dotted" => vec![2.0, 6.0],
-                            "longdash" | "long-dash" => vec![12.0, 4.0],
-                            "dashdot" | "dash-dot" => vec![6.0, 4.0, 1.0, 4.0],
-                            "longshort" | "long-short" => vec![12.0, 4.0, 2.0, 4.0],
+                            "dashed" => vec![8.0, 4.0],
+                            "dotted" => vec![2.0, 4.0],
+                            "longdash" | "long-dash" => vec![14.0, 4.0],
+                            "dashdot" | "dash-dot" => vec![9.0, 4.0, 1.0, 4.0, 1.0, 4.0],
+                            "longshort" | "long-short" => vec![11.0, 4.0, 2.0, 4.0],
+                            "tripledot" | "triple-dot" => vec![1.0, 1.0, 1.0, 1.0, 4.0],
+                            "morsedot" | "morse-dot" => vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 10.0],
+                            "doubledash" | "double-dash" => vec![5.0, 4.0, 5.0, 4.0, 5.0, 4.0, 5.0],
+                            "evenshort" | "even-short" => {
+                                vec![6.0, 4.0, 1.0, 4.0, 2.0, 4.0, 1.0, 4.0]
+                            }
                             "densedash" | "dense-dash" => vec![4.0, 4.0], // Keep for compatibility, not in default cycle
                             _ => {
                                 // Try to parse as space-separated numbers

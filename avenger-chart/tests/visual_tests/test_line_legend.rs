@@ -147,7 +147,7 @@ async fn test_line_stroke_width_legend() {
 
 #[tokio::test]
 async fn test_line_stroke_dash_legend() {
-    // Create test data with all 6 dash patterns
+    // Create test data with all 8 dash patterns
     let x_values = Float32Array::from(vec![
         1.0, 2.0, 3.0, 4.0, 5.0, // Line 1
         1.0, 2.0, 3.0, 4.0, 5.0, // Line 2
@@ -155,27 +155,34 @@ async fn test_line_stroke_dash_legend() {
         1.0, 2.0, 3.0, 4.0, 5.0, // Line 4
         1.0, 2.0, 3.0, 4.0, 5.0, // Line 5
         1.0, 2.0, 3.0, 4.0, 5.0, // Line 6
+        1.0, 2.0, 3.0, 4.0, 5.0, // Line 7
+        1.0, 2.0, 3.0, 4.0, 5.0, // Line 8
     ]);
 
     let y_values = Float32Array::from(vec![
-        18.0, 19.0, 17.0, 20.0, 21.0, // Line 1
-        15.0, 16.0, 14.0, 17.0, 18.0, // Line 2
-        12.0, 13.0, 11.0, 14.0, 15.0, // Line 3
-        9.0, 10.0, 8.0, 11.0, 12.0, // Line 4
-        6.0, 7.0, 5.0, 8.0, 9.0, // Line 5
-        3.0, 4.0, 2.0, 5.0, 6.0, // Line 6
+        22.0, 23.0, 21.0, 24.0, 25.0, // Line 1 (Type A)
+        19.0, 20.0, 18.0, 21.0, 22.0, // Line 2 (Type B)
+        16.0, 17.0, 15.0, 18.0, 19.0, // Line 3 (Type C)
+        13.0, 14.0, 12.0, 15.0, 16.0, // Line 4 (Type D)
+        10.0, 11.0, 9.0, 12.0, 13.0, // Line 5 (Type E)
+        7.0, 8.0, 6.0, 9.0, 10.0, // Line 6 (Type F)
+        4.0, 5.0, 3.0, 6.0, 7.0, // Line 7 (Type G)
+        1.0, 2.0, 0.0, 3.0, 4.0, // Line 8 (Type H)
     ]);
 
     let line_type = StringArray::from(vec![
         "Type A", "Type A", "Type A", "Type A", "Type A", "Type B", "Type B", "Type B", "Type B",
         "Type B", "Type C", "Type C", "Type C", "Type C", "Type C", "Type D", "Type D", "Type D",
         "Type D", "Type D", "Type E", "Type E", "Type E", "Type E", "Type E", "Type F", "Type F",
-        "Type F", "Type F", "Type F",
+        "Type F", "Type F", "Type F", "Type G", "Type G", "Type G", "Type G", "Type G", "Type H",
+        "Type H", "Type H", "Type H", "Type H",
     ]);
 
     let order = Float32Array::from(vec![
         1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0,
-        4.0, 5.0, 1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0, 5.0,
+        4.0, 5.0, 1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0,
+        5.0, // Type G
+        1.0, 2.0, 3.0, 4.0, 5.0, // Type H
     ]);
 
     let schema = Arc::new(Schema::new(vec![
@@ -204,9 +211,9 @@ async fn test_line_stroke_dash_legend() {
     let plot = Plot::new(Cartesian)
         .data(df)
         .title("Multi-Series Time Series Analysis")
-        .subtitle("Six distinct categories with accessible visualization")
+        .subtitle("Eight distinct patterns with colorblind-safe palette")
         .scale_x(|scale| scale.domain((0.0, 6.0)))
-        .scale_y(|scale| scale.domain((0.0, 22.0)))
+        .scale_y(|scale| scale.domain((0.0, 26.0)))
         .axis_x(|axis| axis.title("Sample Index").grid(true))
         .axis_y(|axis| axis.title("Performance Metric (%)").grid(true))
         .scale_stroke(|scale| {
@@ -220,6 +227,8 @@ async fn test_line_stroke_dash_legend() {
                     lit("Type D"),
                     lit("Type E"),
                     lit("Type F"),
+                    lit("Type G"),
+                    lit("Type H"),
                 ])
         })
         .scale_stroke_dash(|scale| {
@@ -233,6 +242,8 @@ async fn test_line_stroke_dash_legend() {
                     lit("Type D"),
                     lit("Type E"),
                     lit("Type F"),
+                    lit("Type G"),
+                    lit("Type H"),
                 ])
         })
         .legend_stroke_dash(|legend| legend.title("Line Pattern"))

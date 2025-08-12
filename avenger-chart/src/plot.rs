@@ -759,17 +759,17 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Apply default dash range to a scale if no explicit range is set
     /// This is called during rendering for stroke_dash channels
     pub fn apply_default_dash_range(&self, scale: &mut Scale) {
-        use crate::scales::dash_defaults::DEFAULT_DASH_PATTERNS;
+        use crate::scales::dash_defaults::DEFAULT_DASH_PATTERN_NAMES;
         use datafusion::logical_expr::lit;
 
         if !scale.has_explicit_range() && scale.get_scale_type() == "ordinal" {
             // Get domain cardinality
             let domain_cardinality = scale.get_domain_cardinality();
 
-            // Use the shared default dash patterns
-            let all_patterns: Vec<_> = DEFAULT_DASH_PATTERNS
+            // Use the shared default dash pattern names
+            let all_patterns: Vec<_> = DEFAULT_DASH_PATTERN_NAMES
                 .iter()
-                .map(|(name, _)| lit(*name))
+                .map(|name| lit(*name))
                 .collect();
 
             // Use only as many patterns as needed based on domain cardinality
