@@ -1601,6 +1601,14 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
     ) -> Result<Vec<Option<Vec<f32>>>, AvengerChartError> {
         use datafusion::arrow::array::{Array, StringArray};
 
+        if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+            eprintln!(
+                "map_dash_patterns: scale.has_explicit_domain() = {}",
+                scale.has_explicit_domain()
+            );
+            eprintln!("map_dash_patterns: domain_values = {:?}", domain_values);
+        }
+
         if scale.has_explicit_domain() {
             // Create a ConfiguredScale
             let configured_scale = scale.create_configured_scale(f32::NAN, f32::NAN).await?;
@@ -1656,8 +1664,69 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 Ok(vec![None; domain_values.len()])
             }
         } else {
-            // No explicit domain, use defaults
-            Ok(vec![None; domain_values.len()])
+            // No explicit domain, but we can still apply default dash patterns if scale has been configured
+            // Try to create a ConfiguredScale - it should have default range applied
+            let configured_scale_result = scale.create_configured_scale(f32::NAN, f32::NAN).await;
+
+            match configured_scale_result {
+                Ok(configured_scale) => {
+                    // Convert scalar values to an arrow array
+                    let domain_array = ScalarValue::iter_to_array(domain_values.iter().cloned())?;
+
+                    // Apply the scale transformation
+                    let scaled_array = configured_scale.scale(&domain_array)?;
+
+                    // Try to extract dash patterns from the result
+                    use avenger_scales::scales::coerce::Coercer;
+                    use datafusion::arrow::datatypes::DataType;
+
+                    if let DataType::Dictionary(_, _) = scaled_array.data_type() {
+                        let coercer = Coercer::default();
+                        if let Ok(dash_result) = coercer.to_stroke_dash(&scaled_array) {
+                            let patterns: Vec<Option<Vec<f32>>> = dash_result
+                                .as_vec(domain_values.len(), None)
+                                .into_iter()
+                                .map(|dash_vec| {
+                                    if dash_vec.is_empty() {
+                                        None // solid pattern
+                                    } else {
+                                        Some(dash_vec)
+                                    }
+                                })
+                                .collect();
+                            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+                                eprintln!(
+                                    "Successfully extracted dash patterns without explicit domain"
+                                );
+                            }
+                            Ok(patterns)
+                        } else {
+                            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+                                eprintln!("Failed to convert to stroke_dash, using solid lines");
+                            }
+                            Ok(vec![None; domain_values.len()])
+                        }
+                    } else {
+                        if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+                            eprintln!(
+                                "Scaled array is not dictionary type: {:?}, using solid lines",
+                                scaled_array.data_type()
+                            );
+                        }
+                        Ok(vec![None; domain_values.len()])
+                    }
+                }
+                Err(e) => {
+                    if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+                        eprintln!(
+                            "Failed to create configured scale without explicit domain: {:?}",
+                            e
+                        );
+                    }
+                    // Fall back to solid lines
+                    Ok(vec![None; domain_values.len()])
+                }
+            }
         }
     }
 
@@ -1841,23 +1910,34 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                     .map(avenger_common::types::ColorOrGradient::Color)
                     .collect(),
             );
+
+            // Also check if stroke_dash uses the same expression - if so, vary dash patterns too
+            if let Some(stroke_dash_value) = mark_encodings.get("stroke_dash") {
+                if stroke_dash_value.expr() == mark_encodings.get("stroke").unwrap().expr() {
+                    // stroke_dash uses same expression as stroke - also vary dash patterns
+                    if let Some(stroke_dash_scale) = params.scales.get("stroke_dash") {
+                        let dash_patterns = self
+                            .map_dash_patterns(&domain_values, stroke_dash_scale)
+                            .await?;
+                        config.stroke_dash = ScalarOrArray::new_array(dash_patterns);
+                    }
+                }
+            }
         } else if let Some(channel_value) = mark_encodings.get("stroke") {
             // Check if stroke uses the same expression as the legend channel
             if let Some(legend_expr) = &legend_channel_expr {
                 if channel_value.expr() == legend_expr {
                     // Same expression as legend channel - map through stroke scale if available
                     if let Some(stroke_scale) = params.scales.get("stroke") {
-                        if stroke_scale.has_explicit_domain() {
-                            let colors = self
-                                .map_values_through_scale(stroke_scale, &domain_values)
-                                .await?;
-                            config.stroke = ScalarOrArray::new_array(
-                                colors
-                                    .into_iter()
-                                    .map(avenger_common::types::ColorOrGradient::Color)
-                                    .collect(),
-                            );
-                        }
+                        let colors = self
+                            .map_values_through_scale(stroke_scale, &domain_values)
+                            .await?;
+                        config.stroke = ScalarOrArray::new_array(
+                            colors
+                                .into_iter()
+                                .map(avenger_common::types::ColorOrGradient::Color)
+                                .collect(),
+                        );
                     }
                 } else if !Self::references_columns(channel_value.expr()) {
                     // Constant expression - evaluate it
@@ -1931,6 +2011,24 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         if params.channel == "stroke_dash" {
             // Legend is for stroke_dash itself - vary dash pattern
             let dash_patterns = self.map_dash_patterns(&domain_values, legend_scale).await?;
+
+            // Also check if stroke uses the same expression - if so, vary colors too
+            if let Some(stroke_value) = mark_encodings.get("stroke") {
+                if stroke_value.expr() == mark_encodings.get("stroke_dash").unwrap().expr() {
+                    // stroke uses same expression as stroke_dash - also vary colors
+                    if let Some(stroke_scale) = params.scales.get("stroke") {
+                        let colors = self
+                            .map_values_through_scale(stroke_scale, &domain_values)
+                            .await?;
+                        config.stroke = ScalarOrArray::new_array(
+                            colors
+                                .into_iter()
+                                .map(avenger_common::types::ColorOrGradient::Color)
+                                .collect(),
+                        );
+                    }
+                }
+            }
 
             // Use 32 as the target legend length - all patterns are designed to align at this length
             let max_legend_length = 32.0;
@@ -2047,6 +2145,14 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         } else {
             // Use default (solid)
             config.stroke_dash = ScalarOrArray::new_scalar(None);
+        }
+
+        if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+            eprintln!("Line legend config for '{}':", params.channel);
+            eprintln!("  stroke: {:?}", config.stroke.as_vec(8, None));
+            eprintln!("  stroke_width: {:?}", config.stroke_width.as_vec(8, None));
+            eprintln!("  stroke_dash: {:?}", config.stroke_dash.as_vec(8, None));
+            eprintln!("  line_length: {:?}", config.line_length.as_vec(8, None));
         }
 
         let mut legend_group = make_line_legend(&config)?;

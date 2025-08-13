@@ -242,6 +242,16 @@ fn make_line_group(
         ..Default::default()
     };
 
+    if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
+        eprintln!("Creating SceneLineMark:");
+        eprintln!("  len: {}", single_line_mark.len);
+        eprintln!("  x: [{}, {}]", x0, x1);
+        eprintln!("  y: [0.0, 0.0]");
+        eprintln!("  stroke_width: {}", stroke_width);
+        eprintln!("  stroke_dash: {:?}", stroke_dash);
+        eprintln!("  stroke: {:?}", stroke_color);
+    }
+
     // Text
     let text_mark = SceneTextMark {
         text: text.to_string().into(),
