@@ -212,48 +212,15 @@ async fn test_line_stroke_dash_legend() {
         .data(df)
         .title("Multi-Series Time Series Analysis")
         .subtitle("Eight distinct patterns with colorblind-safe palette")
-        .scale_x(|scale| scale.domain((0.0, 6.0)))
-        .scale_y(|scale| scale.domain((0.0, 26.0)))
         .axis_x(|axis| axis.title("Sample Index").grid(true))
         .axis_y(|axis| axis.title("Performance Metric (%)").grid(true))
-        .scale_stroke(|scale| {
-            scale
-                .scale_type("ordinal")
-                // Don't specify range - let it use the default Okabe-Ito color palette
-                .domain(vec![
-                    lit("Type A"),
-                    lit("Type B"),
-                    lit("Type C"),
-                    lit("Type D"),
-                    lit("Type E"),
-                    lit("Type F"),
-                    lit("Type G"),
-                    lit("Type H"),
-                ])
-        })
-        .scale_stroke_dash(|scale| {
-            scale
-                .scale_type("ordinal")
-                // Don't specify range - let it use the default dash patterns
-                .domain(vec![
-                    lit("Type A"),
-                    lit("Type B"),
-                    lit("Type C"),
-                    lit("Type D"),
-                    lit("Type E"),
-                    lit("Type F"),
-                    lit("Type G"),
-                    lit("Type H"),
-                ])
-        })
         .legend_stroke_dash(|legend| legend.title("Line Pattern"))
         .mark(
             Line::new()
                 .x(col("x"))
                 .y(col("y"))
-                .stroke(col("line_type")) // Now varies by line_type to show colors
-                .stroke_dash(col("line_type"))
-                .order(col("order")),
+                .stroke(col("line_type"))
+                .stroke_dash(col("line_type")),
         );
 
     assert_visual_match_default(plot, "legend", "line_stroke_dash_legend").await;

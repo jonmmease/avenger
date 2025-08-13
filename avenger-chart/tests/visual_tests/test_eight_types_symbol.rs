@@ -72,8 +72,6 @@ async fn test_eight_types_fill_shape() {
         .data(df)
         .title("Eight Category Scatter Plot")
         .subtitle("Okabe-Ito colors with distinct shapes")
-        // .scale_x(|scale| scale.domain((0.0, 6.0)))
-        // .scale_y(|scale| scale.domain((0.0, 26.0)))
         .axis_x(|axis| axis.title("Sample Index").grid(true))
         .axis_y(|axis| axis.title("Performance Metric (%)").grid(true))
         .legend_fill(|legend| legend.title("Category")) // Only one legend since both use same column
