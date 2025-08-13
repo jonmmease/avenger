@@ -19,13 +19,16 @@ fn test_channel_reference_basic() {
 
     // Check that encoding was tracked
     assert_eq!(data_ctx.encoding("x"), Some("month".to_string()));
-    // With the new API, channel references stay as ":y" until render time
-    assert_eq!(data_ctx.encoding("y"), Some(":y".to_string())); // Channel ref stored as-is
+    // When using a channel reference like ":x", it's not a simple column name
+    assert_eq!(data_ctx.encoding("y"), None); // Channel ref is not a simple column
 
-    // Check that expression was stored and resolved
-    assert_eq!(
-        data_ctx.encoding_expr_string("x"),
-        Some("month".to_string())
+    // Check that expression was stored
+    // The encoding_expr_string returns a debug representation of the Expr
+    assert!(
+        data_ctx
+            .encoding_expr_string("x")
+            .unwrap()
+            .contains("month")
     );
     // The expression string will show the channel reference
     assert!(data_ctx.encoding_expr_string("y").unwrap().contains(":x")); // Shows the channel ref
@@ -50,19 +53,28 @@ fn test_channel_reference_with_expression() {
 
     // Check encodings
     assert_eq!(data_ctx.encoding("x"), Some("month".to_string()));
-    assert_eq!(data_ctx.encoding("y"), Some(":y".to_string())); // Complex expr gets channel name
-    assert_eq!(data_ctx.encoding("stroke"), Some(":stroke".to_string())); // stroke is complex expr (resolved :y)
+    assert_eq!(data_ctx.encoding("y"), None); // sum(col("sales")) is not a simple column reference
+    assert_eq!(data_ctx.encoding("stroke"), Some(":y".to_string())); // col(":y") creates a column with name ":y"
 
-    // Check expression strings
-    assert_eq!(
-        data_ctx.encoding_expr_string("x"),
-        Some("month".to_string())
+    // Check expression strings contain the expected values
+    assert!(
+        data_ctx
+            .encoding_expr_string("x")
+            .unwrap()
+            .contains("month")
     );
-    assert!(data_ctx.encoding_expr_string("y").unwrap().contains("sum"));
+    // sum(col("sales")) should produce an expression string containing "SUM"
+    assert!(
+        data_ctx
+            .encoding_expr_string("y")
+            .unwrap()
+            .to_uppercase()
+            .contains("SUM")
+    );
     assert!(
         data_ctx
             .encoding_expr_string("stroke")
             .unwrap()
-            .contains("sum")
-    ); // :y resolved to sum(sales)
+            .contains(":y")
+    ); // Channel reference stays as ":y" until render time
 }

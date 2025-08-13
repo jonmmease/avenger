@@ -291,7 +291,7 @@ fn extract_axis_title_from_marks<C: CoordinateSystem>(
 ) -> Option<String> {
     // Look through marks to find a column name for this channel
     for mark in marks {
-        if let Some(channel_value) = mark.data_context().encodings().get(channel) {
+        if let Some(channel_value) = mark.data_context().channels().get(channel) {
             // Try to get column name
             if let Some(col_name) = channel_value.as_column_name() {
                 return Some(col_name);

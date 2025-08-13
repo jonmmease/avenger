@@ -32,13 +32,5 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 image-compare = "0.4"
 
 [[example]]
-name = "transform_demo"
-required-features = []
-
-[[example]]
-name = "multiple_y_axes"
-required-features = []
-
-[[example]]
 name = "simple_bar_chart"
 required-features = []

@@ -1,5 +1,4 @@
 use crate::axis::{AxisPosition, CartesianAxis};
-use crate::controllers::Controller;
 use crate::coords::{Cartesian, CoordinateSystem, Polar};
 use crate::legend::Legend;
 use crate::marks::{Mark, RadiusExpression};
@@ -45,9 +44,6 @@ pub struct Plot<C: CoordinateSystem> {
 
     /// Faceting configuration
     facet_spec: Option<FacetSpec>,
-
-    /// Controllers for interactivity (using type erasure)
-    controllers: Vec<Box<dyn std::any::Any + Send + Sync>>,
 
     /// Scale specifications (local or referenced)
     pub(crate) scale_specs: HashMap<String, ScaleSpec>,
@@ -362,7 +358,6 @@ impl<C: CoordinateSystem> Plot<C> {
             marks: Vec::new(),
             data: None,
             facet_spec: None,
-            controllers: Vec::new(),
             scale_specs: HashMap::new(),
             scale_to_coord_channel: HashMap::new(),
             preferred_size: None,
@@ -387,13 +382,13 @@ impl<C: CoordinateSystem> Plot<C> {
 
         // Look through marks to find the expression for this channel
         for mark in &self.marks {
-            if let Some(channel_value) = mark.data_context().encodings().get(channel) {
+            if let Some(channel_value) = mark.data_context().channels().get(channel) {
                 // Get the dataframe for this mark
                 let df = match mark.data_source() {
                     crate::marks::DataSource::Explicit => mark.data_context().dataframe(),
                     crate::marks::DataSource::Inherited => {
                         if let Some(plot_df) = &self.data {
-                            plot_df
+                            Some(plot_df)
                         } else {
                             continue;
                         }
@@ -401,11 +396,13 @@ impl<C: CoordinateSystem> Plot<C> {
                 };
 
                 // Try to get the data type of the expression
-                let schema = df.schema();
-                if let Ok(expr_type) = channel_value.expr().get_type(schema) {
-                    data_type = Some(expr_type);
-                    mark_type = Some(mark.mark_type());
-                    break;
+                if let Some(df) = df {
+                    let schema = df.schema();
+                    if let Ok(expr_type) = channel_value.expr().get_type(schema) {
+                        data_type = Some(expr_type);
+                        mark_type = Some(mark.mark_type());
+                        break;
+                    }
                 }
             }
         }
@@ -531,7 +528,13 @@ impl<C: CoordinateSystem> Plot<C> {
         for mark in &self.marks {
             // Get the appropriate DataFrame based on data source
             let df = match mark.data_source() {
-                DataSource::Explicit => Arc::new(mark.data_context().dataframe().clone()),
+                DataSource::Explicit => {
+                    if let Some(df) = mark.data_context().dataframe() {
+                        Arc::new(df.clone())
+                    } else {
+                        continue;
+                    }
+                }
                 DataSource::Inherited => {
                     // Use plot-level data if available
                     if let Some(plot_data) = &self.data {
@@ -544,7 +547,7 @@ impl<C: CoordinateSystem> Plot<C> {
             };
 
             // Check all encodings in the mark's data context
-            for (channel, channel_value) in mark.data_context().encodings() {
+            for (channel, channel_value) in mark.data_context().channels() {
                 // Check if this channel uses our scale
                 // Get the scale name this channel would use
                 if let Some(channel_scale_name) = channel_value.scale_name(channel) {
@@ -647,7 +650,13 @@ impl<C: CoordinateSystem> Plot<C> {
         for mark in &self.marks {
             // Get the appropriate DataFrame based on data source
             let df = match mark.data_source() {
-                DataSource::Explicit => Arc::new(mark.data_context().dataframe().clone()),
+                DataSource::Explicit => {
+                    if let Some(df) = mark.data_context().dataframe() {
+                        Arc::new(df.clone())
+                    } else {
+                        continue;
+                    }
+                }
                 DataSource::Inherited => {
                     // Use plot-level data if available
                     if let Some(plot_data) = &self.data {
@@ -660,7 +669,7 @@ impl<C: CoordinateSystem> Plot<C> {
             };
 
             // Check all encodings in the mark's data context
-            let encodings = mark.data_context().encodings();
+            let encodings = mark.data_context().channels();
 
             // Create channel resolver for this mark
             let resolve_channel = Self::create_channel_resolver(mark.as_ref(), encodings, scales);
@@ -784,18 +793,12 @@ impl<C: CoordinateSystem> Plot<C> {
         }
     }
 
-    /// Add a controller for interactivity
-    pub fn controller<T: Controller + 'static>(mut self, controller: T) -> Self {
-        self.controllers.push(Box::new(controller));
-        self
-    }
-
     /// Collect all channels that need scales
     pub fn collect_channels_needing_scales(&self) -> std::collections::HashSet<String> {
         use std::collections::HashSet;
         let mut used_channels = HashSet::new();
         for mark in &self.marks {
-            for (channel, channel_value) in mark.data_context().encodings() {
+            for (channel, channel_value) in mark.data_context().channels() {
                 if channel_value.scale_name(channel).is_some() {
                     used_channels.insert(channel.clone());
                 }
@@ -1031,13 +1034,8 @@ impl Plot<Polar> {
 #[cfg(test)]
 mod examples {
     use super::*;
-    use crate::adjust::Jitter;
     use crate::legend::LegendPosition;
     use crate::marks::line::Line;
-    use crate::transforms::{Bin, BinNd, Group, Stack};
-    use datafusion::functions_aggregate::expr_fn::{count, sum};
-    use datafusion::logical_expr::test::function_stub::avg;
-    use datafusion::logical_expr::{ident, lit};
     use datafusion::prelude::{CsvReadOptions, SessionContext};
 
     #[allow(dead_code)]
@@ -1057,11 +1055,13 @@ mod examples {
             .mark(
                 Line::new()
                     .data(df.clone())
-                    .transform(
-                        Bin::x("date")
-                            .aggregate(avg(ident("temperature")))
-                            .width(10.0),
-                    )?
+                    // .transform(
+                    //     Bin::x("date")
+                    //         .aggregate(avg(ident("temperature")))
+                    //         .width(10.0),
+                    // )?
+                    .x("date")
+                    .y("temperature")
                     .stroke("station"),
             );
 
@@ -1107,10 +1107,13 @@ mod examples {
         Ok(())
     }
 
+    // Commented out until transform system is implemented
     #[allow(dead_code)]
-    async fn example_transform_pipeline() -> Result<(), Box<dyn std::error::Error>> {
-        use crate::marks::rect::Rect;
-        use datafusion::logical_expr::col;
+    async fn _example_transform_pipeline() -> Result<(), Box<dyn std::error::Error>> {
+        // Transform examples will go here when implemented
+        /*
+        // use crate::marks::rect::Rect;
+        // use datafusion::logical_expr::col;
 
         // Create DataFrame using DataFusion
         let ctx = SessionContext::new();
@@ -1121,7 +1124,7 @@ mod examples {
 
         // Example 1: Simple histogram with binning
         // The Bin transform sets x/x2 encodings in DataContext
-        let _histogram = Plot::new(Cartesian).mark(
+        // let _histogram = Plot::new(Cartesian).mark(
             Rect::new()
                 .data(df.clone())
                 .transform(Bin::x("price").width(10.0).aggregate(count(col("*"))))?
@@ -1183,7 +1186,7 @@ mod examples {
                 .fill("avg_profit")
                 .opacity("count"),
         );
-
+        */
         Ok(())
     }
 
@@ -1307,63 +1310,6 @@ mod examples {
 
         println!("✅ Enhanced facet resolution system implemented!");
         println!("🔧 TODO: Implement full rendering pipeline and domain calculation");
-
-        Ok(())
-    }
-
-    #[allow(dead_code)]
-    async fn example_interactive_plot() -> Result<(), Box<dyn std::error::Error>> {
-        use crate::controllers::{BoxSelect, PanZoom};
-        use crate::marks::symbol::Symbol;
-        use datafusion::prelude::*;
-
-        // Create DataFrame using DataFusion
-        let ctx = SessionContext::new();
-        let df = ctx
-            .sql(
-                "
-            SELECT 
-                rand() * 100.0 as x,
-                rand() * 100.0 as y,
-                rand() * 10.0 as size
-            FROM generate_series(1, 1000)
-        ",
-            )
-            .await?;
-
-        // Example 1: Simple pan/zoom controller
-        let _interactive_scatter = Plot::new(Cartesian)
-            .data(df.clone())
-            .controller(PanZoom::new()) // Declarative controller!
-            .mark(Symbol::new().x("x").y("y").size("size"));
-
-        // Example 2: Box selection controller
-        let _box_select_plot = Plot::new(Cartesian)
-            .data(df.clone())
-            .controller(BoxSelect::new())
-            .mark(Symbol::new().x("x").y("y").fill(lit("#4682b4")));
-
-        // Example 3: Multiple controllers
-        let _multi_controller = Plot::new(Cartesian)
-            .data(df.clone())
-            .controller(PanZoom::new())
-            .controller(BoxSelect::new())
-            .mark(Symbol::new().x("x").y("y"));
-
-        // Example 4: Controllers with faceting
-        let _faceted_interactive = Plot::new(Cartesian)
-            .data(df.clone())
-            .facet(
-                Facet::wrap("category")
-                    .columns(2)
-                    .resolve_scale("x", Resolution::Independent) // Independent x scales
-                    .resolve_scale("y", Resolution::Shared),
-            ) // Shared y scale
-            .controller(PanZoom::new()) // Controller respects resolve config
-            .mark(Symbol::new().x("x").y("y"));
-
-        println!("✅ Declarative controller API demonstrated!");
-        println!("🔧 TODO: Implement controller runtime and event handling");
 
         Ok(())
     }

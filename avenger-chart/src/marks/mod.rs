@@ -1,4 +1,5 @@
 pub mod channel;
+pub mod data_context;
 pub mod line;
 pub mod rect;
 pub mod symbol;
@@ -9,12 +10,10 @@ pub mod macros;
 pub mod channel_macros;
 
 pub use channel::{ChannelExpr, ChannelValue};
+pub use data_context::DataContext;
 
-use crate::adjust::Adjust;
 use crate::coords::CoordinateSystem;
-use crate::derive::Derive;
 use crate::error::AvengerChartError;
-use crate::transforms::DataContext;
 use avenger_common::types::SymbolShape;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::record_batch::RecordBatch;
@@ -195,6 +194,7 @@ pub enum FacetStrategy {
 
 /// Internal state shared by all mark types
 pub(crate) struct MarkState<C: CoordinateSystem> {
+    _phantom: std::marker::PhantomData<C>,
     pub data: DataContext,
 
     // NEW: Data inheritance control
@@ -207,6 +207,4 @@ pub(crate) struct MarkState<C: CoordinateSystem> {
     pub zindex: Option<i32>,
     #[allow(dead_code)] // Reserved for future use
     pub shapes: Option<Vec<SymbolShape>>,
-    pub adjustments: Vec<Box<dyn Adjust>>,
-    pub derived_marks: Vec<Box<dyn Derive<C>>>,
 }

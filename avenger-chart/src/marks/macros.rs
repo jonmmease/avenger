@@ -12,21 +12,20 @@ macro_rules! impl_mark_common {
             pub fn new() -> Self {
                 Self {
                     state: $crate::marks::MarkState {
-                        data: $crate::transforms::DataContext::default(),
+                        _phantom: std::marker::PhantomData,
+                        data: $crate::marks::DataContext::default(),
                         data_source: $crate::marks::DataSource::Inherited,
                         facet_strategy: $crate::marks::FacetStrategy::Filter,
                         details: None,
                         zindex: None,
                         shapes: None,
-                        adjustments: Vec::new(),
-                        derived_marks: Vec::new(),
                     },
                     __phantom: std::marker::PhantomData,
                 }
             }
 
             pub fn data(mut self, dataframe: DataFrame) -> Self {
-                self.state.data = $crate::transforms::DataContext::new(dataframe);
+                self.state.data = $crate::marks::DataContext::new(dataframe);
                 self.state.data_source = $crate::marks::DataSource::Explicit; // Mark as explicit data
                 self
             }
@@ -49,17 +48,6 @@ macro_rules! impl_mark_common {
                 self
             }
 
-            pub fn transform(
-                mut self,
-                transform: impl $crate::transforms::Transform,
-            ) -> Result<Self, $crate::error::AvengerChartError> {
-                // Apply transform to existing data context
-                let ctx = std::mem::take(&mut self.state.data);
-
-                self.state.data = transform.transform(ctx)?;
-                Ok(self)
-            }
-
             pub fn details(mut self, details: Vec<String>) -> Self {
                 self.state.details = Some(details);
                 self
@@ -67,18 +55,6 @@ macro_rules! impl_mark_common {
 
             pub fn zindex(mut self, zindex: i32) -> Self {
                 self.state.zindex = Some(zindex);
-                self
-            }
-
-            /// Add an adjustment that will be applied to this mark's scaled data
-            pub fn adjust(mut self, adjustment: impl $crate::adjust::Adjust + 'static) -> Self {
-                self.state.adjustments.push(Box::new(adjustment));
-                self
-            }
-
-            /// Add a derived mark that will be created from this mark's scaled data
-            pub fn derive(mut self, deriver: impl $crate::derive::Derive<C> + 'static) -> Self {
-                self.state.derived_marks.push(Box::new(deriver));
                 self
             }
         }
@@ -92,7 +68,7 @@ macro_rules! impl_mark_common {
 #[macro_export]
 macro_rules! impl_mark_trait_common {
     ($mark_type:ident, $coord:ty, $mark_name:literal) => {
-        fn data_context(&self) -> &$crate::transforms::DataContext {
+        fn data_context(&self) -> &$crate::marks::DataContext {
             &self.state.data
         }
 
