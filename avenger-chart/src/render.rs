@@ -586,31 +586,38 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             crate::marks::DataSource::Explicit => mark.data_context().dataframe(),
             crate::marks::DataSource::Inherited => {
                 // Get plot-level data
-                self.plot.data.as_ref().ok_or_else(|| {
+                Some(self.plot.data.as_ref().ok_or_else(|| {
                     AvengerChartError::InternalError(
                         "Mark expects inherited data but plot has no data".to_string(),
                     )
-                })?
+                })?)
             }
         };
 
         // Get channel mappings from DataContext
-        let encodings = mark.data_context().encodings();
+        let channels = mark.data_context().channels();
 
         // Check if mark supports order and has order encoding
-        let df = if mark.supports_order() {
-            if let Some(order_channel) = encodings.get("order") {
-                // Apply order transformation
-                let order_expr = self.apply_channel_scale("order", order_channel, scales)?;
+        let df = if let Some(df_ref) = df_ref {
+            if mark.supports_order() {
+                if let Some(order_channel) = channels.get("order") {
+                    // Apply order transformation
+                    let order_expr = self.apply_channel_scale("order", order_channel, scales)?;
 
-                // Sort the DataFrame by the order expression
-                let sorted_df = df_ref.clone().sort(vec![order_expr.sort(true, false)])?;
-                Arc::new(sorted_df)
+                    // Sort the DataFrame by the order expression
+                    let sorted_df = df_ref.clone().sort(vec![order_expr.sort(true, false)])?;
+                    Arc::new(sorted_df)
+                } else {
+                    Arc::new(df_ref.clone())
+                }
             } else {
                 Arc::new(df_ref.clone())
             }
         } else {
-            Arc::new(df_ref.clone())
+            // No data - return error
+            return Err(AvengerChartError::InternalError(
+                "Mark requires data but none available".to_string(),
+            ));
         };
 
         // Get supported channels from the mark
@@ -622,7 +629,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         let mut has_array_data = false;
 
         for channel_desc in &supported_channels {
-            if let Some(channel_value) = encodings.get(channel_desc.name) {
+            if let Some(channel_value) = channels.get(channel_desc.name) {
                 // Apply scaling to get the final expression
                 let scaled_expr =
                     self.apply_channel_scale(channel_desc.name, channel_value, scales)?;
@@ -1232,8 +1239,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             let mark_type = mark.mark_type();
             let is_relevant = mark_type == "symbol" || mark_type == "rect";
             if is_relevant {
-                let encodings = mark.data_context().encodings();
-                for (channel, value) in encodings {
+                let channels = mark.data_context().channels();
+                for (channel, value) in channels {
                     mark_encodings.insert(channel.clone(), value.clone());
                 }
             }
@@ -1887,8 +1894,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             // Check if this is a line mark by checking the mark type
             let mark_type = mark.mark_type();
             if mark_type == "line" {
-                let encodings = mark.data_context().encodings();
-                for (channel, value) in encodings {
+                let channels = mark.data_context().channels();
+                for (channel, value) in channels {
                     mark_encodings.insert(channel.clone(), value.clone());
                 }
             }

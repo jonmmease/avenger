@@ -882,8 +882,8 @@ impl ChartLayout {
             // Extract encodings from symbol or rect marks
             let is_relevant = mark_type == "symbol" || mark_type == "rect";
             if is_relevant {
-                let encodings = mark.data_context().encodings();
-                for (channel_name, value) in encodings {
+                let channels = mark.data_context().channels();
+                for (channel_name, value) in channels {
                     mark_encodings.insert(channel_name.clone(), value.clone());
                 }
             }
