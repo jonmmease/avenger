@@ -1,4 +1,5 @@
 pub mod axis;
+mod channel_resolution;
 mod chart_layout;
 pub mod constants;
 pub mod coords;
