@@ -704,8 +704,105 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             }
         };
 
+        // Validate positional channel data types before rendering
+        self.validate_positional_channel_types(&data_batch, &scalar_batch)?;
+
         // Call the mark's render_from_data method
         mark.render_from_data(data_batch.as_ref(), &scalar_batch)
+    }
+
+    /// Validate that positional channels have numeric data types
+    fn validate_positional_channel_types(
+        &self,
+        data_batch: &Option<RecordBatch>,
+        scalar_batch: &RecordBatch,
+    ) -> Result<(), AvengerChartError> {
+        // Check each positional channel
+        for channel_name in self.plot.coord_system().required_channels() {
+            // Check in data batch first
+            if let Some(data) = data_batch {
+                if let Some(column) = data.column_by_name(channel_name) {
+                    let dtype = column.data_type();
+                    if !Self::is_numeric_type(dtype) {
+                        return self.create_positional_type_error(channel_name, dtype);
+                    }
+                }
+            }
+            
+            // Check in scalar batch
+            if let Some(column) = scalar_batch.column_by_name(channel_name) {
+                let dtype = column.data_type();
+                if !Self::is_numeric_type(dtype) {
+                    return self.create_positional_type_error(channel_name, dtype);
+                }
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Check if a data type is numeric
+    fn is_numeric_type(dtype: &datafusion::arrow::datatypes::DataType) -> bool {
+        use datafusion::arrow::datatypes::DataType;
+        matches!(
+            dtype,
+            DataType::Int8
+                | DataType::Int16
+                | DataType::Int32
+                | DataType::Int64
+                | DataType::UInt8
+                | DataType::UInt16
+                | DataType::UInt32
+                | DataType::UInt64
+                | DataType::Float16
+                | DataType::Float32
+                | DataType::Float64
+        )
+    }
+    
+    /// Create error for non-numeric positional channel
+    fn create_positional_type_error(
+        &self,
+        channel_name: &str,
+        dtype: &datafusion::arrow::datatypes::DataType,
+    ) -> Result<(), AvengerChartError> {
+        use datafusion::arrow::datatypes::DataType;
+        
+        // Get coordinate system name
+        let coord_system_name = std::any::type_name::<C>()
+            .split("::")
+            .last()
+            .unwrap_or("Unknown")
+            .to_string();
+        
+        // Provide helpful suggestion based on the data type
+        let (literal_value, suggestion) = match dtype {
+            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
+                (
+                    "string literal".to_string(),
+                    format!(
+                        "Use col(\"column_name\") to reference a data column instead of a string literal.\n  \
+                         If you need a fixed position, use a numeric value like lit(100.0)"
+                    ),
+                )
+            }
+            _ => {
+                (
+                    format!("{:?} value", dtype),
+                    format!(
+                        "Positional channels require numeric values. \
+                         Use col(\"column_name\") to reference a numeric column."
+                    ),
+                )
+            }
+        };
+        
+        Err(AvengerChartError::PositionalScaleLiteralError {
+            scale_name: channel_name.to_string(),
+            coord_system: coord_system_name,
+            literal_value,
+            suggestion,
+        })
     }
 
     /// Apply scaling transformation to a channel expression

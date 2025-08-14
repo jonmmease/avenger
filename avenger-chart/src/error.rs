@@ -65,6 +65,17 @@ pub enum AvengerChartError {
 
     #[error("Layout error: `{0}`")]
     LayoutError(String),
+
+    #[error("Positional scale '{scale_name}' in {coord_system} coordinate system contains only literal values.\n\
+             Found: {literal_value}\n\
+             This would map all points to the same position.\n\n\
+             {suggestion}")]
+    PositionalScaleLiteralError {
+        scale_name: String,
+        coord_system: String,
+        literal_value: String,
+        suggestion: String,
+    },
 }
 
 impl From<taffy::TaffyError> for AvengerChartError {
