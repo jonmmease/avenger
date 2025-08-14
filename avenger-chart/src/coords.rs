@@ -305,7 +305,7 @@ pub struct Polar;
 
 #[async_trait::async_trait]
 impl CoordinateSystem for Polar {
-    type Axis = CartesianAxis; // TODO: Implement PolarAxis for proper polar coordinate support
+    type Axis = CartesianAxis; // Will be replaced with PolarAxis when polar support is complete
 
     fn required_channels(&self) -> &'static [&'static str] {
         &["r", "theta"]
@@ -352,8 +352,8 @@ impl CoordinateSystem for Polar {
 
     fn default_axis(channel: &str, _index: usize) -> Option<Self::Axis> {
         match channel {
-            "r" => Some(CartesianAxis::new()), // TODO: Implement PolarAxis for radial axis
-            "theta" => Some(CartesianAxis::new()), // TODO: Implement PolarAxis for angular axis
+            "r" => Some(CartesianAxis::new()), // Placeholder for radial axis
+            "theta" => Some(CartesianAxis::new()), // Placeholder for angular axis
             _ => None,
         }
     }
@@ -364,8 +364,8 @@ impl CoordinateSystem for Polar {
         _existing_axes: &HashMap<String, Self::Axis>,
         _marks: &[Box<dyn crate::marks::Mark<Self>>],
     ) -> HashMap<String, Self::Axis> {
-        // TODO: Implement default polar axes when PolarAxis is available
-        // For now, return empty map to disable automatic axis creation for polar plots
+        // Return empty map to disable automatic axis creation for polar plots
+        // Will be implemented when PolarAxis is available
         HashMap::new()
     }
 
@@ -377,11 +377,8 @@ impl CoordinateSystem for Polar {
         _plot_height: f32,
         _padding: &crate::render::Padding,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // TODO: Implement polar axis rendering when PolarAxis is available
-        // Polar axes would include:
-        // - Circular grid lines for theta
-        // - Radial lines from center for r
-        // - Labels around the circumference
+        // Polar axis rendering not yet implemented
+        // Will include circular grid lines and radial lines when complete
         Ok(Vec::new())
     }
 }

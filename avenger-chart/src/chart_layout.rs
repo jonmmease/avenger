@@ -9,6 +9,7 @@ use avenger_guides::axis::{
     opts::{AxisConfig, AxisOrientation},
 };
 use avenger_scales::scales::ConfiguredScale;
+use tracing::{debug, trace};
 // Use stable ordering by iterating sorted keys, not map type
 use std::collections::HashMap;
 use taffy::prelude::*;
@@ -31,14 +32,14 @@ pub struct ChartLayout {
     // Grid configuration
     grid_template: GridTemplate,
     component_map: ComponentGridMap,
-    // Text properties for calculating heights
-    #[allow(dead_code)]
+    // Text properties reserved for future font customization
+    #[allow(dead_code)] // Will be used when custom font support is added
     title_font_size: Option<f32>,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Will be used when custom font support is added
     title_font_family: Option<String>,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Will be used when custom font support is added
     subtitle_font_size: Option<f32>,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Will be used when custom font support is added
     subtitle_font_family: Option<String>,
 }
 
@@ -54,15 +55,16 @@ struct ComponentGridMap {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 enum ComponentType {
     PlotArea,
     Axis(AxisPosition),
-    Legend(String),                  // Channel name
+    #[allow(dead_code)]
+    Legend(String),                  // Channel name - may be used in future
     LegendContainer(LegendPosition), // Container for legends at a position
     Title,
     Subtitle,
-    Padding, // Empty space
+    #[allow(dead_code)]
+    Padding, // Empty space - may be used for layout padding in future
 }
 
 /// Result of layout computation
@@ -73,7 +75,7 @@ pub struct LayoutResult {
     pub legends: HashMap<String, LayoutBounds>,
     pub title: Option<LayoutBounds>,
     pub subtitle: Option<LayoutBounds>,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for future bounding box calculations
     pub total_bounds: LayoutBounds,
 }
 
@@ -100,6 +102,7 @@ struct GridBuilder {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct GridPlacement {
     row: usize,
     col: usize,
@@ -339,14 +342,12 @@ impl ChartLayout {
         for ((row, col), component) in &self.component_map.cells {
             if let ComponentType::LegendContainer(position) = component {
                 // Create flex container for this position
-                if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                    eprintln!(
-                        "Legend container {:?} at grid position: row={}, col={}",
-                        position,
-                        *row + 1,
-                        *col + 1
-                    );
-                }
+                debug!(
+                    position = ?position,
+                    row = *row + 1,
+                    col = *col + 1,
+                    "Legend container at grid position"
+                );
                 let container_style = Style {
                     grid_row: line((*row + 1) as i16),
                     grid_column: line((*col + 1) as i16),
@@ -637,12 +638,13 @@ impl ChartLayout {
         // Get plot area bounds
         if let Some(plot_node) = self.plot_area_node {
             let layout = self.taffy.layout(plot_node)?;
-            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                eprintln!(
-                    "Plot area bounds: x={}, y={}, w={}, h={}",
-                    layout.location.x, layout.location.y, layout.size.width, layout.size.height
-                );
-            }
+            debug!(
+                x = layout.location.x,
+                y = layout.location.y,
+                width = layout.size.width,
+                height = layout.size.height,
+                "Plot area bounds"
+            );
             result.plot_area = LayoutBounds {
                 x: layout.location.x,
                 y: layout.location.y,
@@ -654,16 +656,14 @@ impl ChartLayout {
         // Get axis bounds
         for (position, node) in &self.axis_nodes {
             let layout = self.taffy.layout(*node)?;
-            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                eprintln!(
-                    "Axis {:?} bounds: x={}, y={}, w={}, h={}",
-                    position,
-                    layout.location.x,
-                    layout.location.y,
-                    layout.size.width,
-                    layout.size.height
-                );
-            }
+            debug!(
+                position = ?position,
+                x = layout.location.x,
+                y = layout.location.y,
+                width = layout.size.width,
+                height = layout.size.height,
+                "Axis bounds"
+            );
             result.axes.insert(
                 *position,
                 LayoutBounds {
@@ -681,16 +681,14 @@ impl ChartLayout {
         let mut container_positions = HashMap::new();
         for (position, container_node) in &self.legend_container_nodes {
             let container_layout = self.taffy.layout(*container_node)?;
-            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                eprintln!(
-                    "Legend container {:?} bounds: x={}, y={}, w={}, h={}",
-                    position,
-                    container_layout.location.x,
-                    container_layout.location.y,
-                    container_layout.size.width,
-                    container_layout.size.height
-                );
-            }
+            debug!(
+                position = ?position,
+                x = container_layout.location.x,
+                y = container_layout.location.y,
+                width = container_layout.size.width,
+                height = container_layout.size.height,
+                "Legend container bounds"
+            );
             container_positions.insert(
                 position,
                 (container_layout.location.x, container_layout.location.y),
@@ -700,14 +698,14 @@ impl ChartLayout {
         // Now get legend bounds relative to their containers
         for (channel, legend_node) in &self.legend_nodes {
             let legend_layout = self.taffy.layout(*legend_node)?;
-            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() && channel == "stroke" {
-                eprintln!(
-                    "Individual legend '{}' node bounds: x={}, y={}, w={}, h={}",
-                    channel,
-                    legend_layout.location.x,
-                    legend_layout.location.y,
-                    legend_layout.size.width,
-                    legend_layout.size.height
+            if channel == "stroke" {
+                debug!(
+                    channel = channel,
+                    x = legend_layout.location.x,
+                    y = legend_layout.location.y,
+                    width = legend_layout.size.width,
+                    height = legend_layout.size.height,
+                    "Individual legend node bounds"
                 );
             }
 
@@ -767,6 +765,7 @@ impl ChartLayout {
     }
 
     /// Measure component size using actual rendered marks
+    /// Currently unused but kept for potential future layout improvements
     #[allow(dead_code)]
     pub fn measure_axis_size(
         axis: &CartesianAxis,
@@ -862,16 +861,16 @@ impl ChartLayout {
         // Extract mark encodings from provided marks and check for line marks
         let mut mark_encodings = HashMap::new();
         let mut has_line_mark = false;
-        if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() && channel == "stroke" {
-            eprintln!(
-                "  measure_legend_size: checking {} marks for line type",
-                marks.len()
+        if channel == "stroke" {
+            trace!(
+                mark_count = marks.len(),
+                "measure_legend_size: checking marks for line type"
             );
         }
         for mark in marks {
             let mark_type = mark.mark_type();
-            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() && channel == "stroke" {
-                eprintln!("    Mark type: {}", mark_type);
+            if channel == "stroke" {
+                trace!(mark_type = mark_type, "Mark type");
             }
 
             // Check for line marks
@@ -901,6 +900,7 @@ impl ChartLayout {
     }
 
     /// Measure legend size by creating the actual SceneGroup and measuring its bounding box
+    /// Currently unused but kept for potential future layout improvements
     #[allow(dead_code)]
     fn measure_legend_size_impl(
         channel: &str,
@@ -951,9 +951,6 @@ impl ChartLayout {
         use datafusion::arrow::array::Array;
         use datafusion::arrow::compute::cast;
         use datafusion::arrow::datatypes::DataType;
-
-        // Debug: Show domain array type
-        // eprintln!("Domain array data type: {:?}", domain_values.data_type());
 
         // Try to cast to Utf8 to handle various string types (LargeUtf8, Dictionary, etc.)
         let text_values: Vec<String> = if let Ok(string_array) =
@@ -1132,13 +1129,11 @@ impl ChartLayout {
                 let size_domain = size_scale.domain();
                 let our_domain = scale.domain();
 
-                if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                    eprintln!(
-                        "  Checking size scale: domain len = {}, our domain len = {}",
-                        size_domain.len(),
-                        our_domain.len()
-                    );
-                }
+                trace!(
+                    size_domain_len = size_domain.len(),
+                    our_domain_len = our_domain.len(),
+                    "Checking size scale"
+                );
 
                 // Compare domains - if they're the same, the channels share the same data
                 if size_domain.len() == our_domain.len() {
@@ -1150,12 +1145,10 @@ impl ChartLayout {
                             use datafusion::arrow::compute::cast;
                             use datafusion::arrow::datatypes::DataType;
 
-                            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                                eprintln!(
-                                    "  Size scale output type: {:?}",
-                                    scaled_array.data_type()
-                                );
-                            }
+                            trace!(
+                                data_type = ?scaled_array.data_type(),
+                                "Size scale output type"
+                            );
 
                             // Try casting to Float32
                             if let Ok(float_array) = cast(&scaled_array, &DataType::Float32) {
@@ -1170,12 +1163,10 @@ impl ChartLayout {
                                         *size *= 1.1;
                                     }
 
-                                    if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                                        eprintln!(
-                                            "  Using size scale values (with buffer): {:?}",
-                                            sizes
-                                        );
-                                    }
+                                    trace!(
+                                        sizes = ?sizes,
+                                        "Using size scale values (with buffer)"
+                                    );
                                     ScalarOrArray::new_array(sizes)
                                 } else {
                                     ScalarOrArray::new_scalar(
@@ -1188,41 +1179,29 @@ impl ChartLayout {
                                 let sizes: Vec<f32> = (0..float_array.len())
                                     .map(|i| (float_array.value(i) * 1.1) as f32)
                                     .collect();
-                                if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                                    eprintln!(
-                                        "  Using size scale values (from f64, with buffer): {:?}",
-                                        sizes
-                                    );
-                                }
+                                trace!(
+                                    sizes = ?sizes,
+                                    "Using size scale values (from f64, with buffer)"
+                                );
                                 ScalarOrArray::new_array(sizes)
                             } else {
-                                if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                                    eprintln!(
-                                        "  Size scale output could not be converted to float"
-                                    );
-                                }
+                                trace!("Size scale output could not be converted to float");
                                 ScalarOrArray::new_scalar(
                                     legend.symbol_size.unwrap_or(64.0) as f32 * 1.1,
                                 )
                             }
                         }
                         Err(e) => {
-                            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                                eprintln!("  Error scaling through size scale: {:?}", e);
-                            }
+                            trace!(error = ?e, "Error scaling through size scale");
                             ScalarOrArray::new_scalar(legend.symbol_size.unwrap_or(64.0) as f32)
                         }
                     }
                 } else {
-                    if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                        eprintln!("  Domain lengths don't match, using default size");
-                    }
+                    trace!("Domain lengths don't match, using default size");
                     ScalarOrArray::new_scalar(legend.symbol_size.unwrap_or(64.0) as f32)
                 }
             } else {
-                if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                    eprintln!("  No size scale found, using default size");
-                }
+                trace!("No size scale found, using default size");
                 ScalarOrArray::new_scalar(legend.symbol_size.unwrap_or(64.0) as f32)
             };
 
@@ -1290,33 +1269,27 @@ impl ChartLayout {
             // Check for fill scale
             let fill_values = if let Some(fill_scale) = scales.get("fill") {
                 let fill_domain = fill_scale.domain();
-                if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                    eprintln!(
-                        "  Fill scale domain len: {}, legend scale domain len: {}",
-                        fill_domain.len(),
-                        scale.domain().len()
-                    );
-                }
+                trace!(
+                    fill_domain_len = fill_domain.len(),
+                    legend_scale_domain_len = scale.domain().len(),
+                    "Fill scale domain comparison"
+                );
                 if fill_domain.len() == scale.domain().len() {
                     // Map domain through fill scale to get colors
                     match fill_scale.scale(scale.domain()) {
                         Ok(scaled_array) => {
-                            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                                eprintln!(
-                                    "  Scaled array len: {}, dtype: {:?}",
-                                    scaled_array.len(),
-                                    scaled_array.data_type()
-                                );
-                            }
+                            trace!(
+                                array_len = scaled_array.len(),
+                                data_type = ?scaled_array.data_type(),
+                                "Scaled array info"
+                            );
 
                             // Use Coercer to handle color conversion
                             use avenger_scales::scales::coerce::Coercer;
                             let coercer = Coercer::default();
 
                             if let Ok(colors) = coercer.to_color(&scaled_array, None) {
-                                if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                                    eprintln!("  Converted to {} colors", colors.len());
-                                }
+                                trace!(color_count = colors.len(), "Converted to colors");
                                 colors
                             } else {
                                 // Fallback: try the old Float32 approach for backwards compatibility
@@ -1390,14 +1363,13 @@ impl ChartLayout {
                 1.0 // Default if no mark encodings
             };
 
-            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                eprintln!("MEASUREMENT: Creating symbol legend '{}' with:", channel);
-                eprintln!("  padding: {:?}", legend.background_padding);
-                eprintln!("  text_values: {:?}", text_values);
-                eprintln!("  inner_width: 0.0, inner_height: 100.0");
-                eprintln!("  outer_margin: 0.0, text_padding: 2.0");
-                eprintln!("  stroke_width: Some({})", stroke_width);
-            }
+            debug!(
+                channel = channel,
+                padding = ?legend.background_padding,
+                text_values = ?text_values,
+                stroke_width = stroke_width,
+                "Creating symbol legend with inner_width: 0.0, inner_height: 100.0, outer_margin: 0.0, text_padding: 2.0"
+            );
             let config = SymbolLegendConfig {
                 title: legend.title.clone(),
                 text: ScalarOrArray::new_array(text_values.clone()),
@@ -1428,21 +1400,15 @@ impl ChartLayout {
         };
 
         // Debug: Print the scene group structure
-        if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-            eprintln!(
-                "\n=== LEGEND MEASUREMENT (channel: {}, type: {}) ===",
-                channel,
-                if should_use_line_legend {
-                    "Line"
-                } else {
-                    "Symbol"
-                }
-            );
-            eprintln!("  Legend config: {:?}", legend);
-            eprintln!("  Legend group clip: {:?}", legend_group.clip);
-            eprintln!("  Legend group marks count: {}", legend_group.marks.len());
-            eprintln!("  Text labels: {:?}", text_values);
-        }
+        debug!(
+            channel = channel,
+            legend_type = if should_use_line_legend { "Line" } else { "Symbol" },
+            legend_config = ?legend,
+            legend_group_clip = ?legend_group.clip,
+            legend_group_marks_count = legend_group.marks.len(),
+            text_labels = ?text_values,
+            "Legend measurement"
+        );
 
         // Measure the actual bounding box
         let bbox = legend_group.bounding_box();
@@ -1450,16 +1416,13 @@ impl ChartLayout {
         let height = bbox.upper()[1] - bbox.lower()[1];
 
         // Always show debug for legend measurement
-        if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-            eprintln!(
-                "  Bounding box: x={}, y={}, width={}, height={}",
-                bbox.lower()[0],
-                bbox.lower()[1],
-                width,
-                height
-            );
-            eprintln!("=== END LEGEND MEASUREMENT ===\n");
-        }
+        debug!(
+            x = bbox.lower()[0],
+            y = bbox.lower()[1],
+            width = width,
+            height = height,
+            "Legend bounding box"
+        );
 
         Ok(Size { width, height })
     }
@@ -1641,13 +1604,11 @@ impl GridBuilder {
         // End with right margin (doubled if no right components)
         cols.push(length(right_margin));
 
-        if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-            eprintln!(
-                "Grid columns count: {}, right margin: {}",
-                cols.len(),
-                right_margin
-            );
-        }
+        debug!(
+            column_count = cols.len(),
+            right_margin = right_margin,
+            "Grid columns configuration"
+        );
 
         // === Build Row Template ===
         // Start with top margin (doubled if no top components)
@@ -1952,61 +1913,6 @@ impl GridBuilder {
                 }
             }
             _ => Ok(0.0),
-        }
-    }
-
-    #[allow(dead_code)]
-    fn build(&self) -> (GridTemplate, ComponentGridMap) {
-        // Calculate grid dimensions
-        let mut rows = vec![];
-        let mut cols = vec![];
-        let mut map = ComponentGridMap {
-            cells: HashMap::new(),
-            row_count: 0,
-            col_count: 0,
-        };
-
-        // Build column template
-        if !self.left_components.is_empty() {
-            cols.push(length(60.0)); // Y-axis width
-        }
-        cols.push(fr(1.0)); // Plot area
-        if !self.right_components.is_empty() {
-            cols.push(length(120.0)); // Legend width
-        }
-
-        // Build row template
-        if !self.top_components.is_empty() {
-            rows.push(length(30.0)); // Title/top axis height
-        }
-        rows.push(fr(1.0)); // Plot area
-        if !self.bottom_components.is_empty() {
-            rows.push(length(50.0)); // X-axis height
-        }
-
-        // Map components to grid cells
-        for (component, placement) in &self.components {
-            for row in placement.row..placement.row + placement.row_span {
-                for col in placement.col..placement.col + placement.col_span {
-                    map.cells.insert((row, col), component.clone());
-                }
-            }
-        }
-
-        map.row_count = rows.len();
-        map.col_count = cols.len();
-
-        (GridTemplate { rows, cols }, map)
-    }
-}
-
-impl ComponentGridMap {
-    #[allow(dead_code)]
-    fn new() -> Self {
-        ComponentGridMap {
-            cells: HashMap::new(),
-            row_count: 0,
-            col_count: 0,
         }
     }
 }

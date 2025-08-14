@@ -123,7 +123,7 @@ impl Mark<Polar> for Rect<Polar> {
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // TODO: Implement polar rect rendering
+        // Polar rect rendering not yet implemented
         Err(AvengerChartError::InternalError(
             "Polar rect rendering not yet implemented".to_string(),
         ))
