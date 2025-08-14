@@ -62,7 +62,7 @@ async fn test_default_axes_band_without_grid() {
     let plot = Plot::new(Cartesian).data(df).mark(
         Rect::new()
             .x(col("category"))
-            .x2(col("category").scaled().with_band(1.0))
+            .x2(col(":x").band(1.0))
             .y(lit(0.0))
             .y2(col("y_val"))
             .fill("#4682b4"),
