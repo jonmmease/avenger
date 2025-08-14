@@ -25,6 +25,7 @@ use datafusion_common::ScalarValue;
 use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::{debug, trace};
 
 /// Padding around a plot area
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -346,8 +347,11 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         all_marks.extend(subtitle_marks);
 
         // 6. Debug: Add Taffy layout bounds visualization if debug mode is enabled
-        if std::env::var("AVENGER_DEBUG_LAYOUT_RECTS").is_ok() {
+        // Debug layout rectangles can be enabled via tracing
+        #[cfg(debug_assertions)]
+        if tracing::enabled!(tracing::Level::TRACE) {
             if let Some((layout, _)) = &layout_bundle {
+                trace!("Adding debug layout rectangles");
                 all_marks.extend(Self::create_debug_layout_rects(layout));
             }
         }
@@ -1194,13 +1198,12 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         };
 
         // Initialize config with defaults
-        if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-            eprintln!("FINAL: Creating symbol legend '{}' with:", params.channel);
-            eprintln!("  text_values: {:?}", text_values);
-            eprintln!("  default_size: {}", default_size);
-            eprintln!("  inner_width: 0.0, inner_height: 100.0");
-            eprintln!("  outer_margin: 0.0, text_padding: 2.0");
-        }
+        debug!(
+            channel = params.channel,
+            text_values = ?text_values,
+            default_size = default_size,
+            "Creating symbol legend with inner_width: 0.0, inner_height: 100.0, outer_margin: 0.0, text_padding: 2.0"
+        );
         let mut config = SymbolLegendConfig {
             title: params.legend.title.clone(),
             text: ScalarOrArray::new_array(text_values),
@@ -1214,11 +1217,9 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // Apply legend background styling if provided
         if let Some(pad) = params.legend.background_padding {
             config.background_padding = Some(pad);
-            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                eprintln!("  padding: Some({})", pad);
-            }
-        } else if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-            eprintln!("  padding: None (will use default)");
+            trace!(padding = pad, "Symbol legend padding set");
+        } else {
+            trace!("Symbol legend padding: None (will use default)");
         }
         if let Some(r) = params.legend.background_corner_radius {
             config.background_corner_radius = Some(r);
@@ -1321,8 +1322,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         // Size channel
         config.size = ScalarOrArray::new_scalar(default_size);
-        if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() && params.channel == "shape" {
-            eprintln!("  Initial size set to default: {}", default_size);
+        if params.channel == "shape" {
+            trace!(default_size = default_size, "Initial size set to default");
         }
 
         if params.channel == "size" {
@@ -1332,8 +1333,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 .await?;
             config.size = ScalarOrArray::new_array(sizes);
         } else if let Some(channel_value) = mark_encodings.get("size") {
-            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() && params.channel == "shape" {
-                eprintln!("  Found size in mark_encodings");
+            if params.channel == "shape" {
+                trace!("Found size in mark_encodings");
             }
             // Check if this uses the same expression as the legend channel
             if let Some(legend_expr) = legend_channel_expr {
@@ -1370,9 +1371,9 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             }
         }
 
-        if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() && params.channel == "shape" {
+        if params.channel == "shape" {
             let sizes = config.size.as_vec(3, None);
-            eprintln!("  After size logic, size is: {:?}", sizes);
+            trace!(sizes = ?sizes, "After size logic");
         }
 
         // Fill channel
@@ -1495,8 +1496,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         // Stroke width channel - start with default
         config.stroke_width = Some(default_stroke_width);
-        if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() && params.channel == "shape" {
-            eprintln!("  stroke_width: Some({})", default_stroke_width);
+        if params.channel == "shape" {
+            trace!(stroke_width = default_stroke_width, "Stroke width set");
         }
 
         if let Some(channel_value) = mark_encodings.get("stroke_width") {
@@ -1559,9 +1560,9 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         }
 
         // Create the legend marks
-        if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() && params.channel == "shape" {
+        if params.channel == "shape" {
             let sizes = config.size.as_vec(3, None);
-            eprintln!("  Final config.size for shape: {:?}", sizes);
+            trace!(sizes = ?sizes, "Final config.size for shape");
         }
         let mut legend_group = make_symbol_legend(&config)?;
 
@@ -1611,13 +1612,11 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
     ) -> Result<Vec<Option<Vec<f32>>>, AvengerChartError> {
         use datafusion::arrow::array::{Array, StringArray};
 
-        if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-            eprintln!(
-                "map_dash_patterns: scale.has_explicit_domain() = {}",
-                scale.has_explicit_domain()
-            );
-            eprintln!("map_dash_patterns: domain_values = {:?}", domain_values);
-        }
+        trace!(
+            has_explicit_domain = scale.has_explicit_domain(),
+            domain_values = ?domain_values,
+            "map_dash_patterns"
+        );
 
         if scale.has_explicit_domain() {
             // Create a ConfiguredScale
@@ -1704,35 +1703,25 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                                     }
                                 })
                                 .collect();
-                            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                                eprintln!(
-                                    "Successfully extracted dash patterns without explicit domain"
-                                );
-                            }
+                            trace!("Successfully extracted dash patterns without explicit domain");
                             Ok(patterns)
                         } else {
-                            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                                eprintln!("Failed to convert to stroke_dash, using solid lines");
-                            }
+                            trace!("Failed to convert to stroke_dash, using solid lines");
                             Ok(vec![None; domain_values.len()])
                         }
                     } else {
-                        if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                            eprintln!(
-                                "Scaled array is not dictionary type: {:?}, using solid lines",
-                                scaled_array.data_type()
-                            );
-                        }
+                        trace!(
+                            data_type = ?scaled_array.data_type(),
+                            "Scaled array is not dictionary type, using solid lines"
+                        );
                         Ok(vec![None; domain_values.len()])
                     }
                 }
                 Err(e) => {
-                    if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                        eprintln!(
-                            "Failed to create configured scale without explicit domain: {:?}",
-                            e
-                        );
-                    }
+                    trace!(
+                        error = ?e,
+                        "Failed to create configured scale without explicit domain"
+                    );
                     // Fall back to solid lines
                     Ok(vec![None; domain_values.len()])
                 }
@@ -1864,16 +1853,15 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // Apply legend background styling if provided
         if let Some(pad) = params.legend.background_padding {
             config.background_padding = Some(pad);
-            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                eprintln!(
-                    "Line legend '{}' setting padding to {}",
-                    params.channel, pad
-                );
-            }
-        } else if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-            eprintln!(
-                "Line legend '{}' has no padding specified, will use default",
-                params.channel
+            trace!(
+                channel = params.channel,
+                padding = pad,
+                "Line legend setting padding"
+            );
+        } else {
+            trace!(
+                channel = params.channel,
+                "Line legend has no padding specified, will use default"
             );
         }
         if let Some(r) = params.legend.background_corner_radius {
@@ -2092,17 +2080,16 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
                 individual_lengths.push(optimal_length);
 
-                if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                    eprintln!(
-                        "Dash pattern {}: {:?}, length={} (max={})",
-                        i, pattern, optimal_length, max_legend_length
-                    );
-                }
+                trace!(
+                    index = i,
+                    pattern = ?pattern,
+                    length = optimal_length,
+                    max_length = max_legend_length,
+                    "Dash pattern"
+                );
             }
 
-            if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                eprintln!("Max legend length: {}", max_legend_length);
-            }
+            trace!(max_legend_length = max_legend_length, "Max legend length");
 
             // Add some extra for rounded caps if used
             let cap_extension = if stroke_cap == avenger_common::types::StrokeCap::Round {
@@ -2157,13 +2144,14 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             config.stroke_dash = ScalarOrArray::new_scalar(None);
         }
 
-        if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-            eprintln!("Line legend config for '{}':", params.channel);
-            eprintln!("  stroke: {:?}", config.stroke.as_vec(8, None));
-            eprintln!("  stroke_width: {:?}", config.stroke_width.as_vec(8, None));
-            eprintln!("  stroke_dash: {:?}", config.stroke_dash.as_vec(8, None));
-            eprintln!("  line_length: {:?}", config.line_length.as_vec(8, None));
-        }
+        debug!(
+            channel = params.channel,
+            stroke = ?config.stroke.as_vec(8, None),
+            stroke_width = ?config.stroke_width.as_vec(8, None),
+            stroke_dash = ?config.stroke_dash.as_vec(8, None),
+            line_length = ?config.line_length.as_vec(8, None),
+            "Line legend config"
+        );
 
         let mut legend_group = make_line_legend(&config)?;
         let x = params.padding.left + params.plot_width + params.legend_margin;
@@ -2758,12 +2746,12 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         for (channel, legend) in visible_legends.into_iter() {
             if let Some(bounds) = layout_result.legends.get(&channel) {
                 // Create a temporary legend group using the same params used by create_legends_with_layout
-                if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                    eprintln!(
-                        "Creating cached legend '{}' with bounds w={}, h={}",
-                        channel, bounds.width, bounds.height
-                    );
-                }
+                debug!(
+                    channel = channel,
+                    width = bounds.width,
+                    height = bounds.height,
+                    "Creating cached legend with bounds"
+                );
                 let params = LegendParams {
                     channel: &channel,
                     legend: &legend,
@@ -2783,31 +2771,28 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                     .get(&channel)
                     .ok_or_else(|| AvengerChartError::InternalError("Missing scale".into()))?;
                 let legend_type = self.determine_legend_type(&channel, scale);
-                if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                    eprintln!(
-                        "Creating cached legend '{}' with type: {:?}",
-                        channel, legend_type
-                    );
-                }
+                debug!(
+                    channel = channel,
+                    legend_type = ?legend_type,
+                    "Creating cached legend with type"
+                );
                 let group_opt = match legend_type {
                     LegendType::Symbol => self.create_symbol_legend(params).await?,
                     LegendType::Line => self.create_line_legend(params).await?,
                     LegendType::Colorbar => self.create_colorbar_legend(params).await?,
                 };
                 if let Some(mut group) = group_opt {
-                    if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-                        let bbox = group.bounding_box();
-                        eprintln!(
-                            "Legend '{}' bounds from Taffy: x={}, y={}, w={}, h={}",
-                            channel, bounds.x, bounds.y, bounds.width, bounds.height
-                        );
-                        eprintln!(
-                            "Legend '{}' actual bbox: w={}, h={}",
-                            channel,
-                            bbox.width(),
-                            bbox.height()
-                        );
-                    }
+                    let bbox = group.bounding_box();
+                    debug!(
+                        channel = channel,
+                        taffy_x = bounds.x,
+                        taffy_y = bounds.y,
+                        taffy_width = bounds.width,
+                        taffy_height = bounds.height,
+                        actual_bbox_width = bbox.width(),
+                        actual_bbox_height = bbox.height(),
+                        "Legend bounds comparison"
+                    );
                     // For symbol legends, shift down slightly to account for stroke extending beyond bounds
                     let y_offset = if matches!(legend_type, LegendType::Symbol) {
                         // The stroke width is 1.0 by default for symbol legends

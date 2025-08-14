@@ -216,21 +216,11 @@ pub fn resolve_all_channel_refs(
     // Get topological order
     let order = match topological_sort(channels) {
         Ok(order) => order,
-        Err(e) => {
-            // Log error and return original channels
-            eprintln!("Channel resolution error: {}", e);
+        Err(_) => {
+            // On error, return original channels (graceful degradation)
             return channels.clone();
         }
     };
-
-    // Debug: print channels only if DEBUG_CHANNEL_REFS is set
-    if std::env::var("DEBUG_CHANNEL_REFS").is_ok() {
-        eprintln!("Channel resolution order: {:?}", order);
-        eprintln!("Channel references debug - input channels:");
-        for (name, value) in channels {
-            eprintln!("  {}: {:?}", name, value.expr());
-        }
-    }
 
     // Resolve channels in topological order
     let mut resolved_channels = IndexMap::new();
@@ -239,15 +229,6 @@ pub fn resolve_all_channel_refs(
         if let Some(value) = channels.get(name) {
             // Resolve references using already-resolved channels
             let resolved_expr = resolve_channel_refs(value.expr().clone(), &resolved_channels);
-
-            if std::env::var("DEBUG_CHANNEL_REFS").is_ok() {
-                eprintln!(
-                    "  {} resolved: {:?} -> {:?}",
-                    name,
-                    value.expr(),
-                    resolved_expr
-                );
-            }
 
             // Preserve the channel value structure (Scaled vs Identity)
             let resolved_value = match value {
@@ -264,52 +245,9 @@ pub fn resolve_all_channel_refs(
             };
 
             resolved_channels.insert(name.clone(), resolved_value);
-        }
-    }
-
-    if std::env::var("DEBUG_CHANNEL_REFS").is_ok() {
-        eprintln!("Channel references debug - output channels:");
-        for (name, value) in &resolved_channels {
-            eprintln!("  {}: {:?}", name, value.expr());
         }
     }
 
     resolved_channels
 }
 
-/// Try to resolve channel references and return an error if there's a cycle
-#[allow(dead_code)]
-pub fn try_resolve_all_channel_refs(
-    channels: &IndexMap<String, ChannelValue>,
-) -> Result<IndexMap<String, ChannelValue>, ChannelResolutionError> {
-    // Get topological order
-    let order = topological_sort(channels)?;
-
-    // Resolve channels in topological order
-    let mut resolved_channels = IndexMap::new();
-
-    for name in &order {
-        if let Some(value) = channels.get(name) {
-            // Resolve references using already-resolved channels
-            let resolved_expr = resolve_channel_refs(value.expr().clone(), &resolved_channels);
-
-            // Preserve the channel value structure (Scaled vs Identity)
-            let resolved_value = match value {
-                ChannelValue::Scaled {
-                    scale_name, band, ..
-                } => ChannelValue::Scaled {
-                    expr: resolved_expr,
-                    scale_name: scale_name.clone(),
-                    band: *band,
-                },
-                ChannelValue::Identity { .. } => ChannelValue::Identity {
-                    expr: resolved_expr,
-                },
-            };
-
-            resolved_channels.insert(name.clone(), resolved_value);
-        }
-    }
-
-    Ok(resolved_channels)
-}

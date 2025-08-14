@@ -1267,6 +1267,67 @@ impl Plot {
 4. **Parallel Execution**: Use DataFusion's parallel execution capabilities
 5. **GPU Acceleration**: Some adjustments (force layout) could use GPU
 
+## 8. Polar Coordinate System
+
+### Purpose
+Implement proper polar coordinate support for radial visualizations like pie charts, radial bar charts, and radar plots.
+
+### Current State
+- Basic Polar struct exists in `coords.rs`
+- Transform from polar to cartesian coordinates is implemented
+- Axes not yet implemented (currently returns empty axes)
+
+### Implementation Needed
+
+#### PolarAxis Type
+```rust
+pub struct PolarAxis {
+    // Radial axis properties
+    radial_grid: bool,
+    radial_labels: bool,
+    radial_domain: Option<(f64, f64)>,
+    
+    // Angular axis properties
+    angular_grid: bool,
+    angular_labels: bool,
+    angular_start: f64,  // Starting angle in radians
+    angular_direction: AngularDirection,  // Clockwise or CounterClockwise
+    
+    // Common properties
+    title: Option<String>,
+    format: Option<String>,
+    visible: bool,
+}
+
+pub enum AngularDirection {
+    Clockwise,
+    CounterClockwise,
+}
+```
+
+#### Rendering Implementation
+- Circular grid lines for angular divisions
+- Radial lines from center for radius divisions
+- Labels around the circumference for angular values
+- Labels along radius for radial values
+
+### Usage Examples
+```rust
+// Pie chart
+Plot::new(Polar)
+    .mark(Arc::new()
+        .theta("value")  // Maps to angle
+        .r(1.0)          // Constant radius
+        .fill("category"));
+
+// Radial bar chart
+Plot::new(Polar)
+    .mark(Arc::new()
+        .theta("category")
+        .r("value")
+        .r2(0.0));
+```
+
 ## Implementation Order
 
 Suggested order for implementing these features:
@@ -1277,6 +1338,7 @@ Suggested order for implementing these features:
 4. **Derive API** - Needs Text mark and Adjust
 5. **Controllers** - Can be developed in parallel
 6. **Faceting** - Most complex, builds on everything else
+7. **Polar Coordinate System** - Independent, can be developed in parallel
 
 ## Key Dependencies
 
