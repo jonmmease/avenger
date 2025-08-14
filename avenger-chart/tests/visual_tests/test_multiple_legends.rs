@@ -1,5 +1,5 @@
 use super::helpers::assert_visual_match_default;
-use avenger_chart::LegendPosition;
+use avenger_chart::legend::LegendPosition;
 use avenger_chart::coords::Cartesian;
 use avenger_chart::marks::line::Line;
 use avenger_chart::marks::rect::Rect;

@@ -866,6 +866,7 @@ impl<C: CoordinateSystem> Plot<C> {
             bottom: 50.0,
         }
     }
+
 }
 
 impl Plot<Cartesian> {

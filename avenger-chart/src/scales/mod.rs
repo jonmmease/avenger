@@ -4,6 +4,7 @@ pub mod shape_defaults;
 // pub mod defaults;
 pub mod inference;
 pub mod udf;
+pub mod validation;
 
 use crate::error::AvengerChartError;
 use crate::utils::{DataFrameChartHelpers, eval_to_scalars};
@@ -280,6 +281,11 @@ impl Scale {
 
     pub fn has_explicit_range(&self) -> bool {
         self.range_explicit
+    }
+    
+    /// Check if domain was explicitly set by user (public accessor)
+    pub fn is_domain_explicit(&self) -> bool {
+        self.domain_explicit
     }
 
     /// Create a scale expression that transforms values using this scale
