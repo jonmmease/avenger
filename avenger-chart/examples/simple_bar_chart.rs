@@ -15,6 +15,7 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::lit;
 use datafusion::prelude::*;
 use std::sync::Arc;
+use avenger_chart::marks::ChannelExpr;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -35,34 +36,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create bar chart using avenger-chart API
     let plot = Plot::new(Cartesian)
         .data(df.clone())
-        // Configure scales
-        .scale_x(|scale| {
-            scale.domain_discrete(vec![
-                lit("A"),
-                lit("B"),
-                lit("C"),
-                lit("D"),
-                lit("E"),
-                lit("F"),
-                lit("G"),
-                lit("H"),
-                lit("I"),
-            ])
-        })
-        .scale_y(|scale| scale.domain((0.0, 100.0)))
-        // Configure axes
         .axis_x(|axis| axis.title("Category").grid(false))
         .axis_y(|axis| axis.title("Value").grid(true))
         // Add bar mark
         .mark(
             Rect::new()
-                .x("category")
-                .x2("category") // Band scale will automatically expand to x2
+                .x(col("category"))
+                .x2(col("category").band(1.0))
                 .y(lit(0.0))
-                .y2("value")
-                .fill(lit("#4682b4")) // Steel blue
-                .stroke(lit("#000000"))
-                .stroke_width(lit(1.0)),
+                .y2(col("value"))
+                .fill("#4682b4")
+                .stroke("#000000")
+                .stroke_width(1.0),
         );
 
     // Create PNG canvas with dimensions
@@ -83,12 +68,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Rendering to PNG...");
     let image = canvas.render().await?;
 
+    // Create output directory relative to the cargo manifest directory
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
+        .unwrap_or_else(|_| ".".to_string());
+    let output_dir = std::path::Path::new(&manifest_dir).join("examples").join("output");
+    std::fs::create_dir_all(&output_dir)?;
+    
     // Save the PNG file
-    let output_path = "simple_bar_chart.png";
-    println!("Saving PNG to {}...", output_path);
-    image.save(output_path)?;
+    let output_path = output_dir.join("simple_bar_chart.png");
+    println!("Saving PNG to {}...", output_path.display());
+    image.save(&output_path)?;
 
-    println!("Bar chart successfully rendered to {}", output_path);
+    println!("Bar chart successfully rendered to {}", output_path.display());
 
     // Also show the data that was rendered
     println!("\nData rendered:");
