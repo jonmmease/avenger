@@ -14,16 +14,16 @@ use datafusion::scalar::ScalarValue;
 use std::sync::Arc;
 
 pub trait DataFrameChartHelpers {
-    /// Return two-element array of min and max values across all of the columns in the input DataFrame
+    /// Return two-element array of min and max values across all the columns in the input DataFrame
     fn span(&self) -> Result<Expr, AvengerChartError>;
 
     /// Return single-column DataFrame with all columns in the input DataFrame unioned (concatenated) together
     fn union_all_cols(&self, col_name: Option<&str>) -> Result<DataFrame, AvengerChartError>;
 
-    /// Return an array expression with unique values across all of the columns in the input DataFrame
+    /// Return an array expression with unique values across all the columns in the input DataFrame
     fn unique_values(&self) -> Result<Expr, AvengerChartError>;
 
-    /// Return an array expression with all values across all of the columns in the input DataFrame
+    /// Return an array expression with all values across all the columns in the input DataFrame
     fn all_values(&self) -> Result<Expr, AvengerChartError>;
 }
 
@@ -143,18 +143,6 @@ impl DataFrameChartHelpers for DataFrame {
         };
         Ok(Expr::ScalarSubquery(subquery))
     }
-}
-
-/// Create a unit DataFrame (single row, no columns) for testing
-pub fn unit_dataframe() -> Result<DataFrame, AvengerChartError> {
-    use datafusion::prelude::SessionContext;
-
-    let ctx = SessionContext::new();
-    let df = ctx.read_batch(datafusion::arrow::record_batch::RecordBatch::try_new(
-        Arc::new(datafusion::arrow::datatypes::Schema::empty()),
-        vec![],
-    )?)?;
-    Ok(df)
 }
 
 /// Extension trait for Expr to help with evaluation
@@ -422,7 +410,7 @@ impl ArrayRefHelpers for ArrayRef {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use datafusion::arrow::array::{Array, Float32Array, StringArray};
+    use datafusion::arrow::array::{Float32Array, StringArray};
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::arrow::record_batch::RecordBatch;
 
@@ -454,29 +442,11 @@ mod tests {
 
         // The span expression should be a subquery that computes min/max across all numeric columns
         // When evaluated, it should return [1.0, 9.0] since 1.0 is the min and 9.0 is the max
-
-        // To test, we evaluate the expression
-        let result_df = ctx
-            .read_empty()
-            .unwrap()
-            .select(vec![span_expr.alias("span")])
-            .unwrap();
-        let batches = result_df.collect().await.unwrap();
-
-        assert_eq!(batches.len(), 1);
-        assert_eq!(batches[0].num_rows(), 1);
-
-        let span_array = batches[0].column_by_name("span").unwrap();
-        let list_array = span_array
-            .as_any()
-            .downcast_ref::<datafusion::arrow::array::ListArray>()
-            .unwrap();
-        let inner_array = list_array.value(0);
-        let float_array = inner_array.as_any().downcast_ref::<Float32Array>().unwrap();
-
-        assert_eq!(float_array.len(), 2);
-        assert_eq!(float_array.value(0), 1.0);
-        assert_eq!(float_array.value(1), 9.0);
+        let result = span_expr.eval_to_scalar(Some(&ctx), None).await.unwrap();
+        let span = result.as_f32x2().unwrap();
+        
+        assert_eq!(span[0], 1.0);
+        assert_eq!(span[1], 9.0);
     }
 
     #[tokio::test]
@@ -504,35 +474,19 @@ mod tests {
         let unique_expr = df.unique_values().unwrap();
 
         // The unique values expression should return ["A", "B", "C", "D"]
-        let result_df = ctx
-            .read_empty()
-            .unwrap()
-            .select(vec![unique_expr.alias("unique_vals")])
-            .unwrap();
-        let batches = result_df.collect().await.unwrap();
-
-        assert_eq!(batches.len(), 1);
-        assert_eq!(batches[0].num_rows(), 1);
-
-        let unique_array = batches[0].column_by_name("unique_vals").unwrap();
-
-        // array_agg returns a ListArray, we need to extract the inner array
-        let list_array = unique_array
-            .as_any()
-            .downcast_ref::<datafusion::arrow::array::ListArray>()
-            .unwrap();
-        assert_eq!(list_array.len(), 1); // Should have one row
-
-        let inner_array = list_array.value(0);
-        let str_array = inner_array.as_any().downcast_ref::<StringArray>().unwrap();
-
-        // Convert to vec and sort for consistent comparison
-        let mut values: Vec<String> = (0..str_array.len())
-            .map(|i| str_array.value(i).to_string())
-            .collect();
-        values.sort();
-
-        assert_eq!(values, vec!["A", "B", "C", "D"]);
+        let result = unique_expr.eval_to_scalar(Some(&ctx), None).await.unwrap();
+        
+        if let ScalarValue::List(array) = result {
+            let values_vec = array.value(0).to_scalar_vec().unwrap();
+            let mut values: Vec<String> = values_vec
+                .iter()
+                .map(|v| v.as_scalar_string().unwrap())
+                .collect();
+            values.sort();
+            assert_eq!(values, vec!["A", "B", "C", "D"]);
+        } else {
+            panic!("Expected List result");
+        }
     }
 
     #[tokio::test]
@@ -548,8 +502,8 @@ mod tests {
         let batch = RecordBatch::try_new(
             schema.clone(),
             vec![
-                Arc::new(datafusion::arrow::array::Int32Array::from(vec![10, 20, 30])),
-                Arc::new(datafusion::arrow::array::Float64Array::from(vec![
+                Arc::new(arrow::array::Int32Array::from(vec![10, 20, 30])),
+                Arc::new(arrow::array::Float64Array::from(vec![
                     5.5, 15.5, 25.5,
                 ])),
             ],
@@ -562,23 +516,11 @@ mod tests {
         let span_expr = df.span().unwrap();
 
         // Should find min=5.5 and max=30.0 across both columns
-        let result_df = ctx
-            .read_empty()
-            .unwrap()
-            .select(vec![span_expr.alias("span")])
-            .unwrap();
-        let batches = result_df.collect().await.unwrap();
-
-        let span_array = batches[0].column_by_name("span").unwrap();
-        let list_array = span_array
-            .as_any()
-            .downcast_ref::<datafusion::arrow::array::ListArray>()
-            .unwrap();
-        let inner_array = list_array.value(0);
-        let float_array = inner_array.as_any().downcast_ref::<Float32Array>().unwrap();
-
-        assert_eq!(float_array.value(0), 5.5);
-        assert_eq!(float_array.value(1), 30.0);
+        let result = span_expr.eval_to_scalar(Some(&ctx), None).await.unwrap();
+        let span = result.as_f32x2().unwrap();
+        
+        assert_eq!(span[0], 5.5);
+        assert_eq!(span[1], 30.0);
     }
 
     #[tokio::test]
@@ -606,32 +548,23 @@ mod tests {
         let all_expr = df.all_values().unwrap();
 
         // Should return all 6 values: ["A", "B", "A", "B", "C", "A"]
-        let result_df = ctx
-            .read_empty()
-            .unwrap()
-            .select(vec![all_expr.alias("all_vals")])
-            .unwrap();
-        let batches = result_df.collect().await.unwrap();
-
-        let all_array = batches[0].column_by_name("all_vals").unwrap();
-
-        // array_agg returns a ListArray, extract the inner array
-        let list_array = all_array
-            .as_any()
-            .downcast_ref::<datafusion::arrow::array::ListArray>()
-            .unwrap();
-        assert_eq!(list_array.len(), 1);
-
-        let inner_array = list_array.value(0);
-        let str_array = inner_array.as_any().downcast_ref::<StringArray>().unwrap();
-
-        assert_eq!(str_array.len(), 6);
-
-        // Count occurrences
-        let values: Vec<&str> = (0..str_array.len()).map(|i| str_array.value(i)).collect();
-
-        assert_eq!(values.iter().filter(|&&v| v == "A").count(), 3);
-        assert_eq!(values.iter().filter(|&&v| v == "B").count(), 2);
-        assert_eq!(values.iter().filter(|&&v| v == "C").count(), 1);
+        let result = all_expr.eval_to_scalar(Some(&ctx), None).await.unwrap();
+        
+        if let ScalarValue::List(array) = result {
+            let values_vec = array.value(0).to_scalar_vec().unwrap();
+            assert_eq!(values_vec.len(), 6);
+            
+            // Count occurrences
+            let values: Vec<String> = values_vec
+                .iter()
+                .map(|v| v.as_scalar_string().unwrap())
+                .collect();
+            
+            assert_eq!(values.iter().filter(|v| v == &"A").count(), 3);
+            assert_eq!(values.iter().filter(|v| v == &"B").count(), 2);
+            assert_eq!(values.iter().filter(|v| v == &"C").count(), 1);
+        } else {
+            panic!("Expected List result");
+        }
     }
 }
