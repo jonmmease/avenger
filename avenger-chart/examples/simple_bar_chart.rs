@@ -4,6 +4,7 @@
 //! avenger-chart API and render it to a PNG file using PngCanvas.
 
 use avenger_chart::coords::Cartesian;
+use avenger_chart::marks::ChannelExpr;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
 use avenger_chart::render::CanvasExt;
@@ -15,7 +16,6 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::lit;
 use datafusion::prelude::*;
 use std::sync::Arc;
-use avenger_chart::marks::ChannelExpr;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -42,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(col("category").band(1.0))
+                .x2(col(":x").band(1.0))
                 .y(lit(0.0))
                 .y2(col("value"))
                 .fill("#4682b4")
@@ -69,17 +69,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let image = canvas.render().await?;
 
     // Create output directory relative to the cargo manifest directory
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-        .unwrap_or_else(|_| ".".to_string());
-    let output_dir = std::path::Path::new(&manifest_dir).join("examples").join("output");
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
+    let output_dir = std::path::Path::new(&manifest_dir)
+        .join("examples")
+        .join("output");
     std::fs::create_dir_all(&output_dir)?;
-    
+
     // Save the PNG file
     let output_path = output_dir.join("simple_bar_chart.png");
     println!("Saving PNG to {}...", output_path.display());
     image.save(&output_path)?;
 
-    println!("Bar chart successfully rendered to {}", output_path.display());
+    println!(
+        "Bar chart successfully rendered to {}",
+        output_path.display()
+    );
 
     // Also show the data that was rendered
     println!("\nData rendered:");

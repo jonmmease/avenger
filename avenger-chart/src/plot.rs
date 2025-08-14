@@ -546,8 +546,12 @@ impl<C: CoordinateSystem> Plot<C> {
                 }
             };
 
+            // Get channels and resolve channel references
+            let channels = mark.data_context().channels();
+            let resolved_channels = crate::channel_resolution::resolve_all_channel_refs(channels);
+
             // Check all encodings in the mark's data context
-            for (channel, channel_value) in mark.data_context().channels() {
+            for (channel, channel_value) in &resolved_channels {
                 // Check if this channel uses our scale
                 // Get the scale name this channel would use
                 if let Some(channel_scale_name) = channel_value.scale_name(channel) {
@@ -668,13 +672,15 @@ impl<C: CoordinateSystem> Plot<C> {
                 }
             };
 
-            // Check all encodings in the mark's data context
+            // Get channels and resolve channel references
             let encodings = mark.data_context().channels();
+            let resolved_encodings = crate::channel_resolution::resolve_all_channel_refs(encodings);
 
             // Create channel resolver for this mark
-            let resolve_channel = Self::create_channel_resolver(mark.as_ref(), encodings, scales);
+            let resolve_channel =
+                Self::create_channel_resolver(mark.as_ref(), &resolved_encodings, scales);
 
-            for (channel, position_channel_value) in encodings {
+            for (channel, position_channel_value) in &resolved_encodings {
                 // Check if this channel uses our scale
                 if let Some(channel_scale_name) = position_channel_value.scale_name(channel) {
                     if channel_scale_name == scale_name {

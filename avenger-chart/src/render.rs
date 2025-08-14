@@ -597,6 +597,9 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // Get channel mappings from DataContext
         let channels = mark.data_context().channels();
 
+        // Resolve channel references (e.g., ":x" -> actual x expression)
+        let channels = crate::channel_resolution::resolve_all_channel_refs(channels);
+
         // Check if mark supports order and has order encoding
         let df = if let Some(df_ref) = df_ref {
             if mark.supports_order() {
