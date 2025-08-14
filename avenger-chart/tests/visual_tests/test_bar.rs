@@ -34,7 +34,7 @@ async fn test_simple_bar_chart() {
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(col("category").scaled().with_band(1.0))
+                .x2(col(":x").band(1.0))
                 .y(lit(0.0).scaled())
                 .y2(col("value"))
                 .fill("#4682b4".identity())
@@ -70,7 +70,7 @@ async fn test_bar_chart_with_custom_colors() {
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(col("category").scaled().with_band(1.0))
+                .x2(col(":x").band(1.0))
                 .y(lit(0.0).scaled())
                 .y2(col("value"))
                 .fill("#e74c3c".identity())
@@ -128,7 +128,7 @@ async fn test_bar_chart_inferred_domains() {
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(col("category").scaled().with_band(1.0))
+                .x2(col(":x").band(1.0))
                 .y(lit(0.0).scaled())
                 .y2(col("value"))
                 .fill("#4682b4".identity())
@@ -168,7 +168,7 @@ async fn test_bar_chart_color_case_expression() {
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(col("category").scaled().with_band(1.0))
+                .x2(col(":x").band(1.0))
                 .y(lit(0.0).scaled())
                 .y2(col("value"))
                 // Use conditional expressions to create a gradient effect

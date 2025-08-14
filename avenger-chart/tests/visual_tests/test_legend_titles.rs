@@ -130,7 +130,7 @@ async fn test_rect_stroke_legend_with_title() {
         .mark(
             Rect::new()
                 .x(col("product").band(0.0))
-                .x2(col("product").band(1.0))
+                .x2(col(":x").band(1.0))
                 .y(lit(0.0))
                 .y2(col("value"))
                 .fill(lit("#1f77b4").identity())
