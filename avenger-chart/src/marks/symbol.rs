@@ -26,7 +26,7 @@ impl_mark_common!(Symbol, "symbol");
 define_common_mark_channels! {
     Symbol {
         size: {
-            type: ChannelType::Size,
+            type: ChannelType::Numeric,
             default: ScalarValue::Float32(Some(64.0))  // Default area
         },
         fill: {
@@ -38,12 +38,12 @@ define_common_mark_channels! {
             default: ScalarValue::Utf8(Some("#000000".to_string()))
         },
         stroke_width: {
-            type: ChannelType::Size,
+            type: ChannelType::Numeric,
             default: ScalarValue::Float32(Some(1.0)),
             allow_column: false  // Symbol stroke width must be constant
         },
         shape: {
-            type: ChannelType::Enum { values: &["circle", "square", "cross", "diamond", "triangle-up", "triangle-down", "triangle-left", "triangle-right", "star", "wye"] },
+            type: ChannelType::SymbolShape,
             default: ScalarValue::Utf8(Some("circle".to_string()))
         },
         angle: {
@@ -56,16 +56,16 @@ define_common_mark_channels! {
 // Define position channels for Cartesian coordinates
 define_position_mark_channels! {
     Symbol<Cartesian> {
-        x: { type: ChannelType::Position },
-        y: { type: ChannelType::Position },
+        x: { type: ChannelType::Numeric },
+        y: { type: ChannelType::Numeric },
     }
 }
 
 // Define position channels for Polar coordinates
 define_position_mark_channels! {
     Symbol<Polar> {
-        r: { type: ChannelType::Position },
-        theta: { type: ChannelType::Position },
+        r: { type: ChannelType::Numeric },
+        theta: { type: ChannelType::Numeric },
     }
 }
 
