@@ -444,7 +444,7 @@ mod tests {
         // When evaluated, it should return [1.0, 9.0] since 1.0 is the min and 9.0 is the max
         let result = span_expr.eval_to_scalar(Some(&ctx), None).await.unwrap();
         let span = result.as_f32x2().unwrap();
-        
+
         assert_eq!(span[0], 1.0);
         assert_eq!(span[1], 9.0);
     }
@@ -475,7 +475,7 @@ mod tests {
 
         // The unique values expression should return ["A", "B", "C", "D"]
         let result = unique_expr.eval_to_scalar(Some(&ctx), None).await.unwrap();
-        
+
         if let ScalarValue::List(array) = result {
             let values_vec = array.value(0).to_scalar_vec().unwrap();
             let mut values: Vec<String> = values_vec
@@ -503,9 +503,7 @@ mod tests {
             schema.clone(),
             vec![
                 Arc::new(arrow::array::Int32Array::from(vec![10, 20, 30])),
-                Arc::new(arrow::array::Float64Array::from(vec![
-                    5.5, 15.5, 25.5,
-                ])),
+                Arc::new(arrow::array::Float64Array::from(vec![5.5, 15.5, 25.5])),
             ],
         )
         .unwrap();
@@ -518,7 +516,7 @@ mod tests {
         // Should find min=5.5 and max=30.0 across both columns
         let result = span_expr.eval_to_scalar(Some(&ctx), None).await.unwrap();
         let span = result.as_f32x2().unwrap();
-        
+
         assert_eq!(span[0], 5.5);
         assert_eq!(span[1], 30.0);
     }
@@ -549,17 +547,17 @@ mod tests {
 
         // Should return all 6 values: ["A", "B", "A", "B", "C", "A"]
         let result = all_expr.eval_to_scalar(Some(&ctx), None).await.unwrap();
-        
+
         if let ScalarValue::List(array) = result {
             let values_vec = array.value(0).to_scalar_vec().unwrap();
             assert_eq!(values_vec.len(), 6);
-            
+
             // Count occurrences
             let values: Vec<String> = values_vec
                 .iter()
                 .map(|v| v.as_scalar_string().unwrap())
                 .collect();
-            
+
             assert_eq!(values.iter().filter(|v| v == &"A").count(), 3);
             assert_eq!(values.iter().filter(|v| v == &"B").count(), 2);
             assert_eq!(values.iter().filter(|v| v == &"C").count(), 1);

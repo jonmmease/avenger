@@ -2,7 +2,7 @@ use crate::marks::ChannelValue;
 use datafusion::dataframe::DataFrame;
 use indexmap::IndexMap;
 
-/// Stores a mark's data source and channel-to-expression mappings 
+/// Stores a mark's data source and channel-to-expression mappings
 /// (e.g., x -> col("price"), fill -> lit("blue")
 #[derive(Clone, Default)]
 pub struct DataContext {

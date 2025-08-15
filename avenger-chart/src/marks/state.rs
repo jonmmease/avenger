@@ -2,7 +2,6 @@
 
 use crate::coords::CoordinateSystem;
 use crate::marks::{DataContext, DataSource, FacetStrategy};
-use avenger_common::types::SymbolShape;
 
 /// Internal state shared by all mark types
 pub(crate) struct MarkState<C: CoordinateSystem> {

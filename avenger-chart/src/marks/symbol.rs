@@ -1,16 +1,15 @@
 use crate::coords::{Cartesian, CoordinateSystem, Polar};
 use crate::error::AvengerChartError;
-use crate::marks::{ChannelType, Mark, MarkState, RadiusExpression};
+use crate::marks::{ChannelDefault, ChannelType, Mark, MarkState, RadiusExpression};
 use crate::utils::ScalarValueHelpers;
 use crate::{
-    define_common_mark_channels, define_position_mark_channels, impl_mark_common,
+    define_common_mark_channels, define_position_mark_channels, impl_mark_base,
     impl_mark_trait_common,
 };
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::{Expr, lit};
 use datafusion::scalar::ScalarValue;
 
@@ -19,36 +18,36 @@ pub struct Symbol<C: CoordinateSystem> {
     __phantom: std::marker::PhantomData<C>,
 }
 
-// Generate common methods (includes Default implementation)
-impl_mark_common!(Symbol, "symbol");
+// Implement MarkBase trait and Default
+impl_mark_base!(Symbol);
 
 // Define common channels for all coordinate systems
 define_common_mark_channels! {
     Symbol {
         size: {
             type: ChannelType::Numeric,
-            default: ScalarValue::Float32(Some(64.0))  // Default area
+            default: ChannelDefault::Scalar(ScalarValue::Float32(Some(64.0)))  // Default area
         },
         fill: {
             type: ChannelType::Color,
-            default: ScalarValue::Utf8(Some("#4682b4".to_string()))
+            default: ChannelDefault::Scalar(ScalarValue::Utf8(Some("#4682b4".to_string())))
         },
         stroke: {
             type: ChannelType::Color,
-            default: ScalarValue::Utf8(Some("#000000".to_string()))
+            default: ChannelDefault::Scalar(ScalarValue::Utf8(Some("#000000".to_string())))
         },
         stroke_width: {
             type: ChannelType::Numeric,
-            default: ScalarValue::Float32(Some(1.0)),
+            default: ChannelDefault::Scalar(ScalarValue::Float32(Some(1.0))),
             allow_column: false  // Symbol stroke width must be constant
         },
         shape: {
             type: ChannelType::SymbolShape,
-            default: ScalarValue::Utf8(Some("circle".to_string()))
+            default: ChannelDefault::Scalar(ScalarValue::Utf8(Some("circle".to_string())))
         },
         angle: {
             type: ChannelType::Numeric,
-            default: ScalarValue::Float32(Some(0.0))  // Default: no rotation
+            default: ChannelDefault::Scalar(ScalarValue::Float32(Some(0.0)))  // Default: no rotation
         },
     }
 }

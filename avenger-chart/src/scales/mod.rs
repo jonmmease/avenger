@@ -282,7 +282,7 @@ impl Scale {
     pub fn has_explicit_range(&self) -> bool {
         self.range_explicit
     }
-    
+
     /// Check if domain was explicitly set by user (public accessor)
     pub fn is_domain_explicit(&self) -> bool {
         self.domain_explicit

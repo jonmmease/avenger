@@ -8,7 +8,7 @@ use avenger_wgpu::canvas::{CanvasConfig, PngCanvas};
 use datafusion::arrow::array::Float32Array;
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::prelude::{col, lit, SessionContext};
+use datafusion::prelude::{SessionContext, col, lit};
 use std::sync::Arc;
 
 #[tokio::test]
@@ -34,8 +34,7 @@ async fn test_literal_x_value_error() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a plot with literal x value (incorrect usage)
-    let plot = Plot::new(Cartesian)
-        .mark(Symbol::new().data(df).x("category").y(col("value")));
+    let plot = Plot::new(Cartesian).mark(Symbol::new().data(df).x("category").y(col("value")));
 
     // Try to render
     let dimensions = CanvasDimensions {
@@ -87,8 +86,7 @@ async fn test_literal_y_value_error() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a plot with literal string y value (incorrect usage)
-    let plot = Plot::new(Cartesian)
-        .mark(Symbol::new().data(df).x(col("x")).y("fixed")); // Literal string
+    let plot = Plot::new(Cartesian).mark(Symbol::new().data(df).x(col("x")).y("fixed")); // Literal string
 
     // Try to render
     let dimensions = CanvasDimensions {
@@ -175,8 +173,7 @@ async fn test_column_reference_works() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a plot with proper column references (correct usage)
-    let plot = Plot::new(Cartesian)
-        .mark(Symbol::new().data(df).x(col("x")).y(col("y")));
+    let plot = Plot::new(Cartesian).mark(Symbol::new().data(df).x(col("x")).y(col("y")));
 
     // Try to render
     let dimensions = CanvasDimensions {
@@ -212,13 +209,12 @@ async fn test_expression_with_column_works() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a plot with expressions that reference columns
-    let plot = Plot::new(Cartesian)
-        .mark(
-            Symbol::new()
-                .data(df)
-                .x(col("x") + lit(10)) // Expression with column
-                .y(col("y") * lit(2)), // Expression with column
-        );
+    let plot = Plot::new(Cartesian).mark(
+        Symbol::new()
+            .data(df)
+            .x(col("x") + lit(10)) // Expression with column
+            .y(col("y") * lit(2)), // Expression with column
+    );
 
     // Try to render
     let dimensions = CanvasDimensions {
@@ -259,8 +255,8 @@ async fn test_non_positional_scales_allow_literals() {
             .data(df)
             .x(col("x"))
             .y(col("y"))
-            .fill("red")    // Literal color - OK for non-positional
-            .size(10.0),    // Literal size - OK for non-positional
+            .fill("red") // Literal color - OK for non-positional
+            .size(10.0), // Literal size - OK for non-positional
     );
 
     // Try to render

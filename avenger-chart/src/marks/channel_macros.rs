@@ -31,7 +31,7 @@ macro_rules! define_common_mark_channels {
                             name: stringify!($name),
                             required: false $(|| $required)?,
                             channel_type: $channel_type,
-                            default_value: None $(.or(Some($crate::marks::ChannelDefault::Scalar($default))))?,
+                            default_value: None $(.or(Some($default)))?,
                             allow_column_ref: true $(&& $allow_column)?,
                         },
                     )*
@@ -74,7 +74,7 @@ macro_rules! define_position_mark_channels {
                             name: stringify!($name),
                             required: false $(|| $required)?,
                             channel_type: $channel_type,
-                            default_value: None $(.or(Some($crate::marks::ChannelDefault::Scalar($default))))?,
+                            default_value: None $(.or(Some($default)))?,
                             allow_column_ref: true $(&& $allow_column)?,
                         },
                     )*
