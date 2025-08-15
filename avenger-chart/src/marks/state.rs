@@ -17,6 +17,4 @@ pub(crate) struct MarkState<C: CoordinateSystem> {
 
     pub details: Option<Vec<String>>,
     pub zindex: Option<i32>,
-    #[allow(dead_code)] // Reserved for future use
-    pub shapes: Option<Vec<SymbolShape>>,
 }
