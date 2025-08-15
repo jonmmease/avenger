@@ -73,10 +73,6 @@ define_position_mark_channels! {
 impl Mark<Cartesian> for Symbol<Cartesian> {
     impl_mark_trait_common!(Symbol, Cartesian, "symbol");
 
-    fn padding_channels(&self) -> Vec<&'static str> {
-        vec!["size", "stroke_width", "shape", "angle"]
-    }
-
     fn default_channel_value(&self, channel: &str) -> Option<ScalarValue> {
         match channel {
             "size" => Some(ScalarValue::Float32(Some(64.0))), // Default area

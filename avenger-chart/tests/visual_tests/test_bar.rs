@@ -106,7 +106,7 @@ async fn test_bar_chart_with_narrow_bars() {
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(ChannelValue::column("category").with_band(0.7)) // 70% of band width
+                .x2(ChannelValue::column("category").band(0.7)) // 70% of band width
                 .y(lit(0.0).scaled())
                 .y2(col("value"))
                 .fill("#3498db".identity())

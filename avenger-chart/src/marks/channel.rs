@@ -25,7 +25,7 @@ pub trait ChannelExpr: Sized {
 
     /// Scale this value with a band parameter (convenience for .scaled().with_band())
     fn band(self, band: f64) -> ChannelValue {
-        self.scaled().with_band(band)
+        self.scaled().band(band)
     }
 }
 
@@ -52,7 +52,7 @@ impl ChannelValue {
     }
 
     /// Set the band parameter for this channel (only for scaled values)
-    pub fn with_band(self, band: f64) -> Self {
+    pub fn band(self, band: f64) -> Self {
         match self {
             ChannelValue::Scaled {
                 expr, scale_name, ..
@@ -66,7 +66,7 @@ impl ChannelValue {
     }
 
     /// Set a custom scale name (only for scaled values)
-    pub fn with_scale(self, name: impl Into<String>) -> Self {
+    pub fn scale(self, name: impl Into<String>) -> Self {
         match self {
             ChannelValue::Scaled { expr, band, .. } => ChannelValue::Scaled {
                 expr,
@@ -218,9 +218,9 @@ mod tests {
             }
         ));
 
-        // Test band is equivalent to scaled().with_band()
+        // Test band is equivalent to scaled().band()
         let cv1 = col("x").band(1.0);
-        let cv2 = col("x").scaled().with_band(1.0);
+        let cv2 = col("x").scaled().band(1.0);
         match (cv1, cv2) {
             (ChannelValue::Scaled { band: b1, .. }, ChannelValue::Scaled { band: b2, .. }) => {
                 assert_eq!(b1, b2);

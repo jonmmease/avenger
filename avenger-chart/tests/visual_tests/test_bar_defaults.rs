@@ -24,7 +24,7 @@ async fn test_bar_chart_y_scale_auto_zero() {
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(ChannelValue::column("category").with_band(1.0))
+                .x2(ChannelValue::column("category").band(1.0))
                 .y(lit(0.0).scaled())
                 .y2(col("value"))
                 .fill("#4682b4".identity())
@@ -51,7 +51,7 @@ async fn test_bar_chart_y_scale_no_zero() {
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(ChannelValue::column("category").with_band(1.0))
+                .x2(ChannelValue::column("category").band(1.0))
                 .y(lit(0.0).scaled())
                 .y2(col("value"))
                 .fill("#e74c3c".identity())

@@ -801,9 +801,9 @@ impl<C: CoordinateSystem> Plot<C> {
         use std::collections::HashSet;
         let mut used_channels = HashSet::new();
         for mark in &self.marks {
-            for (channel, channel_value) in mark.data_context().channels() {
-                if channel_value.scale_name(channel).is_some() {
-                    used_channels.insert(channel.clone());
+            for (channel_name, channel_value) in mark.data_context().channels() {
+                if channel_value.scale_name(channel_name).is_some() {
+                    used_channels.insert(channel_name.clone());
                 }
             }
         }

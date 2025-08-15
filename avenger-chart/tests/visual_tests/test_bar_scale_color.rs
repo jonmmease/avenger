@@ -46,7 +46,7 @@ async fn test_bar_chart_linear_color_interpolation() {
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(ChannelValue::column("category").with_band(1.0))
+                .x2(ChannelValue::column("category").band(1.0))
                 .y(lit(0.0).scaled())
                 .y2(col("value"))
                 .fill(col("value")) // Map value through the linear color scale
@@ -99,7 +99,7 @@ async fn test_bar_chart_log_color_interpolation() {
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(ChannelValue::column("category").with_band(1.0))
+                .x2(ChannelValue::column("category").band(1.0))
                 .y(lit(0.0).scaled())
                 .y2(col("value"))
                 .fill(col("value")) // Map value through the log color scale
@@ -147,7 +147,7 @@ async fn test_bar_chart_pow_color_interpolation() {
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(ChannelValue::column("category").with_band(1.0))
+                .x2(ChannelValue::column("category").band(1.0))
                 .y(lit(0.0).scaled())
                 .y2(col("value"))
                 .fill(col("value")) // Map value through the power color scale
@@ -194,7 +194,7 @@ async fn test_bar_chart_sqrt_color_interpolation() {
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(ChannelValue::column("category").with_band(1.0))
+                .x2(ChannelValue::column("category").band(1.0))
                 .y(lit(0.0).scaled())
                 .y2(col("value"))
                 .fill(col("value")) // Map value through the sqrt color scale
@@ -247,7 +247,7 @@ async fn test_bar_chart_threshold_scale_colors() {
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(ChannelValue::column("category").with_band(1.0))
+                .x2(ChannelValue::column("category").band(1.0))
                 .y(lit(0.0).scaled())
                 .y2(col("value"))
                 .fill(col("value")) // Map value through the threshold scale
@@ -270,7 +270,7 @@ async fn test_bar_chart_linear_color_default_colors() {
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(ChannelValue::column("category").with_band(1.0))
+                .x2(ChannelValue::column("category").band(1.0))
                 .y(lit(0.0))
                 .y2(col("value"))
                 .fill(col("value"))
@@ -299,7 +299,7 @@ async fn test_bar_chart_ordinal_scale_colors() {
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(ChannelValue::column("category").with_band(1.0))
+                .x2(ChannelValue::column("category").band(1.0))
                 .y(lit(0.0).scaled())
                 .y2(col("value"))
                 .fill(col("category")) // Map fill to category column

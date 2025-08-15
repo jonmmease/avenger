@@ -10,6 +10,7 @@ This document consolidates all experimental features and design work for future 
 5. [Text Mark Implementation](#5-text-mark-implementation)
 6. [Faceting System](#6-faceting-system)
 7. [Integration Points](#7-integration-points)
+8. [Polar Coordinate System](#8-polar-coordinate-system)
 
 ---
 
