@@ -1,15 +1,14 @@
 use crate::coords::{Cartesian, CoordinateSystem, Polar};
 use crate::error::AvengerChartError;
 use crate::marks::util::{coerce_color_channel, coerce_numeric_channel};
-use crate::marks::{ChannelType, Mark, MarkState};
+use crate::marks::{ChannelDefault, ChannelType, Mark, MarkState};
 use crate::{
-    define_common_mark_channels, define_position_mark_channels, impl_mark_common,
+    define_common_mark_channels, define_position_mark_channels, impl_mark_base,
     impl_mark_trait_common,
 };
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::dataframe::DataFrame;
 use datafusion::scalar::ScalarValue;
 
 pub struct Rect<C: CoordinateSystem> {
@@ -17,31 +16,31 @@ pub struct Rect<C: CoordinateSystem> {
     __phantom: std::marker::PhantomData<C>,
 }
 
-// Common mark methods
-impl_mark_common!(Rect, "rect");
+// Implement MarkBase trait and Default
+impl_mark_base!(Rect);
 
 // Define common channels for all coordinate systems
 define_common_mark_channels! {
     Rect {
         fill: {
             type: ChannelType::Color,
-            default: ScalarValue::Utf8(Some("#4682b4".to_string()))
+            default: ChannelDefault::Scalar(ScalarValue::Utf8(Some("#4682b4".to_string())))
         },
         stroke: {
             type: ChannelType::Color,
-            default: ScalarValue::Utf8(Some("#000000".to_string()))
+            default: ChannelDefault::Scalar(ScalarValue::Utf8(Some("#000000".to_string())))
         },
         stroke_width: {
             type: ChannelType::Numeric,
-            default: ScalarValue::Float32(Some(1.0))
+            default: ChannelDefault::Scalar(ScalarValue::Float32(Some(1.0)))
         },
         opacity: {
             type: ChannelType::Numeric,
-            default: ScalarValue::Float32(Some(1.0))
+            default: ChannelDefault::Scalar(ScalarValue::Float32(Some(1.0)))
         },
         corner_radius: {
             type: ChannelType::Numeric,
-            default: ScalarValue::Float32(Some(0.0))
+            default: ChannelDefault::Scalar(ScalarValue::Float32(Some(0.0)))
         },
     }
 }

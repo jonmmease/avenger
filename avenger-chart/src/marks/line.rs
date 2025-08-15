@@ -4,9 +4,9 @@ use crate::marks::util::{
     coerce_bool_channel, coerce_numeric_channel, coerce_stroke_cap_channel,
     coerce_stroke_join_channel,
 };
-use crate::marks::{ChannelType, Mark, MarkState, RadiusExpression};
+use crate::marks::{ChannelDefault, ChannelType, Mark, MarkState, RadiusExpression};
 use crate::{
-    define_common_mark_channels, define_position_mark_channels, impl_mark_common,
+    define_common_mark_channels, define_position_mark_channels, impl_mark_base,
     impl_mark_trait_common,
 };
 use avenger_common::value::ScalarOrArray;
@@ -16,7 +16,6 @@ use datafusion::arrow::array::{Array, ArrayRef, AsArray};
 use datafusion::arrow::compute::kernels::cast::cast;
 use datafusion::arrow::datatypes::DataType;
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::{Expr, lit};
 use datafusion::scalar::ScalarValue;
 use indexmap::IndexMap;
@@ -26,45 +25,45 @@ pub struct Line<C: CoordinateSystem> {
     __phantom: std::marker::PhantomData<C>,
 }
 
-// Generate common methods (includes Default implementation)
-impl_mark_common!(Line, "line");
+// Implement MarkBase trait and Default
+impl_mark_base!(Line);
 
 // Define common channels for all coordinate systems
 define_common_mark_channels! {
     Line {
         stroke: {
             type: ChannelType::Color,
-            default: ScalarValue::Utf8(Some("#000000".to_string())),
+            default: ChannelDefault::Scalar(ScalarValue::Utf8(Some("#000000".to_string()))),
             allow_column: true
         },
         stroke_width: {
             type: ChannelType::Numeric,
-            default: ScalarValue::Float32(Some(2.0)),
+            default: ChannelDefault::Scalar(ScalarValue::Float32(Some(2.0))),
             allow_column: true
         },
         stroke_dash: {
             type: ChannelType::StrokeDash,
-            default: ScalarValue::Utf8(Some("solid".to_string())),
+            default: ChannelDefault::Scalar(ScalarValue::Utf8(Some("solid".to_string()))),
             allow_column: true
         },
         stroke_cap: {
             type: ChannelType::StrokeCap,
-            default: ScalarValue::Utf8(Some("round".to_string())),
+            default: ChannelDefault::Scalar(ScalarValue::Utf8(Some("round".to_string()))),
             allow_column: false
         },
         stroke_join: {
             type: ChannelType::StrokeJoin,
-            default: ScalarValue::Utf8(Some("round".to_string())),
+            default: ChannelDefault::Scalar(ScalarValue::Utf8(Some("round".to_string()))),
             allow_column: false
         },
         opacity: {
             type: ChannelType::Numeric,
-            default: ScalarValue::Float32(Some(1.0)),
+            default: ChannelDefault::Scalar(ScalarValue::Float32(Some(1.0))),
             allow_column: false  // Line opacity must be constant
         },
         defined: {
             type: ChannelType::Boolean,
-            default: ScalarValue::Boolean(Some(true))
+            default: ChannelDefault::Scalar(ScalarValue::Boolean(Some(true)))
         },
         order: {
             type: ChannelType::Numeric,

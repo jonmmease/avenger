@@ -728,7 +728,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                     }
                 }
             }
-            
+
             // Check in scalar batch
             if let Some(column) = scalar_batch.column_by_name(channel_name) {
                 let dtype = column.data_type();
@@ -737,10 +737,10 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 }
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Check if a data type is numeric
     fn is_numeric_type(dtype: &datafusion::arrow::datatypes::DataType) -> bool {
         use datafusion::arrow::datatypes::DataType;
@@ -759,7 +759,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 | DataType::Float64
         )
     }
-    
+
     /// Create error for non-numeric positional channel
     fn create_positional_type_error(
         &self,
@@ -767,36 +767,32 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         dtype: &datafusion::arrow::datatypes::DataType,
     ) -> Result<(), AvengerChartError> {
         use datafusion::arrow::datatypes::DataType;
-        
+
         // Get coordinate system name
         let coord_system_name = std::any::type_name::<C>()
             .split("::")
             .last()
             .unwrap_or("Unknown")
             .to_string();
-        
+
         // Provide helpful suggestion based on the data type
         let (literal_value, suggestion) = match dtype {
-            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
-                (
-                    "string literal".to_string(),
-                    format!(
-                        "Use col(\"column_name\") to reference a data column instead of a string literal.\n  \
+            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => (
+                "string literal".to_string(),
+                format!(
+                    "Use col(\"column_name\") to reference a data column instead of a string literal.\n  \
                          If you need a fixed position, use a numeric value like lit(100.0)"
-                    ),
-                )
-            }
-            _ => {
-                (
-                    format!("{:?} value", dtype),
-                    format!(
-                        "Positional channels require numeric values. \
+                ),
+            ),
+            _ => (
+                format!("{:?} value", dtype),
+                format!(
+                    "Positional channels require numeric values. \
                          Use col(\"column_name\") to reference a numeric column."
-                    ),
-                )
-            }
+                ),
+            ),
         };
-        
+
         Err(AvengerChartError::PositionalScaleLiteralError {
             scale_name: channel_name.to_string(),
             coord_system: coord_system_name,

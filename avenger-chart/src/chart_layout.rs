@@ -59,7 +59,7 @@ enum ComponentType {
     PlotArea,
     Axis(AxisPosition),
     #[allow(dead_code)]
-    Legend(String),                  // Channel name - may be used in future
+    Legend(String), // Channel name - may be used in future
     LegendContainer(LegendPosition), // Container for legends at a position
     Title,
     Subtitle,

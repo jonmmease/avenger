@@ -250,4 +250,3 @@ pub fn resolve_all_channel_refs(
 
     resolved_channels
 }
-

@@ -1,6 +1,6 @@
 use super::helpers::assert_visual_match_default;
-use avenger_chart::legend::LegendPosition;
 use avenger_chart::coords::Cartesian;
+use avenger_chart::legend::LegendPosition;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
 use datafusion::arrow::array::{Float64Array, StringArray};

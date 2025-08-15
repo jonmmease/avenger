@@ -58,12 +58,16 @@ pub fn expr_references_columns(expr: &Expr) -> bool {
         Expr::IsNotFalse(expr) => expr_references_columns(expr),
         Expr::IsNotUnknown(expr) => expr_references_columns(expr),
         Expr::Alias(alias) => expr_references_columns(&alias.expr),
-        Expr::AggregateFunction(agg) => {
-            agg.params.args.iter().any(|arg| expr_references_columns(arg))
-        }
-        Expr::WindowFunction(window) => {
-            window.params.args.iter().any(|arg| expr_references_columns(arg))
-        }
+        Expr::AggregateFunction(agg) => agg
+            .params
+            .args
+            .iter()
+            .any(|arg| expr_references_columns(arg)),
+        Expr::WindowFunction(window) => window
+            .params
+            .args
+            .iter()
+            .any(|arg| expr_references_columns(arg)),
         #[allow(deprecated)]
         Expr::Wildcard { .. } => true,
         Expr::Unnest(unnest) => expr_references_columns(&unnest.expr),

@@ -1,15 +1,10 @@
-/// Macro to implement common mark methods
+/// Minimal macro to implement MarkBase trait
+/// This just provides the accessor methods - all the real logic is in the trait
 #[macro_export]
-macro_rules! impl_mark_common {
-    ($mark_type:ident, $mark_name:literal) => {
+macro_rules! impl_mark_base {
+    ($mark_type:ident) => {
         impl<C: CoordinateSystem> Default for $mark_type<C> {
             fn default() -> Self {
-                Self::new()
-            }
-        }
-
-        impl<C: CoordinateSystem> $mark_type<C> {
-            pub fn new() -> Self {
                 Self {
                     state: $crate::marks::MarkState {
                         _phantom: std::marker::PhantomData,
@@ -18,19 +13,26 @@ macro_rules! impl_mark_common {
                         facet_strategy: $crate::marks::FacetStrategy::Filter,
                         details: None,
                         zindex: None,
-                        shapes: None,
                     },
                     __phantom: std::marker::PhantomData,
                 }
             }
+        }
 
-            pub fn data(mut self, dataframe: DataFrame) -> Self {
+        impl<C: CoordinateSystem> $mark_type<C> {
+            /// Create a new mark with default settings
+            pub fn new() -> Self {
+                Self::default()
+            }
+
+            /// Set explicit data for this mark
+            pub fn data(mut self, dataframe: datafusion::dataframe::DataFrame) -> Self {
                 self.state.data = $crate::marks::DataContext::new(dataframe);
-                self.state.data_source = $crate::marks::DataSource::Explicit; // Mark as explicit data
+                self.state.data_source = $crate::marks::DataSource::Explicit;
                 self
             }
 
-            /// Explicitly specify to use plot data (useful for clarity)
+            /// Explicitly inherit data from the plot
             pub fn use_plot_data(mut self) -> Self {
                 self.state.data_source = $crate::marks::DataSource::Inherited;
                 self
@@ -42,24 +44,24 @@ macro_rules! impl_mark_common {
                 self
             }
 
-            /// Convenience method for reference marks that should span all facets
+            /// Make this mark appear in all facets
             pub fn broadcast_to_facets(mut self) -> Self {
                 self.state.facet_strategy = $crate::marks::FacetStrategy::Broadcast;
                 self
             }
 
+            /// Set detail channels for tooltips/interactions
             pub fn details(mut self, details: Vec<String>) -> Self {
                 self.state.details = Some(details);
                 self
             }
 
+            /// Set rendering order
             pub fn zindex(mut self, zindex: i32) -> Self {
                 self.state.zindex = Some(zindex);
                 self
             }
         }
-
-        // Don't implement Mark trait here - marks will implement it themselves with specific coordinate systems
     };
 }
 
@@ -85,5 +87,3 @@ macro_rules! impl_mark_trait_common {
         }
     };
 }
-
-// encoding_methods! macro removed - use define_common_mark_channels! and define_position_mark_channels! instead
