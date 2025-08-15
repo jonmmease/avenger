@@ -38,22 +38,22 @@ define_common_mark_channels! {
             allow_column: true
         },
         stroke_width: {
-            type: ChannelType::Size,
+            type: ChannelType::Numeric,
             default: ScalarValue::Float32(Some(2.0)),
             allow_column: true
         },
         stroke_dash: {
-            type: ChannelType::Enum { values: &["solid", "dashed", "dotted", "dash-dot", "long-dash", "dense-dash"] },
+            type: ChannelType::StrokeDash,
             default: ScalarValue::Utf8(Some("solid".to_string())),
             allow_column: true
         },
         stroke_cap: {
-            type: ChannelType::Enum { values: &["butt", "round", "square"] },
+            type: ChannelType::StrokeCap,
             default: ScalarValue::Utf8(Some("round".to_string())),
             allow_column: false
         },
         stroke_join: {
-            type: ChannelType::Enum { values: &["bevel", "miter", "round"] },
+            type: ChannelType::StrokeJoin,
             default: ScalarValue::Utf8(Some("round".to_string())),
             allow_column: false
         },
@@ -62,13 +62,8 @@ define_common_mark_channels! {
             default: ScalarValue::Float32(Some(1.0)),
             allow_column: false  // Line opacity must be constant
         },
-        interpolate: {
-            type: ChannelType::Enum { values: &["linear", "step", "step-before", "step-after", "basis", "cardinal", "monotone"] },
-            default: ScalarValue::Utf8(Some("linear".to_string())),
-            allow_column: false
-        },
         defined: {
-            type: ChannelType::Numeric,  // Will be coerced to boolean
+            type: ChannelType::Boolean,
             default: ScalarValue::Boolean(Some(true))
         },
         order: {
@@ -81,16 +76,16 @@ define_common_mark_channels! {
 // Define position channels for Cartesian coordinates
 define_position_mark_channels! {
     Line<Cartesian> {
-        x: { type: ChannelType::Position },
-        y: { type: ChannelType::Position },
+        x: { type: ChannelType::Numeric },
+        y: { type: ChannelType::Numeric },
     }
 }
 
 // Define position channels for Polar coordinates
 define_position_mark_channels! {
     Line<Polar> {
-        r: { type: ChannelType::Position },
-        theta: { type: ChannelType::Position },
+        r: { type: ChannelType::Numeric },
+        theta: { type: ChannelType::Numeric },
     }
 }
 

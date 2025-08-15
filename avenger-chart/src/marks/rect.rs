@@ -32,7 +32,7 @@ define_common_mark_channels! {
             default: ScalarValue::Utf8(Some("#000000".to_string()))
         },
         stroke_width: {
-            type: ChannelType::Size,
+            type: ChannelType::Numeric,
             default: ScalarValue::Float32(Some(1.0))
         },
         opacity: {
@@ -49,20 +49,20 @@ define_common_mark_channels! {
 // Define position channels for Cartesian coordinates
 define_position_mark_channels! {
     Rect<Cartesian> {
-        x: { type: ChannelType::Position },
-        x2: { type: ChannelType::Position },
-        y: { type: ChannelType::Position },
-        y2: { type: ChannelType::Position },
+        x: { type: ChannelType::Numeric },
+        x2: { type: ChannelType::Numeric },
+        y: { type: ChannelType::Numeric },
+        y2: { type: ChannelType::Numeric },
     }
 }
 
 // Define position channels for Polar coordinates
 define_position_mark_channels! {
     Rect<Polar> {
-        r: { type: ChannelType::Position },
-        r2: { type: ChannelType::Position },
-        theta: { type: ChannelType::Position },
-        theta2: { type: ChannelType::Position },
+        r: { type: ChannelType::Numeric },
+        r2: { type: ChannelType::Numeric },
+        theta: { type: ChannelType::Numeric },
+        theta2: { type: ChannelType::Numeric },
     }
 }
 
