@@ -1,17 +1,28 @@
 //! Utility functions for extracting channel values from batches
+//!
+//! This module provides functions to coerce channel values from DataFusion RecordBatches
+//! into typed values using the avenger-scales Coercer system.
 
 use crate::error::AvengerChartError;
-use crate::utils::ScalarValueHelpers;
 use avenger_common::types::{ColorOrGradient, StrokeCap, StrokeJoin};
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_scales::scales::coerce::Coercer;
-use datafusion::arrow::array::{Array, ArrayRef, Float32Array, Float64Array, StringArray};
+use datafusion::arrow::array::ArrayRef;
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::scalar::ScalarValue;
-use std::collections::HashMap;
 
 /// Coerce a channel from either data or scalar batch using the provided coercion function
-/// First checks data batch for array values, then scalar batch for scalar values
+///
+/// # Arguments
+/// * `data` - Optional data batch containing array values (multiple rows)
+/// * `scalars` - Scalar batch containing scalar values (single row)
+/// * `channel` - Channel name to extract
+/// * `coerce_fn` - Function to coerce the array to the desired type
+/// * `default` - Default value if channel not found
+///
+/// # Returns
+/// - If channel found in data batch: returns as array
+/// - If channel found in scalar batch: returns as scalar (since it's a single row)
+/// - Otherwise: returns default as scalar
 pub fn coerce_channel<T, F>(
     data: Option<&RecordBatch>,
     scalars: &RecordBatch,
@@ -40,7 +51,7 @@ where
         }
     }
 
-    // Then check scalar batch
+    // Then check scalar batch (single row, so return as scalar)
     if let Some(array) = scalars.column_by_name(channel) {
         coerce_fn(&coercer, array)
             .map(|v| v.to_scalar_if_len_one())
@@ -113,6 +124,20 @@ pub fn coerce_color_channel(
     )
 }
 
+/// Helper to convert a ScalarValue to a ColorOrGradient using the Coercer
+fn scalar_to_color(
+    scalar: &datafusion::scalar::ScalarValue,
+    fallback: [f32; 4],
+) -> Result<ColorOrGradient, AvengerChartError> {
+    let array_ref = scalar.to_array()?;
+    let coercer = Coercer::default();
+    Ok(coercer
+        .to_color(&array_ref, Some(ColorOrGradient::Color(fallback)))
+        .ok()
+        .and_then(|result| result.first().cloned())
+        .unwrap_or(ColorOrGradient::Color(fallback)))
+}
+
 /// Get color channel values using Coercer with mark defaults
 pub fn coerce_color_channel_with_mark<C: crate::coords::CoordinateSystem>(
     mark: &dyn crate::marks::Mark<C>,
@@ -121,42 +146,22 @@ pub fn coerce_color_channel_with_mark<C: crate::coords::CoordinateSystem>(
     channel: &str,
     fallback_default: [f32; 4],
 ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerChartError> {
-    use crate::utils::ScalarValueHelpers;
-
-    // Get default from mark, falling back to provided default
-    let default_str = mark
-        .default_channel_value(channel)
-        .and_then(|scalar| scalar.as_scalar_string().ok());
-
-    // Convert color string to RGBA array if we got one from the mark
-    let default = if let Some(color_str) = default_str {
-        // Parse hex color string to RGBA
-        parse_hex_color_simple(&color_str).unwrap_or(fallback_default)
+    // Get default from mark - the mark's default_channel_value returns a ScalarValue
+    // which for colors is typically a string like "#4682b4"
+    let default = if let Some(default_scalar) = mark.default_channel_value(channel) {
+        scalar_to_color(&default_scalar, fallback_default)?
     } else {
-        fallback_default
+        ColorOrGradient::Color(fallback_default)
     };
 
-    let default_color = ColorOrGradient::Color(default);
+    let default_for_closure = default.clone();
     coerce_channel(
         data,
         scalars,
         channel,
-        |c, a| c.to_color(a, Some(ColorOrGradient::Color(default))),
-        default_color,
+        move |c, a| c.to_color(a, Some(default_for_closure.clone())),
+        default,
     )
-}
-
-// Helper function to parse hex color strings to RGBA arrays
-fn parse_hex_color_simple(color: &str) -> Option<[f32; 4]> {
-    if let Some(hex) = color.strip_prefix('#') {
-        if hex.len() == 6 {
-            let r = u8::from_str_radix(&hex[0..2], 16).ok()? as f32 / 255.0;
-            let g = u8::from_str_radix(&hex[2..4], 16).ok()? as f32 / 255.0;
-            let b = u8::from_str_radix(&hex[4..6], 16).ok()? as f32 / 255.0;
-            return Some([r, g, b, 1.0]);
-        }
-    }
-    None
 }
 
 /// Get boolean channel values using Coercer
@@ -170,41 +175,67 @@ pub fn coerce_bool_channel(
 }
 
 /// Get stroke cap channel value using Coercer
+/// Note: stroke_cap must be scalar (constant for entire mark)
+/// If an array is provided, takes the first value
 pub fn coerce_stroke_cap_channel(
     data: Option<&RecordBatch>,
     scalars: &RecordBatch,
     channel: &str,
     default: StrokeCap,
 ) -> Result<StrokeCap, AvengerChartError> {
-    coerce_channel(data, scalars, channel, |c, a| c.to_stroke_cap(a), default).map(|v| {
-        // Since stroke_cap must be scalar, extract the scalar value
-        match v.value() {
-            ScalarOrArrayValue::Scalar(cap) => *cap,
-            ScalarOrArrayValue::Array(caps) => {
-                // Take first value or default if empty
-                caps.first().cloned().unwrap_or(default)
-            }
-        }
-    })
+    coerce_channel(data, scalars, channel, |c, a| c.to_stroke_cap(a), default)
+        .map(|v| v.first().cloned().unwrap_or(default))
 }
 
 /// Get stroke join channel value using Coercer
+/// Note: stroke_join must be scalar (constant for entire mark)
+/// If an array is provided, takes the first value
 pub fn coerce_stroke_join_channel(
     data: Option<&RecordBatch>,
     scalars: &RecordBatch,
     channel: &str,
     default: StrokeJoin,
 ) -> Result<StrokeJoin, AvengerChartError> {
-    coerce_channel(data, scalars, channel, |c, a| c.to_stroke_join(a), default).map(|v| {
-        // Since stroke_join must be scalar, extract the scalar value
-        match v.value() {
-            ScalarOrArrayValue::Scalar(join) => *join,
-            ScalarOrArrayValue::Array(joins) => {
-                // Take first value or default if empty
-                joins.first().cloned().unwrap_or(default)
-            }
-        }
-    })
+    coerce_channel(data, scalars, channel, |c, a| c.to_stroke_join(a), default)
+        .map(|v| v.first().cloned().unwrap_or(default))
+}
+
+/// Get text channel values using Coercer
+pub fn coerce_text_channel(
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    default: String,
+) -> Result<ScalarOrArray<String>, AvengerChartError> {
+    let default_ref = default.clone();
+    coerce_channel(
+        data,
+        scalars,
+        channel,
+        move |c, a| c.to_string(a, Some(&default_ref)),
+        default,
+    )
+}
+
+/// Get opacity channel value using Coercer
+/// Ensures values are clamped to [0.0, 1.0] range
+pub fn coerce_opacity_channel(
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    default: f32,
+) -> Result<ScalarOrArray<f32>, AvengerChartError> {
+    let clamped_default = default.clamp(0.0, 1.0);
+    coerce_channel(
+        data,
+        scalars,
+        channel,
+        |c, a| {
+            c.to_numeric(a, Some(clamped_default))
+                .map(|values| values.map(|v| v.clamp(0.0, 1.0)))
+        },
+        clamped_default,
+    )
 }
 
 /// Get stroke dash channel value using Coercer
@@ -239,123 +270,4 @@ pub fn coerce_stroke_dash_channel(
             }
         }
     })
-}
-
-/// Get numeric channel values as a vector
-pub fn get_numeric_channel(
-    channel: &str,
-    batch: Option<&RecordBatch>,
-    scalars: &HashMap<String, ScalarValue>,
-    default: f32,
-) -> Result<Vec<f32>, AvengerChartError> {
-    if let Some(batch) = batch {
-        if let Some(array) = batch.column_by_name(channel) {
-            extract_numeric_array(array)
-        } else if let Some(scalar) = scalars.get(channel) {
-            let value = scalar.as_f32().unwrap_or(default);
-            Ok(vec![value; batch.num_rows()])
-        } else {
-            Ok(vec![default; batch.num_rows()])
-        }
-    } else {
-        // Pure scalar case - single mark
-        let value = scalars
-            .get(channel)
-            .and_then(|s| s.as_f32().ok())
-            .unwrap_or(default);
-        Ok(vec![value])
-    }
-}
-
-/// Get numeric channel values as ScalarOrArray for memory efficiency
-pub fn get_numeric_channel_scalar_or_array(
-    channel: &str,
-    batch: Option<&RecordBatch>,
-    scalars: &HashMap<String, ScalarValue>,
-    default: f32,
-) -> Result<ScalarOrArray<f32>, AvengerChartError> {
-    // Check if we have a scalar value
-    if let Some(scalar) = scalars.get(channel) {
-        let value = scalar.as_f32().unwrap_or(default);
-        return Ok(ScalarOrArray::new_scalar(value));
-    }
-
-    // Otherwise try to get array from batch
-    if let Some(batch) = batch {
-        if let Some(array) = batch.column_by_name(channel) {
-            let values = extract_numeric_array(array)?;
-            return Ok(ScalarOrArray::new_array(values));
-        }
-    }
-
-    // Default scalar
-    Ok(ScalarOrArray::new_scalar(default))
-}
-
-/// Get text channel values
-pub fn get_text_channel(
-    channel: &str,
-    batch: Option<&RecordBatch>,
-    scalars: &HashMap<String, ScalarValue>,
-    default: &str,
-) -> Result<Vec<String>, AvengerChartError> {
-    if let Some(batch) = batch {
-        if let Some(array) = batch.column_by_name(channel) {
-            extract_text_array(array)
-        } else if let Some(scalar) = scalars.get(channel) {
-            let value = scalar
-                .as_scalar_string()
-                .unwrap_or_else(|_| default.to_string());
-            Ok(vec![value; batch.num_rows()])
-        } else {
-            Ok(vec![default.to_string(); batch.num_rows()])
-        }
-    } else {
-        // Pure scalar case
-        let value = scalars
-            .get(channel)
-            .and_then(|s| s.as_scalar_string().ok())
-            .unwrap_or_else(|| default.to_string());
-        Ok(vec![value])
-    }
-}
-
-/// Extract numeric values from an Arrow array
-pub fn extract_numeric_array(array: &dyn Array) -> Result<Vec<f32>, AvengerChartError> {
-    let num_rows = array.len();
-
-    if let Some(float_array) = array.as_any().downcast_ref::<Float32Array>() {
-        Ok((0..num_rows).map(|i| float_array.value(i)).collect())
-    } else if let Some(float64_array) = array.as_any().downcast_ref::<Float64Array>() {
-        Ok((0..num_rows)
-            .map(|i| float64_array.value(i) as f32)
-            .collect())
-    } else {
-        Err(AvengerChartError::InternalError(format!(
-            "Expected numeric array but got {:?}",
-            array.data_type()
-        )))
-    }
-}
-
-/// Extract text values from an Arrow array
-pub fn extract_text_array(array: &dyn Array) -> Result<Vec<String>, AvengerChartError> {
-    let num_rows = array.len();
-
-    if let Some(string_array) = array.as_any().downcast_ref::<StringArray>() {
-        Ok((0..num_rows)
-            .map(|i| {
-                if string_array.is_null(i) {
-                    String::new()
-                } else {
-                    string_array.value(i).to_string()
-                }
-            })
-            .collect())
-    } else {
-        Err(AvengerChartError::InternalError(format!(
-            "Expected string array but got {:?}",
-            array.data_type()
-        )))
-    }
 }
