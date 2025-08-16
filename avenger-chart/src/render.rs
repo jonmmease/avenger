@@ -602,7 +602,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         let channels = mark.data_context().channels();
 
         // Resolve channel references (e.g., ":x" -> actual x expression)
-        let channels = crate::channel_resolution::resolve_all_channel_refs(channels);
+        let channels = crate::channel_resolution::resolve_all_channel_refs(channels)?;
 
         // Check if mark supports order and has order encoding
         let df = if let Some(df_ref) = df_ref {
@@ -779,17 +779,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         let (literal_value, suggestion) = match dtype {
             DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => (
                 "string literal".to_string(),
-                format!(
-                    "Use col(\"column_name\") to reference a data column instead of a string literal.\n  \
-                         If you need a fixed position, use a numeric value like lit(100.0)"
-                ),
+                "Use col(\"column_name\") to reference a data column instead of a string literal.\n  \
+                         If you need a fixed position, use a numeric value like lit(100.0)".to_string(),
             ),
             _ => (
                 format!("{:?} value", dtype),
-                format!(
-                    "Positional channels require numeric values. \
-                         Use col(\"column_name\") to reference a numeric column."
-                ),
+                "Positional channels require numeric values. \
+                         Use col(\"column_name\") to reference a numeric column.".to_string(),
             ),
         };
 
@@ -2658,7 +2654,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 // Use the new method that gathers radius information
                 let data_expressions_with_radius = self
                     .plot
-                    .gather_scale_domain_expressions_with_radius(name, all_scales);
+                    .gather_scale_domain_expressions_with_radius(name, all_scales)?;
 
                 // Check if any expressions actually have radius
                 let has_radius = data_expressions_with_radius
@@ -2681,7 +2677,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 }
             } else {
                 // Use standard domain gathering for non-linear scales
-                let data_expressions = self.plot.gather_scale_domain_expressions(name);
+                let data_expressions = self.plot.gather_scale_domain_expressions(name)?;
                 if !data_expressions.is_empty() {
                     *scale = scale.clone().domain_data_fields_internal(data_expressions);
                 }
@@ -2734,7 +2730,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         for (name, mut scale) in all_scales {
             // Infer domain if needed
             if !scale.has_explicit_domain() {
-                let data_expressions = self.plot.gather_scale_domain_expressions(&name);
+                let data_expressions = self.plot.gather_scale_domain_expressions(&name)?;
                 if !data_expressions.is_empty() {
                     scale = scale.domain_data_fields_internal(data_expressions);
                 }
