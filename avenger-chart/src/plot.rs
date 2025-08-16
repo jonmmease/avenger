@@ -8,6 +8,13 @@ use datafusion::logical_expr::lit;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// Type alias for scale domain expressions with optional radius information
+type ScaleDomainWithRadius = Vec<(
+    Arc<DataFrame>,
+    datafusion::logical_expr::Expr,
+    Option<RadiusExpression>,
+)>;
+
 /// How a scale is defined for a channel
 #[derive(Clone)]
 pub enum ScaleSpec {
@@ -517,7 +524,10 @@ impl<C: CoordinateSystem> Plot<C> {
     pub fn gather_scale_domain_expressions(
         &self,
         scale_name: &str,
-    ) -> Vec<(Arc<DataFrame>, datafusion::logical_expr::Expr)> {
+    ) -> Result<
+        Vec<(Arc<DataFrame>, datafusion::logical_expr::Expr)>,
+        crate::error::AvengerChartError,
+    > {
         use crate::marks::DataSource;
 
         let mut data_expressions = Vec::new();
@@ -545,7 +555,7 @@ impl<C: CoordinateSystem> Plot<C> {
 
             // Get channels and resolve channel references
             let channels = mark.data_context().channels();
-            let resolved_channels = crate::channel_resolution::resolve_all_channel_refs(channels);
+            let resolved_channels = crate::channel_resolution::resolve_all_channel_refs(channels)?;
 
             // Check all encodings in the mark's data context
             for (channel, channel_value) in &resolved_channels {
@@ -560,7 +570,7 @@ impl<C: CoordinateSystem> Plot<C> {
             }
         }
 
-        data_expressions
+        Ok(data_expressions)
     }
 
     /// Create a channel resolver function for a mark that handles both explicit mappings and defaults
@@ -629,11 +639,7 @@ impl<C: CoordinateSystem> Plot<C> {
         &self,
         scale_name: &str,
         scales: &HashMap<String, Scale>,
-    ) -> Vec<(
-        Arc<DataFrame>,
-        datafusion::logical_expr::Expr,
-        Option<RadiusExpression>,
-    )> {
+    ) -> Result<ScaleDomainWithRadius, crate::error::AvengerChartError> {
         use crate::marks::DataSource;
 
         let mut data_expressions = Vec::new();
@@ -642,10 +648,10 @@ impl<C: CoordinateSystem> Plot<C> {
         let is_positional = matches!(scale_name, "x" | "y");
         if !is_positional {
             // For non-positional scales, return without radius
-            for (df, expr) in self.gather_scale_domain_expressions(scale_name) {
+            for (df, expr) in self.gather_scale_domain_expressions(scale_name)? {
                 data_expressions.push((df, expr, None));
             }
-            return data_expressions;
+            return Ok(data_expressions);
         }
 
         for mark in &self.marks {
@@ -671,7 +677,8 @@ impl<C: CoordinateSystem> Plot<C> {
 
             // Get channels and resolve channel references
             let encodings = mark.data_context().channels();
-            let resolved_encodings = crate::channel_resolution::resolve_all_channel_refs(encodings);
+            let resolved_encodings =
+                crate::channel_resolution::resolve_all_channel_refs(encodings)?;
 
             // Create channel resolver for this mark
             let resolve_channel =
@@ -694,7 +701,7 @@ impl<C: CoordinateSystem> Plot<C> {
             }
         }
 
-        data_expressions
+        Ok(data_expressions)
     }
 
     /// Apply default range to a scale based on plot area dimensions

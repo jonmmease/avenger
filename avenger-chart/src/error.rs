@@ -1,3 +1,4 @@
+use crate::channel_resolution::ChannelResolutionError;
 use avenger_app::error::AvengerAppError;
 use avenger_guides::error::AvengerGuidesError;
 use avenger_scales::error::AvengerScaleError;
@@ -65,6 +66,9 @@ pub enum AvengerChartError {
 
     #[error("Layout error: `{0}`")]
     LayoutError(String),
+
+    #[error("Channel resolution error: `{0}`")]
+    ChannelResolutionError(#[from] ChannelResolutionError),
 
     #[error(
         "Positional scale '{scale_name}' in {coord_system} coordinate system contains only literal values.\n\
