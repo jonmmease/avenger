@@ -10,11 +10,6 @@ use std::sync::Arc;
 
 #[tokio::test]
 async fn test_eight_types_fill_shape() {
-    // Set environment variable to save layout SVG for debugging
-    unsafe {
-        std::env::set_var("AVENGER_DEBUG_LAYOUT", "tests/failures/symbol");
-    }
-
     // Create test data with 8 categories - same structure as line test
     // Each type has 5 points in a time series
     let x_values = Float32Array::from(vec![

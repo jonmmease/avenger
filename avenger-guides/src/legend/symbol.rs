@@ -78,12 +78,13 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
         config.angle.len(),
     ])?;
 
-    if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-        eprintln!(
-            "make_symbol_legend: len={}, stroke_width={:?}",
-            len, config.stroke_width
-        );
-    }
+    tracing::debug!(
+        len = len,
+        stroke_width = ?config.stroke_width,
+        text_len = config.text.len(),
+        text_values = ?config.text.as_vec(len, None),
+        "make_symbol_legend"
+    );
 
     // Compute the max width of all marks so that we can align the text next to them.
     let symbol_mark = SceneSymbolMark {
@@ -174,8 +175,8 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
             [config.inner_width + content_offset_x, y],
         );
         let height = group.bounding_box().height();
-        if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() && i == 0 {
-            eprintln!("  First symbol group height: {}", height);
+        if i == 0 {
+            tracing::debug!(height = height, "First symbol group height");
         }
         groups.push(SceneMark::Group(group));
         y += height;
@@ -245,10 +246,10 @@ fn make_symbol_group(
     let mut single_symbol_mark = symbols_mark.single_symbol_mark(index);
     single_symbol_mark.x = center_x.into();
 
-    if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() && index == 0 && text.len() > 3 {
+    if index == 0 && text.len() > 3 {
         // Debug symbol size for shape legend
         let sizes = single_symbol_mark.size.as_vec(1, None);
-        eprintln!("    Symbol '{}' size: {}", text, sizes[0]);
+        tracing::debug!(text = text, size = sizes[0], "Symbol size");
     }
 
     let padding = 0.5; // Further reduced vertical padding between legend items
@@ -256,13 +257,14 @@ fn make_symbol_group(
     let symbol_height = bbox.height();
     let symbol_width = bbox.width();
 
-    if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() && index == 0 && text.len() > 3 {
+    if index == 0 && text.len() > 3 {
         // Only debug for shape legend (has longer text like "circle")
-        eprintln!("    Symbol '{}' height: {}", text, symbol_height);
+        tracing::debug!(text = text, height = symbol_height, "Symbol height");
     }
 
     single_symbol_mark.y = (symbol_height / 2.0 + padding).into();
 
+    tracing::debug!(text = text, "Creating legend text mark");
     let text_mark = SceneTextMark {
         text: text.to_string().into(),
         x: (max_width + text_padding).into(),

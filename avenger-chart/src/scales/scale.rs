@@ -1,5 +1,5 @@
 use crate::error::AvengerChartError;
-use crate::scales::domain::{DomainExpr, ScaleDomain, ScaleDefaultDomain};
+use crate::scales::domain::{DomainExpr, ScaleDefaultDomain, ScaleDomain};
 use crate::scales::domain_inference::DomainInferrer;
 use crate::scales::factory::{apply_scale_defaults, create_scale_impl};
 use crate::scales::range::ScaleRange;
@@ -26,9 +26,16 @@ pub struct Scale {
 impl Scale {
     pub fn new<S: ScaleImpl>(scale_impl: S) -> Self {
         let scale_type = scale_impl.scale_type();
+
+        // Create appropriate default domain based on scale type
+        let domain = match scale_type {
+            "band" | "point" | "ordinal" => ScaleDomain::new_discrete(vec![]),
+            _ => ScaleDomain::new_interval(lit(0.0), lit(1.0)),
+        };
+
         let mut scale = Self {
             scale_impl: Arc::new(scale_impl),
-            domain: ScaleDomain::new_interval(lit(0.0), lit(1.0)),
+            domain,
             range: ScaleRange::new_interval(lit(0.0), lit(1.0)),
             options: HashMap::new(),
             domain_explicit: false,
@@ -42,9 +49,15 @@ impl Scale {
     pub fn with_type(scale_type: &str) -> Self {
         let scale_impl = create_scale_impl(scale_type);
 
+        // Create appropriate default domain based on scale type
+        let domain = match scale_type {
+            "band" | "point" | "ordinal" => ScaleDomain::new_discrete(vec![]),
+            _ => ScaleDomain::new_interval(lit(0.0), lit(1.0)),
+        };
+
         let mut scale = Self {
             scale_impl,
-            domain: ScaleDomain::new_interval(lit(0.0), lit(1.0)),
+            domain,
             range: ScaleRange::new_interval(lit(0.0), lit(1.0)),
             options: HashMap::new(),
             domain_explicit: false,
@@ -268,7 +281,36 @@ impl Scale {
         self.domain_explicit
     }
 
+    /// Build a ConfiguredScale from this Scale builder
+    /// This resolves domain from data, applies normalization, and creates the final configured scale
+    pub async fn build(
+        self,
+        plot_area_width: f32,
+        plot_area_height: f32,
+    ) -> Result<avenger_scales::scales::ConfiguredScale, AvengerChartError> {
+        // Only infer domain from data if not explicitly set
+        let resolved = if self.has_explicit_domain() {
+            // Use the explicit domain as-is
+            self
+        } else {
+            // Infer domain from data
+            self.infer_domain_from_data(Some((0.0, plot_area_width as f64)))
+                .await?
+        };
+
+        // Apply normalization
+        let normalized = resolved
+            .normalize_domain(plot_area_width, plot_area_height)
+            .await?;
+
+        // Create and return ConfiguredScale
+        normalized
+            .create_configured_scale(plot_area_width, plot_area_height)
+            .await
+    }
+
     /// Create a scale expression that transforms values using this scale
+    /// DEPRECATED: Use build() to create ConfiguredScale, then use to_expr() extension method
     pub fn to_expr(&self, values: Expr) -> Result<Expr, AvengerChartError> {
         let domain_expr = self.compile_domain()?;
         let range_expr = self.compile_range()?;
@@ -363,23 +405,41 @@ impl Scale {
                 // Convert to f32 values
                 let start_f32 = start_val.as_f32()?;
                 let end_f32 = end_val.as_f32()?;
-                Arc::new(Float32Array::from(vec![start_f32, end_f32])) as datafusion::arrow::array::ArrayRef
+                Arc::new(Float32Array::from(vec![start_f32, end_f32]))
+                    as datafusion::arrow::array::ArrayRef
             }
             ScaleDefaultDomain::Discrete(values) => {
-                // Extract string literals from the expressions
-                let mut strings = Vec::new();
+                // For threshold scales, we need numeric values
+                // For other discrete scales (ordinal, band, point), we need strings
                 let scalars = eval_to_scalars(values.clone(), None, None).await?;
-                for scalar in scalars {
-                    if let ScalarValue::Utf8(Some(s)) = scalar {
-                        strings.push(s);
+
+                if self.scale_impl.scale_type() == "threshold" {
+                    // Threshold scales need numeric domain values
+                    let mut floats = Vec::new();
+                    for scalar in scalars {
+                        let f = scalar.as_f32()?;
+                        floats.push(f);
                     }
+                    Arc::new(Float32Array::from(floats)) as datafusion::arrow::array::ArrayRef
+                } else {
+                    // Other discrete scales need string values
+                    let mut strings = Vec::new();
+                    for scalar in scalars {
+                        if let ScalarValue::Utf8(Some(s)) = scalar {
+                            strings.push(s);
+                        } else {
+                            // Convert non-strings to strings
+                            strings.push(format!("{:?}", scalar));
+                        }
+                    }
+                    Arc::new(StringArray::from(strings)) as datafusion::arrow::array::ArrayRef
                 }
-                Arc::new(StringArray::from(strings)) as datafusion::arrow::array::ArrayRef
             }
             _ => {
-                return Err(AvengerChartError::InternalError(
-                    "Scale domain must be explicitly set".to_string(),
-                ));
+                return Err(AvengerChartError::InternalError(format!(
+                    "Scale domain must be explicitly set. Domain type: {:?}",
+                    self.domain.default_domain
+                )));
             }
         };
 

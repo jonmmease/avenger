@@ -41,6 +41,8 @@ pub fn apply_scale_defaults(scale_type: &str, options: &mut HashMap<String, Expr
         "linear" => {
             // Don't set round by default - it should only be set for positional scales
             // Color scales need continuous values, not rounded integers
+            // Set nice=true by default for better domain values
+            options.entry("nice".to_string()).or_insert(lit(true));
         }
         "band" => {
             options
@@ -57,16 +59,20 @@ pub fn apply_scale_defaults(scale_type: &str, options: &mut HashMap<String, Expr
         }
         "log" | "logarithmic" => {
             options.entry("base".to_string()).or_insert(lit(10.0));
+            options.entry("nice".to_string()).or_insert(lit(true));
         }
         "pow" | "power" => {
             options.entry("exponent".to_string()).or_insert(lit(1.0));
+            options.entry("nice".to_string()).or_insert(lit(true));
         }
         "sqrt" => {
             // sqrt is pow with exponent 0.5
             options.insert("exponent".to_string(), lit(0.5));
+            options.entry("nice".to_string()).or_insert(lit(true));
         }
         "symlog" => {
             options.entry("constant".to_string()).or_insert(lit(1.0));
+            options.entry("nice".to_string()).or_insert(lit(true));
         }
         "time" | "temporal" => {
             // Time scales might benefit from rounding for positional use

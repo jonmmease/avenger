@@ -937,8 +937,15 @@ impl ChartLayout {
         }
 
         // Extract domain values from scale - similar to create_symbol_legend
+        // For threshold scales, we need to account for n+1 intervals for n thresholds
         let domain_values = scale.domain();
-        let domain_len = domain_values.len();
+        let domain_len = if scale.scale_impl.scale_type() == "threshold" {
+            // Threshold scales have n+1 intervals for n thresholds
+            domain_values.len() + 1
+        } else {
+            domain_values.len()
+        };
+
         if domain_len == 0 {
             return Ok(Size {
                 width: 0.0,
@@ -946,55 +953,63 @@ impl ChartLayout {
             });
         }
 
-        // Create text labels from domain values
-        // Try to extract actual string values from the domain array
-        use datafusion::arrow::array::Array;
-        use datafusion::arrow::compute::cast;
-        use datafusion::arrow::datatypes::DataType;
-
-        // Try to cast to Utf8 to handle various string types (LargeUtf8, Dictionary, etc.)
-        let text_values: Vec<String> = if let Ok(string_array) =
-            cast(&domain_values, &DataType::Utf8)
-        {
-            // Successfully cast to Utf8 - extract the values
-            use datafusion::arrow::array::StringArray;
-            if let Some(string_array) = string_array.as_any().downcast_ref::<StringArray>() {
-                let values: Vec<String> = (0..domain_len)
-                    .map(|i| string_array.value(i).to_string())
-                    .collect();
-                values
-            } else {
-                // Fallback if downcast fails
-                (0..domain_len)
-                    .map(|i| format!("Type {}", (b'A' + (i as u8 % 26)) as char))
-                    .collect()
-            }
+        // Create text labels - use domain_labels() for proper threshold scale handling
+        use crate::scales::ConfiguredScaleLegendExt;
+        let text_values: Vec<String> = if scale.scale_impl.scale_type() == "threshold" {
+            // Use domain_labels() for threshold scales to get interval labels
+            scale.domain_labels().unwrap_or_else(|_| {
+                // Fallback labels if domain_labels() fails
+                (0..domain_len).map(|i| format!("Interval {}", i)).collect()
+            })
         } else {
-            // Cast failed - try to handle numeric arrays
-            use datafusion::arrow::array::{Float64Array, Int64Array};
+            // For other scale types, extract from domain values
+            use datafusion::arrow::array::Array;
+            use datafusion::arrow::compute::cast;
+            use datafusion::arrow::datatypes::DataType;
 
-            if let Some(float_array) = domain_values.as_any().downcast_ref::<Float64Array>() {
-                // Handle Float64 arrays
-                (0..domain_len)
-                    .map(|i| {
-                        let value = float_array.value(i);
-                        if value.fract() == 0.0 && value.abs() < 1e10 {
-                            format!("{:.0}", value)
-                        } else {
-                            format!("{}", value)
-                        }
-                    })
-                    .collect()
-            } else if let Some(int_array) = domain_values.as_any().downcast_ref::<Int64Array>() {
-                // Handle Int64 arrays
-                (0..domain_len)
-                    .map(|i| format!("{}", int_array.value(i)))
-                    .collect()
+            // Try to cast to Utf8 to handle various string types (LargeUtf8, Dictionary, etc.)
+            if let Ok(string_array) = cast(&domain_values, &DataType::Utf8) {
+                // Successfully cast to Utf8 - extract the values
+                use datafusion::arrow::array::StringArray;
+                if let Some(string_array) = string_array.as_any().downcast_ref::<StringArray>() {
+                    let values: Vec<String> = (0..domain_len)
+                        .map(|i| string_array.value(i).to_string())
+                        .collect();
+                    values
+                } else {
+                    // Fallback if downcast fails
+                    (0..domain_len)
+                        .map(|i| format!("Type {}", (b'A' + (i as u8 % 26)) as char))
+                        .collect()
+                }
             } else {
-                // Fallback if we can't handle the type
-                (0..domain_len)
-                    .map(|i| format!("Type {}", (b'A' + (i as u8 % 26)) as char))
-                    .collect()
+                // Cast failed - try to handle numeric arrays
+                use datafusion::arrow::array::{Float64Array, Int64Array};
+
+                if let Some(float_array) = domain_values.as_any().downcast_ref::<Float64Array>() {
+                    // Handle Float64 arrays
+                    (0..domain_len)
+                        .map(|i| {
+                            let value = float_array.value(i);
+                            if value.fract() == 0.0 && value.abs() < 1e10 {
+                                format!("{:.0}", value)
+                            } else {
+                                format!("{}", value)
+                            }
+                        })
+                        .collect()
+                } else if let Some(int_array) = domain_values.as_any().downcast_ref::<Int64Array>()
+                {
+                    // Handle Int64 arrays
+                    (0..domain_len)
+                        .map(|i| format!("{}", int_array.value(i)))
+                        .collect()
+                } else {
+                    // Fallback if we can't handle the type
+                    (0..domain_len)
+                        .map(|i| format!("Type {}", (b'A' + (i as u8 % 26)) as char))
+                        .collect()
+                }
             }
         };
 
@@ -1267,16 +1282,23 @@ impl ChartLayout {
             };
 
             // Check for fill scale
-            let fill_values = if let Some(fill_scale) = scales.get("fill") {
-                let fill_domain = fill_scale.domain();
-                trace!(
-                    fill_domain_len = fill_domain.len(),
-                    legend_scale_domain_len = scale.domain().len(),
-                    "Fill scale domain comparison"
-                );
-                if fill_domain.len() == scale.domain().len() {
-                    // Map domain through fill scale to get colors
-                    match fill_scale.scale(scale.domain()) {
+            let fill_values = if channel == "fill" {
+                // This legend is for the fill channel - use the threshold scale colors
+                if scale.scale_impl.scale_type() == "threshold" {
+                    // For threshold scales, get colors directly from the range
+                    // There are n+1 colors for n thresholds
+                    use crate::scales::ConfiguredScaleLegendExt;
+                    match scale.range_colors() {
+                        Ok(colors) => ScalarOrArray::new_array(
+                            colors.into_iter().map(ColorOrGradient::Color).collect(),
+                        ),
+                        Err(_) => {
+                            ScalarOrArray::new_scalar(ColorOrGradient::Color([0.5, 0.5, 0.5, 1.0]))
+                        }
+                    }
+                } else {
+                    // For other scales, map domain values through the scale
+                    match scale.scale(scale.domain()) {
                         Ok(scaled_array) => {
                             trace!(
                                 array_len = scaled_array.len(),
@@ -1336,8 +1358,6 @@ impl ChartLayout {
                             ScalarOrArray::new_scalar(ColorOrGradient::Color([0.5, 0.5, 0.5, 1.0]))
                         }
                     }
-                } else {
-                    ScalarOrArray::new_scalar(ColorOrGradient::Color([0.5, 0.5, 0.5, 1.0]))
                 }
             } else {
                 ScalarOrArray::new_scalar(ColorOrGradient::Color([0.5, 0.5, 0.5, 1.0]))

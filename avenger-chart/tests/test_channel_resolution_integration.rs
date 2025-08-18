@@ -66,7 +66,7 @@ async fn test_channel_resolution_with_scale() -> Result<(), Box<dyn std::error::
     // Create a plot where channel reference goes through scale transformation
     let plot = Plot::new(Cartesian)
         .with_size(400.0, 300.0)
-        .scale_x(|_scale| avenger_chart::scales::Scale::with_type("band"))
+        .scale_x(|scale| scale.scale_type("band"))
         .mark(
             Rect::new()
                 .data(df)
