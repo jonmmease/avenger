@@ -265,7 +265,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             let scene_marks = self
                 .render_mark(
                     mark.as_ref(),
-                    &all_scales,
+                    &configured_scales,
                     plot_area_width,
                     plot_area_height,
                 )
@@ -273,9 +273,9 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             mark_groups.extend(scene_marks);
         }
 
-        // Create axes (needs Scale, not ConfiguredScale)
+        // Create axes using ConfiguredScale
         let axis_marks = self
-            .create_axes(&all_scales, plot_area_width, plot_area_height, &padding)
+            .create_axes(&configured_scales, plot_area_width, plot_area_height, &padding)
             .await?;
 
         // Create legends
@@ -597,7 +597,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
     async fn render_mark(
         &self,
         mark: &dyn Mark<C>,
-        scales: &HashMap<String, Scale>,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         _plot_width: f32,
         _plot_height: f32,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
@@ -818,10 +818,9 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         &self,
         channel_name: &str,
         channel_value: &ChannelValue,
-        scales: &HashMap<String, Scale>,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
     ) -> Result<datafusion::logical_expr::Expr, AvengerChartError> {
         use crate::marks::channel::strip_trailing_numbers;
-        use datafusion::logical_expr::lit;
 
         let expr = channel_value.expr();
 
@@ -847,21 +846,15 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                     ))
                 })?;
 
-                // Handle band parameter for any scale that supports it
-                let scale = if let Some(band_value) = band {
-                    let scale_type = scale.get_scale_impl().scale_type();
-                    if scale_type == "band" || scale_type == "point" {
-                        scale.clone().option("band", lit(*band_value))
-                    } else {
-                        // Ignore band parameter for non-band/point scales
-                        scale.clone()
-                    }
+                // Use ConfiguredScale's extension methods
+                use crate::scales::ConfiguredScaleDataFusionExt;
+                
+                // Apply the scale transformation with optional band parameter
+                if let Some(band_value) = band {
+                    scale.to_expr_with_band(expr.clone(), *band_value)
                 } else {
-                    scale.clone()
-                };
-
-                // Apply the scale transformation
-                scale.to_expr(expr.clone())
+                    scale.to_expr(expr.clone())
+                }
             }
         }
     }
@@ -869,7 +862,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
     /// Create axis marks based on configured axes
     async fn create_axes(
         &self,
-        scales: &HashMap<String, Scale>,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
         padding: &Padding,
@@ -2343,7 +2336,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         // Create axes map for ChartLayout (Cartesian-only specialization, no unsafe casts)
         let default_axes = self.plot.coord_system().create_default_axes(
-            &processed_scales,
+            &configured_scales,
             &self.plot.axes,
             &self.plot.marks,
         );
