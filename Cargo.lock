@@ -519,6 +519,7 @@ dependencies = [
  "itertools 0.14.0",
  "rstar 0.12.2 (git+https://github.com/georust/rstar.git?branch=master)",
  "thiserror 2.0.12",
+ "tracing",
 ]
 
 [[package]]

@@ -5,7 +5,7 @@
 
 use crate::error::AvengerChartError;
 use crate::marks::RadiusExpression;
-use crate::scales::domain::{DomainExpr, ScaleDomain, ScaleDefaultDomain};
+use crate::scales::domain::{DomainExpr, ScaleDefaultDomain, ScaleDomain};
 use crate::utils::DataFrameChartHelpers;
 use avenger_scales::scales::{InferDomainFromDataMethod, ScaleImpl};
 use datafusion::arrow::array::{Array, AsArray};
@@ -48,7 +48,7 @@ impl DomainInferrer {
 
         if let ScaleDefaultDomain::DomainExprs(data_fields) = default_domain {
             // Process radius-aware domains first, transforming fields in place
-            let processed_fields = 
+            let processed_fields =
                 Self::process_radius_domains(scale_impl, data_fields, range_hint).await?;
 
             // Process standard domain inference
@@ -76,7 +76,7 @@ impl DomainInferrer {
                 // Process each field with radius expressions
                 for i in 0..data_fields.len() {
                     let field = &data_fields[i];
-                    
+
                     if let Some(radius_expr) = &field.radius {
                         let computed_domain = Self::compute_radius_aware_domain(
                             &field.dataframe,
@@ -133,21 +133,24 @@ impl DomainInferrer {
         }
 
         let batch = &batches[0];
-        let position_array = batch
-            .column_by_name(POSITION_COL)
-            .ok_or_else(|| {
-                AvengerChartError::InternalError(format!("Column '{}' not found in batch", POSITION_COL))
-            })?;
-        let radius_lower_array = batch
-            .column_by_name(RADIUS_LOWER_COL)
-            .ok_or_else(|| {
-                AvengerChartError::InternalError(format!("Column '{}' not found in batch", RADIUS_LOWER_COL))
-            })?;
-        let radius_upper_array = batch
-            .column_by_name(RADIUS_UPPER_COL)
-            .ok_or_else(|| {
-                AvengerChartError::InternalError(format!("Column '{}' not found in batch", RADIUS_UPPER_COL))
-            })?;
+        let position_array = batch.column_by_name(POSITION_COL).ok_or_else(|| {
+            AvengerChartError::InternalError(format!(
+                "Column '{}' not found in batch",
+                POSITION_COL
+            ))
+        })?;
+        let radius_lower_array = batch.column_by_name(RADIUS_LOWER_COL).ok_or_else(|| {
+            AvengerChartError::InternalError(format!(
+                "Column '{}' not found in batch",
+                RADIUS_LOWER_COL
+            ))
+        })?;
+        let radius_upper_array = batch.column_by_name(RADIUS_UPPER_COL).ok_or_else(|| {
+            AvengerChartError::InternalError(format!(
+                "Column '{}' not found in batch",
+                RADIUS_UPPER_COL
+            ))
+        })?;
 
         // Cast to Float64
         use datafusion::arrow::compute::cast;
@@ -171,14 +174,14 @@ impl DomainInferrer {
         let pos_len = position_vec.len();
         let lower_len = radius_lower_vec.len();
         let upper_len = radius_upper_vec.len();
-        
+
         if pos_len == 0 {
             return Ok(None);
         }
-        
+
         // Use the padding solver
         use avenger_scales::scales::domain_solver::compute_domain_from_data_with_padding_linear;
-        
+
         let (d_min, d_max) = if pos_len != lower_len || pos_len != upper_len {
             // Log warning about mismatched lengths and use minimum
             let min_len = pos_len.min(lower_len).min(upper_len);
@@ -232,15 +235,27 @@ impl DomainInferrer {
 
         for field in data_fields {
             let df = field.dataframe.clone();
-            let df_with_expr = df
-                .as_ref()
-                .clone()
-                .select(vec![field.expr.clone().alias(DOMAIN_COL)])?;
+
+            // For ordinal scales, cast numeric values to strings
+            let expr = if scale_impl.scale_type() == "ordinal" {
+                use datafusion::arrow::datatypes::DataType;
+                use datafusion::logical_expr::cast;
+                // Cast to string for ordinal scale compatibility
+                cast(field.expr.clone(), DataType::Utf8)
+            } else {
+                field.expr.clone()
+            };
+
+            let df_with_expr = df.as_ref().clone().select(vec![expr.alias(DOMAIN_COL)])?;
             single_col_dfs.push(df_with_expr);
         }
 
         // Union all DataFrames
-        let union_df = if single_col_dfs.len() > 1 {
+        let union_df = if single_col_dfs.is_empty() {
+            // No data to infer from - return default interval
+            use datafusion::logical_expr::lit;
+            return Ok(ScaleDefaultDomain::Interval(lit(0.0), Box::new(lit(1.0))));
+        } else if single_col_dfs.len() > 1 {
             let mut result = single_col_dfs[0].clone();
             for df in single_col_dfs.iter().skip(1) {
                 result = result.union(df.clone())?;
@@ -265,19 +280,20 @@ impl DomainInferrer {
         let empty_df = ctx.read_empty()?;
         let result_df = empty_df.select(vec![domain_expr.alias(DOMAIN_RESULT_COL)])?;
         let batches = result_df.collect().await?;
-        
+
         if batches.is_empty() {
             return Err(AvengerChartError::InternalError(
-                "No batches returned from domain inference query".to_string()
+                "No batches returned from domain inference query".to_string(),
             ));
         }
-        
+
         let domain_array = batches[0]
             .column_by_name(DOMAIN_RESULT_COL)
             .ok_or_else(|| {
-                AvengerChartError::InternalError(
-                    format!("Column '{}' not found in result", DOMAIN_RESULT_COL)
-                )
+                AvengerChartError::InternalError(format!(
+                    "Column '{}' not found in result",
+                    DOMAIN_RESULT_COL
+                ))
             })?
             .clone();
 

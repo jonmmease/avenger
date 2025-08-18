@@ -86,7 +86,7 @@ enum LegendType {
 struct LegendParams<'a> {
     channel: &'a str,
     legend: &'a crate::legend::Legend,
-    scales: &'a HashMap<String, Scale>, // All available scales
+    scales: &'a HashMap<String, avenger_scales::scales::ConfiguredScale>, // All available scales
     plot_width: f32,
     plot_height: f32,
     padding: &'a Padding,
@@ -141,13 +141,24 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // Get plot dimensions from preferred size or default
         let (width, height) = self.plot.get_preferred_size().unwrap_or((400.0, 300.0));
 
+        // First, collect all channels that need scales
+        let channels_with_scales = self.plot.collect_channels_needing_scales();
+
+        // Build all scales on demand, applying configured transformations
+        let mut all_scales = HashMap::new();
+        for channel in &channels_with_scales {
+            let scale = self.plot.get_scale(channel);
+            all_scales.insert(channel.clone(), scale);
+        }
+
         // Use dynamic Taffy layout for Cartesian plots, fixed padding for others
         let use_taffy_layout =
             std::any::TypeId::of::<C>() == std::any::TypeId::of::<crate::coords::Cartesian>();
 
         let (padding, layout_bundle) = if use_taffy_layout {
             // Use Taffy layout for accurate legend and axis positioning
-            self.compute_layout_with_taffy_cartesian(width, height)
+            // Pass the scales for layout computation
+            self.compute_layout_with_taffy_cartesian(width, height, &all_scales)
                 .await?
         } else {
             // Fallback to fixed padding for non-Cartesian plots
@@ -160,16 +171,6 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         let plot_area_y = padding.top;
         let plot_area_width = width - padding.left - padding.right;
         let plot_area_height = height - padding.top - padding.bottom;
-
-        // First, collect all channels that need scales
-        let channels_with_scales = self.plot.collect_channels_needing_scales();
-
-        // Build all scales on demand, applying configured transformations
-        let mut all_scales = HashMap::new();
-        for channel in &channels_with_scales {
-            let scale = self.plot.get_scale(channel);
-            all_scales.insert(channel.clone(), scale);
-        }
 
         // Separate scales into positional and non-positional
         let mut positional_scales = HashMap::new();
@@ -241,6 +242,16 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         let mut all_scales = non_positional_scales;
         all_scales.extend(positional_scales);
 
+        // Build ConfiguredScale for all scales (for legends and layout)
+        let mut configured_scales = HashMap::new();
+        for (name, scale) in &all_scales {
+            let configured = scale
+                .clone()
+                .build(plot_area_width, plot_area_height)
+                .await?;
+            configured_scales.insert(name.clone(), configured);
+        }
+
         // Use the full plot area for clipping
         // Marks should be clipped to the plot area bounds, not the data bounds
         let clip_height = plot_area_height;
@@ -262,7 +273,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             mark_groups.extend(scene_marks);
         }
 
-        // Create axes
+        // Create axes (needs Scale, not ConfiguredScale)
         let axis_marks = self
             .create_axes(&all_scales, plot_area_width, plot_area_height, &padding)
             .await?;
@@ -271,7 +282,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         let legend_marks = if let Some((layout, legend_cache)) = &layout_bundle {
             // Use Taffy layout positions for legends
             self.create_legends_with_layout(
-                &all_scales,
+                &configured_scales,
                 layout,
                 legend_cache,
                 plot_area_width,
@@ -280,8 +291,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             .await?
         } else {
             // Fallback to fixed positioning
-            self.create_legends(&all_scales, plot_area_width, plot_area_height, &padding)
-                .await?
+            self.create_legends(
+                &configured_scales,
+                plot_area_width,
+                plot_area_height,
+                &padding,
+            )
+            .await?
         };
 
         // Create title if present
@@ -881,7 +897,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
     /// Create legends using Taffy layout positions
     async fn create_legends_with_layout(
         &self,
-        scales: &HashMap<String, Scale>,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         layout: &crate::chart_layout::LayoutResult,
         legend_cache: &LegendCache,
         _plot_width: f32,
@@ -960,13 +976,11 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
     async fn create_legends(
         &self,
-        scales: &HashMap<String, Scale>,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
         padding: &Padding,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        use crate::legend::LegendPosition;
-
         // Get default legends for channels with data-driven scales
         let default_legends = self.create_default_legends(scales);
 
@@ -995,12 +1009,14 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         let mut bottom_legends = Vec::new();
 
         for (channel, legend) in visible_legends {
-            let position = legend.position.unwrap_or(LegendPosition::Right);
+            let position = legend
+                .position
+                .unwrap_or(crate::legend::LegendPosition::Right);
             match position {
-                LegendPosition::Right => right_legends.push((channel, legend)),
-                LegendPosition::Left => left_legends.push((channel, legend)),
-                LegendPosition::Top => top_legends.push((channel, legend)),
-                LegendPosition::Bottom => bottom_legends.push((channel, legend)),
+                crate::legend::LegendPosition::Right => right_legends.push((channel, legend)),
+                crate::legend::LegendPosition::Left => left_legends.push((channel, legend)),
+                crate::legend::LegendPosition::Top => top_legends.push((channel, legend)),
+                crate::legend::LegendPosition::Bottom => bottom_legends.push((channel, legend)),
             }
         }
 
@@ -1047,18 +1063,23 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         Ok(legend_marks)
     }
 
-    /// Create default legends for channels with data-driven scales
+    /// Create default legends for channels with ConfiguredScale
     fn create_default_legends(
         &self,
-        scales: &HashMap<String, Scale>,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
     ) -> HashMap<String, crate::legend::Legend> {
         use crate::legend::Legend;
 
         let mut default_legends = HashMap::new();
 
-        for (channel, scale) in scales {
-            // Skip positional channels
-            if matches!(channel.as_str(), "x" | "y" | "x2" | "y2" | "r" | "theta") {
+        for channel in scales.keys() {
+            // Skip positional channels and channels that don't need legends
+            // - Positional: x, y, x2, y2, r, theta
+            // - Internal/utility: order, defined, angle
+            if matches!(
+                channel.as_str(),
+                "x" | "y" | "x2" | "y2" | "r" | "theta" | "order" | "defined" | "angle"
+            ) {
                 continue;
             }
 
@@ -1067,41 +1088,20 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 continue;
             }
 
-            // Check if scale has data-driven domain (uses column expressions)
-            let has_data_domain = self.scale_has_data_domain(scale);
+            // ConfiguredScale always has resolved domain, so always create a legend
+            // for channels that have scales
+            let legend = Legend::new()
+                .title(self.infer_legend_title(channel))
+                .position(self.default_legend_position(channel));
 
-            if has_data_domain {
-                let legend = Legend::new()
-                    .title(self.infer_legend_title(channel, scale))
-                    .position(self.default_legend_position(channel));
-
-                default_legends.insert(channel.clone(), legend);
-            }
+            default_legends.insert(channel.clone(), legend);
         }
 
         default_legends
     }
 
-    /// Check if a scale has a data-driven domain
-    fn scale_has_data_domain(&self, scale: &Scale) -> bool {
-        use crate::scales::ScaleDefaultDomain;
-
-        // Check if the scale's domain references data fields
-        match &scale.get_domain().default_domain {
-            ScaleDefaultDomain::DomainExprs(_) => true,
-            ScaleDefaultDomain::Discrete(exprs) => {
-                // Check if any expression references columns
-                exprs.iter().any(|expr| {
-                    // Simple heuristic: if the expression contains a Column reference
-                    format!("{:?}", expr).contains("Column")
-                })
-            }
-            ScaleDefaultDomain::Interval(_, _) => false,
-        }
-    }
-
-    /// Infer a title for the legend based on channel and scale
-    fn infer_legend_title(&self, channel: &str, _scale: &Scale) -> String {
+    /// Infer a title for the legend based on channel
+    fn infer_legend_title(&self, channel: &str) -> String {
         // TODO: Could potentially extract field name from scale's domain expression
         // For now, just use the channel name with proper casing
         match channel {
@@ -1119,19 +1119,19 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
     }
 
     /// Get default legend position for a channel
-    fn default_legend_position(&self, channel: &str) -> crate::legend::LegendPosition {
-        // Color and shape legends typically go on the right
-        // Size legends often go on the bottom
-        match channel {
-            "size" | "stroke_width" => crate::legend::LegendPosition::Bottom,
-            _ => crate::legend::LegendPosition::Right,
-        }
+    fn default_legend_position(&self, _channel: &str) -> crate::legend::LegendPosition {
+        // All legends default to the right
+        crate::legend::LegendPosition::Right
     }
 
     /// Determine the type of legend to create based on mark type, channel, and scale
-    fn determine_legend_type(&self, channel: &str, scale: &Scale) -> LegendType {
+    fn determine_legend_type(
+        &self,
+        channel: &str,
+        scale: &avenger_scales::scales::ConfiguredScale,
+    ) -> LegendType {
         // Check if scale is continuous (for colorbar)
-        let scale_type = scale.get_scale_impl().scale_type();
+        let scale_type = scale.scale_impl.scale_type();
         let is_continuous = matches!(scale_type, "linear" | "log" | "pow" | "sqrt");
 
         // Color channels with continuous scales use colorbar
@@ -1163,49 +1163,75 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         use avenger_common::value::ScalarOrArray;
         use avenger_guides::legend::symbol::{SymbolLegendConfig, make_symbol_legend};
 
-        // Extract domain values from scale
+        // Extract domain values from scale using extension trait
+        use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
+
         let legend_scale = params.scales.get(params.channel).ok_or_else(|| {
             AvengerChartError::InternalError(format!(
                 "Scale for channel '{}' not found",
                 params.channel
             ))
         })?;
-        let domain_values = self.extract_scale_domain_values(legend_scale).await?;
+        let domain_values = match legend_scale.domain_values()? {
+            DomainValues::Discrete(values) => {
+                // Debug: log discrete values
+                debug!(
+                    channel = params.channel,
+                    scale_type = ?legend_scale.scale_impl.scale_type(),
+                    values = ?values,
+                    "Symbol legend domain values"
+                );
+                values
+            }
+            DomainValues::Interval(min, max) => vec![min, max],
+        };
         if domain_values.is_empty() {
             return Ok(None);
         }
 
-        // Create text labels from domain values
-        let text_values: Vec<String> = domain_values
-            .iter()
-            .map(|v| match v {
-                datafusion_common::ScalarValue::Utf8(Some(s)) => s.clone(),
-                datafusion_common::ScalarValue::Float64(Some(f)) => {
-                    // Format float nicely - remove trailing zeros
-                    if f.fract() == 0.0 && f.abs() < 1e10 {
-                        format!("{:.0}", f)
-                    } else {
-                        format!("{}", f)
+        // Create text labels - use special labels for threshold scales
+        let text_values: Vec<String> = if legend_scale.scale_impl.scale_type() == "threshold" {
+            // Use interval labels for threshold scales
+            let labels = legend_scale.domain_labels()?;
+            debug!(
+                channel = params.channel,
+                labels = ?labels,
+                "Threshold scale legend labels"
+            );
+            labels
+        } else {
+            // Regular labels from domain values
+            domain_values
+                .iter()
+                .map(|v| match v {
+                    datafusion_common::ScalarValue::Utf8(Some(s)) => s.clone(),
+                    datafusion_common::ScalarValue::Float64(Some(f)) => {
+                        // Format float nicely - remove trailing zeros
+                        if f.fract() == 0.0 && f.abs() < 1e10 {
+                            format!("{:.0}", f)
+                        } else {
+                            format!("{}", f)
+                        }
                     }
-                }
-                datafusion_common::ScalarValue::Float32(Some(f)) => {
-                    if f.fract() == 0.0 && f.abs() < 1e10 {
-                        format!("{:.0}", f)
-                    } else {
-                        format!("{}", f)
+                    datafusion_common::ScalarValue::Float32(Some(f)) => {
+                        if f.fract() == 0.0 && f.abs() < 1e10 {
+                            format!("{:.0}", f)
+                        } else {
+                            format!("{}", f)
+                        }
                     }
-                }
-                datafusion_common::ScalarValue::Int64(Some(i)) => i.to_string(),
-                datafusion_common::ScalarValue::Int32(Some(i)) => i.to_string(),
-                datafusion_common::ScalarValue::Int16(Some(i)) => i.to_string(),
-                datafusion_common::ScalarValue::Int8(Some(i)) => i.to_string(),
-                datafusion_common::ScalarValue::UInt64(Some(i)) => i.to_string(),
-                datafusion_common::ScalarValue::UInt32(Some(i)) => i.to_string(),
-                datafusion_common::ScalarValue::UInt16(Some(i)) => i.to_string(),
-                datafusion_common::ScalarValue::UInt8(Some(i)) => i.to_string(),
-                _ => format!("{:?}", v), // Fallback for other types
-            })
-            .collect();
+                    datafusion_common::ScalarValue::Int64(Some(i)) => i.to_string(),
+                    datafusion_common::ScalarValue::Int32(Some(i)) => i.to_string(),
+                    datafusion_common::ScalarValue::Int16(Some(i)) => i.to_string(),
+                    datafusion_common::ScalarValue::Int8(Some(i)) => i.to_string(),
+                    datafusion_common::ScalarValue::UInt64(Some(i)) => i.to_string(),
+                    datafusion_common::ScalarValue::UInt32(Some(i)) => i.to_string(),
+                    datafusion_common::ScalarValue::UInt16(Some(i)) => i.to_string(),
+                    datafusion_common::ScalarValue::UInt8(Some(i)) => i.to_string(),
+                    _ => format!("{:?}", v), // Fallback for other types
+                })
+                .collect()
+        };
 
         // Check if any mark is a rect mark
         let has_rect_mark = self
@@ -1291,6 +1317,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             channel = params.channel,
             text_values = ?text_values,
             default_size = default_size,
+            scale_type = ?legend_scale.scale_impl.scale_type(),
             "Creating symbol legend with inner_width: 0.0, inner_height: 100.0, outer_margin: 0.0, text_padding: 2.0"
         );
         let mut config = SymbolLegendConfig {
@@ -1339,8 +1366,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             }
         }
 
-        // Get the legend channel's expression for comparison
-        let legend_channel_expr = mark_encodings.get(params.channel).map(|v| v.expr());
+        // Each legend only shows its own channel varying - no cross-channel variation
 
         // Shape channel
         let default_shape_parsed = parse_shape(&default_shape)?;
@@ -1349,12 +1375,16 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         if params.channel == "shape" {
             // Shape is the legend channel - map domain values to shapes
             // Try to get shapes from the scale's range; if not present, fall back to default shapes
-            let shape_names = match self.extract_shape_range_from_scale(legend_scale).await {
-                Ok(names) if !names.is_empty() => names,
-                _ => crate::scales::shape_defaults::DEFAULT_SHAPES
-                    .iter()
-                    .map(|&s| s.to_string())
-                    .collect(),
+            let shape_names = {
+                let names = legend_scale.extract_shape_range();
+                if !names.is_empty() {
+                    names
+                } else {
+                    crate::scales::shape_defaults::DEFAULT_SHAPES
+                        .iter()
+                        .map(|&s| s.to_string())
+                        .collect()
+                }
             };
 
             let shapes: Result<Vec<_>, _> = domain_values
@@ -1364,49 +1394,20 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 .collect();
             config.shape = ScalarOrArray::new_array(shapes?);
         } else if let Some(channel_value) = mark_encodings.get("shape") {
-            // Check if this uses the same expression as the legend channel
-            if let Some(legend_expr) = legend_channel_expr {
-                if channel_value.expr() == legend_expr {
-                    // Same expression as legend channel - vary together
-                    // Try to get shape scale and extract its range
-                    // Get shape scale from legend_scale
-                    let shape_names = if let Some(shape_scale) = params.scales.get("shape") {
-                        self.extract_shape_range_from_scale(shape_scale)
-                            .await
-                            .unwrap_or_else(|_| {
-                                crate::scales::shape_defaults::DEFAULT_SHAPES
-                                    .iter()
-                                    .map(|&s| s.to_string())
-                                    .collect()
-                            })
-                    } else {
-                        crate::scales::shape_defaults::DEFAULT_SHAPES
-                            .iter()
-                            .map(|&s| s.to_string())
-                            .collect()
-                    };
-
-                    let shapes: Result<Vec<_>, _> = domain_values
-                        .iter()
-                        .enumerate()
-                        .map(|(i, _)| parse_shape(&shape_names[i % shape_names.len()]))
-                        .collect();
-                    config.shape = ScalarOrArray::new_array(shapes?);
-                } else if !Self::references_columns(channel_value.expr()) {
-                    // Scalar expression - evaluate it
-                    if let Ok(scalars) = crate::utils::eval_to_scalars(
-                        vec![channel_value.expr().clone()],
-                        None,
-                        None,
-                    )
-                    .await
-                    {
-                        if let Some(ScalarValue::Utf8(Some(s))) = scalars.into_iter().next() {
-                            config.shape = ScalarOrArray::new_scalar(parse_shape(&s)?);
-                        }
+            // Shape channel exists but this legend is not for shape
+            // Only use it if it's a scalar (constant) expression
+            if !Self::references_columns(channel_value.expr()) {
+                // Scalar expression - evaluate it
+                if let Ok(scalars) =
+                    crate::utils::eval_to_scalars(vec![channel_value.expr().clone()], None, None)
+                        .await
+                {
+                    if let Some(ScalarValue::Utf8(Some(s))) = scalars.into_iter().next() {
+                        config.shape = ScalarOrArray::new_scalar(parse_shape(&s)?);
                     }
                 }
             }
+            // Otherwise keep the default shape - don't vary it
         }
 
         // Size channel
@@ -1417,47 +1418,44 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         if params.channel == "size" {
             // Size is the legend channel - map through scale
-            let sizes = self
-                .map_values_through_scale_numeric(legend_scale, &domain_values)
-                .await?;
+            let sizes = legend_scale.map_values_numeric(&domain_values)?;
             config.size = ScalarOrArray::new_array(sizes);
         } else if let Some(channel_value) = mark_encodings.get("size") {
-            if params.channel == "shape" {
-                trace!("Found size in mark_encodings");
-            }
-            // Check if this uses the same expression as the legend channel
-            if let Some(legend_expr) = legend_channel_expr {
-                if channel_value.expr() == legend_expr {
-                    // Same expression as legend channel - map through size scale if available
-                    // Try to get the size scale from legend_scale
-                    let size_scale = params.scales.get("size").unwrap_or(legend_scale); // Fall back to legend scale
-                    if size_scale.has_explicit_domain() {
-                        let sizes = self
-                            .map_values_through_scale_numeric(size_scale, &domain_values)
-                            .await?;
-                        config.size = ScalarOrArray::new_array(sizes);
-                    } else {
-                        // No size scale, use constant default size for all symbols
-                        let sizes: Vec<_> = domain_values.iter().map(|_| default_size).collect();
-                        config.size = ScalarOrArray::new_array(sizes);
-                    }
-                } else if !Self::references_columns(channel_value.expr()) {
-                    // Scalar expression - evaluate it
-                    if let Ok(scalars) = crate::utils::eval_to_scalars(
-                        vec![channel_value.expr().clone()],
-                        None,
-                        None,
-                    )
-                    .await
-                    {
-                        if let Some(value) =
-                            scalars.into_iter().next().and_then(|s| s.as_f32().ok())
-                        {
-                            config.size = ScalarOrArray::new_scalar(value);
-                        }
+            // Size channel exists but this legend is not for size
+            // Only use it if it's a scalar (constant) expression
+            if !Self::references_columns(channel_value.expr()) {
+                // Scalar expression - evaluate it and scale it through the size scale
+                if let Ok(scalars) =
+                    crate::utils::eval_to_scalars(vec![channel_value.expr().clone()], None, None)
+                        .await
+                {
+                    if let Some(value) = scalars.into_iter().next() {
+                        // If there's a size scale, map the value through it
+                        // Otherwise use the raw value (capped for shape legends)
+                        let scaled_size = if let Some(size_scale) = params.scales.get("size") {
+                            // Map the size value through the scale
+                            let size_values = vec![value];
+                            if let Ok(scaled) = size_scale.map_values_numeric(&size_values) {
+                                scaled.first().copied().unwrap_or(default_size)
+                            } else {
+                                default_size
+                            }
+                        } else {
+                            // No size scale, use the raw value
+                            value.as_f32().ok().unwrap_or(default_size)
+                        };
+
+                        // For shape legends, cap the size to a reasonable maximum
+                        let legend_size = if params.channel == "shape" {
+                            scaled_size.min(49.0) // Use default size as max for shape legends
+                        } else {
+                            scaled_size
+                        };
+                        config.size = ScalarOrArray::new_scalar(legend_size);
                     }
                 }
             }
+            // Otherwise keep the default size - don't vary it
         }
 
         if params.channel == "shape" {
@@ -1473,9 +1471,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         if params.channel == "fill" || params.channel == "color" {
             // Fill/color is the legend channel - map through scale
-            let colors = self
-                .map_values_through_scale(legend_scale, &domain_values)
-                .await?;
+            let colors = if legend_scale.scale_impl.scale_type() == "threshold" {
+                // For threshold scales, get the range colors directly
+                // The range has one more color than the domain has thresholds
+                legend_scale.range_colors()?
+            } else {
+                legend_scale.map_values_colors(&domain_values)?
+            };
             config.fill = ScalarOrArray::new_array(
                 colors
                     .into_iter()
@@ -1483,40 +1485,20 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                     .collect(),
             );
         } else if let Some(channel_value) = mark_encodings.get("fill") {
-            // Check if this uses the same expression as the legend channel
-            if let Some(legend_expr) = legend_channel_expr {
-                if channel_value.expr() == legend_expr {
-                    // Same expression as legend channel - map through fill scale if available
-                    // Try to get the fill scale from legend_scale
-                    let fill_scale = params.scales.get("fill").unwrap_or(legend_scale); // Fall back to legend scale
-                    if fill_scale.has_explicit_domain() {
-                        let colors = self
-                            .map_values_through_scale(fill_scale, &domain_values)
-                            .await?;
-                        config.fill = ScalarOrArray::new_array(
-                            colors
-                                .into_iter()
-                                .map(avenger_common::types::ColorOrGradient::Color)
-                                .collect(),
-                        );
-                    }
-                } else if !Self::references_columns(channel_value.expr()) {
-                    // Scalar expression - evaluate it
-                    if let Ok(scalars) = crate::utils::eval_to_scalars(
-                        vec![channel_value.expr().clone()],
-                        None,
-                        None,
-                    )
-                    .await
-                    {
-                        if let Ok(color_array) = ScalarValue::iter_to_array(scalars.iter().cloned())
-                        {
-                            use avenger_scales::scales::coerce::Coercer;
-                            let coercer = Coercer::default();
-                            if let Ok(colors) = coercer.to_color(&color_array, None) {
-                                if let Some(color) = colors.as_vec(1, None).first() {
-                                    config.fill = ScalarOrArray::new_scalar(color.clone());
-                                }
+            // Fill channel exists but this legend is not for fill
+            // Only use it if it's a scalar (constant) expression
+            if !Self::references_columns(channel_value.expr()) {
+                // Scalar expression - evaluate it
+                if let Ok(scalars) =
+                    crate::utils::eval_to_scalars(vec![channel_value.expr().clone()], None, None)
+                        .await
+                {
+                    if let Ok(color_array) = ScalarValue::iter_to_array(scalars.iter().cloned()) {
+                        use avenger_scales::scales::coerce::Coercer;
+                        let coercer = Coercer::default();
+                        if let Ok(colors) = coercer.to_color(&color_array, None) {
+                            if let Some(color) = colors.as_vec(1, None).first() {
+                                config.fill = ScalarOrArray::new_scalar(color.clone());
                             }
                         }
                     }
@@ -1526,15 +1508,18 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         // Stroke channel
         let default_stroke_color = parse_color_string(&default_stroke).unwrap_or(
-            avenger_common::types::ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
+            avenger_common::types::ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]),
         );
         config.stroke = ScalarOrArray::new_scalar(default_stroke_color.clone());
 
         if params.channel == "stroke" {
             // Stroke is the legend channel - map through scale
-            let colors = self
-                .map_values_through_scale(legend_scale, &domain_values)
-                .await?;
+            let colors = if legend_scale.scale_impl.scale_type() == "threshold" {
+                // For threshold scales, get the range colors directly
+                legend_scale.range_colors()?
+            } else {
+                legend_scale.map_values_colors(&domain_values)?
+            };
             config.stroke = ScalarOrArray::new_array(
                 colors
                     .into_iter()
@@ -1542,40 +1527,20 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                     .collect(),
             );
         } else if let Some(channel_value) = mark_encodings.get("stroke") {
-            // Check if this uses the same expression as the legend channel
-            if let Some(legend_expr) = legend_channel_expr {
-                if channel_value.expr() == legend_expr {
-                    // Same expression as legend channel - map through stroke scale if available
-                    if let Some(stroke_scale) = params.scales.get("stroke") {
-                        if stroke_scale.has_explicit_domain() {
-                            let colors = self
-                                .map_values_through_scale(stroke_scale, &domain_values)
-                                .await?;
-                            config.stroke = ScalarOrArray::new_array(
-                                colors
-                                    .into_iter()
-                                    .map(avenger_common::types::ColorOrGradient::Color)
-                                    .collect(),
-                            );
-                        }
-                    }
-                } else if !Self::references_columns(channel_value.expr()) {
-                    // Scalar expression - evaluate it
-                    if let Ok(scalars) = crate::utils::eval_to_scalars(
-                        vec![channel_value.expr().clone()],
-                        None,
-                        None,
-                    )
-                    .await
-                    {
-                        if let Ok(color_array) = ScalarValue::iter_to_array(scalars.iter().cloned())
-                        {
-                            use avenger_scales::scales::coerce::Coercer;
-                            let coercer = Coercer::default();
-                            if let Ok(colors) = coercer.to_color(&color_array, None) {
-                                if let Some(color) = colors.as_vec(1, None).first() {
-                                    config.stroke = ScalarOrArray::new_scalar(color.clone());
-                                }
+            // Stroke channel exists but this legend is not for stroke
+            // Only use it if it's a scalar (constant) expression
+            if !Self::references_columns(channel_value.expr()) {
+                // Scalar expression - evaluate it
+                if let Ok(scalars) =
+                    crate::utils::eval_to_scalars(vec![channel_value.expr().clone()], None, None)
+                        .await
+                {
+                    if let Ok(color_array) = ScalarValue::iter_to_array(scalars.iter().cloned()) {
+                        use avenger_scales::scales::coerce::Coercer;
+                        let coercer = Coercer::default();
+                        if let Ok(colors) = coercer.to_color(&color_array, None) {
+                            if let Some(color) = colors.as_vec(1, None).first() {
+                                config.stroke = ScalarOrArray::new_scalar(color.clone());
                             }
                         }
                     }
@@ -1608,41 +1573,19 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         if params.channel == "angle" {
             // Angle is the legend channel - map through scale
-            let angles = self
-                .map_values_through_scale_numeric(legend_scale, &domain_values)
-                .await?;
+            let angles = legend_scale.map_values_numeric(&domain_values)?;
             config.angle = ScalarOrArray::new_array(angles);
         } else if let Some(channel_value) = mark_encodings.get("angle") {
-            // Check if this uses the same expression as the legend channel
-            if let Some(legend_expr) = legend_channel_expr {
-                if channel_value.expr() == legend_expr {
-                    // Same expression as legend channel - map through angle scale if available
-                    // Try to get the angle scale from legend_scale
-                    let angle_scale = params.scales.get("angle").unwrap_or(legend_scale); // Fall back to legend scale
-                    if angle_scale.has_explicit_domain() {
-                        let angles = self
-                            .map_values_through_scale_numeric(angle_scale, &domain_values)
-                            .await?;
-                        config.angle = ScalarOrArray::new_array(angles);
-                    } else {
-                        // No angle scale, use constant default angle for all symbols
-                        let angles: Vec<_> = domain_values.iter().map(|_| default_angle).collect();
-                        config.angle = ScalarOrArray::new_array(angles);
-                    }
-                } else if !Self::references_columns(channel_value.expr()) {
-                    // Scalar expression - evaluate it
-                    if let Ok(scalars) = crate::utils::eval_to_scalars(
-                        vec![channel_value.expr().clone()],
-                        None,
-                        None,
-                    )
-                    .await
-                    {
-                        if let Some(value) =
-                            scalars.into_iter().next().and_then(|s| s.as_f32().ok())
-                        {
-                            config.angle = ScalarOrArray::new_scalar(value);
-                        }
+            // Angle channel exists but this legend is not for angle
+            // Only use it if it's a scalar (constant) expression
+            if !Self::references_columns(channel_value.expr()) {
+                // Scalar expression - evaluate it
+                if let Ok(scalars) =
+                    crate::utils::eval_to_scalars(vec![channel_value.expr().clone()], None, None)
+                        .await
+                {
+                    if let Some(value) = scalars.into_iter().next().and_then(|s| s.as_f32().ok()) {
+                        config.angle = ScalarOrArray::new_scalar(value);
                     }
                 }
             }
@@ -1693,131 +1636,6 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         }
     }
 
-    /// Map domain values to dash patterns through a scale
-    async fn map_dash_patterns(
-        &self,
-        domain_values: &[datafusion_common::ScalarValue],
-        scale: &Scale,
-    ) -> Result<Vec<Option<Vec<f32>>>, AvengerChartError> {
-        use datafusion::arrow::array::{Array, StringArray};
-
-        trace!(
-            has_explicit_domain = scale.has_explicit_domain(),
-            domain_values = ?domain_values,
-            "map_dash_patterns"
-        );
-
-        if scale.has_explicit_domain() {
-            // Create a ConfiguredScale
-            let configured_scale = scale.create_configured_scale(f32::NAN, f32::NAN).await?;
-
-            // Convert scalar values to an arrow array
-            let domain_array = ScalarValue::iter_to_array(domain_values.iter().cloned())?;
-
-            // Apply the scale transformation
-            let scaled_array = configured_scale.scale(&domain_array)?;
-
-            // The result could be string patterns or dictionary array
-            // Try to handle both cases
-            use datafusion::arrow::datatypes::DataType;
-
-            // Check if it's a dictionary array
-            if let DataType::Dictionary(_, _) = scaled_array.data_type() {
-                // It's a dictionary array - extract the values
-                use avenger_scales::scales::coerce::Coercer;
-                let coercer = Coercer::default();
-
-                // Convert the dictionary array to stroke dash patterns
-                if let Ok(dash_result) = coercer.to_stroke_dash(&scaled_array) {
-                    let patterns: Vec<Option<Vec<f32>>> = dash_result
-                        .as_vec(domain_values.len(), None)
-                        .into_iter()
-                        .map(|dash_vec| {
-                            if dash_vec.is_empty() {
-                                None // solid pattern
-                            } else {
-                                Some(dash_vec)
-                            }
-                        })
-                        .collect();
-                    Ok(patterns)
-                } else {
-                    // Default to solid for all
-                    Ok(vec![None; domain_values.len()])
-                }
-            } else if let Some(string_array) = scaled_array.as_any().downcast_ref::<StringArray>() {
-                // It's a string array - convert each pattern
-                let patterns: Vec<Option<Vec<f32>>> = (0..string_array.len())
-                    .map(|i| {
-                        if string_array.is_null(i) {
-                            None
-                        } else {
-                            Self::convert_dash_pattern(string_array.value(i))
-                        }
-                    })
-                    .collect();
-                Ok(patterns)
-            } else {
-                // Default to solid for all
-                Ok(vec![None; domain_values.len()])
-            }
-        } else {
-            // No explicit domain, but we can still apply default dash patterns if scale has been configured
-            // Try to create a ConfiguredScale - it should have default range applied
-            let configured_scale_result = scale.create_configured_scale(f32::NAN, f32::NAN).await;
-
-            match configured_scale_result {
-                Ok(configured_scale) => {
-                    // Convert scalar values to an arrow array
-                    let domain_array = ScalarValue::iter_to_array(domain_values.iter().cloned())?;
-
-                    // Apply the scale transformation
-                    let scaled_array = configured_scale.scale(&domain_array)?;
-
-                    // Try to extract dash patterns from the result
-                    use avenger_scales::scales::coerce::Coercer;
-                    use datafusion::arrow::datatypes::DataType;
-
-                    if let DataType::Dictionary(_, _) = scaled_array.data_type() {
-                        let coercer = Coercer::default();
-                        if let Ok(dash_result) = coercer.to_stroke_dash(&scaled_array) {
-                            let patterns: Vec<Option<Vec<f32>>> = dash_result
-                                .as_vec(domain_values.len(), None)
-                                .into_iter()
-                                .map(|dash_vec| {
-                                    if dash_vec.is_empty() {
-                                        None // solid pattern
-                                    } else {
-                                        Some(dash_vec)
-                                    }
-                                })
-                                .collect();
-                            trace!("Successfully extracted dash patterns without explicit domain");
-                            Ok(patterns)
-                        } else {
-                            trace!("Failed to convert to stroke_dash, using solid lines");
-                            Ok(vec![None; domain_values.len()])
-                        }
-                    } else {
-                        trace!(
-                            data_type = ?scaled_array.data_type(),
-                            "Scaled array is not dictionary type, using solid lines"
-                        );
-                        Ok(vec![None; domain_values.len()])
-                    }
-                }
-                Err(e) => {
-                    trace!(
-                        error = ?e,
-                        "Failed to create configured scale without explicit domain"
-                    );
-                    // Fall back to solid lines
-                    Ok(vec![None; domain_values.len()])
-                }
-            }
-        }
-    }
-
     /// Create a line legend
     async fn create_line_legend(
         &self,
@@ -1827,49 +1645,67 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         use avenger_guides::legend::line::{LineLegendConfig, make_line_legend};
         use std::collections::HashMap;
 
-        // Extract domain values from scale
+        // Extract domain values from scale using extension trait
+        use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
+
         let legend_scale = params.scales.get(params.channel).ok_or_else(|| {
             AvengerChartError::InternalError(format!(
                 "Scale for channel '{}' not found",
                 params.channel
             ))
         })?;
-        let domain_values = self.extract_scale_domain_values(legend_scale).await?;
+
+        let domain_values = match legend_scale.domain_values()? {
+            DomainValues::Discrete(values) => values,
+            DomainValues::Interval(min, max) => vec![min, max],
+        };
         if domain_values.is_empty() {
             return Ok(None);
         }
 
-        // Create text labels from domain values
-        let text_values: Vec<String> = domain_values
-            .iter()
-            .map(|v| match v {
-                datafusion_common::ScalarValue::Utf8(Some(s)) => s.clone(),
-                datafusion_common::ScalarValue::Float64(Some(f)) => {
-                    // Format float nicely - remove trailing zeros
-                    if f.fract() == 0.0 && f.abs() < 1e10 {
-                        format!("{:.0}", f)
-                    } else {
-                        format!("{}", f)
+        // Create text labels - use special labels for threshold scales
+        let text_values: Vec<String> = if legend_scale.scale_impl.scale_type() == "threshold" {
+            // Use interval labels for threshold scales
+            let labels = legend_scale.domain_labels()?;
+            debug!(
+                channel = params.channel,
+                labels = ?labels,
+                "Threshold scale legend labels"
+            );
+            labels
+        } else {
+            // Regular labels from domain values
+            domain_values
+                .iter()
+                .map(|v| match v {
+                    datafusion_common::ScalarValue::Utf8(Some(s)) => s.clone(),
+                    datafusion_common::ScalarValue::Float64(Some(f)) => {
+                        // Format float nicely - remove trailing zeros
+                        if f.fract() == 0.0 && f.abs() < 1e10 {
+                            format!("{:.0}", f)
+                        } else {
+                            format!("{}", f)
+                        }
                     }
-                }
-                datafusion_common::ScalarValue::Float32(Some(f)) => {
-                    if f.fract() == 0.0 && f.abs() < 1e10 {
-                        format!("{:.0}", f)
-                    } else {
-                        format!("{}", f)
+                    datafusion_common::ScalarValue::Float32(Some(f)) => {
+                        if f.fract() == 0.0 && f.abs() < 1e10 {
+                            format!("{:.0}", f)
+                        } else {
+                            format!("{}", f)
+                        }
                     }
-                }
-                datafusion_common::ScalarValue::Int64(Some(i)) => i.to_string(),
-                datafusion_common::ScalarValue::Int32(Some(i)) => i.to_string(),
-                datafusion_common::ScalarValue::Int16(Some(i)) => i.to_string(),
-                datafusion_common::ScalarValue::Int8(Some(i)) => i.to_string(),
-                datafusion_common::ScalarValue::UInt64(Some(i)) => i.to_string(),
-                datafusion_common::ScalarValue::UInt32(Some(i)) => i.to_string(),
-                datafusion_common::ScalarValue::UInt16(Some(i)) => i.to_string(),
-                datafusion_common::ScalarValue::UInt8(Some(i)) => i.to_string(),
-                _ => format!("{:?}", v), // Fallback for other types
-            })
-            .collect();
+                    datafusion_common::ScalarValue::Int64(Some(i)) => i.to_string(),
+                    datafusion_common::ScalarValue::Int32(Some(i)) => i.to_string(),
+                    datafusion_common::ScalarValue::Int16(Some(i)) => i.to_string(),
+                    datafusion_common::ScalarValue::Int8(Some(i)) => i.to_string(),
+                    datafusion_common::ScalarValue::UInt64(Some(i)) => i.to_string(),
+                    datafusion_common::ScalarValue::UInt32(Some(i)) => i.to_string(),
+                    datafusion_common::ScalarValue::UInt16(Some(i)) => i.to_string(),
+                    datafusion_common::ScalarValue::UInt8(Some(i)) => i.to_string(),
+                    _ => format!("{:?}", v), // Fallback for other types
+                })
+                .collect()
+        };
 
         // Get mark defaults from a default line mark instance
         use crate::coords::Cartesian;
@@ -1981,16 +1817,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             }
         }
 
-        // Get the expression being used for the legend channel
-        let legend_channel_expr = mark_encodings.get(params.channel).map(|v| v.expr().clone());
+        // Each legend only shows its own channel varying - no cross-channel variation
 
         // Set stroke color based on whether it varies with the legend channel
         if params.channel == "stroke" {
             // Legend is for stroke itself - vary stroke color
             // Always map through the scale for the legend channel
-            let colors = self
-                .map_values_through_scale(legend_scale, &domain_values)
-                .await?;
+            let colors = legend_scale.map_values_colors(&domain_values)?;
             config.stroke = ScalarOrArray::new_array(
                 colors
                     .into_iter()
@@ -1998,94 +1831,61 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                     .collect(),
             );
 
-            // Also check if stroke_dash uses the same expression - if so, vary dash patterns too
-            if let Some(stroke_dash_value) = mark_encodings.get("stroke_dash") {
-                if stroke_dash_value.expr() == mark_encodings.get("stroke").unwrap().expr() {
-                    // stroke_dash uses same expression as stroke - also vary dash patterns
-                    if let Some(stroke_dash_scale) = params.scales.get("stroke_dash") {
-                        let dash_patterns = self
-                            .map_dash_patterns(&domain_values, stroke_dash_scale)
-                            .await?;
-                        config.stroke_dash = ScalarOrArray::new_array(dash_patterns);
-                    }
-                }
-            }
+            // Don't vary dash patterns in stroke legend - each legend only shows its own channel
         } else if let Some(channel_value) = mark_encodings.get("stroke") {
-            // Check if stroke uses the same expression as the legend channel
-            if let Some(legend_expr) = &legend_channel_expr {
-                if channel_value.expr() == legend_expr {
-                    // Same expression as legend channel - map through stroke scale if available
-                    if let Some(stroke_scale) = params.scales.get("stroke") {
-                        let colors = self
-                            .map_values_through_scale(stroke_scale, &domain_values)
-                            .await?;
-                        config.stroke = ScalarOrArray::new_array(
-                            colors
-                                .into_iter()
-                                .map(avenger_common::types::ColorOrGradient::Color)
-                                .collect(),
-                        );
-                    }
-                } else if !Self::references_columns(channel_value.expr()) {
-                    // Constant expression - evaluate it
-                    if let Ok(scalars) = crate::utils::eval_to_scalars(
-                        vec![channel_value.expr().clone()],
-                        None,
-                        None,
-                    )
-                    .await
-                    {
-                        if let Some(ScalarValue::Utf8(Some(color_str))) = scalars.into_iter().next()
-                        {
-                            if let Some(color) = parse_color_string(&color_str) {
-                                config.stroke = ScalarOrArray::new_scalar(color);
-                            }
+            // Stroke channel exists but this legend is not for stroke
+            // Only use it if it's a scalar (constant) expression
+            if !Self::references_columns(channel_value.expr()) {
+                // Constant expression - evaluate it
+                if let Ok(scalars) =
+                    crate::utils::eval_to_scalars(vec![channel_value.expr().clone()], None, None)
+                        .await
+                {
+                    if let Some(ScalarValue::Utf8(Some(color_str))) = scalars.into_iter().next() {
+                        if let Some(color) = parse_color_string(&color_str) {
+                            config.stroke = ScalarOrArray::new_scalar(color);
                         }
                     }
                 }
+            } else {
+                // Stroke references columns, use a default color for non-stroke legends
+                // For stroke_width and stroke_dash legends, we need a visible default color
+                if params.channel == "stroke_width" || params.channel == "stroke_dash" {
+                    let color = avenger_common::types::ColorOrGradient::Color([0.2, 0.2, 0.2, 1.0]); // Dark gray
+                    config.stroke = ScalarOrArray::new_scalar(color);
+                } else {
+                    // For other legends, use the parsed default
+                    let color = parse_color_string(&default_stroke).unwrap_or(
+                        avenger_common::types::ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]),
+                    );
+                    config.stroke = ScalarOrArray::new_scalar(color);
+                }
             }
         } else {
-            // Use default stroke color
-            if let Some(color) = parse_color_string(&default_stroke) {
-                config.stroke = ScalarOrArray::new_scalar(color);
-            }
+            // No stroke channel in mark encodings - use default stroke color
+            let color = parse_color_string(&default_stroke).unwrap_or(
+                avenger_common::types::ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]),
+            );
+            config.stroke = ScalarOrArray::new_scalar(color);
         }
 
         // Set stroke width based on whether it varies with the legend channel
         if params.channel == "stroke_width" {
             // Legend is for stroke_width itself - vary width
             // Always map through the scale for the legend channel
-            let widths = self
-                .map_values_through_scale_numeric(legend_scale, &domain_values)
-                .await?;
+            let widths = legend_scale.map_values_numeric(&domain_values)?;
             config.stroke_width = ScalarOrArray::new_array(widths);
         } else if let Some(channel_value) = mark_encodings.get("stroke_width") {
-            // Check if stroke_width uses the same expression as the legend channel
-            if let Some(legend_expr) = &legend_channel_expr {
-                if channel_value.expr() == legend_expr {
-                    // Same expression as legend channel - map through stroke_width scale if available
-                    let stroke_width_scale =
-                        params.scales.get("stroke_width").unwrap_or(legend_scale);
-                    if stroke_width_scale.has_explicit_domain() {
-                        let widths = self
-                            .map_values_through_scale_numeric(stroke_width_scale, &domain_values)
-                            .await?;
-                        config.stroke_width = ScalarOrArray::new_array(widths);
-                    }
-                } else if !Self::references_columns(channel_value.expr()) {
-                    // Constant expression - evaluate it
-                    if let Ok(scalars) = crate::utils::eval_to_scalars(
-                        vec![channel_value.expr().clone()],
-                        None,
-                        None,
-                    )
-                    .await
-                    {
-                        if let Some(value) =
-                            scalars.into_iter().next().and_then(|s| s.as_f32().ok())
-                        {
-                            config.stroke_width = ScalarOrArray::new_scalar(value);
-                        }
+            // Stroke width channel exists but this legend is not for stroke_width
+            // Only use it if it's a scalar (constant) expression
+            if !Self::references_columns(channel_value.expr()) {
+                // Constant expression - evaluate it
+                if let Ok(scalars) =
+                    crate::utils::eval_to_scalars(vec![channel_value.expr().clone()], None, None)
+                        .await
+                {
+                    if let Some(value) = scalars.into_iter().next().and_then(|s| s.as_f32().ok()) {
+                        config.stroke_width = ScalarOrArray::new_scalar(value);
                     }
                 }
             }
@@ -2097,25 +1897,16 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // Set stroke dash based on whether it varies with the legend channel
         if params.channel == "stroke_dash" {
             // Legend is for stroke_dash itself - vary dash pattern
-            let dash_patterns = self.map_dash_patterns(&domain_values, legend_scale).await?;
+            let dash_patterns = legend_scale.map_dash_patterns(&domain_values);
 
-            // Also check if stroke uses the same expression - if so, vary colors too
-            if let Some(stroke_value) = mark_encodings.get("stroke") {
-                if stroke_value.expr() == mark_encodings.get("stroke_dash").unwrap().expr() {
-                    // stroke uses same expression as stroke_dash - also vary colors
-                    if let Some(stroke_scale) = params.scales.get("stroke") {
-                        let colors = self
-                            .map_values_through_scale(stroke_scale, &domain_values)
-                            .await?;
-                        config.stroke = ScalarOrArray::new_array(
-                            colors
-                                .into_iter()
-                                .map(avenger_common::types::ColorOrGradient::Color)
-                                .collect(),
-                        );
-                    }
-                }
-            }
+            debug!(
+                channel = params.channel,
+                domain_values = ?domain_values,
+                dash_patterns = ?dash_patterns,
+                "Line legend dash patterns"
+            );
+
+            // Don't vary stroke colors - each legend only shows its own channel varying
 
             // Use 32 as the target legend length - all patterns are designed to align at this length
             let max_legend_length = 32.0;
@@ -2200,31 +1991,17 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
             config.stroke_dash = ScalarOrArray::new_array(dash_patterns);
         } else if let Some(channel_value) = mark_encodings.get("stroke_dash") {
-            // Check if stroke_dash uses the same expression as the legend channel
-            if let Some(legend_expr) = &legend_channel_expr {
-                if channel_value.expr() == legend_expr {
-                    // Same expression as legend channel - map through stroke_dash scale if available
-                    let stroke_dash_scale =
-                        params.scales.get("stroke_dash").unwrap_or(legend_scale);
-                    let dash_patterns = self
-                        .map_dash_patterns(&domain_values, stroke_dash_scale)
-                        .await?;
-                    config.stroke_dash = ScalarOrArray::new_array(dash_patterns);
-                } else if !Self::references_columns(channel_value.expr()) {
-                    // Constant expression - evaluate it
-                    if let Ok(scalars) = crate::utils::eval_to_scalars(
-                        vec![channel_value.expr().clone()],
-                        None,
-                        None,
-                    )
-                    .await
-                    {
-                        if let Some(ScalarValue::Utf8(Some(pattern_str))) =
-                            scalars.into_iter().next()
-                        {
-                            let dash = Self::convert_dash_pattern(&pattern_str);
-                            config.stroke_dash = ScalarOrArray::new_scalar(dash);
-                        }
+            // Stroke dash channel exists but this legend is not for stroke_dash
+            // Only use it if it's a scalar (constant) expression
+            if !Self::references_columns(channel_value.expr()) {
+                // Constant expression - evaluate it
+                if let Ok(scalars) =
+                    crate::utils::eval_to_scalars(vec![channel_value.expr().clone()], None, None)
+                        .await
+                {
+                    if let Some(ScalarValue::Utf8(Some(pattern_str))) = scalars.into_iter().next() {
+                        let dash = Self::convert_dash_pattern(&pattern_str);
+                        config.stroke_dash = ScalarOrArray::new_scalar(dash);
                     }
                 }
             }
@@ -2262,24 +2039,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             ColorbarConfig, ColorbarOrientation, make_colorbar_marks,
         };
 
-        // Create a ConfiguredScale from our Scale
-        let legend_scale = params.scales.get(params.channel).ok_or_else(|| {
+        // Get the ConfiguredScale for this channel
+        let configured_scale = params.scales.get(params.channel).ok_or_else(|| {
             AvengerChartError::InternalError(format!(
                 "Scale for channel '{}' not found",
                 params.channel
             ))
         })?;
-
-        // Apply default color range if not explicitly set
-        let mut legend_scale_copy = legend_scale.clone();
-        if !legend_scale_copy.has_explicit_range() {
-            self.plot
-                .apply_default_color_range(&mut legend_scale_copy, params.channel);
-        }
-
-        let configured_scale = legend_scale_copy
-            .create_configured_scale(100.0, params.plot_height)
-            .await?;
 
         // Determine colorbar dimensions
         // When using Taffy layout, params.plot_height is the allocated height
@@ -2323,7 +2089,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         let title = params.legend.title.as_deref().unwrap_or("");
 
         let mut colorbar_group =
-            make_colorbar_marks(&configured_scale, title, plot_origin, &config)?;
+            make_colorbar_marks(configured_scale, title, plot_origin, &config)?;
 
         // Adjust vertical position for multiple legends
         if params.y_offset > 0.0 {
@@ -2335,208 +2101,6 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         colorbar_group.zindex = Some(10); // Legends above data but below title
 
         Ok(Some(colorbar_group))
-    }
-
-    /// Extract domain values from a scale for legend entries
-    async fn extract_scale_domain_values(
-        &self,
-        scale: &Scale,
-    ) -> Result<Vec<datafusion_common::ScalarValue>, AvengerChartError> {
-        use crate::scales::ScaleDefaultDomain;
-
-        match &scale.get_domain().default_domain {
-            ScaleDefaultDomain::Discrete(exprs) => {
-                // Evaluate discrete expressions to get values
-                let values = crate::utils::eval_to_scalars(exprs.clone(), None, None).await?;
-                Ok(values)
-            }
-            ScaleDefaultDomain::Interval(start, end) => {
-                // For interval domains, prefer discrete values if range implies categories
-                // Otherwise, sample endpoints
-                let start_val =
-                    crate::utils::eval_to_scalars(vec![start.clone()], None, None).await?;
-                let end_val =
-                    crate::utils::eval_to_scalars(vec![end.as_ref().clone()], None, None).await?;
-                let mut out = Vec::new();
-                out.extend(start_val);
-                out.extend(end_val);
-                Ok(out)
-            }
-            ScaleDefaultDomain::DomainExprs(_) => {
-                // Domain not yet inferred from data
-                // Return empty for now
-                Ok(Vec::new())
-            }
-        }
-    }
-
-    /// Map values through a scale to get color arrays
-    async fn map_values_through_scale(
-        &self,
-        scale: &Scale,
-        values: &[datafusion_common::ScalarValue],
-    ) -> Result<Vec<[f32; 4]>, AvengerChartError> {
-        use datafusion::arrow::array::{Array, AsArray};
-        use datafusion::arrow::datatypes::Float32Type;
-
-        // Create a ConfiguredScale
-        let configured_scale = scale.create_configured_scale(100.0, 100.0).await?;
-
-        // Convert scalar values to an arrow array
-        let domain_array = ScalarValue::iter_to_array(values.iter().cloned())?;
-
-        // Apply the scale transformation
-        let scaled_array = configured_scale.scale(&domain_array)?;
-
-        // The scaled result for color scales should be a list array containing [f32; 4] arrays
-        // Try to extract colors from the scaled result
-        if let Some(list_array) = scaled_array.as_list_opt::<i32>() {
-            let mut colors = Vec::new();
-            for i in 0..list_array.len() {
-                if list_array.is_null(i) {
-                    colors.push([0.0, 0.0, 0.0, 0.0]);
-                } else {
-                    let color_array = list_array.value(i);
-                    if let Some(float_array) = color_array.as_primitive_opt::<Float32Type>() {
-                        if float_array.len() >= 4 {
-                            colors.push([
-                                float_array.value(0),
-                                float_array.value(1),
-                                float_array.value(2),
-                                float_array.value(3),
-                            ]);
-                        } else {
-                            colors.push([0.0, 0.0, 0.0, 1.0]);
-                        }
-                    } else {
-                        colors.push([0.0, 0.0, 0.0, 1.0]);
-                    }
-                }
-            }
-            Ok(colors)
-        } else {
-            // The scale might return colors directly without wrapping in a list array
-            // This is expected for ordinal scales - just use the coercer to parse
-            use avenger_scales::scales::coerce::Coercer;
-            let coercer = Coercer::default();
-
-            match coercer.to_color(&scaled_array, None) {
-                Ok(color_or_gradient) => {
-                    // Extract colors from the result and convert to [f32; 4]
-                    let color_or_gradients = color_or_gradient.as_vec(scaled_array.len(), None);
-                    let colors: Vec<[f32; 4]> = color_or_gradients
-                        .into_iter()
-                        .map(|cog| match cog {
-                            avenger_common::types::ColorOrGradient::Color(c) => c,
-                            avenger_common::types::ColorOrGradient::GradientIndex(_) => {
-                                [0.0, 0.0, 0.0, 1.0]
-                            }
-                        })
-                        .collect();
-                    Ok(colors)
-                }
-                Err(_) => {
-                    // If we can't parse as colors, return an error
-                    Err(AvengerChartError::InternalError(
-                        "Scale did not return valid color data".to_string(),
-                    ))
-                }
-            }
-        }
-    }
-
-    /// Extract shape names from a scale's range
-    async fn extract_shape_range_from_scale(
-        &self,
-        scale: &Scale,
-    ) -> Result<Vec<String>, AvengerChartError> {
-        use crate::scales::ScaleRange;
-        use datafusion_common::ScalarValue;
-
-        // // Check if the scale has an explicit range
-        // if scale.has_explicit_range() {
-        //     // Try to extract shape names from the range
-        //     if let ScaleRange::Enum(values) = scale.get_range() {
-        //         let mut shape_names = Vec::new();
-        //         for value in values {
-        //             if let ScalarValue::Utf8(Some(s)) = value {
-        //                 shape_names.push(s.clone());
-        //             }
-        //         }
-        //         if !shape_names.is_empty() {
-        //             return Ok(shape_names);
-        //         }
-        //     }
-        // }
-        // Try to extract shape names from the range
-        if let ScaleRange::Enum(values) = scale.get_range() {
-            let mut shape_names = Vec::new();
-            for value in values {
-                if let ScalarValue::Utf8(Some(s)) = value {
-                    shape_names.push(s.clone());
-                }
-            }
-            if !shape_names.is_empty() {
-                return Ok(shape_names);
-            }
-        }
-        Err(AvengerChartError::InternalError(format!(
-            "Shape scale range is not supported for legend: {:?}",
-            scale
-        )))
-
-        // // Fall back to default shapes
-        // Ok(crate::scales::shape_defaults::DEFAULT_SHAPES
-        //     .iter()
-        //     .map(|&s| s.to_string())
-        //     .collect())
-    }
-
-    /// Map values through a scale to get numeric values
-    async fn map_values_through_scale_numeric(
-        &self,
-        scale: &Scale,
-        values: &[datafusion_common::ScalarValue],
-    ) -> Result<Vec<f32>, AvengerChartError> {
-        use datafusion::arrow::array::{Array, AsArray};
-        use datafusion::arrow::compute::cast;
-        use datafusion::arrow::datatypes::{DataType, Float32Type};
-
-        // Create a ConfiguredScale
-        // For non-position scales like size, we pass NaN to indicate the range should not be overridden
-        let configured_scale = scale.create_configured_scale(f32::NAN, f32::NAN).await?;
-
-        // Convert scalar values to an arrow array
-        let domain_array = ScalarValue::iter_to_array(values.iter().cloned())?;
-
-        // Apply the scale transformation
-        let scaled_array = configured_scale.scale(&domain_array)?;
-
-        // Cast to Float32Array - this handles all numeric types and dictionary arrays with numeric values
-        let float_array = cast(&scaled_array, &DataType::Float32).map_err(|e| {
-            AvengerChartError::InternalError(format!(
-                "Failed to cast scale result to Float32: {}",
-                e
-            ))
-        })?;
-
-        // Extract the values
-        if let Some(float_array) = float_array.as_primitive_opt::<Float32Type>() {
-            let mut result = Vec::new();
-            for i in 0..float_array.len() {
-                if float_array.is_null(i) {
-                    result.push(0.0);
-                } else {
-                    result.push(float_array.value(i));
-                }
-            }
-            Ok(result)
-        } else {
-            // This shouldn't happen after a successful cast
-            Err(AvengerChartError::InternalError(
-                "Cast to Float32 succeeded but result is not a Float32Array".to_string(),
-            ))
-        }
     }
 
     /// Create title mark if configured
@@ -2707,6 +2271,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         &self,
         width: f32,
         height: f32,
+        initial_scales: &HashMap<String, Scale>,
     ) -> Result<
         (
             Padding,
@@ -2716,21 +2281,14 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
     > {
         use crate::chart_layout::ChartLayout;
 
-        // Build all scales to determine what legends we need
-        let channels_with_scales = self.plot.collect_channels_needing_scales();
-        let mut all_scales = HashMap::new();
-        for channel in &channels_with_scales {
-            let scale = self.plot.get_scale(channel);
-            all_scales.insert(channel.clone(), scale);
-        }
-
-        // Process scales to infer domains
+        // Use the provided initial scales instead of building from scratch
         let mut configured_scales = HashMap::new();
-        let mut processed_scales: HashMap<String, Scale> = HashMap::new();
-        for (name, mut scale) in all_scales {
+        let mut processed_scales = HashMap::new();
+        for (name, scale) in initial_scales {
+            let mut scale = scale.clone();
             // Infer domain if needed
             if !scale.has_explicit_domain() {
-                let data_expressions = self.plot.gather_scale_domain_expressions(&name)?;
+                let data_expressions = self.plot.gather_scale_domain_expressions(name)?;
                 if !data_expressions.is_empty() {
                     scale = scale.domain_data_fields_internal(data_expressions);
                 }
@@ -2746,11 +2304,11 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
             // Apply default range
             self.plot
-                .apply_default_range(&mut scale, &name, width as f64, height as f64);
+                .apply_default_range(&mut scale, name, width as f64, height as f64);
 
             // Apply default color range for color channels
             if matches!(name.as_str(), "fill" | "stroke" | "color") {
-                self.plot.apply_default_color_range(&mut scale, &name);
+                self.plot.apply_default_color_range(&mut scale, name);
             }
 
             // Apply default shape range for shape channel
@@ -2766,11 +2324,11 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             // Create configured scale for measurement
             let configured = scale.create_configured_scale(width, height).await?;
             configured_scales.insert(name.clone(), configured);
-            processed_scales.insert(name, scale);
+            processed_scales.insert(name.clone(), scale);
         }
 
-        // Get default legends for channels with data-driven scales
-        let default_legends = self.create_default_legends(&processed_scales);
+        // Get default legends for channels with ConfiguredScale
+        let default_legends = self.create_default_legends(&configured_scales);
         let mut all_legends = self.plot.legends.clone();
         for (channel, default_legend) in default_legends {
             all_legends.entry(channel).or_insert(default_legend);
@@ -2779,7 +2337,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // Filter to visible legends that have corresponding scales
         let visible_legends: Vec<_> = all_legends
             .iter()
-            .filter(|(channel, legend)| legend.visible && processed_scales.contains_key(*channel))
+            .filter(|(channel, legend)| legend.visible && configured_scales.contains_key(*channel))
             .map(|(channel, legend)| (channel.clone(), legend.clone()))
             .collect();
 
@@ -2844,7 +2402,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 let params = LegendParams {
                     channel: &channel,
                     legend: &legend,
-                    scales: &processed_scales,
+                    scales: &configured_scales,
                     plot_width: bounds.width,
                     plot_height: bounds.height,
                     padding: &Padding {
@@ -2856,7 +2414,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                     legend_margin: 0.0,
                     y_offset: 0.0,
                 };
-                let scale = processed_scales
+                let scale = configured_scales
                     .get(&channel)
                     .ok_or_else(|| AvengerChartError::InternalError("Missing scale".into()))?;
                 let legend_type = self.determine_legend_type(&channel, scale);

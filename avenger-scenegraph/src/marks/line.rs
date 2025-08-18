@@ -92,6 +92,18 @@ impl SceneLineMark {
         defined_paths.push(path_builder.build());
 
         if let Some(stroke_dash) = &self.stroke_dash {
+            // Skip dashing if the dash array is empty (represents solid line)
+            if stroke_dash.is_empty() {
+                // Combine all defined paths into one (same as no dashing case)
+                let mut combined_builder = Path::builder();
+                for path in defined_paths {
+                    for event in path.iter() {
+                        combined_builder.path_event(event);
+                    }
+                }
+                return combined_builder.build();
+            }
+
             // Create new paths with dashing
             let mut dash_path_builder = Path::builder();
 

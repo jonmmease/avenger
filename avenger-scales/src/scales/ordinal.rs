@@ -134,9 +134,18 @@ fn range_dict_array_for_values(
             ));
         }
     } else if values.data_type() != domain.data_type() {
-        return Err(AvengerScaleError::ScaleOperationNotSupported(
-            "values and domain have different types".to_string(),
-        ));
+        // Try to cast values to match domain type
+        // This is especially important for numeric values with string domains
+        match cast(values, domain.data_type()) {
+            Ok(casted) => casted,
+            Err(_) => {
+                return Err(AvengerScaleError::ScaleOperationNotSupported(format!(
+                    "Cannot cast values of type {:?} to domain type {:?}",
+                    values.data_type(),
+                    domain.data_type()
+                )));
+            }
+        }
     } else {
         values.clone()
     };

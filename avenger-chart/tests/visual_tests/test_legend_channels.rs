@@ -140,11 +140,6 @@ async fn test_ordinal_size_legend() {
 
 #[tokio::test]
 async fn test_combined_size_color_shape_legend() {
-    // Set environment variable to save layout SVG for debugging
-    unsafe {
-        std::env::set_var("AVENGER_DEBUG_LAYOUT", "tests/failures/legend");
-    }
-
     // Create test data with a single category column that will drive size, color, and shape
     let categories = StringArray::from(vec![
         "Type A", "Type B", "Type C", "Type A", "Type B", "Type C",

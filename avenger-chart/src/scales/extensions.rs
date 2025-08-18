@@ -1,0 +1,639 @@
+//! Extension traits for ConfiguredScale to add chart-specific functionality
+//!
+//! These traits extend avenger_scales::ConfiguredScale with DataFusion integration
+//! and legend-specific convenience methods without adding dependencies to avenger-scales.
+
+use crate::error::AvengerChartError;
+use crate::scales::udf::create_scale_udf;
+use avenger_scales::scales::ConfiguredScale;
+use datafusion::arrow::array::Array;
+use datafusion::arrow::datatypes::Float32Type;
+use datafusion::logical_expr::{Expr, ExprSchemable};
+use datafusion_common::ScalarValue;
+
+/// Extension trait for DataFusion integration
+pub trait ConfiguredScaleDataFusionExt {
+    /// Create a DataFusion expression that applies this scale to input values
+    fn to_expr(&self, input: Expr) -> Result<Expr, AvengerChartError>;
+
+    /// Create a DataFusion expression with custom band parameter for band/point scales
+    fn to_expr_with_band(&self, input: Expr, band: f64) -> Result<Expr, AvengerChartError>;
+}
+
+/// Extension trait for legend generation
+pub trait ConfiguredScaleLegendExt {
+    /// Extract domain values as ScalarValues for legend generation
+    fn domain_values(&self) -> Result<DomainValues, AvengerChartError>;
+
+    /// Get formatted domain labels for legends
+    fn domain_labels(&self) -> Result<Vec<String>, AvengerChartError>;
+
+    /// Extract color values from range if this is a color scale
+    fn range_colors(&self) -> Result<Vec<[f32; 4]>, AvengerChartError>;
+
+    /// Get a specific color from the range by index
+    fn get_color_at(&self, index: usize) -> Option<[f32; 4]>;
+
+    /// Get a specific shape from the range by index
+    fn get_shape_at(&self, index: usize) -> Option<String>;
+
+    /// Get a specific dash pattern from the range by index
+    fn get_dash_pattern_at(&self, index: usize) -> Option<String>;
+
+    /// Extract shape names from the scale's range
+    fn extract_shape_range(&self) -> Vec<String>;
+
+    /// Map scalar values through the scale to get numeric values
+    fn map_values_numeric(&self, values: &[ScalarValue]) -> Result<Vec<f32>, AvengerChartError>;
+
+    /// Map scalar values through the scale to get color values
+    fn map_values_colors(&self, values: &[ScalarValue])
+    -> Result<Vec<[f32; 4]>, AvengerChartError>;
+
+    /// Map domain values to dash patterns
+    fn map_dash_patterns(&self, values: &[ScalarValue]) -> Vec<Option<Vec<f32>>>;
+}
+
+/// Domain values extracted for legend generation
+#[derive(Debug, Clone)]
+pub enum DomainValues {
+    /// Discrete domain values (for ordinal/band/point scales)
+    Discrete(Vec<ScalarValue>),
+    /// Interval domain with min and max (for continuous scales)
+    Interval(ScalarValue, ScalarValue),
+}
+
+impl ConfiguredScaleDataFusionExt for ConfiguredScale {
+    fn to_expr(&self, input: Expr) -> Result<Expr, AvengerChartError> {
+        use datafusion::logical_expr::lit;
+        use datafusion::prelude::named_struct;
+        use datafusion_common::DFSchema;
+
+        // Get data types
+        let domain_type = self.config.domain.data_type();
+        let range_type = self.config.range.data_type();
+        let empty_schema = DFSchema::empty();
+
+        // Build options struct - convert avenger_scales::Scalar to expressions
+        let options_expr = if self.config.options.is_empty() {
+            // Create empty struct
+            lit(ScalarValue::Struct(
+                datafusion::arrow::array::StructArray::new_empty_fields(1, None).into(),
+            ))
+        } else {
+            // Convert HashMap<String, Scalar> to named_struct expression
+            let struct_args: Vec<Expr> = self
+                .config
+                .options
+                .iter()
+                .flat_map(|(key, value)| {
+                    // Convert avenger_scales::Scalar to ScalarValue
+                    let scalar_value = scalar_to_scalar_value(value);
+                    vec![lit(key.clone()), lit(scalar_value)]
+                })
+                .collect();
+            named_struct(struct_args)
+        };
+
+        let options_type = options_expr.get_type(&empty_schema)?;
+
+        // Create the scale UDF with the arrays directly from ConfiguredScale
+        let udf = create_scale_udf(
+            self.scale_impl.clone(),
+            domain_type.clone(),
+            range_type.clone(),
+            options_type,
+        )?;
+
+        // Convert arrays to ScalarValue::List for the UDF call
+        let domain_scalar = array_to_list_scalar(self.config.domain.clone())?;
+        let range_scalar = array_to_list_scalar(self.config.range.clone())?;
+
+        // Cast input to match domain type if needed
+        let casted_input = datafusion::logical_expr::cast(input, domain_type.clone());
+
+        // Call the UDF with domain, range, options, and input
+        Ok(udf.call(vec![
+            lit(domain_scalar),
+            lit(range_scalar),
+            options_expr,
+            casted_input,
+        ]))
+    }
+
+    fn to_expr_with_band(&self, input: Expr, band: f64) -> Result<Expr, AvengerChartError> {
+        // For band/point scales, temporarily add band option
+        if matches!(self.scale_impl.scale_type(), "band" | "point") {
+            // Clone config and add band option
+            let mut config = self.config.clone();
+            config.options.insert(
+                "band".to_string(),
+                avenger_scales::scalar::Scalar::from_f32(band as f32),
+            );
+
+            // Create a temporary ConfiguredScale with the band option
+            let temp_scale = ConfiguredScale {
+                scale_impl: self.scale_impl.clone(),
+                config,
+            };
+
+            temp_scale.to_expr(input)
+        } else {
+            // For non-band scales, ignore the band parameter
+            self.to_expr(input)
+        }
+    }
+}
+
+impl ConfiguredScaleLegendExt for ConfiguredScale {
+    fn domain_values(&self) -> Result<DomainValues, AvengerChartError> {
+        let domain_array = &self.config.domain;
+
+        // Check scale type to determine how to extract values
+        match self.scale_impl.scale_type() {
+            "ordinal" | "band" | "point" => {
+                // Extract discrete values from array
+                let scalars: Vec<ScalarValue> = (0..domain_array.len())
+                    .map(|i| ScalarValue::try_from_array(domain_array, i))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(DomainValues::Discrete(scalars))
+            }
+            "threshold" => {
+                // For threshold scales, return one dummy value per interval
+                // The number of intervals is n+1 for n thresholds
+                let threshold_count = domain_array.len();
+                let interval_count = threshold_count + 1;
+
+                // Create dummy values for each interval
+                // These are just placeholders - the actual labels come from domain_labels()
+                let mut interval_values = Vec::new();
+                for i in 0..interval_count {
+                    // Use the interval index as a dummy value
+                    interval_values.push(ScalarValue::Utf8(Some(format!("interval_{}", i))));
+                }
+                Ok(DomainValues::Discrete(interval_values))
+            }
+            _ => {
+                // Extract interval endpoints for continuous scales
+                if domain_array.len() >= 2 {
+                    let min = ScalarValue::try_from_array(domain_array, 0)?;
+                    let max = ScalarValue::try_from_array(domain_array, domain_array.len() - 1)?;
+                    Ok(DomainValues::Interval(min, max))
+                } else {
+                    Err(AvengerChartError::InternalError(format!(
+                        "Invalid domain array for continuous scale '{}': domain has {} elements",
+                        self.scale_impl.scale_type(),
+                        domain_array.len()
+                    )))
+                }
+            }
+        }
+    }
+
+    fn domain_labels(&self) -> Result<Vec<String>, AvengerChartError> {
+        // Special handling for threshold scales
+        if self.scale_impl.scale_type() == "threshold" {
+            // Get threshold values from domain
+            let domain_array = &self.config.domain;
+            let thresholds: Vec<ScalarValue> = (0..domain_array.len())
+                .map(|i| ScalarValue::try_from_array(domain_array, i))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            // Create interval labels
+            let mut labels = Vec::new();
+
+            // First interval: < first_threshold
+            if let Some(first) = thresholds.first() {
+                labels.push(format!("< {}", format_scalar_value(first)));
+            }
+
+            // Middle intervals: threshold[i] - threshold[i+1]
+            for window in thresholds.windows(2) {
+                labels.push(format!(
+                    "{} - {}",
+                    format_scalar_value(&window[0]),
+                    format_scalar_value(&window[1])
+                ));
+            }
+
+            // Last interval: >= last_threshold
+            if let Some(last) = thresholds.last() {
+                labels.push(format!("≥ {}", format_scalar_value(last)));
+            }
+
+            return Ok(labels);
+        }
+
+        // Default handling for other scales
+        let domain_values = self.domain_values()?;
+        Ok(match domain_values {
+            DomainValues::Discrete(values) => values.iter().map(format_scalar_value).collect(),
+            DomainValues::Interval(min, max) => {
+                vec![format_scalar_value(&min), format_scalar_value(&max)]
+            }
+        })
+    }
+
+    fn range_colors(&self) -> Result<Vec<[f32; 4]>, AvengerChartError> {
+        use datafusion::arrow::datatypes::DataType;
+
+        match self.config.range.data_type() {
+            // List of color arrays (continuous color scales)
+            DataType::List(_) => {
+                // Extract colors from list array
+                let list_array = self
+                    .config
+                    .range
+                    .as_any()
+                    .downcast_ref::<datafusion::arrow::array::ListArray>()
+                    .ok_or_else(|| {
+                        AvengerChartError::InternalError(
+                            "Expected ListArray for color range".to_string(),
+                        )
+                    })?;
+
+                let mut colors = Vec::new();
+                for i in 0..list_array.len() {
+                    if let Some(color_array) = list_array
+                        .value(i)
+                        .as_any()
+                        .downcast_ref::<datafusion::arrow::array::Float32Array>(
+                    ) {
+                        if color_array.len() >= 4 {
+                            colors.push([
+                                color_array.value(0),
+                                color_array.value(1),
+                                color_array.value(2),
+                                color_array.value(3),
+                            ]);
+                        }
+                    }
+                }
+                Ok(colors)
+            }
+            // String array (ordinal color scales with hex colors)
+            DataType::Utf8 => {
+                use datafusion::arrow::array::StringArray;
+
+                let string_array = self
+                    .config
+                    .range
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .ok_or_else(|| {
+                        AvengerChartError::InternalError(
+                            "Expected StringArray for color range".to_string(),
+                        )
+                    })?;
+
+                let mut colors = Vec::new();
+                for i in 0..string_array.len() {
+                    if !string_array.is_null(i) {
+                        let color_str = string_array.value(i);
+                        // Parse hex color to RGBA
+                        if let Some(color) = parse_color_to_rgba(color_str) {
+                            colors.push(color);
+                        }
+                    }
+                }
+                Ok(colors)
+            }
+            _ => Err(AvengerChartError::InternalError(format!(
+                "Range is not a color range: {:?}",
+                self.config.range.data_type()
+            ))),
+        }
+    }
+
+    fn get_color_at(&self, index: usize) -> Option<[f32; 4]> {
+        self.range_colors().ok()?.get(index).copied()
+    }
+
+    fn get_shape_at(&self, index: usize) -> Option<String> {
+        // Extract shape from range array at index
+        if let Ok(ScalarValue::Utf8(Some(s))) =
+            ScalarValue::try_from_array(&self.config.range, index)
+        {
+            return Some(s);
+        }
+        None
+    }
+
+    fn get_dash_pattern_at(&self, index: usize) -> Option<String> {
+        // Same as get_shape_at for dash patterns
+        self.get_shape_at(index)
+    }
+
+    fn extract_shape_range(&self) -> Vec<String> {
+        // Extract all string values from the range array
+        let mut shapes = Vec::new();
+        for i in 0..self.config.range.len() {
+            if let Ok(ScalarValue::Utf8(Some(s))) =
+                ScalarValue::try_from_array(&self.config.range, i)
+            {
+                shapes.push(s);
+            }
+        }
+        shapes
+    }
+
+    fn map_values_numeric(&self, values: &[ScalarValue]) -> Result<Vec<f32>, AvengerChartError> {
+        use datafusion::arrow::array::AsArray;
+        use datafusion::arrow::compute::cast;
+        use datafusion::arrow::datatypes::DataType;
+
+        // Convert scalar values to an arrow array
+        let domain_array = ScalarValue::iter_to_array(values.iter().cloned())?;
+
+        // Apply the scale transformation using the configured scale
+        let scaled_array = self.scale(&domain_array)?;
+
+        // Cast to Float32Array
+        let float_array = cast(&scaled_array, &DataType::Float32).map_err(|e| {
+            AvengerChartError::InternalError(format!(
+                "Failed to cast scale result to Float32: {}",
+                e
+            ))
+        })?;
+
+        // Extract the values
+        if let Some(float_array) = float_array.as_primitive_opt::<Float32Type>() {
+            Ok(float_array.values().to_vec())
+        } else {
+            Err(AvengerChartError::InternalError(
+                "Failed to extract float values from scale result".to_string(),
+            ))
+        }
+    }
+
+    fn map_values_colors(
+        &self,
+        values: &[ScalarValue],
+    ) -> Result<Vec<[f32; 4]>, AvengerChartError> {
+        use datafusion::arrow::datatypes::DataType;
+
+        // Check scale type
+        let scale_type = self.scale_impl.scale_type();
+
+        // For ordinal/band/point scales with color range, map through indices
+        if matches!(scale_type, "ordinal" | "band" | "point") {
+            // Get the range colors
+            let range_colors = self.range_colors()?;
+
+            // Map each domain value to its index, then to the corresponding color
+            let mut colors = Vec::new();
+            for value in values {
+                // Find the index of this value in the domain
+                let domain_values = self.domain_values()?;
+                if let DomainValues::Discrete(domain_vals) = domain_values {
+                    if let Some(idx) = domain_vals.iter().position(|v| v == value) {
+                        // Get the color at this index (wrapping if necessary)
+                        let color_idx = idx % range_colors.len();
+                        colors.push(range_colors[color_idx]);
+                    } else {
+                        // Value not in domain - use first color as default
+                        colors.push(
+                            range_colors
+                                .first()
+                                .copied()
+                                .unwrap_or([0.0, 0.0, 0.0, 1.0]),
+                        );
+                    }
+                } else {
+                    // Not a discrete domain - shouldn't happen for ordinal scales
+                    return Err(AvengerChartError::InternalError(
+                        "Ordinal scale should have discrete domain".to_string(),
+                    ));
+                }
+            }
+            Ok(colors)
+        } else {
+            // For continuous color scales, apply the scale transformation
+            let domain_array = ScalarValue::iter_to_array(values.iter().cloned())?;
+            let scaled_array = self.scale(&domain_array)?;
+
+            // Extract colors based on array type
+            let data_type = scaled_array.data_type();
+            match data_type {
+                DataType::FixedSizeList(_, 4) => {
+                    // Color array - extract RGBA values
+                    use datafusion::arrow::array::FixedSizeListArray;
+
+                    let list_array = scaled_array
+                        .as_any()
+                        .downcast_ref::<FixedSizeListArray>()
+                        .ok_or_else(|| {
+                            AvengerChartError::InternalError(
+                                "Expected FixedSizeListArray".to_string(),
+                            )
+                        })?;
+
+                    let mut colors = Vec::new();
+                    for i in 0..list_array.len() {
+                        if let Ok(ScalarValue::FixedSizeList(list)) =
+                            ScalarValue::try_from_array(&scaled_array, i)
+                        {
+                            // Extract the array from the Arc
+                            if list.len() == 4 {
+                                let mut rgba = [0.0f32; 4];
+                                // Try to get float values from the array
+                                for (j, item) in rgba.iter_mut().enumerate() {
+                                    if let Ok(ScalarValue::Float32(Some(v))) =
+                                        ScalarValue::try_from_array(list.as_ref(), j)
+                                    {
+                                        *item = v;
+                                    }
+                                }
+                                colors.push(rgba);
+                            }
+                        }
+                    }
+                    Ok(colors)
+                }
+                _ => Err(AvengerChartError::InternalError(format!(
+                    "Scale returned unexpected data type for colors: {:?}",
+                    data_type
+                ))),
+            }
+        }
+    }
+
+    fn map_dash_patterns(&self, values: &[ScalarValue]) -> Vec<Option<Vec<f32>>> {
+        // For ordinal scales, map each value through the scale to get its dash pattern
+        // We need to evaluate the scale for each value to get the correct range value
+
+        use datafusion::arrow::array::Array;
+        use datafusion::arrow::compute::cast;
+        use datafusion::arrow::datatypes::DataType;
+
+        // Convert ScalarValues to an Arrow array
+        let array = ScalarValue::iter_to_array(values.to_vec()).ok();
+        if let Some(array) = array {
+            // Cast to string if needed (ordinal scales expect string inputs)
+            let string_array = if array.data_type() != &DataType::Utf8 {
+                cast(&array, &DataType::Utf8).unwrap_or(array)
+            } else {
+                array
+            };
+
+            // Use the scale method to map domain values to range values
+            if let Ok(result) = self.scale(&string_array) {
+                // The result should be a string array with dash pattern names
+                let mut patterns = Vec::new();
+                for i in 0..result.len() {
+                    if let Ok(value) = ScalarValue::try_from_array(&result, i) {
+                        let pattern_name = match value {
+                            ScalarValue::Utf8(Some(name)) => Some(name),
+                            ScalarValue::Dictionary(_, v) => {
+                                // Extract string from dictionary scalar
+                                if let ScalarValue::Utf8(Some(name)) = v.as_ref() {
+                                    Some(name.clone())
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => {
+                                // If the result is not a string, something went wrong
+                                eprintln!(
+                                    "Warning: Expected string dash pattern, got: {:?}",
+                                    value
+                                );
+                                None
+                            }
+                        };
+
+                        if let Some(name) = pattern_name {
+                            patterns.push(parse_dash_pattern(&name));
+                        } else {
+                            patterns.push(None);
+                        }
+                    } else {
+                        patterns.push(None);
+                    }
+                }
+                return patterns;
+            } else {
+                eprintln!("Warning: Failed to scale dash domain values");
+            }
+        }
+
+        // Fallback: return None for all values
+        vec![None; values.len()]
+    }
+}
+
+/// Convert avenger_scales::Scalar to datafusion::ScalarValue
+fn scalar_to_scalar_value(scalar: &avenger_scales::scalar::Scalar) -> ScalarValue {
+    // Scalar wraps an ArrayRef with a single element
+    // Convert it to ScalarValue
+    ScalarValue::try_from_array(&scalar.0, 0).unwrap_or(ScalarValue::Null)
+}
+
+/// Convert an Arrow array to a ScalarValue::List
+fn array_to_list_scalar(
+    array: datafusion::arrow::array::ArrayRef,
+) -> Result<ScalarValue, AvengerChartError> {
+    use datafusion::arrow::array::ListArray;
+    use datafusion::arrow::buffer::OffsetBuffer;
+
+    // Create a ListArray that wraps our array as a single list element
+    let offsets = OffsetBuffer::from_lengths([array.len()]);
+    let list_array = ListArray::try_new(
+        datafusion::arrow::datatypes::Field::new("item", array.data_type().clone(), true).into(),
+        offsets,
+        array,
+        None,
+    )
+    .map_err(|e| AvengerChartError::InternalError(format!("Failed to create list array: {}", e)))?;
+
+    // Convert the first (and only) element to ScalarValue
+    ScalarValue::try_from_array(&list_array, 0).map_err(|e| {
+        AvengerChartError::InternalError(format!("Failed to convert to scalar: {}", e))
+    })
+}
+
+/// Parse a color string (hex or named) to RGBA array
+fn parse_color_to_rgba(color_str: &str) -> Option<[f32; 4]> {
+    use avenger_common::types::ColorOrGradient;
+    use avenger_scales::scales::coerce::Coercer;
+    use datafusion_common::ScalarValue;
+
+    let coercer = Coercer::default();
+    let array = ScalarValue::iter_to_array(
+        [ScalarValue::Utf8(Some(color_str.to_string()))]
+            .iter()
+            .cloned(),
+    )
+    .ok()?;
+
+    coercer
+        .to_color(&array, None)
+        .ok()
+        .and_then(|colors| colors.as_vec(1, None).first().cloned())
+        .and_then(|color| {
+            // Extract RGBA from ColorOrGradient
+            if let ColorOrGradient::Color(rgba) = color {
+                Some(rgba)
+            } else {
+                None
+            }
+        })
+}
+
+/// Parse a dash pattern name to actual dash array
+fn parse_dash_pattern(pattern_name: &str) -> Option<Vec<f32>> {
+    // Based on the patterns in avenger-scales Coercer::to_stroke_dash
+    match pattern_name {
+        "solid" => Some(vec![]),
+        "dashed" => Some(vec![8.0, 4.0]),
+        "dotted" => Some(vec![2.0, 4.0]),
+        "longdash" | "long-dash" => Some(vec![14.0, 4.0]),
+        "dashdot" | "dash-dot" => Some(vec![9.0, 4.0, 1.0, 4.0, 1.0, 4.0]),
+        "longshort" | "long-short" => Some(vec![11.0, 4.0, 2.0, 4.0]),
+        "tripledot" | "triple-dot" => Some(vec![1.0, 1.0, 1.0, 1.0, 4.0]),
+        "morsedot" | "morse-dot" => Some(vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 10.0]),
+        "doubledash" | "double-dash" => Some(vec![5.0, 4.0, 5.0, 4.0, 5.0, 4.0, 5.0]),
+        "evenshort" | "even-short" => Some(vec![6.0, 4.0, 1.0, 4.0, 2.0, 4.0, 1.0, 4.0]),
+        "densedash" | "dense-dash" => Some(vec![4.0, 4.0]),
+        _ => {
+            // Try to parse as comma-separated numbers
+            let cleaned = pattern_name.replace(',', " ");
+            let parts: Vec<f32> = cleaned
+                .split_whitespace()
+                .filter_map(|s| s.parse().ok())
+                .collect();
+            if !parts.is_empty() { Some(parts) } else { None }
+        }
+    }
+}
+
+/// Format a ScalarValue for display in legends
+fn format_scalar_value(value: &ScalarValue) -> String {
+    match value {
+        ScalarValue::Utf8(Some(s)) => s.clone(),
+        ScalarValue::Float64(Some(f)) => {
+            // Format float nicely - remove trailing zeros
+            if f.fract() == 0.0 && f.abs() < 1e10 {
+                format!("{:.0}", f)
+            } else {
+                format!("{}", f)
+            }
+        }
+        ScalarValue::Float32(Some(f)) => {
+            if f.fract() == 0.0 && f.abs() < 1e10 {
+                format!("{:.0}", f)
+            } else {
+                format!("{}", f)
+            }
+        }
+        ScalarValue::Int64(Some(i)) => i.to_string(),
+        ScalarValue::Int32(Some(i)) => i.to_string(),
+        ScalarValue::Int16(Some(i)) => i.to_string(),
+        ScalarValue::Int8(Some(i)) => i.to_string(),
+        ScalarValue::UInt64(Some(i)) => i.to_string(),
+        ScalarValue::UInt32(Some(i)) => i.to_string(),
+        ScalarValue::UInt16(Some(i)) => i.to_string(),
+        ScalarValue::UInt8(Some(i)) => i.to_string(),
+        _ => format!("{:?}", value), // Fallback for other types
+    }
+}

@@ -415,13 +415,16 @@ impl<C: CoordinateSystem> Plot<C> {
         }
 
         // Create a scale based on the inferred type
-        let scale_type = if let Some(dt) = &data_type {
+        let scale_type = if channel == "stroke_width" {
+            // stroke_width MUST always use ordinal scale with discrete domain
+            "ordinal"
+        } else if let Some(dt) = &data_type {
             infer_scale_type_with_mark(channel, dt, mark_type)
         } else {
             // Fallback to channel-based defaults
             match channel {
-                // Color channels default to ordinal
-                "fill" | "stroke" | "color" | "shape" => "ordinal",
+                // Color and discrete visual channels default to ordinal
+                "fill" | "stroke" | "color" | "shape" | "stroke_dash" => "ordinal",
                 // Everything else defaults to linear
                 _ => "linear",
             }
@@ -440,7 +443,32 @@ impl<C: CoordinateSystem> Plot<C> {
         // Apply channel-specific ranges
         match channel {
             "size" => scale = scale.range_interval(lit(16.0), lit(64.0)),
-            "stroke_width" => scale = scale.range_interval(lit(0.0), lit(10.0)),
+            "stroke_width" => {
+                // stroke_width ALWAYS uses discrete range
+                scale = scale.range_discrete(vec![
+                    lit(1.0),
+                    lit(2.0),
+                    lit(3.0),
+                    lit(4.0),
+                    lit(5.0),
+                    lit(6.0),
+                    lit(7.0),
+                    lit(8.0),
+                ])
+            }
+            "stroke_dash" => {
+                // Use discrete dash patterns for stroke_dash
+                if scale_type == "ordinal" {
+                    use crate::scales::dash_defaults::DEFAULT_DASH_PATTERN_NAMES;
+                    // Use the first 8 default pattern names
+                    let patterns: Vec<_> = DEFAULT_DASH_PATTERN_NAMES
+                        .iter()
+                        .take(8)
+                        .map(|name| lit(*name))
+                        .collect();
+                    scale = scale.range_discrete(patterns)
+                }
+            }
             "font_size" => scale = scale.range_interval(lit(0.0), lit(10.0)),
             "corner_radius" => scale = scale.range_interval(lit(0.0), lit(10.0)),
             "opacity" => scale = scale.range_interval(lit(0.0), lit(1.0)),
@@ -510,13 +538,55 @@ impl<C: CoordinateSystem> Plot<C> {
     pub fn get_scale(&self, name: &str) -> Scale {
         match self.scale_specs.get(name) {
             Some(ScaleSpec::Local(f)) => {
-                let base_scale = self.create_default_scale_for_channel_internal(name);
-                f(base_scale)
+                let mut base_scale = self.create_default_scale_for_channel_internal(name);
+
+                // Gather and apply domain expressions to give the scale a data-driven domain
+                // This happens BEFORE the user's lambda, so the user can override if desired
+                if let Ok(domain_exprs) = self.gather_scale_domain_expressions(name) {
+                    if !domain_exprs.is_empty() {
+                        base_scale = base_scale.domain_data_fields_internal(domain_exprs);
+                    }
+                }
+
+                // Apply user's transformation
+                let mut user_scale = f(base_scale);
+
+                // Enforce stroke_width must always be ordinal
+                if name == "stroke_width" {
+                    // Force ordinal scale type even if user tried to set it to linear
+                    user_scale = user_scale.scale_type("ordinal");
+                    // Ensure discrete range is used
+                    if !user_scale.has_explicit_range() {
+                        user_scale = user_scale.range_discrete(vec![
+                            lit(1.0),
+                            lit(2.0),
+                            lit(3.0),
+                            lit(4.0),
+                            lit(5.0),
+                            lit(6.0),
+                            lit(7.0),
+                            lit(8.0),
+                        ]);
+                    }
+                }
+
+                user_scale
             }
             Some(ScaleSpec::Reference(_)) => {
                 todo!("Referenced scales are not yet implemented");
             }
-            None => self.create_default_scale_for_channel_internal(name),
+            None => {
+                let mut base_scale = self.create_default_scale_for_channel_internal(name);
+
+                // For scales without user configuration, also apply data domain
+                if let Ok(domain_exprs) = self.gather_scale_domain_expressions(name) {
+                    if !domain_exprs.is_empty() {
+                        base_scale = base_scale.domain_data_fields_internal(domain_exprs);
+                    }
+                }
+
+                base_scale
+            }
         }
     }
 
@@ -563,8 +633,9 @@ impl<C: CoordinateSystem> Plot<C> {
                 // Get the scale name this channel would use
                 if let Some(channel_scale_name) = channel_value.scale_name(channel) {
                     if channel_scale_name == scale_name {
-                        // Add the expression directly
-                        data_expressions.push((df.clone(), channel_value.expr().clone()));
+                        // Get the expression - we'll cast later if needed
+                        let expr = channel_value.expr().clone();
+                        data_expressions.push((df.clone(), expr));
                     }
                 }
             }

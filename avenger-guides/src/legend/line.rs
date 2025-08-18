@@ -230,27 +230,33 @@ fn make_line_group(
     let text_x = max_line_length + text_padding;
 
     // Line
+    // Convert empty dash array to None (solid line)
+    let stroke_dash_normalized =
+        stroke_dash
+            .as_ref()
+            .and_then(|d| if d.is_empty() { None } else { Some(d.clone()) });
+
     let single_line_mark = SceneLineMark {
         len: 2,
         x: vec![x0, x1].into(),
         y: vec![0.0, 0.0].into(),
         stroke_width,
-        stroke_dash: stroke_dash.clone(),
+        stroke_dash: stroke_dash_normalized,
         stroke: stroke_color.clone(),
         stroke_cap,
         stroke_join: stroke_join.unwrap_or(StrokeJoin::Miter),
         ..Default::default()
     };
 
-    if std::env::var("AVENGER_DEBUG_LAYOUT").is_ok() {
-        eprintln!("Creating SceneLineMark:");
-        eprintln!("  len: {}", single_line_mark.len);
-        eprintln!("  x: [{}, {}]", x0, x1);
-        eprintln!("  y: [0.0, 0.0]");
-        eprintln!("  stroke_width: {}", stroke_width);
-        eprintln!("  stroke_dash: {:?}", stroke_dash);
-        eprintln!("  stroke: {:?}", stroke_color);
-    }
+    tracing::debug!(
+        len = single_line_mark.len,
+        x = ?[x0, x1],
+        y = ?[0.0, 0.0],
+        stroke_width = stroke_width,
+        stroke_dash = ?single_line_mark.stroke_dash,
+        stroke = ?stroke_color,
+        "Creating SceneLineMark"
+    );
 
     // Text
     let text_mark = SceneTextMark {

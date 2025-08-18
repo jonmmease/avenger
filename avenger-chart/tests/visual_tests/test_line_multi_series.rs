@@ -184,7 +184,7 @@ async fn test_multi_series_line_with_width() {
                 .x(col("x"))
                 .y(col("y"))
                 .stroke("#4682b4")
-                .stroke_width(col("width")), // Width varies by series
+                .stroke_width(col("width")),
         );
 
     assert_visual_match_default(plot, "line", "multi_series_width").await;
@@ -390,7 +390,10 @@ async fn test_multi_series_line_all_encodings() {
     let plot = Plot::new(Cartesian)
         .data(df)
         .scale_stroke(|s| s.scale_type("ordinal"))
-        .scale_stroke_width(|s| s.scale_type("linear").range_numeric(lit(1.0), lit(4.0)))
+        .scale_stroke_width(|s| {
+            s.scale_type("ordinal")
+                .range_discrete(vec![lit(1.0), lit(2.0), lit(3.0)])
+        })
         .scale_stroke_dash(|s| {
             s.scale_type("ordinal")
                 .range_discrete(vec![lit("solid"), lit("dashed"), lit("dotted")])

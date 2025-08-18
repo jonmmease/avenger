@@ -51,6 +51,10 @@ pub fn infer_scale_type_with_mark(
             _,
         ) => "ordinal",
 
+        // Stroke width defaults to ordinal scale for discrete mapping
+        // (user can override with scale_stroke_width)
+        ("stroke_width", _, _) => "ordinal",
+
         // Boolean data
         (_, DataType::Boolean, _) => "ordinal",
 
@@ -104,6 +108,11 @@ pub fn get_default_scale_options(
         // For any numeric positional scale (not just linear), enable rounding for pixel alignment
         ("x" | "x2" | "y" | "y2", "log" | "pow" | "sqrt" | "symlog" | "time") => {
             options.insert("round".to_string(), lit(true)); // Pixel-aligned positions
+        }
+
+        // Color scales with numeric data should use nice for better legend labels
+        ("fill" | "stroke" | "color", "linear" | "log" | "pow" | "sqrt" | "symlog") => {
+            options.insert("nice".to_string(), lit(true));
         }
 
         // Band scales have padding (already have round by default)
