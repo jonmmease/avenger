@@ -57,7 +57,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     /// A map of channel names to default axis configurations
     fn create_default_axes(
         &self,
-        scales: &HashMap<String, crate::scales::Scale>,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         existing_axes: &HashMap<String, Self::Axis>,
         marks: &[Box<dyn crate::marks::Mark<Self>>],
     ) -> HashMap<String, Self::Axis>
@@ -78,7 +78,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     async fn render_axes(
         &self,
         axes: &HashMap<String, Self::Axis>,
-        scales: &HashMap<String, crate::scales::Scale>,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
         padding: &crate::render::Padding,
@@ -151,7 +151,7 @@ impl CoordinateSystem for Cartesian {
 
     fn create_default_axes(
         &self,
-        scales: &HashMap<String, crate::scales::Scale>,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         existing_axes: &HashMap<String, Self::Axis>,
         marks: &[Box<dyn crate::marks::Mark<Self>>],
     ) -> HashMap<String, Self::Axis> {
@@ -167,7 +167,7 @@ impl CoordinateSystem for Cartesian {
                 // Determine if grid should be enabled based on scale type
                 let grid = if let Some(scale) = scales.get(channel) {
                     matches!(
-                        scale.get_scale_type(),
+                        scale.scale_impl.scale_type(),
                         "linear" | "log" | "pow" | "sqrt" | "time"
                     )
                 } else {
@@ -190,7 +190,7 @@ impl CoordinateSystem for Cartesian {
     async fn render_axes(
         &self,
         axes: &HashMap<String, Self::Axis>,
-        scales: &HashMap<String, crate::scales::Scale>,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
         padding: &crate::render::Padding,
@@ -247,17 +247,15 @@ impl CoordinateSystem for Cartesian {
                 title_font_size: None, // Use default for regular axes
             };
 
-            // Create configured scale for avenger-guides (without re-normalization)
-            let configured_scale = scale
-                .create_configured_scale(plot_width, plot_height)
-                .await?;
+            // Use the already configured scale
+            let configured_scale = scale;
 
             // Generate axis marks based on scale type
-            let scale_type = scale.get_scale_impl().scale_type();
+            let scale_type = configured_scale.scale_impl.scale_type();
 
             let axis_group = match scale_type {
                 "band" | "point" => make_band_axis_marks(
-                    &configured_scale,
+                    configured_scale,
                     axis.title.as_deref().unwrap_or(""),
                     axis_origin,
                     &axis_config,
@@ -265,7 +263,7 @@ impl CoordinateSystem for Cartesian {
                 _ => {
                     // Default to numeric axis for linear and other continuous scales
                     make_numeric_axis_marks(
-                        &configured_scale,
+                        configured_scale,
                         axis.title.as_deref().unwrap_or(""),
                         axis_origin,
                         &axis_config,
@@ -360,7 +358,7 @@ impl CoordinateSystem for Polar {
 
     fn create_default_axes(
         &self,
-        _scales: &HashMap<String, crate::scales::Scale>,
+        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         _existing_axes: &HashMap<String, Self::Axis>,
         _marks: &[Box<dyn crate::marks::Mark<Self>>],
     ) -> HashMap<String, Self::Axis> {
@@ -372,7 +370,7 @@ impl CoordinateSystem for Polar {
     async fn render_axes(
         &self,
         _axes: &HashMap<String, Self::Axis>,
-        _scales: &HashMap<String, crate::scales::Scale>,
+        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         _plot_width: f32,
         _plot_height: f32,
         _padding: &crate::render::Padding,
