@@ -473,6 +473,24 @@ impl<C: CoordinateSystem> Plot<C> {
             "corner_radius" => scale = scale.range_interval(lit(0.0), lit(10.0)),
             "opacity" => scale = scale.range_interval(lit(0.0), lit(1.0)),
             "angle" => scale = scale.range_interval(lit(0.0), lit(360.0)),
+            "fill" | "stroke" | "color" => {
+                // Apply default color range immediately
+                use crate::scales::color_defaults::get_default_color_range_for_channel;
+                if let Some(default_range) = get_default_color_range_for_channel(
+                    channel, scale_type,
+                    None, // Domain cardinality is not known yet, defaults will handle it
+                ) {
+                    scale = scale.range(default_range);
+                }
+            }
+            "shape" => {
+                // Apply default shape range immediately for ordinal scales
+                if scale_type == "ordinal" {
+                    use crate::scales::shape_defaults::DEFAULT_SHAPES;
+                    let shapes: Vec<_> = DEFAULT_SHAPES.iter().map(|&s| lit(s)).collect();
+                    scale = scale.range_discrete(shapes);
+                }
+            }
             _ => {}
         }
 
@@ -544,7 +562,7 @@ impl<C: CoordinateSystem> Plot<C> {
                 // This happens BEFORE the user's lambda, so the user can override if desired
                 if let Ok(domain_exprs) = self.gather_scale_domain_expressions(name) {
                     if !domain_exprs.is_empty() {
-                        base_scale = base_scale.domain_data_fields_internal(domain_exprs);
+                        base_scale = base_scale.domain_data_fields(domain_exprs);
                     }
                 }
 
@@ -555,19 +573,8 @@ impl<C: CoordinateSystem> Plot<C> {
                 if name == "stroke_width" {
                     // Force ordinal scale type even if user tried to set it to linear
                     user_scale = user_scale.scale_type("ordinal");
-                    // Ensure discrete range is used
-                    if !user_scale.has_explicit_range() {
-                        user_scale = user_scale.range_discrete(vec![
-                            lit(1.0),
-                            lit(2.0),
-                            lit(3.0),
-                            lit(4.0),
-                            lit(5.0),
-                            lit(6.0),
-                            lit(7.0),
-                            lit(8.0),
-                        ]);
-                    }
+                    // Note: Default discrete range is already set in create_default_scale_for_channel_internal
+                    // We don't override here to respect user-provided ranges
                 }
 
                 user_scale
@@ -581,7 +588,7 @@ impl<C: CoordinateSystem> Plot<C> {
                 // For scales without user configuration, also apply data domain
                 if let Ok(domain_exprs) = self.gather_scale_domain_expressions(name) {
                     if !domain_exprs.is_empty() {
-                        base_scale = base_scale.domain_data_fields_internal(domain_exprs);
+                        base_scale = base_scale.domain_data_fields(domain_exprs);
                     }
                 }
 
@@ -678,8 +685,8 @@ impl<C: CoordinateSystem> Plot<C> {
                         // Use configured scales (for non-positional channels like size, stroke_width)
                         if let Some(configured) = configured_scales.get(&scale_key) {
                             use crate::scales::ConfiguredScaleDataFusionExt;
-                            
-                            // Use ConfiguredScale.to_expr() 
+
+                            // Use ConfiguredScale.to_expr()
                             if let Some(band_value) = band {
                                 configured
                                     .to_expr_with_band(channel_value.expr().clone(), *band_value)
@@ -789,92 +796,18 @@ impl<C: CoordinateSystem> Plot<C> {
         plot_area_width: f64,
         plot_area_height: f64,
     ) {
-        if !scale.has_explicit_range() {
-            // Check if this scale is mapped to a coordinate channel
-            let coord_channel = self
-                .scale_to_coord_channel
-                .get(name)
-                .map(|s| s.as_str())
-                .unwrap_or(name);
+        // Check if this scale is mapped to a coordinate channel
+        let coord_channel = self
+            .scale_to_coord_channel
+            .get(name)
+            .map(|s| s.as_str())
+            .unwrap_or(name);
 
-            if let Some(default_range) =
-                self.coord_system
-                    .default_range(coord_channel, plot_area_width, plot_area_height)
-            {
-                *scale = scale.clone().range(default_range);
-            }
-        }
-    }
-
-    /// Apply default color range to a scale if no explicit range is set
-    /// This is called during rendering for color channels
-    pub fn apply_default_color_range(&self, scale: &mut Scale, name: &str) {
-        use crate::scales::color_defaults::get_default_color_range_for_channel;
-
-        if !scale.has_explicit_range() {
-            // Get domain cardinality for discrete scales
-            let domain_cardinality = scale.get_domain_cardinality();
-
-            if let Some(default_range) = get_default_color_range_for_channel(
-                name,
-                scale.get_scale_type(),
-                domain_cardinality,
-            ) {
-                *scale = scale.clone().range(default_range);
-            }
-        }
-    }
-
-    /// Apply default shape range to a scale if no explicit range is set
-    /// This is called during rendering for shape channels
-    pub fn apply_default_shape_range(&self, scale: &mut Scale) {
-        use crate::scales::shape_defaults::DEFAULT_SHAPES;
-        use datafusion::logical_expr::lit;
-
-        if !scale.has_explicit_range() && scale.get_scale_type() == "ordinal" {
-            // Get domain cardinality
-            let domain_cardinality = scale.get_domain_cardinality();
-
-            // Use the shared default shapes
-            let all_shapes: Vec<_> = DEFAULT_SHAPES.iter().map(|&s| lit(s)).collect();
-
-            // Use only as many shapes as needed based on domain cardinality
-            let shape_range = if let Some(n) = domain_cardinality {
-                all_shapes.into_iter().take(n).collect()
-            } else {
-                // If cardinality unknown, use all shapes
-                all_shapes
-            };
-
-            *scale = scale.clone().range_discrete(shape_range);
-        }
-    }
-
-    /// Apply default dash range to a scale if no explicit range is set
-    /// This is called during rendering for stroke_dash channels
-    pub fn apply_default_dash_range(&self, scale: &mut Scale) {
-        use crate::scales::dash_defaults::DEFAULT_DASH_PATTERN_NAMES;
-        use datafusion::logical_expr::lit;
-
-        if !scale.has_explicit_range() && scale.get_scale_type() == "ordinal" {
-            // Get domain cardinality
-            let domain_cardinality = scale.get_domain_cardinality();
-
-            // Use the shared default dash pattern names
-            let all_patterns: Vec<_> = DEFAULT_DASH_PATTERN_NAMES
-                .iter()
-                .map(|name| lit(*name))
-                .collect();
-
-            // Use only as many patterns as needed based on domain cardinality
-            let dash_range = if let Some(n) = domain_cardinality {
-                all_patterns.into_iter().take(n).collect()
-            } else {
-                // If cardinality unknown, use all patterns
-                all_patterns
-            };
-
-            *scale = scale.clone().range_discrete(dash_range);
+        if let Some(default_range) =
+            self.coord_system
+                .default_range(coord_channel, plot_area_width, plot_area_height)
+        {
+            *scale = scale.clone().range(default_range);
         }
     }
 
