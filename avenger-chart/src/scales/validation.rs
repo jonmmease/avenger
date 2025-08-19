@@ -7,7 +7,7 @@ pub fn expr_references_columns(expr: &Expr) -> bool {
     match expr {
         Expr::Column(_) => true,
         Expr::Literal(..) => false,
-        Expr::ScalarFunction(func) => func.args.iter().any(|arg| expr_references_columns(arg)),
+        Expr::ScalarFunction(func) => func.args.iter().any(expr_references_columns),
         Expr::BinaryExpr(binary) => {
             expr_references_columns(&binary.left) || expr_references_columns(&binary.right)
         }
@@ -15,14 +15,14 @@ pub fn expr_references_columns(expr: &Expr) -> bool {
             case_expr
                 .expr
                 .as_ref()
-                .map_or(false, |e| expr_references_columns(e.as_ref()))
+                .is_some_and(|e| expr_references_columns(e.as_ref()))
                 || case_expr.when_then_expr.iter().any(|(when, then)| {
                     expr_references_columns(when) || expr_references_columns(then)
                 })
                 || case_expr
                     .else_expr
                     .as_ref()
-                    .map_or(false, |e| expr_references_columns(e.as_ref()))
+                    .is_some_and(|e| expr_references_columns(e.as_ref()))
         }
         Expr::Cast(cast) => expr_references_columns(&cast.expr),
         Expr::TryCast(cast) => expr_references_columns(&cast.expr),
@@ -45,7 +45,7 @@ pub fn expr_references_columns(expr: &Expr) -> bool {
         Expr::SimilarTo(like) => expr_references_columns(&like.expr),
         Expr::InList(in_list) => {
             expr_references_columns(&in_list.expr)
-                || in_list.list.iter().any(|e| expr_references_columns(e))
+                || in_list.list.iter().any(expr_references_columns)
         }
         Expr::Negative(expr) => expr_references_columns(expr),
         Expr::Not(expr) => expr_references_columns(expr),
@@ -58,16 +58,8 @@ pub fn expr_references_columns(expr: &Expr) -> bool {
         Expr::IsNotFalse(expr) => expr_references_columns(expr),
         Expr::IsNotUnknown(expr) => expr_references_columns(expr),
         Expr::Alias(alias) => expr_references_columns(&alias.expr),
-        Expr::AggregateFunction(agg) => agg
-            .params
-            .args
-            .iter()
-            .any(|arg| expr_references_columns(arg)),
-        Expr::WindowFunction(window) => window
-            .params
-            .args
-            .iter()
-            .any(|arg| expr_references_columns(arg)),
+        Expr::AggregateFunction(agg) => agg.params.args.iter().any(expr_references_columns),
+        Expr::WindowFunction(window) => window.params.args.iter().any(expr_references_columns),
         #[allow(deprecated)]
         Expr::Wildcard { .. } => true,
         Expr::Unnest(unnest) => expr_references_columns(&unnest.expr),
@@ -89,7 +81,7 @@ mod tests {
         // Literals do not reference columns
         assert!(!expr_references_columns(&lit("foo")));
         assert!(!expr_references_columns(&lit(42)));
-        assert!(!expr_references_columns(&lit(3.14)));
+        assert!(!expr_references_columns(&lit(3.5)));
 
         // Expressions with columns
         assert!(expr_references_columns(&(col("x") + lit(1))));

@@ -18,8 +18,6 @@ pub struct Scale {
     pub domain: ScaleDomain,
     pub range: ScaleRange,
     pub options: HashMap<String, Expr>,
-    domain_explicit: bool,
-    range_explicit: bool,
 }
 
 impl Scale {
@@ -37,8 +35,6 @@ impl Scale {
             domain,
             range: ScaleRange::new_interval(lit(0.0), lit(1.0)),
             options: HashMap::new(),
-            domain_explicit: false,
-            range_explicit: false,
         };
         apply_scale_defaults(scale_type, &mut scale.options);
         scale
@@ -59,8 +55,6 @@ impl Scale {
             domain,
             range: ScaleRange::new_interval(lit(0.0), lit(1.0)),
             options: HashMap::new(),
-            domain_explicit: false,
-            range_explicit: false,
         };
         apply_scale_defaults(scale_type, &mut scale.options);
         scale
@@ -93,7 +87,6 @@ impl Scale {
     pub fn domain<D: Into<ScaleDomain>>(self, domain: D) -> Self {
         Self {
             domain: domain.into(),
-            domain_explicit: true,
             ..self
         }
     }
@@ -138,21 +131,16 @@ impl Scale {
         self.domain(ScaleDomain::new_data_fields(fields))
     }
 
-    /// Internal method to set domain for data fields without marking as explicit
-    pub(crate) fn domain_data_fields_internal(
-        mut self,
-        fields: Vec<(Arc<DataFrame>, Expr)>,
-    ) -> Self {
-        self.domain = ScaleDomain::new_data_fields(fields);
-        self
-    }
-
-    /// Internal method to set domain for data fields with radius without marking as explicit
-    pub(crate) fn domain_data_fields_with_radius_internal(
-        mut self,
+    /// Set domain from data fields with optional radius expressions for padding calculations
+    ///
+    /// **Note**: This is a low-level method for staged processing where radius information
+    /// from non-positional scales needs to be incorporated into positional scale domains.
+    #[doc(hidden)]
+    pub fn domain_data_fields_with_radius(
+        self,
         fields: Vec<(Arc<DataFrame>, Expr, Option<crate::marks::RadiusExpression>)>,
     ) -> Self {
-        self.domain = ScaleDomain {
+        let domain = ScaleDomain {
             default_domain: ScaleDefaultDomain::DomainExprs(
                 fields
                     .into_iter()
@@ -165,7 +153,7 @@ impl Scale {
             ),
             raw_domain: None,
         };
-        self
+        self.domain(domain)
     }
 
     pub fn raw_domain<E: Clone + Into<Expr>>(self, raw_domain: E) -> Self {
@@ -175,11 +163,7 @@ impl Scale {
 
     // Range builders
     pub fn range(self, range: ScaleRange) -> Self {
-        Self {
-            range,
-            range_explicit: true,
-            ..self
-        }
+        Self { range, ..self }
     }
 
     pub fn get_range(&self) -> &ScaleRange {
@@ -266,53 +250,15 @@ impl Scale {
         &self.options
     }
 
-    // Check if domain/range were explicitly set
-    pub fn has_explicit_domain(&self) -> bool {
-        self.domain_explicit
-    }
-
-    pub fn has_explicit_range(&self) -> bool {
-        self.range_explicit
-    }
-
-    /// Check if domain was explicitly set by user (public accessor)
-    pub fn is_domain_explicit(&self) -> bool {
-        self.domain_explicit
-    }
-
-    /// Build a ConfiguredScale from this Scale builder
-    /// This resolves domain from data, applies normalization, and creates the final configured scale
-    pub async fn build(
-        self,
-        plot_area_width: f32,
-        plot_area_height: f32,
-    ) -> Result<avenger_scales::scales::ConfiguredScale, AvengerChartError> {
-        // Only infer domain from data if not explicitly set
-        let resolved = if self.has_explicit_domain() {
-            // Use the explicit domain as-is
-            self
-        } else {
-            // Infer domain from data
-            self.infer_domain_from_data(Some((0.0, plot_area_width as f64)))
-                .await?
-        };
-
-        // Apply normalization
-        let normalized = resolved
-            .normalize_domain(plot_area_width, plot_area_height)
-            .await?;
-
-        // Create and return ConfiguredScale
-        normalized
-            .create_configured_scale(plot_area_width, plot_area_height)
-            .await
-    }
-    
     /// Infer domain from data fields and return a new scale with the inferred domain
+    ///
+    /// **Note**: This is a low-level method. Most users should use `PlotRenderer::build_scale_with_context()` instead.
+    /// This method is exposed for advanced staged processing scenarios and testing.
     ///
     /// # Arguments
     /// * `range_hint` - Optional range to use for radius-aware padding calculations.
     ///   If not provided, padding calculations will be skipped.
+    #[doc(hidden)]
     pub async fn infer_domain_from_data(
         mut self,
         range_hint: Option<(f64, f64)>,
@@ -323,6 +269,10 @@ impl Scale {
     }
 
     /// Apply normalization (zero, nice, padding) to the scale domain
+    ///
+    /// **Note**: This is a low-level method. Most users should use `PlotRenderer::build_scale_with_context()` instead.
+    /// This method is exposed for advanced staged processing scenarios and testing.
+    #[doc(hidden)]
     pub async fn normalize_domain(
         mut self,
         plot_area_width: f32,
@@ -358,13 +308,17 @@ impl Scale {
     }
 
     /// Create a ConfiguredScale from this Scale
+    ///
+    /// **Note**: This is a low-level method. Most users should use `PlotRenderer::build_scale_with_context()` instead.
+    /// This method is exposed for advanced staged processing scenarios and testing.
+    #[doc(hidden)]
     pub async fn create_configured_scale(
         &self,
         _plot_area_width: f32,
         _plot_area_height: f32,
     ) -> Result<avenger_scales::scales::ConfiguredScale, AvengerChartError> {
         use avenger_scales::scales::{ConfiguredScale, ScaleConfig, ScaleContext};
-        use datafusion::arrow::array::{Float32Array, StringArray};
+        use datafusion::arrow::array::{ArrayRef, Float32Array, StringArray};
 
         // Extract domain values as arrow array
         let domain = match &self.domain.default_domain {
@@ -380,8 +334,7 @@ impl Scale {
                 // Convert to f32 values
                 let start_f32 = start_val.as_f32()?;
                 let end_f32 = end_val.as_f32()?;
-                Arc::new(Float32Array::from(vec![start_f32, end_f32]))
-                    as datafusion::arrow::array::ArrayRef
+                Arc::new(Float32Array::from(vec![start_f32, end_f32])) as ArrayRef
             }
             ScaleDefaultDomain::Discrete(values) => {
                 // For threshold scales, we need numeric values
@@ -395,7 +348,7 @@ impl Scale {
                         let f = scalar.as_f32()?;
                         floats.push(f);
                     }
-                    Arc::new(Float32Array::from(floats)) as datafusion::arrow::array::ArrayRef
+                    Arc::new(Float32Array::from(floats)) as ArrayRef
                 } else {
                     // Other discrete scales need string values
                     let mut strings = Vec::new();
@@ -407,7 +360,7 @@ impl Scale {
                             strings.push(format!("{:?}", scalar));
                         }
                     }
-                    Arc::new(StringArray::from(strings)) as datafusion::arrow::array::ArrayRef
+                    Arc::new(StringArray::from(strings)) as ArrayRef
                 }
             }
             _ => {
@@ -432,17 +385,15 @@ impl Scale {
 
                 let start_f32 = start_val.as_f32()?;
                 let end_f32 = end_val.as_f32()?;
-                Arc::new(Float32Array::from(vec![start_f32, end_f32]))
-                    as datafusion::arrow::array::ArrayRef
+                Arc::new(Float32Array::from(vec![start_f32, end_f32])) as ArrayRef
             }
             ScaleRange::Color(colors) => {
                 // Convert Vec<Srgba> to a list array of [f32; 4] arrays
-                let color_arrays: Vec<datafusion::arrow::array::ArrayRef> = colors
+                let color_arrays: Vec<ArrayRef> = colors
                     .iter()
                     .map(|color| {
                         let rgba = [color.red, color.green, color.blue, color.alpha];
-                        Arc::new(Float32Array::from(Vec::from(rgba)))
-                            as datafusion::arrow::array::ArrayRef
+                        Arc::new(Float32Array::from(Vec::from(rgba))) as ArrayRef
                     })
                     .collect();
 

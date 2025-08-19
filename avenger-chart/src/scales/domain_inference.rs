@@ -74,9 +74,7 @@ impl DomainInferrer {
         match (scale_impl.scale_type() == "linear", range_hint) {
             (true, Some(range)) => {
                 // Process each field with radius expressions
-                for i in 0..data_fields.len() {
-                    let field = &data_fields[i];
-
+                for field in &mut data_fields {
                     if let Some(radius_expr) = &field.radius {
                         let computed_domain = Self::compute_radius_aware_domain(
                             &field.dataframe,
@@ -87,7 +85,7 @@ impl DomainInferrer {
                         .await?;
 
                         if let Some(domain_expr) = computed_domain {
-                            data_fields[i] = domain_expr;
+                            *field = domain_expr;
                         }
                     }
                 }
