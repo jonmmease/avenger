@@ -24,6 +24,12 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     /// Get the names of position channels required by this coordinate system
     fn required_channels(&self) -> &'static [&'static str];
 
+    /// Whether this coordinate system supports dynamic layout (e.g., Taffy)
+    /// Default is false for backward compatibility
+    fn supports_dynamic_layout(&self) -> bool {
+        false
+    }
+
     /// Get default range for a specific position channel based on inner plot dimensions
     /// Returns the range as a tuple of (start, end) values
     fn default_range(&self, channel: &str, width: f64, height: f64) -> Option<(f64, f64)>;
@@ -99,6 +105,10 @@ impl CoordinateSystem for Cartesian {
 
     fn required_channels(&self) -> &'static [&'static str] {
         &["x", "y"]
+    }
+
+    fn supports_dynamic_layout(&self) -> bool {
+        true
     }
 
     fn default_range(&self, channel: &str, width: f64, height: f64) -> Option<(f64, f64)> {
@@ -307,6 +317,10 @@ impl CoordinateSystem for Polar {
 
     fn required_channels(&self) -> &'static [&'static str] {
         &["r", "theta"]
+    }
+
+    fn supports_dynamic_layout(&self) -> bool {
+        false // Polar plots don't support dynamic layout yet
     }
 
     fn default_range(&self, channel: &str, width: f64, height: f64) -> Option<(f64, f64)> {

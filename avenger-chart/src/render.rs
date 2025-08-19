@@ -27,6 +27,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, trace};
 
+/// Estimated proportion of plot area relative to total size for initial scale computation.
+/// This is used before layout is calculated to build scales with approximate dimensions.
+/// The actual plot area is typically 70-85% of total size after padding for axes/legends.
+const INITIAL_PLOT_AREA_RATIO: f32 = 0.8;
+
 /// Padding around a plot area
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Padding {
@@ -34,6 +39,47 @@ pub struct Padding {
     pub right: f32,
     pub top: f32,
     pub bottom: f32,
+}
+
+/// Result of layout computation, containing padding and optional Taffy layout
+#[derive(Debug, Clone)]
+pub struct LayoutSolution {
+    /// Padding around the plot area
+    pub padding: Padding,
+    /// The actual plot area rectangle (x, y, width, height)
+    pub plot_area: (f32, f32, f32, f32),
+    /// Optional Taffy layout result for dynamic positioning
+    pub taffy_layout: Option<crate::chart_layout::LayoutResult>,
+    /// Cache of pre-created legend groups for exact sizing
+    pub legend_cache: Option<LegendCache>,
+}
+
+impl LayoutSolution {
+    /// Create a simple layout solution with just padding
+    pub fn from_padding(padding: Padding, total_width: f32, total_height: f32) -> Self {
+        let plot_area = (
+            padding.left,
+            padding.top,
+            total_width - padding.left - padding.right,
+            total_height - padding.top - padding.bottom,
+        );
+        Self {
+            padding,
+            plot_area,
+            taffy_layout: None,
+            legend_cache: None,
+        }
+    }
+    
+    /// Check if this solution uses dynamic layout
+    pub fn has_dynamic_layout(&self) -> bool {
+        self.taffy_layout.is_some()
+    }
+    
+    /// Get the plot area dimensions
+    pub fn plot_area_bounds(&self) -> (f32, f32, f32, f32) {
+        self.plot_area
+    }
 }
 
 /// Cache for pre-created legend scene groups
@@ -141,197 +187,39 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // Get plot dimensions from preferred size or default
         let (width, height) = self.plot.get_preferred_size().unwrap_or((400.0, 300.0));
 
-        // STAGE 1: BUILD ALL SCALES AS CONFIGUREDSCALE OBJECTS
-        // This ensures consistent domains throughout the pipeline
+        // STAGE 1: BUILD INITIAL SCALES WITH ESTIMATED DIMENSIONS
+        // Use estimated dimensions for initial scale construction
+        let estimated_plot_width = width * INITIAL_PLOT_AREA_RATIO;
+        let estimated_plot_height = height * INITIAL_PLOT_AREA_RATIO;
         
-        // First, collect all channels that need scales
-        let channels_with_scales = self.plot.collect_channels_needing_scales();
+        let (initial_scales, configured_non_positional, configured_positional) = 
+            self.build_initial_scales(estimated_plot_width, estimated_plot_height).await?;
 
-        // Build initial scale definitions
-        let mut initial_scales = HashMap::new();
-        for channel in &channels_with_scales {
-            let scale = self.plot.get_scale(channel);
-            initial_scales.insert(channel.clone(), scale);
-        }
+        // Merge configured scales for layout computation
+        let mut initial_configured_scales = configured_non_positional.clone();
+        initial_configured_scales.extend(configured_positional.clone());
 
-        // Separate scales into positional and non-positional for processing
-        let mut positional_scales = HashMap::new();
-        let mut non_positional_scales = HashMap::new();
-
-        for (name, scale) in initial_scales {
-            if matches!(name.as_str(), "x" | "y") {
-                positional_scales.insert(name, scale);
-            } else {
-                non_positional_scales.insert(name, scale);
-            }
-        }
-
-        // Use temporary dimensions for initial processing - will be updated after layout
-        let temp_plot_width = width * 0.8; // Rough estimate for initial processing
-        let temp_plot_height = height * 0.8;
-        
-        // Build all non-positional scales first (they don't depend on radius context)
-        let mut configured_non_positional = HashMap::new();
-        for (name, scale) in &non_positional_scales {
-            let configured = self
-                .build_configured_scale_with_radius_context(
-                    scale.clone(),
-                    name,
-                    temp_plot_width,
-                    temp_plot_height,
-                    None,
-                )
-                .await?;
-            configured_non_positional.insert(name.clone(), configured);
-        }
-
-        // Build positional scales with radius context from non-positional scales
-        let mut configured_positional = HashMap::new();
-        for (name, scale) in &positional_scales {
-            let configured = self
-                .build_configured_scale_with_radius_context(
-                    scale.clone(),
-                    name,
-                    temp_plot_width,
-                    temp_plot_height,
-                    Some(&configured_non_positional),
-                )
-                .await?;
-            configured_positional.insert(name.clone(), configured);
-        }
-
-        // Merge all configured scales together for layout computation
-        let mut all_configured_scales = configured_non_positional.clone();
-        all_configured_scales.extend(configured_positional.clone());
-
-        // STAGE 2: COMPUTE LAYOUT USING CONFIGURED SCALES
-        // Layout computation needs scales with correct domains for accurate sizing
-        
-        // Use dynamic Taffy layout for Cartesian plots, fixed padding for others
-        let use_taffy_layout =
-            std::any::TypeId::of::<C>() == std::any::TypeId::of::<crate::coords::Cartesian>();
-
-        let (padding, layout_bundle) = if use_taffy_layout {
-            // Use Taffy layout with our configured scales
-            self.compute_layout_with_taffy_cartesian_configured(width, height, &all_configured_scales)
-                .await?
-        } else {
-            // Fallback to fixed padding for non-Cartesian plots
-            let padding = self.plot.measure_padding(width, height);
-            (padding, None)
-        };
-
-        // Calculate final plot area (inside padding)
-        let plot_area_x = padding.left;
-        let plot_area_y = padding.top;
-        let plot_area_width = width - padding.left - padding.right;
-        let plot_area_height = height - padding.top - padding.bottom;
+        // STAGE 2: COMPUTE LAYOUT USING INITIAL SCALES
+        let layout = self.compute_layout(width, height, &initial_configured_scales).await?;
+        let (plot_area_x, plot_area_y, plot_area_width, plot_area_height) = layout.plot_area_bounds();
 
         // STAGE 3: REBUILD POSITIONAL SCALES WITH FINAL DIMENSIONS
-        // We must rebuild (not just update range) so domain normalization uses correct dimensions
-        let mut final_configured_scales = HashMap::new();
-        
-        // Pass through non-positional scales unchanged
-        // (they don't need range updates based on plot dimensions)
-        for (name, configured_scale) in &configured_non_positional {
-            final_configured_scales.insert(name.clone(), configured_scale.clone());
-        }
-
-        // REBUILD positional scales with final dimensions
-        // This ensures domain normalization (nice, zero, padding) happens with correct range
-        for (name, original_scale) in &positional_scales {
-            let rebuilt_scale = self
-                .build_configured_scale_with_radius_context(
-                    original_scale.clone(),
-                    name,
-                    plot_area_width,
-                    plot_area_height,
-                    Some(&configured_non_positional),
-                )
-                .await?;
-            final_configured_scales.insert(name.clone(), rebuilt_scale);
-        }
-
-        // Use the full plot area for clipping
-        // Marks should be clipped to the plot area bounds, not the data bounds
-        let clip_height = plot_area_height;
+        let final_configured_scales = self.rebuild_scales_with_final_dimensions(
+            &initial_scales,
+            &configured_non_positional,
+            plot_area_width,
+            plot_area_height,
+        ).await?;
 
         // STAGE 4: RENDER ALL COMPONENTS WITH FINAL SCALES
-        // All scales now have consistent domains and correct ranges
+        let all_component_marks = self.render_all_components(
+            &final_configured_scales,
+            &layout,
+            width,
+            height,
+        ).await?;
         
-        // Process each mark
-        let mut mark_groups = Vec::new();
-
-        for mark in &self.plot.marks {
-            let scene_marks = self
-                .render_mark(
-                    mark.as_ref(),
-                    &final_configured_scales,
-                    plot_area_width,
-                    plot_area_height,
-                )
-                .await?;
-            mark_groups.extend(scene_marks);
-        }
-
-        // Create axes using final configured scales
-        let axis_marks = self
-            .create_axes(
-                &final_configured_scales,
-                plot_area_width,
-                plot_area_height,
-                &padding,
-            )
-            .await?;
-
-        // Create legends using final configured scales
-        let legend_marks = if let Some((layout, legend_cache)) = &layout_bundle {
-            // Use Taffy layout positions for legends
-            self.create_legends_with_layout(
-                &final_configured_scales,
-                layout,
-                legend_cache,
-                plot_area_width,
-                plot_area_height,
-            )
-            .await?
-        } else {
-            // Fallback to fixed positioning
-            self.create_legends(
-                &final_configured_scales,
-                plot_area_width,
-                plot_area_height,
-                &padding,
-            )
-            .await?
-        };
-
-        // Create title if present
-        let title_marks = if let Some((layout, _legend_cache)) = &layout_bundle {
-            if let Some(title_bounds) = &layout.title {
-                self.create_title(width, &padding, Some(*title_bounds), Some(layout.plot_area))?
-            } else {
-                Vec::new()
-            }
-        } else {
-            self.create_title(width, &padding, None, None)?
-        };
-
-        // Create subtitle if present
-        let subtitle_marks = if let Some((layout, _legend_cache)) = &layout_bundle {
-            if let Some(subtitle_bounds) = &layout.subtitle {
-                self.create_subtitle(
-                    width,
-                    &padding,
-                    Some(*subtitle_bounds),
-                    Some(layout.plot_area),
-                )?
-            } else {
-                Vec::new()
-            }
-        } else {
-            self.create_subtitle(width, &padding, None, None)?
-        };
+        let (mark_groups, axis_marks, legend_marks, title_marks, subtitle_marks) = all_component_marks;
 
         // Compose all elements into a scene graph
         // A single Plot should produce a single top-level group
@@ -346,7 +234,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 x: 0.0, // Relative to group origin
                 y: 0.0, // Relative to group origin
                 width: plot_area_width,
-                height: clip_height,
+                height: plot_area_height,
             },
             zindex: Some(0), // Data marks have lowest z-index
             ..Default::default()
@@ -369,12 +257,11 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         all_marks.extend(subtitle_marks);
 
         // 6. Debug: Add Taffy layout bounds visualization if debug mode is enabled
-        // Debug layout rectangles can be enabled via tracing
         #[cfg(debug_assertions)]
         if tracing::enabled!(tracing::Level::TRACE) {
-            if let Some((layout, _)) = &layout_bundle {
+            if let Some(taffy_layout) = &layout.taffy_layout {
                 trace!("Adding debug layout rectangles");
-                all_marks.extend(Self::create_debug_layout_rects(layout));
+                all_marks.extend(Self::create_debug_layout_rects(taffy_layout));
             }
         }
 
@@ -600,6 +487,231 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
     }
 
     /// Render a single mark to scene marks using the new Mark trait
+    /// Build initial scales with estimated dimensions
+    /// Returns (raw_scales, configured_non_positional, configured_positional)
+    async fn build_initial_scales(
+        &self,
+        estimated_plot_width: f32,
+        estimated_plot_height: f32,
+    ) -> Result<(
+        HashMap<String, Scale>,
+        HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        HashMap<String, avenger_scales::scales::ConfiguredScale>,
+    ), AvengerChartError> {
+        // Collect all channels that need scales
+        let channels_with_scales = self.plot.collect_channels_needing_scales();
+
+        // Build initial scale definitions
+        let mut initial_scales = HashMap::new();
+        for channel in &channels_with_scales {
+            let scale = self.plot.get_scale(channel);
+            initial_scales.insert(channel.clone(), scale);
+        }
+
+        // Separate scales into positional and non-positional
+        let mut positional_scales = HashMap::new();
+        let mut non_positional_scales = HashMap::new();
+
+        for (name, scale) in &initial_scales {
+            if matches!(name.as_str(), "x" | "y") {
+                positional_scales.insert(name.clone(), scale.clone());
+            } else {
+                non_positional_scales.insert(name.clone(), scale.clone());
+            }
+        }
+
+        // Build non-positional scales first (no radius context needed)
+        let mut configured_non_positional = HashMap::new();
+        for (name, scale) in &non_positional_scales {
+            let configured = self
+                .build_configured_scale_with_radius_context(
+                    scale.clone(),
+                    name,
+                    estimated_plot_width,
+                    estimated_plot_height,
+                    None,
+                )
+                .await?;
+            configured_non_positional.insert(name.clone(), configured);
+        }
+
+        // Build positional scales with radius context
+        let mut configured_positional = HashMap::new();
+        for (name, scale) in &positional_scales {
+            let configured = self
+                .build_configured_scale_with_radius_context(
+                    scale.clone(),
+                    name,
+                    estimated_plot_width,
+                    estimated_plot_height,
+                    Some(&configured_non_positional),
+                )
+                .await?;
+            configured_positional.insert(name.clone(), configured);
+        }
+
+        Ok((initial_scales, configured_non_positional, configured_positional))
+    }
+
+    /// Compute layout using the coordinate system's capabilities
+    async fn compute_layout(
+        &self,
+        width: f32,
+        height: f32,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+    ) -> Result<LayoutSolution, AvengerChartError> {
+        if self.plot.coord_system().supports_dynamic_layout() {
+            // Use Taffy layout for supported coordinate systems
+            let (padding, layout_bundle) = self
+                .compute_layout_with_taffy_cartesian_configured(width, height, scales)
+                .await?;
+            
+            let plot_area = (
+                padding.left,
+                padding.top,
+                width - padding.left - padding.right,
+                height - padding.top - padding.bottom,
+            );
+            
+            Ok(LayoutSolution {
+                padding,
+                plot_area,
+                taffy_layout: layout_bundle.as_ref().map(|(layout, _)| layout.clone()),
+                legend_cache: layout_bundle.map(|(_, cache)| cache),
+            })
+        } else {
+            // Use fixed padding for coordinate systems without dynamic layout
+            let padding = self.plot.measure_padding(width, height);
+            Ok(LayoutSolution::from_padding(padding, width, height))
+        }
+    }
+
+    /// Rebuild scales with final dimensions from layout
+    async fn rebuild_scales_with_final_dimensions(
+        &self,
+        initial_scales: &HashMap<String, Scale>,
+        configured_non_positional: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        plot_area_width: f32,
+        plot_area_height: f32,
+    ) -> Result<HashMap<String, avenger_scales::scales::ConfiguredScale>, AvengerChartError> {
+        let mut final_configured_scales = HashMap::new();
+        
+        // Pass through non-positional scales unchanged
+        for (name, configured_scale) in configured_non_positional {
+            final_configured_scales.insert(name.clone(), configured_scale.clone());
+        }
+
+        // Rebuild positional scales with final dimensions
+        for (name, scale) in initial_scales {
+            if matches!(name.as_str(), "x" | "y") {
+                let rebuilt_scale = self
+                    .build_configured_scale_with_radius_context(
+                        scale.clone(),
+                        name,
+                        plot_area_width,
+                        plot_area_height,
+                        Some(configured_non_positional),
+                    )
+                    .await?;
+                final_configured_scales.insert(name.clone(), rebuilt_scale);
+            }
+        }
+
+        Ok(final_configured_scales)
+    }
+
+    /// Render all components (marks, axes, legends, titles)
+    async fn render_all_components(
+        &self,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        layout: &LayoutSolution,
+        width: f32,
+        _height: f32,
+    ) -> Result<(
+        Vec<SceneMark>,  // mark_groups
+        Vec<SceneMark>,  // axis_marks
+        Vec<SceneMark>,  // legend_marks
+        Vec<SceneMark>,  // title_marks
+        Vec<SceneMark>,  // subtitle_marks
+    ), AvengerChartError> {
+        let (_, _, plot_area_width, plot_area_height) = layout.plot_area_bounds();
+        
+        // Render marks
+        let mut mark_groups = Vec::new();
+        for mark in &self.plot.marks {
+            let scene_marks = self
+                .render_mark(
+                    mark.as_ref(),
+                    scales,
+                    plot_area_width,
+                    plot_area_height,
+                )
+                .await?;
+            mark_groups.extend(scene_marks);
+        }
+
+        // Create axes
+        let axis_marks = self
+            .create_axes(
+                scales,
+                plot_area_width,
+                plot_area_height,
+                &layout.padding,
+            )
+            .await?;
+
+        // Create legends
+        let legend_marks = if let (Some(taffy_layout), Some(legend_cache)) = 
+            (&layout.taffy_layout, &layout.legend_cache) 
+        {
+            self.create_legends_with_layout(
+                scales,
+                taffy_layout,
+                legend_cache,
+                plot_area_width,
+                plot_area_height,
+            )
+            .await?
+        } else {
+            self.create_legends(
+                scales,
+                plot_area_width,
+                plot_area_height,
+                &layout.padding,
+            )
+            .await?
+        };
+
+        // Create title
+        let title_marks = if let Some(taffy_layout) = &layout.taffy_layout {
+            if let Some(title_bounds) = &taffy_layout.title {
+                self.create_title(width, &layout.padding, Some(*title_bounds), Some(taffy_layout.plot_area))?
+            } else {
+                Vec::new()
+            }
+        } else {
+            self.create_title(width, &layout.padding, None, None)?
+        };
+
+        // Create subtitle
+        let subtitle_marks = if let Some(taffy_layout) = &layout.taffy_layout {
+            if let Some(subtitle_bounds) = &taffy_layout.subtitle {
+                self.create_subtitle(
+                    width,
+                    &layout.padding,
+                    Some(*subtitle_bounds),
+                    Some(taffy_layout.plot_area),
+                )?
+            } else {
+                Vec::new()
+            }
+        } else {
+            self.create_subtitle(width, &layout.padding, None, None)?
+        };
+
+        Ok((mark_groups, axis_marks, legend_marks, title_marks, subtitle_marks))
+    }
+
     async fn render_mark(
         &self,
         mark: &dyn Mark<C>,
