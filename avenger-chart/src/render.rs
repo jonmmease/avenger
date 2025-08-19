@@ -2,6 +2,7 @@
 //!
 //! This module bridges the high-level chart API with the low-level rendering components.
 
+use crate::axis::CartesianAxis;
 use crate::coords::Cartesian;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
@@ -70,12 +71,12 @@ impl LayoutSolution {
             legend_cache: None,
         }
     }
-    
+
     /// Check if this solution uses dynamic layout
     pub fn has_dynamic_layout(&self) -> bool {
         self.taffy_layout.is_some()
     }
-    
+
     /// Get the plot area dimensions
     pub fn plot_area_bounds(&self) -> (f32, f32, f32, f32) {
         self.plot_area
@@ -191,35 +192,39 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // Use estimated dimensions for initial scale construction
         let estimated_plot_width = width * INITIAL_PLOT_AREA_RATIO;
         let estimated_plot_height = height * INITIAL_PLOT_AREA_RATIO;
-        
-        let (initial_scales, configured_non_positional, configured_positional) = 
-            self.build_initial_scales(estimated_plot_width, estimated_plot_height).await?;
+
+        let (initial_scales, configured_non_positional, configured_positional) = self
+            .build_initial_scales(estimated_plot_width, estimated_plot_height)
+            .await?;
 
         // Merge configured scales for layout computation
         let mut initial_configured_scales = configured_non_positional.clone();
         initial_configured_scales.extend(configured_positional.clone());
 
         // STAGE 2: COMPUTE LAYOUT USING INITIAL SCALES
-        let layout = self.compute_layout(width, height, &initial_configured_scales).await?;
-        let (plot_area_x, plot_area_y, plot_area_width, plot_area_height) = layout.plot_area_bounds();
+        let layout = self
+            .compute_layout(width, height, &initial_configured_scales)
+            .await?;
+        let (plot_area_x, plot_area_y, plot_area_width, plot_area_height) =
+            layout.plot_area_bounds();
 
         // STAGE 3: REBUILD POSITIONAL SCALES WITH FINAL DIMENSIONS
-        let final_configured_scales = self.rebuild_scales_with_final_dimensions(
-            &initial_scales,
-            &configured_non_positional,
-            plot_area_width,
-            plot_area_height,
-        ).await?;
+        let final_configured_scales = self
+            .rebuild_scales_with_final_dimensions(
+                &initial_scales,
+                &configured_non_positional,
+                plot_area_width,
+                plot_area_height,
+            )
+            .await?;
 
         // STAGE 4: RENDER ALL COMPONENTS WITH FINAL SCALES
-        let all_component_marks = self.render_all_components(
-            &final_configured_scales,
-            &layout,
-            width,
-            height,
-        ).await?;
-        
-        let (mark_groups, axis_marks, legend_marks, title_marks, subtitle_marks) = all_component_marks;
+        let all_component_marks = self
+            .render_all_components(&final_configured_scales, &layout, width, height)
+            .await?;
+
+        let (mark_groups, axis_marks, legend_marks, title_marks, subtitle_marks) =
+            all_component_marks;
 
         // Compose all elements into a scene graph
         // A single Plot should produce a single top-level group
@@ -493,11 +498,14 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         &self,
         estimated_plot_width: f32,
         estimated_plot_height: f32,
-    ) -> Result<(
-        HashMap<String, Scale>,
-        HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        HashMap<String, avenger_scales::scales::ConfiguredScale>,
-    ), AvengerChartError> {
+    ) -> Result<
+        (
+            HashMap<String, Scale>,
+            HashMap<String, avenger_scales::scales::ConfiguredScale>,
+            HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        ),
+        AvengerChartError,
+    > {
         // Collect all channels that need scales
         let channels_with_scales = self.plot.collect_channels_needing_scales();
 
@@ -550,7 +558,11 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             configured_positional.insert(name.clone(), configured);
         }
 
-        Ok((initial_scales, configured_non_positional, configured_positional))
+        Ok((
+            initial_scales,
+            configured_non_positional,
+            configured_positional,
+        ))
     }
 
     /// Compute layout using the coordinate system's capabilities
@@ -560,30 +572,66 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         height: f32,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
     ) -> Result<LayoutSolution, AvengerChartError> {
-        if self.plot.coord_system().supports_dynamic_layout() {
-            // Use Taffy layout for supported coordinate systems
-            let (padding, layout_bundle) = self
-                .compute_layout_with_taffy_cartesian_configured(width, height, scales)
-                .await?;
-            
-            let plot_area = (
-                padding.left,
-                padding.top,
-                width - padding.left - padding.right,
-                height - padding.top - padding.bottom,
-            );
-            
-            Ok(LayoutSolution {
-                padding,
-                plot_area,
-                taffy_layout: layout_bundle.as_ref().map(|(layout, _)| layout.clone()),
-                legend_cache: layout_bundle.map(|(_, cache)| cache),
-            })
-        } else {
+        // Check if this plot uses dynamic layout
+        if !self.plot.coord_system().supports_dynamic_layout() {
             // Use fixed padding for coordinate systems without dynamic layout
             let padding = self.plot.measure_padding(width, height);
-            Ok(LayoutSolution::from_padding(padding, width, height))
+            return Ok(LayoutSolution::from_padding(padding, width, height));
         }
+
+        // Dynamic layout is currently only supported for Cartesian coordinate system
+        // We need to prepare the axes and call the Taffy layout function
+
+        // Get default axes
+        let default_axes =
+            self.plot
+                .coord_system()
+                .create_default_axes(scales, &self.plot.axes, &self.plot.marks);
+
+        // Combine existing axes with defaults
+        let mut all_axes = self.plot.axes.clone();
+        for (channel, default_axis) in default_axes {
+            all_axes.entry(channel).or_insert(default_axis);
+        }
+
+        // Call the specialized Cartesian layout helper
+        // This will only work if the axes are actually CartesianAxis
+        self.compute_layout_with_dynamic_axes(width, height, scales, all_axes)
+            .await
+    }
+
+    /// Helper method for dynamic layout with type-erased axes
+    async fn compute_layout_with_dynamic_axes(
+        &self,
+        width: f32,
+        height: f32,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        axes: HashMap<String, C::Axis>,
+    ) -> Result<LayoutSolution, AvengerChartError> {
+        // Use the trait method to convert axes to CartesianAxis
+        let cartesian_axes = C::axes_as_cartesian(axes)
+            .ok_or_else(|| AvengerChartError::InternalError(
+                "Coordinate system reports supporting dynamic layout but cannot convert axes to CartesianAxis".to_string(),
+            ))?;
+
+        // Now call the Taffy layout with CartesianAxis
+        let (padding, layout_bundle) = self
+            .compute_layout_with_taffy_cartesian(width, height, scales, &cartesian_axes)
+            .await?;
+
+        let plot_area = (
+            padding.left,
+            padding.top,
+            width - padding.left - padding.right,
+            height - padding.top - padding.bottom,
+        );
+
+        Ok(LayoutSolution {
+            padding,
+            plot_area,
+            taffy_layout: layout_bundle.as_ref().map(|(layout, _)| layout.clone()),
+            legend_cache: layout_bundle.map(|(_, cache)| cache),
+        })
     }
 
     /// Rebuild scales with final dimensions from layout
@@ -595,7 +643,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         plot_area_height: f32,
     ) -> Result<HashMap<String, avenger_scales::scales::ConfiguredScale>, AvengerChartError> {
         let mut final_configured_scales = HashMap::new();
-        
+
         // Pass through non-positional scales unchanged
         for (name, configured_scale) in configured_non_positional {
             final_configured_scales.insert(name.clone(), configured_scale.clone());
@@ -627,42 +675,35 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         layout: &LayoutSolution,
         width: f32,
         _height: f32,
-    ) -> Result<(
-        Vec<SceneMark>,  // mark_groups
-        Vec<SceneMark>,  // axis_marks
-        Vec<SceneMark>,  // legend_marks
-        Vec<SceneMark>,  // title_marks
-        Vec<SceneMark>,  // subtitle_marks
-    ), AvengerChartError> {
+    ) -> Result<
+        (
+            Vec<SceneMark>, // mark_groups
+            Vec<SceneMark>, // axis_marks
+            Vec<SceneMark>, // legend_marks
+            Vec<SceneMark>, // title_marks
+            Vec<SceneMark>, // subtitle_marks
+        ),
+        AvengerChartError,
+    > {
         let (_, _, plot_area_width, plot_area_height) = layout.plot_area_bounds();
-        
+
         // Render marks
         let mut mark_groups = Vec::new();
         for mark in &self.plot.marks {
             let scene_marks = self
-                .render_mark(
-                    mark.as_ref(),
-                    scales,
-                    plot_area_width,
-                    plot_area_height,
-                )
+                .render_mark(mark.as_ref(), scales, plot_area_width, plot_area_height)
                 .await?;
             mark_groups.extend(scene_marks);
         }
 
         // Create axes
         let axis_marks = self
-            .create_axes(
-                scales,
-                plot_area_width,
-                plot_area_height,
-                &layout.padding,
-            )
+            .create_axes(scales, plot_area_width, plot_area_height, &layout.padding)
             .await?;
 
         // Create legends
-        let legend_marks = if let (Some(taffy_layout), Some(legend_cache)) = 
-            (&layout.taffy_layout, &layout.legend_cache) 
+        let legend_marks = if let (Some(taffy_layout), Some(legend_cache)) =
+            (&layout.taffy_layout, &layout.legend_cache)
         {
             self.create_legends_with_layout(
                 scales,
@@ -673,19 +714,19 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             )
             .await?
         } else {
-            self.create_legends(
-                scales,
-                plot_area_width,
-                plot_area_height,
-                &layout.padding,
-            )
-            .await?
+            self.create_legends(scales, plot_area_width, plot_area_height, &layout.padding)
+                .await?
         };
 
         // Create title
         let title_marks = if let Some(taffy_layout) = &layout.taffy_layout {
             if let Some(title_bounds) = &taffy_layout.title {
-                self.create_title(width, &layout.padding, Some(*title_bounds), Some(taffy_layout.plot_area))?
+                self.create_title(
+                    width,
+                    &layout.padding,
+                    Some(*title_bounds),
+                    Some(taffy_layout.plot_area),
+                )?
             } else {
                 Vec::new()
             }
@@ -709,7 +750,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             self.create_subtitle(width, &layout.padding, None, None)?
         };
 
-        Ok((mark_groups, axis_marks, legend_marks, title_marks, subtitle_marks))
+        Ok((
+            mark_groups,
+            axis_marks,
+            legend_marks,
+            title_marks,
+            subtitle_marks,
+        ))
     }
 
     async fn render_mark(
@@ -2312,13 +2359,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         Ok(vec![SceneMark::Group(group)])
     }
 
-
-    /// Compute layout using Taffy for accurate positioning with ConfiguredScale objects
-    async fn compute_layout_with_taffy_cartesian_configured(
+    /// Compute layout using Taffy for Cartesian coordinate system
+    async fn compute_layout_with_taffy_cartesian(
         &self,
         width: f32,
         height: f32,
         configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        axes: &HashMap<String, CartesianAxis>,
     ) -> Result<
         (
             Padding,
@@ -2342,36 +2389,15 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             .map(|(channel, legend)| (channel.clone(), legend.clone()))
             .collect();
 
-        // Create axes map for ChartLayout (Cartesian-only specialization, no unsafe casts)
-        let default_axes = self.plot.coord_system().create_default_axes(
-            &configured_scales,
-            &self.plot.axes,
-            &self.plot.marks,
-        );
-
-        // Combine existing axes with defaults
-        let mut all_axes = self.plot.axes.clone();
-        for (channel, default_axis) in default_axes {
-            all_axes.entry(channel).or_insert(default_axis);
-        }
-
-        // Convert axes to CartesianAxis using trait hook (no unsafe)
-        let mut axes_map: HashMap<String, crate::axis::CartesianAxis> = HashMap::new();
-        for (channel, axis) in all_axes.into_iter() {
-            if let Some(cart_axis) = C::to_cartesian_axis(&axis) {
-                axes_map.insert(channel, cart_axis);
-            }
-        }
-
         // Create legends map
         let legends_map: HashMap<String, crate::legend::Legend> =
             visible_legends.clone().into_iter().collect();
 
         // Create ChartLayout
         let mut layout = ChartLayout::new(
-            &axes_map,
+            axes,
             &legends_map,
-            &configured_scales,
+            configured_scales,
             Some((width, height)),
             self.plot.get_title(),
             self.plot.get_subtitle(),
@@ -2403,7 +2429,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 let params = LegendParams {
                     channel: &channel,
                     legend: &legend,
-                    scales: &configured_scales,
+                    scales: configured_scales,
                     plot_width: bounds.width,
                     plot_height: bounds.height,
                     padding: &Padding {
@@ -2457,7 +2483,6 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         Ok((padding, Some((layout_result, legend_cache))))
     }
 
-
     /// Build a ConfiguredScale directly, handling domain processing with radius context
     /// This combines the functionality of process_scale_domain_with_radius and build_scale_with_context
     async fn build_configured_scale_with_radius_context(
@@ -2466,10 +2491,12 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         name: &str,
         plot_area_width: f32,
         plot_area_height: f32,
-        configured_non_positional: Option<&HashMap<String, avenger_scales::scales::ConfiguredScale>>,
+        configured_non_positional: Option<
+            &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        >,
     ) -> Result<avenger_scales::scales::ConfiguredScale, AvengerChartError> {
         let mut scale = scale;
-        
+
         // Step 1: Process domain with radius if applicable
         if matches!(
             &scale.domain.default_domain,
@@ -2481,9 +2508,11 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                     && matches!(name, "x" | "y" | "x2" | "y2")
                 {
                     // Use the method that gathers radius information
-                    let data_expressions_with_radius = self
-                        .plot
-                        .gather_scale_domain_expressions_with_radius(name, configured_non_positional)?;
+                    let data_expressions_with_radius =
+                        self.plot.gather_scale_domain_expressions_with_radius(
+                            name,
+                            configured_non_positional,
+                        )?;
 
                     // Check if any expressions actually have radius
                     let has_radius = data_expressions_with_radius
@@ -2495,11 +2524,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                         scale = scale.domain_data_fields_with_radius(data_expressions_with_radius);
                     } else if !data_expressions_with_radius.is_empty() {
                         // Convert to standard expressions (without radius)
-                        let data_expressions: Vec<(Arc<DataFrame>, datafusion::logical_expr::Expr)> =
-                            data_expressions_with_radius
-                                .into_iter()
-                                .map(|(df, expr, _)| (df, expr))
-                                .collect();
+                        let data_expressions: Vec<(
+                            Arc<DataFrame>,
+                            datafusion::logical_expr::Expr,
+                        )> = data_expressions_with_radius
+                            .into_iter()
+                            .map(|(df, expr, _)| (df, expr))
+                            .collect();
                         scale = scale.domain_data_fields(data_expressions);
                     }
                 } else {
@@ -2524,7 +2555,10 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             plot_area_width as f64,
             plot_area_height as f64,
         ) {
-            scale = scale.range_interval(datafusion::logical_expr::lit(start), datafusion::logical_expr::lit(end));
+            scale = scale.range_interval(
+                datafusion::logical_expr::lit(start),
+                datafusion::logical_expr::lit(end),
+            );
         }
 
         // Step 3: Infer domain from data if needed

@@ -70,6 +70,14 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     where
         Self: Sized;
 
+    /// Convert axes to CartesianAxis if this is a Cartesian coordinate system
+    /// Returns None for non-Cartesian systems
+    fn axes_as_cartesian(
+        _axes: HashMap<String, Self::Axis>,
+    ) -> Option<HashMap<String, CartesianAxis>> {
+        None // Default implementation returns None
+    }
+
     /// Render all axes for this coordinate system
     ///
     /// # Arguments
@@ -89,12 +97,6 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         plot_height: f32,
         padding: &crate::render::Padding,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
-
-    /// Attempt to convert an axis of this coordinate system into a `CartesianAxis`.
-    /// Defaults to `None` for non-Cartesian coordinate systems.
-    fn to_cartesian_axis(_axis: &Self::Axis) -> Option<CartesianAxis> {
-        None
-    }
 }
 
 pub struct Cartesian;
@@ -157,6 +159,13 @@ impl CoordinateSystem for Cartesian {
             ),
             _ => None,
         }
+    }
+
+    fn axes_as_cartesian(
+        axes: HashMap<String, Self::Axis>,
+    ) -> Option<HashMap<String, CartesianAxis>> {
+        // For Cartesian, Self::Axis = CartesianAxis, so we can just return the axes
+        Some(axes)
     }
 
     fn create_default_axes(
@@ -285,10 +294,6 @@ impl CoordinateSystem for Cartesian {
         }
 
         Ok(axis_marks)
-    }
-
-    fn to_cartesian_axis(axis: &Self::Axis) -> Option<CartesianAxis> {
-        Some(axis.clone())
     }
 }
 
