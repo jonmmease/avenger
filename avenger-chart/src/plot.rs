@@ -644,11 +644,12 @@ impl<C: CoordinateSystem> Plot<C> {
         Ok(data_expressions)
     }
 
-    /// Create a channel resolver function for a mark that handles both explicit mappings and defaults
+    /// Create a channel resolver function for non-positional channels (which are already configured)
+    /// This is used primarily for radius calculations that need size/stroke_width expressions
     fn create_channel_resolver<'a>(
         mark: &'a dyn Mark<C>,
         encodings: &'a indexmap::IndexMap<String, crate::marks::ChannelValue>,
-        scales: &'a HashMap<String, Scale>,
+        configured_scales: &'a HashMap<String, avenger_scales::scales::ConfiguredScale>,
     ) -> impl Fn(&str) -> datafusion::logical_expr::Expr + 'a {
         use crate::marks::ChannelValue;
         use crate::marks::channel::strip_trailing_numbers;
@@ -674,23 +675,22 @@ impl<C: CoordinateSystem> Plot<C> {
                             .cloned()
                             .unwrap_or_else(|| strip_trailing_numbers(channel_name).to_string());
 
-                        // Apply scale if it exists
-                        if let Some(scale) = scales.get(&scale_key) {
-                            let scale = if let Some(band_value) = band {
-                                let scale_type = scale.get_scale_impl().scale_type();
-                                if scale_type == "band" || scale_type == "point" {
-                                    scale.clone().option("band", lit(*band_value))
-                                } else {
-                                    scale.clone()
-                                }
+                        // Use configured scales (for non-positional channels like size, stroke_width)
+                        if let Some(configured) = configured_scales.get(&scale_key) {
+                            use crate::scales::ConfiguredScaleDataFusionExt;
+                            
+                            // Use ConfiguredScale.to_expr() 
+                            if let Some(band_value) = band {
+                                configured
+                                    .to_expr_with_band(channel_value.expr().clone(), *band_value)
+                                    .unwrap_or_else(|_| channel_value.expr().clone())
                             } else {
-                                scale.clone()
-                            };
-
-                            scale
-                                .to_expr(channel_value.expr().clone())
-                                .unwrap_or_else(|_| channel_value.expr().clone())
+                                configured
+                                    .to_expr(channel_value.expr().clone())
+                                    .unwrap_or_else(|_| channel_value.expr().clone())
+                            }
                         } else {
+                            // No scale configured for this channel - use raw expression
                             channel_value.expr().clone()
                         }
                     }
@@ -706,10 +706,11 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     /// Gather mark data and encoding expressions with radius information for positional scales
+    /// Uses configured scales for non-positional channels (size, stroke_width) needed for radius
     pub fn gather_scale_domain_expressions_with_radius(
         &self,
         scale_name: &str,
-        scales: &HashMap<String, Scale>,
+        configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
     ) -> Result<ScaleDomainWithRadius, crate::error::AvengerChartError> {
         use crate::marks::DataSource;
 
@@ -751,9 +752,12 @@ impl<C: CoordinateSystem> Plot<C> {
             let resolved_encodings =
                 crate::channel_resolution::resolve_all_channel_refs(encodings)?;
 
-            // Create channel resolver for this mark
-            let resolve_channel =
-                Self::create_channel_resolver(mark.as_ref(), &resolved_encodings, scales);
+            // Create channel resolver for this mark (uses configured non-positional scales)
+            let resolve_channel = Self::create_channel_resolver(
+                mark.as_ref(),
+                &resolved_encodings,
+                configured_scales,
+            );
 
             for (channel, position_channel_value) in &resolved_encodings {
                 // Check if this channel uses our scale
