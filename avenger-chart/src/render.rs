@@ -2284,9 +2284,6 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 .build_scale_with_context(scale.clone(), name, width, height, None)
                 .await?;
             configured_scales.insert(name.clone(), configured);
-
-            // Note: For this layout method, we don't need the intermediate Scale
-            // since it's only used for layout calculations
         }
 
         // Get default legends for channels with ConfiguredScale
