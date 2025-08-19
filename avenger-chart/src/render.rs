@@ -141,42 +141,24 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // Get plot dimensions from preferred size or default
         let (width, height) = self.plot.get_preferred_size().unwrap_or((400.0, 300.0));
 
+        // STAGE 1: BUILD ALL SCALES AS CONFIGUREDSCALE OBJECTS
+        // This ensures consistent domains throughout the pipeline
+        
         // First, collect all channels that need scales
         let channels_with_scales = self.plot.collect_channels_needing_scales();
 
-        // Build all scales on demand, applying configured transformations
-        let mut all_scales = HashMap::new();
+        // Build initial scale definitions
+        let mut initial_scales = HashMap::new();
         for channel in &channels_with_scales {
             let scale = self.plot.get_scale(channel);
-            all_scales.insert(channel.clone(), scale);
+            initial_scales.insert(channel.clone(), scale);
         }
 
-        // Use dynamic Taffy layout for Cartesian plots, fixed padding for others
-        let use_taffy_layout =
-            std::any::TypeId::of::<C>() == std::any::TypeId::of::<crate::coords::Cartesian>();
-
-        let (padding, layout_bundle) = if use_taffy_layout {
-            // Use Taffy layout for accurate legend and axis positioning
-            // Pass the scales for layout computation
-            self.compute_layout_with_taffy_cartesian(width, height, &all_scales)
-                .await?
-        } else {
-            // Fallback to fixed padding for non-Cartesian plots
-            let padding = self.plot.measure_padding(width, height);
-            (padding, None)
-        };
-
-        // Calculate plot area (inside padding)
-        let plot_area_x = padding.left;
-        let plot_area_y = padding.top;
-        let plot_area_width = width - padding.left - padding.right;
-        let plot_area_height = height - padding.top - padding.bottom;
-
-        // Separate scales into positional and non-positional
+        // Separate scales into positional and non-positional for processing
         let mut positional_scales = HashMap::new();
         let mut non_positional_scales = HashMap::new();
 
-        for (name, scale) in all_scales {
+        for (name, scale) in initial_scales {
             if matches!(name.as_str(), "x" | "y") {
                 positional_scales.insert(name, scale);
             } else {
@@ -184,76 +166,115 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             }
         }
 
-        // Stage 1: Non-positional scales don't need preprocessing
-        // They'll be built directly in the next step
-
-        // After Stage 1: Create ConfiguredScale for non-positional scales
-        // These scales are fully processed and can be used for radius calculations
+        // Use temporary dimensions for initial processing - will be updated after layout
+        let temp_plot_width = width * 0.8; // Rough estimate for initial processing
+        let temp_plot_height = height * 0.8;
+        
+        // Build all non-positional scales first (they don't depend on radius context)
         let mut configured_non_positional = HashMap::new();
         for (name, scale) in &non_positional_scales {
             let configured = self
-                .build_scale_with_context(
+                .build_configured_scale_with_radius_context(
                     scale.clone(),
                     name,
-                    plot_area_width,
-                    plot_area_height,
+                    temp_plot_width,
+                    temp_plot_height,
                     None,
                 )
                 .await?;
             configured_non_positional.insert(name.clone(), configured);
         }
 
-        // Stage 2: Process positional scales with radius context
-        // Just update their domains with radius information - full building happens later
-        let pos_scale_names: Vec<String> = positional_scales.keys().cloned().collect();
-
-        for name in pos_scale_names {
-            let scale = positional_scales.get_mut(&name).unwrap();
-            // Use the domain inference portion with radius context
-            self.infer_scale_domain(
-                scale,
-                &name,
-                plot_area_width,
-                plot_area_height,
-                &configured_non_positional,
-                &HashMap::new(), // all_scales not used in current implementation
-            )
-            .await?;
-        }
-
-        // Merge all scales back together for mark rendering
-        let mut all_scales = non_positional_scales;
-        all_scales.extend(positional_scales);
-
-        // Build ConfiguredScale for all scales (for legends and layout)
-        let mut configured_scales = HashMap::new();
-        for (name, scale) in &all_scales {
+        // Build positional scales with radius context from non-positional scales
+        let mut configured_positional = HashMap::new();
+        for (name, scale) in &positional_scales {
             let configured = self
-                .build_scale_with_context(
+                .build_configured_scale_with_radius_context(
                     scale.clone(),
                     name,
-                    plot_area_width,
-                    plot_area_height,
-                    None,
+                    temp_plot_width,
+                    temp_plot_height,
+                    Some(&configured_non_positional),
                 )
                 .await?;
-            configured_scales.insert(name.clone(), configured);
+            configured_positional.insert(name.clone(), configured);
+        }
+
+        // Merge all configured scales together for layout computation
+        let mut all_configured_scales = configured_non_positional.clone();
+        all_configured_scales.extend(configured_positional.clone());
+
+        // STAGE 2: COMPUTE LAYOUT USING CONFIGURED SCALES
+        // Layout computation needs scales with correct domains for accurate sizing
+        
+        // Use dynamic Taffy layout for Cartesian plots, fixed padding for others
+        let use_taffy_layout =
+            std::any::TypeId::of::<C>() == std::any::TypeId::of::<crate::coords::Cartesian>();
+
+        let (padding, layout_bundle) = if use_taffy_layout {
+            // Use Taffy layout with our configured scales
+            self.compute_layout_with_taffy_cartesian_configured(width, height, &all_configured_scales)
+                .await?
+        } else {
+            // Fallback to fixed padding for non-Cartesian plots
+            let padding = self.plot.measure_padding(width, height);
+            (padding, None)
+        };
+
+        // Calculate final plot area (inside padding)
+        let plot_area_x = padding.left;
+        let plot_area_y = padding.top;
+        let plot_area_width = width - padding.left - padding.right;
+        let plot_area_height = height - padding.top - padding.bottom;
+
+        // STAGE 3: UPDATE SCALES WITH FINAL RANGES
+        // Use with_range() to update positional scales with correct ranges while preserving domains
+        let mut final_configured_scales = HashMap::new();
+        
+        // Pass through non-positional scales unchanged
+        // (they don't need range updates based on plot dimensions)
+        for (name, configured_scale) in &configured_non_positional {
+            final_configured_scales.insert(name.clone(), configured_scale.clone());
+        }
+
+        // Update positional scales with coordinate system's default ranges
+        for (name, configured_scale) in &configured_positional {
+            // Get the default range for this coordinate channel
+            if let Some((start, end)) = self.plot.get_coordinate_default_range(
+                name,
+                plot_area_width as f64,
+                plot_area_height as f64,
+            ) {
+                // Create range array directly from the coordinate system's values
+                let range = Arc::new(datafusion::arrow::array::Float32Array::from(vec![
+                    start as f32,
+                    end as f32,
+                ])) as datafusion::arrow::array::ArrayRef;
+                
+                // Use with_range to update the configured scale
+                let updated = configured_scale.clone().with_range(range);
+                final_configured_scales.insert(name.clone(), updated);
+            } else {
+                // Not a coordinate channel, keep original range
+                final_configured_scales.insert(name.clone(), configured_scale.clone());
+            }
         }
 
         // Use the full plot area for clipping
         // Marks should be clipped to the plot area bounds, not the data bounds
         let clip_height = plot_area_height;
 
+        // STAGE 4: RENDER ALL COMPONENTS WITH FINAL SCALES
+        // All scales now have consistent domains and correct ranges
+        
         // Process each mark
         let mut mark_groups = Vec::new();
-
-        // Debug rects removed for cleaner output
 
         for mark in &self.plot.marks {
             let scene_marks = self
                 .render_mark(
                     mark.as_ref(),
-                    &configured_scales,
+                    &final_configured_scales,
                     plot_area_width,
                     plot_area_height,
                 )
@@ -261,21 +282,21 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             mark_groups.extend(scene_marks);
         }
 
-        // Create axes using ConfiguredScale
+        // Create axes using final configured scales
         let axis_marks = self
             .create_axes(
-                &configured_scales,
+                &final_configured_scales,
                 plot_area_width,
                 plot_area_height,
                 &padding,
             )
             .await?;
 
-        // Create legends
+        // Create legends using final configured scales
         let legend_marks = if let Some((layout, legend_cache)) = &layout_bundle {
             // Use Taffy layout positions for legends
             self.create_legends_with_layout(
-                &configured_scales,
+                &final_configured_scales,
                 layout,
                 legend_cache,
                 plot_area_width,
@@ -285,7 +306,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         } else {
             // Fallback to fixed positioning
             self.create_legends(
-                &configured_scales,
+                &final_configured_scales,
                 plot_area_width,
                 plot_area_height,
                 &padding,
@@ -2187,86 +2208,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         Ok(vec![SceneMark::Group(group)])
     }
 
-    /// Infer and apply domain for a scale if not explicitly set
-    async fn infer_scale_domain(
-        &self,
-        scale: &mut Scale,
-        name: &str,
-        plot_area_width: f32,
-        plot_area_height: f32,
-        configured_non_positional: &std::collections::HashMap<
-            String,
-            avenger_scales::scales::ConfiguredScale,
-        >,
-        _all_scales: &std::collections::HashMap<String, Scale>,
-    ) -> Result<(), AvengerChartError> {
-        // For scales that still have DomainExprs, update them with radius information if applicable
-        if matches!(
-            &scale.domain.default_domain,
-            crate::scales::ScaleDefaultDomain::DomainExprs(_)
-        ) {
-            // Only use radius-aware gathering for linear positional scales
-            if scale.get_scale_impl().scale_type() == "linear"
-                && matches!(name, "x" | "y" | "x2" | "y2")
-            {
-                // Use the new method that gathers radius information
-                // Only needs configured non-positional scales for radius calculations
-                let data_expressions_with_radius = self
-                    .plot
-                    .gather_scale_domain_expressions_with_radius(name, configured_non_positional)?;
 
-                // Check if any expressions actually have radius
-                let has_radius = data_expressions_with_radius
-                    .iter()
-                    .any(|(_, _, radius)| radius.is_some());
-
-                if !data_expressions_with_radius.is_empty() && has_radius {
-                    // Use the method that accepts radius
-                    *scale = scale
-                        .clone()
-                        .domain_data_fields_with_radius(data_expressions_with_radius);
-                } else if !data_expressions_with_radius.is_empty() {
-                    // Convert to standard expressions (without radius)
-                    let data_expressions: Vec<(Arc<DataFrame>, datafusion::logical_expr::Expr)> =
-                        data_expressions_with_radius
-                            .into_iter()
-                            .map(|(df, expr, _)| (df, expr))
-                            .collect();
-                    *scale = scale.clone().domain_data_fields(data_expressions);
-                }
-            } else {
-                // Use standard domain gathering for non-linear scales
-                let data_expressions = self.plot.gather_scale_domain_expressions(name)?;
-                if !data_expressions.is_empty() {
-                    *scale = scale.clone().domain_data_fields(data_expressions);
-                }
-            }
-        }
-
-        // Infer domain from data if needed
-        if matches!(
-            &scale.domain.default_domain,
-            crate::scales::ScaleDefaultDomain::DomainExprs(_)
-        ) {
-            // Compute range hint for positional scales
-            let range_hint = match name {
-                "x" => Some((0.0, plot_area_width as f64)),
-                "y" => Some((plot_area_height as f64, 0.0)), // Y is flipped
-                _ => None,
-            };
-
-            *scale = scale.clone().infer_domain_from_data(range_hint).await?;
-        }
-
-        Ok(())
-    }
-
-    /// Compute layout using Taffy for accurate positioning
-    async fn compute_layout_with_taffy_cartesian(
+    /// Compute layout using Taffy for accurate positioning with ConfiguredScale objects
+    async fn compute_layout_with_taffy_cartesian_configured(
         &self,
         width: f32,
         height: f32,
-        initial_scales: &HashMap<String, Scale>,
+        configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
     ) -> Result<
         (
             Padding,
@@ -2276,18 +2224,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
     > {
         use crate::chart_layout::ChartLayout;
 
-        // Use the provided initial scales instead of building from scratch
-        let mut configured_scales = HashMap::new();
-        for (name, scale) in initial_scales {
-            // Use the consolidated build method
-            let configured = self
-                .build_scale_with_context(scale.clone(), name, width, height, None)
-                .await?;
-            configured_scales.insert(name.clone(), configured);
-        }
-
         // Get default legends for channels with ConfiguredScale
-        let default_legends = self.create_default_legends(&configured_scales);
+        let default_legends = self.create_default_legends(configured_scales);
         let mut all_legends = self.plot.legends.clone();
         for (channel, default_legend) in default_legends {
             all_legends.entry(channel).or_insert(default_legend);
@@ -2415,46 +2353,33 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         Ok((padding, Some((layout_result, legend_cache))))
     }
 
-    /// Build a ConfiguredScale from a Scale with optional radius context
-    ///
-    /// This single method combines all scale building steps:
-    /// 1. Re-gather domain with radius for positional scales when context is provided
-    /// 2. Apply default ranges
-    /// 3. Infer domain from data (if needed)
-    /// 4. Normalize domain (apply zero, nice, padding)
-    /// 5. Create ConfiguredScale
-    ///
-    /// # Arguments
-    /// * `scale` - The scale to build
-    /// * `name` - The scale name (used for positional scale logic and range defaults)
-    /// * `plot_area_width` - Plot area width for layout calculations
-    /// * `plot_area_height` - Plot area height for layout calculations
-    /// * `radius_context` - Optional map of configured non-positional scales for radius calculations
-    pub async fn build_scale_with_context(
+
+    /// Build a ConfiguredScale directly, handling domain processing with radius context
+    /// This combines the functionality of process_scale_domain_with_radius and build_scale_with_context
+    async fn build_configured_scale_with_radius_context(
         &self,
-        mut scale: Scale,
+        scale: Scale,
         name: &str,
         plot_area_width: f32,
         plot_area_height: f32,
-        radius_context: Option<&HashMap<String, avenger_scales::scales::ConfiguredScale>>,
+        configured_non_positional: Option<&HashMap<String, avenger_scales::scales::ConfiguredScale>>,
     ) -> Result<avenger_scales::scales::ConfiguredScale, AvengerChartError> {
-        // Step 1: Re-gather domain with radius if context is provided and this is a positional scale
-        if let Some(configured_non_positional) = radius_context {
-            // For scales that still have DomainExprs, update them with radius information if applicable
-            if matches!(
-                &scale.domain.default_domain,
-                crate::scales::ScaleDefaultDomain::DomainExprs(_)
-            ) {
-                // Only use radius-aware gathering for linear positional scales
+        let mut scale = scale;
+        
+        // Step 1: Process domain with radius if applicable
+        if matches!(
+            &scale.domain.default_domain,
+            crate::scales::ScaleDefaultDomain::DomainExprs(_)
+        ) {
+            // Only use radius-aware gathering for linear positional scales with context
+            if let Some(configured_non_positional) = configured_non_positional {
                 if scale.get_scale_impl().scale_type() == "linear"
                     && matches!(name, "x" | "y" | "x2" | "y2")
                 {
                     // Use the method that gathers radius information
-                    let data_expressions_with_radius =
-                        self.plot.gather_scale_domain_expressions_with_radius(
-                            name,
-                            configured_non_positional,
-                        )?;
+                    let data_expressions_with_radius = self
+                        .plot
+                        .gather_scale_domain_expressions_with_radius(name, configured_non_positional)?;
 
                     // Check if any expressions actually have radius
                     let has_radius = data_expressions_with_radius
@@ -2466,7 +2391,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                         scale = scale.domain_data_fields_with_radius(data_expressions_with_radius);
                     } else if !data_expressions_with_radius.is_empty() {
                         // Convert to standard expressions (without radius)
-                        let data_expressions: Vec<(Arc<DataFrame>, Expr)> =
+                        let data_expressions: Vec<(Arc<DataFrame>, datafusion::logical_expr::Expr)> =
                             data_expressions_with_radius
                                 .into_iter()
                                 .map(|(df, expr, _)| (df, expr))
@@ -2480,13 +2405,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                         scale = scale.domain_data_fields(data_expressions);
                     }
                 }
-            }
-        } else {
-            // No radius context - use standard domain gathering
-            if matches!(
-                &scale.domain.default_domain,
-                crate::scales::ScaleDefaultDomain::DomainExprs(_)
-            ) {
+            } else {
+                // No radius context - use standard domain gathering
                 let data_expressions = self.plot.gather_scale_domain_expressions(name)?;
                 if !data_expressions.is_empty() {
                     scale = scale.domain_data_fields(data_expressions);
@@ -2494,13 +2414,14 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             }
         }
 
-        // Step 2: Apply default range
-        self.plot.apply_default_range(
-            &mut scale,
+        // Step 2: Apply default range if it's a coordinate channel
+        if let Some((start, end)) = self.plot.get_coordinate_default_range(
             name,
             plot_area_width as f64,
             plot_area_height as f64,
-        );
+        ) {
+            scale = scale.range_interval(datafusion::logical_expr::lit(start), datafusion::logical_expr::lit(end));
+        }
 
         // Step 3: Infer domain from data if needed
         if matches!(

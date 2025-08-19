@@ -786,16 +786,14 @@ impl<C: CoordinateSystem> Plot<C> {
         Ok(data_expressions)
     }
 
-    /// Apply default range to a scale based on plot area dimensions
-    /// This is called during rendering when actual plot area dimensions are known
-    /// (i.e., after padding has been subtracted by the layout/rendering system)
-    pub fn apply_default_range(
+    /// Get the default range for a coordinate channel based on plot area dimensions
+    /// Returns None if the channel is not a coordinate channel
+    pub fn get_coordinate_default_range(
         &self,
-        scale: &mut Scale,
         name: &str,
         plot_area_width: f64,
         plot_area_height: f64,
-    ) {
+    ) -> Option<(f64, f64)> {
         // Check if this scale is mapped to a coordinate channel
         let coord_channel = self
             .scale_to_coord_channel
@@ -803,12 +801,8 @@ impl<C: CoordinateSystem> Plot<C> {
             .map(|s| s.as_str())
             .unwrap_or(name);
 
-        if let Some(default_range) =
-            self.coord_system
-                .default_range(coord_channel, plot_area_width, plot_area_height)
-        {
-            *scale = scale.clone().range(default_range);
-        }
+        self.coord_system
+            .default_range(coord_channel, plot_area_width, plot_area_height)
     }
 
     /// Collect all channels that need scales
