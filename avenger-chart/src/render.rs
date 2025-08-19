@@ -194,6 +194,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 &name,
                 plot_area_width,
                 plot_area_height,
+                &HashMap::new(), // No configured scales yet in Stage 1
                 &HashMap::new(), // Non-positional scales don't need other scales for domain inference
                 |scale_copy| {
                     // Apply default color range for color channels
@@ -215,6 +216,17 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             .await?;
         }
 
+        // After Stage 1: Create ConfiguredScale for non-positional scales
+        // These scales are fully processed and can be used for radius calculations
+        let mut configured_non_positional = HashMap::new();
+        for (name, scale) in &non_positional_scales {
+            let configured = scale
+                .clone()
+                .build(plot_area_width, plot_area_height)
+                .await?;
+            configured_non_positional.insert(name.clone(), configured);
+        }
+
         // Stage 2: Process positional scales
         // Collect names first to avoid borrowing issues
         let pos_scale_names: Vec<String> = positional_scales.keys().cloned().collect();
@@ -230,6 +242,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 &name,
                 plot_area_width,
                 plot_area_height,
+                &configured_non_positional,  // Pass configured non-positional scales for radius
                 &all_scales_for_process,
                 |_scale_copy| {
                     // Padding is now handled by radius-aware domain calculation
@@ -2201,7 +2214,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         name: &str,
         plot_area_width: f32,
         plot_area_height: f32,
-        all_scales: &std::collections::HashMap<String, Scale>,
+        configured_non_positional: &std::collections::HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        _all_scales: &std::collections::HashMap<String, Scale>,
     ) -> Result<(), AvengerChartError> {
         if !scale.has_explicit_domain() {
             // Only use radius-aware gathering for linear positional scales
@@ -2209,9 +2223,10 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 && matches!(name, "x" | "y" | "x2" | "y2")
             {
                 // Use the new method that gathers radius information
+                // Only needs configured non-positional scales for radius calculations
                 let data_expressions_with_radius = self
                     .plot
-                    .gather_scale_domain_expressions_with_radius(name, all_scales)?;
+                    .gather_scale_domain_expressions_with_radius(name, configured_non_positional)?;
 
                 // Check if any expressions actually have radius
                 let has_radius = data_expressions_with_radius
@@ -2456,6 +2471,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         name: &str,
         plot_area_width: f32,
         plot_area_height: f32,
+        configured_non_positional: &std::collections::HashMap<String, avenger_scales::scales::ConfiguredScale>,
         all_scales: &std::collections::HashMap<String, Scale>,
         apply_scale_specific: F,
     ) -> Result<(), AvengerChartError>
@@ -2470,6 +2486,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             name,
             plot_area_width,
             plot_area_height,
+            configured_non_positional,
             all_scales,
         )
         .await?;
