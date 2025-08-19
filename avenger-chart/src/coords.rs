@@ -1,9 +1,8 @@
 use crate::axis::{AxisPosition, AxisTrait, CartesianAxis};
 use crate::error::AvengerChartError;
-use crate::scales::ScaleRange;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::functions::math::expr_fn::{cos, sin};
-use datafusion::logical_expr::{Expr, lit};
+use datafusion::logical_expr::Expr;
 use std::collections::HashMap;
 
 /// Result of coordinate transformation
@@ -26,7 +25,8 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     fn required_channels(&self) -> &'static [&'static str];
 
     /// Get default range for a specific position channel based on inner plot dimensions
-    fn default_range(&self, channel: &str, width: f64, height: f64) -> Option<ScaleRange>;
+    /// Returns the range as a tuple of (start, end) values
+    fn default_range(&self, channel: &str, width: f64, height: f64) -> Option<(f64, f64)>;
 
     /// Transform position channel expressions to screen coordinates
     ///
@@ -101,10 +101,10 @@ impl CoordinateSystem for Cartesian {
         &["x", "y"]
     }
 
-    fn default_range(&self, channel: &str, width: f64, height: f64) -> Option<ScaleRange> {
+    fn default_range(&self, channel: &str, width: f64, height: f64) -> Option<(f64, f64)> {
         match channel {
-            "x" => Some(ScaleRange::new_interval(lit(0.0f32), lit(width as f32))),
-            "y" => Some(ScaleRange::new_interval(lit(height as f32), lit(0.0f32))), // Inverted for screen coords
+            "x" => Some((0.0, width)),
+            "y" => Some((height, 0.0)), // Inverted for screen coords
             _ => None,
         }
     }
@@ -309,18 +309,12 @@ impl CoordinateSystem for Polar {
         &["r", "theta"]
     }
 
-    fn default_range(&self, channel: &str, width: f64, height: f64) -> Option<ScaleRange> {
+    fn default_range(&self, channel: &str, width: f64, height: f64) -> Option<(f64, f64)> {
         match channel {
-            "theta" => Some(ScaleRange::new_interval(
-                lit(0.0f32),
-                lit((2.0 * std::f64::consts::PI) as f32),
-            )),
+            "theta" => Some((0.0, 2.0 * std::f64::consts::PI)),
             "r" => {
                 let max_radius = f64::min(width, height) / 2.0;
-                Some(ScaleRange::new_interval(
-                    lit(0.0f32),
-                    lit(max_radius as f32),
-                ))
+                Some((0.0, max_radius))
             }
             _ => None,
         }
