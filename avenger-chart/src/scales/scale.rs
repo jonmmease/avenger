@@ -309,8 +309,18 @@ impl Scale {
             .await
     }
 
-    /// Create a scale expression that transforms values using this scale
-    /// DEPRECATED: Use build() to create ConfiguredScale, then use to_expr() extension method
+    /// Create a scale expression for domain inference phase
+    /// 
+    /// This method is used during domain inference to build query expressions that determine
+    /// what data flows through scales. It creates DataFusion expressions before domains are
+    /// resolved and ConfiguredScale objects exist.
+    /// 
+    /// For rendering phase (after domain resolution), use ConfiguredScale.to_expr() instead.
+    /// 
+    /// # Usage
+    /// - Domain inference: gathering scale domain expressions from marks
+    /// - Channel resolution: determining how channels map through scales
+    /// - Radius expression calculation: computing radius-aware domains
     pub fn to_expr(&self, values: Expr) -> Result<Expr, AvengerChartError> {
         let domain_expr = self.compile_domain()?;
         let range_expr = self.compile_range()?;
