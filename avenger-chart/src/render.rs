@@ -227,8 +227,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         let plot_area_width = width - padding.left - padding.right;
         let plot_area_height = height - padding.top - padding.bottom;
 
-        // STAGE 3: UPDATE SCALES WITH FINAL RANGES
-        // Use with_range() to update positional scales with correct ranges while preserving domains
+        // STAGE 3: REBUILD POSITIONAL SCALES WITH FINAL DIMENSIONS
+        // We must rebuild (not just update range) so domain normalization uses correct dimensions
         let mut final_configured_scales = HashMap::new();
         
         // Pass through non-positional scales unchanged
@@ -237,27 +237,19 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             final_configured_scales.insert(name.clone(), configured_scale.clone());
         }
 
-        // Update positional scales with coordinate system's default ranges
-        for (name, configured_scale) in &configured_positional {
-            // Get the default range for this coordinate channel
-            if let Some((start, end)) = self.plot.get_coordinate_default_range(
-                name,
-                plot_area_width as f64,
-                plot_area_height as f64,
-            ) {
-                // Create range array directly from the coordinate system's values
-                let range = Arc::new(datafusion::arrow::array::Float32Array::from(vec![
-                    start as f32,
-                    end as f32,
-                ])) as datafusion::arrow::array::ArrayRef;
-                
-                // Use with_range to update the configured scale
-                let updated = configured_scale.clone().with_range(range);
-                final_configured_scales.insert(name.clone(), updated);
-            } else {
-                // Not a coordinate channel, keep original range
-                final_configured_scales.insert(name.clone(), configured_scale.clone());
-            }
+        // REBUILD positional scales with final dimensions
+        // This ensures domain normalization (nice, zero, padding) happens with correct range
+        for (name, original_scale) in &positional_scales {
+            let rebuilt_scale = self
+                .build_configured_scale_with_radius_context(
+                    original_scale.clone(),
+                    name,
+                    plot_area_width,
+                    plot_area_height,
+                    Some(&configured_non_positional),
+                )
+                .await?;
+            final_configured_scales.insert(name.clone(), rebuilt_scale);
         }
 
         // Use the full plot area for clipping
