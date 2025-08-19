@@ -6,9 +6,8 @@ use crate::scales::range::ScaleRange;
 use crate::utils::{ScalarValueHelpers, eval_to_scalars};
 use avenger_scales::scales::ScaleImpl;
 use datafusion::dataframe::DataFrame;
-use datafusion::logical_expr::{Expr, ExprSchemable, lit};
-use datafusion::prelude::named_struct;
-use datafusion_common::{DFSchema, ScalarValue};
+use datafusion::logical_expr::{Expr, lit};
+use datafusion_common::ScalarValue;
 use palette::Srgba;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -308,41 +307,7 @@ impl Scale {
             .create_configured_scale(plot_area_width, plot_area_height)
             .await
     }
-
-    /// Create a scale expression for domain inference phase
-    /// 
-    /// This method is used during domain inference to build query expressions that determine
-    /// what data flows through scales. It creates DataFusion expressions before domains are
-    /// resolved and ConfiguredScale objects exist.
-    /// 
-    /// For rendering phase (after domain resolution), use ConfiguredScale.to_expr() instead.
-    /// 
-    /// # Usage
-    /// - Domain inference: gathering scale domain expressions from marks
-    /// - Channel resolution: determining how channels map through scales
-    /// - Radius expression calculation: computing radius-aware domains
-    pub fn to_expr(&self, values: Expr) -> Result<Expr, AvengerChartError> {
-        let domain_expr = self.compile_domain()?;
-        let range_expr = self.compile_range()?;
-        let options_expr = self.compile_options()?;
-
-        let domain_type = self.domain.data_type()?;
-        let range_type = self.range.data_type()?;
-        let options_type = options_expr.get_type(&DFSchema::empty())?;
-
-        // Cast values to match the domain type if needed
-        let values = datafusion::logical_expr::cast(values, domain_type.clone());
-
-        let udf = crate::scales::udf::create_scale_udf(
-            self.scale_impl.clone(),
-            domain_type,
-            range_type,
-            options_type,
-        )?;
-
-        Ok(udf.call(vec![domain_expr, range_expr, options_expr, values]))
-    }
-
+    
     /// Infer domain from data fields and return a new scale with the inferred domain
     ///
     /// # Arguments
@@ -546,35 +511,5 @@ impl Scale {
 
         // Normalize the scale to apply zero and nice transformations
         Ok(configured_scale)
-    }
-
-    /// Compile domain to an expression that evaluates to a list
-    fn compile_domain(&self) -> Result<Expr, AvengerChartError> {
-        self.domain
-            .compile(self.scale_impl.infer_domain_from_data_method())
-    }
-
-    /// Compile range to an expression that evaluates to a list
-    fn compile_range(&self) -> Result<Expr, AvengerChartError> {
-        self.range.compile()
-    }
-
-    /// Compile options to an expression that evaluates to a struct
-    fn compile_options(&self) -> Result<Expr, AvengerChartError> {
-        use datafusion::arrow::array::StructArray;
-
-        if self.options.is_empty() {
-            // Create an empty struct with 1 row for scalar
-            let empty_struct = StructArray::new_empty_fields(1, None);
-            Ok(lit(ScalarValue::Struct(Arc::new(empty_struct))))
-        } else {
-            let struct_args = self
-                .options
-                .iter()
-                .flat_map(|(key, value)| vec![lit(key), value.clone()])
-                .collect::<Vec<_>>();
-
-            Ok(named_struct(struct_args))
-        }
     }
 }
