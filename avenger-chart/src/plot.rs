@@ -873,14 +873,36 @@ impl<C: CoordinateSystem> Plot<C> {
         self.subtitle.as_ref()
     }
 
-    /// Measure padding required for axes, legends, etc. (temporary placeholder)
-    pub fn measure_padding(&self, _width: f32, _height: f32) -> crate::render::Padding {
-        // Return default padding for now
+    /// Measure padding required for axes, legends, etc.
+    pub fn measure_padding(&self, width: f32, height: f32) -> crate::render::Padding {
+        // Check if this is a polar coordinate system
+        let coord_type_name = std::any::type_name::<C>();
+        let is_polar = coord_type_name.contains("Polar");
+        
+        if is_polar {
+            // Calculate padding for polar plots
+            self.measure_polar_padding(width, height)
+        } else {
+            // Default padding for Cartesian plots
+            crate::render::Padding {
+                left: 60.0,
+                right: 60.0,
+                top: 30.0,
+                bottom: 50.0,
+            }
+        }
+    }
+    
+    /// Calculate padding specifically for polar plots
+    /// This is a simple estimate - proper measurement requires scales which aren't available here
+    fn measure_polar_padding(&self, _width: f32, _height: f32) -> crate::render::Padding {
+        // Return minimal padding - the actual measurement will be done in the renderer
+        // with access to configured scales
         crate::render::Padding {
-            left: 60.0,
-            right: 60.0,
-            top: 30.0,
-            bottom: 50.0,
+            left: 10.0,
+            right: 10.0,
+            top: 10.0,
+            bottom: 10.0,
         }
     }
 }

@@ -574,7 +574,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
     ) -> Result<LayoutSolution, AvengerChartError> {
         // Check if this plot uses dynamic layout
         if !self.plot.coord_system().supports_dynamic_layout() {
-            // Use fixed padding for coordinate systems without dynamic layout
+            // For polar plots, compute padding dynamically based on axis measurements
+            // Check if we have polar channels to identify polar coordinate system
+            if scales.contains_key("r") && scales.contains_key("theta") {
+                return self.compute_polar_layout(width, height, scales).await;
+            }
+            
+            // Use fixed padding for other coordinate systems without dynamic layout
             let padding = self.plot.measure_padding(width, height);
             return Ok(LayoutSolution::from_padding(padding, width, height));
         }
@@ -2562,6 +2568,90 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         }
 
         Ok((padding, Some((layout_result, legend_cache))))
+    }
+
+    /// Compute layout for polar coordinate system by measuring axes bounding box
+    async fn compute_polar_layout(
+        &self,
+        width: f32,
+        height: f32,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+    ) -> Result<LayoutSolution, AvengerChartError> {
+        use avenger_geometry::marks::MarkGeometryUtils;
+        
+        // Get default axes for polar channels
+        let default_axes = self
+            .plot
+            .coord_system()
+            .create_default_axes(scales, &self.plot.marks);
+
+        // Apply user axis customizations to defaults
+        let mut all_axes = default_axes;
+        for (channel, axis_spec) in &self.plot.axis_specs {
+            if let Some(base_axis) = all_axes.get(channel).cloned() {
+                match axis_spec {
+                    crate::plot::AxisSpec::Local(f) => {
+                        let customized = f(base_axis);
+                        all_axes.insert(channel.clone(), customized);
+                    }
+                    crate::plot::AxisSpec::Reference(_) => {
+                        // Reference axes not yet supported
+                    }
+                }
+            }
+        }
+
+        // Start with minimal padding for measurement
+        let initial_padding = Padding {
+            left: 10.0,
+            right: 10.0,
+            top: 10.0,
+            bottom: 10.0,
+        };
+        
+        // Calculate initial plot dimensions
+        let plot_width = width - initial_padding.left - initial_padding.right;
+        let plot_height = height - initial_padding.top - initial_padding.bottom;
+        
+        // Render polar axes to measure their bounding box
+        let axis_marks = self
+            .plot
+            .coord_system()
+            .render_axes(&all_axes, scales, plot_width, plot_height, &initial_padding)
+            .await?;
+        
+        // Calculate bounding box of all axis marks
+        let mut min_x = f32::INFINITY;
+        let mut max_x = f32::NEG_INFINITY;
+        let mut min_y = f32::INFINITY;
+        let mut max_y = f32::NEG_INFINITY;
+        
+        for mark in &axis_marks {
+            let bbox = mark.bounding_box();
+            let lower = bbox.lower();
+            let upper = bbox.upper();
+            min_x = min_x.min(lower[0]);
+            max_x = max_x.max(upper[0]);
+            min_y = min_y.min(lower[1]);
+            max_y = max_y.max(upper[1]);
+        }
+        
+        // Calculate overflow on each side
+        let left_overflow = (initial_padding.left - min_x).max(0.0);
+        let right_overflow = (max_x - (width - initial_padding.right)).max(0.0);
+        let top_overflow = (initial_padding.top - min_y).max(0.0);
+        let bottom_overflow = (max_y - (height - initial_padding.bottom)).max(0.0);
+        
+        // Apply overflow as padding with some margin
+        let margin = 5.0;
+        let final_padding = Padding {
+            left: initial_padding.left + left_overflow + margin,
+            right: initial_padding.right + right_overflow + margin,
+            top: initial_padding.top + top_overflow + margin,
+            bottom: initial_padding.bottom + bottom_overflow + margin,
+        };
+        
+        Ok(LayoutSolution::from_padding(final_padding, width, height))
     }
 
     /// Build a ConfiguredScale directly, handling domain processing with radius context
