@@ -588,10 +588,23 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             .coord_system()
             .create_default_axes(scales, &self.plot.marks);
 
-        // Merge user axes with defaults - user axes override defaults
+        // Apply user axis customizations to defaults
         let mut all_axes = default_axes;
-        for (channel, user_axis) in &self.plot.axes {
-            all_axes.insert(channel.clone(), user_axis.clone());
+        for (channel, axis_spec) in &self.plot.axis_specs {
+            // Only apply customizations if there's a default axis
+            // Axes without scales won't be rendered anyway
+            if let Some(base_axis) = all_axes.get(channel).cloned() {
+                // Apply the customization function
+                match axis_spec {
+                    crate::plot::AxisSpec::Local(f) => {
+                        let customized = f(base_axis);
+                        all_axes.insert(channel.clone(), customized);
+                    }
+                    crate::plot::AxisSpec::Reference(_) => {
+                        // Reference axes not yet supported, keep default
+                    }
+                }
+            }
         }
 
         // Call the specialized Cartesian layout helper
@@ -1038,10 +1051,23 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             .coord_system()
             .create_default_axes(scales, &self.plot.marks);
 
-        // Merge user axes with defaults - user axes override defaults
+        // Apply user axis customizations to defaults
         let mut all_axes = default_axes;
-        for (channel, user_axis) in &self.plot.axes {
-            all_axes.insert(channel.clone(), user_axis.clone());
+        for (channel, axis_spec) in &self.plot.axis_specs {
+            // Only apply customizations if there's a default axis
+            // Axes without scales won't be rendered anyway
+            if let Some(base_axis) = all_axes.get(channel).cloned() {
+                // Apply the customization function
+                match axis_spec {
+                    crate::plot::AxisSpec::Local(f) => {
+                        let customized = f(base_axis);
+                        all_axes.insert(channel.clone(), customized);
+                    }
+                    crate::plot::AxisSpec::Reference(_) => {
+                        // Reference axes not yet supported, keep default
+                    }
+                }
+            }
         }
 
         // Delegate all axis rendering to the coordinate system
