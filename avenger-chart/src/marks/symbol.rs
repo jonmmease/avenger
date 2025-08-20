@@ -267,10 +267,34 @@ impl Mark<Polar> for Symbol<Polar> {
         let r = coerce_numeric_channel_with_mark(self, data, scalars, "r", 0.0)?;
         let theta = coerce_numeric_channel_with_mark(self, data, scalars, "theta", 0.0)?;
 
-        // Transform polar to cartesian coordinates
-        // For now, use a fixed center (will be improved with proper center injection)
-        let center_x = 250.0_f32;
-        let center_y = 250.0_f32;
+        // Get center coordinates from scalar batch if available, otherwise use defaults
+        let center_x = if let Some(center_col) = scalars.column_by_name("polar_center_x") {
+            if let Some(array) = center_col.as_any().downcast_ref::<datafusion::arrow::array::Float32Array>() {
+                if array.len() > 0 {
+                    array.value(0)
+                } else {
+                    250.0_f32 // fallback
+                }
+            } else {
+                250.0_f32 // fallback
+            }
+        } else {
+            250.0_f32 // fallback for non-dynamic layout
+        };
+        
+        let center_y = if let Some(center_col) = scalars.column_by_name("polar_center_y") {
+            if let Some(array) = center_col.as_any().downcast_ref::<datafusion::arrow::array::Float32Array>() {
+                if array.len() > 0 {
+                    array.value(0)
+                } else {
+                    250.0_f32 // fallback
+                }
+            } else {
+                250.0_f32 // fallback
+            }
+        } else {
+            250.0_f32 // fallback for non-dynamic layout
+        };
 
         // Convert r and theta to x and y
         use avenger_common::value::{ScalarOrArray as SOA, ScalarOrArrayValue};
