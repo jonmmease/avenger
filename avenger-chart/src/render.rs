@@ -776,8 +776,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         &self,
         mark: &dyn Mark<C>,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _plot_width: f32,
-        _plot_height: f32,
+        plot_width: f32,
+        plot_height: f32,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Get the data - either from mark or inherit from plot
         let df_ref = match mark.data_source() {
@@ -901,6 +901,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // Validate positional channel data types before rendering
         self.validate_positional_channel_types(&data_batch, &scalar_batch)?;
 
+        // For polar coordinate systems, inject center coordinates into scalar batch
+        let scalar_batch = if self.is_polar_coord_system() {
+            self.inject_polar_center(scalar_batch, plot_width, plot_height)?
+        } else {
+            scalar_batch
+        };
+
         // Call the mark's render_from_data method
         mark.render_from_data(data_batch.as_ref(), &scalar_batch)
     }
@@ -933,6 +940,54 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         }
 
         Ok(())
+    }
+
+    /// Check if the plot uses polar coordinate system
+    fn is_polar_coord_system(&self) -> bool {
+        // Check the coordinate system type name
+        let coord_system_name = std::any::type_name::<C>();
+        coord_system_name.contains("Polar")
+    }
+
+    /// Inject polar center coordinates into the scalar batch
+    fn inject_polar_center(
+        &self,
+        scalar_batch: RecordBatch,
+        plot_width: f32,
+        plot_height: f32,
+    ) -> Result<RecordBatch, AvengerChartError> {
+        use datafusion::arrow::array::Float32Array;
+        use datafusion::arrow::datatypes::{DataType, Field};
+        
+        // Calculate center of plot area
+        let center_x = plot_width / 2.0;
+        let center_y = plot_height / 2.0;
+        
+        // Get the number of rows in the scalar batch
+        let num_rows = scalar_batch.num_rows();
+        
+        // Get existing columns from scalar batch
+        let mut columns: Vec<ArrayRef> = scalar_batch.columns().to_vec();
+        let mut fields: Vec<Field> = scalar_batch.schema().fields().iter().map(|f| f.as_ref().clone()).collect();
+        
+        // Create arrays with the same length as the scalar batch
+        let center_x_values = vec![center_x; num_rows];
+        let center_y_values = vec![center_y; num_rows];
+        
+        // Add polar_center_x column
+        let center_x_array = Arc::new(Float32Array::from(center_x_values)) as ArrayRef;
+        columns.push(center_x_array);
+        fields.push(Field::new("polar_center_x", DataType::Float32, false));
+        
+        // Add polar_center_y column
+        let center_y_array = Arc::new(Float32Array::from(center_y_values)) as ArrayRef;
+        columns.push(center_y_array);
+        fields.push(Field::new("polar_center_y", DataType::Float32, false));
+        
+        // Create new batch with added columns
+        let new_schema = Arc::new(Schema::new(fields));
+        RecordBatch::try_new(new_schema, columns)
+            .map_err(|e| AvengerChartError::ArrowError(e))
     }
 
     /// Check if a data type is numeric

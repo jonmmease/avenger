@@ -331,7 +331,7 @@ impl CoordinateSystem for Polar {
     }
 
     fn supports_dynamic_layout(&self) -> bool {
-        false // Will be enabled in Milestone 4
+        false // Polar uses dynamic center injection but not full Taffy layout yet
     }
 
     fn default_range(&self, channel: &str, width: f64, height: f64) -> Option<(f64, f64)> {
