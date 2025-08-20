@@ -4,6 +4,7 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::functions::math::expr_fn::{cos, sin};
 use datafusion::logical_expr::Expr;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Result of coordinate transformation
 #[derive(Debug, Clone)]
@@ -375,24 +376,226 @@ impl CoordinateSystem for Polar {
 
     fn create_default_axes(
         &self,
-        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _marks: &[Box<dyn crate::marks::Mark<Self>>],
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        marks: &[Box<dyn crate::marks::Mark<Self>>],
     ) -> HashMap<String, Self::Axis> {
-        // For Milestone 1, return empty - no axes rendered yet
-        // This will be implemented in Milestone 2
-        HashMap::new()
+        let mut default_axes = HashMap::new();
+
+        // Create default axes for r and theta channels if they have scales
+        for channel in ["r", "theta"] {
+            if scales.get(channel).is_some() {
+                // Extract title from mark encodings
+                let title = extract_axis_title_from_marks(marks, channel)
+                    .unwrap_or_else(|| channel.to_string());
+
+                // Create axis with appropriate defaults
+                let axis_type = match channel {
+                    "r" => crate::axis::PolarAxisType::Radial,
+                    "theta" => crate::axis::PolarAxisType::Angular,
+                    _ => crate::axis::PolarAxisType::Radial,
+                };
+
+                let axis = PolarAxis {
+                    visible: true,
+                    axis_type,
+                    title: Some(title),
+                    grid: true, // Enable grid by default for polar
+                    tick_count: None, // Will use scale's default
+                    format_number: None,
+                    grid_levels: None,
+                    start_angle: 0.0,
+                    direction: crate::axis::PolarDirection::Clockwise,
+                };
+
+                default_axes.insert(channel.to_string(), axis);
+            }
+        }
+
+        default_axes
     }
 
     async fn render_axes(
         &self,
-        _axes: &HashMap<String, Self::Axis>,
-        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _plot_width: f32,
-        _plot_height: f32,
-        _padding: &crate::render::Padding,
+        axes: &HashMap<String, Self::Axis>,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        plot_width: f32,
+        plot_height: f32,
+        padding: &crate::render::Padding,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // For Milestone 1, no axis rendering
-        // Will be implemented in Milestone 2 for grid and Milestone 3 for full axes
-        Ok(Vec::new())
+        use avenger_scenegraph::marks::arc::SceneArcMark;
+        use avenger_scenegraph::marks::rule::SceneRuleMark;
+        use avenger_common::value::ScalarOrArray;
+
+        let mut axis_marks = Vec::new();
+
+        // Calculate center of plot area
+        let center_x = padding.left + plot_width / 2.0;
+        let center_y = padding.top + plot_height / 2.0;
+        let max_radius = f32::min(plot_width, plot_height) / 2.0;
+
+        // Render radial grid (concentric circles) if r axis is visible and has grid enabled
+        if let Some(r_axis) = axes.get("r") {
+            if r_axis.visible && r_axis.grid {
+                if let Some(r_scale) = scales.get("r") {
+                    // Get tick values from the scale
+                    let tick_count = r_axis.tick_count.map(|c| c as f32);
+                    let ticks = r_scale.ticks(tick_count.or(Some(5.0)))?;
+                    let num_ticks = ticks.len();
+                    
+                    if num_ticks > 0 {
+                        // Create concentric circles for each tick value
+                        let mut radii = Vec::with_capacity(num_ticks);
+                        
+                        // Handle different array types for ticks
+                        use datafusion::arrow::datatypes::DataType;
+                        use datafusion::arrow::array::{Float32Array, Float64Array};
+                        
+                        let tick_values: Vec<f64> = match ticks.data_type() {
+                            DataType::Float64 => {
+                                ticks.as_any()
+                                    .downcast_ref::<Float64Array>()
+                                    .unwrap()
+                                    .iter()
+                                    .filter_map(|v| v)
+                                    .collect()
+                            }
+                            DataType::Float32 => {
+                                ticks.as_any()
+                                    .downcast_ref::<Float32Array>()
+                                    .unwrap()
+                                    .iter()
+                                    .filter_map(|v| v.map(|f| f as f64))
+                                    .collect()
+                            }
+                            _ => vec![],
+                        };
+                        
+                        for value in tick_values {
+                            // Transform tick value through scale to get radius
+                            let tick_array = Arc::new(Float64Array::from(vec![value])) as datafusion::arrow::array::ArrayRef;
+                            let scaled_values = r_scale.scale(&tick_array)?;
+                            if let Some(scaled_array) = scaled_values.as_any().downcast_ref::<Float64Array>() {
+                                if scaled_array.len() > 0 {
+                                    let radius = scaled_array.value(0) as f32;
+                                    if radius.is_finite() && radius > 0.0 {
+                                        radii.push(radius);
+                                    }
+                                }
+                            } else if let Some(scaled_array) = scaled_values.as_any().downcast_ref::<Float32Array>() {
+                                if scaled_array.len() > 0 {
+                                    let radius = scaled_array.value(0);
+                                    if radius.is_finite() && radius > 0.0 {
+                                        radii.push(radius);
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Create arc marks for concentric circles if we have any radii
+                        if !radii.is_empty() {
+                            let grid_arcs = SceneArcMark {
+                            name: "polar-radial-grid".to_string(),
+                            clip: false,
+                            len: radii.len() as u32,
+                            gradients: vec![],
+                            x: ScalarOrArray::new_scalar(center_x),
+                            y: ScalarOrArray::new_scalar(center_y),
+                            start_angle: ScalarOrArray::new_scalar(0.0),
+                            end_angle: ScalarOrArray::new_scalar(2.0 * std::f32::consts::PI),
+                            outer_radius: ScalarOrArray::new_array(radii.clone()),
+                            inner_radius: ScalarOrArray::new_array(radii.iter().map(|r| (r - 0.5).max(0.0)).collect()), // Thin circles
+                            pad_angle: ScalarOrArray::new_scalar(0.0),
+                            corner_radius: ScalarOrArray::new_scalar(0.0),
+                            fill: ScalarOrArray::new_scalar(avenger_common::types::ColorOrGradient::Color([0.8, 0.8, 0.8, 0.3])),
+                            stroke: ScalarOrArray::new_scalar(avenger_common::types::ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+                            stroke_width: ScalarOrArray::new_scalar(0.0),
+                            indices: None,
+                            zindex: Some(-1), // Render behind data
+                        };
+                            
+                            axis_marks.push(SceneMark::Arc(grid_arcs));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Render angular grid (radial lines) if theta axis is visible and has grid enabled
+        if let Some(theta_axis) = axes.get("theta") {
+            if theta_axis.visible && theta_axis.grid {
+                if let Some(theta_scale) = scales.get("theta") {
+                    // Get tick values from the scale
+                    let tick_count = theta_axis.tick_count.map(|c| c as f32);
+                    let ticks = theta_scale.ticks(tick_count.or(Some(8.0)))?;
+                    let num_ticks = ticks.len();
+                    
+                    if num_ticks > 0 {
+                        // Create radial lines for each tick value
+                        let mut x_values = Vec::with_capacity(num_ticks);
+                        let mut y_values = Vec::with_capacity(num_ticks);
+                        let mut x2_values = Vec::with_capacity(num_ticks);
+                        let mut y2_values = Vec::with_capacity(num_ticks);
+                        
+                        // Handle different array types for ticks
+                        use datafusion::arrow::datatypes::DataType;
+                        use datafusion::arrow::array::{Float32Array, Float64Array};
+                        
+                        let angle_values: Vec<f64> = match ticks.data_type() {
+                            DataType::Float64 => {
+                                ticks.as_any()
+                                    .downcast_ref::<Float64Array>()
+                                    .unwrap()
+                                    .iter()
+                                    .filter_map(|v| v)
+                                    .collect()
+                            }
+                            DataType::Float32 => {
+                                ticks.as_any()
+                                    .downcast_ref::<Float32Array>()
+                                    .unwrap()
+                                    .iter()
+                                    .filter_map(|v| v.map(|f| f as f64))
+                                    .collect()
+                            }
+                            _ => vec![],
+                        };
+                        
+                        for angle in angle_values {
+                            // Start from center
+                            x_values.push(center_x);
+                            y_values.push(center_y);
+                            
+                            // End at max radius
+                            let cos_angle = (angle as f32).cos();
+                            let sin_angle = (angle as f32).sin();
+                            x2_values.push(center_x + max_radius * cos_angle);
+                            y2_values.push(center_y + max_radius * sin_angle);
+                        }
+                        
+                        // Create rule marks for radial lines
+                        let grid_lines = SceneRuleMark {
+                            name: "polar-angular-grid".to_string(),
+                            clip: false,
+                            len: x_values.len() as u32,
+                            gradients: vec![],
+                            x: ScalarOrArray::new_array(x_values),
+                            y: ScalarOrArray::new_array(y_values),
+                            x2: ScalarOrArray::new_array(x2_values),
+                            y2: ScalarOrArray::new_array(y2_values),
+                            stroke: ScalarOrArray::new_scalar(avenger_common::types::ColorOrGradient::Color([0.8, 0.8, 0.8, 0.3])),
+                            stroke_width: ScalarOrArray::new_scalar(1.0),
+                            stroke_cap: ScalarOrArray::new_scalar(avenger_common::types::StrokeCap::Butt),
+                            stroke_dash: None,
+                            indices: None,
+                            zindex: Some(-1), // Render behind data
+                        };
+                        
+                        axis_marks.push(SceneMark::Rule(grid_lines));
+                    }
+                }
+            }
+        }
+
+        Ok(axis_marks)
     }
 }
