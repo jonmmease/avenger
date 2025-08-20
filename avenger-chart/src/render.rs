@@ -582,16 +582,16 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // Dynamic layout is currently only supported for Cartesian coordinate system
         // We need to prepare the axes and call the Taffy layout function
 
-        // Get default axes
-        let default_axes =
-            self.plot
-                .coord_system()
-                .create_default_axes(scales, &self.plot.axes, &self.plot.marks);
+        // Get default axes for all channels with scales
+        let default_axes = self
+            .plot
+            .coord_system()
+            .create_default_axes(scales, &self.plot.marks);
 
-        // Combine existing axes with defaults
-        let mut all_axes = self.plot.axes.clone();
-        for (channel, default_axis) in default_axes {
-            all_axes.entry(channel).or_insert(default_axis);
+        // Merge user axes with defaults - user axes override defaults
+        let mut all_axes = default_axes;
+        for (channel, user_axis) in &self.plot.axes {
+            all_axes.insert(channel.clone(), user_axis.clone());
         }
 
         // Call the specialized Cartesian layout helper
@@ -1032,16 +1032,16 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         plot_height: f32,
         padding: &Padding,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // Get default axes from the coordinate system
-        let default_axes =
-            self.plot
-                .coord_system()
-                .create_default_axes(scales, &self.plot.axes, &self.plot.marks);
+        // Get default axes for all channels with scales
+        let default_axes = self
+            .plot
+            .coord_system()
+            .create_default_axes(scales, &self.plot.marks);
 
-        // Combine existing axes with defaults
-        let mut all_axes = self.plot.axes.clone();
-        for (channel, default_axis) in default_axes {
-            all_axes.entry(channel).or_insert(default_axis);
+        // Merge user axes with defaults - user axes override defaults
+        let mut all_axes = default_axes;
+        for (channel, user_axis) in &self.plot.axes {
+            all_axes.insert(channel.clone(), user_axis.clone());
         }
 
         // Delegate all axis rendering to the coordinate system

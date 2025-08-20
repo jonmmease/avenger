@@ -52,11 +52,10 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     /// (e.g., 0 for primary y-axis, 1 for first alternative y-axis, etc.)
     fn default_axis(channel: &str, index: usize) -> Option<Self::Axis>;
 
-    /// Create default axes for channels that have scales but no explicit axis configuration
+    /// Create default axes for all channels that have scales
     ///
     /// # Arguments
     /// * `scales` - The scale registry containing all configured scales
-    /// * `existing_axes` - Map of channel names to existing axis configurations
     /// * `marks` - The marks in the plot, used to extract column names for titles
     ///
     /// # Returns
@@ -64,7 +63,6 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     fn create_default_axes(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        existing_axes: &HashMap<String, Self::Axis>,
         marks: &[Box<dyn crate::marks::Mark<Self>>],
     ) -> HashMap<String, Self::Axis>
     where
@@ -171,14 +169,14 @@ impl CoordinateSystem for Cartesian {
     fn create_default_axes(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        existing_axes: &HashMap<String, Self::Axis>,
         marks: &[Box<dyn crate::marks::Mark<Self>>],
     ) -> HashMap<String, Self::Axis> {
         let mut default_axes = HashMap::new();
 
-        // Create default axes for x and y channels if they have scales but no explicit axis
+        // Always create default axes for x and y channels if they have scales
+        // User axes will be merged with these defaults later
         for channel in ["x", "y"] {
-            if scales.get(channel).is_some() && !existing_axes.contains_key(channel) {
+            if scales.get(channel).is_some() {
                 // Extract title from mark encodings
                 let title = extract_axis_title_from_marks(marks, channel)
                     .unwrap_or_else(|| channel.to_string());
@@ -372,7 +370,6 @@ impl CoordinateSystem for Polar {
     fn create_default_axes(
         &self,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _existing_axes: &HashMap<String, Self::Axis>,
         _marks: &[Box<dyn crate::marks::Mark<Self>>],
     ) -> HashMap<String, Self::Axis> {
         // Return empty map to disable automatic axis creation for polar plots
