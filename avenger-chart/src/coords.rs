@@ -531,7 +531,7 @@ impl CoordinateSystem for Polar {
                     let formatted_ticks = r_scale.format(&ticks)?;
                     
                     // Position labels along the bottom vertical line (at theta = 3π/2)
-                    let label_angle = 3.0 * std::f32::consts::PI / 2.0; // Bottom
+                    let _label_angle = 3.0 * std::f32::consts::PI / 2.0; // Bottom
                     let label_offset = 5.0; // Small offset from the tick circle
                     
                     let mut label_x = Vec::new();
