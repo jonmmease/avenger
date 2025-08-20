@@ -1029,4 +1029,30 @@ impl Plot<Polar> {
             .insert("theta".to_string(), ScaleSpec::Reference(name.into()));
         self
     }
+
+    /// Configure the radial axis
+    pub fn axis_r<F>(mut self, f: F) -> Self
+    where
+        F: Fn(<Polar as CoordinateSystem>::Axis) -> <Polar as CoordinateSystem>::Axis
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.axis_specs
+            .insert("r".to_string(), AxisSpec::Local(Arc::new(f)));
+        self
+    }
+
+    /// Configure the angular axis
+    pub fn axis_theta<F>(mut self, f: F) -> Self
+    where
+        F: Fn(<Polar as CoordinateSystem>::Axis) -> <Polar as CoordinateSystem>::Axis
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.axis_specs
+            .insert("theta".to_string(), AxisSpec::Local(Arc::new(f)));
+        self
+    }
 }
