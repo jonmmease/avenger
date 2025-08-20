@@ -47,11 +47,6 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         channels: HashMap<String, Expr>,
     ) -> Result<TransformResult, AvengerChartError>;
 
-    /// Get default axis configuration for a channel
-    /// The index parameter indicates which instance of this channel type this is
-    /// (e.g., 0 for primary y-axis, 1 for first alternative y-axis, etc.)
-    fn default_axis(channel: &str, index: usize) -> Option<Self::Axis>;
-
     /// Create default axes for all channels that have scales
     ///
     /// # Arguments
@@ -135,30 +130,6 @@ impl CoordinateSystem for Cartesian {
         Ok(TransformResult { x, y, depth: None })
     }
 
-    fn default_axis(channel: &str, index: usize) -> Option<Self::Axis> {
-        match channel {
-            "x" => Some(
-                CartesianAxis::new()
-                    .position(if index % 2 == 0 {
-                        AxisPosition::Bottom
-                    } else {
-                        AxisPosition::Top
-                    })
-                    .label_angle(0.0),
-            ),
-            "y" => Some(
-                CartesianAxis::new()
-                    .position(if index % 2 == 0 {
-                        AxisPosition::Left
-                    } else {
-                        AxisPosition::Right
-                    })
-                    .label_angle(0.0),
-            ),
-            _ => None,
-        }
-    }
-
     fn axes_as_cartesian(
         axes: HashMap<String, Self::Axis>,
     ) -> Option<HashMap<String, CartesianAxis>> {
@@ -191,11 +162,18 @@ impl CoordinateSystem for Cartesian {
                     false
                 };
 
-                // Get default axis with position
-                let mut axis = Self::default_axis(channel, 0).unwrap_or_else(CartesianAxis::new);
+                // Create axis with appropriate default position
+                let position = match channel {
+                    "x" => AxisPosition::Bottom,
+                    "y" => AxisPosition::Left,
+                    _ => AxisPosition::Bottom,
+                };
 
-                // Update with title and grid
-                axis = axis.title(title).grid(grid);
+                let axis = CartesianAxis::new()
+                    .position(position)
+                    .label_angle(0.0)
+                    .title(title)
+                    .grid(grid);
 
                 default_axes.insert(channel.to_string(), axis);
             }
@@ -357,14 +335,6 @@ impl CoordinateSystem for Polar {
         let y = r * sin(theta);
 
         Ok(TransformResult { x, y, depth: None })
-    }
-
-    fn default_axis(channel: &str, _index: usize) -> Option<Self::Axis> {
-        match channel {
-            "r" => Some(CartesianAxis::new()), // Placeholder for radial axis
-            "theta" => Some(CartesianAxis::new()), // Placeholder for angular axis
-            _ => None,
-        }
     }
 
     fn create_default_axes(

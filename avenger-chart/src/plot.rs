@@ -1,4 +1,3 @@
-use crate::axis::{AxisPosition, CartesianAxis};
 use crate::coords::{Cartesian, CoordinateSystem, Polar};
 use crate::legend::Legend;
 use crate::marks::{Mark, RadiusExpression};
@@ -24,6 +23,15 @@ pub enum ScaleSpec {
     Reference(String),
 }
 
+/// How an axis is customized for a channel
+#[derive(Clone)]
+pub enum AxisSpec<A> {
+    /// Axis customized locally with a configuration function
+    Local(Arc<dyn Fn(A) -> A + Send + Sync>),
+    /// Reference to an axis defined in parent layout (for future use)
+    Reference(String),
+}
+
 /// Minimal plot title configuration
 #[derive(Clone, Debug)]
 pub struct PlotTitle {
@@ -42,7 +50,7 @@ pub struct PlotSubtitle {
 
 pub struct Plot<C: CoordinateSystem> {
     coord_system: C,
-    pub(crate) axes: HashMap<String, C::Axis>,
+    pub(crate) axis_specs: HashMap<String, AxisSpec<C::Axis>>,
     pub(crate) legends: HashMap<String, Legend>,
     pub(crate) marks: Vec<Box<dyn Mark<C>>>,
 
@@ -360,7 +368,7 @@ impl<C: CoordinateSystem> Plot<C> {
     pub fn new(coord_system: C) -> Self {
         Plot {
             coord_system,
-            axes: HashMap::new(),
+            axis_specs: HashMap::new(),
             legends: HashMap::new(),
             marks: Vec::new(),
             data: None,
@@ -912,37 +920,25 @@ impl Plot<Cartesian> {
 
     pub fn axis_x<F>(mut self, f: F) -> Self
     where
-        F: FnOnce(<Cartesian as CoordinateSystem>::Axis) -> <Cartesian as CoordinateSystem>::Axis,
+        F: Fn(<Cartesian as CoordinateSystem>::Axis) -> <Cartesian as CoordinateSystem>::Axis
+            + Send
+            + Sync
+            + 'static,
     {
-        // Get count for x axes (this is the primary one, so index 0)
-        let index = 0;
-
-        // Get existing axis or create default
-        let current = self
-            .axes
-            .remove("x")
-            .unwrap_or_else(|| Cartesian::default_axis("x", index).unwrap());
-
-        let axis = f(current);
-        self.axes.insert("x".to_string(), axis);
+        self.axis_specs
+            .insert("x".to_string(), AxisSpec::Local(Arc::new(f)));
         self
     }
 
     pub fn axis_y<F>(mut self, f: F) -> Self
     where
-        F: FnOnce(<Cartesian as CoordinateSystem>::Axis) -> <Cartesian as CoordinateSystem>::Axis,
+        F: Fn(<Cartesian as CoordinateSystem>::Axis) -> <Cartesian as CoordinateSystem>::Axis
+            + Send
+            + Sync
+            + 'static,
     {
-        // Get count for y axes (this is the primary one, so index 0)
-        let index = 0;
-
-        // Get existing axis or create default
-        let current = self
-            .axes
-            .remove("y")
-            .unwrap_or_else(|| Cartesian::default_axis("y", index).unwrap());
-
-        let axis = f(current);
-        self.axes.insert("y".to_string(), axis);
+        self.axis_specs
+            .insert("y".to_string(), AxisSpec::Local(Arc::new(f)));
         self
     }
 
@@ -975,36 +971,28 @@ impl Plot<Cartesian> {
     /// Configure an axis for a named y scale
     pub fn axis_y_alt<S: Into<String>, F>(mut self, scale_name: S, f: F) -> Self
     where
-        F: FnOnce(<Cartesian as CoordinateSystem>::Axis) -> <Cartesian as CoordinateSystem>::Axis,
+        F: Fn(<Cartesian as CoordinateSystem>::Axis) -> <Cartesian as CoordinateSystem>::Axis
+            + Send
+            + Sync
+            + 'static,
     {
         let scale_name = scale_name.into();
-        // Get existing axis or create default with right position for alt axes
-        let current = self.axes.remove(&scale_name).unwrap_or_else(|| {
-            CartesianAxis::new()
-                .position(AxisPosition::Right)
-                .label_angle(0.0)
-        });
-
-        let axis = f(current);
-        self.axes.insert(scale_name, axis);
+        self.axis_specs
+            .insert(scale_name, AxisSpec::Local(Arc::new(f)));
         self
     }
 
     /// Configure an axis for a named x scale
     pub fn axis_x_alt<S: Into<String>, F>(mut self, scale_name: S, f: F) -> Self
     where
-        F: FnOnce(<Cartesian as CoordinateSystem>::Axis) -> <Cartesian as CoordinateSystem>::Axis,
+        F: Fn(<Cartesian as CoordinateSystem>::Axis) -> <Cartesian as CoordinateSystem>::Axis
+            + Send
+            + Sync
+            + 'static,
     {
         let scale_name = scale_name.into();
-        // Get existing axis or create default with top position for alt axes
-        let current = self.axes.remove(&scale_name).unwrap_or_else(|| {
-            CartesianAxis::new()
-                .position(AxisPosition::Top)
-                .label_angle(0.0)
-        });
-
-        let axis = f(current);
-        self.axes.insert(scale_name, axis);
+        self.axis_specs
+            .insert(scale_name, AxisSpec::Local(Arc::new(f)));
         self
     }
 }

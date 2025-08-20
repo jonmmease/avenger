@@ -114,8 +114,8 @@ mod tests {
             .scale_x(|scale| scale)
             .axis_x(|axis| axis.title("Temperature").grid(true));
 
-        // Should have axis configured
-        assert!(plot.axes.contains_key("x"));
+        // Should have axis spec configured
+        assert!(plot.axis_specs.contains_key("x"));
     }
 
     #[test]
@@ -124,8 +124,8 @@ mod tests {
             .scale_x(|scale| scale)
             .axis_x(|axis| axis.visible(false));
 
-        // Axis still exists but is marked invisible
-        assert!(plot.axes.contains_key("x"));
+        // Axis spec still exists (visibility will be applied during rendering)
+        assert!(plot.axis_specs.contains_key("x"));
     }
 
     #[test]
@@ -134,7 +134,7 @@ mod tests {
             .scale_x(|scale| scale)
             .axis_x(|axis| axis.title("Modified"));
 
-        // Should have axis with defaults modified
-        assert!(plot.axes.contains_key("x"));
+        // Should have axis spec configured
+        assert!(plot.axis_specs.contains_key("x"));
     }
 }
