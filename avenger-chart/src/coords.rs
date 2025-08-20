@@ -290,18 +290,47 @@ fn extract_axis_title_from_marks<C: CoordinateSystem>(
     None
 }
 
-pub struct Polar;
+use crate::axis::PolarAxis;
+
+pub struct Polar {
+    // Fields for center injection from renderer
+    pub(crate) center_x: Option<Expr>,
+    pub(crate) center_y: Option<Expr>,
+}
+
+impl Polar {
+    pub fn new() -> Self {
+        Self {
+            center_x: None,
+            center_y: None,
+        }
+    }
+
+    /// Set the center coordinates for polar transformation
+    /// This is called by the renderer to inject the calculated center
+    pub(crate) fn with_center(mut self, cx: Expr, cy: Expr) -> Self {
+        self.center_x = Some(cx);
+        self.center_y = Some(cy);
+        self
+    }
+}
+
+impl Default for Polar {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[async_trait::async_trait]
 impl CoordinateSystem for Polar {
-    type Axis = CartesianAxis; // Will be replaced with PolarAxis when polar support is complete
+    type Axis = PolarAxis;
 
     fn required_channels(&self) -> &'static [&'static str] {
         &["r", "theta"]
     }
 
     fn supports_dynamic_layout(&self) -> bool {
-        false // Polar plots don't support dynamic layout yet
+        false // Will be enabled in Milestone 4
     }
 
     fn default_range(&self, channel: &str, width: f64, height: f64) -> Option<(f64, f64)> {
@@ -319,6 +348,8 @@ impl CoordinateSystem for Polar {
         &self,
         mut channels: HashMap<String, Expr>,
     ) -> Result<TransformResult, AvengerChartError> {
+        use datafusion::logical_expr::lit;
+        
         // Get required channels
         let r = channels
             .remove("r")
@@ -328,11 +359,16 @@ impl CoordinateSystem for Polar {
             .remove("theta")
             .ok_or_else(|| AvengerChartError::MissingChannelError("theta".to_string()))?;
 
-        // Transform to cartesian coordinates
-        // x = r * cos(theta)
-        // y = r * sin(theta)
-        let x = r.clone() * cos(theta.clone());
-        let y = r * sin(theta);
+        // Use injected center if available, otherwise use defaults
+        // The renderer will provide proper center based on plot dimensions
+        let cx = self.center_x.clone().unwrap_or_else(|| lit(250.0));
+        let cy = self.center_y.clone().unwrap_or_else(|| lit(250.0));
+
+        // Transform to cartesian coordinates with center offset
+        // x = cx + r * cos(theta)
+        // y = cy + r * sin(theta)
+        let x = cx + r.clone() * cos(theta.clone());
+        let y = cy + r * sin(theta);
 
         Ok(TransformResult { x, y, depth: None })
     }
@@ -342,8 +378,8 @@ impl CoordinateSystem for Polar {
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         _marks: &[Box<dyn crate::marks::Mark<Self>>],
     ) -> HashMap<String, Self::Axis> {
-        // Return empty map to disable automatic axis creation for polar plots
-        // Will be implemented when PolarAxis is available
+        // For Milestone 1, return empty - no axes rendered yet
+        // This will be implemented in Milestone 2
         HashMap::new()
     }
 
@@ -355,8 +391,8 @@ impl CoordinateSystem for Polar {
         _plot_height: f32,
         _padding: &crate::render::Padding,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // Polar axis rendering not yet implemented
-        // Will include circular grid lines and radial lines when complete
+        // For Milestone 1, no axis rendering
+        // Will be implemented in Milestone 2 for grid and Milestone 3 for full axes
         Ok(Vec::new())
     }
 }
