@@ -145,13 +145,13 @@ impl Default for Legend {
 
 #[cfg(test)]
 mod tests {
-    use crate::cartesian::Cartesian;
     use crate::legend::{LegendOrientation, LegendPosition};
     use crate::plot::Plot;
+    use crate::zerod::ZeroDCoord;
 
     #[test]
     fn test_legend_fill_with_configuration() {
-        let plot = Plot::new(Cartesian)
+        let plot = Plot::new(ZeroDCoord)
             .scale_fill(|scale| scale)
             .legend_fill(|legend| legend.title("Temperature").position(LegendPosition::Right));
 
@@ -164,7 +164,7 @@ mod tests {
 
     #[test]
     fn test_legend_fill_with_visible_false() {
-        let plot = Plot::new(Cartesian)
+        let plot = Plot::new(ZeroDCoord)
             .scale_fill(|scale| scale)
             .legend_fill(|legend| legend.visible(false));
 
@@ -176,7 +176,7 @@ mod tests {
 
     #[test]
     fn test_legend_stroke_with_orientation() {
-        let plot = Plot::new(Cartesian)
+        let plot = Plot::new(ZeroDCoord)
             .scale_stroke(|scale| scale)
             .legend_stroke(|legend| {
                 legend
@@ -194,7 +194,7 @@ mod tests {
 
     #[test]
     fn test_legend_size_with_symbol_size() {
-        let plot = Plot::new(Cartesian)
+        let plot = Plot::new(ZeroDCoord)
             .scale_size(|scale| scale)
             .legend_size(|legend| legend.title("Population").symbol_size(20.0));
 
@@ -206,7 +206,7 @@ mod tests {
 
     #[test]
     fn test_legend_opacity_with_gradient() {
-        let plot = Plot::new(Cartesian)
+        let plot = Plot::new(ZeroDCoord)
             .scale_opacity(|scale| scale)
             .legend_opacity(|legend| {
                 legend
@@ -224,7 +224,7 @@ mod tests {
 
     #[test]
     fn test_multiple_legends() {
-        let plot = Plot::new(Cartesian)
+        let plot = Plot::new(ZeroDCoord)
             .scale_fill(|scale| scale)
             .scale_size(|scale| scale)
             .legend_fill(|legend| legend.title("Temperature").position(LegendPosition::Right))
@@ -237,7 +237,7 @@ mod tests {
 
     #[test]
     fn test_legend_modification() {
-        let plot = Plot::new(Cartesian)
+        let plot = Plot::new(ZeroDCoord)
             .scale_fill(|scale| scale)
             .legend_fill(|legend| legend.title("First Title"))
             .legend_fill(|legend| legend.title("Updated Title"));
