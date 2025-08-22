@@ -8,6 +8,7 @@ use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::*;
 use std::sync::Arc;
+use avenger_scales::scales::band::BandScale;
 
 #[tokio::test]
 async fn test_rect_discrete_fill_legend() {
@@ -38,7 +39,7 @@ async fn test_rect_discrete_fill_legend() {
     // Create a bar chart with fill legend
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|scale| scale.scale_type("band").option("padding_inner", lit(0.1)))
+        .scale_x(|scale| scale.scale_type(BandScale).option("padding_inner", lit(0.1)))
         .scale_y(|scale| scale.domain((0.0, 60.0)))
         .legend_fill(|legend| legend.title("Category"))
         .mark(
@@ -84,7 +85,7 @@ async fn test_rect_continuous_fill_legend() {
     // Create a bar chart with continuous color legend
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|scale| scale.scale_type("band").option("padding_inner", lit(0.15)))
+        .scale_x(|scale| scale.scale_type(BandScale).option("padding_inner", lit(0.15)))
         .scale_y(|scale| scale.domain((0.0, 70.0)))
         .scale_fill(|scale| scale.domain((0.0, 40.0)))
         .legend_fill(|legend| legend.title("Temperature (°C)"))
@@ -131,7 +132,7 @@ async fn test_rect_stroke_legend() {
     // Create a bar chart with stroke legend
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|scale| scale.scale_type("band").option("padding_inner", lit(0.1)))
+        .scale_x(|scale| scale.scale_type(BandScale).option("padding_inner", lit(0.1)))
         .scale_y(|scale| scale.domain((0.0, 60.0)))
         .scale_stroke(|scale| {
             scale

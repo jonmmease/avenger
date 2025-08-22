@@ -11,6 +11,8 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::{col, lit};
 use datafusion::prelude::*;
 use std::sync::Arc;
+use avenger_scales::scales::ordinal::OrdinalScale;
+use avenger_scales::scales::linear::LinearScale;
 
 /// Test multiple legends for a scatter plot with size, shape, and color encodings
 #[tokio::test]
@@ -52,9 +54,9 @@ async fn test_scatter_multiple_legends() {
         .data(df)
         .scale_x(|s| s.domain((0.0, 10.0)))
         .scale_y(|s| s.domain((0.0, 10.0)))
-        .scale_fill(|s| s.scale_type("ordinal"))
+        .scale_fill(|s| s.scale_type(OrdinalScale))
         .scale_size(|s| s.domain((5.0, 40.0)).range_interval(lit(25.0), lit(200.0)))
-        .scale_shape(|s| s.scale_type("ordinal"))
+        .scale_shape(|s| s.scale_type(OrdinalScale))
         .axis_x(|axis| axis.title("X Axis"))
         .axis_y(|axis| axis.title("Y Axis"))
         .legend_fill(|legend| {
@@ -124,9 +126,9 @@ async fn test_mixed_legend_types() {
         .data(df)
         .scale_x(|s| s.domain((0.0, 6.0)))
         .scale_y(|s| s.domain((0.0, 8.0)))
-        .scale_stroke(|s| s.scale_type("ordinal"))
-        .scale_shape(|s| s.scale_type("ordinal"))
-        .scale_fill(|s| s.scale_type("linear").domain((0.0, 35.0)))
+        .scale_stroke(|s| s.scale_type(OrdinalScale))
+        .scale_shape(|s| s.scale_type(OrdinalScale))
+        .scale_fill(|s| s.scale_type(LinearScale).domain((0.0, 35.0)))
         .axis_x(|axis| axis.title("X Axis"))
         .axis_y(|axis| axis.title("Y Axis"))
         .legend_stroke(|legend| {
@@ -207,7 +209,7 @@ async fn test_legends_different_positions() {
         .data(df)
         .scale_x(|s| s.domain((0.0, 7.0)))
         .scale_y(|s| s.domain((0.0, 7.0)))
-        .scale_fill(|s| s.scale_type("ordinal"))
+        .scale_fill(|s| s.scale_type(OrdinalScale))
         .scale_size(|s| s.domain((5.0, 35.0)).range_interval(lit(25.0), lit(150.0)))
         .axis_x(|axis| axis.title("X Axis"))
         .axis_y(|axis| axis.title("Y Axis"))
@@ -260,8 +262,8 @@ async fn test_colorbar_with_symbols() {
         .data(df)
         .scale_x(|s| s.domain((0.0, 9.0)))
         .scale_y(|s| s.domain((0.0, 9.0)))
-        .scale_fill(|s| s.scale_type("linear").domain((5.0, 40.0)))
-        .scale_shape(|s| s.scale_type("ordinal"))
+        .scale_fill(|s| s.scale_type(LinearScale).domain((5.0, 40.0)))
+        .scale_shape(|s| s.scale_type(OrdinalScale))
         .axis_x(|axis| axis.title("X Axis"))
         .axis_y(|axis| axis.title("Y Axis"))
         .legend_fill(|legend| {
@@ -325,9 +327,9 @@ async fn test_legend_ordering() {
         .data(df)
         .scale_x(|s| s.domain((0.0, 6.0)))
         .scale_y(|s| s.domain((0.0, 6.0)))
-        .scale_fill(|s| s.scale_type("ordinal"))
-        .scale_shape(|s| s.scale_type("ordinal"))
-        .scale_stroke(|s| s.scale_type("ordinal"))
+        .scale_fill(|s| s.scale_type(OrdinalScale))
+        .scale_shape(|s| s.scale_type(OrdinalScale))
+        .scale_stroke(|s| s.scale_type(OrdinalScale))
         .axis_x(|axis| axis.title("X Axis"))
         .axis_y(|axis| axis.title("Y Axis"))
         // Test explicit ordering - should appear in order 3, 1, 2

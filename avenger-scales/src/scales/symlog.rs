@@ -199,6 +199,13 @@ impl ScaleImpl for SymlogScale {
         InferDomainFromDataMethod::Interval
     }
 
+    fn default_options(&self) -> std::collections::HashMap<String, crate::scalar::Scalar> {
+        let mut options = std::collections::HashMap::new();
+        options.insert("constant".to_string(), crate::scalar::Scalar::from_f32(1.0));
+        options.insert("nice".to_string(), crate::scalar::Scalar::from_bool(true));
+        options
+    }
+
     fn option_definitions(&self) -> &[OptionDefinition] {
         lazy_static! {
             static ref DEFINITIONS: Vec<OptionDefinition> = vec![

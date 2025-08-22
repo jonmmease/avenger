@@ -1,7 +1,6 @@
 use crate::error::AvengerChartError;
 use crate::scales::domain::{DomainExpr, ScaleDefaultDomain, ScaleDomain};
 use crate::scales::domain_inference::DomainInferrer;
-use crate::scales::factory::{apply_scale_defaults, create_scale_impl};
 use crate::scales::range::ScaleRange;
 use crate::utils::{ScalarValueHelpers, eval_to_scalars};
 use avenger_scales::scales::ScaleImpl;
@@ -30,19 +29,44 @@ impl Scale {
             _ => ScaleDomain::new_interval(lit(0.0), lit(1.0)),
         };
 
-        let mut scale = Self {
+        // Get default options from the scale implementation
+        let default_options = scale_impl.default_options();
+        let mut options = HashMap::new();
+        
+        // Convert Scalar values to Expr values
+        for (key, scalar) in default_options {
+            // Convert the avenger_scales::scalar::Scalar to a datafusion ScalarValue
+            let scalar_value = if let Ok(b) = scalar.as_boolean() {
+                ScalarValue::Boolean(Some(b))
+            } else if let Ok(f) = scalar.as_f32() {
+                ScalarValue::Float32(Some(f))
+            } else if let Ok(i) = scalar.as_i32() {
+                ScalarValue::Int32(Some(i))
+            } else if let Ok(s) = scalar.as_string() {
+                ScalarValue::Utf8(Some(s))
+            } else {
+                ScalarValue::Null
+            };
+            options.insert(key, lit(scalar_value));
+        }
+
+        Self {
             scale_impl: Arc::new(scale_impl),
             domain,
             range: ScaleRange::new_interval(lit(0.0), lit(1.0)),
-            options: HashMap::new(),
-        };
-        apply_scale_defaults(scale_type, &mut scale.options);
-        scale
+            options,
+        }
     }
 
-    /// Create a scale with a specific type
-    pub fn with_type(scale_type: &str) -> Self {
-        let scale_impl = create_scale_impl(scale_type);
+    /// Create a scale with default linear type
+    pub fn default() -> Self {
+        use avenger_scales::scales::linear::LinearScale;
+        Self::new(LinearScale)
+    }
+
+    /// Create a scale with an Arc<dyn ScaleImpl>
+    pub fn with_impl(scale_impl: Arc<dyn ScaleImpl>) -> Self {
+        let scale_type = scale_impl.scale_type();
 
         // Create appropriate default domain based on scale type
         let domain = match scale_type {
@@ -50,27 +74,66 @@ impl Scale {
             _ => ScaleDomain::new_interval(lit(0.0), lit(1.0)),
         };
 
-        let mut scale = Self {
+        // Get default options from the scale implementation
+        let default_options = scale_impl.default_options();
+        let mut options = HashMap::new();
+        
+        // Convert Scalar values to Expr values
+        for (key, scalar) in default_options {
+            // Convert the avenger_scales::scalar::Scalar to a datafusion ScalarValue
+            let scalar_value = if let Ok(b) = scalar.as_boolean() {
+                ScalarValue::Boolean(Some(b))
+            } else if let Ok(f) = scalar.as_f32() {
+                ScalarValue::Float32(Some(f))
+            } else if let Ok(i) = scalar.as_i32() {
+                ScalarValue::Int32(Some(i))
+            } else if let Ok(s) = scalar.as_string() {
+                ScalarValue::Utf8(Some(s))
+            } else {
+                ScalarValue::Null
+            };
+            options.insert(key, lit(scalar_value));
+        }
+
+        Self {
             scale_impl,
             domain,
             range: ScaleRange::new_interval(lit(0.0), lit(1.0)),
-            options: HashMap::new(),
-        };
-        apply_scale_defaults(scale_type, &mut scale.options);
-        scale
+            options,
+        }
     }
 
     /// Set the scale type, replacing the current implementation
-    pub fn scale_type(mut self, scale_type: &str) -> Self {
+    pub fn scale_type<S: ScaleImpl>(mut self, scale_impl: S) -> Self {
         let old_type = self.scale_impl.scale_type();
-        self.scale_impl = create_scale_impl(scale_type);
-        let new_type = self.scale_impl.scale_type();
+        let new_type = scale_impl.scale_type();
 
-        // Clear existing options and apply new defaults
+        // Clear existing options and apply new defaults if type changed
         if old_type != new_type {
             self.options.clear();
+            
+            // Get default options from the scale implementation
+            let default_options = scale_impl.default_options();
+            
+            // Convert Scalar values to Expr values
+            for (key, scalar) in default_options {
+                // Convert the avenger_scales::scalar::Scalar to a datafusion ScalarValue
+                let scalar_value = if let Ok(b) = scalar.as_boolean() {
+                    ScalarValue::Boolean(Some(b))
+                } else if let Ok(f) = scalar.as_f32() {
+                    ScalarValue::Float32(Some(f))
+                } else if let Ok(i) = scalar.as_i32() {
+                    ScalarValue::Int32(Some(i))
+                } else if let Ok(s) = scalar.as_string() {
+                    ScalarValue::Utf8(Some(s))
+                } else {
+                    ScalarValue::Null
+                };
+                self.options.insert(key, lit(scalar_value));
+            }
         }
-        apply_scale_defaults(scale_type, &mut self.options);
+        
+        self.scale_impl = Arc::new(scale_impl);
         self
     }
 

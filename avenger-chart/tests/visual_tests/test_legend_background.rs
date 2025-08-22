@@ -8,6 +8,7 @@ use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::*;
 use std::sync::Arc;
+use avenger_scales::scales::ordinal::OrdinalScale;
 
 fn make_df_xy_category(x: &[f64], y: &[f64], category: &[&str]) -> DataFrame {
     let x_values = Float64Array::from(x.to_vec());
@@ -62,7 +63,7 @@ async fn symbol_legend_with_background() {
         .data(df)
         .scale_x(|s| s.domain((0.0, 8.0)))
         .scale_y(|s| s.domain((0.0, 8.0)))
-        .scale_fill(|s| s.scale_type("ordinal"))
+        .scale_fill(|s| s.scale_type(OrdinalScale))
         .legend_fill(|l| {
             l.title("Category")
                 .background_padding(6.0)
@@ -114,7 +115,7 @@ async fn line_legend_with_background() {
         .data(df)
         .scale_x(|s| s.domain((0.0, 5.0)))
         .scale_y(|s| s.domain((0.0, 6.0)))
-        .scale_stroke(|s| s.scale_type("ordinal"))
+        .scale_stroke(|s| s.scale_type(OrdinalScale))
         .legend_stroke(|l| {
             l.title("Series")
                 // .background_padding(6.0)
@@ -140,7 +141,7 @@ async fn symbol_legend_without_visible_background() {
         .data(df)
         .scale_x(|s| s.domain((0.0, 8.0)))
         .scale_y(|s| s.domain((0.0, 8.0)))
-        .scale_fill(|s| s.scale_type("ordinal"))
+        .scale_fill(|s| s.scale_type(OrdinalScale))
         .legend_fill(|l| l.title("Category")) // No background styling
         .mark(
             Symbol::new()

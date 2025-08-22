@@ -11,6 +11,7 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::{col, lit};
 use datafusion::prelude::*;
 use std::sync::Arc;
+use avenger_scales::scales::band::BandScale;
 
 fn create_test_data() -> DataFrame {
     let x_values = Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0]);
@@ -76,7 +77,7 @@ async fn test_default_axes_with_band_scale() {
     // Create a plot with band scale on x
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|s| s.scale_type("band"))
+        .scale_x(|s| s.scale_type(BandScale))
         .mark(
             Rect::new()
                 .x(col("category"))

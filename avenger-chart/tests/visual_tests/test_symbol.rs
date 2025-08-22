@@ -1,5 +1,3 @@
-//! Visual tests for symbol charts
-
 use super::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::ChannelExpr;
@@ -11,6 +9,9 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::col;
 use datafusion::prelude::*;
 use std::sync::Arc;
+use avenger_scales::scales::linear::LinearScale;
+//! Visual tests for symbol charts
+
 
 /// Create a simple scatter plot dataset
 fn create_scatter_data() -> DataFrame {
@@ -36,8 +37,8 @@ async fn test_simple_scatter_plot() {
 
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|scale| scale.scale_type("linear"))
-        .scale_y(|scale| scale.scale_type("linear"))
+        .scale_x(|scale| scale.scale_type(LinearScale))
+        .scale_y(|scale| scale.scale_type(LinearScale))
         .axis_x(|axis| axis.title("X Value"))
         .axis_y(|axis| axis.title("Y Value"))
         .mark(
@@ -135,8 +136,8 @@ async fn test_scatter_with_shapes() {
 
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|scale| scale.scale_type("linear"))
-        .scale_y(|scale| scale.scale_type("linear"))
+        .scale_x(|scale| scale.scale_type(LinearScale))
+        .scale_y(|scale| scale.scale_type(LinearScale))
         .axis_x(|axis| axis.title("X Value"))
         .axis_y(|axis| axis.title("Y Value"))
         .mark(
@@ -213,10 +214,10 @@ async fn test_scatter_with_size_encoding() {
     let plot = Plot::new(Cartesian)
         .with_size(600.0, 450.0)
         .data(df)
-        .scale_x(|scale| scale.scale_type("linear").option("nice", lit(false)))
+        .scale_x(|scale| scale.scale_type(LinearScale).option("nice", lit(false)))
         .scale_y(|scale| {
             scale
-                .scale_type("linear")
+                .scale_type(LinearScale)
                 .option("nice", lit(false))
                 .option("zero", lit(false))
         })
@@ -267,10 +268,10 @@ async fn test_scatter_with_size_encoding_legend() {
     let plot = Plot::new(Cartesian)
         .with_size(600.0, 450.0)
         .data(df)
-        .scale_x(|scale| scale.scale_type("linear").option("nice", lit(false)))
+        .scale_x(|scale| scale.scale_type(LinearScale).option("nice", lit(false)))
         .scale_y(|scale| {
             scale
-                .scale_type("linear")
+                .scale_type(LinearScale)
                 .option("nice", lit(false))
                 .option("zero", lit(false))
         })

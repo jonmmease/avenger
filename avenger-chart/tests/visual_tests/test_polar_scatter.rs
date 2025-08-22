@@ -1,5 +1,3 @@
-//! Visual tests for polar scatter plots
-
 use super::helpers::assert_visual_match_default;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
@@ -10,6 +8,10 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::col;
 use datafusion::prelude::*;
 use std::sync::Arc;
+use avenger_scales::scales::ordinal::OrdinalScale;
+use avenger_scales::scales::linear::LinearScale;
+//! Visual tests for polar scatter plots
+
 
 /// Create a simple polar scatter plot dataset
 fn create_polar_data() -> DataFrame {
@@ -63,14 +65,14 @@ async fn test_polar_scatter_plot() {
         .scale_r(|scale| {
             use datafusion::logical_expr::lit;
             scale
-                .scale_type("linear")
+                .scale_type(LinearScale)
                 .domain(avenger_chart::scales::ScaleDomain::new_interval(
                     lit(0.0),
                     lit(120.0),
                 ))
         })
-        .scale_theta(|scale| scale.scale_type("linear"))
-        .scale_fill(|scale| scale.scale_type("ordinal"))
+        .scale_theta(|scale| scale.scale_type(LinearScale))
+        .scale_fill(|scale| scale.scale_type(OrdinalScale))
         .axis_r(|axis| axis.tick_count(6))
         .axis_theta(|axis| axis.visible(true))
         .legend_fill(|legend| legend.title("Category"))
@@ -141,17 +143,17 @@ async fn test_polar_scatter_with_clipping() {
         .scale_r(|scale| {
             use datafusion::logical_expr::lit;
             scale
-                .scale_type("linear")
+                .scale_type(LinearScale)
                 .domain(avenger_chart::scales::ScaleDomain::new_interval(
                     lit(0.0),
                     lit(80.0), // Set max to 80, but data goes to 125
                 ))
         })
-        .scale_theta(|scale| scale.scale_type("linear"))
+        .scale_theta(|scale| scale.scale_type(LinearScale))
         .scale_fill(|scale| {
             use palette::Srgba;
             scale
-                .scale_type("ordinal")
+                .scale_type(OrdinalScale)
                 .range(avenger_chart::scales::ScaleRange::Color(vec![
                     Srgba::new(0.2, 0.6, 1.0, 1.0), // Blue for within bounds
                     Srgba::new(1.0, 0.4, 0.2, 1.0), // Red/orange for clipped
@@ -227,17 +229,17 @@ async fn test_polar_scatter_with_size_color() {
         .scale_r(|scale| {
             use datafusion::logical_expr::lit;
             scale
-                .scale_type("linear")
+                .scale_type(LinearScale)
                 .domain(avenger_chart::scales::ScaleDomain::new_interval(
                     lit(0.0),
                     lit(120.0),
                 ))
         })
-        .scale_theta(|scale| scale.scale_type("linear"))
+        .scale_theta(|scale| scale.scale_type(LinearScale))
         .scale_size(|scale| {
             use datafusion::logical_expr::lit;
             scale
-                .scale_type("linear")
+                .scale_type(LinearScale)
                 .range(avenger_chart::scales::ScaleRange::new_interval(
                     lit(50.0),
                     lit(300.0),
@@ -246,7 +248,7 @@ async fn test_polar_scatter_with_size_color() {
         .scale_fill(|scale| {
             use palette::Srgba;
             scale
-                .scale_type("linear")
+                .scale_type(LinearScale)
                 .range(avenger_chart::scales::ScaleRange::Color(vec![
                     Srgba::new(
                         0x44 as f32 / 255.0,

@@ -278,6 +278,12 @@ impl ScaleImpl for LinearScale {
         InferDomainFromDataMethod::Interval
     }
 
+    fn default_options(&self) -> std::collections::HashMap<String, Scalar> {
+        let mut options = std::collections::HashMap::new();
+        options.insert("nice".to_string(), Scalar::from_bool(true));
+        options
+    }
+
     fn option_definitions(&self) -> &[OptionDefinition] {
         lazy_static! {
             static ref DEFINITIONS: Vec<OptionDefinition> = vec![
