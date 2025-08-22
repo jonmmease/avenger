@@ -16,7 +16,6 @@ const TEXT_MARGIN: f32 = 3.0;
 const TITLE_MARGIN: f32 = 4.0;
 const TITLE_FONT_SIZE: f32 = 12.0;
 const TICK_FONT_SIZE: f32 = 10.0;
-const PIXEL_OFFSET: f32 = 0.5;
 
 pub fn make_band_axis_marks(
     scale: &ConfiguredScale,
@@ -38,13 +37,15 @@ pub fn make_band_axis_marks(
     let range = scale.numeric_interval_range()?;
     let (start, end) = match config.orientation {
         AxisOrientation::Left | AxisOrientation::Right => {
-            let upper = f32::min(range.1, range.0) - PIXEL_OFFSET;
-            let lower = f32::max(range.0, range.1) + PIXEL_OFFSET;
+            // Don't add PIXEL_OFFSET to axis line as it causes artificial overflow
+            let upper = f32::min(range.1, range.0);
+            let lower = f32::max(range.0, range.1);
             (lower, upper)
         }
         AxisOrientation::Top | AxisOrientation::Bottom => {
-            let left = f32::min(range.0, range.1) - PIXEL_OFFSET;
-            let right = f32::max(range.0, range.1) + PIXEL_OFFSET;
+            // Don't add PIXEL_OFFSET to axis line as it causes artificial overflow
+            let left = f32::min(range.0, range.1);
+            let right = f32::max(range.0, range.1);
             (left, right)
         }
     };

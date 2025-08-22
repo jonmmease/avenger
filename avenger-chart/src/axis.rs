@@ -106,8 +106,8 @@ impl AxisTrait for CartesianAxis {
 /// Type of polar axis
 #[derive(Clone, Debug, PartialEq)]
 pub enum PolarAxisType {
-    Radial,   // r axis
-    Angular,  // theta axis
+    Radial,  // r axis
+    Angular, // theta axis
 }
 
 /// Direction for angular axis
@@ -127,9 +127,9 @@ pub struct PolarAxis {
     pub tick_count: Option<usize>,
     pub format_number: Option<String>,
     // Polar-specific properties
-    pub grid_levels: Option<usize>,  // For radial axis concentric circles
-    pub start_angle: f64,             // For angular axis (default 0)
-    pub direction: PolarDirection,    // Clockwise or CounterClockwise
+    pub grid_levels: Option<usize>, // For radial axis concentric circles
+    pub start_angle: f64,           // For angular axis (default 0)
+    pub direction: PolarDirection,  // Clockwise or CounterClockwise
 }
 
 impl PolarAxis {

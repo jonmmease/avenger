@@ -2,7 +2,6 @@
 //!
 //! This module bridges the high-level chart API with the low-level rendering components.
 
-use crate::axis::CartesianAxis;
 use crate::coords::Cartesian;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
@@ -11,9 +10,7 @@ use crate::plot::Plot;
 use crate::scales::Scale;
 use crate::utils::ScalarValueHelpers;
 use avenger_common::types::ColorOrGradient;
-use avenger_geometry::marks::MarkGeometryUtils;
-use avenger_geometry::rtree::EnvelopeUtils;
-use avenger_scenegraph::marks::group::{Clip, SceneGroup};
+use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, PngCanvas};
@@ -23,6 +20,7 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::Expr;
 use datafusion::prelude::DataFrame;
 use datafusion_common::ScalarValue;
+use indexmap::IndexMap;
 use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -31,7 +29,7 @@ use tracing::{debug, trace};
 /// Estimated proportion of plot area relative to total size for initial scale computation.
 /// This is used before layout is calculated to build scales with approximate dimensions.
 /// The actual plot area is typically 70-85% of total size after padding for axes/legends.
-const INITIAL_PLOT_AREA_RATIO: f32 = 0.8;
+pub(crate) const INITIAL_PLOT_AREA_RATIO: f32 = 0.8;
 
 /// Padding around a plot area
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -107,6 +105,11 @@ impl LegendCache {
     /// Get a legend from the cache
     pub fn get(&self, channel: &str) -> Option<&SceneGroup> {
         self.legends.get(channel)
+    }
+
+    /// Iterate over all cached legends
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &SceneGroup)> {
+        self.legends.iter()
     }
 
     /// Get a mutable reference to a legend from the cache
@@ -230,17 +233,17 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // A single Plot should produce a single top-level group
         let mut all_marks = Vec::new();
 
-        // Create a group for data marks with adjusted clipping
-        // Note: clip coordinates are relative to the group's origin
+        // Get the appropriate clipping region from the coordinate system
+        let clip = self.plot.coord_system().get_clip(
+            plot_area_width,
+            plot_area_height,
+            &final_configured_scales,
+        );
+
         let data_marks_group = SceneGroup {
             origin: [plot_area_x, plot_area_y],
             marks: mark_groups,
-            clip: Clip::Rect {
-                x: 0.0, // Relative to group origin
-                y: 0.0, // Relative to group origin
-                width: plot_area_width,
-                height: plot_area_height,
-            },
+            clip,
             zindex: Some(0), // Data marks have lowest z-index
             ..Default::default()
         };
@@ -261,11 +264,9 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // 5. Subtitle (can overflow, rendered on top)
         all_marks.extend(subtitle_marks);
 
-        // 6. Debug: Add Taffy layout bounds visualization if debug mode is enabled
-        #[cfg(debug_assertions)]
-        if tracing::enabled!(tracing::Level::TRACE) {
+        // 6. Debug: Add Taffy layout bounds visualization if AVENGER_CHART_DEBUG_LAYOUT is set
+        if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
             if let Some(taffy_layout) = &layout.taffy_layout {
-                trace!("Adding debug layout rectangles");
                 all_marks.extend(Self::create_debug_layout_rects(taffy_layout));
             }
         }
@@ -341,19 +342,63 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             };
             debug_marks.push(SceneMark::Rect(axis_rect));
 
-            // Add axis label
-            let axis_label = match position {
-                crate::axis::AxisPosition::Left => "y-axis",
-                crate::axis::AxisPosition::Right => "y-axis-right",
-                crate::axis::AxisPosition::Top => "x-axis-top",
-                crate::axis::AxisPosition::Bottom => "x-axis",
+            // Add axis label - check if it's an overflow pseudo-axis
+            let (axis_label, label_x, label_y, angle, align, baseline) = match position {
+                crate::axis::AxisPosition::Left => {
+                    // Rotate 90 degrees for left, position at top-left
+                    (
+                        "of-left",
+                        bounds.x + 2.0,
+                        bounds.y + 2.0,
+                        -90.0,
+                        avenger_text::types::TextAlign::Right, // Right align becomes top when rotated -90
+                        avenger_text::types::TextBaseline::Top,
+                    )
+                }
+                crate::axis::AxisPosition::Right => {
+                    // Rotate 90 degrees for right, position at top-right
+                    (
+                        "of-right",
+                        bounds.x + bounds.width - 2.0,
+                        bounds.y + 2.0,
+                        -90.0,
+                        avenger_text::types::TextAlign::Right, // Right align becomes top when rotated -90
+                        avenger_text::types::TextBaseline::Bottom,
+                    ) // Bottom baseline becomes right when rotated
+                }
+                crate::axis::AxisPosition::Top => {
+                    // Position at top of region
+                    (
+                        "of-top",
+                        bounds.x + 2.0,
+                        bounds.y,
+                        0.0,
+                        avenger_text::types::TextAlign::Left,
+                        avenger_text::types::TextBaseline::Top,
+                    )
+                }
+                crate::axis::AxisPosition::Bottom => {
+                    // Position at bottom of region
+                    (
+                        "of-bottom",
+                        bounds.x + 2.0,
+                        bounds.y + bounds.height - 2.0,
+                        0.0,
+                        avenger_text::types::TextAlign::Left,
+                        avenger_text::types::TextBaseline::Bottom,
+                    )
+                }
             };
+
             let label = SceneTextMark {
                 text: axis_label.into(),
-                x: (bounds.x + 2.0).into(),
-                y: (bounds.y + 10.0).into(),
+                x: label_x.into(),
+                y: label_y.into(),
                 font_size: 8.0.into(),
                 color: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.7]).into(), // Magenta with 0.7 opacity
+                angle: angle.into(),
+                align: align.into(),
+                baseline: baseline.into(),
                 zindex: Some(20),
                 ..Default::default()
             };
@@ -507,7 +552,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         AvengerChartError,
     > {
         // Collect all channels that need scales
-        let channels_with_scales = self.plot.collect_channels_needing_scales();
+        let mut channels_with_scales = self.plot.collect_channels_needing_scales();
+
+        // Also include any channels with explicit scale specs
+        // (even if they only have literal values, we need the scale for layout)
+        for channel in self.plot.scale_specs.keys() {
+            channels_with_scales.insert(channel.clone());
+        }
 
         // Build initial scale definitions
         let mut initial_scales = HashMap::new();
@@ -520,8 +571,17 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         let mut positional_scales = HashMap::new();
         let mut non_positional_scales = HashMap::new();
 
+        // Get the positional channels from the coordinate system
+        let required_channels: Vec<String> = self
+            .plot
+            .coord_system()
+            .required_channels()
+            .iter()
+            .map(|&s| s.to_string())
+            .collect();
+
         for (name, scale) in &initial_scales {
-            if matches!(name.as_str(), "x" | "y") {
+            if required_channels.contains(name) {
                 positional_scales.insert(name.clone(), scale.clone());
             } else {
                 non_positional_scales.insert(name.clone(), scale.clone());
@@ -565,6 +625,114 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         ))
     }
 
+    /// Validate that required positional scales exist and provide proper error messages
+    fn validate_positional_scales_exist(
+        &self,
+        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+    ) -> Result<(), AvengerChartError> {
+        // Get the required positional channels from the coordinate system
+        let required_channels = self.plot.coord_system().required_channels();
+
+        // Build a set of positional channel names to check
+        // Include both base channels and their interval variants (e.g., "x" and "x2")
+        let mut positional_channels = std::collections::HashSet::new();
+        for &channel in required_channels {
+            positional_channels.insert(channel.to_string());
+            // Also check for interval variant (e.g., "x2" for "x")
+            positional_channels.insert(format!("{}2", channel));
+        }
+
+        // Check if positional channels are being used with literal values
+        for mark in &self.plot.marks {
+            for (channel_name, channel_value) in mark.data_context().channels() {
+                // Check if this is a positional channel
+                if positional_channels.contains(channel_name) {
+                    // Check if this is a literal value (no scale needed)
+                    if channel_value.scale_name(channel_name).is_none() {
+                        // Get the base scale name (e.g., "x" from "x2")
+                        let base_scale_name = channel_name.trim_end_matches('2');
+
+                        // Check if we have an explicit scale spec for this channel or its base
+                        if !self.plot.scale_specs.contains_key(channel_name)
+                            && !self.plot.scale_specs.contains_key(base_scale_name)
+                        {
+                            // This is a literal value with no explicit scale - error
+                            return self.create_positional_literal_error(
+                                channel_name,
+                                channel_value,
+                                std::any::type_name::<C>(),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Create error for literal values in positional scales
+    fn create_positional_literal_error(
+        &self,
+        channel_name: &str,
+        channel_value: &ChannelValue,
+        coord_system_name: &str,
+    ) -> Result<(), AvengerChartError> {
+        use datafusion::logical_expr::Expr as DfExpr;
+
+        // Extract the literal value description
+        let literal_value = match channel_value {
+            ChannelValue::Identity { expr } => {
+                // Check if the expression is a literal
+                match expr {
+                    DfExpr::Literal(scalar_value, _) => match scalar_value {
+                        datafusion_common::ScalarValue::Utf8(Some(_))
+                        | datafusion_common::ScalarValue::LargeUtf8(Some(_)) => {
+                            "string literal".to_string()
+                        }
+                        datafusion_common::ScalarValue::Float32(Some(_))
+                        | datafusion_common::ScalarValue::Float64(Some(_))
+                        | datafusion_common::ScalarValue::Int32(Some(_))
+                        | datafusion_common::ScalarValue::Int64(Some(_))
+                        | datafusion_common::ScalarValue::Int8(Some(_))
+                        | datafusion_common::ScalarValue::Int16(Some(_))
+                        | datafusion_common::ScalarValue::UInt8(Some(_))
+                        | datafusion_common::ScalarValue::UInt16(Some(_))
+                        | datafusion_common::ScalarValue::UInt32(Some(_))
+                        | datafusion_common::ScalarValue::UInt64(Some(_)) => {
+                            "numeric literal".to_string()
+                        }
+                        _ => "literal value".to_string(),
+                    },
+                    _ => "expression".to_string(),
+                }
+            }
+            _ => "literal value".to_string(),
+        };
+
+        // Create helpful suggestion based on the literal type
+        let suggestion = if literal_value.contains("string") {
+            "Did you mean to reference a column? Use col(\"column_name\") to reference a column."
+                .to_string()
+        } else {
+            "To use a literal value, provide an explicit domain using .scale_x() or .scale_y().\n\
+             Or use col(\"column_name\") to reference a data column."
+                .to_string()
+        };
+
+        // Extract coordinate system name (remove module path)
+        let coord_system = coord_system_name
+            .split("::")
+            .last()
+            .unwrap_or(coord_system_name);
+
+        Err(AvengerChartError::PositionalScaleLiteralError {
+            scale_name: channel_name.to_string(),
+            coord_system: coord_system.to_string(),
+            literal_value,
+            suggestion,
+        })
+    }
+
     /// Compute layout using the coordinate system's capabilities
     async fn compute_layout(
         &self,
@@ -572,21 +740,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         height: f32,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
     ) -> Result<LayoutSolution, AvengerChartError> {
-        // Check if this plot uses dynamic layout
-        if !self.plot.coord_system().supports_dynamic_layout() {
-            // For polar plots, compute padding dynamically based on axis measurements
-            // Check if we have polar channels to identify polar coordinate system
-            if scales.contains_key("r") && scales.contains_key("theta") {
-                return self.compute_polar_layout(width, height, scales).await;
-            }
-            
-            // Use fixed padding for other coordinate systems without dynamic layout
-            let padding = self.plot.measure_padding(width, height);
-            return Ok(LayoutSolution::from_padding(padding, width, height));
-        }
-
-        // Dynamic layout is currently only supported for Cartesian coordinate system
-        // We need to prepare the axes and call the Taffy layout function
+        // All coordinate systems now use dynamic layout with Taffy
 
         // Get default axes for all channels with scales
         let default_axes = self
@@ -627,27 +781,50 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         axes: HashMap<String, C::Axis>,
     ) -> Result<LayoutSolution, AvengerChartError> {
-        // Use the trait method to convert axes to CartesianAxis
-        let cartesian_axes = C::axes_as_cartesian(axes)
-            .ok_or_else(|| AvengerChartError::InternalError(
-                "Coordinate system reports supporting dynamic layout but cannot convert axes to CartesianAxis".to_string(),
-            ))?;
+        // Apply user axis customizations before getting layout axes
+        let mut customized_axes = axes;
+        for (channel, axis_spec) in &self.plot.axis_specs {
+            if let Some(base_axis) = customized_axes.get(channel).cloned() {
+                match axis_spec {
+                    crate::plot::AxisSpec::Local(f) => {
+                        let customized = f(base_axis);
+                        customized_axes.insert(channel.clone(), customized);
+                    }
+                    crate::plot::AxisSpec::Reference(_) => {
+                        // Reference axes not yet supported
+                    }
+                }
+            }
+        }
 
-        // Now call the Taffy layout with CartesianAxis
-        let (padding, layout_bundle) = self
-            .compute_layout_with_taffy_cartesian(width, height, scales, &cartesian_axes)
+        // Check for required positional scales before measuring overflow
+        // This ensures we provide proper error messages for literal values
+        self.validate_positional_scales_exist(scales)?;
+
+        // Measure how much space the coordinate system's guides need
+        let overflow = self
+            .plot
+            .coord_system()
+            .measure_guide_overflow(customized_axes, scales, width, height)
             .await?;
 
-        let plot_area = (
-            padding.left,
-            padding.top,
-            width - padding.left - padding.right,
-            height - padding.top - padding.bottom,
+        tracing::trace!(
+            coord_system = std::any::type_name::<C>(),
+            overflow_top = overflow.top,
+            overflow_bottom = overflow.bottom,
+            overflow_left = overflow.left,
+            overflow_right = overflow.right,
+            "Measured guide overflow"
         );
+
+        // Use Taffy layout with the overflow requirements
+        let (padding, layout_bundle) = self
+            .compute_layout_with_overflow(width, height, scales, overflow)
+            .await?;
 
         Ok(LayoutSolution {
             padding,
-            plot_area,
+            plot_area: Self::calculate_plot_area_from_padding(&padding, width, height),
             taffy_layout: layout_bundle.as_ref().map(|(layout, _)| layout.clone()),
             legend_cache: layout_bundle.map(|(_, cache)| cache),
         })
@@ -670,7 +847,15 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         // Rebuild positional scales with final dimensions
         for (name, scale) in initial_scales {
-            if matches!(name.as_str(), "x" | "y") {
+            // Check if this is a positional scale for the current coordinate system
+            let is_positional = self
+                .plot
+                .coord_system()
+                .required_channels()
+                .iter()
+                .any(|&ch| ch == name);
+
+            if is_positional {
                 let rebuilt_scale = self
                     .build_configured_scale_with_radius_context(
                         scale.clone(),
@@ -907,12 +1092,11 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // Validate positional channel data types before rendering
         self.validate_positional_channel_types(&data_batch, &scalar_batch)?;
 
-        // For polar coordinate systems, inject center coordinates into scalar batch
-        let scalar_batch = if self.is_polar_coord_system() {
-            self.inject_polar_center(scalar_batch, plot_width, plot_height)?
-        } else {
-            scalar_batch
-        };
+        // Let the coordinate system prepare the scalar batch with any required columns
+        let scalar_batch =
+            self.plot
+                .coord_system()
+                .prepare_scalar_batch(scalar_batch, plot_width, plot_height)?;
 
         // Call the mark's render_from_data method
         mark.render_from_data(data_batch.as_ref(), &scalar_batch)
@@ -946,54 +1130,6 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         }
 
         Ok(())
-    }
-
-    /// Check if the plot uses polar coordinate system
-    fn is_polar_coord_system(&self) -> bool {
-        // Check the coordinate system type name
-        let coord_system_name = std::any::type_name::<C>();
-        coord_system_name.contains("Polar")
-    }
-
-    /// Inject polar center coordinates into the scalar batch
-    fn inject_polar_center(
-        &self,
-        scalar_batch: RecordBatch,
-        plot_width: f32,
-        plot_height: f32,
-    ) -> Result<RecordBatch, AvengerChartError> {
-        use datafusion::arrow::array::Float32Array;
-        use datafusion::arrow::datatypes::{DataType, Field};
-        
-        // Calculate center of plot area
-        let center_x = plot_width / 2.0;
-        let center_y = plot_height / 2.0;
-        
-        // Get the number of rows in the scalar batch
-        let num_rows = scalar_batch.num_rows();
-        
-        // Get existing columns from scalar batch
-        let mut columns: Vec<ArrayRef> = scalar_batch.columns().to_vec();
-        let mut fields: Vec<Field> = scalar_batch.schema().fields().iter().map(|f| f.as_ref().clone()).collect();
-        
-        // Create arrays with the same length as the scalar batch
-        let center_x_values = vec![center_x; num_rows];
-        let center_y_values = vec![center_y; num_rows];
-        
-        // Add polar_center_x column
-        let center_x_array = Arc::new(Float32Array::from(center_x_values)) as ArrayRef;
-        columns.push(center_x_array);
-        fields.push(Field::new("polar_center_x", DataType::Float32, false));
-        
-        // Add polar_center_y column
-        let center_y_array = Arc::new(Float32Array::from(center_y_values)) as ArrayRef;
-        columns.push(center_y_array);
-        fields.push(Field::new("polar_center_y", DataType::Float32, false));
-        
-        // Create new batch with added columns
-        let new_schema = Arc::new(Schema::new(fields));
-        RecordBatch::try_new(new_schema, columns)
-            .map_err(|e| AvengerChartError::ArrowError(e))
     }
 
     /// Check if a data type is numeric
@@ -1312,19 +1448,34 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
     fn create_default_legends(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-    ) -> HashMap<String, crate::legend::Legend> {
+    ) -> IndexMap<String, crate::legend::Legend> {
         use crate::legend::Legend;
 
-        let mut default_legends = HashMap::new();
+        let mut default_legends = IndexMap::new();
 
-        for channel in scales.keys() {
-            // Skip positional channels and channels that don't need legends
-            // - Positional: x, y, x2, y2, r, theta
-            // - Internal/utility: order, defined, angle
-            if matches!(
-                channel.as_str(),
-                "x" | "y" | "x2" | "y2" | "r" | "theta" | "order" | "defined" | "angle"
-            ) {
+        // Build set of channels to skip for legends
+        let mut skip_channels = std::collections::HashSet::new();
+
+        // Add positional channels from the coordinate system
+        for &channel in self.plot.coord_system().required_channels() {
+            skip_channels.insert(channel.to_string());
+            // Also skip interval variants (e.g., "x2" for "x")
+            skip_channels.insert(format!("{}2", channel));
+        }
+
+        // Add utility channels that don't need legends
+        // These are non-positional but still shouldn't get legends
+        skip_channels.insert("order".to_string());
+        skip_channels.insert("defined".to_string());
+        skip_channels.insert("angle".to_string());
+
+        // Sort channels for deterministic ordering
+        let mut sorted_channels: Vec<_> = scales.keys().collect();
+        sorted_channels.sort();
+
+        for channel in sorted_channels {
+            // Skip channels that don't need legends
+            if skip_channels.contains(channel) {
                 continue;
             }
 
@@ -2354,7 +2505,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         _total_width: f32,
         _padding: &Padding,
         layout_bounds: Option<crate::chart_layout::LayoutBounds>,
-        plot_area: Option<crate::chart_layout::LayoutBounds>,
+        _plot_area: Option<crate::chart_layout::LayoutBounds>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         use avenger_scenegraph::marks::text::SceneTextMark;
         use avenger_text::types::{TextAlign, TextBaseline};
@@ -2363,14 +2514,10 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             return Ok(Vec::new());
         };
 
-        // If we have layout bounds from Taffy, place the title left-aligned with plot area
+        // If we have layout bounds from Taffy, place the title left-aligned within its bounds
         let (x, y) = if let Some(bounds) = layout_bounds {
-            let x_pos = if let Some(plot) = plot_area {
-                plot.x // Align with plot area left edge
-            } else {
-                bounds.x
-            };
-            (x_pos, bounds.y + bounds.height / 2.0)
+            // Use the title node's x position, not the plot area's
+            (bounds.x, bounds.y + bounds.height / 2.0)
         } else {
             // Fallback: left-aligned at top with small margin
             (10.0, 16.0)
@@ -2403,7 +2550,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         _total_width: f32,
         _padding: &Padding,
         layout_bounds: Option<crate::chart_layout::LayoutBounds>,
-        plot_area: Option<crate::chart_layout::LayoutBounds>,
+        _plot_area: Option<crate::chart_layout::LayoutBounds>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         use avenger_scenegraph::marks::text::SceneTextMark;
         use avenger_text::types::{TextAlign, TextBaseline};
@@ -2412,14 +2559,10 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             return Ok(Vec::new());
         };
 
-        // If we have layout bounds from Taffy, place the subtitle left-aligned with plot area
+        // If we have layout bounds from Taffy, place the subtitle left-aligned within its bounds
         let (x, y) = if let Some(bounds) = layout_bounds {
-            let x_pos = if let Some(plot) = plot_area {
-                plot.x // Align with plot area left edge
-            } else {
-                bounds.x
-            };
-            (x_pos, bounds.y + bounds.height / 2.0)
+            // Use the subtitle node's x position, not the plot area's
+            (bounds.x, bounds.y + bounds.height / 2.0)
         } else {
             // Fallback: left-aligned below title
             (10.0, 30.0)
@@ -2447,12 +2590,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
     }
 
     /// Compute layout using Taffy for Cartesian coordinate system
-    async fn compute_layout_with_taffy_cartesian(
+    /// Convert overflow requirements to pseudo-axes for Taffy layout
+    async fn compute_layout_with_overflow(
         &self,
         width: f32,
         height: f32,
         configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        axes: &HashMap<String, CartesianAxis>,
+        overflow: crate::coords::OverflowSpaceRequirement,
     ) -> Result<
         (
             Padding,
@@ -2476,13 +2620,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             .map(|(channel, legend)| (channel.clone(), legend.clone()))
             .collect();
 
-        // Create legends map
-        let legends_map: HashMap<String, crate::legend::Legend> =
+        // Create legends map preserving order
+        let legends_map: IndexMap<String, crate::legend::Legend> =
             visible_legends.clone().into_iter().collect();
 
-        // Create ChartLayout
-        let mut layout = ChartLayout::new(
-            axes,
+        // Create ChartLayout with overflow directly
+        let mut layout = ChartLayout::new_with_overflow::<C>(
+            &overflow,
             &legends_map,
             configured_scales,
             Some((width, height)),
@@ -2502,156 +2646,25 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             bottom: height - (layout_result.plot_area.y + layout_result.plot_area.height),
         };
 
-        // Build legend cache using measured sizes to ensure render parity
-        let mut legend_cache = LegendCache::new();
-        for (channel, legend) in visible_legends.into_iter() {
-            if let Some(bounds) = layout_result.legends.get(&channel) {
-                // Create a temporary legend group using the same params used by create_legends_with_layout
-                debug!(
-                    channel = channel,
-                    width = bounds.width,
-                    height = bounds.height,
-                    "Creating cached legend with bounds"
-                );
-                let params = LegendParams {
-                    channel: &channel,
-                    legend: &legend,
-                    scales: configured_scales,
-                    plot_width: bounds.width,
-                    plot_height: bounds.height,
-                    padding: &Padding {
-                        left: 0.0,
-                        right: 0.0,
-                        top: 0.0,
-                        bottom: 0.0,
-                    },
-                    legend_margin: 0.0,
-                    y_offset: 0.0,
-                };
-                let scale = configured_scales
-                    .get(&channel)
-                    .ok_or_else(|| AvengerChartError::InternalError("Missing scale".into()))?;
-                let legend_type = self.determine_legend_type(&channel, scale);
-                debug!(
-                    channel = channel,
-                    legend_type = ?legend_type,
-                    "Creating cached legend with type"
-                );
-                let group_opt = match legend_type {
-                    LegendType::Symbol => self.create_symbol_legend(params).await?,
-                    LegendType::Line => self.create_line_legend(params).await?,
-                    LegendType::Colorbar => self.create_colorbar_legend(params).await?,
-                };
-                if let Some(mut group) = group_opt {
-                    let bbox = group.bounding_box();
-                    debug!(
-                        channel = channel,
-                        taffy_x = bounds.x,
-                        taffy_y = bounds.y,
-                        taffy_width = bounds.width,
-                        taffy_height = bounds.height,
-                        actual_bbox_width = bbox.width(),
-                        actual_bbox_height = bbox.height(),
-                        "Legend bounds comparison"
-                    );
-                    // For symbol legends, shift down slightly to account for stroke extending beyond bounds
-                    let y_offset = if matches!(legend_type, LegendType::Symbol) {
-                        // The stroke width is 1.0 by default for symbol legends
-                        1.0
-                    } else {
-                        0.0
-                    };
-                    group.origin = [bounds.x, bounds.y + y_offset];
-                    legend_cache.insert(channel.clone(), group);
-                }
-            }
-        }
+        // Build legend cache - for now return empty cache
+        // TODO: Implement proper legend creation in the overflow-based layout
+        let legend_cache = LegendCache::new();
 
         Ok((padding, Some((layout_result, legend_cache))))
     }
 
-    /// Compute layout for polar coordinate system by measuring axes bounding box
-    async fn compute_polar_layout(
-        &self,
+    /// Calculate plot area from padding and total dimensions
+    fn calculate_plot_area_from_padding(
+        padding: &Padding,
         width: f32,
         height: f32,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-    ) -> Result<LayoutSolution, AvengerChartError> {
-        use avenger_geometry::marks::MarkGeometryUtils;
-        
-        // Get default axes for polar channels
-        let default_axes = self
-            .plot
-            .coord_system()
-            .create_default_axes(scales, &self.plot.marks);
-
-        // Apply user axis customizations to defaults
-        let mut all_axes = default_axes;
-        for (channel, axis_spec) in &self.plot.axis_specs {
-            if let Some(base_axis) = all_axes.get(channel).cloned() {
-                match axis_spec {
-                    crate::plot::AxisSpec::Local(f) => {
-                        let customized = f(base_axis);
-                        all_axes.insert(channel.clone(), customized);
-                    }
-                    crate::plot::AxisSpec::Reference(_) => {
-                        // Reference axes not yet supported
-                    }
-                }
-            }
-        }
-
-        // Start with minimal padding for measurement
-        let initial_padding = Padding {
-            left: 10.0,
-            right: 10.0,
-            top: 10.0,
-            bottom: 10.0,
-        };
-        
-        // Calculate initial plot dimensions
-        let plot_width = width - initial_padding.left - initial_padding.right;
-        let plot_height = height - initial_padding.top - initial_padding.bottom;
-        
-        // Render polar axes to measure their bounding box
-        let axis_marks = self
-            .plot
-            .coord_system()
-            .render_axes(&all_axes, scales, plot_width, plot_height, &initial_padding)
-            .await?;
-        
-        // Calculate bounding box of all axis marks
-        let mut min_x = f32::INFINITY;
-        let mut max_x = f32::NEG_INFINITY;
-        let mut min_y = f32::INFINITY;
-        let mut max_y = f32::NEG_INFINITY;
-        
-        for mark in &axis_marks {
-            let bbox = mark.bounding_box();
-            let lower = bbox.lower();
-            let upper = bbox.upper();
-            min_x = min_x.min(lower[0]);
-            max_x = max_x.max(upper[0]);
-            min_y = min_y.min(lower[1]);
-            max_y = max_y.max(upper[1]);
-        }
-        
-        // Calculate overflow on each side
-        let left_overflow = (initial_padding.left - min_x).max(0.0);
-        let right_overflow = (max_x - (width - initial_padding.right)).max(0.0);
-        let top_overflow = (initial_padding.top - min_y).max(0.0);
-        let bottom_overflow = (max_y - (height - initial_padding.bottom)).max(0.0);
-        
-        // Apply overflow as padding with some margin
-        let margin = 5.0;
-        let final_padding = Padding {
-            left: initial_padding.left + left_overflow + margin,
-            right: initial_padding.right + right_overflow + margin,
-            top: initial_padding.top + top_overflow + margin,
-            bottom: initial_padding.bottom + bottom_overflow + margin,
-        };
-        
-        Ok(LayoutSolution::from_padding(final_padding, width, height))
+    ) -> (f32, f32, f32, f32) {
+        (
+            padding.left,
+            padding.top,
+            width - padding.left - padding.right,
+            height - padding.top - padding.bottom,
+        )
     }
 
     /// Build a ConfiguredScale directly, handling domain processing with radius context
@@ -2675,9 +2688,15 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         ) {
             // Only use radius-aware gathering for linear positional scales with context
             if let Some(configured_non_positional) = configured_non_positional {
-                if scale.get_scale_impl().scale_type() == "linear"
-                    && matches!(name, "x" | "y" | "x2" | "y2")
-                {
+                // Check if this is a positional channel (including interval variants)
+                let is_positional = self
+                    .plot
+                    .coord_system()
+                    .required_channels()
+                    .iter()
+                    .any(|&ch| name == ch || name == format!("{}2", ch));
+
+                if scale.get_scale_impl().scale_type() == "linear" && is_positional {
                     // Use the method that gathers radius information
                     let data_expressions_with_radius =
                         self.plot.gather_scale_domain_expressions_with_radius(
@@ -2737,12 +2756,12 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             &scale.domain.default_domain,
             crate::scales::ScaleDefaultDomain::DomainExprs(_)
         ) {
-            // Compute range hint for positional scales
-            let range_hint = match name {
-                "x" => Some((0.0, plot_area_width as f64)),
-                "y" => Some((plot_area_height as f64, 0.0)), // Y is flipped
-                _ => None,
-            };
+            // Compute range hint for positional scales using coordinate system
+            let range_hint = self.plot.coord_system().default_range(
+                name,
+                plot_area_width as f64,
+                plot_area_height as f64,
+            );
 
             scale = scale.infer_domain_from_data(range_hint).await?;
         }

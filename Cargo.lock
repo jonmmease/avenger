@@ -452,6 +452,7 @@ dependencies = [
  "image-compare",
  "indexmap",
  "lazy_static 1.5.0",
+ "lyon_path",
  "palette",
  "serde_json",
  "strsim",

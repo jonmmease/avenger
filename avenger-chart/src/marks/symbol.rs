@@ -269,8 +269,11 @@ impl Mark<Polar> for Symbol<Polar> {
 
         // Get center coordinates from scalar batch if available, otherwise use defaults
         let center_x = if let Some(center_col) = scalars.column_by_name("polar_center_x") {
-            if let Some(array) = center_col.as_any().downcast_ref::<datafusion::arrow::array::Float32Array>() {
-                if array.len() > 0 {
+            if let Some(array) = center_col
+                .as_any()
+                .downcast_ref::<datafusion::arrow::array::Float32Array>()
+            {
+                if !array.is_empty() {
                     array.value(0)
                 } else {
                     250.0_f32 // fallback
@@ -281,10 +284,13 @@ impl Mark<Polar> for Symbol<Polar> {
         } else {
             250.0_f32 // fallback for non-dynamic layout
         };
-        
+
         let center_y = if let Some(center_col) = scalars.column_by_name("polar_center_y") {
-            if let Some(array) = center_col.as_any().downcast_ref::<datafusion::arrow::array::Float32Array>() {
-                if array.len() > 0 {
+            if let Some(array) = center_col
+                .as_any()
+                .downcast_ref::<datafusion::arrow::array::Float32Array>()
+            {
+                if !array.is_empty() {
                     array.value(0)
                 } else {
                     250.0_f32 // fallback
@@ -309,38 +315,38 @@ impl Mark<Polar> for Symbol<Polar> {
                 // Both are arrays
                 let mut x_values = Vec::with_capacity(r_arr.len());
                 let mut y_values = Vec::with_capacity(r_arr.len());
-                
+
                 for i in 0..r_arr.len() {
                     let r_val = r_arr[i];
                     let theta_val = theta_arr[i];
                     x_values.push(center_x + r_val * theta_val.cos());
                     y_values.push(center_y + r_val * theta_val.sin());
                 }
-                
+
                 (SOA::new_array(x_values), SOA::new_array(y_values))
             }
             (ScalarOrArrayValue::Scalar(r_val), ScalarOrArrayValue::Array(theta_arr)) => {
                 // r is scalar, theta is array
                 let mut x_values = Vec::with_capacity(theta_arr.len());
                 let mut y_values = Vec::with_capacity(theta_arr.len());
-                
+
                 for theta_val in theta_arr.iter() {
                     x_values.push(center_x + r_val * theta_val.cos());
                     y_values.push(center_y + r_val * theta_val.sin());
                 }
-                
+
                 (SOA::new_array(x_values), SOA::new_array(y_values))
             }
             (ScalarOrArrayValue::Array(r_arr), ScalarOrArrayValue::Scalar(theta_val)) => {
                 // r is array, theta is scalar
                 let mut x_values = Vec::with_capacity(r_arr.len());
                 let mut y_values = Vec::with_capacity(r_arr.len());
-                
+
                 for r_val in r_arr.iter() {
                     x_values.push(center_x + r_val * theta_val.cos());
                     y_values.push(center_y + r_val * theta_val.sin());
                 }
-                
+
                 (SOA::new_array(x_values), SOA::new_array(y_values))
             }
         };
@@ -364,13 +370,11 @@ impl Mark<Polar> for Symbol<Polar> {
         // Handle shape channel - same as Cartesian
         let shape_default = self
             .default_channel_value("shape")
-            .and_then(|scalar| {
-                match scalar {
-                    ScalarValue::Utf8(Some(s)) => {
-                        avenger_common::types::SymbolShape::from_vega_str(&s).ok()
-                    }
-                    _ => None,
+            .and_then(|scalar| match scalar {
+                ScalarValue::Utf8(Some(s)) => {
+                    avenger_common::types::SymbolShape::from_vega_str(&s).ok()
                 }
+                _ => None,
             })
             .unwrap_or(avenger_common::types::SymbolShape::Circle);
 

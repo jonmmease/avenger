@@ -28,6 +28,7 @@ serde_json = { workspace = true }
 taffy = "0.8.3"
 tracing = { workspace = true }
 strsim = "0.11"
+lyon_path = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
