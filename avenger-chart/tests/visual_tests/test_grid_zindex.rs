@@ -1,6 +1,6 @@
 //! Visual tests for grid line z-index behavior
 
-use avenger_chart::coords::Cartesian;
+use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
 use datafusion::prelude::*;

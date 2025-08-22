@@ -1,6 +1,6 @@
 //! Visual tests for zindex behavior
 
-use avenger_chart::coords::Cartesian;
+use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::line::Line;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;

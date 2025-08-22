@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use avenger_chart::coords::Cartesian;
+    use avenger_chart::cartesian::Cartesian;
     use avenger_chart::marks::symbol::Symbol;
     use avenger_chart::plot::Plot;
     use datafusion::arrow::array::{Float64Array, StringArray};

@@ -1,6 +1,6 @@
 //! Visual tests for symbol charts with automatic ordinal scales
 
-use avenger_chart::coords::Cartesian;
+use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
 use datafusion::arrow::array::{Float64Array, StringArray};

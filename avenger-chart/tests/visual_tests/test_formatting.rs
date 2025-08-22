@@ -1,5 +1,5 @@
 use crate::visual_tests::helpers::assert_visual_match_default;
-use avenger_chart::coords::Cartesian;
+use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
 use datafusion::arrow::array::Float64Array;
@@ -49,7 +49,7 @@ async fn axis_y_currency_fixed() {
         .data(df)
         .scale_x(|s| s.domain((0.0, 6.0)))
         .scale_y(|s| s.domain((0.0, 100000.0)))
-        .axis_y(|a| a.title("Revenue").format_number("$,.2f"))
+        .axis_y(|a| a.title("Revenue").format("$,.2f"))
         .legend_fill(|l| l.visible(false))
         .mark(
             Symbol::new()
@@ -70,7 +70,7 @@ async fn axis_y_percent() {
         .data(df)
         .scale_x(|s| s.domain((0.0, 6.0)))
         .scale_y(|s| s.domain((0.0, 1.0)))
-        .axis_y(|a| a.title("Completion").format_number(".0%"))
+        .axis_y(|a| a.title("Completion").format(".0%"))
         .legend_fill(|l| l.visible(false))
         .mark(
             Symbol::new()
@@ -94,7 +94,7 @@ async fn axis_y_si_prefix() {
         .data(df)
         .scale_x(|s| s.domain((0.0, 6.0)))
         .scale_y(|s| s.domain((0.0, 1.0e8)))
-        .axis_y(|a| a.title("Population").format_number(".2s"))
+        .axis_y(|a| a.title("Population").format(".2s"))
         .legend_fill(|l| l.visible(false))
         .mark(
             Symbol::new()

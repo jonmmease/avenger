@@ -1,6 +1,6 @@
 //! Visual tests for data domain inference
 
-use avenger_chart::coords::Cartesian;
+use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::ChannelExpr;
 use avenger_chart::marks::ChannelValue;
 use avenger_chart::marks::rect::Rect;

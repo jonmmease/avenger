@@ -1,6 +1,6 @@
 //! Visual tests for line charts
 
-use avenger_chart::coords::Cartesian;
+use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::line::Line;
 use avenger_chart::plot::Plot;
 use datafusion::arrow::array::{Float64Array, Int32Array};

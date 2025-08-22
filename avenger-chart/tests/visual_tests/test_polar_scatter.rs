@@ -1,9 +1,9 @@
 //! Visual tests for polar scatter plots
 
 use super::helpers::assert_visual_match_default;
-use avenger_chart::coords::Polar;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
+use avenger_chart::polar::Polar;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;

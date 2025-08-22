@@ -1,7 +1,7 @@
 //! Visual tests for symbol charts
 
 use super::helpers::assert_visual_match_default;
-use avenger_chart::coords::Cartesian;
+use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::ChannelExpr;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
