@@ -8,8 +8,8 @@ use datafusion::arrow::datatypes::DataType;
 use datafusion::scalar::ScalarValue;
 
 pub struct Line<C: CoordinateSystem> {
-    state: MarkState<C>,
-    __phantom: std::marker::PhantomData<C>,
+    pub(crate) state: MarkState<C>,
+    pub(crate) _phantom: std::marker::PhantomData<C>,
 }
 
 // Implement MarkBase trait and Default

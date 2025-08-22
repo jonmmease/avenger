@@ -16,7 +16,7 @@ pub use channel::{ChannelExpr, ChannelValue};
 pub use channel_descriptor::{ChannelDefault, ChannelDescriptor, ChannelType};
 pub use data_context::DataContext;
 pub use data_source::{DataSource, FacetStrategy};
-pub(crate) use state::MarkState;
+pub use state::MarkState;
 
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
@@ -36,6 +36,12 @@ pub enum RadiusExpression {
 
 /// Core trait for all mark types
 pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
+    /// Get the mark's state
+    fn state(&self) -> &MarkState<C>;
+    
+    /// Get mutable reference to the mark's state
+    fn state_mut(&mut self) -> &mut MarkState<C>;
+
     /// Get the data context for this mark (for accessing encodings and data)
     fn data_context(&self) -> &DataContext;
 

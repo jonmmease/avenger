@@ -1,11 +1,11 @@
-//! Internal state for marks
+//! State for marks
 
 use crate::coords::CoordinateSystem;
 use crate::marks::{DataContext, DataSource, FacetStrategy};
 
-/// Internal state shared by all mark types
-pub(crate) struct MarkState<C: CoordinateSystem> {
-    pub(crate) _phantom: std::marker::PhantomData<C>,
+/// State shared by all mark types
+pub struct MarkState<C: CoordinateSystem> {
+    pub _phantom: std::marker::PhantomData<C>,
     pub data: DataContext,
 
     // Data inheritance control
