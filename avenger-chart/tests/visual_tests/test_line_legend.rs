@@ -1,7 +1,7 @@
 //! Visual tests for line mark legends
 
 use crate::visual_tests::helpers::assert_visual_match_default;
-use avenger_chart::coords::Cartesian;
+use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::ChannelExpr;
 use avenger_chart::marks::line::Line;
 use avenger_chart::plot::Plot;

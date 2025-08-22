@@ -1,3 +1,4 @@
+pub mod base;
 pub mod channel;
 pub mod channel_descriptor;
 pub mod data_context;

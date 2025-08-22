@@ -1,6 +1,6 @@
-use avenger_chart::coords::Polar;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
+use avenger_chart::polar::Polar;
 use avenger_chart::render::CanvasExt;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{CanvasConfig, PngCanvas};

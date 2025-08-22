@@ -2,7 +2,7 @@
 //!
 //! This module bridges the high-level chart API with the low-level rendering components.
 
-use crate::coords::Cartesian;
+use crate::cartesian::Cartesian;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::marks::{ChannelValue, Mark};
@@ -2104,7 +2104,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         };
 
         // Get mark defaults from a default line mark instance
-        use crate::coords::Cartesian;
+        use crate::cartesian::Cartesian;
         use crate::marks::{Mark, line::Line};
         let temp_line = Line::<Cartesian>::default();
         let temp_line_ref: &dyn Mark<Cartesian> = &temp_line;

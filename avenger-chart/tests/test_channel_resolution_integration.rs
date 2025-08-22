@@ -1,6 +1,6 @@
 //! Integration test for channel reference resolution during rendering
 
-use avenger_chart::coords::Cartesian;
+use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::ChannelExpr; // Need this for .band()
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::marks::symbol::Symbol;

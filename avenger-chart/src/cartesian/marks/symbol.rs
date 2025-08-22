@@ -1,0 +1,166 @@
+use arrow::array::RecordBatch;
+use datafusion::logical_expr::{lit, Expr};
+use datafusion_common::ScalarValue;
+use avenger_common::value::ScalarOrArray;
+use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_scenegraph::marks::symbol::SceneSymbolMark;
+use crate::cartesian::Cartesian;
+use crate::{define_position_mark_channels, impl_mark_trait_common};
+use crate::marks::{ChannelType, Mark, RadiusExpression};
+
+// Import Symbol for the macro, then re-export it
+pub(crate) use crate::marks::symbol::Symbol;
+use crate::error::AvengerChartError;
+use crate::utils::ScalarValueHelpers;
+
+// Define position channels for Cartesian Symbol
+define_position_mark_channels! {
+    Symbol<Cartesian> {
+        x: { type: ChannelType::Numeric },
+        y: { type: ChannelType::Numeric },
+    }
+}
+
+// Implement Mark trait for Cartesian Symbol
+impl Mark<Cartesian> for Symbol<Cartesian> {
+    impl_mark_trait_common!(Symbol, Cartesian, "symbol");
+
+    fn default_channel_value(&self, channel: &str) -> Option<ScalarValue> {
+        match channel {
+            "size" => Some(ScalarValue::Float32(Some(64.0))), // Default area
+            "shape" => Some(ScalarValue::Utf8(Some("circle".to_string()))), // Default shape
+            "angle" => Some(ScalarValue::Float32(Some(0.0))), // Default angle
+            "fill" => Some(ScalarValue::Utf8(Some("#4682b4".to_string()))), // Default blue
+            "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))), // Default black
+            "stroke_width" => Some(ScalarValue::Float32(Some(1.0))), // Default stroke width
+            "opacity" => Some(ScalarValue::Float32(Some(1.0))), // Fully opaque
+            _ => None,
+        }
+    }
+
+    fn radius_expression(
+        &self,
+        dimension: &str,
+        resolve_channel: &dyn Fn(&str) -> Expr,
+    ) -> Option<RadiusExpression> {
+        match dimension {
+            "x" | "y" => {
+                // Get size and stroke_width expressions (either mapped or default)
+                let size_expr = resolve_channel("size");
+                let stroke_width_expr = resolve_channel("stroke_width");
+
+                // For symbols: radius = sqrt(area) * 0.5 + stroke_width / 2
+                // The size channel represents the area of the bounding square
+                // The base circle SVG path has radius 0.5 for a unit square (size=1)
+                // Add half the stroke width since stroke extends both inward and outward
+                use datafusion::functions::expr_fn::sqrt;
+                let radius_expr = sqrt(size_expr) * lit(0.5) + stroke_width_expr / lit(2.0);
+
+                Some(RadiusExpression::Symmetric(radius_expr))
+            }
+            _ => None,
+        }
+    }
+
+    fn render_from_data(
+        &self,
+        data: Option<&RecordBatch>,
+        scalars: &RecordBatch,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        use crate::marks::util::{
+            coerce_color_channel_with_mark, coerce_numeric_channel_with_mark,
+        };
+        use avenger_scales::scales::coerce::Coercer;
+
+        // Symbols can render with just scalar data
+        let coercer = Coercer::default();
+
+        // Extract position data - these can be scalars or arrays
+        let x = coerce_numeric_channel_with_mark(self, data, scalars, "x", 0.0)?;
+        let y = coerce_numeric_channel_with_mark(self, data, scalars, "y", 0.0)?;
+
+        // Extract other channels using mark defaults
+        let size = coerce_numeric_channel_with_mark(self, data, scalars, "size", 64.0)?;
+        let fill = coerce_color_channel_with_mark(
+            self,
+            data,
+            scalars,
+            "fill",
+            [70.0 / 255.0, 130.0 / 255.0, 180.0 / 255.0, 1.0],
+        )?;
+        let stroke =
+            coerce_color_channel_with_mark(self, data, scalars, "stroke", [0.0, 0.0, 0.0, 1.0])?;
+        let angle = coerce_numeric_channel_with_mark(self, data, scalars, "angle", 0.0)?;
+
+        // Determine the number of symbols from any array channel
+        let len = data.map_or(1, |data| data.num_rows()) as u32;
+
+        // Handle shape channel efficiently - get default from mark
+        let shape_default = self
+            .default_channel_value("shape")
+            .and_then(|scalar| {
+                match scalar {
+                    ScalarValue::Utf8(Some(s)) => {
+                        // Convert string to SymbolShape using from_vega_str
+                        avenger_common::types::SymbolShape::from_vega_str(&s).ok()
+                    }
+                    _ => None,
+                }
+            })
+            .unwrap_or(avenger_common::types::SymbolShape::Circle);
+
+        let (shapes, shape_index) =
+            if let Some(shape_array) = data.and_then(|d| d.column_by_name("shape")) {
+                // Array data for shapes - use efficient coercion
+                coercer.to_symbol_shape(shape_array, Some(shape_default))?
+            } else if let Some(shape_scalar) = scalars.column_by_name("shape") {
+                // Scalar shape - still use to_symbol_shape for consistency
+                coercer.to_symbol_shape(shape_scalar, Some(shape_default))?
+            } else {
+                // Default shape from mark
+                (vec![shape_default], ScalarOrArray::new_scalar(0))
+            };
+
+        // Stroke width is scalar only - get default from mark
+        let stroke_width_default = self
+            .default_channel_value("stroke_width")
+            .and_then(|scalar| scalar.as_f32().ok())
+            .unwrap_or(1.0);
+
+        let stroke_width = if let Some(width_scalar) = scalars.column_by_name("stroke_width") {
+            Some(
+                *coercer
+                    .to_numeric(width_scalar, Some(stroke_width_default))?
+                    .first()
+                    .unwrap(),
+            )
+        } else {
+            Some(stroke_width_default)
+        };
+
+        let symbol_mark = SceneSymbolMark {
+            name: "symbol".to_string(),
+            clip: true,
+            len,
+            gradients: vec![],
+            shapes,
+            stroke_width,
+            shape_index,
+            x,
+            y,
+            fill,
+            size,
+            stroke,
+            angle,
+            indices: None,
+            zindex: self.state.zindex,
+            x_adjustment: None,
+            y_adjustment: None,
+        };
+
+        Ok(vec![SceneMark::Symbol(symbol_mark)])
+    }
+}
+
+
+

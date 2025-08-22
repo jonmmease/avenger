@@ -1,13 +1,8 @@
-use crate::axis::{AxisPosition, CartesianAxis};
+use crate::axis::AxisPosition;
 use crate::error::AvengerChartError;
 use crate::legend::{Legend, LegendPosition};
 use crate::plot::{PlotSubtitle, PlotTitle, TitleAlign};
 use avenger_geometry::marks::MarkGeometryUtils;
-use avenger_guides::axis::{
-    band::make_band_axis_marks,
-    numeric::make_numeric_axis_marks,
-    opts::{AxisConfig, AxisOrientation},
-};
 use avenger_scales::scales::ConfiguredScale;
 use indexmap::IndexMap;
 use tracing::{debug, trace};
@@ -755,108 +750,6 @@ impl ChartLayout {
         }
 
         Ok(result)
-    }
-
-    /// Measure component size using actual rendered marks
-    /// Currently unused but kept for potential future layout improvements
-    #[allow(dead_code)]
-    pub fn measure_axis_size(
-        axis: &CartesianAxis,
-        scale: &ConfiguredScale,
-        available_space: Size<f32>,
-    ) -> Result<Size<f32>, AvengerChartError> {
-        // Skip invisible axes
-        if !axis.visible {
-            return Ok(Size {
-                width: 0.0,
-                height: 0.0,
-            });
-        }
-
-        // Special handling for polar pseudo axes - dimension is stored in tick_count
-        if axis.tick_count.is_some() && axis.title.is_none() && !axis.grid {
-            let dimension = axis.tick_count.unwrap() as f32;
-            return match axis.position {
-                Some(AxisPosition::Top) | Some(AxisPosition::Bottom) => Ok(Size {
-                    width: available_space.width,
-                    height: dimension,
-                }),
-                Some(AxisPosition::Left) | Some(AxisPosition::Right) => Ok(Size {
-                    width: dimension,
-                    height: available_space.height,
-                }),
-                None => Ok(Size {
-                    width: 0.0,
-                    height: 0.0,
-                }),
-            };
-        }
-
-        // Create axis configuration
-        let orientation = match axis.position {
-            Some(AxisPosition::Left) => AxisOrientation::Left,
-            Some(AxisPosition::Right) => AxisOrientation::Right,
-            Some(AxisPosition::Top) => AxisOrientation::Top,
-            Some(AxisPosition::Bottom) => AxisOrientation::Bottom,
-            None => {
-                return Ok(Size {
-                    width: 0.0,
-                    height: 0.0,
-                });
-            }
-        };
-
-        // For axes, we want to measure their natural size, not constrain them
-        // The dimensions here affect where gridlines and ticks are placed
-        // For vertical axes, we care about the vertical range (plot height)
-        // For horizontal axes, we care about the horizontal range (plot width)
-        let dimensions = match orientation {
-            AxisOrientation::Left | AxisOrientation::Right => {
-                // Vertical axis - height matters for tick placement
-                // Width should be minimal (will be determined by text)
-                [0.0, available_space.height]
-            }
-            AxisOrientation::Top | AxisOrientation::Bottom => {
-                // Horizontal axis - width matters for tick placement
-                // Height should be minimal (will be determined by text)
-                [available_space.width, 0.0]
-            }
-        };
-
-        let config = AxisConfig {
-            orientation,
-            dimensions,
-            grid: axis.grid,
-            format_number: axis.format_number.clone(),
-            title_font_size: None, // Use default for regular axes
-        };
-
-        // Create axis marks
-        let title = axis.title.as_deref().unwrap_or("");
-        let origin = [0.0, 0.0];
-
-        // Generate axis marks based on scale type
-        let scale_type = scale.scale_impl.scale_type();
-
-        let axis_group = match scale_type {
-            "band" | "point" => make_band_axis_marks(scale, title, origin, &config)
-                .map_err(|e| AvengerChartError::InternalError(e.to_string()))?,
-            _ => {
-                // Default to numeric axis for linear and other continuous scales
-                make_numeric_axis_marks(scale, title, origin, &config)
-                    .map_err(|e| AvengerChartError::InternalError(e.to_string()))?
-            }
-        };
-
-        // Measure the bounding box
-        let bbox = axis_group.bounding_box();
-        let width = (bbox.upper()[0] - bbox.lower()[0]).abs();
-        let height = (bbox.upper()[1] - bbox.lower()[1]).abs();
-
-        // Debug: Show axis measurement
-
-        // Return exact size without extra padding - the edge margins handle clipping
-        Ok(Size { width, height })
     }
 
     /// Measure legend size with mark encodings

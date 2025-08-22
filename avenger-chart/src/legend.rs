@@ -145,7 +145,7 @@ impl Default for Legend {
 
 #[cfg(test)]
 mod tests {
-    use crate::coords::Cartesian;
+    use crate::cartesian::Cartesian;
     use crate::legend::{LegendOrientation, LegendPosition};
     use crate::plot::Plot;
 
