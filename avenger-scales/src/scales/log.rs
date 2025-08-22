@@ -276,6 +276,13 @@ impl ScaleImpl for LogScale {
         InferDomainFromDataMethod::Interval
     }
 
+    fn default_options(&self) -> std::collections::HashMap<String, Scalar> {
+        let mut options = std::collections::HashMap::new();
+        options.insert("base".to_string(), Scalar::from_f32(10.0));
+        options.insert("nice".to_string(), Scalar::from_bool(true));
+        options
+    }
+
     fn option_definitions(&self) -> &[OptionDefinition] {
         lazy_static! {
             static ref DEFINITIONS: Vec<OptionDefinition> = vec![

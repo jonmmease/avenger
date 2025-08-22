@@ -1,5 +1,3 @@
-//! Visual tests for line mark legends
-
 use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::ChannelExpr;
@@ -10,6 +8,9 @@ use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::*;
 use std::sync::Arc;
+use avenger_scales::scales::ordinal::OrdinalScale;
+//! Visual tests for line mark legends
+
 
 #[tokio::test]
 async fn test_line_discrete_stroke_legend() {
@@ -128,7 +129,7 @@ async fn test_line_stroke_width_legend() {
         .scale_y(|scale| scale.domain((0.0, 15.0)))
         .scale_stroke_width(|scale| {
             scale
-                .scale_type("ordinal")
+                .scale_type(OrdinalScale)
                 .range_discrete(vec![lit(1.0), lit(3.0), lit(6.0)])
                 .domain(vec![lit("Low"), lit("Medium"), lit("High")])
         })
@@ -278,13 +279,13 @@ async fn test_line_combined_stroke_width_legend() {
         .scale_y(|scale| scale.domain((0.0, 25.0)))
         .scale_stroke(|scale| {
             scale
-                .scale_type("ordinal")
+                .scale_type(OrdinalScale)
                 .range_discrete(vec![lit("#d62728"), lit("#ff7f0e"), lit("#2ca02c")])
                 .domain(vec![lit("High"), lit("Medium"), lit("Low")])
         })
         .scale_stroke_width(|scale| {
             scale
-                .scale_type("ordinal")
+                .scale_type(OrdinalScale)
                 .range_discrete(vec![lit(4.0), lit(2.5), lit(1.0)])
                 .domain(vec![lit("High"), lit("Medium"), lit("Low")])
         })

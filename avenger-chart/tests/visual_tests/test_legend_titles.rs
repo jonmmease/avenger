@@ -11,6 +11,8 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::{col, lit};
 use datafusion::prelude::*;
 use std::sync::Arc;
+use avenger_scales::scales::band::BandScale;
+use avenger_scales::scales::ordinal::OrdinalScale;
 
 /// Test symbol legend with title
 #[tokio::test]
@@ -39,7 +41,7 @@ async fn test_symbol_legend_with_title() {
         .data(df)
         .scale_x(|s| s.domain((0.0, 7.0)))
         .scale_y(|s| s.domain((0.0, 7.0)))
-        .scale_fill(|s| s.scale_type("ordinal"))
+        .scale_fill(|s| s.scale_type(OrdinalScale))
         .legend_fill(|legend| legend.title("Category"))
         .mark(Symbol::new().x(col("x")).y(col("y")).fill(col("category")));
 
@@ -76,7 +78,7 @@ async fn test_line_legend_with_title() {
         .data(df)
         .scale_x(|s| s.domain((0.5, 4.5)))
         .scale_y(|s| s.domain((0.0, 5.0)))
-        .scale_stroke(|s| s.scale_type("ordinal"))
+        .scale_stroke(|s| s.scale_type(OrdinalScale))
         .legend_stroke(|legend| legend.title("Line Series"))
         .mark(
             Line::new()
@@ -119,7 +121,7 @@ async fn test_rect_stroke_legend_with_title() {
     // Create a bar chart with stroke legend
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|scale| scale.scale_type("band").option("padding_inner", lit(0.1)))
+        .scale_x(|scale| scale.scale_type(BandScale).option("padding_inner", lit(0.1)))
         .scale_y(|scale| scale.domain((0.0, 60.0)))
         .scale_stroke(|scale| {
             scale
@@ -170,7 +172,7 @@ async fn test_shape_legend_with_title() {
         .data(df)
         .scale_x(|s| s.domain((0.0, 7.0)))
         .scale_y(|s| s.domain((0.0, 7.0)))
-        .scale_shape(|s| s.scale_type("ordinal"))
+        .scale_shape(|s| s.scale_type(OrdinalScale))
         .legend_shape(|legend| legend.title("Shape Type"))
         .mark(
             Symbol::new()
@@ -212,7 +214,7 @@ async fn test_legend_with_title_and_background() {
         .data(df)
         .scale_x(|s| s.domain((0.0, 7.0)))
         .scale_y(|s| s.domain((0.0, 7.0)))
-        .scale_fill(|s| s.scale_type("ordinal"))
+        .scale_fill(|s| s.scale_type(OrdinalScale))
         .legend_fill(|legend| {
             legend
                 .title("Data Categories")

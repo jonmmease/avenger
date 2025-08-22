@@ -1,5 +1,3 @@
-//! Visual tests for line charts
-
 use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::line::Line;
 use avenger_chart::plot::Plot;
@@ -9,8 +7,11 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::{col, lit};
 use datafusion::prelude::*;
 use std::sync::Arc;
-
 use super::helpers::assert_visual_match_default;
+use avenger_scales::scales::linear::LinearScale;
+//! Visual tests for line charts
+
+
 
 /// Create a simple line chart dataset
 fn create_line_data() -> DataFrame {
@@ -38,8 +39,8 @@ async fn test_simple_line_chart() {
 
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|scale| scale.scale_type("linear"))
-        .scale_y(|scale| scale.scale_type("linear"))
+        .scale_x(|scale| scale.scale_type(LinearScale))
+        .scale_y(|scale| scale.scale_type(LinearScale))
         .axis_x(|axis| axis.title("X Value"))
         .axis_y(|axis| axis.title("Y Value"))
         .mark(
@@ -59,8 +60,8 @@ async fn test_line_with_dashed_stroke() {
 
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|scale| scale.scale_type("linear"))
-        .scale_y(|scale| scale.scale_type("linear"))
+        .scale_x(|scale| scale.scale_type(LinearScale))
+        .scale_y(|scale| scale.scale_type(LinearScale))
         .axis_x(|axis| axis.title("X Value"))
         .axis_y(|axis| axis.title("Y Value"))
         .mark(
@@ -108,8 +109,8 @@ async fn test_line_with_gaps() {
 
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|scale| scale.scale_type("linear"))
-        .scale_y(|scale| scale.scale_type("linear"))
+        .scale_x(|scale| scale.scale_type(LinearScale))
+        .scale_y(|scale| scale.scale_type(LinearScale))
         .axis_x(|axis| axis.title("X Value"))
         .axis_y(|axis| axis.title("Y Value"))
         .mark(
@@ -162,8 +163,8 @@ async fn test_multiple_lines() {
 
     let plot = Plot::new(Cartesian)
         .data(df.clone())
-        .scale_x(|scale| scale.scale_type("linear"))
-        .scale_y(|scale| scale.scale_type("linear"))
+        .scale_x(|scale| scale.scale_type(LinearScale))
+        .scale_y(|scale| scale.scale_type(LinearScale))
         .axis_x(|axis| axis.title("X Value"))
         .axis_y(|axis| axis.title("Y Value"))
         .mark(
@@ -211,8 +212,8 @@ async fn test_line_dash_patterns() {
 
     let plot = Plot::new(Cartesian)
         .data(df.clone())
-        .scale_x(|scale| scale.scale_type("linear"))
-        .scale_y(|scale| scale.scale_type("linear").domain((0.0, 100.0)))
+        .scale_x(|scale| scale.scale_type(LinearScale))
+        .scale_y(|scale| scale.scale_type(LinearScale).domain((0.0, 100.0)))
         .axis_x(|axis| axis.title("X Value"))
         .axis_y(|axis| axis.title("Y Value"))
         // Solid line
@@ -280,9 +281,9 @@ async fn test_line_vertical_padding_no_nice() {
 
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|scale| scale.scale_type("linear").option("nice", lit(false)))
+        .scale_x(|scale| scale.scale_type(LinearScale).option("nice", lit(false)))
         .scale_y(|scale| {
-            scale.scale_type("linear").option("nice", lit(false))
+            scale.scale_type(LinearScale).option("nice", lit(false))
             // Without radius padding, the line would be clipped at y=0 and y=100
         })
         .axis_x(|axis| axis.title("X Value"))

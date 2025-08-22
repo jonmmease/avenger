@@ -420,7 +420,9 @@ impl<C: CoordinateSystem> Plot<C> {
 
     /// Internal helper to create a default scale for a channel
     fn create_default_scale_for_channel_internal(&self, channel: &str) -> Scale {
-        use crate::scales::inference::{get_default_scale_options, infer_scale_type_with_mark};
+        use crate::scales::inference::{get_default_scale_options, infer_scale_impl_with_mark};
+        use avenger_scales::scales::ordinal::OrdinalScale;
+        use avenger_scales::scales::linear::LinearScale;
         use datafusion::logical_expr::ExprSchemable;
 
         // Try to infer the data type and mark type for this channel
@@ -455,22 +457,23 @@ impl<C: CoordinateSystem> Plot<C> {
         }
 
         // Create a scale based on the inferred type
-        let scale_type = if channel == "stroke_width" {
+        let scale_impl = if channel == "stroke_width" {
             // stroke_width MUST always use ordinal scale with discrete domain
-            "ordinal"
+            Arc::new(OrdinalScale) as Arc<dyn avenger_scales::scales::ScaleImpl>
         } else if let Some(dt) = &data_type {
-            infer_scale_type_with_mark(channel, dt, mark_type)
+            infer_scale_impl_with_mark(channel, dt, mark_type)
         } else {
             // Fallback to channel-based defaults
             match channel {
                 // Color and discrete visual channels default to ordinal
-                "fill" | "stroke" | "color" | "shape" | "stroke_dash" => "ordinal",
+                "fill" | "stroke" | "color" | "shape" | "stroke_dash" => Arc::new(OrdinalScale) as Arc<dyn avenger_scales::scales::ScaleImpl>,
                 // Everything else defaults to linear
-                _ => "linear",
+                _ => Arc::new(LinearScale) as Arc<dyn avenger_scales::scales::ScaleImpl>,
             }
         };
 
-        let mut scale = Scale::with_type(scale_type);
+        let scale_type = scale_impl.scale_type();
+        let mut scale = Scale::with_impl(scale_impl);
 
         // Apply default options based on channel and scale type
         if let Some(dt) = &data_type {
@@ -594,6 +597,8 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Build a scale by name, applying any configured transformations
     /// Note: Default range will be applied during rendering when actual dimensions are known
     pub fn get_scale(&self, name: &str) -> Scale {
+        use avenger_scales::scales::ordinal::OrdinalScale;
+        
         match self.scale_specs.get(name) {
             Some(ScaleSpec::Local(f)) => {
                 let mut base_scale = self.create_default_scale_for_channel_internal(name);
@@ -612,7 +617,7 @@ impl<C: CoordinateSystem> Plot<C> {
                 // Enforce stroke_width must always be ordinal
                 if name == "stroke_width" {
                     // Force ordinal scale type even if user tried to set it to linear
-                    user_scale = user_scale.scale_type("ordinal");
+                    user_scale = user_scale.scale_type(OrdinalScale);
                     // Note: Default discrete range is already set in create_default_scale_for_channel_internal
                     // We don't override here to respect user-provided ranges
                 }

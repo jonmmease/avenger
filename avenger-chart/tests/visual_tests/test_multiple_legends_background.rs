@@ -9,6 +9,8 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::{col, lit};
 use datafusion::prelude::*;
 use std::sync::Arc;
+use avenger_scales::scales::ordinal::OrdinalScale;
+use avenger_scales::scales::linear::LinearScale;
 
 /// Test multiple legends with backgrounds to visualize spacing
 #[tokio::test]
@@ -49,9 +51,9 @@ async fn test_multiple_legends_with_backgrounds() {
         .data(df)
         .scale_x(|s| s.domain((0.0, 10.0)))
         .scale_y(|s| s.domain((0.0, 10.0)))
-        .scale_fill(|s| s.scale_type("ordinal"))
+        .scale_fill(|s| s.scale_type(OrdinalScale))
         .scale_size(|s| s.domain((5.0, 40.0)).range_interval(lit(25.0), lit(200.0)))
-        .scale_shape(|s| s.scale_type("ordinal"))
+        .scale_shape(|s| s.scale_type(OrdinalScale))
         .axis_x(|axis| axis.title("X Axis"))
         .axis_y(|axis| axis.title("Y Axis"))
         .legend_fill(|legend| {
@@ -135,9 +137,9 @@ async fn test_colorbar_with_symbols_backgrounds() {
         .data(df)
         .scale_x(|s| s.domain((0.0, 9.0)))
         .scale_y(|s| s.domain((0.0, 9.0)))
-        .scale_fill(|s| s.scale_type("linear").domain((5.0, 40.0)))
-        .scale_shape(|s| s.scale_type("ordinal"))
-        .scale_stroke(|s| s.scale_type("ordinal"))
+        .scale_fill(|s| s.scale_type(LinearScale).domain((5.0, 40.0)))
+        .scale_shape(|s| s.scale_type(OrdinalScale))
+        .scale_stroke(|s| s.scale_type(OrdinalScale))
         .axis_x(|axis| axis.title("X Axis"))
         .axis_y(|axis| axis.title("Y Axis"))
         .legend_fill(|legend| {
@@ -220,9 +222,9 @@ async fn test_legends_different_positions_backgrounds() {
         .data(df)
         .scale_x(|s| s.domain((0.0, 7.0)))
         .scale_y(|s| s.domain((0.0, 7.0)))
-        .scale_fill(|s| s.scale_type("ordinal"))
+        .scale_fill(|s| s.scale_type(OrdinalScale))
         .scale_size(|s| s.domain((5.0, 35.0)).range_interval(lit(25.0), lit(150.0)))
-        .scale_stroke(|s| s.scale_type("ordinal"))
+        .scale_stroke(|s| s.scale_type(OrdinalScale))
         .axis_x(|axis| axis.title("X Axis"))
         .axis_y(|axis| axis.title("Y Axis"))
         .legend_fill(|legend| {

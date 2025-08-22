@@ -1,5 +1,3 @@
-//! Visual tests for various scales with color ranges
-
 use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::ChannelExpr;
 use avenger_chart::marks::ChannelValue;
@@ -7,9 +5,16 @@ use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
 use datafusion::logical_expr::{col, lit};
 use palette::rgb::Srgba;
-
 use super::datasets;
 use super::helpers::assert_visual_match_default;
+use avenger_scales::scales::log::LogScale;
+use avenger_scales::scales::pow::PowScale;
+use avenger_scales::scales::band::BandScale;
+use avenger_scales::scales::linear::LinearScale;
+use avenger_scales::scales::threshold::ThresholdScale;
+//! Visual tests for various scales with color ranges
+
+
 
 #[tokio::test]
 async fn test_bar_chart_linear_color_interpolation() {
@@ -18,7 +23,7 @@ async fn test_bar_chart_linear_color_interpolation() {
     let plot = Plot::new(Cartesian)
         .data(df)
         .scale_x(|s| {
-            s.scale_type("band").domain_discrete(vec![
+            s.scale_type(BandScale).domain_discrete(vec![
                 lit("A"),
                 lit("B"),
                 lit("C"),
@@ -33,7 +38,7 @@ async fn test_bar_chart_linear_color_interpolation() {
         .scale_y(|s| s.domain((0.0, 100.0)))
         // Linear scale with color range
         .scale_fill(|s| {
-            s.scale_type("linear")
+            s.scale_type(LinearScale)
                 // Domain will be inferred from data automatically
                 .range_color(vec![
                     Srgba::new(0.97, 0.96, 0.89, 1.0), // Light cream (#f8f5e4)
@@ -70,7 +75,7 @@ async fn test_bar_chart_log_color_interpolation() {
     let plot = Plot::new(Cartesian)
         .data(df)
         .scale_x(|s| {
-            s.scale_type("band").domain_discrete(vec![
+            s.scale_type(BandScale).domain_discrete(vec![
                 lit("A"),
                 lit("B"),
                 lit("C"),
@@ -85,7 +90,7 @@ async fn test_bar_chart_log_color_interpolation() {
         .scale_y(|s| s.domain((0.0, 100.0)))
         // Log scale with color range
         .scale_fill(|s| {
-            s.scale_type("log")
+            s.scale_type(LogScale)
                 .option("base", lit(10.0))
                 // Domain will be inferred from data automatically
                 .range_color(vec![
@@ -118,7 +123,7 @@ async fn test_bar_chart_pow_color_interpolation() {
     let plot = Plot::new(Cartesian)
         .data(df)
         .scale_x(|s| {
-            s.scale_type("band").domain_discrete(vec![
+            s.scale_type(BandScale).domain_discrete(vec![
                 lit("A"),
                 lit("B"),
                 lit("C"),
@@ -133,7 +138,7 @@ async fn test_bar_chart_pow_color_interpolation() {
         .scale_y(|s| s.domain((0.0, 100.0)))
         // Power scale with color range (exponent = 2)
         .scale_fill(|s| {
-            s.scale_type("pow")
+            s.scale_type(PowScale)
                 .option("exponent", lit(2.0))
                 // Domain will be inferred from data automatically
                 .range_color(vec![
@@ -166,7 +171,7 @@ async fn test_bar_chart_sqrt_color_interpolation() {
     let plot = Plot::new(Cartesian)
         .data(df)
         .scale_x(|s| {
-            s.scale_type("band").domain_discrete(vec![
+            s.scale_type(BandScale).domain_discrete(vec![
                 lit("A"),
                 lit("B"),
                 lit("C"),
@@ -181,7 +186,7 @@ async fn test_bar_chart_sqrt_color_interpolation() {
         .scale_y(|s| s.domain((0.0, 100.0)))
         // Square root scale with color range
         .scale_fill(|s| {
-            s.scale_type("sqrt")
+            s.scale_type(PowScale).option("exponent", 0.5)
                 // Domain will be inferred from data automatically
                 .range_color(vec![
                     Srgba::new(0.97, 0.91, 0.81, 1.0), // Light tan (#f8e8cf)
@@ -217,7 +222,7 @@ async fn test_bar_chart_threshold_scale_colors() {
     let plot = Plot::new(Cartesian)
         .data(df)
         .scale_x(|s| {
-            s.scale_type("band").domain_discrete(vec![
+            s.scale_type(BandScale).domain_discrete(vec![
                 lit("A"),
                 lit("B"),
                 lit("C"),
@@ -232,7 +237,7 @@ async fn test_bar_chart_threshold_scale_colors() {
         .scale_y(|s| s.domain((0.0, 100.0)))
         // Add threshold scale for colors
         .scale_fill(|s| {
-            s.scale_type("threshold")
+            s.scale_type(ThresholdScale)
                 .domain_discrete(vec![lit(30.0f32), lit(50.0f32), lit(70.0f32), lit(85.0f32)])
                 .range_discrete(vec![
                     lit("#c8d6e5"), // Light blue-grey (< 30)
@@ -292,7 +297,7 @@ async fn test_bar_chart_ordinal_scale_colors() {
 
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|s| s.scale_type("band")) // Domain will be inferred from data
+        .scale_x(|s| s.scale_type(BandScale)) // Domain will be inferred from data
         .scale_y(|s| s.domain((0.0, 100.0)))
         .axis_x(|a| a.title("Category").grid(false))
         .axis_y(|a| a.title("Value").grid(true))

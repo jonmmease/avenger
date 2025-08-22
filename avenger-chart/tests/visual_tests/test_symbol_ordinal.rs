@@ -1,5 +1,3 @@
-//! Visual tests for symbol charts with automatic ordinal scales
-
 use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
@@ -9,8 +7,11 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::col;
 use datafusion::prelude::*;
 use std::sync::Arc;
-
 use super::helpers::assert_visual_match_default;
+use avenger_scales::scales::linear::LinearScale;
+//! Visual tests for symbol charts with automatic ordinal scales
+
+
 
 #[tokio::test]
 async fn test_symbol_automatic_shape_scale() {
@@ -58,8 +59,8 @@ async fn test_symbol_automatic_shape_scale() {
     // with shape strings as the range values
     let plot = Plot::new(Cartesian)
         .data(df)
-        // .scale_x(|scale| scale.scale_type("linear").domain((60.0, 130.0)))
-        // .scale_y(|scale| scale.scale_type("linear").domain((10.0, 30.0)))
+        // .scale_x(|scale| scale.scale_type(LinearScale).domain((60.0, 130.0)))
+        // .scale_y(|scale| scale.scale_type(LinearScale).domain((10.0, 30.0)))
         .axis_x(|axis| axis.title("Sales ($k)"))
         .axis_y(|axis| axis.title("Profit ($k)"))
         .mark(
@@ -110,8 +111,8 @@ async fn test_symbol_custom_enumeration() {
     // Create plot demonstrating automatic ordinal scale for custom enumeration
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|scale| scale.scale_type("linear"))
-        .scale_y(|scale| scale.scale_type("linear").domain((0.0, 100.0)))
+        .scale_x(|scale| scale.scale_type(LinearScale))
+        .scale_y(|scale| scale.scale_type(LinearScale).domain((0.0, 100.0)))
         .axis_x(|axis| axis.title("Task ID"))
         .axis_y(|axis| axis.title("Completion %"))
         .mark(
