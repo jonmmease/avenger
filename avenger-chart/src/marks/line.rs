@@ -2,13 +2,13 @@ use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::marks::{ChannelDefault, ChannelType, MarkState};
 use crate::{define_common_mark_channels, impl_mark_base};
-use datafusion::arrow::array::{Array, ArrayRef};
+use datafusion::arrow::array::ArrayRef;
 use datafusion::arrow::compute::kernels::cast::cast;
 use datafusion::arrow::datatypes::DataType;
 use datafusion::scalar::ScalarValue;
 
 pub struct Line<C: CoordinateSystem> {
-    pub(crate) state: MarkState<C>,
+    state: MarkState<C>,
     __phantom: std::marker::PhantomData<C>,
 }
 
@@ -65,14 +65,14 @@ define_common_mark_channels! {
 
 // Partitioning support for multi-series lines
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Ord, PartialOrd)]
-pub(crate) struct PartitionKey {
-    pub(crate) stroke: Option<usize>,
-    pub(crate) width: Option<usize>,
-    pub(crate) dash: Option<usize>,
+pub struct PartitionKey {
+    pub stroke: Option<usize>,
+    pub width: Option<usize>,
+    pub dash: Option<usize>,
 }
 
 /// Convert an array to dictionary encoding for efficient partitioning
-pub (crate) fn ensure_dictionary_array(array: &ArrayRef) -> Result<ArrayRef, AvengerChartError> {
+pub fn ensure_dictionary_array(array: &ArrayRef) -> Result<ArrayRef, AvengerChartError> {
     match array.data_type() {
         DataType::Dictionary(_, _) => Ok(array.clone()),
         _ => {

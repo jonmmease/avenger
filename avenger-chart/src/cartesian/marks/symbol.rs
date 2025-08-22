@@ -1,16 +1,16 @@
+use crate::cartesian::Cartesian;
+use crate::marks::{ChannelType, Mark, RadiusExpression};
+use crate::{define_position_mark_channels, impl_mark_trait_common};
 use arrow::array::RecordBatch;
-use datafusion::logical_expr::{lit, Expr};
-use datafusion_common::ScalarValue;
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
-use crate::cartesian::Cartesian;
-use crate::{define_position_mark_channels, impl_mark_trait_common};
-use crate::marks::{ChannelType, Mark, RadiusExpression};
+use datafusion::logical_expr::{Expr, lit};
+use datafusion_common::ScalarValue;
 
 // Import Symbol for the macro, then re-export it
-pub(crate) use crate::marks::symbol::Symbol;
 use crate::error::AvengerChartError;
+pub use crate::marks::symbol::Symbol;
 use crate::utils::ScalarValueHelpers;
 
 // Define position channels for Cartesian Symbol
@@ -153,7 +153,7 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
             stroke,
             angle,
             indices: None,
-            zindex: self.state.zindex,
+            zindex: self.get_zindex(),
             x_adjustment: None,
             y_adjustment: None,
         };
@@ -161,6 +161,3 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
         Ok(vec![SceneMark::Symbol(symbol_mark)])
     }
 }
-
-
-

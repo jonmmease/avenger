@@ -1,18 +1,21 @@
-use arrow::array::{Array, AsArray, RecordBatch};
-use datafusion::logical_expr::{lit, Expr};
-use datafusion_common::ScalarValue;
-use indexmap::IndexMap;
+use crate::cartesian::Cartesian;
+use crate::marks::{ChannelType, Mark, RadiusExpression};
+use crate::{define_position_mark_channels, impl_mark_trait_common};
+use arrow::array::{AsArray, RecordBatch};
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::line::SceneLineMark;
 use avenger_scenegraph::marks::mark::SceneMark;
-use crate::cartesian::Cartesian;
-use crate::{define_position_mark_channels, impl_mark_trait_common};
-use crate::marks::{ChannelType, Mark, RadiusExpression};
+use datafusion::logical_expr::{Expr, lit};
+use datafusion_common::ScalarValue;
+use indexmap::IndexMap;
 
 // Import Line for the macro, then re-export it
-pub(crate) use crate::marks::line::{ensure_dictionary_array, Line};
 use crate::error::AvengerChartError;
-use crate::marks::util::{coerce_bool_channel, coerce_numeric_channel, coerce_stroke_cap_channel, coerce_stroke_join_channel};
+pub use crate::marks::line::{Line, ensure_dictionary_array};
+use crate::marks::util::{
+    coerce_bool_channel, coerce_numeric_channel, coerce_stroke_cap_channel,
+    coerce_stroke_join_channel,
+};
 
 // Define position channels for Cartesian Line
 define_position_mark_channels! {
@@ -168,7 +171,7 @@ impl Mark<Cartesian> for Line<Cartesian> {
                 stroke_cap,
                 stroke_join,
                 stroke_dash: stroke_dash_value,
-                zindex: self.state.zindex,
+                zindex: self.get_zindex(),
             };
 
             return Ok(vec![SceneMark::Line(line_mark)]);
@@ -276,7 +279,8 @@ impl Mark<Cartesian> for Line<Cartesian> {
         };
 
         // Build partition map using dictionary keys
-        let mut partition_groups: IndexMap<crate::marks::line::PartitionKey, Vec<usize>> = IndexMap::new();
+        let mut partition_groups: IndexMap<crate::marks::line::PartitionKey, Vec<usize>> =
+            IndexMap::new();
 
         for i in 0..len {
             let key = crate::marks::line::PartitionKey {
@@ -393,7 +397,7 @@ impl Mark<Cartesian> for Line<Cartesian> {
                 stroke_cap,
                 stroke_join,
                 stroke_dash: stroke_dash_value,
-                zindex: self.state.zindex,
+                zindex: self.get_zindex(),
             };
 
             scene_marks.push(SceneMark::Line(line_mark));
@@ -402,5 +406,3 @@ impl Mark<Cartesian> for Line<Cartesian> {
         Ok(scene_marks)
     }
 }
-
-

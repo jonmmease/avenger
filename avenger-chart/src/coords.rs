@@ -70,12 +70,20 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     ///
     /// This measures overflow of axes, labels, and other visual guides beyond the
     /// initial plot area bounds.
+    ///
+    /// # Arguments
+    /// * `axes` - The axes to measure
+    /// * `scales` - The configured scales
+    /// * `width` - The total canvas width
+    /// * `height` - The total canvas height  
+    /// * `plot_area_ratio` - The initial ratio of plot area to canvas (typically 0.8)
     async fn measure_guide_overflow(
         &self,
         axes: HashMap<String, Self::Axis>,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         width: f32,
         height: f32,
+        plot_area_ratio: f32,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError>;
 
     /// Render all axes for this coordinate system

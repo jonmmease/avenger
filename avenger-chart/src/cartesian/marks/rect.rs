@@ -1,15 +1,14 @@
+use crate::cartesian::Cartesian;
+use crate::marks::{ChannelType, Mark};
+use crate::{define_position_mark_channels, impl_mark_trait_common};
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
-use crate::cartesian::Cartesian;
-use crate::{define_position_mark_channels, impl_mark_trait_common};
-use crate::marks::{ChannelType, Mark};
 
 // Import Rect for the macro, then re-export it
-pub(crate) use crate::marks::rect::Rect;
 use crate::error::AvengerChartError;
+pub use crate::marks::rect::Rect;
 use crate::marks::util::{coerce_color_channel, coerce_numeric_channel};
-
 
 // Define position channels for Cartesian Rect
 define_position_mark_channels! {
@@ -62,7 +61,7 @@ impl Mark<Cartesian> for Rect<Cartesian> {
             stroke_width,
             corner_radius,
             indices: None,
-            zindex: self.state.zindex,
+            zindex: self.get_zindex(),
         };
 
         Ok(vec![SceneMark::Rect(rect_mark)])

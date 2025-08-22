@@ -1,18 +1,16 @@
-use arrow::array::RecordBatch;
-use datafusion::logical_expr::{lit, Expr};
-use datafusion_common::ScalarValue;
-use avenger_common::value::ScalarOrArray;
-use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scenegraph::marks::symbol::SceneSymbolMark;
-use crate::{define_position_mark_channels, impl_mark_trait_common};
 use crate::error::AvengerChartError;
 use crate::marks::{ChannelType, Mark, RadiusExpression};
 use crate::polar::Polar;
 use crate::utils::ScalarValueHelpers;
-// // Import Symbol for the macro, then re-export it
+use crate::{define_position_mark_channels, impl_mark_trait_common};
+use arrow::array::RecordBatch;
+use avenger_common::value::ScalarOrArray;
+use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_scenegraph::marks::symbol::SceneSymbolMark;
+use datafusion::logical_expr::{Expr, lit};
+use datafusion_common::ScalarValue;
+// Import Symbol for the macro, then re-export it
 use crate::marks::symbol::Symbol;
-// use crate::error::AvengerChartError;
-// use crate::utils::ScalarValueHelpers;
 
 // Define position channels for Polar Symbol
 define_position_mark_channels! {
@@ -236,7 +234,7 @@ impl Mark<Polar> for Symbol<Polar> {
             stroke,
             angle,
             indices: None,
-            zindex: self.state.zindex,
+            zindex: self.get_zindex(),
             x_adjustment: None,
             y_adjustment: None,
         };
@@ -244,4 +242,3 @@ impl Mark<Polar> for Symbol<Polar> {
         Ok(vec![SceneMark::Symbol(symbol_mark)])
     }
 }
-

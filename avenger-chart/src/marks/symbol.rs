@@ -4,7 +4,7 @@ use crate::{define_common_mark_channels, impl_mark_base};
 use datafusion::scalar::ScalarValue;
 
 pub struct Symbol<C: CoordinateSystem> {
-    pub(crate) state: MarkState<C>,
+    state: MarkState<C>,
     __phantom: std::marker::PhantomData<C>,
 }
 
@@ -41,4 +41,3 @@ define_common_mark_channels! {
         },
     }
 }
-
