@@ -1,10 +1,20 @@
 use crate::axis::{AxisPosition, AxisTrait, CartesianAxis};
 use crate::error::AvengerChartError;
+use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::functions::math::expr_fn::{cos, sin};
 use datafusion::logical_expr::Expr;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+/// Space requirements for coordinate system guides that overflow the plot area
+#[derive(Debug, Clone)]
+pub struct OverflowSpaceRequirement {
+    pub top: f32,
+    pub bottom: f32,
+    pub left: f32,
+    pub right: f32,
+}
 
 /// Result of coordinate transformation
 #[derive(Debug, Clone)]
@@ -24,12 +34,6 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
 
     /// Get the names of position channels required by this coordinate system
     fn required_channels(&self) -> &'static [&'static str];
-
-    /// Whether this coordinate system supports dynamic layout (e.g., Taffy)
-    /// Default is false for backward compatibility
-    fn supports_dynamic_layout(&self) -> bool {
-        false
-    }
 
     /// Get default range for a specific position channel based on inner plot dimensions
     /// Returns the range as a tuple of (start, end) values
@@ -64,13 +68,17 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     where
         Self: Sized;
 
-    /// Convert axes to CartesianAxis if this is a Cartesian coordinate system
-    /// Returns None for non-Cartesian systems
-    fn axes_as_cartesian(
-        _axes: HashMap<String, Self::Axis>,
-    ) -> Option<HashMap<String, CartesianAxis>> {
-        None // Default implementation returns None
-    }
+    /// Measure how much space the coordinate system's guides need outside the plot area
+    ///
+    /// This measures overflow of axes, labels, and other visual guides beyond the
+    /// initial plot area bounds.
+    async fn measure_guide_overflow(
+        &self,
+        axes: HashMap<String, Self::Axis>,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        width: f32,
+        height: f32,
+    ) -> Result<OverflowSpaceRequirement, AvengerChartError>;
 
     /// Render all axes for this coordinate system
     ///
@@ -91,6 +99,45 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         plot_height: f32,
         padding: &crate::render::Padding,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
+
+    /// Get the appropriate clipping region for this coordinate system
+    ///
+    /// # Arguments
+    /// * `plot_width` - Width of the plot area
+    /// * `plot_height` - Height of the plot area
+    /// * `scales` - The scale registry containing all configured scales
+    ///
+    /// # Returns
+    /// The clipping region appropriate for this coordinate system
+    fn get_clip(
+        &self,
+        plot_width: f32,
+        plot_height: f32,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+    ) -> Clip;
+
+    /// Prepare the scalar batch with any coordinate-system-specific columns
+    ///
+    /// This method allows coordinate systems to inject additional scalar columns
+    /// that are needed for rendering. For example, polar coordinates may inject
+    /// center point coordinates.
+    ///
+    /// # Arguments
+    /// * `batch` - The scalar batch to prepare
+    /// * `plot_width` - Width of the plot area
+    /// * `plot_height` - Height of the plot area
+    ///
+    /// # Returns
+    /// The prepared batch with any additional columns
+    fn prepare_scalar_batch(
+        &self,
+        batch: datafusion::arrow::record_batch::RecordBatch,
+        _plot_width: f32,
+        _plot_height: f32,
+    ) -> Result<datafusion::arrow::record_batch::RecordBatch, AvengerChartError> {
+        // Default implementation returns batch unchanged
+        Ok(batch)
+    }
 }
 
 pub struct Cartesian;
@@ -101,10 +148,6 @@ impl CoordinateSystem for Cartesian {
 
     fn required_channels(&self) -> &'static [&'static str] {
         &["x", "y"]
-    }
-
-    fn supports_dynamic_layout(&self) -> bool {
-        true
     }
 
     fn default_range(&self, channel: &str, width: f64, height: f64) -> Option<(f64, f64)> {
@@ -131,11 +174,92 @@ impl CoordinateSystem for Cartesian {
         Ok(TransformResult { x, y, depth: None })
     }
 
-    fn axes_as_cartesian(
+    async fn measure_guide_overflow(
+        &self,
         axes: HashMap<String, Self::Axis>,
-    ) -> Option<HashMap<String, CartesianAxis>> {
-        // For Cartesian, Self::Axis = CartesianAxis, so we can just return the axes
-        Some(axes)
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        width: f32,
+        height: f32,
+    ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
+        use crate::render::Padding;
+        use avenger_geometry::marks::MarkGeometryUtils;
+
+        // The scales were configured with 80% of canvas dimensions
+        // We need to use consistent dimensions for measuring overflow
+        // Use the constant from render.rs for consistency
+        let plot_width = width * crate::render::INITIAL_PLOT_AREA_RATIO;
+        let plot_height = height * crate::render::INITIAL_PLOT_AREA_RATIO;
+
+        // Calculate padding that centers this plot area in the canvas
+        let initial_padding = Padding {
+            left: (width - plot_width) / 2.0,
+            right: (width - plot_width) / 2.0,
+            top: (height - plot_height) / 2.0,
+            bottom: (height - plot_height) / 2.0,
+        };
+
+        // Render axes to measure their bounding box
+        let axis_marks = self
+            .render_axes(&axes, scales, plot_width, plot_height, &initial_padding)
+            .await?;
+
+        // Calculate bounding box of all axis marks
+        let mut min_x = f32::INFINITY;
+        let mut max_x = f32::NEG_INFINITY;
+        let mut min_y = f32::INFINITY;
+        let mut max_y = f32::NEG_INFINITY;
+
+        for mark in &axis_marks {
+            let bbox = mark.bounding_box();
+            let lower = bbox.lower();
+            let upper = bbox.upper();
+            min_x = min_x.min(lower[0]);
+            max_x = max_x.max(upper[0]);
+            min_y = min_y.min(lower[1]);
+            max_y = max_y.max(upper[1]);
+        }
+
+        // Get the actual scale ranges to measure overflow against
+        // The scale ranges define where data can be plotted
+        let x_scale = scales
+            .get("x")
+            .ok_or_else(|| AvengerChartError::InternalError("No x scale found".to_string()))?;
+        let y_scale = scales
+            .get("y")
+            .ok_or_else(|| AvengerChartError::InternalError("No y scale found".to_string()))?;
+
+        let x_range = x_scale.numeric_interval_range()?;
+        let y_range = y_scale.numeric_interval_range()?;
+
+        // Calculate scale boundaries in screen coordinates
+        // Add initial padding to convert from plot-relative to screen coordinates
+        let scale_left = initial_padding.left + x_range.0.min(x_range.1);
+        let scale_right = initial_padding.left + x_range.0.max(x_range.1);
+        let scale_top = initial_padding.top + y_range.0.min(y_range.1);
+        let scale_bottom = initial_padding.top + y_range.0.max(y_range.1);
+
+        // Calculate overflow relative to scale boundaries
+        // Use a threshold to ignore tiny overflows from anti-aliasing/rounding
+        const THRESHOLD: f32 = 1.0; // Ignore overflows less than 1px as they're likely rounding errors
+        let left = (scale_left - min_x).max(0.0);
+        let right = (max_x - scale_right).max(0.0);
+        let top = (scale_top - min_y).max(0.0);
+        let bottom = (max_y - scale_bottom).max(0.0);
+
+        // Round very small overflows to zero
+        let left = if left < THRESHOLD { 0.0 } else { left };
+        let right = if right < THRESHOLD { 0.0 } else { right };
+        let top = if top < THRESHOLD { 0.0 } else { top };
+        let bottom = if bottom < THRESHOLD { 0.0 } else { bottom };
+
+        let result = OverflowSpaceRequirement {
+            top,
+            bottom,
+            left,
+            right,
+        };
+
+        Ok(result)
     }
 
     fn create_default_axes(
@@ -272,6 +396,21 @@ impl CoordinateSystem for Cartesian {
 
         Ok(axis_marks)
     }
+
+    fn get_clip(
+        &self,
+        plot_width: f32,
+        plot_height: f32,
+        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+    ) -> Clip {
+        // Cartesian uses rectangular clipping
+        Clip::Rect {
+            x: 0.0,
+            y: 0.0,
+            width: plot_width,
+            height: plot_height,
+        }
+    }
 }
 
 /// Helper function to extract axis title from mark encodings
@@ -306,14 +445,6 @@ impl Polar {
             center_y: None,
         }
     }
-
-    /// Set the center coordinates for polar transformation
-    /// This is called by the renderer to inject the calculated center
-    pub(crate) fn with_center(mut self, cx: Expr, cy: Expr) -> Self {
-        self.center_x = Some(cx);
-        self.center_y = Some(cy);
-        self
-    }
 }
 
 impl Default for Polar {
@@ -328,10 +459,6 @@ impl CoordinateSystem for Polar {
 
     fn required_channels(&self) -> &'static [&'static str] {
         &["r", "theta"]
-    }
-
-    fn supports_dynamic_layout(&self) -> bool {
-        false // Polar uses dynamic center injection but not full Taffy layout yet
     }
 
     fn default_range(&self, channel: &str, width: f64, height: f64) -> Option<(f64, f64)> {
@@ -350,7 +477,7 @@ impl CoordinateSystem for Polar {
         mut channels: HashMap<String, Expr>,
     ) -> Result<TransformResult, AvengerChartError> {
         use datafusion::logical_expr::lit;
-        
+
         // Get required channels
         let r = channels
             .remove("r")
@@ -374,20 +501,98 @@ impl CoordinateSystem for Polar {
         Ok(TransformResult { x, y, depth: None })
     }
 
+    async fn measure_guide_overflow(
+        &self,
+        axes: HashMap<String, Self::Axis>,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        width: f32,
+        height: f32,
+    ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
+        use crate::render::Padding;
+        use avenger_geometry::marks::MarkGeometryUtils;
+
+        // The scales were configured with 80% of canvas dimensions
+        // We need to use consistent dimensions for measuring overflow
+        // Use the constant from render.rs for consistency
+        let plot_width = width * crate::render::INITIAL_PLOT_AREA_RATIO;
+        let plot_height = height * crate::render::INITIAL_PLOT_AREA_RATIO;
+
+        // Calculate padding that centers this plot area in the canvas
+        let initial_padding = Padding {
+            left: (width - plot_width) / 2.0,
+            right: (width - plot_width) / 2.0,
+            top: (height - plot_height) / 2.0,
+            bottom: (height - plot_height) / 2.0,
+        };
+
+        // Render axes to measure their bounding box
+        let axis_marks = self
+            .render_axes(&axes, scales, plot_width, plot_height, &initial_padding)
+            .await?;
+
+        // Calculate bounding box of all axis marks
+        let mut min_x = f32::INFINITY;
+        let mut max_x = f32::NEG_INFINITY;
+        let mut min_y = f32::INFINITY;
+        let mut max_y = f32::NEG_INFINITY;
+
+        for mark in &axis_marks {
+            let bbox = mark.bounding_box();
+            let lower = bbox.lower();
+            let upper = bbox.upper();
+            min_x = min_x.min(lower[0]);
+            max_x = max_x.max(upper[0]);
+            min_y = min_y.min(lower[1]);
+            max_y = max_y.max(upper[1]);
+        }
+
+        // Calculate overflow on each side and add margin only if there's overflow
+        let margin = 5.0;
+        let left_overflow = (initial_padding.left - min_x).max(0.0);
+        let right_overflow = (max_x - (width - initial_padding.right)).max(0.0);
+        let top_overflow = (initial_padding.top - min_y).max(0.0);
+        let bottom_overflow = (max_y - (height - initial_padding.bottom)).max(0.0);
+
+        // Only add margin if there's actual overflow
+        let left = if left_overflow > 0.0 {
+            left_overflow + margin
+        } else {
+            0.0
+        };
+        let right = if right_overflow > 0.0 {
+            right_overflow + margin
+        } else {
+            0.0
+        };
+        let top = if top_overflow > 0.0 {
+            top_overflow + margin
+        } else {
+            0.0
+        };
+        let bottom = if bottom_overflow > 0.0 {
+            bottom_overflow + margin
+        } else {
+            0.0
+        };
+
+        Ok(OverflowSpaceRequirement {
+            top,
+            bottom,
+            left,
+            right,
+        })
+    }
+
     fn create_default_axes(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        marks: &[Box<dyn crate::marks::Mark<Self>>],
+        _marks: &[Box<dyn crate::marks::Mark<Self>>],
     ) -> HashMap<String, Self::Axis> {
         let mut default_axes = HashMap::new();
 
         // Create default axes for r and theta channels if they have scales
         for channel in ["r", "theta"] {
             if scales.get(channel).is_some() {
-                // Extract title from mark encodings
-                let title = extract_axis_title_from_marks(marks, channel)
-                    .unwrap_or_else(|| channel.to_string());
-
                 // Create axis with appropriate defaults
                 let axis_type = match channel {
                     "r" => crate::axis::PolarAxisType::Radial,
@@ -398,8 +603,8 @@ impl CoordinateSystem for Polar {
                 let axis = PolarAxis {
                     visible: true,
                     axis_type,
-                    title: Some(title),
-                    grid: true, // Enable grid by default for polar
+                    title: None,      // No titles for polar axes for now
+                    grid: true,       // Enable grid by default for polar
                     tick_count: None, // Will use scale's default
                     format_number: None,
                     grid_levels: None,
@@ -422,15 +627,18 @@ impl CoordinateSystem for Polar {
         plot_height: f32,
         padding: &crate::render::Padding,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        use avenger_common::value::ScalarOrArray;
         use avenger_scenegraph::marks::arc::SceneArcMark;
         use avenger_scenegraph::marks::rule::SceneRuleMark;
         use avenger_scenegraph::marks::text::SceneTextMark;
-        use avenger_common::value::ScalarOrArray;
-        use avenger_text::types::{TextAlign, TextBaseline, FontWeight, FontWeightNameSpec, FontStyle};
+        use avenger_text::types::{
+            FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline,
+        };
 
         let mut axis_marks = Vec::new();
 
-        // Calculate center of plot area
+        // Calculate center of plot area in canvas coordinates
+        // The axes need to be positioned in absolute canvas coordinates
         let center_x = padding.left + plot_width / 2.0;
         let center_y = padding.top + plot_height / 2.0;
         let max_radius = f32::min(plot_width, plot_height) / 2.0;
@@ -443,48 +651,51 @@ impl CoordinateSystem for Polar {
                     let tick_count = r_axis.tick_count.map(|c| c as f32);
                     let ticks = r_scale.ticks(tick_count.or(Some(5.0)))?;
                     let num_ticks = ticks.len();
-                    
+
                     if num_ticks > 0 {
                         // Create concentric circles for each tick value
                         let mut radii = Vec::with_capacity(num_ticks);
-                        
+
                         // Handle different array types for ticks
-                        use datafusion::arrow::datatypes::DataType;
                         use datafusion::arrow::array::{Float32Array, Float64Array};
-                        
+                        use datafusion::arrow::datatypes::DataType;
+
                         let tick_values: Vec<f64> = match ticks.data_type() {
-                            DataType::Float64 => {
-                                ticks.as_any()
-                                    .downcast_ref::<Float64Array>()
-                                    .unwrap()
-                                    .iter()
-                                    .filter_map(|v| v)
-                                    .collect()
-                            }
-                            DataType::Float32 => {
-                                ticks.as_any()
-                                    .downcast_ref::<Float32Array>()
-                                    .unwrap()
-                                    .iter()
-                                    .filter_map(|v| v.map(|f| f as f64))
-                                    .collect()
-                            }
+                            DataType::Float64 => ticks
+                                .as_any()
+                                .downcast_ref::<Float64Array>()
+                                .unwrap()
+                                .iter()
+                                .flatten()
+                                .collect(),
+                            DataType::Float32 => ticks
+                                .as_any()
+                                .downcast_ref::<Float32Array>()
+                                .unwrap()
+                                .iter()
+                                .filter_map(|v| v.map(|f| f as f64))
+                                .collect(),
                             _ => vec![],
                         };
-                        
+
                         for value in tick_values {
                             // Transform tick value through scale to get radius
-                            let tick_array = Arc::new(Float64Array::from(vec![value])) as datafusion::arrow::array::ArrayRef;
+                            let tick_array = Arc::new(Float64Array::from(vec![value]))
+                                as datafusion::arrow::array::ArrayRef;
                             let scaled_values = r_scale.scale(&tick_array)?;
-                            if let Some(scaled_array) = scaled_values.as_any().downcast_ref::<Float64Array>() {
-                                if scaled_array.len() > 0 {
+                            if let Some(scaled_array) =
+                                scaled_values.as_any().downcast_ref::<Float64Array>()
+                            {
+                                if !scaled_array.is_empty() {
                                     let radius = scaled_array.value(0) as f32;
                                     if radius.is_finite() && radius > 0.0 {
                                         radii.push(radius);
                                     }
                                 }
-                            } else if let Some(scaled_array) = scaled_values.as_any().downcast_ref::<Float32Array>() {
-                                if scaled_array.len() > 0 {
+                            } else if let Some(scaled_array) =
+                                scaled_values.as_any().downcast_ref::<Float32Array>()
+                            {
+                                if !scaled_array.is_empty() {
                                     let radius = scaled_array.value(0);
                                     if radius.is_finite() && radius > 0.0 {
                                         radii.push(radius);
@@ -492,98 +703,111 @@ impl CoordinateSystem for Polar {
                                 }
                             }
                         }
-                        
+
                         // Create arc marks for concentric circles if we have any radii
                         if !radii.is_empty() {
                             let grid_arcs = SceneArcMark {
-                            name: "polar-radial-grid".to_string(),
-                            clip: false,
-                            len: radii.len() as u32,
-                            gradients: vec![],
-                            x: ScalarOrArray::new_scalar(center_x),
-                            y: ScalarOrArray::new_scalar(center_y),
-                            start_angle: ScalarOrArray::new_scalar(0.0),
-                            end_angle: ScalarOrArray::new_scalar(2.0 * std::f32::consts::PI),
-                            outer_radius: ScalarOrArray::new_array(radii.clone()),
-                            inner_radius: ScalarOrArray::new_array(radii.iter().map(|r| (r - 0.5).max(0.0)).collect()), // Thin circles
-                            pad_angle: ScalarOrArray::new_scalar(0.0),
-                            corner_radius: ScalarOrArray::new_scalar(0.0),
-                            fill: ScalarOrArray::new_scalar(avenger_common::types::ColorOrGradient::Color([0.8, 0.8, 0.8, 0.3])),
-                            stroke: ScalarOrArray::new_scalar(avenger_common::types::ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
-                            stroke_width: ScalarOrArray::new_scalar(0.0),
-                            indices: None,
-                            zindex: Some(-1), // Render behind data
-                        };
-                            
+                                name: "polar-radial-grid".to_string(),
+                                clip: false,
+                                len: radii.len() as u32,
+                                gradients: vec![],
+                                x: ScalarOrArray::new_scalar(center_x),
+                                y: ScalarOrArray::new_scalar(center_y),
+                                start_angle: ScalarOrArray::new_scalar(0.0),
+                                end_angle: ScalarOrArray::new_scalar(2.0 * std::f32::consts::PI),
+                                outer_radius: ScalarOrArray::new_array(radii.clone()),
+                                inner_radius: ScalarOrArray::new_array(
+                                    radii.iter().map(|r| (r - 0.5).max(0.0)).collect(),
+                                ), // Thin circles
+                                pad_angle: ScalarOrArray::new_scalar(0.0),
+                                corner_radius: ScalarOrArray::new_scalar(0.0),
+                                fill: ScalarOrArray::new_scalar(
+                                    avenger_common::types::ColorOrGradient::Color([
+                                        0.8, 0.8, 0.8, 0.3,
+                                    ]),
+                                ),
+                                stroke: ScalarOrArray::new_scalar(
+                                    avenger_common::types::ColorOrGradient::Color([
+                                        0.0, 0.0, 0.0, 0.0,
+                                    ]),
+                                ),
+                                stroke_width: ScalarOrArray::new_scalar(0.0),
+                                indices: None,
+                                zindex: Some(-1), // Render behind data
+                            };
+
                             axis_marks.push(SceneMark::Arc(grid_arcs));
                         }
                     }
                 }
             }
-            
+
             // Add radial axis tick labels
             if r_axis.visible {
                 if let Some(r_scale) = scales.get("r") {
                     let tick_count = r_axis.tick_count.map(|c| c as f32);
                     let ticks = r_scale.ticks(tick_count.or(Some(5.0)))?;
-                    
+
                     // Format tick values as strings
                     let formatted_ticks = r_scale.format(&ticks)?;
-                    
+
                     // Position labels along the bottom vertical line (at theta = 3π/2)
                     let _label_angle = 3.0 * std::f32::consts::PI / 2.0; // Bottom
-                    let label_offset = 5.0; // Small offset from the tick circle
-                    
+                    let _label_offset = 2.0; // Small offset from the tick circle
+
                     let mut label_x = Vec::new();
                     let mut label_y = Vec::new();
                     let mut label_texts = Vec::new();
-                    
+
                     // Handle different array types for ticks
-                    use datafusion::arrow::datatypes::DataType;
                     use datafusion::arrow::array::{Float32Array, Float64Array};
-                    
+                    use datafusion::arrow::datatypes::DataType;
+
                     let tick_values: Vec<f64> = match ticks.data_type() {
-                        DataType::Float64 => {
-                            ticks.as_any()
-                                .downcast_ref::<Float64Array>()
-                                .unwrap()
-                                .iter()
-                                .filter_map(|v| v)
-                                .collect()
-                        }
-                        DataType::Float32 => {
-                            ticks.as_any()
-                                .downcast_ref::<Float32Array>()
-                                .unwrap()
-                                .iter()
-                                .filter_map(|v| v.map(|f| f as f64))
-                                .collect()
-                        }
+                        DataType::Float64 => ticks
+                            .as_any()
+                            .downcast_ref::<Float64Array>()
+                            .unwrap()
+                            .iter()
+                            .flatten()
+                            .collect(),
+                        DataType::Float32 => ticks
+                            .as_any()
+                            .downcast_ref::<Float32Array>()
+                            .unwrap()
+                            .iter()
+                            .filter_map(|v| v.map(|f| f as f64))
+                            .collect(),
                         _ => vec![],
                     };
-                    
+
                     // Get formatted strings and positions
                     for (i, value) in tick_values.iter().enumerate() {
                         // Transform tick value through scale to get radius
-                        let tick_array = Arc::new(Float64Array::from(vec![*value])) as datafusion::arrow::array::ArrayRef;
+                        let tick_array = Arc::new(Float64Array::from(vec![*value]))
+                            as datafusion::arrow::array::ArrayRef;
                         let scaled_values = r_scale.scale(&tick_array)?;
-                        
-                        let radius = if let Some(scaled_array) = scaled_values.as_any().downcast_ref::<Float64Array>() {
+
+                        let radius = if let Some(scaled_array) =
+                            scaled_values.as_any().downcast_ref::<Float64Array>()
+                        {
                             scaled_array.value(0) as f32
-                        } else if let Some(scaled_array) = scaled_values.as_any().downcast_ref::<Float32Array>() {
+                        } else if let Some(scaled_array) =
+                            scaled_values.as_any().downcast_ref::<Float32Array>()
+                        {
                             scaled_array.value(0)
                         } else {
                             continue;
                         };
-                        
+
                         if radius.is_finite() && radius > 0.0 {
-                            // Position label slightly below the grid circle
+                            // Position label exactly on the grid circle, centered
                             let x = center_x;
-                            let y = center_y + radius + label_offset;
-                            
+                            let y = center_y + radius;
+
                             label_x.push(x);
                             label_y.push(y);
-                            
+
                             // Get formatted text for this tick
                             match formatted_ticks.value() {
                                 avenger_common::value::ScalarOrArrayValue::Array(texts) => {
@@ -597,7 +821,7 @@ impl CoordinateSystem for Polar {
                             }
                         }
                     }
-                    
+
                     if !label_texts.is_empty() {
                         let labels = SceneTextMark {
                             name: "polar-r-labels".to_string(),
@@ -609,16 +833,22 @@ impl CoordinateSystem for Polar {
                             align: ScalarOrArray::new_scalar(TextAlign::Center),
                             baseline: ScalarOrArray::new_scalar(TextBaseline::Top),
                             angle: ScalarOrArray::new_scalar(0.0),
-                            color: ScalarOrArray::new_scalar(avenger_common::types::ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
-                            font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
-                            font_size: ScalarOrArray::new_scalar(10.0),
-                            font_weight: ScalarOrArray::new_scalar(FontWeight::Name(FontWeightNameSpec::Normal)),
+                            color: ScalarOrArray::new_scalar(
+                                avenger_common::types::ColorOrGradient::Color([0.4, 0.4, 0.4, 1.0]),
+                            ), // Lighter gray
+                            font: ScalarOrArray::new_scalar(
+                                "Atkinson Hyperlegible Next".to_string(),
+                            ),
+                            font_size: ScalarOrArray::new_scalar(8.0), // Smaller font
+                            font_weight: ScalarOrArray::new_scalar(FontWeight::Name(
+                                FontWeightNameSpec::Normal,
+                            )),
                             font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
                             limit: ScalarOrArray::new_scalar(0.0),
                             indices: None,
                             zindex: Some(0),
                         };
-                        
+
                         axis_marks.push(SceneMark::Text(Arc::new(labels)));
                     }
                 }
@@ -633,50 +863,106 @@ impl CoordinateSystem for Polar {
                     let tick_count = theta_axis.tick_count.map(|c| c as f32);
                     let ticks = theta_scale.ticks(tick_count.or(Some(8.0)))?;
                     let num_ticks = ticks.len();
-                    
+
                     if num_ticks > 0 {
                         // Create radial lines for each tick value
                         let mut x_values = Vec::with_capacity(num_ticks);
                         let mut y_values = Vec::with_capacity(num_ticks);
                         let mut x2_values = Vec::with_capacity(num_ticks);
                         let mut y2_values = Vec::with_capacity(num_ticks);
-                        
+
                         // Handle different array types for ticks
-                        use datafusion::arrow::datatypes::DataType;
                         use datafusion::arrow::array::{Float32Array, Float64Array};
-                        
+                        use datafusion::arrow::datatypes::DataType;
+
                         let angle_values: Vec<f64> = match ticks.data_type() {
-                            DataType::Float64 => {
-                                ticks.as_any()
-                                    .downcast_ref::<Float64Array>()
-                                    .unwrap()
-                                    .iter()
-                                    .filter_map(|v| v)
-                                    .collect()
-                            }
-                            DataType::Float32 => {
-                                ticks.as_any()
-                                    .downcast_ref::<Float32Array>()
-                                    .unwrap()
-                                    .iter()
-                                    .filter_map(|v| v.map(|f| f as f64))
-                                    .collect()
-                            }
+                            DataType::Float64 => ticks
+                                .as_any()
+                                .downcast_ref::<Float64Array>()
+                                .unwrap()
+                                .iter()
+                                .flatten()
+                                .collect(),
+                            DataType::Float32 => ticks
+                                .as_any()
+                                .downcast_ref::<Float32Array>()
+                                .unwrap()
+                                .iter()
+                                .filter_map(|v| v.map(|f| f as f64))
+                                .collect(),
                             _ => vec![],
                         };
-                        
+
+                        // Get the outermost circle radius from the r scale if available
+                        // This should match the outermost concentric circle, not extend beyond it
+                        let outer_radius = if let Some(r_scale) = scales.get("r") {
+                            // Get tick values to find the outermost grid circle
+                            let tick_count = if let Some(r_axis) = axes.get("r") {
+                                r_axis.tick_count.map(|c| c as f32)
+                            } else {
+                                None
+                            };
+
+                            let ticks = r_scale.ticks(tick_count.or(Some(5.0)))?;
+
+                            // Get the last tick value which represents the outermost circle
+                            use datafusion::arrow::datatypes::DataType;
+                            let last_tick = match ticks.data_type() {
+                                DataType::Float64 => {
+                                    let array =
+                                        ticks.as_any().downcast_ref::<Float64Array>().unwrap();
+                                    if !array.is_empty() {
+                                        array.value(array.len() - 1)
+                                    } else {
+                                        120.0 // fallback
+                                    }
+                                }
+                                DataType::Float32 => {
+                                    let array =
+                                        ticks.as_any().downcast_ref::<Float32Array>().unwrap();
+                                    if !array.is_empty() {
+                                        array.value(array.len() - 1) as f64
+                                    } else {
+                                        120.0 // fallback
+                                    }
+                                }
+                                _ => 120.0, // fallback
+                            };
+
+                            // Scale this tick value to get the actual radius
+                            let tick_array = Arc::new(Float64Array::from(vec![last_tick]))
+                                as datafusion::arrow::array::ArrayRef;
+                            if let Ok(scaled) = r_scale.scale(&tick_array) {
+                                if let Some(scaled_f64) =
+                                    scaled.as_any().downcast_ref::<Float64Array>()
+                                {
+                                    scaled_f64.value(0) as f32
+                                } else if let Some(scaled_f32) =
+                                    scaled.as_any().downcast_ref::<Float32Array>()
+                                {
+                                    scaled_f32.value(0)
+                                } else {
+                                    max_radius
+                                }
+                            } else {
+                                max_radius
+                            }
+                        } else {
+                            max_radius
+                        };
+
                         for angle in angle_values {
                             // Start from center
                             x_values.push(center_x);
                             y_values.push(center_y);
-                            
-                            // End at max radius
+
+                            // End at outer radius (matches outermost circle)
                             let cos_angle = (angle as f32).cos();
                             let sin_angle = (angle as f32).sin();
-                            x2_values.push(center_x + max_radius * cos_angle);
-                            y2_values.push(center_y + max_radius * sin_angle);
+                            x2_values.push(center_x + outer_radius * cos_angle);
+                            y2_values.push(center_y + outer_radius * sin_angle);
                         }
-                        
+
                         // Create rule marks for radial lines
                         let grid_lines = SceneRuleMark {
                             name: "polar-angular-grid".to_string(),
@@ -687,73 +973,75 @@ impl CoordinateSystem for Polar {
                             y: ScalarOrArray::new_array(y_values),
                             x2: ScalarOrArray::new_array(x2_values),
                             y2: ScalarOrArray::new_array(y2_values),
-                            stroke: ScalarOrArray::new_scalar(avenger_common::types::ColorOrGradient::Color([0.8, 0.8, 0.8, 0.3])),
+                            stroke: ScalarOrArray::new_scalar(
+                                avenger_common::types::ColorOrGradient::Color([0.8, 0.8, 0.8, 0.3]),
+                            ),
                             stroke_width: ScalarOrArray::new_scalar(1.0),
-                            stroke_cap: ScalarOrArray::new_scalar(avenger_common::types::StrokeCap::Butt),
+                            stroke_cap: ScalarOrArray::new_scalar(
+                                avenger_common::types::StrokeCap::Butt,
+                            ),
                             stroke_dash: None,
                             indices: None,
                             zindex: Some(-1), // Render behind data
                         };
-                        
+
                         axis_marks.push(SceneMark::Rule(grid_lines));
                     }
                 }
             }
-            
+
             // Add angular axis tick labels
             if theta_axis.visible {
                 if let Some(theta_scale) = scales.get("theta") {
                     let tick_count = theta_axis.tick_count.map(|c| c as f32);
                     let ticks = theta_scale.ticks(tick_count.or(Some(8.0)))?;
-                    
+
                     // Format tick values as strings
                     let formatted_ticks = theta_scale.format(&ticks)?;
-                    
+
                     let label_offset = 15.0; // Offset from the outer circle
                     let label_radius = max_radius + label_offset;
-                    
+
                     let mut label_x = Vec::new();
                     let mut label_y = Vec::new();
                     let mut label_texts = Vec::new();
                     let mut label_aligns = Vec::new();
                     let mut label_baselines = Vec::new();
-                    
+
                     // Handle different array types for ticks
-                    use datafusion::arrow::datatypes::DataType;
                     use datafusion::arrow::array::{Float32Array, Float64Array};
-                    
+                    use datafusion::arrow::datatypes::DataType;
+
                     let angle_values: Vec<f64> = match ticks.data_type() {
-                        DataType::Float64 => {
-                            ticks.as_any()
-                                .downcast_ref::<Float64Array>()
-                                .unwrap()
-                                .iter()
-                                .filter_map(|v| v)
-                                .collect()
-                        }
-                        DataType::Float32 => {
-                            ticks.as_any()
-                                .downcast_ref::<Float32Array>()
-                                .unwrap()
-                                .iter()
-                                .filter_map(|v| v.map(|f| f as f64))
-                                .collect()
-                        }
+                        DataType::Float64 => ticks
+                            .as_any()
+                            .downcast_ref::<Float64Array>()
+                            .unwrap()
+                            .iter()
+                            .flatten()
+                            .collect(),
+                        DataType::Float32 => ticks
+                            .as_any()
+                            .downcast_ref::<Float32Array>()
+                            .unwrap()
+                            .iter()
+                            .filter_map(|v| v.map(|f| f as f64))
+                            .collect(),
                         _ => vec![],
                     };
-                    
+
                     // Get formatted strings and positions
                     for (i, angle) in angle_values.iter().enumerate() {
                         let cos_angle = (*angle as f32).cos();
                         let sin_angle = (*angle as f32).sin();
-                        
+
                         // Position label outside the plot circle
                         let x = center_x + label_radius * cos_angle;
                         let y = center_y + label_radius * sin_angle;
-                        
+
                         label_x.push(x);
                         label_y.push(y);
-                        
+
                         // Determine text alignment based on angle
                         let align = if cos_angle.abs() < 0.1 {
                             TextAlign::Center
@@ -762,7 +1050,7 @@ impl CoordinateSystem for Polar {
                         } else {
                             TextAlign::Right
                         };
-                        
+
                         let baseline = if sin_angle.abs() < 0.1 {
                             TextBaseline::Middle
                         } else if sin_angle > 0.0 {
@@ -770,10 +1058,10 @@ impl CoordinateSystem for Polar {
                         } else {
                             TextBaseline::Bottom
                         };
-                        
+
                         label_aligns.push(align);
                         label_baselines.push(baseline);
-                        
+
                         // Get formatted text and convert to degrees if appropriate
                         let text = match formatted_ticks.value() {
                             avenger_common::value::ScalarOrArrayValue::Array(texts) => {
@@ -785,9 +1073,10 @@ impl CoordinateSystem for Polar {
                             }
                             avenger_common::value::ScalarOrArrayValue::Scalar(text) => text.clone(),
                         };
-                        
+
                         // Convert radians to degrees for display if the value looks like radians
-                        let display_text = if *angle >= 0.0 && *angle <= 2.0 * std::f64::consts::PI {
+                        let display_text = if *angle >= 0.0 && *angle <= 2.0 * std::f64::consts::PI
+                        {
                             // It's in radians, convert to degrees
                             let degrees = (*angle * 180.0 / std::f64::consts::PI).round() as i32;
                             format!("{}°", degrees)
@@ -796,7 +1085,7 @@ impl CoordinateSystem for Polar {
                         };
                         label_texts.push(display_text);
                     }
-                    
+
                     if !label_texts.is_empty() {
                         let labels = SceneTextMark {
                             name: "polar-theta-labels".to_string(),
@@ -808,93 +1097,129 @@ impl CoordinateSystem for Polar {
                             align: ScalarOrArray::new_array(label_aligns),
                             baseline: ScalarOrArray::new_array(label_baselines),
                             angle: ScalarOrArray::new_scalar(0.0),
-                            color: ScalarOrArray::new_scalar(avenger_common::types::ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
-                            font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+                            color: ScalarOrArray::new_scalar(
+                                avenger_common::types::ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]),
+                            ),
+                            font: ScalarOrArray::new_scalar(
+                                "Atkinson Hyperlegible Next".to_string(),
+                            ),
                             font_size: ScalarOrArray::new_scalar(10.0),
-                            font_weight: ScalarOrArray::new_scalar(FontWeight::Name(FontWeightNameSpec::Normal)),
+                            font_weight: ScalarOrArray::new_scalar(FontWeight::Name(
+                                FontWeightNameSpec::Normal,
+                            )),
                             font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
                             limit: ScalarOrArray::new_scalar(0.0),
                             indices: None,
                             zindex: Some(0),
                         };
-                        
+
                         axis_marks.push(SceneMark::Text(Arc::new(labels)));
                     }
                 }
             }
         }
-        
-        // Add axis titles
-        let mut title_marks = Vec::new();
-        
-        // Radial axis title
-        if let Some(r_axis) = axes.get("r") {
-            if let Some(ref title) = r_axis.title {
-                if !title.is_empty() {
-                    // Position title at the bottom-left of the plot
-                    let title_x = padding.left;
-                    let title_y = padding.top + plot_height + 30.0; // Below the plot
-                    
-                    let title_mark = SceneTextMark {
-                        name: "polar-r-title".to_string(),
-                        clip: false,
-                        len: 1,
-                        text: ScalarOrArray::new_scalar(title.clone()),
-                        x: ScalarOrArray::new_scalar(title_x),
-                        y: ScalarOrArray::new_scalar(title_y),
-                        align: ScalarOrArray::new_scalar(TextAlign::Left),
-                        baseline: ScalarOrArray::new_scalar(TextBaseline::Top),
-                        angle: ScalarOrArray::new_scalar(0.0),
-                        color: ScalarOrArray::new_scalar(avenger_common::types::ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
-                        font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
-                        font_size: ScalarOrArray::new_scalar(12.0),
-                        font_weight: ScalarOrArray::new_scalar(FontWeight::Name(FontWeightNameSpec::Bold)),
-                        font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
-                        limit: ScalarOrArray::new_scalar(0.0),
-                        indices: None,
-                        zindex: Some(0),
-                    };
-                    
-                    title_marks.push(SceneMark::Text(Arc::new(title_mark)));
-                }
-            }
-        }
-        
-        // Angular axis title
-        if let Some(theta_axis) = axes.get("theta") {
-            if let Some(ref title) = theta_axis.title {
-                if !title.is_empty() {
-                    // Position title at the top of the plot
-                    let title_x = center_x;
-                    let title_y = padding.top - 10.0; // Above the plot
-                    
-                    let title_mark = SceneTextMark {
-                        name: "polar-theta-title".to_string(),
-                        clip: false,
-                        len: 1,
-                        text: ScalarOrArray::new_scalar(title.clone()),
-                        x: ScalarOrArray::new_scalar(title_x),
-                        y: ScalarOrArray::new_scalar(title_y),
-                        align: ScalarOrArray::new_scalar(TextAlign::Center),
-                        baseline: ScalarOrArray::new_scalar(TextBaseline::Bottom),
-                        angle: ScalarOrArray::new_scalar(0.0),
-                        color: ScalarOrArray::new_scalar(avenger_common::types::ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
-                        font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
-                        font_size: ScalarOrArray::new_scalar(12.0),
-                        font_weight: ScalarOrArray::new_scalar(FontWeight::Name(FontWeightNameSpec::Bold)),
-                        font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
-                        limit: ScalarOrArray::new_scalar(0.0),
-                        indices: None,
-                        zindex: Some(0),
-                    };
-                    
-                    title_marks.push(SceneMark::Text(Arc::new(title_mark)));
-                }
-            }
-        }
-        
-        axis_marks.extend(title_marks);
+
+        // Skip axis titles for polar axes for now - we'll focus on tick label spacing
 
         Ok(axis_marks)
+    }
+
+    fn get_clip(
+        &self,
+        plot_width: f32,
+        plot_height: f32,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+    ) -> Clip {
+        // For polar plots, create a circular clipping path
+        if let Some(r_scale) = scales.get("r") {
+            // Get the maximum radius from the scale's range
+            if let Ok(r_range) = r_scale.numeric_interval_range() {
+                let max_radius = r_range.1.max(r_range.0);
+
+                // Create a circular path centered in the plot area
+                let center_x = plot_width / 2.0;
+                let center_y = plot_height / 2.0;
+
+                // Build a circular path using lyon
+                let mut builder = lyon_path::Path::builder();
+
+                // Start at the rightmost point
+                builder.begin(lyon_path::math::point(center_x + max_radius, center_y));
+
+                // Create a circle using bezier curves
+                // We'll use 4 arcs to make a complete circle
+                let control_dist = max_radius * 0.552_284_8; // Magic number for circle approximation with bezier curves
+
+                // Top-right quadrant
+                builder.cubic_bezier_to(
+                    lyon_path::math::point(center_x + max_radius, center_y - control_dist),
+                    lyon_path::math::point(center_x + control_dist, center_y - max_radius),
+                    lyon_path::math::point(center_x, center_y - max_radius),
+                );
+
+                // Top-left quadrant
+                builder.cubic_bezier_to(
+                    lyon_path::math::point(center_x - control_dist, center_y - max_radius),
+                    lyon_path::math::point(center_x - max_radius, center_y - control_dist),
+                    lyon_path::math::point(center_x - max_radius, center_y),
+                );
+
+                // Bottom-left quadrant
+                builder.cubic_bezier_to(
+                    lyon_path::math::point(center_x - max_radius, center_y + control_dist),
+                    lyon_path::math::point(center_x - control_dist, center_y + max_radius),
+                    lyon_path::math::point(center_x, center_y + max_radius),
+                );
+
+                // Bottom-right quadrant
+                builder.cubic_bezier_to(
+                    lyon_path::math::point(center_x + control_dist, center_y + max_radius),
+                    lyon_path::math::point(center_x + max_radius, center_y + control_dist),
+                    lyon_path::math::point(center_x + max_radius, center_y),
+                );
+
+                builder.close();
+
+                return Clip::Path(builder.build());
+            }
+        }
+
+        // Fallback to no clipping if we can't determine the radius
+        Clip::None
+    }
+
+    fn prepare_scalar_batch(
+        &self,
+        batch: datafusion::arrow::record_batch::RecordBatch,
+        plot_width: f32,
+        plot_height: f32,
+    ) -> Result<datafusion::arrow::record_batch::RecordBatch, AvengerChartError> {
+        use datafusion::arrow::array::Float32Array;
+        use datafusion::arrow::datatypes::{DataType, Field, Schema};
+        use std::sync::Arc;
+
+        // Calculate center of plot area
+        let center_x = plot_width / 2.0;
+        let center_y = plot_height / 2.0;
+
+        // Get existing schema and columns
+        let schema = batch.schema();
+        let mut fields: Vec<Field> = schema.fields().iter().map(|f| f.as_ref().clone()).collect();
+        let mut columns: Vec<Arc<dyn datafusion::arrow::array::Array>> = batch.columns().to_vec();
+
+        // Add polar_center_x column
+        let center_x_array = Float32Array::from(vec![center_x; batch.num_rows()]);
+        columns.push(Arc::new(center_x_array));
+        fields.push(Field::new("polar_center_x", DataType::Float32, false));
+
+        // Add polar_center_y column
+        let center_y_array = Float32Array::from(vec![center_y; batch.num_rows()]);
+        columns.push(Arc::new(center_y_array));
+        fields.push(Field::new("polar_center_y", DataType::Float32, false));
+
+        // Create new batch with additional columns
+        let new_schema = Arc::new(Schema::new(fields));
+        datafusion::arrow::record_batch::RecordBatch::try_new(new_schema, columns)
+            .map_err(AvengerChartError::ArrowError)
     }
 }

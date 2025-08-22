@@ -3,7 +3,7 @@ use avenger_chart::axis::AxisPosition;
 use avenger_chart::coords::Cartesian;
 use avenger_chart::legend::LegendPosition;
 use avenger_chart::marks::symbol::Symbol;
-use avenger_chart::plot::Plot;
+use avenger_chart::plot::{Plot, PlotSubtitle, PlotTitle, TitleAlign};
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
@@ -217,4 +217,58 @@ async fn subtitle_only() {
         );
 
     assert_visual_match_default(plot, "layout", "subtitle_only").await;
+}
+
+#[tokio::test]
+async fn title_plot_area_only() {
+    let df = make_df_categories();
+    let plot = Plot::new(Cartesian)
+        .configure_title("Plot Area Only Title", |t| PlotTitle {
+            align: TitleAlign::PlotAreaOnly,
+            ..t
+        })
+        .configure_subtitle("Plot Area Only Subtitle", |s| PlotSubtitle {
+            align: TitleAlign::PlotAreaOnly,
+            ..s
+        })
+        .data(df)
+        .scale_x(|s| s.domain((0.0, 10.0)))
+        .scale_y(|s| s.domain((0.0, 12.0)))
+        .legend_fill(|l| l.visible(false))
+        .mark(
+            Symbol::new()
+                .x(col("x"))
+                .y(col("y"))
+                .size(100.0)
+                .fill("#2ca25f"),
+        );
+
+    assert_visual_match_default(plot, "layout", "title_plot_area_only").await;
+}
+
+#[tokio::test]
+async fn title_plot_area_only_with_legend() {
+    let df = make_df_categories();
+    let plot = Plot::new(Cartesian)
+        .configure_title("Plot Area Title", |t| PlotTitle {
+            align: TitleAlign::PlotAreaOnly,
+            ..t
+        })
+        .configure_subtitle("With Right Legend", |s| PlotSubtitle {
+            align: TitleAlign::PlotAreaOnly,
+            ..s
+        })
+        .data(df)
+        .scale_x(|s| s.domain((0.0, 10.0)))
+        .scale_y(|s| s.domain((0.0, 12.0)))
+        .legend_fill(|l| l.title("Category").position(LegendPosition::Right))
+        .mark(
+            Symbol::new()
+                .x(col("x"))
+                .y(col("y"))
+                .size(100.0)
+                .fill(col("category")),
+        );
+
+    assert_visual_match_default(plot, "layout", "title_plot_area_only_with_legend").await;
 }

@@ -2,15 +2,15 @@ use avenger_chart::coords::Polar;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
 use avenger_chart::render::CanvasExt;
-use datafusion::prelude::*;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{CanvasConfig, PngCanvas};
+use datafusion::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create sample data with polar coordinates
     let ctx = SessionContext::new();
-    
+
     // SQL for test data
     let sql = "SELECT 
         angle * 0.0174533 as theta,  -- Convert degrees to radians
@@ -38,11 +38,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         (400.0, 600.0, "polar_test_400x600.png"),
         (600.0, 400.0, "polar_test_600x400.png"),
     ];
-    
+
     for (width, height, filename) in sizes {
         // Create data frame for this iteration
         let df = ctx.sql(sql).await?;
-        
+
         // Create canvas with specific dimensions
         let dimensions = CanvasDimensions {
             size: [width, height],
@@ -62,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .r(col("radius"))
                     .theta(col("theta"))
                     .fill(col("category"))
-                    .size(lit(100.0))
+                    .size(lit(100.0)),
             )
             .with_size(width, height);
 
@@ -74,9 +74,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Save the PNG file
         image.save(filename)?;
-        
+
         println!("Polar plot saved to {} ({}x{})", filename, width, height);
     }
-    
+
     Ok(())
 }

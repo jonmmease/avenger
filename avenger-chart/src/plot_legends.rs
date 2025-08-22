@@ -9,7 +9,7 @@ macro_rules! legend_methods {
             pub fn $method<F>(mut self, f: F) -> Self
             where F: FnOnce(Legend) -> Legend
             {
-                let current = self.legends.remove($channel)
+                let current = self.legends.shift_remove($channel)
                     .unwrap_or_else(|| Legend::new());
                 let legend = f(current);
                 self.legends.insert($channel.to_string(), legend);

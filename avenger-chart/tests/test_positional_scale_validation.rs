@@ -149,6 +149,9 @@ async fn test_explicit_domain_allows_literals() {
     let result = canvas.render_plot(&plot).await;
 
     // Should NOT error because domain is explicit
+    if let Err(e) = &result {
+        eprintln!("Unexpected error: {:?}", e);
+    }
     assert!(result.is_ok());
 }
 

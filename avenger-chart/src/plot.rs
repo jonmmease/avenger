@@ -4,6 +4,7 @@ use crate::marks::{Mark, RadiusExpression};
 use crate::scales::Scale;
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::lit;
+use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -32,12 +33,23 @@ pub enum AxisSpec<A> {
     Reference(String),
 }
 
+/// Alignment options for title and subtitle
+#[derive(Clone, Debug, Copy, PartialEq, Default)]
+pub enum TitleAlign {
+    /// Title/subtitle spans entire width minus padding columns
+    #[default]
+    FullWidth,
+    /// Title/subtitle only spans the plot area column
+    PlotAreaOnly,
+}
+
 /// Minimal plot title configuration
 #[derive(Clone, Debug)]
 pub struct PlotTitle {
     pub text: String,
     pub font_size: f32,
     pub font_family: String,
+    pub align: TitleAlign,
 }
 
 /// Minimal plot subtitle configuration
@@ -46,12 +58,13 @@ pub struct PlotSubtitle {
     pub text: String,
     pub font_size: f32,
     pub font_family: String,
+    pub align: TitleAlign,
 }
 
 pub struct Plot<C: CoordinateSystem> {
     coord_system: C,
     pub(crate) axis_specs: HashMap<String, AxisSpec<C::Axis>>,
-    pub(crate) legends: HashMap<String, Legend>,
+    pub(crate) legends: IndexMap<String, Legend>,
     pub(crate) marks: Vec<Box<dyn Mark<C>>>,
 
     /// Plot-level data for faceting and mark inheritance
@@ -369,7 +382,7 @@ impl<C: CoordinateSystem> Plot<C> {
         Plot {
             coord_system,
             axis_specs: HashMap::new(),
-            legends: HashMap::new(),
+            legends: IndexMap::new(),
             marks: Vec::new(),
             data: None,
             facet_spec: None,
@@ -849,7 +862,23 @@ impl<C: CoordinateSystem> Plot<C> {
             text: text.into(),
             font_size: 18.0,
             font_family: "Atkinson Hyperlegible Next".to_string(),
+            align: TitleAlign::default(),
         });
+        self
+    }
+
+    /// Configure the title with a closure for advanced options
+    pub fn configure_title<F>(mut self, text: impl Into<String>, f: F) -> Self
+    where
+        F: FnOnce(PlotTitle) -> PlotTitle,
+    {
+        let title = PlotTitle {
+            text: text.into(),
+            font_size: 18.0,
+            font_family: "Atkinson Hyperlegible Next".to_string(),
+            align: TitleAlign::default(),
+        };
+        self.title = Some(f(title));
         self
     }
 
@@ -859,7 +888,23 @@ impl<C: CoordinateSystem> Plot<C> {
             text: text.into(),
             font_size: 14.0,
             font_family: "Atkinson Hyperlegible Next".to_string(),
+            align: TitleAlign::default(),
         });
+        self
+    }
+
+    /// Configure the subtitle with a closure for advanced options
+    pub fn configure_subtitle<F>(mut self, text: impl Into<String>, f: F) -> Self
+    where
+        F: FnOnce(PlotSubtitle) -> PlotSubtitle,
+    {
+        let subtitle = PlotSubtitle {
+            text: text.into(),
+            font_size: 14.0,
+            font_family: "Atkinson Hyperlegible Next".to_string(),
+            align: TitleAlign::default(),
+        };
+        self.subtitle = Some(f(subtitle));
         self
     }
 
@@ -871,39 +916,6 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Access the configured subtitle
     pub fn get_subtitle(&self) -> Option<&PlotSubtitle> {
         self.subtitle.as_ref()
-    }
-
-    /// Measure padding required for axes, legends, etc.
-    pub fn measure_padding(&self, width: f32, height: f32) -> crate::render::Padding {
-        // Check if this is a polar coordinate system
-        let coord_type_name = std::any::type_name::<C>();
-        let is_polar = coord_type_name.contains("Polar");
-        
-        if is_polar {
-            // Calculate padding for polar plots
-            self.measure_polar_padding(width, height)
-        } else {
-            // Default padding for Cartesian plots
-            crate::render::Padding {
-                left: 60.0,
-                right: 60.0,
-                top: 30.0,
-                bottom: 50.0,
-            }
-        }
-    }
-    
-    /// Calculate padding specifically for polar plots
-    /// This is a simple estimate - proper measurement requires scales which aren't available here
-    fn measure_polar_padding(&self, _width: f32, _height: f32) -> crate::render::Padding {
-        // Return minimal padding - the actual measurement will be done in the renderer
-        // with access to configured scales
-        crate::render::Padding {
-            left: 10.0,
-            right: 10.0,
-            top: 10.0,
-            bottom: 10.0,
-        }
     }
 }
 

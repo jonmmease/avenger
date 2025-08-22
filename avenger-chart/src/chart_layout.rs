@@ -1,7 +1,7 @@
 use crate::axis::{AxisPosition, CartesianAxis};
 use crate::error::AvengerChartError;
 use crate::legend::{Legend, LegendPosition};
-use crate::plot::{PlotSubtitle, PlotTitle};
+use crate::plot::{PlotSubtitle, PlotTitle, TitleAlign};
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_guides::axis::{
     band::make_band_axis_marks,
@@ -9,6 +9,7 @@ use avenger_guides::axis::{
     opts::{AxisConfig, AxisOrientation},
 };
 use avenger_scales::scales::ConfiguredScale;
+use indexmap::IndexMap;
 use tracing::{debug, trace};
 // Use stable ordering by iterating sorted keys, not map type
 use std::collections::HashMap;
@@ -52,6 +53,22 @@ struct ComponentGridMap {
     // Dynamic grid dimensions
     row_count: usize,
     col_count: usize,
+}
+
+impl ComponentGridMap {
+    fn new() -> Self {
+        ComponentGridMap {
+            cells: HashMap::new(),
+            row_count: 0,
+            col_count: 0,
+        }
+    }
+
+    fn add_component(&mut self, component: ComponentType, row: usize, col: usize) {
+        self.cells.insert((row, col), component);
+        self.row_count = self.row_count.max(row + 1);
+        self.col_count = self.col_count.max(col + 1);
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -98,7 +115,7 @@ struct GridBuilder {
     bottom_components: Vec<ComponentType>, // Order: axis first, then legend container
 
     // Track legends by position for container creation
-    legends_by_position: HashMap<LegendPosition, Vec<(String, Legend)>>,
+    legends_by_position: IndexMap<LegendPosition, Vec<(String, Legend)>>,
 }
 
 #[derive(Debug)]
@@ -142,9 +159,11 @@ impl ChartLayout {
     }
 
     /// Create a new chart layout with default axes and legends included
-    pub fn new<C: crate::coords::CoordinateSystem>(
-        axes: &HashMap<String, CartesianAxis>,
-        legends: &HashMap<String, Legend>,
+    /// Create a new ChartLayout with overflow space requirements
+    /// This is the unified layout method for all coordinate systems
+    pub fn new_with_overflow<C: crate::coords::CoordinateSystem>(
+        overflow: &crate::coords::OverflowSpaceRequirement,
+        legends: &IndexMap<String, Legend>,
         scales: &HashMap<String, ConfiguredScale>,
         preferred_size: Option<(f32, f32)>,
         title: Option<&PlotTitle>,
@@ -153,9 +172,6 @@ impl ChartLayout {
     ) -> Result<Self, AvengerChartError> {
         let mut taffy = TaffyTree::new();
         let mut builder = GridBuilder::new();
-
-        // Analyze component positions
-        let axes_by_position = Self::group_axes_by_position(axes);
 
         // Build grid structure dynamically
         builder.add_plot_area(); // Always present
@@ -168,9 +184,18 @@ impl ChartLayout {
             builder.add_subtitle();
         }
 
-        // Add axes by position
-        for (position, axis_channels) in &axes_by_position {
-            builder.add_axes_at_position(*position, axis_channels.len());
+        // Add overflow regions as needed
+        if overflow.top > 0.0 {
+            builder.add_axes_at_position(AxisPosition::Top, 1);
+        }
+        if overflow.bottom > 0.0 {
+            builder.add_axes_at_position(AxisPosition::Bottom, 1);
+        }
+        if overflow.left > 0.0 {
+            builder.add_axes_at_position(AxisPosition::Left, 1);
+        }
+        if overflow.right > 0.0 {
+            builder.add_axes_at_position(AxisPosition::Right, 1);
         }
 
         // Add legends
@@ -181,10 +206,10 @@ impl ChartLayout {
         // Finalize legend containers after all legends are added
         builder.finalize_legend_containers();
 
-        // Measure components and generate optimal grid template
+        // Generate grid template with overflow measurements
         let available_size = preferred_size.unwrap_or((400.0, 300.0));
-        let (grid_template, component_map) = builder.build_with_measurements(
-            axes,
+        let (grid_template, component_map) = builder.build_with_overflow(
+            overflow,
             legends,
             scales,
             Size {
@@ -235,7 +260,7 @@ impl ChartLayout {
             subtitle_font_family: subtitle.map(|s| s.font_family.clone()),
         };
 
-        // Measure legend sizes first
+        // Measure legend sizes
         let mut legend_sizes = HashMap::new();
         for (channel, legend) in legends.iter() {
             if let Some(scale) = scales.get(channel) {
@@ -255,57 +280,56 @@ impl ChartLayout {
         }
         layout.legend_sizes = legend_sizes;
 
-        // Create nodes for each component
-        layout.create_component_nodes(&axes_by_position, legends, scales)?;
+        // Create nodes for each component in the grid
+        layout.create_component_nodes_with_overflow(overflow, legends, scales, title, subtitle)?;
 
         Ok(layout)
     }
 
-    /// Group axes by their position
-    fn group_axes_by_position(
-        axes: &HashMap<String, CartesianAxis>,
-    ) -> HashMap<AxisPosition, Vec<String>> {
-        let mut by_position = HashMap::new();
-
-        for (channel, axis) in axes.iter() {
-            if let Some(position) = axis.position {
-                by_position
-                    .entry(position)
-                    .or_insert_with(Vec::new)
-                    .push(channel.clone());
+    /// Create taffy nodes for each component
+    fn find_component_position(&self, component: &ComponentType) -> Option<(usize, usize)> {
+        for ((row, col), comp) in &self.component_map.cells {
+            if std::mem::discriminant(comp) == std::mem::discriminant(component) {
+                // For axis positions, check specific position match
+                if let (ComponentType::Axis(pos1), ComponentType::Axis(pos2)) = (comp, component) {
+                    if pos1 == pos2 {
+                        return Some((*row, *col));
+                    }
+                } else {
+                    return Some((*row, *col));
+                }
             }
         }
-
-        by_position
+        None
     }
 
-    /// Create taffy nodes for each component
-    fn create_component_nodes(
+    fn create_component_nodes_with_overflow(
         &mut self,
-        axes_by_position: &HashMap<AxisPosition, Vec<String>>,
-        legends: &HashMap<String, Legend>,
+        overflow: &crate::coords::OverflowSpaceRequirement,
+        legends: &IndexMap<String, Legend>,
         scales: &HashMap<String, ConfiguredScale>,
+        title: Option<&PlotTitle>,
+        subtitle: Option<&PlotSubtitle>,
     ) -> Result<(), AvengerChartError> {
-        // With the new dynamic grid, we need to find the plot area position from the component map
+        // Find plot area position in the component map
         let mut plot_row = 0;
         let mut plot_col = 0;
 
-        // Find plot area position in the component map
-        for ((row, col), component) in &self.component_map.cells {
-            if matches!(component, ComponentType::PlotArea) {
-                plot_row = *row + 1; // Convert to 1-based grid line
-                plot_col = *col + 1; // Convert to 1-based grid line
+        for ((row, col), comp_type) in &self.component_map.cells {
+            if matches!(comp_type, ComponentType::PlotArea) {
+                plot_row = *row;
+                plot_col = *col;
                 break;
             }
         }
 
-        // Create plot area node (always at the center of the grid)
-        // Plot area should flex to fill available space
+        // Create plot area node
         let plot_style = Style {
-            grid_row: line(plot_row as i16),
-            grid_column: line(plot_col as i16),
-            flex_grow: 1.0,   // Allow plot area to grow
-            flex_shrink: 1.0, // Allow plot area to shrink
+            display: Display::Block,
+            grid_row: line((plot_row + 1) as i16), // Convert to 1-based grid line
+            grid_column: line((plot_col + 1) as i16), // Convert to 1-based grid line
+            flex_grow: 1.0,                        // Allow plot area to grow
+            flex_shrink: 1.0,                      // Allow plot area to shrink
             min_size: Size {
                 width: length(50.0),  // Minimum width
                 height: length(50.0), // Minimum height
@@ -314,281 +338,250 @@ impl ChartLayout {
         };
         self.plot_area_node = Some(self.taffy.new_leaf(plot_style)?);
 
-        // Create axis nodes - we need to map each axis to its grid position
-        for position in axes_by_position.keys() {
-            let axis_style = self.create_axis_style_from_grid(
-                *position,
-                &self.component_map,
-                plot_row as i16,
-                plot_col as i16,
-            )?;
-            let node = self.taffy.new_leaf(axis_style)?;
-            self.axis_nodes.insert(*position, node);
-        }
-
-        // Create legend container nodes and their children
-        // First, group legends by position
-        let mut legends_by_position: HashMap<LegendPosition, Vec<(String, Legend)>> =
-            HashMap::new();
-        for (channel, legend) in legends.iter() {
-            let position = legend.position.unwrap_or(LegendPosition::Right);
-            legends_by_position
-                .entry(position)
-                .or_default()
-                .push((channel.clone(), legend.clone()));
-        }
-
-        // Create container nodes for each position with legends
-        for ((row, col), component) in &self.component_map.cells {
-            if let ComponentType::LegendContainer(position) = component {
-                // Create flex container for this position
-                debug!(
-                    position = ?position,
-                    row = *row + 1,
-                    col = *col + 1,
-                    "Legend container at grid position"
-                );
-                let container_style = Style {
-                    grid_row: line((*row + 1) as i16),
-                    grid_column: line((*col + 1) as i16),
-                    display: Display::Flex,
-                    flex_direction: match position {
-                        LegendPosition::Left | LegendPosition::Right => FlexDirection::Column,
-                        LegendPosition::Top | LegendPosition::Bottom => FlexDirection::Row,
-                    },
-                    align_items: Some(AlignItems::FlexStart),
-                    gap: Size {
-                        width: length(10.0),
-                        height: length(10.0),
-                    },
+        // Create overflow region nodes if they exist
+        if overflow.left > 0.0 {
+            if let Some((row, col)) =
+                self.find_component_position(&ComponentType::Axis(AxisPosition::Left))
+            {
+                let style = Style {
+                    display: Display::Block,
+                    grid_row: line((row + 1) as i16), // Convert to 1-based
+                    grid_column: line((col + 1) as i16), // Convert to 1-based
                     ..Default::default()
                 };
+                let node = self.taffy.new_leaf(style)?;
+                self.axis_nodes.insert(AxisPosition::Left, node);
+            }
+        }
 
-                let container_node = self.taffy.new_leaf(container_style)?;
-                self.legend_container_nodes
-                    .insert(*position, container_node);
+        if overflow.right > 0.0 {
+            if let Some((row, col)) =
+                self.find_component_position(&ComponentType::Axis(AxisPosition::Right))
+            {
+                let style = Style {
+                    display: Display::Block,
+                    grid_row: line((row + 1) as i16), // Convert to 1-based
+                    grid_column: line((col + 1) as i16), // Convert to 1-based
+                    ..Default::default()
+                };
+                let node = self.taffy.new_leaf(style)?;
+                self.axis_nodes.insert(AxisPosition::Right, node);
+            }
+        }
 
-                // Create individual legend nodes as children of this container
-                if let Some(legends_at_position) = legends_by_position.get(position) {
-                    // Sort legends by order field and channel name
-                    let mut sorted_legends = legends_at_position.clone();
-                    sorted_legends.sort_by(|(channel_a, legend_a), (channel_b, legend_b)| {
-                        match (legend_a.order, legend_b.order) {
-                            (Some(o1), Some(o2)) => o1.cmp(&o2),
-                            (Some(_), None) => std::cmp::Ordering::Less,
-                            (None, Some(_)) => std::cmp::Ordering::Greater,
-                            (None, None) => channel_a.cmp(channel_b),
+        if overflow.top > 0.0 {
+            if let Some((row, col)) =
+                self.find_component_position(&ComponentType::Axis(AxisPosition::Top))
+            {
+                let style = Style {
+                    display: Display::Block,
+                    grid_row: line((row + 1) as i16), // Convert to 1-based
+                    grid_column: line((col + 1) as i16), // Convert to 1-based
+                    ..Default::default()
+                };
+                let node = self.taffy.new_leaf(style)?;
+                self.axis_nodes.insert(AxisPosition::Top, node);
+            }
+        }
+
+        if overflow.bottom > 0.0 {
+            if let Some((row, col)) =
+                self.find_component_position(&ComponentType::Axis(AxisPosition::Bottom))
+            {
+                let style = Style {
+                    display: Display::Block,
+                    grid_row: line((row + 1) as i16), // Convert to 1-based
+                    grid_column: line((col + 1) as i16), // Convert to 1-based
+                    ..Default::default()
+                };
+                let node = self.taffy.new_leaf(style)?;
+                self.axis_nodes.insert(AxisPosition::Bottom, node);
+            }
+        }
+
+        // Helper function to calculate grid column based on TitleAlign
+        let calculate_grid_column = |col: usize, align: TitleAlign| {
+            match align {
+                TitleAlign::PlotAreaOnly => {
+                    // Only span the plot area column
+                    let mut plot_col = col;
+                    for ((_, c), comp) in &self.component_map.cells {
+                        if matches!(comp, ComponentType::PlotArea) {
+                            plot_col = *c;
+                            break;
                         }
-                    });
-
-                    let mut legend_children = vec![];
-                    for (channel, legend) in sorted_legends {
-                        // Determine legend type and configure flex style accordingly
-                        let legend_style =
-                            self.configure_legend_flex_style(&legend, &channel, position, scales)?;
-                        let legend_node = self.taffy.new_leaf(legend_style)?;
-                        self.legend_nodes.insert(channel.clone(), legend_node);
-                        legend_children.push(legend_node);
+                    }
+                    line((plot_col + 1) as i16)
+                }
+                TitleAlign::FullWidth => {
+                    // Find the rightmost column that isn't padding
+                    let mut end_col = col;
+                    for ((_, c), comp) in &self.component_map.cells {
+                        // Include all component types except padding
+                        if !matches!(comp, ComponentType::Padding) && *c > end_col {
+                            end_col = *c;
+                        }
                     }
 
-                    // Set children of container
-                    self.taffy.set_children(container_node, &legend_children)?;
+                    let span_count = (end_col - col + 1) as u16;
+                    if span_count == 1 {
+                        line((col + 1) as i16)
+                    } else {
+                        Line {
+                            start: line((col + 1) as i16),
+                            end: line((end_col + 2) as i16),
+                        }
+                    }
+                }
+            }
+        };
+
+        // Create title node if present
+        if let Some((row, col)) = self.find_component_position(&ComponentType::Title) {
+            let grid_col = if let Some(t) = title {
+                calculate_grid_column(col, t.align)
+            } else {
+                // Default to full width if no title config (shouldn't happen)
+                line((col + 1) as i16)
+            };
+
+            let style = Style {
+                display: Display::Block,
+                grid_row: line((row + 1) as i16), // Convert to 1-based
+                grid_column: grid_col,
+                ..Default::default()
+            };
+            self.title_node = Some(self.taffy.new_leaf(style)?);
+        }
+
+        // Create subtitle node if present
+        if let Some((row, col)) = self.find_component_position(&ComponentType::Subtitle) {
+            let grid_col = if let Some(s) = subtitle {
+                calculate_grid_column(col, s.align)
+            } else {
+                // Default to full width if no subtitle config (shouldn't happen)
+                line((col + 1) as i16)
+            };
+
+            let style = Style {
+                display: Display::Block,
+                grid_row: line((row + 1) as i16), // Convert to 1-based
+                grid_column: grid_col,
+                ..Default::default()
+            };
+            self.subtitle_node = Some(self.taffy.new_leaf(style)?);
+        }
+
+        // Create legend nodes and group by container
+        let mut legend_nodes_by_container: HashMap<LegendPosition, Vec<taffy::NodeId>> =
+            HashMap::new();
+
+        for (channel, legend) in legends {
+            // Find which container this legend belongs to based on legend position
+            let legend_position = legend.position.unwrap_or(LegendPosition::Right);
+
+            for ((row, col), comp_type) in &self.component_map.cells {
+                if let ComponentType::LegendContainer(pos) = comp_type {
+                    if *pos == legend_position {
+                        // Create container node if it doesn't exist
+                        if !self.legend_container_nodes.contains_key(pos) {
+                            let container_style = Style {
+                                display: Display::Flex,
+                                flex_direction: FlexDirection::Column,
+                                grid_row: line((*row + 1) as i16), // Convert to 1-based
+                                grid_column: line((*col + 1) as i16), // Convert to 1-based
+                                ..Default::default()
+                            };
+                            let container_node = self.taffy.new_leaf(container_style)?;
+                            self.legend_container_nodes.insert(*pos, container_node);
+                        }
+
+                        // Create legend node
+                        if let Some(size) = self.legend_sizes.get(channel) {
+                            // Check if this is a colorbar legend (continuous color scale)
+                            let is_colorbar = if let Some(scale) = scales.get(channel) {
+                                let is_color_channel =
+                                    matches!(channel.as_str(), "fill" | "stroke" | "color");
+                                let scale_type = scale.scale_impl.scale_type();
+                                let is_continuous = matches!(
+                                    scale_type,
+                                    "linear" | "log" | "pow" | "sqrt" | "symlog"
+                                );
+                                is_color_channel && is_continuous
+                            } else {
+                                false
+                            };
+
+                            let legend_style = if is_colorbar {
+                                // Colorbar should stretch vertically
+                                Style {
+                                    display: Display::Block,
+                                    size: Size {
+                                        width: length(size.width),
+                                        height: auto(), // Let it stretch
+                                    },
+                                    flex_grow: 1.0,   // Allow it to grow
+                                    flex_shrink: 1.0, // Allow it to shrink
+                                    min_size: Size {
+                                        width: length(size.width),
+                                        height: length(50.0), // Minimum height
+                                    },
+                                    ..Default::default()
+                                }
+                            } else {
+                                // Regular legends have fixed size
+                                Style {
+                                    display: Display::Block,
+                                    size: Size {
+                                        width: length(size.width),
+                                        height: length(size.height),
+                                    },
+                                    ..Default::default()
+                                }
+                            };
+
+                            let legend_node = self.taffy.new_leaf(legend_style)?;
+                            self.legend_nodes.insert(channel.clone(), legend_node);
+
+                            // Track this legend node for its container
+                            legend_nodes_by_container
+                                .entry(*pos)
+                                .or_default()
+                                .push(legend_node);
+                        }
+                        break;
+                    }
                 }
             }
         }
 
-        // Create title node if present in component map
-        for ((row, col), component) in &self.component_map.cells {
-            if matches!(component, ComponentType::Title) {
-                let style = Style {
-                    grid_row: line((*row + 1) as i16),
-                    grid_column: line((*col + 1) as i16),
-                    justify_content: Some(JustifyContent::FlexStart), // Left align
-                    align_items: Some(AlignItems::Center),
-                    ..Default::default()
-                };
-                let node = self.taffy.new_leaf(style)?;
-                self.title_node = Some(node);
-                break;
+        // Set children for each legend container
+        for (position, legend_children) in legend_nodes_by_container {
+            if let Some(container_node) = self.legend_container_nodes.get(&position) {
+                self.taffy.set_children(*container_node, &legend_children)?;
             }
         }
 
-        // Create subtitle node if present in component map
-        for ((row, col), component) in &self.component_map.cells {
-            if matches!(component, ComponentType::Subtitle) {
-                let style = Style {
-                    grid_row: line((*row + 1) as i16),
-                    grid_column: line((*col + 1) as i16),
-                    justify_content: Some(JustifyContent::FlexStart), // Left align
-                    align_items: Some(AlignItems::Center),
-                    ..Default::default()
-                };
-                let node = self.taffy.new_leaf(style)?;
-                self.subtitle_node = Some(node);
-                break;
-            }
+        // Set all children on root
+        let mut children = Vec::new();
+        if let Some(node) = self.plot_area_node {
+            children.push(node);
         }
-
-        // Set children of root node
-        let mut children = vec![];
-        if let Some(plot_node) = self.plot_area_node {
-            children.push(plot_node);
+        for node in self.axis_nodes.values() {
+            children.push(*node);
         }
-        children.extend(self.axis_nodes.values());
-        // Add legend containers instead of individual legends
-        children.extend(self.legend_container_nodes.values());
-        if let Some(title_node) = self.title_node {
-            children.push(title_node);
+        for node in self.legend_container_nodes.values() {
+            children.push(*node);
         }
-        if let Some(subtitle_node) = self.subtitle_node {
-            children.push(subtitle_node);
+        if let Some(node) = self.title_node {
+            children.push(node);
         }
-
+        if let Some(node) = self.subtitle_node {
+            children.push(node);
+        }
         self.taffy.set_children(self.root_node, &children)?;
 
         Ok(())
-    }
-
-    /// Create axis style based on grid component map
-    fn create_axis_style_from_grid(
-        &self,
-        position: AxisPosition,
-        component_map: &ComponentGridMap,
-        plot_row: i16,
-        plot_col: i16,
-    ) -> Result<Style, AvengerChartError> {
-        // Find the grid position for this axis
-        for ((row, col), component) in &component_map.cells {
-            if let ComponentType::Axis(axis_pos) = component {
-                if *axis_pos == position {
-                    return Ok(Style {
-                        grid_row: line((*row + 1) as i16),    // Convert to 1-based
-                        grid_column: line((*col + 1) as i16), // Convert to 1-based
-                        align_items: Some(match position {
-                            AxisPosition::Left | AxisPosition::Right => AlignItems::Center,
-                            AxisPosition::Top => AlignItems::FlexEnd,
-                            AxisPosition::Bottom => AlignItems::FlexStart,
-                        }),
-                        justify_content: Some(match position {
-                            AxisPosition::Left => JustifyContent::FlexEnd,
-                            AxisPosition::Right => JustifyContent::FlexStart,
-                            AxisPosition::Top | AxisPosition::Bottom => JustifyContent::Center,
-                        }),
-                        padding: Rect {
-                            left: length(if position == AxisPosition::Right {
-                                5.0
-                            } else {
-                                0.0
-                            }),
-                            right: length(if position == AxisPosition::Left {
-                                5.0
-                            } else {
-                                0.0
-                            }),
-                            top: length(if position == AxisPosition::Bottom {
-                                5.0
-                            } else {
-                                0.0
-                            }),
-                            bottom: length(if position == AxisPosition::Top {
-                                5.0
-                            } else {
-                                0.0
-                            }),
-                        },
-                        ..Default::default()
-                    });
-                }
-            }
-        }
-
-        // Fallback to plot-adjacent position if not found in map
-        Ok(Style {
-            grid_row: line(plot_row),
-            grid_column: line(plot_col),
-            ..Default::default()
-        })
-    }
-
-    /// Configure flex style for individual legend based on type
-    fn configure_legend_flex_style(
-        &self,
-        _legend: &Legend,
-        channel: &str,
-        position: &LegendPosition,
-        scales: &HashMap<String, ConfiguredScale>,
-    ) -> Result<Style, AvengerChartError> {
-        // Get the scale to determine legend type
-        let scale = scales
-            .get(channel)
-            .ok_or_else(|| AvengerChartError::ScaleNotFound(channel.to_string()))?;
-
-        // Determine if this is a colorbar legend
-        let scale_type = scale.scale_impl.scale_type();
-        let is_continuous = matches!(scale_type, "linear" | "log" | "pow" | "sqrt");
-        let is_colorbar = matches!(channel, "fill" | "stroke" | "color") && is_continuous;
-
-        // Get measured size if available
-        let measured_size = self.legend_sizes.get(channel);
-
-        let mut style = Style {
-            display: Display::Flex,
-            ..Default::default()
-        };
-
-        if is_colorbar {
-            // Colorbar legends can grow to fill space and shrink if needed
-            style.flex_grow = 1.0;
-            style.flex_shrink = 1.0;
-            style.align_self = Some(AlignSelf::Stretch);
-
-            // Set preferred size from measurement, but allow flexibility
-            if let Some(size) = measured_size {
-                if matches!(position, LegendPosition::Right | LegendPosition::Left) {
-                    // For vertical legends, width is fixed, height is flexible
-                    style.size.width = length(size.width);
-                    style.min_size.height = length(50.0); // Minimum height
-                // Don't set max height - let colorbar stretch to fill available space
-                } else {
-                    // For horizontal legends, height is fixed, width is flexible
-                    style.size.height = length(size.height);
-                    style.min_size.width = length(50.0); // Minimum width
-                    style.max_size.width = length(size.width); // Maximum from measurement
-                }
-            } else {
-                // Default size if measurement failed
-                if matches!(position, LegendPosition::Right | LegendPosition::Left) {
-                    style.size.width = length(80.0);
-                    style.min_size.height = length(50.0);
-                    // Don't set max height - let colorbar stretch to fill available space
-                } else {
-                    style.size.height = length(80.0);
-                    style.min_size.width = length(50.0);
-                    style.max_size.width = length(170.0);
-                }
-            }
-        } else {
-            // Symbol and Line legends have fixed size
-            style.flex_grow = 0.0;
-            style.flex_shrink = 0.0;
-            style.align_self = Some(AlignSelf::FlexStart);
-
-            // Use measured size if available
-            if let Some(size) = measured_size {
-                style.size = Size {
-                    width: length(size.width),
-                    height: length(size.height),
-                };
-            } else {
-                // Default size
-                style.size = Size {
-                    width: length(120.0),
-                    height: length(100.0),
-                };
-            }
-        }
-
-        Ok(style)
     }
 
     /// Compute layout for given dimensions
@@ -778,6 +771,25 @@ impl ChartLayout {
                 width: 0.0,
                 height: 0.0,
             });
+        }
+
+        // Special handling for polar pseudo axes - dimension is stored in tick_count
+        if axis.tick_count.is_some() && axis.title.is_none() && !axis.grid {
+            let dimension = axis.tick_count.unwrap() as f32;
+            return match axis.position {
+                Some(AxisPosition::Top) | Some(AxisPosition::Bottom) => Ok(Size {
+                    width: available_space.width,
+                    height: dimension,
+                }),
+                Some(AxisPosition::Left) | Some(AxisPosition::Right) => Ok(Size {
+                    width: dimension,
+                    height: available_space.height,
+                }),
+                None => Ok(Size {
+                    width: 0.0,
+                    height: 0.0,
+                }),
+            };
         }
 
         // Create axis configuration
@@ -1456,7 +1468,7 @@ impl GridBuilder {
             right_components: Vec::new(),
             top_components: Vec::new(),
             bottom_components: Vec::new(),
-            legends_by_position: HashMap::new(),
+            legends_by_position: IndexMap::new(),
         }
     }
 
@@ -1550,389 +1562,192 @@ impl GridBuilder {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn build_with_measurements<C: crate::coords::CoordinateSystem>(
+    fn measure_legend_container_width<C: crate::coords::CoordinateSystem>(
         &self,
-        axes: &HashMap<String, CartesianAxis>,
-        legends: &HashMap<String, Legend>,
+        channels: &[String],
+        legends: &IndexMap<String, Legend>,
         scales: &HashMap<String, ConfiguredScale>,
-        available_space: Size<f32>,
         marks: &[Box<dyn crate::marks::Mark<C>>],
+    ) -> Result<f32, AvengerChartError> {
+        let mut max_width: f32 = 0.0;
+        for channel in channels {
+            if let Some(legend) = legends.get(channel) {
+                if let Some(scale) = scales.get(channel) {
+                    // Use the actual measured legend size
+                    // For now use a dummy available space - legends will adapt
+                    let available = Size {
+                        width: 200.0,
+                        height: 400.0,
+                    };
+                    let size = ChartLayout::measure_legend_size(
+                        channel, legend, scale, scales, available, marks,
+                    )?;
+                    max_width = max_width.max(size.width);
+                }
+            }
+        }
+        Ok(max_width)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn build_with_overflow<C: crate::coords::CoordinateSystem>(
+        &self,
+        overflow: &crate::coords::OverflowSpaceRequirement,
+        legends: &IndexMap<String, Legend>,
+        scales: &HashMap<String, ConfiguredScale>,
+        _available_space: Size<f32>,
+        _marks: &[Box<dyn crate::marks::Mark<C>>],
         title: Option<&PlotTitle>,
         subtitle: Option<&PlotSubtitle>,
     ) -> Result<(GridTemplate, ComponentGridMap), AvengerChartError> {
         // Use edge margins from constants to ensure consistent padding
-        // This provides proper spacing even when there's no title
         use crate::constants::EDGE_MARGIN;
 
-        // Use the same margin on all sides for consistent appearance
-        let left_margin = EDGE_MARGIN;
-        let right_margin = EDGE_MARGIN;
-        let top_margin = EDGE_MARGIN;
-        let bottom_margin = EDGE_MARGIN;
-
-        // Build dynamic grid based on which components are present
-        let mut rows = vec![];
-        let mut cols = vec![];
-        let mut map = ComponentGridMap {
-            cells: HashMap::new(),
-            row_count: 0,
-            col_count: 0,
-        };
+        let mut cols = Vec::new();
+        let mut rows = Vec::new();
+        let mut component_map = ComponentGridMap::new();
 
         // === Build Column Template ===
-        // Start with left margin (doubled if no left components)
-        cols.push(length(left_margin));
+        // Start with left margin
+        cols.push(length(EDGE_MARGIN));
         let mut col_index = 1;
 
-        // Add left components
-        for component in &self.left_components {
-            let width = self.measure_component_width(
-                component,
-                axes,
-                legends,
-                scales,
-                available_space,
-                marks,
-            )?;
-            cols.push(length(width));
-
-            // Don't track component position here - will do it after we know plot row
+        // Track column index for left overflow
+        let left_overflow_col = if overflow.left > 0.0 {
+            cols.push(length(overflow.left)); // Exact overflow size
+            let idx = col_index;
             col_index += 1;
-        }
+            Some(idx)
+        } else {
+            None
+        };
 
         // Plot area column (flexible)
         let plot_col_index = col_index;
         cols.push(fr(1.0));
         col_index += 1;
 
-        // Add right components
-        for component in &self.right_components {
-            let width = self.measure_component_width(
-                component,
-                axes,
-                legends,
-                scales,
-                available_space,
-                marks,
-            )?;
-            cols.push(length(width));
-
-            // Don't track component position here - will do it after we know plot row
+        // Track column index for right overflow
+        let right_overflow_col = if overflow.right > 0.0 {
+            cols.push(length(overflow.right)); // Exact overflow size
+            let idx = col_index;
             col_index += 1;
+            Some(idx)
+        } else {
+            None
+        };
+
+        // Add right legend containers and track their column indices
+        let mut right_legend_cols = Vec::new();
+        for component in &self.right_components {
+            if let ComponentType::LegendContainer(position) = component {
+                if *position == LegendPosition::Right {
+                    // Get channels for this position from legends_by_position
+                    let channels: Vec<String> = self
+                        .legends_by_position
+                        .get(position)
+                        .map(|legends| legends.iter().map(|(ch, _)| ch.clone()).collect())
+                        .unwrap_or_default();
+                    let width =
+                        self.measure_legend_container_width(&channels, legends, scales, _marks)?;
+                    cols.push(length(width));
+                    right_legend_cols.push(col_index);
+                    col_index += 1;
+                }
+            }
         }
 
-        // End with right margin (doubled if no right components)
-        cols.push(length(right_margin));
-
-        debug!(
-            column_count = cols.len(),
-            right_margin = right_margin,
-            "Grid columns configuration"
-        );
+        // End with right margin
+        cols.push(length(EDGE_MARGIN));
 
         // === Build Row Template ===
-        // Start with top margin (doubled if no top components)
-        rows.push(length(top_margin));
+        rows.push(length(EDGE_MARGIN));
         let mut row_index = 1;
 
-        // Add top components
-        for component in &self.top_components {
-            let height = match component {
-                ComponentType::Title => {
-                    // Measure actual title text
-                    if let Some(t) = title {
-                        let (height, _width) =
-                            ChartLayout::measure_text(&t.text, t.font_size, &t.font_family);
-                        height * 1.15 // Reduced spacing below title
-                    } else {
-                        28.0 // Fallback
-                    }
-                }
-                ComponentType::Subtitle => {
-                    // Measure actual subtitle text
-                    if let Some(s) = subtitle {
-                        let (height, _width) =
-                            ChartLayout::measure_text(&s.text, s.font_size, &s.font_family);
-                        height * 1.5 // More spacing below subtitle
-                    } else {
-                        20.0 // Fallback
-                    }
-                }
-                _ => self.measure_component_height(
-                    component,
-                    axes,
-                    legends,
-                    scales,
-                    available_space,
-                )?,
-            };
-            rows.push(length(height));
+        // Add title if present
+        if let Some(t) = title {
+            let (height, _) = ChartLayout::measure_text(&t.text, t.font_size, &t.font_family);
+            rows.push(length(height * 1.15));
+            // Title starts from left overflow column (if present) or plot column
+            let title_start_col = left_overflow_col.unwrap_or(plot_col_index);
+            component_map.add_component(ComponentType::Title, row_index, title_start_col);
+            row_index += 1;
+        }
 
-            // Track component position
-            match component {
-                ComponentType::Axis(_pos) => {
-                    map.cells
-                        .insert((row_index, plot_col_index), component.clone());
-                }
-                ComponentType::Title => {
-                    map.cells
-                        .insert((row_index, plot_col_index), component.clone());
-                }
-                ComponentType::Subtitle => {
-                    map.cells
-                        .insert((row_index, plot_col_index), component.clone());
-                }
-                ComponentType::Legend(_channel) => {
-                    map.cells
-                        .insert((row_index, plot_col_index), component.clone());
-                }
-                ComponentType::LegendContainer(_position) => {
-                    map.cells
-                        .insert((row_index, plot_col_index), component.clone());
-                }
-                _ => {}
-            }
+        // Add subtitle if present
+        if let Some(s) = subtitle {
+            let (height, _) = ChartLayout::measure_text(&s.text, s.font_size, &s.font_family);
+            rows.push(length(height * 1.1));
+            // Subtitle starts from left overflow column (if present) or plot column
+            let subtitle_start_col = left_overflow_col.unwrap_or(plot_col_index);
+            component_map.add_component(ComponentType::Subtitle, row_index, subtitle_start_col);
+            row_index += 1;
+        }
+
+        // Add top overflow space if needed
+        if overflow.top > 0.0 {
+            rows.push(length(overflow.top)); // Exact overflow size
+            component_map.add_component(
+                ComponentType::Axis(AxisPosition::Top),
+                row_index,
+                plot_col_index,
+            );
             row_index += 1;
         }
 
         // Plot area row (flexible)
         let plot_row_index = row_index;
         rows.push(fr(1.0));
+        component_map.add_component(ComponentType::PlotArea, plot_row_index, plot_col_index);
+
+        // Now add the left/right axis components at the plot row
+        if let Some(col) = left_overflow_col {
+            component_map.add_component(
+                ComponentType::Axis(AxisPosition::Left),
+                plot_row_index,
+                col,
+            );
+        }
+
+        if let Some(col) = right_overflow_col {
+            component_map.add_component(
+                ComponentType::Axis(AxisPosition::Right),
+                plot_row_index,
+                col,
+            );
+        }
+
+        // Add right legend containers at the plot row
+        let mut legend_idx = 0;
+        for component in &self.right_components {
+            if let ComponentType::LegendContainer(position) = component {
+                if *position == LegendPosition::Right && legend_idx < right_legend_cols.len() {
+                    component_map.add_component(
+                        component.clone(),
+                        plot_row_index,
+                        right_legend_cols[legend_idx],
+                    );
+                    legend_idx += 1;
+                }
+            }
+        }
+
         row_index += 1;
 
-        // Add bottom components
-        for component in &self.bottom_components {
-            let height =
-                self.measure_component_height(component, axes, legends, scales, available_space)?;
-            rows.push(length(height));
-
-            // Track component position
-            match component {
-                ComponentType::Axis(_pos) => {
-                    map.cells
-                        .insert((row_index, plot_col_index), component.clone());
-                }
-                ComponentType::Legend(_channel) => {
-                    map.cells
-                        .insert((row_index, plot_col_index), component.clone());
-                }
-                ComponentType::LegendContainer(_position) => {
-                    map.cells
-                        .insert((row_index, plot_col_index), component.clone());
-                }
-                _ => {}
-            }
-            row_index += 1;
+        // Add bottom overflow space if needed
+        if overflow.bottom > 0.0 {
+            rows.push(length(overflow.bottom)); // Exact overflow size
+            component_map.add_component(
+                ComponentType::Axis(AxisPosition::Bottom),
+                row_index,
+                plot_col_index,
+            );
+            // row_index += 1;
         }
 
         // End with bottom margin
-        rows.push(length(bottom_margin));
+        rows.push(length(EDGE_MARGIN));
 
-        // Store plot area position
-        map.cells
-            .insert((plot_row_index, plot_col_index), ComponentType::PlotArea);
-
-        // Now add left and right components at the plot row
-        let mut left_col_index = 1;
-        for component in &self.left_components {
-            map.cells
-                .insert((plot_row_index, left_col_index), component.clone());
-            left_col_index += 1;
-        }
-
-        let mut right_col_index = plot_col_index + 1;
-        for component in &self.right_components {
-            map.cells
-                .insert((plot_row_index, right_col_index), component.clone());
-            right_col_index += 1;
-        }
-
-        // Update component map dimensions
-        map.row_count = rows.len();
-        map.col_count = cols.len();
-
-        Ok((GridTemplate { rows, cols }, map))
-    }
-
-    fn measure_component_width<C: crate::coords::CoordinateSystem>(
-        &self,
-        component: &ComponentType,
-        axes: &HashMap<String, CartesianAxis>,
-        legends: &HashMap<String, Legend>,
-        scales: &HashMap<String, ConfiguredScale>,
-        available_space: Size<f32>,
-        marks: &[Box<dyn crate::marks::Mark<C>>],
-    ) -> Result<f32, AvengerChartError> {
-        match component {
-            ComponentType::Axis(position) => {
-                // Find axis with this position
-                for (channel, axis) in axes {
-                    if axis.position == Some(*position) {
-                        if let Some(scale) = scales.get(channel) {
-                            let size =
-                                ChartLayout::measure_axis_size(axis, scale, available_space)?;
-                            return Ok(size.width);
-                        }
-                    }
-                }
-                Ok(60.0) // Default width
-            }
-            ComponentType::Legend(channel) => {
-                if let Some(legend) = legends.get(channel) {
-                    if let Some(scale) = scales.get(channel) {
-                        let size = ChartLayout::measure_legend_size_impl(
-                            channel,
-                            legend,
-                            scale,
-                            scales,
-                            available_space,
-                            None,  // No mark encodings available in this context
-                            false, // No line mark information in this context
-                        )?;
-                        // No padding compensation needed since we removed all padding
-                        return Ok(size.width);
-                    }
-                }
-                Ok(120.0) // Default width
-            }
-            ComponentType::LegendContainer(position) => {
-                // Measure the width needed for all legends at this position
-                // For left/right positions, use the maximum width of all legends
-                // For top/bottom positions, this would be the sum of widths (for horizontal layout)
-                let mut max_width = 0.0f32;
-
-                if let Some(legends_at_position) = self.legends_by_position.get(position) {
-                    for (channel, legend) in legends_at_position {
-                        if let Some(scale) = scales.get(channel) {
-                            let size = ChartLayout::measure_legend_size(
-                                channel,
-                                legend,
-                                scale,
-                                scales,
-                                available_space,
-                                marks,
-                            )?;
-                            max_width = max_width.max(size.width);
-                        }
-                    }
-                }
-
-                if max_width > 0.0 {
-                    Ok(max_width)
-                } else {
-                    Ok(120.0) // Default width
-                }
-            }
-            _ => Ok(0.0),
-        }
-    }
-
-    fn measure_component_height(
-        &self,
-        component: &ComponentType,
-        axes: &HashMap<String, CartesianAxis>,
-        legends: &HashMap<String, Legend>,
-        scales: &HashMap<String, ConfiguredScale>,
-        available_space: Size<f32>,
-    ) -> Result<f32, AvengerChartError> {
-        match component {
-            ComponentType::Axis(position) => {
-                // Find axis with this position
-                for (channel, axis) in axes {
-                    if axis.position == Some(*position) {
-                        if let Some(scale) = scales.get(channel) {
-                            let size =
-                                ChartLayout::measure_axis_size(axis, scale, available_space)?;
-                            return Ok(size.height);
-                        }
-                    }
-                }
-                Ok(50.0) // Default height
-            }
-            ComponentType::Legend(channel) => {
-                if let Some(legend) = legends.get(channel) {
-                    if let Some(scale) = scales.get(channel) {
-                        let size = ChartLayout::measure_legend_size_impl(
-                            channel,
-                            legend,
-                            scale,
-                            scales,
-                            available_space,
-                            None,  // No mark encodings available in this context
-                            false, // No line mark information in this context
-                        )?;
-                        // No padding compensation needed since we removed all padding
-                        return Ok(size.height);
-                    }
-                }
-                Ok(100.0) // Default height
-            }
-            ComponentType::LegendContainer(position) => {
-                // Measure the height needed for all legends at this position
-                // Taffy will handle gaps, so we just sum the content heights
-
-                if let Some(legends_at_position) = self.legends_by_position.get(position) {
-                    match position {
-                        LegendPosition::Left | LegendPosition::Right => {
-                            // Vertical layout - sum heights (Taffy handles gaps)
-                            let mut total_height = 0.0f32;
-                            let mut legend_count = 0;
-                            for (channel, legend) in legends_at_position {
-                                if let Some(scale) = scales.get(channel) {
-                                    let size = ChartLayout::measure_legend_size_impl(
-                                        channel,
-                                        legend,
-                                        scale,
-                                        scales,
-                                        available_space,
-                                        None,  // No mark encodings available in this context
-                                        false, // No line mark information in this context
-                                    )?;
-                                    total_height += size.height;
-                                    legend_count += 1;
-                                }
-                            }
-
-                            // Add gap space that Taffy will include (n-1 gaps of 10px each)
-                            if legend_count > 1 {
-                                total_height += (legend_count - 1) as f32 * 10.0;
-                            }
-
-                            if total_height > 0.0 {
-                                Ok(total_height)
-                            } else {
-                                Ok(100.0) // Default height
-                            }
-                        }
-                        LegendPosition::Top | LegendPosition::Bottom => {
-                            // Horizontal layout - use max height
-                            let mut max_height = 0.0f32;
-                            for (channel, legend) in legends_at_position {
-                                if let Some(scale) = scales.get(channel) {
-                                    let size = ChartLayout::measure_legend_size_impl(
-                                        channel,
-                                        legend,
-                                        scale,
-                                        scales,
-                                        available_space,
-                                        None,  // No mark encodings available in this context
-                                        false, // No line mark information in this context
-                                    )?;
-                                    max_height = max_height.max(size.height);
-                                }
-                            }
-                            if max_height > 0.0 {
-                                Ok(max_height)
-                            } else {
-                                Ok(100.0) // Default height
-                            }
-                        }
-                    }
-                } else {
-                    Ok(100.0) // Default height
-                }
-            }
-            _ => Ok(0.0),
-        }
+        Ok((GridTemplate { cols, rows }, component_map))
     }
 }
