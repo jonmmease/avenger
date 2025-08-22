@@ -1,5 +1,5 @@
-/// Minimal macro to implement MarkBase trait
-/// This just provides the accessor methods - all the real logic is in the trait
+/// Macro to implement base mark functionality
+/// Provides constructor and builder methods for marks
 #[macro_export]
 macro_rules! impl_mark_base {
     ($mark_type:ident) => {
@@ -14,7 +14,7 @@ macro_rules! impl_mark_base {
                         details: None,
                         zindex: None,
                     },
-                    __phantom: std::marker::PhantomData,
+                    _phantom: std::marker::PhantomData,
                 }
             }
         }
@@ -101,6 +101,14 @@ macro_rules! impl_mark_base {
 #[macro_export]
 macro_rules! impl_mark_trait_common {
     ($mark_type:ident, $coord:ty, $mark_name:literal) => {
+        fn state(&self) -> &$crate::marks::MarkState<$coord> {
+            &self.state
+        }
+
+        fn state_mut(&mut self) -> &mut $crate::marks::MarkState<$coord> {
+            &mut self.state
+        }
+
         fn data_context(&self) -> &$crate::marks::DataContext {
             self.get_data_context()
         }

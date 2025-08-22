@@ -414,6 +414,10 @@ impl<C: CoordinateSystem> Plot<C> {
         &self.scale_to_coord_channel
     }
 
+    pub fn marks(&self) -> &[Box<dyn Mark<C>>] {
+        &self.marks
+    }
+
     /// Internal helper to create a default scale for a channel
     fn create_default_scale_for_channel_internal(&self, channel: &str) -> Scale {
         use crate::scales::inference::{get_default_scale_options, infer_scale_type_with_mark};

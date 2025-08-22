@@ -4,8 +4,8 @@ use crate::{define_common_mark_channels, impl_mark_base};
 use datafusion::scalar::ScalarValue;
 
 pub struct Rect<C: CoordinateSystem> {
-    state: MarkState<C>,
-    __phantom: std::marker::PhantomData<C>,
+    pub(crate) state: MarkState<C>,
+    pub(crate) _phantom: std::marker::PhantomData<C>,
 }
 
 // Implement MarkBase trait and Default
