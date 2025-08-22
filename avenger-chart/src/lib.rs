@@ -14,6 +14,7 @@ pub mod polar;
 pub mod render;
 pub mod scales;
 pub mod utils;
+mod zerod;
 
 #[cfg(test)]
 pub mod test_utils;
