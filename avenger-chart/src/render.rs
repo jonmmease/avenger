@@ -2,13 +2,13 @@
 //!
 //! This module bridges the high-level chart API with the low-level rendering components.
 
-use crate::cartesian::Cartesian;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::marks::{ChannelValue, Mark};
 use crate::plot::Plot;
 use crate::scales::Scale;
 use crate::utils::ScalarValueHelpers;
+use crate::zerod::ZeroDCoord;
 use avenger_common::types::ColorOrGradient;
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -767,8 +767,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             }
         }
 
-        // Call the specialized Cartesian layout helper
-        // This will only work if the axes are actually CartesianAxis
+        // Call the dynamic layout helper with the coordinate system's axes
         self.compute_layout_with_dynamic_axes(width, height, scales, all_axes)
             .await
     }
@@ -1643,7 +1642,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             .any(|mark| mark.mark_type() == "rect");
 
         // Get mark defaults - use rect defaults if we have rect marks, otherwise symbol defaults
-        // Cartesian specialization only for type clarity; no direct use
+        // Using ZeroDCoord to access coordinate-agnostic default values
         use crate::marks::{Mark, rect::Rect, symbol::Symbol};
 
         let (
@@ -1655,8 +1654,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             default_stroke_width,
         ) = if has_rect_mark {
             // For rect marks, use fixed square shape and appropriate size
-            let temp_rect = Rect::<Cartesian>::default();
-            let temp_rect_ref: &dyn Mark<Cartesian> = &temp_rect;
+            let temp_rect = Rect::<ZeroDCoord>::default();
+            let temp_rect_ref: &dyn Mark<ZeroDCoord> = &temp_rect;
 
             let fill = temp_rect_ref
                 .default_channel_value("fill")
@@ -1678,8 +1677,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             (64.0, "square".to_string(), 0.0, fill, stroke, stroke_width)
         } else {
             // Use symbol defaults
-            let temp_symbol = Symbol::<Cartesian>::default();
-            let temp_symbol_ref: &dyn Mark<Cartesian> = &temp_symbol;
+            let temp_symbol = Symbol::<ZeroDCoord>::default();
+            let temp_symbol_ref: &dyn Mark<ZeroDCoord> = &temp_symbol;
 
             let size = temp_symbol_ref
                 .default_channel_value("size")
@@ -2110,10 +2109,10 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         };
 
         // Get mark defaults from a default line mark instance
-        use crate::cartesian::Cartesian;
+        // Using ZeroDCoord to access coordinate-agnostic default values
         use crate::marks::{Mark, line::Line};
-        let temp_line = Line::<Cartesian>::default();
-        let temp_line_ref: &dyn Mark<Cartesian> = &temp_line;
+        let temp_line = Line::<ZeroDCoord>::default();
+        let temp_line_ref: &dyn Mark<ZeroDCoord> = &temp_line;
 
         // Extract defaults using the mark's default_channel_value method
         let default_stroke = temp_line_ref
@@ -2595,7 +2594,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         Ok(vec![SceneMark::Group(group)])
     }
 
-    /// Compute layout using Taffy for Cartesian coordinate system
+    /// Compute layout using Taffy for the coordinate system
     /// Convert overflow requirements to pseudo-axes for Taffy layout
     async fn compute_layout_with_overflow(
         &self,
