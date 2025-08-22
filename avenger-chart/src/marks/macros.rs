@@ -61,6 +61,37 @@ macro_rules! impl_mark_base {
                 self.state.zindex = Some(zindex);
                 self
             }
+
+            // Accessor methods for use by coordinate-specific implementations
+
+            /// Get the z-index for rendering
+            #[inline]
+            pub fn get_zindex(&self) -> Option<i32> {
+                self.state.zindex
+            }
+
+            /// Get the data context
+            #[inline]
+            pub fn get_data_context(&self) -> &$crate::marks::DataContext {
+                &self.state.data
+            }
+
+            /// Get the data source
+            #[inline]
+            pub fn get_data_source(&self) -> $crate::marks::DataSource {
+                self.state.data_source.clone()
+            }
+
+            /// Set a channel value (for use by macros)
+            #[doc(hidden)]
+            pub fn with_channel_value(
+                mut self,
+                name: &str,
+                value: $crate::marks::ChannelValue,
+            ) -> Self {
+                self.state.data = self.state.data.with_channel_value(name, value);
+                self
+            }
         }
     };
 }
@@ -71,11 +102,11 @@ macro_rules! impl_mark_base {
 macro_rules! impl_mark_trait_common {
     ($mark_type:ident, $coord:ty, $mark_name:literal) => {
         fn data_context(&self) -> &$crate::marks::DataContext {
-            &self.state.data
+            self.get_data_context()
         }
 
         fn data_source(&self) -> $crate::marks::DataSource {
-            self.state.data_source.clone()
+            self.get_data_source()
         }
 
         fn mark_type(&self) -> &str {

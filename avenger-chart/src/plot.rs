@@ -399,6 +399,21 @@ impl<C: CoordinateSystem> Plot<C> {
         &self.coord_system
     }
 
+    /// Get a reference to the scale specifications
+    pub fn scale_specs(&self) -> &HashMap<String, ScaleSpec> {
+        &self.scale_specs
+    }
+
+    /// Get a reference to the axis specifications
+    pub fn axis_specs(&self) -> &HashMap<String, AxisSpec<C::Axis>> {
+        &self.axis_specs
+    }
+
+    /// Get a reference to the scale to coordinate channel mapping
+    pub fn scale_to_coord_channel(&self) -> &HashMap<String, String> {
+        &self.scale_to_coord_channel
+    }
+
     /// Internal helper to create a default scale for a channel
     fn create_default_scale_for_channel_internal(&self, channel: &str) -> Scale {
         use crate::scales::inference::{get_default_scale_options, infer_scale_type_with_mark};
@@ -918,4 +933,3 @@ impl<C: CoordinateSystem> Plot<C> {
         self.subtitle.as_ref()
     }
 }
-

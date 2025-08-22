@@ -805,7 +805,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         let overflow = self
             .plot
             .coord_system()
-            .measure_guide_overflow(customized_axes, scales, width, height)
+            .measure_guide_overflow(
+                customized_axes,
+                scales,
+                width,
+                height,
+                INITIAL_PLOT_AREA_RATIO,
+            )
             .await?;
 
         tracing::trace!(

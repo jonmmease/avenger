@@ -1,14 +1,14 @@
-use arrow::array::RecordBatch;
-use datafusion::logical_expr::{lit, Expr};
-use datafusion_common::ScalarValue;
-use avenger_scenegraph::marks::mark::SceneMark;
-use crate::{define_position_mark_channels, impl_mark_trait_common};
 use crate::marks::{ChannelType, Mark, RadiusExpression};
 use crate::polar::Polar;
+use crate::{define_position_mark_channels, impl_mark_trait_common};
+use arrow::array::RecordBatch;
+use avenger_scenegraph::marks::mark::SceneMark;
+use datafusion::logical_expr::{Expr, lit};
+use datafusion_common::ScalarValue;
 
 // Import Line for the macro, then re-export it
-use crate::marks::line::Line;
 use crate::error::AvengerChartError;
+use crate::marks::line::Line;
 
 // Define position channels for Polar Line
 define_position_mark_channels! {
@@ -68,5 +68,3 @@ impl Mark<Polar> for Line<Polar> {
         ))
     }
 }
-
-

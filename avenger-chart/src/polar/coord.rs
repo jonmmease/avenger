@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 pub struct Polar {
     // Fields for center injection from renderer
-    pub(crate) center_x: Option<Expr>,
-    pub(crate) center_y: Option<Expr>,
+    center_x: Option<Expr>,
+    center_y: Option<Expr>,
 }
 
 impl Polar {
@@ -83,15 +83,15 @@ impl CoordinateSystem for Polar {
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         width: f32,
         height: f32,
+        plot_area_ratio: f32,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         use crate::render::Padding;
         use avenger_geometry::marks::MarkGeometryUtils;
 
-        // The scales were configured with 80% of canvas dimensions
+        // The scales were configured with the given ratio of canvas dimensions
         // We need to use consistent dimensions for measuring overflow
-        // Use the constant from render.rs for consistency
-        let plot_width = width * crate::render::INITIAL_PLOT_AREA_RATIO;
-        let plot_height = height * crate::render::INITIAL_PLOT_AREA_RATIO;
+        let plot_width = width * plot_area_ratio;
+        let plot_height = height * plot_area_ratio;
 
         // Calculate padding that centers this plot area in the canvas
         let initial_padding = Padding {

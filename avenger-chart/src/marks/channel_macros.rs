@@ -16,10 +16,9 @@ macro_rules! define_common_mark_channels {
         impl<C: $crate::coords::CoordinateSystem> $mark<C> {
             // Generate common encoding methods
             $(
-                pub fn $name<V: Into<$crate::marks::ChannelValue>>(mut self, value: V) -> Self {
+                pub fn $name<V: Into<$crate::marks::ChannelValue>>(self, value: V) -> Self {
                     let channel_value = value.into();
-                    self.state.data = self.state.data.with_channel_value(stringify!($name), channel_value);
-                    self
+                    self.with_channel_value(stringify!($name), channel_value)
                 }
             )*
 
@@ -59,10 +58,9 @@ macro_rules! define_position_mark_channels {
         impl $mark<$coord> {
             // Generate position-specific encoding methods
             $(
-                pub fn $name<V: Into<$crate::marks::ChannelValue>>(mut self, value: V) -> Self {
+                pub fn $name<V: Into<$crate::marks::ChannelValue>>(self, value: V) -> Self {
                     let channel_value = value.into();
-                    self.state.data = self.state.data.with_channel_value(stringify!($name), channel_value);
-                    self
+                    self.with_channel_value(stringify!($name), channel_value)
                 }
             )*
 

@@ -1,12 +1,12 @@
-use arrow::array::RecordBatch;
-use avenger_scenegraph::marks::mark::SceneMark;
-use crate::{define_position_mark_channels, impl_mark_trait_common};
 use crate::marks::{ChannelType, Mark};
 use crate::polar::Polar;
+use crate::{define_position_mark_channels, impl_mark_trait_common};
+use arrow::array::RecordBatch;
+use avenger_scenegraph::marks::mark::SceneMark;
 
 // Import Rect for the macro, then re-export it
-use crate::marks::rect::Rect;
 use crate::error::AvengerChartError;
+use crate::marks::rect::Rect;
 
 // Define position channels for Polar Rect
 define_position_mark_channels! {
@@ -33,4 +33,3 @@ impl Mark<Polar> for Rect<Polar> {
         ))
     }
 }
-
