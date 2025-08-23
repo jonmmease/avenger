@@ -1,0 +1,16 @@
+[package]
+name = "avenger-chart-external-test"
+version = "0.1.0"
+edition = "2021"
+description = "Test crate to verify external scale implementations work with avenger-chart"
+
+[dependencies]
+avenger-chart = { path = "../avenger-chart" }
+avenger-scales = { path = "../avenger-scales" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+
+datafusion = { workspace = true }
+async-trait = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
