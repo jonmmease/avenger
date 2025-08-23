@@ -13,7 +13,12 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```no_run
+//! use avenger_chart::marks::ChannelValue;
+//! use datafusion::prelude::*;
+//! use indexmap::IndexMap;
+//!
+//! # fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Define channels where y2 references the y channel
 //! let mut channels = IndexMap::new();
 //! channels.insert("y".to_string(), ChannelValue::Scaled {
@@ -27,9 +32,11 @@
 //!     band: None,
 //! });
 //!
-//! // Resolve references
-//! let resolved = resolve_all_channel_refs(&channels)?;
+//! // Resolve references (function would be imported from this module)
+//! // let resolved = resolve_all_channel_refs(&channels)?;
 //! // y2 now contains: col("value") + lit(10.0)
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # Dependency Resolution

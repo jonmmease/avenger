@@ -4,7 +4,7 @@ use avenger_chart::{
     cartesian::Cartesian,
     marks::symbol::Symbol,
     plot::Plot,
-    scales::Scale,
+    scales::{Auto, Scale},
 };
 use avenger_scales::{
     error::AvengerScaleError,
@@ -49,7 +49,7 @@ impl ScaleImpl for SmoothLogScale {
     }
 
     fn option_definitions(&self) -> &[OptionDefinition] {
-        // Return empty for simplicity - in a real implementation, 
+        // Return empty for simplicity - in a real implementation,
         // you'd define these properly
         &[]
     }
@@ -70,17 +70,23 @@ impl ScaleImpl for SmoothLogScale {
         let values = values
             .as_any()
             .downcast_ref::<Float32Array>()
+            .ok_or_else(|| AvengerScaleError::InternalError("Expected Float32Array".to_string()))?;
+
+        let domain = config
+            .domain
+            .as_any()
+            .downcast_ref::<Float32Array>()
             .ok_or_else(|| {
-                AvengerScaleError::InternalError("Expected Float32Array".to_string())
+                AvengerScaleError::InternalError("Expected Float32Array domain".to_string())
             })?;
 
-        let domain = config.domain.as_any().downcast_ref::<Float32Array>().ok_or_else(|| {
-            AvengerScaleError::InternalError("Expected Float32Array domain".to_string())
-        })?;
-
-        let range = config.range.as_any().downcast_ref::<Float32Array>().ok_or_else(|| {
-            AvengerScaleError::InternalError("Expected Float32Array range".to_string())
-        })?;
+        let range = config
+            .range
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .ok_or_else(|| {
+                AvengerScaleError::InternalError("Expected Float32Array range".to_string())
+            })?;
 
         if domain.len() != 2 || range.len() != 2 {
             return Err(AvengerScaleError::InternalError(
@@ -102,7 +108,7 @@ impl ScaleImpl for SmoothLogScale {
                 let log_val = (val - domain_min + smoothing).ln();
                 let log_min = smoothing.ln();
                 let log_max = (domain_max - domain_min + smoothing).ln();
-                
+
                 // Normalize to range
                 let normalized = (log_val - log_min) / (log_max - log_min);
                 let scaled = range_min + normalized * (range_max - range_min);
@@ -139,13 +145,15 @@ impl ScaleImpl for ChromaticScale {
         let values = values
             .as_any()
             .downcast_ref::<Float32Array>()
-            .ok_or_else(|| {
-                AvengerScaleError::InternalError("Expected Float32Array".to_string())
-            })?;
+            .ok_or_else(|| AvengerScaleError::InternalError("Expected Float32Array".to_string()))?;
 
-        let range = config.range.as_any().downcast_ref::<Float32Array>().ok_or_else(|| {
-            AvengerScaleError::InternalError("Expected Float32Array range".to_string())
-        })?;
+        let range = config
+            .range
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .ok_or_else(|| {
+                AvengerScaleError::InternalError("Expected Float32Array range".to_string())
+            })?;
 
         if range.len() != 2 {
             return Err(AvengerScaleError::InternalError(
@@ -187,9 +195,9 @@ fn test_external_scale_can_be_created() {
     assert_eq!(smooth_log.scale_type(), "smooth_log");
     assert_eq!(chromatic.scale_type(), "chromatic");
 
-    // Create Scale wrappers
-    let log_scale = Scale::new(smooth_log);
-    let music_scale = Scale::new(chromatic);
+    // Create Scale wrappers using from_impl
+    let log_scale = Scale::<Auto>::from_impl(Arc::new(smooth_log));
+    let music_scale = Scale::<Auto>::from_impl(Arc::new(chromatic));
 
     // Verify they work with Scale API
     assert_eq!(log_scale.get_scale_type(), "smooth_log");
@@ -206,13 +214,13 @@ fn test_external_scale_in_plot() {
                 .y("amplitude")
                 .fill("instrument"),
         )
-        .scale_x(|s| {
-            s.scale_type(ChromaticScale)
+        .scale_x(|_| {
+            Scale::<Auto>::from_impl(Arc::new(ChromaticScale))
                 .domain((220.0_f32, 880.0_f32)) // A3 to A5
                 .range_interval(lit(0.0), lit(500.0))
         })
-        .scale_y(|s| {
-            s.scale_type(SmoothLogScale::with_smoothing(0.1))
+        .scale_y(|_| {
+            Scale::<Auto>::from_impl(Arc::new(SmoothLogScale::with_smoothing(0.1)))
                 .domain((0.1_f32, 100.0_f32))
                 .range_interval(lit(400.0), lit(0.0))
         });
@@ -222,38 +230,38 @@ fn test_external_scale_in_plot() {
 
 #[test]
 fn test_external_scale_with_options() {
-    let scale = Scale::new(SmoothLogScale::new())
+    let scale = Scale::<Auto>::from_impl(Arc::new(SmoothLogScale::new()))
         .option("smoothing", lit(0.5))
         .option("clamp", lit(true))
         .option("nice", lit(false));
 
     // Verify options are stored
-    assert!(scale.options.contains_key("smoothing"));
-    assert!(scale.options.contains_key("clamp"));
-    assert!(scale.options.contains_key("nice"));
+    assert!(scale.get_options().contains_key("smoothing"));
+    assert!(scale.get_options().contains_key("clamp"));
+    assert!(scale.get_options().contains_key("nice"));
 }
 
 #[test]
 fn test_external_scale_transformation() {
     use avenger_scales::scales::{ScaleConfig, ScaleContext};
-    
+
     let scale_impl = SmoothLogScale::with_smoothing(1.0);
-    
+
     // Create test data
     let values = Arc::new(Float32Array::from(vec![1.0, 10.0, 100.0])) as ArrayRef;
     let domain = Arc::new(Float32Array::from(vec![1.0, 100.0])) as ArrayRef;
     let range = Arc::new(Float32Array::from(vec![0.0, 100.0])) as ArrayRef;
-    
+
     let config = ScaleConfig {
         domain,
         range,
         options: HashMap::new(),
         context: ScaleContext::default(),
     };
-    
+
     // Apply the scale
     let result = scale_impl.scale(&config, &values).unwrap();
-    
+
     // Check that we got results
     assert_eq!(result.len(), 3);
     let result_array = result.as_any().downcast_ref::<Float32Array>().unwrap();
@@ -265,11 +273,11 @@ fn test_external_scale_transformation() {
 #[test]
 fn test_scale_type_method_with_external_scale() {
     // Test that scale_type method works with external scales
-    use avenger_scales::scales::linear::LinearScale;
-    
-    let scale = Scale::new(LinearScale)
-        .scale_type(SmoothLogScale::new())  // Switch to external scale
+    use avenger_chart::scales::Linear;
+
+    let scale = Scale::<Linear>::new()
+        .scale_type(SmoothLogScale::new()) // Switch to external scale
         .domain((1.0_f32, 100.0_f32));
-    
+
     assert_eq!(scale.get_scale_type(), "smooth_log");
 }

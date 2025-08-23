@@ -40,7 +40,7 @@ impl DataFrameChartHelpers for DataFrame {
 
                 union_dfs.push(self.clone().select(vec![
                     cast(col(field.name()), DataType::Float32).alias(col_name),
-                ])?);
+                ])?)
             }
         }
 

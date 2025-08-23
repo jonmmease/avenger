@@ -2761,14 +2761,10 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             &scale.domain.default_domain,
             crate::scales::ScaleDefaultDomain::DomainExprs(_)
         ) {
-            // Compute range hint for positional scales using coordinate system
-            let range_hint = self.plot.coord_system().default_range(
-                name,
-                plot_area_width as f64,
-                plot_area_height as f64,
-            );
-
-            scale = scale.infer_domain_from_data(range_hint).await?;
+            // Infer domain from data
+            scale = scale
+                .infer_domain_from_data(plot_area_width, plot_area_height)
+                .await?;
         }
 
         // Step 4: Normalize domain (apply zero, nice, padding)

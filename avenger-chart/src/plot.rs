@@ -1,7 +1,7 @@
 use crate::coords::CoordinateSystem;
 use crate::legend::Legend;
 use crate::marks::{Mark, RadiusExpression};
-use crate::scales::Scale;
+use crate::scales::{Auto, Ordinal, Scale};
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::lit;
 use indexmap::IndexMap;
@@ -421,7 +421,6 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Internal helper to create a default scale for a channel
     fn create_default_scale_for_channel_internal(&self, channel: &str) -> Scale {
         use crate::scales::inference::{get_default_scale_options, infer_scale_impl_with_mark};
-        use avenger_scales::scales::ordinal::OrdinalScale;
         use avenger_scales::scales::linear::LinearScale;
         use datafusion::logical_expr::ExprSchemable;
 
@@ -457,6 +456,7 @@ impl<C: CoordinateSystem> Plot<C> {
         }
 
         // Create a scale based on the inferred type
+        use avenger_scales::scales::ordinal::OrdinalScale;
         let scale_impl = if channel == "stroke_width" {
             // stroke_width MUST always use ordinal scale with discrete domain
             Arc::new(OrdinalScale) as Arc<dyn avenger_scales::scales::ScaleImpl>
@@ -466,14 +466,16 @@ impl<C: CoordinateSystem> Plot<C> {
             // Fallback to channel-based defaults
             match channel {
                 // Color and discrete visual channels default to ordinal
-                "fill" | "stroke" | "color" | "shape" | "stroke_dash" => Arc::new(OrdinalScale) as Arc<dyn avenger_scales::scales::ScaleImpl>,
+                "fill" | "stroke" | "color" | "shape" | "stroke_dash" => {
+                    Arc::new(OrdinalScale) as Arc<dyn avenger_scales::scales::ScaleImpl>
+                }
                 // Everything else defaults to linear
                 _ => Arc::new(LinearScale) as Arc<dyn avenger_scales::scales::ScaleImpl>,
             }
         };
 
         let scale_type = scale_impl.scale_type();
-        let mut scale = Scale::with_impl(scale_impl);
+        let mut scale = Scale::<Auto>::from_impl(scale_impl);
 
         // Apply default options based on channel and scale type
         if let Some(dt) = &data_type {
@@ -489,14 +491,7 @@ impl<C: CoordinateSystem> Plot<C> {
             "stroke_width" => {
                 // stroke_width ALWAYS uses discrete range
                 scale = scale.range_discrete(vec![
-                    lit(1.0),
-                    lit(2.0),
-                    lit(3.0),
-                    lit(4.0),
-                    lit(5.0),
-                    lit(6.0),
-                    lit(7.0),
-                    lit(8.0),
+                    1.0f32, 2.0f32, 3.0f32, 4.0f32, 5.0f32, 6.0f32, 7.0f32, 8.0f32,
                 ])
             }
             "stroke_dash" => {
@@ -507,7 +502,7 @@ impl<C: CoordinateSystem> Plot<C> {
                     let patterns: Vec<_> = DEFAULT_DASH_PATTERN_NAMES
                         .iter()
                         .take(8)
-                        .map(|name| lit(*name))
+                        .map(|&name| name.to_string())
                         .collect();
                     scale = scale.range_discrete(patterns)
                 }
@@ -530,7 +525,7 @@ impl<C: CoordinateSystem> Plot<C> {
                 // Apply default shape range immediately for ordinal scales
                 if scale_type == "ordinal" {
                     use crate::scales::shape_defaults::DEFAULT_SHAPES;
-                    let shapes: Vec<_> = DEFAULT_SHAPES.iter().map(|&s| lit(s)).collect();
+                    let shapes: Vec<_> = DEFAULT_SHAPES.iter().map(|&s| s.to_string()).collect();
                     scale = scale.range_discrete(shapes);
                 }
             }
@@ -597,15 +592,19 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Build a scale by name, applying any configured transformations
     /// Note: Default range will be applied during rendering when actual dimensions are known
     pub fn get_scale(&self, name: &str) -> Scale {
-        use avenger_scales::scales::ordinal::OrdinalScale;
-        
-        match self.scale_specs.get(name) {
+        use crate::marks::channel::strip_trailing_numbers;
+
+        // Strip trailing numbers to get the base scale name
+        // e.g., "x2" -> "x", "y2" -> "y"
+        let base_name = strip_trailing_numbers(name);
+
+        match self.scale_specs.get(base_name) {
             Some(ScaleSpec::Local(f)) => {
-                let mut base_scale = self.create_default_scale_for_channel_internal(name);
+                let mut base_scale = self.create_default_scale_for_channel_internal(base_name);
 
                 // Gather and apply domain expressions to give the scale a data-driven domain
                 // This happens BEFORE the user's lambda, so the user can override if desired
-                if let Ok(domain_exprs) = self.gather_scale_domain_expressions(name) {
+                if let Ok(domain_exprs) = self.gather_scale_domain_expressions(base_name) {
                     if !domain_exprs.is_empty() {
                         base_scale = base_scale.domain_data_fields(domain_exprs);
                     }
@@ -617,7 +616,7 @@ impl<C: CoordinateSystem> Plot<C> {
                 // Enforce stroke_width must always be ordinal
                 if name == "stroke_width" {
                     // Force ordinal scale type even if user tried to set it to linear
-                    user_scale = user_scale.scale_type(OrdinalScale);
+                    user_scale = user_scale.into_type::<Ordinal>().into_auto();
                     // Note: Default discrete range is already set in create_default_scale_for_channel_internal
                     // We don't override here to respect user-provided ranges
                 }
@@ -628,10 +627,10 @@ impl<C: CoordinateSystem> Plot<C> {
                 todo!("Referenced scales are not yet implemented");
             }
             None => {
-                let mut base_scale = self.create_default_scale_for_channel_internal(name);
+                let mut base_scale = self.create_default_scale_for_channel_internal(base_name);
 
                 // For scales without user configuration, also apply data domain
-                if let Ok(domain_exprs) = self.gather_scale_domain_expressions(name) {
+                if let Ok(domain_exprs) = self.gather_scale_domain_expressions(base_name) {
                     if !domain_exprs.is_empty() {
                         base_scale = base_scale.domain_data_fields(domain_exprs);
                     }

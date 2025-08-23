@@ -38,7 +38,7 @@ pub enum RadiusExpression {
 pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
     /// Get the mark's state
     fn state(&self) -> &MarkState<C>;
-    
+
     /// Get mutable reference to the mark's state
     fn state_mut(&mut self) -> &mut MarkState<C>;
 

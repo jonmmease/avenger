@@ -5,14 +5,13 @@ use avenger_chart::marks::line::Line;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
+use avenger_chart::scales::{Band, Ordinal};
 use datafusion::arrow::array::{ArrayRef, Float32Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::{col, lit};
 use datafusion::prelude::*;
 use std::sync::Arc;
-use avenger_scales::scales::band::BandScale;
-use avenger_scales::scales::ordinal::OrdinalScale;
 
 /// Test symbol legend with title
 #[tokio::test]
@@ -41,7 +40,7 @@ async fn test_symbol_legend_with_title() {
         .data(df)
         .scale_x(|s| s.domain((0.0, 7.0)))
         .scale_y(|s| s.domain((0.0, 7.0)))
-        .scale_fill(|s| s.scale_type(OrdinalScale))
+        .scale_fill_with::<Ordinal>(|s| s)
         .legend_fill(|legend| legend.title("Category"))
         .mark(Symbol::new().x(col("x")).y(col("y")).fill(col("category")));
 
@@ -78,7 +77,7 @@ async fn test_line_legend_with_title() {
         .data(df)
         .scale_x(|s| s.domain((0.5, 4.5)))
         .scale_y(|s| s.domain((0.0, 5.0)))
-        .scale_stroke(|s| s.scale_type(OrdinalScale))
+        .scale_stroke_with::<Ordinal>(|s| s)
         .legend_stroke(|legend| legend.title("Line Series"))
         .mark(
             Line::new()
@@ -121,11 +120,11 @@ async fn test_rect_stroke_legend_with_title() {
     // Create a bar chart with stroke legend
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|scale| scale.scale_type(BandScale).option("padding_inner", lit(0.1)))
+        .scale_x_with::<Band>(|scale| scale.padding_inner(0.1))
         .scale_y(|scale| scale.domain((0.0, 60.0)))
         .scale_stroke(|scale| {
             scale
-                .range_discrete(vec![lit("#d62728"), lit("#2ca02c"), lit("#ff7f0e")])
+                .range_discrete(vec!["#d62728", "#2ca02c", "#ff7f0e"])
                 .domain(vec![lit("Premium"), lit("Standard"), lit("Budget")])
         })
         .legend_stroke(|legend| legend.title("Quality Tier"))
@@ -172,7 +171,7 @@ async fn test_shape_legend_with_title() {
         .data(df)
         .scale_x(|s| s.domain((0.0, 7.0)))
         .scale_y(|s| s.domain((0.0, 7.0)))
-        .scale_shape(|s| s.scale_type(OrdinalScale))
+        .scale_shape_with::<Ordinal>(|s| s)
         .legend_shape(|legend| legend.title("Shape Type"))
         .mark(
             Symbol::new()
@@ -214,7 +213,7 @@ async fn test_legend_with_title_and_background() {
         .data(df)
         .scale_x(|s| s.domain((0.0, 7.0)))
         .scale_y(|s| s.domain((0.0, 7.0)))
-        .scale_fill(|s| s.scale_type(OrdinalScale))
+        .scale_fill_with::<Ordinal>(|s| s)
         .legend_fill(|legend| {
             legend
                 .title("Data Categories")

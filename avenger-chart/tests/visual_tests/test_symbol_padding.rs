@@ -1,9 +1,10 @@
-//! Visual tests for symbol padding calculation
+// Visual tests for symbol padding calculation
 
 use super::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
+use avenger_chart::scales::Linear;
 use datafusion::arrow::array::{Float32Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
@@ -35,13 +36,13 @@ async fn test_symbol_padding_no_nice() {
 
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|s| s.domain((0.0, 100.0)).nice(lit(false)))
-        .scale_y(|s| s.domain((0.0, 100.0)).nice(lit(false)))
+        .scale_x_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(false))
+        .scale_y_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(false))
         .mark(
             Symbol::new()
                 .x(col("x"))
                 .y(col("y"))
-                .size(lit(100.0))
+                .size(100.0)
                 .shape(lit("circle")),
         );
 
@@ -54,13 +55,13 @@ async fn test_symbol_padding_with_nice() {
 
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|s| s.domain((0.0, 100.0)).nice(lit(true)))
-        .scale_y(|s| s.domain((0.0, 100.0)).nice(lit(true)))
+        .scale_x_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(true))
+        .scale_y_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(true))
         .mark(
             Symbol::new()
                 .x(col("x"))
                 .y(col("y"))
-                .size(lit(100.0))
+                .size(100.0)
                 .shape(lit("circle")),
         );
 
@@ -93,13 +94,13 @@ async fn test_arrow_symbol_asymmetric_padding() {
 
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|s| s.nice(lit(false))) // No nice to see exact padding
-        .scale_y(|s| s.nice(lit(false)))
+        .scale_x_with::<Linear>(|s| s.nice(false)) // No nice to see exact padding
+        .scale_y_with::<Linear>(|s| s.nice(false))
         .mark(
             Symbol::new()
                 .x(col("x"))
                 .y(col("y"))
-                .size(lit(500.0)) // Larger triangles to make asymmetry more visible
+                .size(500.0) // Larger triangles to make asymmetry more visible
                 .shape(col("shape")),
         );
 
@@ -130,15 +131,15 @@ async fn test_exact_geometry_containment() {
 
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|s| s.domain((0.0, 100.0)).nice(lit(false)))
-        .scale_y(|s| s.domain((0.0, 100.0)).nice(lit(false)))
+        .scale_x_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(false))
+        .scale_y_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(false))
         .mark(
             Symbol::new()
                 .x(col("x"))
                 .y(col("y"))
-                .size(lit(400.0)) // Very large diamond
+                .size(400.0) // Very large diamond
                 .shape(lit("square")) // Use square to test padding of rotated shapes
-                .angle(lit(45.0)), // Rotate to test rotated geometry padding
+                .angle(45.0), // Rotate to test rotated geometry padding
         );
 
     // Verify that the rendered image contains exactly the diamond geometry

@@ -1,4 +1,4 @@
-//! Helper functions for visual tests
+// Helper functions for visual tests
 
 use avenger_chart::coords::CoordinateSystem;
 use avenger_chart::plot::Plot;

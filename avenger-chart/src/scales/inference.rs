@@ -1,13 +1,12 @@
 //! Scale inference for automatic scale type and option selection
 
+use avenger_scales::scales::ScaleImpl;
+use avenger_scales::scales::{
+    band::BandScale, linear::LinearScale, ordinal::OrdinalScale, point::PointScale, time::TimeScale,
+};
 use datafusion::arrow::datatypes::DataType;
 use std::collections::HashMap;
 use std::sync::Arc;
-use avenger_scales::scales::ScaleImpl;
-use avenger_scales::scales::{
-    band::BandScale, linear::LinearScale, ordinal::OrdinalScale,
-    point::PointScale, time::TimeScale,
-};
 
 /// Trait for marks to provide their own scale type and option preferences
 pub trait MarkScaleInference: Send + Sync {
@@ -48,7 +47,9 @@ pub fn infer_scale_impl_with_mark(
         }
 
         // Other marks use point scales for categorical position data
-        ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View, _) => Arc::new(PointScale),
+        ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View, _) => {
+            Arc::new(PointScale)
+        }
 
         // Color, shape, size, and dash channels use ordinal scales for categorical data
         (
@@ -81,7 +82,9 @@ pub fn infer_scale_impl_with_mark(
         ) => Arc::new(LinearScale),
 
         // Temporal data uses time scale
-        (_, DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _), _) => Arc::new(TimeScale),
+        (_, DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _), _) => {
+            Arc::new(TimeScale)
+        }
 
         // Default to linear for unknown types
         _ => Arc::new(LinearScale),

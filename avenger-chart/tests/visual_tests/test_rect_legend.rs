@@ -3,12 +3,12 @@ use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::ChannelExpr;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
+use avenger_chart::scales::Band;
 use datafusion::arrow::array::{ArrayRef, Float32Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::*;
 use std::sync::Arc;
-use avenger_scales::scales::band::BandScale;
 
 #[tokio::test]
 async fn test_rect_discrete_fill_legend() {
@@ -39,7 +39,7 @@ async fn test_rect_discrete_fill_legend() {
     // Create a bar chart with fill legend
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|scale| scale.scale_type(BandScale).option("padding_inner", lit(0.1)))
+        .scale_x_with::<Band>(|scale| scale.padding_inner(0.1))
         .scale_y(|scale| scale.domain((0.0, 60.0)))
         .legend_fill(|legend| legend.title("Category"))
         .mark(
@@ -85,7 +85,7 @@ async fn test_rect_continuous_fill_legend() {
     // Create a bar chart with continuous color legend
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|scale| scale.scale_type(BandScale).option("padding_inner", lit(0.15)))
+        .scale_x_with::<Band>(|scale| scale.padding_inner(0.15))
         .scale_y(|scale| scale.domain((0.0, 70.0)))
         .scale_fill(|scale| scale.domain((0.0, 40.0)))
         .legend_fill(|legend| legend.title("Temperature (°C)"))
@@ -132,11 +132,11 @@ async fn test_rect_stroke_legend() {
     // Create a bar chart with stroke legend
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|scale| scale.scale_type(BandScale).option("padding_inner", lit(0.1)))
+        .scale_x_with::<Band>(|scale| scale.padding_inner(0.1))
         .scale_y(|scale| scale.domain((0.0, 60.0)))
         .scale_stroke(|scale| {
             scale
-                .range_discrete(vec![lit("#d62728"), lit("#2ca02c"), lit("#ff7f0e")])
+                .range_discrete(vec!["#d62728", "#2ca02c", "#ff7f0e"])
                 .domain(vec![lit("Premium"), lit("Standard"), lit("Budget")])
         })
         .legend_stroke(|legend| legend.title("Quality Tier"))

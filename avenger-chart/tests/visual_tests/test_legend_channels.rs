@@ -122,9 +122,11 @@ async fn test_ordinal_size_legend() {
         .data(df)
         .legend_size(|legend| legend.title("Size Category"))
         .scale_size(|scale| {
-            scale
-                .range_discrete(vec![lit(50.0), lit(150.0), lit(300.0)])
-                .domain(vec![lit("Small"), lit("Medium"), lit("Large")])
+            scale.range_discrete(vec![50.0, 150.0, 300.0]).domain(vec![
+                lit("Small"),
+                lit("Medium"),
+                lit("Large"),
+            ])
         })
         .mark(
             Symbol::new()
@@ -170,18 +172,20 @@ async fn test_combined_size_color_shape_legend() {
         .data(df)
         // Configure scales for the shared category column
         .scale_size(|scale| {
-            scale
-                .range_discrete(vec![lit(30.0), lit(120.0), lit(480.0)])
-                .domain(vec![lit("Type A"), lit("Type B"), lit("Type C")])
+            scale.range_discrete(vec![30.0, 120.0, 480.0]).domain(vec![
+                lit("Type A"),
+                lit("Type B"),
+                lit("Type C"),
+            ])
         })
         .scale_fill(|scale| {
             scale
-                .range_discrete(vec![lit("#e41a1c"), lit("#377eb8"), lit("#4daf4a")])
+                .range_discrete(vec!["#e41a1c", "#377eb8", "#4daf4a"])
                 .domain(vec![lit("Type A"), lit("Type B"), lit("Type C")])
         })
         .scale_shape(|scale| {
             scale
-                .range_discrete(vec![lit("circle"), lit("square"), lit("triangle-up")])
+                .range_discrete(vec!["circle", "square", "triangle-up"])
                 .domain(vec![lit("Type A"), lit("Type B"), lit("Type C")])
         })
         // Configure the legend to show all three varying properties

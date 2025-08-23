@@ -3,14 +3,13 @@ use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::ChannelExpr;
 use avenger_chart::marks::line::Line;
 use avenger_chart::plot::Plot;
+use avenger_chart::scales::Ordinal;
 use datafusion::arrow::array::{ArrayRef, Float32Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::*;
 use std::sync::Arc;
-use avenger_scales::scales::ordinal::OrdinalScale;
-//! Visual tests for line mark legends
-
+// Visual tests for line mark legends
 
 #[tokio::test]
 async fn test_line_discrete_stroke_legend() {
@@ -127,11 +126,12 @@ async fn test_line_stroke_width_legend() {
         .data(df)
         .scale_x(|scale| scale.domain((0.0, 6.0)))
         .scale_y(|scale| scale.domain((0.0, 15.0)))
-        .scale_stroke_width(|scale| {
-            scale
-                .scale_type(OrdinalScale)
-                .range_discrete(vec![lit(1.0), lit(3.0), lit(6.0)])
-                .domain(vec![lit("Low"), lit("Medium"), lit("High")])
+        .scale_stroke_width_with::<Ordinal>(|scale| {
+            scale.range_discrete(vec![1.0, 3.0, 6.0]).domain(vec![
+                lit("Low"),
+                lit("Medium"),
+                lit("High"),
+            ])
         })
         .legend_stroke_width(|legend| legend.title("Importance"))
         .mark(
@@ -277,17 +277,17 @@ async fn test_line_combined_stroke_width_legend() {
         .data(df)
         .scale_x(|scale| scale.domain((0.0, 6.0)))
         .scale_y(|scale| scale.domain((0.0, 25.0)))
-        .scale_stroke(|scale| {
+        .scale_stroke_with::<Ordinal>(|scale| {
             scale
-                .scale_type(OrdinalScale)
-                .range_discrete(vec![lit("#d62728"), lit("#ff7f0e"), lit("#2ca02c")])
+                .range_discrete(vec!["#d62728", "#ff7f0e", "#2ca02c"])
                 .domain(vec![lit("High"), lit("Medium"), lit("Low")])
         })
-        .scale_stroke_width(|scale| {
-            scale
-                .scale_type(OrdinalScale)
-                .range_discrete(vec![lit(4.0), lit(2.5), lit(1.0)])
-                .domain(vec![lit("High"), lit("Medium"), lit("Low")])
+        .scale_stroke_width_with::<Ordinal>(|scale| {
+            scale.range_discrete(vec![4.0, 2.5, 1.0]).domain(vec![
+                lit("High"),
+                lit("Medium"),
+                lit("Low"),
+            ])
         })
         .legend_stroke(|legend| legend.title("Priority"))
         .mark(

@@ -1,18 +1,37 @@
 use crate::coords::CoordinateSystem;
 use crate::plot::{Plot, ScaleSpec};
-use crate::scales::Scale;
+use crate::scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec};
 use std::sync::Arc;
 
 /// Macro to generate scale methods for Plot
+/// Generates both Auto version (keeps inferred type) and typed version (changes impl)
 macro_rules! scale_methods {
     ($($method:ident => $channel:expr),* $(,)?) => {
         $(
-            pub fn $method<F>(mut self, f: F) -> Self
-            where F: Fn(Scale) -> Scale + Send + Sync + 'static
-            {
-                self.scale_specs
-                    .insert($channel.to_string(), ScaleSpec::Local(Arc::new(f)));
-                self
+            paste::paste! {
+                /// Configure scale with inferred type
+                pub fn $method<F>(mut self, f: F) -> Self
+                where F: Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync + 'static
+                {
+                    self.scale_specs
+                        .insert($channel.to_string(), ScaleSpec::Local(Arc::new(f)));
+                    self
+                }
+
+                /// Configure scale with explicit type
+                pub fn [<$method _with>]<S: ScaleTypeSpec>(mut self, f: impl Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static) -> Self
+                {
+                    self.scale_specs.insert(
+                        $channel.to_string(),
+                        ScaleSpec::Local(Arc::new(move |default_scale| {
+                            // Convert the default scale to the requested type
+                            // This changes the scale_impl to match type S while preserving domain/range/options
+                            let typed_scale = default_scale.into_type::<S>();
+                            f(typed_scale).into_auto()
+                        })),
+                    );
+                    self
+                }
             }
         )*
     };
