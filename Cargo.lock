@@ -464,6 +464,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-chart-external-test"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "avenger-chart",
+ "avenger-scales",
+ "avenger-scenegraph",
+ "datafusion",
+ "tokio",
+]
+
+[[package]]
 name = "avenger-common"
 version = "0.0.8"
 dependencies = [
