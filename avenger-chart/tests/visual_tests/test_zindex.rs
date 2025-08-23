@@ -1,17 +1,15 @@
+use super::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::line::Line;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
+use avenger_chart::scales::Linear;
 use datafusion::arrow::array::{Float64Array, Int32Array};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::*;
 use std::sync::Arc;
-use super::helpers::assert_visual_match_default;
-use avenger_scales::scales::linear::LinearScale;
-//! Visual tests for zindex behavior
-
-
+// Visual tests for zindex behavior
 
 #[tokio::test]
 async fn test_zindex_ordering() {
@@ -34,8 +32,8 @@ async fn test_zindex_ordering() {
 
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|scale| scale.scale_type(LinearScale).domain((0.0, 6.0)))
-        .scale_y(|scale| scale.scale_type(LinearScale).domain((0.0, 60.0)))
+        .scale_x_with::<Linear>(|scale| scale.domain((0.0, 6.0)))
+        .scale_y_with::<Linear>(|scale| scale.domain((0.0, 60.0)))
         .axis_x(|axis| axis.title("X"))
         .axis_y(|axis| axis.title("Y"))
         // First: Light blue line (with high zindex=10, should be drawn last/on top)
@@ -92,8 +90,8 @@ async fn test_zindex_default_order() {
 
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|scale| scale.scale_type(LinearScale).domain((0.0, 6.0)))
-        .scale_y(|scale| scale.scale_type(LinearScale).domain((0.0, 60.0)))
+        .scale_x_with::<Linear>(|scale| scale.domain((0.0, 6.0)))
+        .scale_y_with::<Linear>(|scale| scale.domain((0.0, 60.0)))
         .axis_x(|axis| axis.title("X"))
         .axis_y(|axis| axis.title("Y"))
         // SAME marks, SAME order, but NO zindex - should render in declaration order

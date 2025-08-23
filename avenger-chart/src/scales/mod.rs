@@ -14,6 +14,7 @@ mod factory;
 mod range;
 mod registry;
 mod scale;
+mod spec;
 
 // Re-export the main types
 pub use domain::{DomainExpr, ScaleDefaultDomain, ScaleDomain};
@@ -21,3 +22,7 @@ pub use extensions::{ConfiguredScaleDataFusionExt, ConfiguredScaleLegendExt, Dom
 pub use range::ScaleRange;
 pub use registry::ScaleRegistry;
 pub use scale::Scale;
+pub use spec::{
+    Auto, Band, Linear, Log, Ordinal, Point, Pow, Quantile, Quantize, ScaleSpec, Sqrt, Symlog,
+    Threshold, Time,
+};

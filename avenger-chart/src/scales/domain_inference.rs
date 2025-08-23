@@ -245,6 +245,7 @@ impl DomainInferrer {
             };
 
             let df_with_expr = df.as_ref().clone().select(vec![expr.alias(DOMAIN_COL)])?;
+
             single_col_dfs.push(df_with_expr);
         }
 
@@ -265,7 +266,6 @@ impl DomainInferrer {
 
         // Determine the appropriate method based on scale type
         let method = scale_impl.infer_domain_from_data_method();
-
         // Use DataFrameChartHelpers to get domain expression
         let domain_expr = match method {
             InferDomainFromDataMethod::Interval => union_df.span()?,

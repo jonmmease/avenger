@@ -1,14 +1,12 @@
+use super::datasets;
+use super::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::marks::{ChannelExpr, ChannelValue};
 use avenger_chart::plot::Plot;
+use avenger_chart::scales::Band;
 use datafusion::logical_expr::{col, lit};
-use super::datasets;
-use super::helpers::assert_visual_match_default;
-use avenger_scales::scales::band::BandScale;
-//! Visual tests for bar charts
-
-
+// Visual tests for bar charts
 
 #[tokio::test]
 async fn test_simple_bar_chart() {
@@ -16,8 +14,8 @@ async fn test_simple_bar_chart() {
 
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|scale| {
-            scale.scale_type(BandScale).domain_discrete(vec![
+        .scale_x_with::<Band>(|scale| {
+            scale.domain_discrete(vec![
                 lit("A"),
                 lit("B"),
                 lit("C"),
@@ -52,8 +50,8 @@ async fn test_bar_chart_with_custom_colors() {
 
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|s| {
-            s.scale_type(BandScale).domain_discrete(vec![
+        .scale_x_with::<Band>(|s| {
+            s.domain_discrete(vec![
                 lit("A"),
                 lit("B"),
                 lit("C"),
@@ -88,8 +86,8 @@ async fn test_bar_chart_with_narrow_bars() {
 
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|s| {
-            s.scale_type(BandScale).domain_discrete(vec![
+        .scale_x_with::<Band>(|s| {
+            s.domain_discrete(vec![
                 lit("A"),
                 lit("B"),
                 lit("C"),
@@ -150,8 +148,8 @@ async fn test_bar_chart_color_case_expression() {
     // This demonstrates data-driven color encoding using conditional expressions
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_x(|s| {
-            s.scale_type(BandScale).domain_discrete(vec![
+        .scale_x_with::<Band>(|s| {
+            s.domain_discrete(vec![
                 lit("A"),
                 lit("B"),
                 lit("C"),

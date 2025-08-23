@@ -1,16 +1,34 @@
 use crate::cartesian::Cartesian;
 use crate::coords::CoordinateSystem;
 use crate::plot::{AxisSpec, Plot, ScaleSpec};
-use crate::scales::Scale;
+use crate::scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec};
 use std::sync::Arc;
 
 impl Plot<Cartesian> {
+    /// Configure x scale with inferred type
     pub fn scale_x<F>(mut self, f: F) -> Self
     where
-        F: Fn(Scale) -> Scale + Send + Sync + 'static,
+        F: Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync + 'static,
     {
         self.scale_specs
             .insert("x".to_string(), ScaleSpec::Local(Arc::new(f)));
+        self
+    }
+
+    /// Configure x scale with explicit type
+    pub fn scale_x_with<S: ScaleTypeSpec>(
+        mut self,
+        f: impl Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
+    ) -> Self {
+        self.scale_specs.insert(
+            "x".to_string(),
+            ScaleSpec::Local(Arc::new(move |default_scale| {
+                // Convert the default scale to the requested type
+                // This changes the scale_impl to match type S while preserving domain/range/options
+                let typed_scale = default_scale.into_type::<S>();
+                f(typed_scale).into_auto()
+            })),
+        );
         self
     }
 
@@ -21,12 +39,30 @@ impl Plot<Cartesian> {
         self
     }
 
+    /// Configure y scale with inferred type
     pub fn scale_y<F>(mut self, f: F) -> Self
     where
-        F: Fn(Scale) -> Scale + Send + Sync + 'static,
+        F: Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync + 'static,
     {
         self.scale_specs
             .insert("y".to_string(), ScaleSpec::Local(Arc::new(f)));
+        self
+    }
+
+    /// Configure y scale with explicit type
+    pub fn scale_y_with<S: ScaleTypeSpec>(
+        mut self,
+        f: impl Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
+    ) -> Self {
+        self.scale_specs.insert(
+            "y".to_string(),
+            ScaleSpec::Local(Arc::new(move |default_scale| {
+                // Convert the default scale to the requested type
+                // This changes the scale_impl to match type S while preserving domain/range/options
+                let typed_scale = default_scale.into_type::<S>();
+                f(typed_scale).into_auto()
+            })),
+        );
         self
     }
 
@@ -62,9 +98,9 @@ impl Plot<Cartesian> {
     }
 
     /// Add an alternative y-axis scale with a custom name
-    pub fn scale_y_alt<S: Into<String>, F>(mut self, name: S, f: F) -> Self
+    pub fn scale_y_alt<N: Into<String>, F>(mut self, name: N, f: F) -> Self
     where
-        F: Fn(Scale) -> Scale + Send + Sync + 'static,
+        F: Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync + 'static,
     {
         let name = name.into();
         self.scale_specs
@@ -75,9 +111,9 @@ impl Plot<Cartesian> {
     }
 
     /// Add an alternative x-axis scale with a custom name
-    pub fn scale_x_alt<S: Into<String>, F>(mut self, name: S, f: F) -> Self
+    pub fn scale_x_alt<N: Into<String>, F>(mut self, name: N, f: F) -> Self
     where
-        F: Fn(Scale) -> Scale + Send + Sync + 'static,
+        F: Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync + 'static,
     {
         let name = name.into();
         self.scale_specs

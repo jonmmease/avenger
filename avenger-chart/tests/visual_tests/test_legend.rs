@@ -156,7 +156,7 @@ async fn test_continuous_color_legend() {
 //         .data(df)
 //         .scale_x(|scale| scale.domain((0.0, 7.0)))
 //         .scale_y(|scale| scale.domain((0.0, 8.0)))
-//         .scale_size(|scale| scale.range_discrete(vec![lit(50.0), lit(100.0), lit(200.0)]))
+//         .scale_size(|scale| scale.range_discrete(vec![50.0, 100.0, 200.0]))
 //         .legend_size(|legend| legend.title("Size"))
 //         .mark(
 //             Symbol::new()
@@ -281,7 +281,7 @@ async fn test_combined_fill_and_shape_legend() {
 //         .scale_y(|scale| scale.domain((0.0, 8.0)))
 //         .scale_fill(|scale| scale.domain_discrete(vec![lit("A"), lit("B"), lit("C")]))
 //         .scale_size(|scale| scale.domain_discrete(vec![lit("small"), lit("medium"), lit("large")])
-//             .range_discrete(vec![lit(50.0), lit(100.0), lit(200.0)]))
+//             .range_discrete(vec![50.0, 100.0, 200.0]))
 //         .legend_fill(|legend| legend.title("Category"))
 //         .legend_size(|legend| legend.title("Size"))
 //         .mark(

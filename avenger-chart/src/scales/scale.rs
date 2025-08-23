@@ -1,7 +1,10 @@
+//! Type-safe scale system with compile-time method resolution
+
 use crate::error::AvengerChartError;
 use crate::scales::domain::{DomainExpr, ScaleDefaultDomain, ScaleDomain};
 use crate::scales::domain_inference::DomainInferrer;
 use crate::scales::range::ScaleRange;
+use crate::scales::spec::*;
 use crate::utils::{ScalarValueHelpers, eval_to_scalars};
 use avenger_scales::scales::ScaleImpl;
 use datafusion::dataframe::DataFrame;
@@ -9,78 +12,46 @@ use datafusion::logical_expr::{Expr, lit};
 use datafusion_common::ScalarValue;
 use palette::Srgba;
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
+/// Type-safe scale with compile-time method resolution
 #[derive(Debug, Clone)]
-pub struct Scale {
-    pub scale_impl: Arc<dyn ScaleImpl>,
-    pub domain: ScaleDomain,
-    pub range: ScaleRange,
-    pub options: HashMap<String, Expr>,
+pub struct Scale<S: ScaleSpec = Auto> {
+    pub(crate) scale_impl: Arc<dyn ScaleImpl>,
+    pub(crate) domain: ScaleDomain,
+    pub(crate) range: ScaleRange,
+    options: HashMap<String, Expr>,
+    pub(crate) _phantom: PhantomData<S>,
 }
 
-impl Scale {
-    pub fn new<S: ScaleImpl>(scale_impl: S) -> Self {
-        let scale_type = scale_impl.scale_type();
+// ===== Generic methods available on ALL scales =====
+impl<S: ScaleSpec> Default for Scale<S> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-        // Create appropriate default domain based on scale type
-        let domain = match scale_type {
-            "band" | "point" | "ordinal" => ScaleDomain::new_discrete(vec![]),
-            _ => ScaleDomain::new_interval(lit(0.0), lit(1.0)),
+impl<S: ScaleSpec> Scale<S> {
+    /// Create a new scale of this type
+    pub fn new() -> Self {
+        let scale_impl = S::create_impl();
+
+        // Use the scale's domain inference method to determine domain type
+        // This is more extensible than hard-coding scale names
+        use avenger_scales::scales::InferDomainFromDataMethod;
+        let domain = match scale_impl.infer_domain_from_data_method() {
+            InferDomainFromDataMethod::Unique => ScaleDomain::new_discrete(vec![]),
+            InferDomainFromDataMethod::Interval => ScaleDomain::new_interval(lit(0.0), lit(1.0)),
+            InferDomainFromDataMethod::All => ScaleDomain::new_discrete(vec![]), // Treat All as discrete
         };
 
         // Get default options from the scale implementation
         let default_options = scale_impl.default_options();
         let mut options = HashMap::new();
-        
+
         // Convert Scalar values to Expr values
         for (key, scalar) in default_options {
-            // Convert the avenger_scales::scalar::Scalar to a datafusion ScalarValue
-            let scalar_value = if let Ok(b) = scalar.as_boolean() {
-                ScalarValue::Boolean(Some(b))
-            } else if let Ok(f) = scalar.as_f32() {
-                ScalarValue::Float32(Some(f))
-            } else if let Ok(i) = scalar.as_i32() {
-                ScalarValue::Int32(Some(i))
-            } else if let Ok(s) = scalar.as_string() {
-                ScalarValue::Utf8(Some(s))
-            } else {
-                ScalarValue::Null
-            };
-            options.insert(key, lit(scalar_value));
-        }
-
-        Self {
-            scale_impl: Arc::new(scale_impl),
-            domain,
-            range: ScaleRange::new_interval(lit(0.0), lit(1.0)),
-            options,
-        }
-    }
-
-    /// Create a scale with default linear type
-    pub fn default() -> Self {
-        use avenger_scales::scales::linear::LinearScale;
-        Self::new(LinearScale)
-    }
-
-    /// Create a scale with an Arc<dyn ScaleImpl>
-    pub fn with_impl(scale_impl: Arc<dyn ScaleImpl>) -> Self {
-        let scale_type = scale_impl.scale_type();
-
-        // Create appropriate default domain based on scale type
-        let domain = match scale_type {
-            "band" | "point" | "ordinal" => ScaleDomain::new_discrete(vec![]),
-            _ => ScaleDomain::new_interval(lit(0.0), lit(1.0)),
-        };
-
-        // Get default options from the scale implementation
-        let default_options = scale_impl.default_options();
-        let mut options = HashMap::new();
-        
-        // Convert Scalar values to Expr values
-        for (key, scalar) in default_options {
-            // Convert the avenger_scales::scalar::Scalar to a datafusion ScalarValue
             let scalar_value = if let Ok(b) = scalar.as_boolean() {
                 ScalarValue::Boolean(Some(b))
             } else if let Ok(f) = scalar.as_f32() {
@@ -100,24 +71,142 @@ impl Scale {
             domain,
             range: ScaleRange::new_interval(lit(0.0), lit(1.0)),
             options,
+            _phantom: PhantomData,
         }
     }
 
-    /// Set the scale type, replacing the current implementation
-    pub fn scale_type<S: ScaleImpl>(mut self, scale_impl: S) -> Self {
-        let old_type = self.scale_impl.scale_type();
-        let new_type = scale_impl.scale_type();
+    /// Set the domain
+    pub fn domain<D: Into<ScaleDomain>>(mut self, domain: D) -> Self {
+        self.domain = domain.into();
+        self
+    }
 
-        // Clear existing options and apply new defaults if type changed
-        if old_type != new_type {
-            self.options.clear();
-            
-            // Get default options from the scale implementation
+    /// Set the domain as an interval
+    pub fn domain_interval(mut self, min: impl Into<Expr>, max: impl Into<Expr>) -> Self {
+        self.domain = ScaleDomain::new_interval(min.into(), max.into());
+        self
+    }
+
+    /// Set the domain as discrete values
+    pub fn domain_discrete(mut self, values: Vec<impl Into<Expr>>) -> Self {
+        self.domain = ScaleDomain::new_discrete(values.into_iter().map(|v| v.into()).collect());
+        self
+    }
+
+    /// Set domain from data field
+    pub fn domain_data(mut self, dataframe: Arc<DataFrame>, expr: Expr) -> Self {
+        self.domain.default_domain = ScaleDefaultDomain::DomainExprs(vec![DomainExpr {
+            dataframe,
+            expr,
+            radius: None,
+        }]);
+        self
+    }
+
+    /// Set domain from data fields
+    pub fn domain_data_fields(mut self, fields: Vec<(Arc<DataFrame>, Expr)>) -> Self {
+        let exprs = fields
+            .into_iter()
+            .map(|(df, expr)| DomainExpr {
+                dataframe: df,
+                expr,
+                radius: None,
+            })
+            .collect();
+        self.domain.default_domain = ScaleDefaultDomain::DomainExprs(exprs);
+        self
+    }
+
+    /// Set domain from data fields with radius expressions
+    pub fn domain_data_fields_with_radius(
+        mut self,
+        fields: Vec<(Arc<DataFrame>, Expr, Option<crate::marks::RadiusExpression>)>,
+    ) -> Self {
+        let exprs = fields
+            .into_iter()
+            .map(|(df, expr, radius)| DomainExpr {
+                dataframe: df,
+                expr,
+                radius,
+            })
+            .collect();
+        self.domain.default_domain = ScaleDefaultDomain::DomainExprs(exprs);
+        self
+    }
+
+    /// Set the range
+    pub fn range(mut self, range: ScaleRange) -> Self {
+        self.range = range;
+        self
+    }
+
+    /// Set the range as an interval
+    pub fn range_interval(mut self, min: impl Into<Expr>, max: impl Into<Expr>) -> Self {
+        self.range = ScaleRange::new_interval(min.into(), max.into());
+        self
+    }
+
+    /// Set the range as discrete values from ScalarValues
+    pub fn range_discrete(mut self, values: Vec<impl Into<ScalarValue>>) -> Self {
+        self.range = ScaleRange::new_discrete(values.into_iter().map(|v| v.into()).collect());
+        self
+    }
+
+    /// Set the range as colors
+    pub fn range_colors(mut self, colors: Vec<Srgba>) -> Self {
+        self.range = ScaleRange::new_color(colors);
+        self
+    }
+
+    /// Change the scale type by providing a new implementation
+    pub fn scale_type(mut self, scale_impl: impl ScaleImpl + 'static) -> Self {
+        self.scale_impl = Arc::new(scale_impl);
+        self
+    }
+
+    pub fn get_scale_type(&self) -> &str {
+        self.scale_impl.scale_type()
+    }
+
+    /// Internal method for setting options
+    /// This is intentionally undocumented and prefixed with _ to discourage direct use.
+    /// External crates implementing custom scales can use this for their typed methods.
+    /// Regular users should use the typed methods or Scale<Auto>::option()
+    #[doc(hidden)]
+    pub fn _option(mut self, key: impl Into<String>, value: impl Into<Expr>) -> Self {
+        self.options.insert(key.into(), value.into());
+        self
+    }
+
+    /// Convert to a different scale type
+    pub fn into_type<T: ScaleSpec>(self) -> Scale<T> {
+        // Check if we're changing scale type before moving values
+        let changing_type =
+            T::name() != "auto" && self.scale_impl.scale_type() != T::create_impl().scale_type();
+
+        // For Auto, preserve the existing scale implementation
+        // For other types, create the appropriate implementation
+        let scale_impl = if T::name() == "auto" {
+            // Preserve the existing scale implementation for Auto
+            self.scale_impl
+        } else {
+            // Create new implementation for specific types
+            T::create_impl()
+        };
+
+        // When changing scale types, only preserve options that are valid for the new scale
+        // This prevents issues like LinearScale's "nice" option being passed to ThresholdScale
+        let options = if !changing_type {
+            // Same scale type, keep all options
+            self.options
+        } else {
+            // Different scale type, start with new scale's default options
+            // User can override these with the builder methods
             let default_options = scale_impl.default_options();
-            
+            let mut new_options = HashMap::new();
+
             // Convert Scalar values to Expr values
             for (key, scalar) in default_options {
-                // Convert the avenger_scales::scalar::Scalar to a datafusion ScalarValue
                 let scalar_value = if let Ok(b) = scalar.as_boolean() {
                     ScalarValue::Boolean(Some(b))
                 } else if let Ok(f) = scalar.as_f32() {
@@ -129,252 +218,108 @@ impl Scale {
                 } else {
                     ScalarValue::Null
                 };
-                self.options.insert(key, lit(scalar_value));
+                new_options.insert(key, lit(scalar_value));
             }
+            new_options
+        };
+
+        Scale {
+            scale_impl,
+            domain: self.domain,
+            range: self.range,
+            options,
+            _phantom: PhantomData,
         }
-        
-        self.scale_impl = Arc::new(scale_impl);
-        self
     }
+
+    /// Convert to Auto type for storage
+    pub fn into_auto(self) -> Scale<Auto> {
+        Scale {
+            scale_impl: self.scale_impl,
+            domain: self.domain,
+            range: self.range,
+            options: self.options,
+            _phantom: PhantomData,
+        }
+    }
+
+    // ===== Getters =====
 
     pub fn get_scale_impl(&self) -> &Arc<dyn ScaleImpl> {
         &self.scale_impl
-    }
-
-    /// Get the scale type name
-    pub fn get_scale_type(&self) -> &str {
-        self.scale_impl.scale_type()
-    }
-
-    // Domain builders
-    pub fn domain<D: Into<ScaleDomain>>(self, domain: D) -> Self {
-        Self {
-            domain: domain.into(),
-            ..self
-        }
     }
 
     pub fn get_domain(&self) -> &ScaleDomain {
         &self.domain
     }
 
-    /// Get the cardinality of the domain for discrete scales
-    pub fn get_domain_cardinality(&self) -> Option<usize> {
-        match &self.domain.default_domain {
-            ScaleDefaultDomain::Discrete(values) => Some(values.len()),
-            _ => None,
-        }
-    }
-
-    pub fn domain_interval<T: Into<Expr>>(self, start: T, end: T) -> Self {
-        self.domain(ScaleDomain::new_interval(start, end))
-    }
-
-    pub fn domain_discrete<T: Into<Expr>>(self, values: Vec<T>) -> Self {
-        let exprs: Vec<Expr> = values.into_iter().map(|v| v.into()).collect();
-        self.domain(ScaleDomain::new_discrete(exprs))
-    }
-
-    pub fn domain_data_field(self, dataframe: Arc<DataFrame>, expr: Expr) -> Self {
-        self.domain(ScaleDomain::new_data_field(dataframe, expr))
-    }
-
-    pub fn domain_data_field_with_radius(
-        self,
-        dataframe: Arc<DataFrame>,
-        expr: Expr,
-        radius: Expr,
-    ) -> Self {
-        self.domain(ScaleDomain::new_data_field_with_radius(
-            dataframe, expr, radius,
-        ))
-    }
-
-    pub fn domain_data_fields(self, fields: Vec<(Arc<DataFrame>, Expr)>) -> Self {
-        self.domain(ScaleDomain::new_data_fields(fields))
-    }
-
-    /// Set domain from data fields with optional radius expressions for padding calculations
-    ///
-    /// **Note**: This is a low-level method for staged processing where radius information
-    /// from non-positional scales needs to be incorporated into positional scale domains.
-    #[doc(hidden)]
-    pub fn domain_data_fields_with_radius(
-        self,
-        fields: Vec<(Arc<DataFrame>, Expr, Option<crate::marks::RadiusExpression>)>,
-    ) -> Self {
-        let domain = ScaleDomain {
-            default_domain: ScaleDefaultDomain::DomainExprs(
-                fields
-                    .into_iter()
-                    .map(|(dataframe, expr, radius)| DomainExpr {
-                        dataframe,
-                        expr,
-                        radius,
-                    })
-                    .collect(),
-            ),
-            raw_domain: None,
-        };
-        self.domain(domain)
-    }
-
-    pub fn raw_domain<E: Clone + Into<Expr>>(self, raw_domain: E) -> Self {
-        let new_domain = self.domain.clone().with_raw(raw_domain.into());
-        self.domain(new_domain)
-    }
-
-    // Range builders
-    pub fn range(self, range: ScaleRange) -> Self {
-        Self { range, ..self }
-    }
-
     pub fn get_range(&self) -> &ScaleRange {
         &self.range
-    }
-
-    pub fn range_numeric<F: Into<Expr>>(self, start: F, end: F) -> Self {
-        self.range(ScaleRange::new_interval(start, end))
-    }
-
-    pub fn range_interval<T: Into<Expr>>(self, start: T, end: T) -> Self {
-        self.range(ScaleRange::new_interval(start, end))
-    }
-
-    pub fn range_discrete<T: Into<Expr>>(self, values: Vec<T>) -> Self {
-        let scalars: Vec<ScalarValue> = values
-            .into_iter()
-            .map(|v| {
-                let expr = v.into();
-                match expr {
-                    Expr::Literal(scalar, _) => scalar,
-                    _ => ScalarValue::Null,
-                }
-            })
-            .collect();
-        self.range(ScaleRange::new_enum(scalars))
-    }
-
-    pub fn range_color(self, colors: Vec<Srgba>) -> Self {
-        self.range(ScaleRange::new_color(colors))
-    }
-
-    // Clip padding builders - for backward compatibility, padding sets both lower and upper
-    pub fn padding<E: Into<Expr>>(mut self, expr: E) -> Self {
-        let padding_expr = expr.into();
-        self.options
-            .insert("clip_padding_lower".to_string(), padding_expr.clone());
-        self.options
-            .insert("clip_padding_upper".to_string(), padding_expr);
-        self
-    }
-
-    pub fn clip_padding_lower<E: Into<Expr>>(mut self, expr: E) -> Self {
-        self.options
-            .insert("clip_padding_lower".to_string(), expr.into());
-        self
-    }
-
-    pub fn clip_padding_upper<E: Into<Expr>>(mut self, expr: E) -> Self {
-        self.options
-            .insert("clip_padding_upper".to_string(), expr.into());
-        self
-    }
-
-    pub fn padding_none(mut self) -> Self {
-        self.options.remove("clip_padding_lower");
-        self.options.remove("clip_padding_upper");
-        self
-    }
-
-    pub fn has_explicit_padding(&self) -> bool {
-        self.options.contains_key("clip_padding_lower")
-            || self.options.contains_key("clip_padding_upper")
-    }
-
-    pub fn get_padding(&self) -> Option<&Expr> {
-        // For backward compatibility, return lower padding if it exists
-        self.options.get("clip_padding_lower")
-    }
-
-    // Nice option for numeric scales
-    pub fn nice<E: Into<Expr>>(mut self, value: E) -> Self {
-        self.options.insert("nice".to_string(), value.into());
-        self
-    }
-
-    // Other builder methods
-    pub fn option<K: Into<String>, V: Into<Expr>>(mut self, key: K, value: V) -> Self {
-        self.options.insert(key.into(), value.into());
-        self
     }
 
     pub fn get_options(&self) -> &HashMap<String, Expr> {
         &self.options
     }
 
-    /// Infer domain from data fields and return a new scale with the inferred domain
-    ///
-    /// **Note**: This is a low-level method. Most users should use `PlotRenderer::build_scale_with_context()` instead.
-    /// This method is exposed for advanced staged processing scenarios and testing.
-    ///
-    /// # Arguments
-    /// * `range_hint` - Optional range to use for radius-aware padding calculations.
-    ///   If not provided, padding calculations will be skipped.
-    #[doc(hidden)]
+    // ===== Domain inference and configuration =====
+
+    /// Infer domain from data fields
     pub async fn infer_domain_from_data(
         mut self,
-        range_hint: Option<(f64, f64)>,
+        _plot_area_width: f32,
+        _plot_area_height: f32,
     ) -> Result<Self, AvengerChartError> {
-        // Use the DomainInferrer to handle the complex logic
+        // Calculate range hint for radius-aware padding
+        let range_hint = match &self.range {
+            ScaleRange::Numeric(start, end) => {
+                let scalars =
+                    eval_to_scalars(vec![start.clone(), end.as_ref().clone()], None, None).await?;
+                if scalars.len() == 2 {
+                    Some((scalars[0].as_f64()?, scalars[1].as_f64()?))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+
+        // Infer domain using DomainInferrer
         self.domain = DomainInferrer::infer(&self.scale_impl, self.domain, range_hint).await?;
         Ok(self)
     }
 
-    /// Apply normalization (zero, nice, padding) to the scale domain
-    ///
-    /// **Note**: This is a low-level method. Most users should use `PlotRenderer::build_scale_with_context()` instead.
-    /// This method is exposed for advanced staged processing scenarios and testing.
-    #[doc(hidden)]
+    /// Apply normalization (zero, nice, padding) to domain
     pub async fn normalize_domain(
         mut self,
         plot_area_width: f32,
         plot_area_height: f32,
     ) -> Result<Self, AvengerChartError> {
-        // Skip normalization for non-numeric ranges (e.g., color ranges)
+        // Skip for non-numeric ranges
         if !matches!(&self.range, ScaleRange::Numeric(_, _)) {
             return Ok(self);
         }
 
-        // Skip normalization for non-numeric domains (e.g., ordinal scales)
-        if !matches!(
-            &self.domain.default_domain,
-            ScaleDefaultDomain::Interval(_, _)
-        ) {
+        // Skip for discrete domains - normalization doesn't apply to categorical data
+        if matches!(&self.domain.default_domain, ScaleDefaultDomain::Discrete(_)) {
             return Ok(self);
         }
 
-        // Create a ConfiguredScale to apply normalization
-        let configured_scale = self
+        // Create ConfiguredScale to apply normalization
+        let configured = self
             .create_configured_scale(plot_area_width, plot_area_height)
             .await?;
 
-        // Convert back to avenger-chart Scale with the normalized domain
-        if let ScaleDefaultDomain::Interval(_start, _end) = &self.domain.default_domain {
-            // Get the normalized domain from ConfiguredScale
-            if let Ok((min, max)) = configured_scale.numeric_interval_domain() {
-                self = self.domain_interval(lit(min as f64), lit(max as f64));
-            }
+        // Update domain with normalized values
+        // This will only succeed for scales with numeric interval domains
+        // Discrete scales will return Err and keep their original domain
+        if let Ok((min, max)) = configured.numeric_interval_domain() {
+            self = self.domain_interval(lit(min as f64), lit(max as f64));
         }
 
         Ok(self)
     }
 
-    /// Create a ConfiguredScale from this Scale
-    ///
-    /// **Note**: This is a low-level method. Most users should use `PlotRenderer::build_scale_with_context()` instead.
-    /// This method is exposed for advanced staged processing scenarios and testing.
-    #[doc(hidden)]
+    /// Create a ConfiguredScale for rendering
     pub async fn create_configured_scale(
         &self,
         _plot_area_width: f32,
@@ -394,7 +339,6 @@ impl Scale {
                     ));
                 };
 
-                // Convert to f32 values
                 let start_f32 = start_val.as_f32()?;
                 let end_f32 = end_val.as_f32()?;
                 Arc::new(Float32Array::from(vec![start_f32, end_f32])) as ArrayRef
@@ -406,40 +350,32 @@ impl Scale {
 
                 if self.scale_impl.scale_type() == "threshold" {
                     // Threshold scales need numeric domain values
-                    let mut floats = Vec::new();
+                    let mut float_values = Vec::new();
                     for scalar in scalars {
-                        let f = scalar.as_f32()?;
-                        floats.push(f);
+                        float_values.push(scalar.as_f32()?);
                     }
-                    Arc::new(Float32Array::from(floats)) as ArrayRef
+                    Arc::new(Float32Array::from(float_values)) as ArrayRef
                 } else {
                     // Other discrete scales need string values
-                    let mut strings = Vec::new();
+                    let mut string_values = Vec::new();
                     for scalar in scalars {
-                        if let ScalarValue::Utf8(Some(s)) = scalar {
-                            strings.push(s);
-                        } else {
-                            // Convert non-strings to strings
-                            strings.push(format!("{:?}", scalar));
-                        }
+                        string_values.push(scalar.as_scalar_string()?);
                     }
-                    Arc::new(StringArray::from(strings)) as ArrayRef
+                    Arc::new(StringArray::from(string_values)) as ArrayRef
                 }
             }
-            _ => {
-                return Err(AvengerChartError::InternalError(format!(
-                    "Scale domain must be explicitly set. Domain type: {:?}",
-                    self.domain.default_domain
-                )));
+            ScaleDefaultDomain::DomainExprs(_) => {
+                return Err(AvengerChartError::InternalError(
+                    "Domain must be resolved before creating ConfiguredScale".to_string(),
+                ));
             }
         };
 
-        // Extract range values as arrow array
+        // Extract range values
         let range = match &self.range {
             ScaleRange::Numeric(start, end) => {
                 let scalars =
                     eval_to_scalars(vec![start.clone(), end.as_ref().clone()], None, None).await?;
-
                 let [start_val, end_val] = scalars.as_slice() else {
                     return Err(AvengerChartError::InternalError(
                         "Expected two scalar values for numeric range".to_string(),
@@ -450,80 +386,327 @@ impl Scale {
                 let end_f32 = end_val.as_f32()?;
                 Arc::new(Float32Array::from(vec![start_f32, end_f32])) as ArrayRef
             }
-            ScaleRange::Color(colors) => {
-                // Convert Vec<Srgba> to a list array of [f32; 4] arrays
-                let color_arrays: Vec<ArrayRef> = colors
-                    .iter()
-                    .map(|color| {
-                        let rgba = [color.red, color.green, color.blue, color.alpha];
-                        Arc::new(Float32Array::from(Vec::from(rgba))) as ArrayRef
-                    })
-                    .collect();
-
-                // Create a ListArray from the color arrays
-                avenger_scales::scalar::Scalar::arrays_into_list_array(color_arrays)?
-            }
             ScaleRange::Enum(values) => {
-                // Convert the scalar values to an array
-                ScalarValue::iter_to_array(values.iter().cloned())?
+                // Check if all values are numeric - if so, keep as Float32Array
+                // This handles cases like stroke_width which uses ordinal scale with numeric range
+                let all_numeric = values.iter().all(|v| v.as_f32().is_ok());
+
+                if all_numeric {
+                    let mut float_values = Vec::new();
+                    for scalar in values {
+                        float_values.push(scalar.as_f32()?);
+                    }
+                    Arc::new(Float32Array::from(float_values)) as ArrayRef
+                } else {
+                    // For non-numeric discrete values, convert to strings
+                    let mut string_values = Vec::new();
+                    for scalar in values {
+                        string_values.push(scalar.as_scalar_string()?);
+                    }
+                    Arc::new(StringArray::from(string_values)) as ArrayRef
+                }
+            }
+            ScaleRange::Color(colors) => {
+                // Convert colors to a list array of RGBA values
+                use datafusion::arrow::array::Float32Builder;
+                use datafusion::arrow::array::ListBuilder;
+
+                let mut list_builder = ListBuilder::new(Float32Builder::new());
+
+                for color in colors {
+                    // Append a new list entry for this color
+                    let values_builder = list_builder.values();
+                    values_builder.append_value(color.red);
+                    values_builder.append_value(color.green);
+                    values_builder.append_value(color.blue);
+                    values_builder.append_value(color.alpha);
+                    list_builder.append(true);
+                }
+
+                Arc::new(list_builder.finish()) as ArrayRef
             }
         };
 
-        // Eval scalars options values and convert them to avenger_scales::scalar::Scalar
-        let (names, exprs): (Vec<_>, Vec<_>) = self.options.clone().into_iter().unzip();
-        let scalars = eval_to_scalars(exprs, None, None)
-            .await?
-            .into_iter()
-            .map(|s| s.as_scale_scalar())
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut options = names.into_iter().zip(scalars).collect::<HashMap<_, _>>();
-
-        // Add clip_padding options if specified
-        if self.has_explicit_padding() {
-            // Handle clip_padding_lower
-            if let Some(expr) = self.options.get("clip_padding_lower") {
-                let scalar_val = eval_to_scalars(vec![expr.clone()], None, None).await?;
-                if let Some(val) = scalar_val.first() {
-                    let padding_scalar = val.as_scale_scalar()?;
-                    options.insert("clip_padding_lower".to_string(), padding_scalar);
-                }
-            } else if self.options.contains_key("clip_padding_upper") {
-                // If upper is set but not lower, default lower to 0
-                options.insert(
-                    "clip_padding_lower".to_string(),
-                    avenger_scales::scalar::Scalar::from_f32(0.0),
-                );
-            }
-
-            // Handle clip_padding_upper
-            if let Some(expr) = self.options.get("clip_padding_upper") {
-                let scalar_val = eval_to_scalars(vec![expr.clone()], None, None).await?;
-                if let Some(val) = scalar_val.first() {
-                    let padding_scalar = val.as_scale_scalar()?;
-                    options.insert("clip_padding_upper".to_string(), padding_scalar);
-                }
-            } else if self.options.contains_key("clip_padding_lower") {
-                // If lower is set but not upper, default upper to 0
-                options.insert(
-                    "clip_padding_upper".to_string(),
-                    avenger_scales::scalar::Scalar::from_f32(0.0),
-                );
+        // Extract options as HashMap<String, Scalar>
+        let mut scalar_options = HashMap::new();
+        for (key, value_expr) in &self.options {
+            // Evaluate the expression to get a scalar value
+            let scalars = eval_to_scalars(vec![value_expr.clone()], None, None).await?;
+            if let Some(scalar_value) = scalars.first() {
+                // Convert to avenger_scales::scalar::Scalar
+                let scalar = scalar_value.as_scale_scalar()?;
+                scalar_options.insert(key.clone(), scalar);
             }
         }
 
+        // Convert padding to clip_padding_lower and clip_padding_upper for linear/log/pow/symlog scales
+        if scalar_options.contains_key("padding") {
+            let scale_type = self.scale_impl.scale_type();
+            if scale_type == "linear"
+                || scale_type == "log"
+                || scale_type == "pow"
+                || scale_type == "symlog"
+            {
+                if let Some(padding_value) = scalar_options.get("padding").cloned() {
+                    // For continuous scales, padding becomes clip_padding
+                    if !scalar_options.contains_key("clip_padding_lower") {
+                        scalar_options
+                            .insert("clip_padding_lower".to_string(), padding_value.clone());
+                    }
+                    if !scalar_options.contains_key("clip_padding_upper") {
+                        scalar_options.insert("clip_padding_upper".to_string(), padding_value);
+                    }
+                    // Remove the padding option as it's been converted
+                    scalar_options.remove("padding");
+                }
+            }
+            // For band and point scales, padding is valid and should be kept as-is
+            // For other scales (ordinal, threshold, etc.), padding is not used
+        }
+
+        // Create scale context using default
+        let context = ScaleContext::default();
+
+        // Create scale config
         let config = ScaleConfig {
             domain,
             range,
-            options,
-            context: ScaleContext::default(),
+            options: scalar_options,
+            context,
         };
 
-        let configured_scale = ConfiguredScale {
+        // Create configured scale
+        Ok(ConfiguredScale {
             scale_impl: self.scale_impl.clone(),
             config,
+        })
+    }
+}
+
+// ===== Linear scale specific methods =====
+impl Scale<Linear> {
+    /// Set whether to include zero in the domain
+    pub fn zero(self, value: bool) -> Self {
+        self._option("zero", lit(value))
+    }
+
+    /// Set whether to nice the domain
+    pub fn nice(self, value: bool) -> Self {
+        self._option("nice", lit(value))
+    }
+
+    /// Set whether to clamp values outside the domain
+    pub fn clamp(self, value: bool) -> Self {
+        self._option("clamp", lit(value))
+    }
+
+    /// Set padding as a fraction of the domain
+    pub fn padding(self, value: f32) -> Self {
+        self._option("padding", lit(value))
+    }
+}
+
+// ===== Log scale specific methods =====
+impl Scale<Log> {
+    /// Set the logarithm base
+    pub fn base(self, value: f32) -> Self {
+        self._option("base", lit(value))
+    }
+
+    /// Set whether to nice the domain
+    pub fn nice(self, value: bool) -> Self {
+        self._option("nice", lit(value))
+    }
+
+    /// Set whether to clamp values outside the domain
+    pub fn clamp(self, value: bool) -> Self {
+        self._option("clamp", lit(value))
+    }
+}
+
+// ===== Pow scale specific methods =====
+impl Scale<Pow> {
+    /// Set the exponent
+    pub fn exponent(self, value: f32) -> Self {
+        self._option("exponent", lit(value))
+    }
+
+    /// Set whether to include zero in the domain
+    pub fn zero(self, value: bool) -> Self {
+        self._option("zero", lit(value))
+    }
+
+    /// Set whether to nice the domain
+    pub fn nice(self, value: bool) -> Self {
+        self._option("nice", lit(value))
+    }
+
+    /// Set whether to clamp values outside the domain
+    pub fn clamp(self, value: bool) -> Self {
+        self._option("clamp", lit(value))
+    }
+}
+
+// ===== Sqrt scale specific methods =====
+impl Scale<Sqrt> {
+    /// Set whether to include zero in the domain
+    pub fn zero(self, value: bool) -> Self {
+        self._option("zero", lit(value))
+    }
+
+    /// Set whether to nice the domain
+    pub fn nice(self, value: bool) -> Self {
+        self._option("nice", lit(value))
+    }
+
+    /// Set whether to clamp values outside the domain
+    pub fn clamp(self, value: bool) -> Self {
+        self._option("clamp", lit(value))
+    }
+}
+
+// ===== Symlog scale specific methods =====
+impl Scale<Symlog> {
+    /// Set the constant parameter
+    pub fn constant(self, value: f32) -> Self {
+        self._option("constant", lit(value))
+    }
+
+    /// Set whether to nice the domain
+    pub fn nice(self, value: bool) -> Self {
+        self._option("nice", lit(value))
+    }
+
+    /// Set whether to clamp values outside the domain
+    pub fn clamp(self, value: bool) -> Self {
+        self._option("clamp", lit(value))
+    }
+}
+
+// ===== Band scale specific methods =====
+impl Scale<Band> {
+    /// Set the inner padding (between bands)
+    pub fn padding_inner(self, value: f32) -> Self {
+        self._option("padding_inner", lit(value))
+    }
+
+    /// Set the outer padding (before first and after last band)
+    pub fn padding_outer(self, value: f32) -> Self {
+        self._option("padding_outer", lit(value))
+    }
+
+    /// Set the alignment (0 = left, 0.5 = center, 1 = right)
+    pub fn align(self, value: f32) -> Self {
+        self._option("align", lit(value))
+    }
+
+    /// Set whether to round positions to pixel boundaries
+    pub fn round(self, value: bool) -> Self {
+        self._option("round", lit(value))
+    }
+}
+
+// ===== Point scale specific methods =====
+impl Scale<Point> {
+    /// Set the padding (as a fraction of the step)
+    pub fn padding(self, value: f32) -> Self {
+        self._option("padding", lit(value))
+    }
+
+    /// Set the alignment (0 = left, 0.5 = center, 1 = right)
+    pub fn align(self, value: f32) -> Self {
+        self._option("align", lit(value))
+    }
+
+    /// Set whether to round positions to pixel boundaries
+    pub fn round(self, value: bool) -> Self {
+        self._option("round", lit(value))
+    }
+}
+
+// ===== Ordinal scale specific methods =====
+impl Scale<Ordinal> {
+    /// Set the value to use for unknown inputs
+    pub fn unknown(self, value: impl Into<Expr>) -> Self {
+        self._option("unknown", value.into())
+    }
+}
+
+// ===== Time scale specific methods =====
+impl Scale<Time> {
+    /// Set whether to nice the domain to time intervals
+    pub fn nice(mut self, value: bool) -> Self {
+        self.options.insert("nice".to_string(), lit(value));
+        self
+        // self._option("nice", lit(value))
+    }
+
+    /// Set whether to clamp values outside the domain
+    pub fn clamp(self, value: bool) -> Self {
+        self._option("clamp", lit(value))
+    }
+}
+
+// ===== Auto scale for dynamic construction =====
+impl Scale<Auto> {
+    /// Set a generic option
+    ///
+    /// This method allows dynamic configuration when the scale type isn't known at compile time.
+    /// For typed scales (like Scale<Linear>), use the specific methods instead (e.g., `.nice()`, `.zero()`)
+    ///
+    /// # Example
+    /// ```
+    /// use avenger_chart::scales::{Scale, Auto, Linear};
+    /// use datafusion::prelude::lit;
+    /// use std::sync::Arc;
+    ///
+    /// // Create an Auto scale from a Linear implementation
+    /// let scale = Scale::<Linear>::new()
+    ///     .into_auto()
+    ///     .option("nice", lit(true))
+    ///     .option("clamp", lit(false));
+    /// ```
+    pub fn option(self, key: impl Into<String>, value: impl Into<Expr>) -> Self {
+        self._option(key, value)
+    }
+
+    /// Create a scale from a dynamic ScaleImpl (used when type is not known at compile time)
+    pub fn from_impl(scale_impl: Arc<dyn ScaleImpl>) -> Self {
+        // Use the scale's domain inference method to determine domain type
+        // This is more extensible than hard-coding scale names
+        use avenger_scales::scales::InferDomainFromDataMethod;
+        let domain = match scale_impl.infer_domain_from_data_method() {
+            InferDomainFromDataMethod::Unique => ScaleDomain::new_discrete(vec![]),
+            InferDomainFromDataMethod::Interval => ScaleDomain::new_interval(lit(0.0), lit(1.0)),
+            InferDomainFromDataMethod::All => ScaleDomain::new_discrete(vec![]), // Treat All as discrete
         };
 
-        // Normalize the scale to apply zero and nice transformations
-        Ok(configured_scale)
+        // Get default options from the scale implementation
+        let default_options = scale_impl.default_options();
+        let mut options = HashMap::new();
+
+        // Convert Scalar values to Expr values
+        for (key, scalar) in default_options {
+            let scalar_value = if let Ok(b) = scalar.as_boolean() {
+                ScalarValue::Boolean(Some(b))
+            } else if let Ok(f) = scalar.as_f32() {
+                ScalarValue::Float32(Some(f))
+            } else if let Ok(i) = scalar.as_i32() {
+                ScalarValue::Int32(Some(i))
+            } else if let Ok(s) = scalar.as_string() {
+                ScalarValue::Utf8(Some(s))
+            } else {
+                ScalarValue::Null
+            };
+            options.insert(key, lit(scalar_value));
+        }
+
+        Self {
+            scale_impl,
+            domain,
+            range: ScaleRange::new_interval(lit(0.0), lit(1.0)),
+            options,
+            _phantom: PhantomData,
+        }
     }
 }

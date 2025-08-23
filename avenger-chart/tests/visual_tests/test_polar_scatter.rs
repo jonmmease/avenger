@@ -2,16 +2,14 @@ use super::helpers::assert_visual_match_default;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
 use avenger_chart::polar::Polar;
+use avenger_chart::scales::{Linear, Ordinal};
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::col;
 use datafusion::prelude::*;
 use std::sync::Arc;
-use avenger_scales::scales::ordinal::OrdinalScale;
-use avenger_scales::scales::linear::LinearScale;
-//! Visual tests for polar scatter plots
-
+// Visual tests for polar scatter plots
 
 /// Create a simple polar scatter plot dataset
 fn create_polar_data() -> DataFrame {
@@ -62,17 +60,15 @@ async fn test_polar_scatter_plot() {
         .data(df)
         .title("Polar Scatter Plot")
         .subtitle("Demonstrating categorical colors and legends")
-        .scale_r(|scale| {
+        .scale_r_with::<Linear>(|scale| {
             use datafusion::logical_expr::lit;
-            scale
-                .scale_type(LinearScale)
-                .domain(avenger_chart::scales::ScaleDomain::new_interval(
-                    lit(0.0),
-                    lit(120.0),
-                ))
+            scale.domain(avenger_chart::scales::ScaleDomain::new_interval(
+                lit(0.0),
+                lit(120.0),
+            ))
         })
-        .scale_theta(|scale| scale.scale_type(LinearScale))
-        .scale_fill(|scale| scale.scale_type(OrdinalScale))
+        .scale_theta_with::<Linear>(|scale| scale)
+        .scale_fill_with::<Ordinal>(|scale| scale)
         .axis_r(|axis| axis.tick_count(6))
         .axis_theta(|axis| axis.visible(true))
         .legend_fill(|legend| legend.title("Category"))
@@ -140,24 +136,20 @@ async fn test_polar_scatter_with_clipping() {
         .data(df)
         .title("Polar Plot with Clipping")
         .subtitle("Points beyond r=80 are clipped at the boundary")
-        .scale_r(|scale| {
+        .scale_r_with::<Linear>(|scale| {
             use datafusion::logical_expr::lit;
-            scale
-                .scale_type(LinearScale)
-                .domain(avenger_chart::scales::ScaleDomain::new_interval(
-                    lit(0.0),
-                    lit(80.0), // Set max to 80, but data goes to 125
-                ))
+            scale.domain(avenger_chart::scales::ScaleDomain::new_interval(
+                lit(0.0),
+                lit(80.0), // Set max to 80, but data goes to 125
+            ))
         })
-        .scale_theta(|scale| scale.scale_type(LinearScale))
-        .scale_fill(|scale| {
+        .scale_theta_with::<Linear>(|scale| scale)
+        .scale_fill_with::<Ordinal>(|scale| {
             use palette::Srgba;
-            scale
-                .scale_type(OrdinalScale)
-                .range(avenger_chart::scales::ScaleRange::Color(vec![
-                    Srgba::new(0.2, 0.6, 1.0, 1.0), // Blue for within bounds
-                    Srgba::new(1.0, 0.4, 0.2, 1.0), // Red/orange for clipped
-                ]))
+            scale.range_colors(vec![
+                Srgba::new(0.2, 0.6, 1.0, 1.0), // Blue for within bounds
+                Srgba::new(1.0, 0.4, 0.2, 1.0), // Red/orange for clipped
+            ])
         })
         .axis_r(|axis| axis.tick_count(5).title("Radius (max: 80)"))
         .axis_theta(|axis| axis.visible(true))
@@ -226,49 +218,40 @@ async fn test_polar_scatter_with_size_color() {
 
     let plot = Plot::new(Polar::new())
         .data(df)
-        .scale_r(|scale| {
+        .scale_r_with::<Linear>(|scale| {
             use datafusion::logical_expr::lit;
-            scale
-                .scale_type(LinearScale)
-                .domain(avenger_chart::scales::ScaleDomain::new_interval(
-                    lit(0.0),
-                    lit(120.0),
-                ))
+            scale.domain(avenger_chart::scales::ScaleDomain::new_interval(
+                lit(0.0),
+                lit(120.0),
+            ))
         })
-        .scale_theta(|scale| scale.scale_type(LinearScale))
-        .scale_size(|scale| {
+        .scale_theta_with::<Linear>(|scale| scale)
+        .scale_size_with::<Linear>(|scale| {
             use datafusion::logical_expr::lit;
-            scale
-                .scale_type(LinearScale)
-                .range(avenger_chart::scales::ScaleRange::new_interval(
-                    lit(50.0),
-                    lit(300.0),
-                ))
+            scale.range_interval(lit(50.0), lit(300.0))
         })
-        .scale_fill(|scale| {
+        .scale_fill_with::<Linear>(|scale| {
             use palette::Srgba;
-            scale
-                .scale_type(LinearScale)
-                .range(avenger_chart::scales::ScaleRange::Color(vec![
-                    Srgba::new(
-                        0x44 as f32 / 255.0,
-                        0x01 as f32 / 255.0,
-                        0x54 as f32 / 255.0,
-                        1.0,
-                    ),
-                    Srgba::new(
-                        0x21 as f32 / 255.0,
-                        0x90 as f32 / 255.0,
-                        0x8c as f32 / 255.0,
-                        1.0,
-                    ),
-                    Srgba::new(
-                        0xfd as f32 / 255.0,
-                        0xe7 as f32 / 255.0,
-                        0x25 as f32 / 255.0,
-                        1.0,
-                    ),
-                ]))
+            scale.range_colors(vec![
+                Srgba::new(
+                    0x44 as f32 / 255.0,
+                    0x01 as f32 / 255.0,
+                    0x54 as f32 / 255.0,
+                    1.0,
+                ),
+                Srgba::new(
+                    0x21 as f32 / 255.0,
+                    0x90 as f32 / 255.0,
+                    0x8c as f32 / 255.0,
+                    1.0,
+                ),
+                Srgba::new(
+                    0xfd as f32 / 255.0,
+                    0xe7 as f32 / 255.0,
+                    0x25 as f32 / 255.0,
+                    1.0,
+                ),
+            ])
         })
         .axis_r(|axis| axis.title("Radius").tick_count(6))
         .axis_theta(|axis| axis.title("Angle"))

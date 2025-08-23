@@ -25,6 +25,11 @@ impl ScaleRange {
         Self::Enum(values.into_iter().map(|v| v.into()).collect())
     }
 
+    /// Alias for new_enum (backward compat)
+    pub fn new_discrete<T: Into<ScalarValue>>(values: Vec<T>) -> Self {
+        Self::new_enum(values)
+    }
+
     pub fn data_type(&self) -> Result<DataType, AvengerChartError> {
         match self {
             ScaleRange::Numeric(_, _) => Ok(DataType::Float32),

@@ -1,4 +1,4 @@
-//! Visual tests for data domain inference
+// Visual tests for data domain inference
 
 use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::ChannelExpr;

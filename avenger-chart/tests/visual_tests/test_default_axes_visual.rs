@@ -1,4 +1,4 @@
-//! Visual tests for default axis creation
+// Visual tests for default axis creation
 
 use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::ChannelExpr;

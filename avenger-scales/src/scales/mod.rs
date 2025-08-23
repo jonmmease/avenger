@@ -533,13 +533,13 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
 
     /// Method that should be used to infer a scale's domain from the data that it will scale
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod;
-    
+
     /// Return default option values for this scale type.
-    /// 
-    /// This method returns a HashMap of default option values that should be 
+    ///
+    /// This method returns a HashMap of default option values that should be
     /// applied when creating a new scale instance. The default implementation
     /// returns an empty map, indicating no default options.
-    /// 
+    ///
     /// # Example
     /// ```ignore
     /// fn default_options(&self) -> HashMap<String, Scalar> {

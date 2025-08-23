@@ -1,17 +1,15 @@
+use super::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::line::Line;
 use avenger_chart::plot::Plot;
+use avenger_chart::scales::Ordinal;
 use datafusion::arrow::array::{Float64Array, Int32Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::logical_expr::{col, lit};
+use datafusion::logical_expr::col;
 use datafusion::prelude::*;
 use std::sync::Arc;
-use super::helpers::assert_visual_match_default;
-use avenger_scales::scales::ordinal::OrdinalScale;
-//! Visual tests for multi-series line charts
-
-
+// Visual tests for multi-series line charts
 
 /// Create multi-series line data
 fn create_multi_series_data() -> DataFrame {
@@ -157,7 +155,7 @@ async fn test_multi_series_line_with_color() {
     // Create a plot with lines colored by series
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_stroke(|s| s.scale_type(OrdinalScale))
+        .scale_stroke_with::<Ordinal>(|s| s)
         .axis_x(|axis| axis.title("X").grid(true))
         .axis_y(|axis| axis.title("Y").grid(true))
         .mark(
@@ -198,7 +196,7 @@ async fn test_multi_series_with_color_and_width() {
     // Create a plot where color and width vary by series
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_stroke(|s| s.scale_type(OrdinalScale))
+        .scale_stroke_with::<Ordinal>(|s| s)
         .axis_x(|axis| axis.title("X").grid(true))
         .axis_y(|axis| axis.title("Y").grid(true))
         .mark(
@@ -219,7 +217,7 @@ async fn test_line_with_order_channel() {
     // Create a plot using order channel to sort points
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_stroke(|s| s.scale_type(OrdinalScale))
+        .scale_stroke_with::<Ordinal>(|s| s)
         .axis_x(|axis| axis.title("X").grid(true))
         .axis_y(|axis| axis.title("Y").grid(true))
         .mark(
@@ -264,10 +262,7 @@ async fn test_multi_series_line_with_dash() {
 
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_stroke_dash(|s| {
-            s.scale_type(OrdinalScale)
-                .range_discrete(vec![lit("solid"), lit("dashed"), lit("dotted")])
-        })
+        .scale_stroke_dash_with::<Ordinal>(|s| s.range_discrete(vec!["solid", "dashed", "dotted"]))
         .axis_x(|axis| axis.title("X").grid(true))
         .axis_y(|axis| axis.title("Y").grid(true))
         .mark(
@@ -326,11 +321,8 @@ async fn test_multi_series_line_with_color_and_dash() {
 
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_stroke(|s| s.scale_type(OrdinalScale))
-        .scale_stroke_dash(|s| {
-            s.scale_type(OrdinalScale)
-                .range_discrete(vec![lit("solid"), lit("dashed")])
-        })
+        .scale_stroke_with::<Ordinal>(|s| s)
+        .scale_stroke_dash_with::<Ordinal>(|s| s.range_discrete(vec!["solid", "dashed"]))
         .axis_x(|axis| axis.title("X").grid(true))
         .axis_y(|axis| axis.title("Y").grid(true))
         .mark(
@@ -390,15 +382,9 @@ async fn test_multi_series_line_all_encodings() {
 
     let plot = Plot::new(Cartesian)
         .data(df)
-        .scale_stroke(|s| s.scale_type(OrdinalScale))
-        .scale_stroke_width(|s| {
-            s.scale_type(OrdinalScale)
-                .range_discrete(vec![lit(1.0), lit(2.0), lit(3.0)])
-        })
-        .scale_stroke_dash(|s| {
-            s.scale_type(OrdinalScale)
-                .range_discrete(vec![lit("solid"), lit("dashed"), lit("dotted")])
-        })
+        .scale_stroke_with::<Ordinal>(|s| s)
+        .scale_stroke_width_with::<Ordinal>(|s| s.range_discrete(vec![1.0, 2.0, 3.0]))
+        .scale_stroke_dash_with::<Ordinal>(|s| s.range_discrete(vec!["solid", "dashed", "dotted"]))
         .axis_x(|axis| axis.title("X").grid(true))
         .axis_y(|axis| axis.title("Y").grid(true))
         .mark(

@@ -4,12 +4,11 @@ use avenger_chart::marks::rect::Rect;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
 use avenger_chart::render::CanvasExt;
+use avenger_chart::scales::Band;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{CanvasConfig, PngCanvas};
 use datafusion::prelude::*;
-use avenger_scales::scales::band::BandScale;
-//! Integration test for channel reference resolution during rendering
-
+// Integration test for channel reference resolution during rendering
 
 #[tokio::test]
 async fn test_channel_resolution_in_rendering() -> Result<(), Box<dyn std::error::Error>> {
@@ -67,7 +66,7 @@ async fn test_channel_resolution_with_scale() -> Result<(), Box<dyn std::error::
     // Create a plot where channel reference goes through scale transformation
     let plot = Plot::new(Cartesian)
         .with_size(400.0, 300.0)
-        .scale_x(|scale| scale.scale_type(BandScale))
+        .scale_x_with::<Band>(|scale| scale)
         .mark(
             Rect::new()
                 .data(df)

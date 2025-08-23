@@ -454,6 +454,7 @@ dependencies = [
  "lazy_static 1.5.0",
  "lyon_path",
  "palette",
+ "paste",
  "serde_json",
  "strsim",
  "taffy",

@@ -5,13 +5,13 @@ use avenger_chart::marks::ChannelExpr;
 use avenger_chart::marks::line::Line;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
+use avenger_scales::scales::band::BandScale;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::{col, lit};
 use datafusion::prelude::*;
 use std::sync::Arc;
-use avenger_scales::scales::band::BandScale;
 
 fn create_test_data() -> DataFrame {
     let x_values = Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0]);

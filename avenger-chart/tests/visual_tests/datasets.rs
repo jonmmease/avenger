@@ -1,4 +1,4 @@
-//! Test data generation utilities for visual tests
+// Test data generation utilities for visual tests
 
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};

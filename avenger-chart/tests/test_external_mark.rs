@@ -1,5 +1,6 @@
 //! Integration test to verify external marks can be defined and used
 
+use avenger_chart::error::AvengerChartError;
 use avenger_chart::{
     cartesian::Cartesian,
     coords::CoordinateSystem,
@@ -8,7 +9,6 @@ use avenger_chart::{
     marks::{ChannelType, Mark, MarkState},
     plot::Plot,
 };
-use avenger_chart::error::AvengerChartError;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::scalar::ScalarValue;
@@ -76,7 +76,7 @@ fn test_external_mark_can_be_created() {
     // Verify state access works
     assert_eq!(hexbin.mark_type(), "hexbin");
     assert_eq!(hexbin.state().zindex, None);
-    
+
     // Verify channels are properly defined
     let channels = hexbin.supported_channels();
     let channel_names: Vec<_> = channels.iter().map(|c| c.name).collect();
@@ -90,7 +90,7 @@ fn test_external_mark_can_be_created() {
 fn test_external_mark_can_be_added_to_plot() {
     // Create a plot
     let plot = Plot::new(Cartesian);
-    
+
     // Create a custom mark
     let hexbin = HexBin::<Cartesian>::new()
         .x("temperature")
@@ -99,7 +99,7 @@ fn test_external_mark_can_be_added_to_plot() {
 
     // Add the mark to the plot - this tests that the types work correctly
     let plot_with_mark = plot.mark(hexbin);
-    
+
     // The plot should accept our custom mark without issue
     assert!(plot_with_mark.marks().len() > 0);
 }
@@ -108,11 +108,11 @@ fn test_external_mark_can_be_added_to_plot() {
 fn test_external_mark_state_mutation() {
     // Create a custom mark
     let mut hexbin = HexBin::<Cartesian>::new();
-    
+
     // Verify we can mutate the state
     hexbin.state_mut().zindex = Some(10);
     assert_eq!(hexbin.state().zindex, Some(10));
-    
+
     // Verify builder methods work
     let hexbin2 = HexBin::<Cartesian>::new().zindex(5);
     assert_eq!(hexbin2.state().zindex, Some(5));

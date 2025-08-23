@@ -1,14 +1,14 @@
-//! Test that scale defaults work correctly for bar charts
+// Test that scale defaults work correctly for bar charts
 
+use super::datasets;
+use super::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::ChannelExpr;
 use avenger_chart::marks::ChannelValue;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
+use avenger_chart::scales::Linear;
 use datafusion::logical_expr::{col, lit};
-
-use super::datasets;
-use super::helpers::assert_visual_match_default;
 
 #[tokio::test]
 async fn test_bar_chart_y_scale_auto_zero() {
@@ -38,14 +38,12 @@ async fn test_bar_chart_y_scale_auto_zero() {
 }
 
 #[tokio::test]
-async fn test_bar_chart_y_scale_no_zero() {
+async fn test_bar_chart_y_scale_no_nice() {
     let df = datasets::simple_categories();
 
     let plot = Plot::new(Cartesian)
         .data(df)
-        // Explicitly disable zero option - should show data range only
-        .scale_x(|s| s)
-        .scale_y(|s| s.option("zero", lit(false))) // Override default
+        .scale_y_with::<Linear>(|s| s.nice(false))
         .axis_x(|a| a.title("Category").grid(false))
         .axis_y(|a| a.title("Value").grid(true))
         .mark(
@@ -60,5 +58,5 @@ async fn test_bar_chart_y_scale_no_zero() {
         );
 
     // Y-axis should start near the data minimum, not at zero
-    assert_visual_match_default(plot, "bar", "bar_chart_y_scale_no_zero").await;
+    assert_visual_match_default(plot, "bar", "bar_chart_y_scale_no_nice").await;
 }
