@@ -89,21 +89,13 @@ where
                     _ => AxisPosition::Bottom,
                 };
 
-                // Create a default axis instance
-                // For external axis types, they need to implement Default
-                // and handle their own initialization
-                let mut axis = A::default();
-
-                // For DefaultCartesianAxis, we can configure it directly
-                // External axes would need to handle this in their Default impl
-                // or through a separate configuration mechanism
-                if let Some(default_axis) = axis.as_any_mut().downcast_mut::<DefaultCartesianAxis>()
-                {
-                    default_axis.position = Some(position);
-                    default_axis.label_angle = 0.0;
-                    default_axis.title = Some(title);
-                    default_axis.grid = grid;
-                }
+                // Create a default axis instance and configure it using trait methods
+                // No downcasting needed - works with any CartesianAxis implementation!
+                let axis = A::default()
+                    .with_position(position)
+                    .with_label_angle(0.0)
+                    .with_title(title)
+                    .with_grid(grid);
 
                 default_axes.insert(channel.to_string(), axis);
             }
