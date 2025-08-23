@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut canvas = PngCanvas::new(dimensions, config).await?;
 
         // Create a new plot with the specific size
-        let sized_plot = Plot::new(Polar::new())
+        let sized_plot = Plot::<Polar>::new()
             .data(df)
             .scale_r(|s| s.domain_interval(lit(0.0), lit(120.0)))
             .scale_theta(|s| s.domain_interval(lit(0.0), lit(2.0 * std::f64::consts::PI)))

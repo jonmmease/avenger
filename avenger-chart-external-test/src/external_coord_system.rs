@@ -1,7 +1,7 @@
 //! Integration test to verify external coordinate systems can be defined and used
 
 use avenger_chart::{
-    axis::AxisTrait,
+    axis::Axis,
     coords::{CoordinateSystem, OverflowSpaceRequirement, TransformResult},
     define_common_mark_channels, define_position_mark_channels,
     error::AvengerChartError,
@@ -47,12 +47,16 @@ pub struct IsometricAxis {
     pub visible: bool,
 }
 
-impl AxisTrait for IsometricAxis {
-    fn clone_box(&self) -> Box<dyn AxisTrait> {
+impl Axis for IsometricAxis {
+    fn clone_box(&self) -> Box<dyn Axis> {
         Box::new(self.clone())
     }
 
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
 

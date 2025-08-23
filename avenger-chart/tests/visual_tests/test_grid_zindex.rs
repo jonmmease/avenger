@@ -15,7 +15,7 @@ async fn test_grid_lines_behind_data() {
     let ctx = SessionContext::new();
     let df = ctx.read_empty().expect("Failed to create empty DataFrame");
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x_with::<Linear>(|scale| scale.domain((0.0, 10.0)))
         .scale_y_with::<Linear>(|scale| scale.domain((0.0, 10.0)))

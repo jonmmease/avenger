@@ -1,5 +1,6 @@
 //! Test that verifies mark default values are consistently used
 
+use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::Mark;
 use avenger_chart::marks::symbol::Symbol;
 use datafusion::prelude::*;
@@ -12,7 +13,7 @@ async fn test_symbol_defaults_used_in_rendering() {
     let ctx = SessionContext::new();
     let _df = Arc::new(ctx.read_empty().unwrap());
 
-    let symbol = Symbol::new().x(col("x")).y(col("y"));
+    let symbol = Symbol::<Cartesian>::new().x(col("x")).y(col("y"));
 
     // Get the mark's default values
     let size_default = symbol.default_channel_value("size").unwrap();

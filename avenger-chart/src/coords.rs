@@ -1,4 +1,4 @@
-use crate::axis::AxisTrait;
+use crate::axis::Axis;
 use crate::error::AvengerChartError;
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -28,7 +28,7 @@ pub struct TransformResult {
 #[async_trait::async_trait]
 pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     /// The axis type for this coordinate system
-    type Axis: AxisTrait + Clone + 'static;
+    type Axis: Axis + Clone + 'static;
 
     /// Get the names of position channels required by this coordinate system
     fn required_channels(&self) -> &'static [&'static str];

@@ -5,9 +5,10 @@ use std::any::Any;
 /// The clone_box, as_any, and into_any methods enable storing different
 /// axis types in a type-erased collection while preserving the ability
 /// to downcast back to concrete types when needed.
-pub trait AxisTrait: Send + Sync {
-    fn clone_box(&self) -> Box<dyn AxisTrait>;
+pub trait Axis: Send + Sync {
+    fn clone_box(&self) -> Box<dyn Axis>;
     fn as_any(&self) -> &dyn Any;
+    fn as_any_mut(&mut self) -> &mut dyn Any;
     fn into_any(self: Box<Self>) -> Box<dyn Any>;
 }
 
@@ -22,6 +23,6 @@ pub enum AxisPosition {
 
 /// Specification for an axis in a plot (generic over coordinate system axis types)
 #[derive(Clone, Debug)]
-pub struct AxisSpec<A: AxisTrait> {
+pub struct AxisSpec<A: Axis> {
     pub axis: A,
 }

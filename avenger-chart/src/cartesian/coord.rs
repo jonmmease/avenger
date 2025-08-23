@@ -1,17 +1,33 @@
 use crate::axis::AxisPosition;
-use crate::cartesian::CartesianAxis;
+use crate::cartesian::{CartesianAxis, DefaultCartesianAxis};
 use crate::coords::{CoordinateSystem, OverflowSpaceRequirement, TransformResult};
 use crate::error::AvengerChartError;
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::logical_expr::Expr;
 use std::collections::HashMap;
+use std::marker::PhantomData;
 
-pub struct Cartesian;
+/// Generic Cartesian coordinate system with configurable axis type
+#[derive(Clone)]
+pub struct Cartesian<A: CartesianAxis = DefaultCartesianAxis> {
+    _phantom: PhantomData<A>,
+}
+
+impl<A: CartesianAxis> Default for Cartesian<A> {
+    fn default() -> Self {
+        Cartesian {
+            _phantom: PhantomData,
+        }
+    }
+}
 
 #[async_trait::async_trait]
-impl CoordinateSystem for Cartesian {
-    type Axis = CartesianAxis;
+impl<A> CoordinateSystem for Cartesian<A>
+where
+    A: CartesianAxis + Default + 'static,
+{
+    type Axis = A;
 
     fn required_channels(&self) -> &'static [&'static str] {
         &["x", "y"]
@@ -39,6 +55,61 @@ impl CoordinateSystem for Cartesian {
             .ok_or_else(|| AvengerChartError::MissingChannelError("y".to_string()))?;
 
         Ok(TransformResult { x, y, depth: None })
+    }
+
+    fn create_default_axes(
+        &self,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        marks: &[Box<dyn crate::marks::Mark<Self>>],
+    ) -> HashMap<String, Self::Axis> {
+        let mut default_axes = HashMap::new();
+
+        // Always create default axes for x and y channels if they have scales
+        // User axes will be merged with these defaults later
+        for channel in ["x", "y"] {
+            if scales.get(channel).is_some() {
+                // Extract title from mark encodings
+                let title = extract_axis_title_from_marks(marks, channel)
+                    .unwrap_or_else(|| channel.to_string());
+
+                // Determine if grid should be enabled based on scale type
+                let grid = if let Some(scale) = scales.get(channel) {
+                    matches!(
+                        scale.scale_impl.scale_type(),
+                        "linear" | "log" | "pow" | "sqrt" | "time"
+                    )
+                } else {
+                    false
+                };
+
+                // Create axis with appropriate default position
+                let position = match channel {
+                    "x" => AxisPosition::Bottom,
+                    "y" => AxisPosition::Left,
+                    _ => AxisPosition::Bottom,
+                };
+
+                // Create a default axis instance
+                // For external axis types, they need to implement Default
+                // and handle their own initialization
+                let mut axis = A::default();
+
+                // For DefaultCartesianAxis, we can configure it directly
+                // External axes would need to handle this in their Default impl
+                // or through a separate configuration mechanism
+                if let Some(default_axis) = axis.as_any_mut().downcast_mut::<DefaultCartesianAxis>()
+                {
+                    default_axis.position = Some(position);
+                    default_axis.label_angle = 0.0;
+                    default_axis.title = Some(title);
+                    default_axis.grid = grid;
+                }
+
+                default_axes.insert(channel.to_string(), axis);
+            }
+        }
+
+        default_axes
     }
 
     async fn measure_guide_overflow(
@@ -129,51 +200,6 @@ impl CoordinateSystem for Cartesian {
         Ok(result)
     }
 
-    fn create_default_axes(
-        &self,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        marks: &[Box<dyn crate::marks::Mark<Self>>],
-    ) -> HashMap<String, Self::Axis> {
-        let mut default_axes = HashMap::new();
-
-        // Always create default axes for x and y channels if they have scales
-        // User axes will be merged with these defaults later
-        for channel in ["x", "y"] {
-            if scales.get(channel).is_some() {
-                // Extract title from mark encodings
-                let title = extract_axis_title_from_marks(marks, channel)
-                    .unwrap_or_else(|| channel.to_string());
-
-                // Determine if grid should be enabled based on scale type
-                let grid = if let Some(scale) = scales.get(channel) {
-                    matches!(
-                        scale.scale_impl.scale_type(),
-                        "linear" | "log" | "pow" | "sqrt" | "time"
-                    )
-                } else {
-                    false
-                };
-
-                // Create axis with appropriate default position
-                let position = match channel {
-                    "x" => AxisPosition::Bottom,
-                    "y" => AxisPosition::Left,
-                    _ => AxisPosition::Bottom,
-                };
-
-                let axis = CartesianAxis::new()
-                    .position(position)
-                    .label_angle(0.0)
-                    .title(title)
-                    .grid(grid);
-
-                default_axes.insert(channel.to_string(), axis);
-            }
-        }
-
-        default_axes
-    }
-
     async fn render_axes(
         &self,
         axes: &HashMap<String, Self::Axis>,
@@ -192,7 +218,7 @@ impl CoordinateSystem for Cartesian {
 
         for (channel, axis) in axes {
             // Skip invisible axes
-            if !axis.visible {
+            if !axis.visible() {
                 continue;
             }
 
@@ -205,7 +231,7 @@ impl CoordinateSystem for Cartesian {
             })?;
 
             // Determine axis position
-            let position = axis.position.unwrap_or_else(|| {
+            let position = axis.position().unwrap_or_else(|| {
                 // Default positions based on channel name
                 match channel.as_ref() {
                     "x" => AxisPosition::Bottom,
@@ -229,8 +255,8 @@ impl CoordinateSystem for Cartesian {
             let axis_config = AxisConfig {
                 orientation,
                 dimensions: [plot_width, plot_height],
-                grid: axis.grid,
-                format_number: axis.format_number.clone(),
+                grid: axis.grid(),
+                format_number: axis.format_number().map(|s| s.to_string()),
                 title_font_size: None, // Use default for regular axes
             };
 
@@ -243,7 +269,7 @@ impl CoordinateSystem for Cartesian {
             let axis_group = match scale_type {
                 "band" | "point" => make_band_axis_marks(
                     configured_scale,
-                    axis.title.as_deref().unwrap_or(""),
+                    axis.title().unwrap_or(""),
                     axis_origin,
                     &axis_config,
                 )?,
@@ -251,7 +277,7 @@ impl CoordinateSystem for Cartesian {
                     // Default to numeric axis for linear and other continuous scales
                     make_numeric_axis_marks(
                         configured_scale,
-                        axis.title.as_deref().unwrap_or(""),
+                        axis.title().unwrap_or(""),
                         axis_origin,
                         &axis_config,
                     )?

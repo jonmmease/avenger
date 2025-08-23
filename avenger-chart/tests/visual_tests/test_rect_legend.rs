@@ -37,7 +37,7 @@ async fn test_rect_discrete_fill_legend() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a bar chart with fill legend
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x_with::<Band>(|scale| scale.padding_inner(0.1))
         .scale_y(|scale| scale.domain((0.0, 60.0)))
@@ -83,7 +83,7 @@ async fn test_rect_continuous_fill_legend() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a bar chart with continuous color legend
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x_with::<Band>(|scale| scale.padding_inner(0.15))
         .scale_y(|scale| scale.domain((0.0, 70.0)))
@@ -130,7 +130,7 @@ async fn test_rect_stroke_legend() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a bar chart with stroke legend
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x_with::<Band>(|scale| scale.padding_inner(0.1))
         .scale_y(|scale| scale.domain((0.0, 60.0)))

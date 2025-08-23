@@ -378,7 +378,7 @@ impl From<FacetGridBuilder> for FacetSpec {
 }
 
 impl<C: CoordinateSystem> Plot<C> {
-    pub fn new(coord_system: C) -> Self {
+    pub fn with_coord(coord_system: C) -> Self {
         Plot {
             coord_system,
             axis_specs: HashMap::new(),
@@ -393,7 +393,21 @@ impl<C: CoordinateSystem> Plot<C> {
             subtitle: None,
         }
     }
+}
 
+impl<C: CoordinateSystem + Default> Default for Plot<C> {
+    fn default() -> Self {
+        Self::with_coord(C::default())
+    }
+}
+
+impl<C: CoordinateSystem + Default> Plot<C> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl<C: CoordinateSystem> Plot<C> {
     /// Get a reference to the coordinate system
     pub fn coord_system(&self) -> &C {
         &self.coord_system

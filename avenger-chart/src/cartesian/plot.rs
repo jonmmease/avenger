@@ -1,10 +1,13 @@
-use crate::cartesian::Cartesian;
-use crate::coords::CoordinateSystem;
+use crate::cartesian::{Cartesian, CartesianAxis};
 use crate::plot::{AxisSpec, Plot, ScaleSpec};
 use crate::scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec};
 use std::sync::Arc;
 
-impl Plot<Cartesian> {
+// Generic implementation for any CartesianAxis type
+impl<A> Plot<Cartesian<A>>
+where
+    A: CartesianAxis + Default + 'static,
+{
     /// Configure x scale with inferred type
     pub fn scale_x<F>(mut self, f: F) -> Self
     where
@@ -75,10 +78,7 @@ impl Plot<Cartesian> {
 
     pub fn axis_x<F>(mut self, f: F) -> Self
     where
-        F: Fn(<Cartesian as CoordinateSystem>::Axis) -> <Cartesian as CoordinateSystem>::Axis
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(A) -> A + Send + Sync + 'static,
     {
         self.axis_specs
             .insert("x".to_string(), AxisSpec::Local(Arc::new(f)));
@@ -87,10 +87,7 @@ impl Plot<Cartesian> {
 
     pub fn axis_y<F>(mut self, f: F) -> Self
     where
-        F: Fn(<Cartesian as CoordinateSystem>::Axis) -> <Cartesian as CoordinateSystem>::Axis
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(A) -> A + Send + Sync + 'static,
     {
         self.axis_specs
             .insert("y".to_string(), AxisSpec::Local(Arc::new(f)));
@@ -126,10 +123,7 @@ impl Plot<Cartesian> {
     /// Configure an axis for a named y scale
     pub fn axis_y_alt<S: Into<String>, F>(mut self, scale_name: S, f: F) -> Self
     where
-        F: Fn(<Cartesian as CoordinateSystem>::Axis) -> <Cartesian as CoordinateSystem>::Axis
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(A) -> A + Send + Sync + 'static,
     {
         let scale_name = scale_name.into();
         self.axis_specs
@@ -140,10 +134,7 @@ impl Plot<Cartesian> {
     /// Configure an axis for a named x scale
     pub fn axis_x_alt<S: Into<String>, F>(mut self, scale_name: S, f: F) -> Self
     where
-        F: Fn(<Cartesian as CoordinateSystem>::Axis) -> <Cartesian as CoordinateSystem>::Axis
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(A) -> A + Send + Sync + 'static,
     {
         let scale_name = scale_name.into();
         self.axis_specs

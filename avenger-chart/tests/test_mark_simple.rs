@@ -72,7 +72,7 @@ mod tests {
         };
 
         for (name, symbol) in configs {
-            let plot = Plot::new(Cartesian)
+            let plot = Plot::<Cartesian>::new()
                 .scale_x(|s| s.domain((0.0, 200.0)))
                 .scale_y(|s| s.domain((0.0, 200.0)))
                 .scale_size(|s| s.range_interval(lit(16.0), lit(64.0))) // Set size scale range

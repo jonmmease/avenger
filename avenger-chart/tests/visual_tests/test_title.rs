@@ -55,7 +55,7 @@ fn make_df_numeric() -> DataFrame {
 #[tokio::test]
 async fn title_basic_symbol() {
     let df = make_df_categories();
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .title("Basic Title")
         .data(df)
         .scale_x(|s| s.domain((0.0, 10.0)))
@@ -75,7 +75,7 @@ async fn title_basic_symbol() {
 #[tokio::test]
 async fn title_with_symbol_legend() {
     let df = make_df_categories();
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .title("Title With Legend")
         .data(df)
         .scale_x(|s| s.domain((0.0, 10.0)))
@@ -95,7 +95,7 @@ async fn title_with_symbol_legend() {
 #[tokio::test]
 async fn title_top_x_right_y() {
     let df = make_df_categories();
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .title("Top X & Right Y")
         .data(df)
         .scale_x(|s| s.domain((0.0, 10.0)))
@@ -117,7 +117,7 @@ async fn title_top_x_right_y() {
 #[tokio::test]
 async fn title_with_colorbar_legend() {
     let df = make_df_numeric();
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .title("Title With Colorbar")
         .data(df)
         .scale_x(|s| s.domain((0.0, 10.0)))
@@ -138,7 +138,7 @@ async fn title_with_colorbar_legend() {
 #[tokio::test]
 async fn subtitle_basic_symbol() {
     let df = make_df_categories();
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .title("Main Title")
         .subtitle("This is a subtitle")
         .data(df)
@@ -159,7 +159,7 @@ async fn subtitle_basic_symbol() {
 #[tokio::test]
 async fn subtitle_with_symbol_legend() {
     let df = make_df_categories();
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .title("Main Title")
         .subtitle("Subtitle with legend")
         .data(df)
@@ -180,7 +180,7 @@ async fn subtitle_with_symbol_legend() {
 #[tokio::test]
 async fn subtitle_with_colorbar() {
     let df = make_df_numeric();
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .title("Temperature Distribution")
         .subtitle("Measured across different locations")
         .data(df)
@@ -202,7 +202,7 @@ async fn subtitle_with_colorbar() {
 #[tokio::test]
 async fn subtitle_only() {
     let df = make_df_categories();
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .subtitle("Only a subtitle, no title")
         .data(df)
         .scale_x(|s| s.domain((0.0, 10.0)))
@@ -222,7 +222,7 @@ async fn subtitle_only() {
 #[tokio::test]
 async fn title_plot_area_only() {
     let df = make_df_categories();
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .configure_title("Plot Area Only Title", |t| PlotTitle {
             align: TitleAlign::PlotAreaOnly,
             ..t
@@ -249,7 +249,7 @@ async fn title_plot_area_only() {
 #[tokio::test]
 async fn title_plot_area_only_with_legend() {
     let df = make_df_categories();
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .configure_title("Plot Area Title", |t| PlotTitle {
             align: TitleAlign::PlotAreaOnly,
             ..t

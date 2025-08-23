@@ -45,7 +45,7 @@ async fn axis_y_currency_fixed() {
         &[1200.0, 3400.0, 5600.0, 12345.0, 98765.0],
     );
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x(|s| s.domain((0.0, 6.0)))
         .scale_y(|s| s.domain((0.0, 100000.0)))
@@ -66,7 +66,7 @@ async fn axis_y_currency_fixed() {
 async fn axis_y_percent() {
     let df = make_df_xy(&[1.0, 2.0, 3.0, 4.0, 5.0], &[0.1, 0.25, 0.5, 0.75, 0.95]);
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x(|s| s.domain((0.0, 6.0)))
         .scale_y(|s| s.domain((0.0, 1.0)))
@@ -90,7 +90,7 @@ async fn axis_y_si_prefix() {
         &[1.2e3, 4.5e4, 7.8e5, 2.3e6, 9.9e7],
     );
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x(|s| s.domain((0.0, 6.0)))
         .scale_y(|s| s.domain((0.0, 1.0e8)))
@@ -115,7 +115,7 @@ async fn colorbar_percent() {
         &[0.05, 0.12, 0.38, 0.67, 0.91],
     );
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x(|s| s.domain((0.0, 6.0)))
         .scale_y(|s| s.domain((0.0, 12.0)))
@@ -140,7 +140,7 @@ async fn colorbar_currency_fixed() {
         &[1200.0, 3400.0, 5600.0, 12345.0, 98765.0],
     );
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x(|s| s.domain((0.0, 6.0)))
         .scale_y(|s| s.domain((0.0, 12.0)))
@@ -165,7 +165,7 @@ async fn colorbar_si_prefix() {
         &[1.2e3, 4.5e4, 7.8e5, 2.3e6, 9.9e7],
     );
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x(|s| s.domain((0.0, 6.0)))
         .scale_y(|s| s.domain((0.0, 12.0)))

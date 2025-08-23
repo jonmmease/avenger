@@ -41,7 +41,7 @@ fn test_external_coord_system_transform() {
 #[test]
 fn test_external_mark_with_external_coord() {
     // Create a plot with custom coordinate system
-    let _plot = Plot::new(Isometric::new());
+    let _plot = Plot::<Isometric>::new();
 
     // Create a custom mark for the custom coordinate system
     let cube = Cube::<Isometric>::new()
@@ -68,7 +68,7 @@ fn test_external_mark_with_external_coord() {
 #[test]
 fn test_external_coord_in_plot() {
     // Create a plot with custom coordinate system
-    let plot = Plot::new(Isometric::new());
+    let plot = Plot::<Isometric>::new();
 
     // Create a custom mark
     let cube = Cube::<Isometric>::new().iso_x("x").iso_y("y").iso_z("z");

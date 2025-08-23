@@ -42,7 +42,7 @@ mod tests {
 
         // Create plot using col("shape") without .identity()
         // This should automatically create an ordinal scale with shape strings as range
-        let plot = Plot::new(Cartesian).data(df).mark(
+        let plot = Plot::<Cartesian>::new().data(df).mark(
             Symbol::new()
                 .x(col("x"))
                 .y(col("y"))
@@ -137,7 +137,7 @@ mod tests {
 
         // Create plot using col("category") for shape mapping
         // This demonstrates automatic ordinal scale creation for any string enumeration
-        let plot = Plot::new(Cartesian).data(df).mark(
+        let plot = Plot::<Cartesian>::new().data(df).mark(
             Symbol::new()
                 .x(col("x"))
                 .y(col("y"))

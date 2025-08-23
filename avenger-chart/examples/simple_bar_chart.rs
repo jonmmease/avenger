@@ -34,7 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let df = ctx.read_batch(batch)?;
 
     // Create bar chart using avenger-chart API
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df.clone())
         .axis_x(|axis| axis.title("Category").grid(false))
         .axis_y(|axis| axis.title("Value").grid(true))
