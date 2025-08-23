@@ -61,6 +61,10 @@ impl AxisBase for LogarithmicAxis {
     }
 }
 
+use avenger_chart::render::Padding;
+use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_chart::error::AvengerChartError;
+
 impl CartesianAxis for LogarithmicAxis {
     // === Getters ===
     fn visible(&self) -> bool {
@@ -125,6 +129,68 @@ impl CartesianAxis for LogarithmicAxis {
     fn with_format_number(mut self, format: impl Into<String>) -> Self {
         self.format_number = Some(format.into());
         self
+    }
+
+    fn render(
+        &self,
+        channel: &str,
+        scale: &avenger_scales::scales::ConfiguredScale,
+        plot_width: f32,
+        plot_height: f32,
+        padding: &Padding,
+    ) -> Result<SceneMark, AvengerChartError> {
+        // For this example, we'll delegate to the same rendering logic as DefaultCartesianAxis
+        // In a real implementation, this could have custom rendering for logarithmic scales
+        use avenger_guides::axis::{
+            numeric::make_numeric_axis_marks,
+            opts::{AxisConfig, AxisOrientation},
+        };
+
+        // Skip if invisible
+        if !self.visible {
+            return Ok(SceneMark::Group(avenger_scenegraph::marks::group::SceneGroup {
+                marks: vec![],
+                ..Default::default()
+            }));
+        }
+
+        // Determine axis position
+        let position = self.position.unwrap_or_else(|| {
+            match channel {
+                "x" => AxisPosition::Bottom,
+                "y" => AxisPosition::Left,
+                _ => AxisPosition::Bottom,
+            }
+        });
+
+        // Convert position to orientation
+        let orientation = match position {
+            AxisPosition::Top => AxisOrientation::Top,
+            AxisPosition::Bottom => AxisOrientation::Bottom,
+            AxisPosition::Left => AxisOrientation::Left,
+            AxisPosition::Right => AxisOrientation::Right,
+        };
+
+        let axis_origin = [padding.left, padding.top];
+
+        let axis_config = AxisConfig {
+            orientation,
+            dimensions: [plot_width, plot_height],
+            grid: self.grid,
+            format_number: self.format_number.clone(),
+            title_font_size: None,
+        };
+
+        // For logarithmic axis, always use numeric rendering
+        // In a real implementation, this could generate log-spaced ticks
+        let axis_group = make_numeric_axis_marks(
+            scale,
+            self.title.as_deref().unwrap_or(""),
+            axis_origin,
+            &axis_config,
+        )?;
+
+        Ok(SceneMark::Group(axis_group))
     }
 }
 
@@ -304,6 +370,64 @@ impl CartesianAxis for TemperatureAxis {
     fn with_format_number(mut self, format: impl Into<String>) -> Self {
         self.format_number = Some(format.into());
         self
+    }
+
+    fn render(
+        &self,
+        channel: &str,
+        scale: &avenger_scales::scales::ConfiguredScale,
+        plot_width: f32,
+        plot_height: f32,
+        padding: &Padding,
+    ) -> Result<SceneMark, AvengerChartError> {
+        use avenger_guides::axis::{
+            numeric::make_numeric_axis_marks,
+            opts::{AxisConfig, AxisOrientation},
+        };
+
+        // Skip if invisible
+        if !self.visible {
+            return Ok(SceneMark::Group(avenger_scenegraph::marks::group::SceneGroup {
+                marks: vec![],
+                ..Default::default()
+            }));
+        }
+
+        let position = self.position.unwrap_or_else(|| {
+            match channel {
+                "x" => AxisPosition::Bottom,
+                "y" => AxisPosition::Left,
+                _ => AxisPosition::Bottom,
+            }
+        });
+
+        let orientation = match position {
+            AxisPosition::Top => AxisOrientation::Top,
+            AxisPosition::Bottom => AxisOrientation::Bottom,
+            AxisPosition::Left => AxisOrientation::Left,
+            AxisPosition::Right => AxisOrientation::Right,
+        };
+
+        let axis_origin = [padding.left, padding.top];
+
+        let axis_config = AxisConfig {
+            orientation,
+            dimensions: [plot_width, plot_height],
+            grid: self.grid,
+            format_number: self.format_number.clone(),
+            title_font_size: None,
+        };
+
+        // For temperature axis, use numeric rendering
+        // A real implementation could show dual scales or unit conversions
+        let axis_group = make_numeric_axis_marks(
+            scale,
+            self.title.as_deref().unwrap_or(""),
+            axis_origin,
+            &axis_config,
+        )?;
+
+        Ok(SceneMark::Group(axis_group))
     }
 }
 

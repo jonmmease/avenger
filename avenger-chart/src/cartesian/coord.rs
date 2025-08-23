@@ -200,20 +200,9 @@ where
         plot_height: f32,
         padding: &crate::render::Padding,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        use avenger_guides::axis::{
-            band::make_band_axis_marks,
-            numeric::make_numeric_axis_marks,
-            opts::{AxisConfig, AxisOrientation},
-        };
-
         let mut axis_marks = Vec::new();
 
         for (channel, axis) in axes {
-            // Skip invisible axes
-            if !axis.visible() {
-                continue;
-            }
-
             // Get the scale for this axis
             let scale = scales.get(channel).ok_or_else(|| {
                 AvengerChartError::InternalError(format!(
@@ -222,61 +211,17 @@ where
                 ))
             })?;
 
-            // Determine axis position
-            let position = axis.position().unwrap_or_else(|| {
-                // Default positions based on channel name
-                match channel.as_ref() {
-                    "x" => AxisPosition::Bottom,
-                    "y" => AxisPosition::Left,
-                    _ => AxisPosition::Bottom,
+            // Let the axis implementation handle all rendering logic
+            let axis_mark = axis.render(channel, scale, plot_width, plot_height, padding)?;
+            
+            // Only add non-empty marks
+            if let SceneMark::Group(ref group) = axis_mark {
+                if !group.marks.is_empty() {
+                    axis_marks.push(axis_mark);
                 }
-            });
-
-            // Convert position to orientation
-            let orientation = match position {
-                AxisPosition::Top => AxisOrientation::Top,
-                AxisPosition::Bottom => AxisOrientation::Bottom,
-                AxisPosition::Left => AxisOrientation::Left,
-                AxisPosition::Right => AxisOrientation::Right,
-            };
-
-            // Axis origin is always the top-left corner of the plot area
-            let axis_origin = [padding.left, padding.top];
-
-            // Create axis config with plot dimensions
-            let axis_config = AxisConfig {
-                orientation,
-                dimensions: [plot_width, plot_height],
-                grid: axis.grid(),
-                format_number: axis.format_number().map(|s| s.to_string()),
-                title_font_size: None, // Use default for regular axes
-            };
-
-            // Use the already configured scale
-            let configured_scale = scale;
-
-            // Generate axis marks based on scale type
-            let scale_type = configured_scale.scale_impl.scale_type();
-
-            let axis_group = match scale_type {
-                "band" | "point" => make_band_axis_marks(
-                    configured_scale,
-                    axis.title().unwrap_or(""),
-                    axis_origin,
-                    &axis_config,
-                )?,
-                _ => {
-                    // Default to numeric axis for linear and other continuous scales
-                    make_numeric_axis_marks(
-                        configured_scale,
-                        axis.title().unwrap_or(""),
-                        axis_origin,
-                        &axis_config,
-                    )?
-                }
-            };
-
-            axis_marks.push(SceneMark::Group(axis_group));
+            } else {
+                axis_marks.push(axis_mark);
+            }
         }
 
         Ok(axis_marks)

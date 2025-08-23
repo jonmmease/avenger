@@ -107,6 +107,57 @@ impl CartesianAxis for ScientificAxis {
         self.format_number = Some(format.into());
         self
     }
+
+    fn render(
+        &self,
+        channel: &str,
+        scale: &avenger_scales::scales::ConfiguredScale,
+        plot_width: f32,
+        plot_height: f32,
+        padding: &avenger_chart::render::Padding,
+    ) -> Result<avenger_scenegraph::marks::mark::SceneMark, avenger_chart::error::AvengerChartError> {
+        // For this example, delegate to standard numeric axis rendering
+        // A real scientific axis might format numbers differently
+        use avenger_guides::axis::{
+            numeric::make_numeric_axis_marks,
+            opts::{AxisConfig, AxisOrientation},
+        };
+        use avenger_scenegraph::marks::mark::SceneMark;
+
+        if !self.visible {
+            return Ok(SceneMark::Group(Default::default()));
+        }
+
+        let position = self.position.unwrap_or(match channel {
+            "x" => AxisPosition::Bottom,
+            "y" => AxisPosition::Left,
+            _ => AxisPosition::Bottom,
+        });
+
+        let orientation = match position {
+            AxisPosition::Top => AxisOrientation::Top,
+            AxisPosition::Bottom => AxisOrientation::Bottom,
+            AxisPosition::Left => AxisOrientation::Left,
+            AxisPosition::Right => AxisOrientation::Right,
+        };
+
+        let axis_config = AxisConfig {
+            orientation,
+            dimensions: [plot_width, plot_height],
+            grid: self.grid,
+            format_number: self.format_number.clone(),
+            title_font_size: None,
+        };
+
+        let axis_group = make_numeric_axis_marks(
+            scale,
+            self.title.as_deref().unwrap_or(""),
+            [padding.left, padding.top],
+            &axis_config,
+        )?;
+
+        Ok(SceneMark::Group(axis_group))
+    }
 }
 
 impl ScientificAxis {

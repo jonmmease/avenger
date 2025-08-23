@@ -1,4 +1,6 @@
 use crate::axis::{Axis as AxisBase, AxisPosition};
+use crate::error::AvengerChartError;
+use avenger_scenegraph::marks::mark::SceneMark;
 use std::any::Any;
 
 /// Trait for axes that can be used with Cartesian coordinates
@@ -50,6 +52,19 @@ pub trait CartesianAxis: AxisBase + Clone + Send + Sync + 'static {
 
     /// Set number format pattern
     fn with_format_number(self, format: impl Into<String>) -> Self;
+
+    // === Rendering ===
+    
+    /// Render this axis to scene marks
+    /// Each axis implementation is responsible for its complete rendering logic
+    fn render(
+        &self,
+        channel: &str,
+        scale: &avenger_scales::scales::ConfiguredScale,
+        plot_width: f32,
+        plot_height: f32,
+        padding: &crate::render::Padding,
+    ) -> Result<SceneMark, AvengerChartError>;
 }
 
 /// Default implementation of CartesianAxis
@@ -201,5 +216,82 @@ impl CartesianAxis for DefaultCartesianAxis {
     fn with_format_number(mut self, format: impl Into<String>) -> Self {
         self.format_number = Some(format.into());
         self
+    }
+
+    // === Rendering ===
+    fn render(
+        &self,
+        channel: &str,
+        scale: &avenger_scales::scales::ConfiguredScale,
+        plot_width: f32,
+        plot_height: f32,
+        padding: &crate::render::Padding,
+    ) -> Result<SceneMark, AvengerChartError> {
+        use avenger_guides::axis::{
+            band::make_band_axis_marks,
+            numeric::make_numeric_axis_marks,
+            opts::{AxisConfig, AxisOrientation},
+        };
+
+        // Skip if invisible
+        if !self.visible {
+            return Ok(SceneMark::Group(avenger_scenegraph::marks::group::SceneGroup {
+                marks: vec![],
+                ..Default::default()
+            }));
+        }
+
+        // Determine axis position
+        let position = self.position.unwrap_or_else(|| {
+            // Default positions based on channel name
+            match channel {
+                "x" => AxisPosition::Bottom,
+                "y" => AxisPosition::Left,
+                _ => AxisPosition::Bottom,
+            }
+        });
+
+        // Convert position to orientation
+        let orientation = match position {
+            AxisPosition::Top => AxisOrientation::Top,
+            AxisPosition::Bottom => AxisOrientation::Bottom,
+            AxisPosition::Left => AxisOrientation::Left,
+            AxisPosition::Right => AxisOrientation::Right,
+        };
+
+        // Axis origin is always the top-left corner of the plot area
+        let axis_origin = [padding.left, padding.top];
+
+        // Create axis config with plot dimensions
+        let axis_config = AxisConfig {
+            orientation,
+            dimensions: [plot_width, plot_height],
+            grid: self.grid,
+            format_number: self.format_number.clone(),
+            title_font_size: None, // Use default for regular axes
+        };
+
+        // Generate axis marks based on scale type
+        let scale_type = scale.scale_impl.scale_type();
+
+        let axis_group = match scale_type {
+            "band" | "point" => make_band_axis_marks(
+                scale,
+                self.title.as_deref().unwrap_or(""),
+                axis_origin,
+                &axis_config,
+            )?,
+            _ => {
+                // Default to numeric axis for linear and other continuous scales
+                make_numeric_axis_marks(
+                    scale,
+                    self.title.as_deref().unwrap_or(""),
+                    axis_origin,
+                    &axis_config,
+                )?
+            }
+        };
+
+        Ok(SceneMark::Group(axis_group))
     }
 }
