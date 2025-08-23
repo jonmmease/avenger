@@ -62,6 +62,7 @@ impl AxisBase for LogarithmicAxis {
 }
 
 impl CartesianAxis for LogarithmicAxis {
+    // === Getters ===
     fn visible(&self) -> bool {
         self.visible
     }
@@ -88,6 +89,42 @@ impl CartesianAxis for LogarithmicAxis {
 
     fn format_number(&self) -> Option<&str> {
         self.format_number.as_deref()
+    }
+
+    // === Setters ===
+    fn with_visible(mut self, visible: bool) -> Self {
+        self.visible = visible;
+        self
+    }
+
+    fn with_position(mut self, position: AxisPosition) -> Self {
+        self.position = Some(position);
+        self
+    }
+
+    fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
+    }
+
+    fn with_grid(mut self, grid: bool) -> Self {
+        self.grid = grid;
+        self
+    }
+
+    fn with_tick_count(mut self, count: usize) -> Self {
+        self.tick_count = Some(count);
+        self
+    }
+
+    fn with_label_angle(mut self, angle: f32) -> Self {
+        self.label_angle = angle;
+        self
+    }
+
+    fn with_format_number(mut self, format: impl Into<String>) -> Self {
+        self.format_number = Some(format.into());
+        self
     }
 }
 
@@ -204,6 +241,7 @@ impl AxisBase for TemperatureAxis {
 }
 
 impl CartesianAxis for TemperatureAxis {
+    // === Getters ===
     fn visible(&self) -> bool {
         self.visible
     }
@@ -230,6 +268,42 @@ impl CartesianAxis for TemperatureAxis {
 
     fn format_number(&self) -> Option<&str> {
         self.format_number.as_deref()
+    }
+
+    // === Setters ===
+    fn with_visible(mut self, visible: bool) -> Self {
+        self.visible = visible;
+        self
+    }
+
+    fn with_position(mut self, position: AxisPosition) -> Self {
+        self.position = Some(position);
+        self
+    }
+
+    fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
+    }
+
+    fn with_grid(mut self, grid: bool) -> Self {
+        self.grid = grid;
+        self
+    }
+
+    fn with_tick_count(mut self, count: usize) -> Self {
+        self.tick_count = Some(count);
+        self
+    }
+
+    fn with_label_angle(mut self, angle: f32) -> Self {
+        self.label_angle = angle;
+        self
+    }
+
+    fn with_format_number(mut self, format: impl Into<String>) -> Self {
+        self.format_number = Some(format.into());
+        self
     }
 }
 
