@@ -270,6 +270,83 @@ fn test_external_scale_transformation() {
     assert!(result_array.is_valid(2));
 }
 
+/// Custom ScaleSpec marker type for SmoothLog scale
+/// This demonstrates that external crates can define their own scale spec types
+pub struct SmoothLog;
+
+impl avenger_chart::scales::ScaleSpec for SmoothLog {
+    fn name() -> &'static str {
+        "smooth_log"
+    }
+
+    fn create_impl() -> Arc<dyn ScaleImpl> {
+        Arc::new(SmoothLogScale::new())
+    }
+}
+
+/// Extension trait to add typed methods for SmoothLog scale
+/// In external crates, you need to define a trait to add methods
+pub trait SmoothLogScaleExt {
+    /// Set the smoothing parameter
+    fn smoothing(self, value: f32) -> Self;
+
+    /// Set whether to clamp values outside the domain
+    fn clamp(self, value: bool) -> Self;
+}
+
+impl SmoothLogScaleExt for Scale<SmoothLog> {
+    fn smoothing(self, value: f32) -> Self {
+        self._option("smoothing", lit(value))
+    }
+
+    fn clamp(self, value: bool) -> Self {
+        self._option("clamp", lit(value))
+    }
+}
+
+#[test]
+fn test_external_scale_spec() {
+    // Create a scale using the custom ScaleSpec type
+    // Need to import the extension trait to use its methods
+    use self::SmoothLogScaleExt;
+    
+    let scale = Scale::<SmoothLog>::new()
+        .smoothing(0.5)
+        .clamp(true)
+        .domain((0.1_f32, 100.0_f32))
+        .range_interval(lit(0.0), lit(500.0));
+
+    // Verify it has the correct type
+    assert_eq!(scale.get_scale_type(), "smooth_log");
+    
+    // Verify options were set
+    assert!(scale.get_options().contains_key("smoothing"));
+    assert!(scale.get_options().contains_key("clamp"));
+}
+
+#[test]
+fn test_external_scale_spec_in_plot() {
+    use self::SmoothLogScaleExt;
+    
+    // Create a plot using the typed external scale
+    let _plot = Plot::new(Cartesian)
+        .mark(
+            Symbol::new()
+                .x("value")
+                .y("result")
+                .fill("category"),
+        )
+        .scale_y_with::<SmoothLog>(|scale| {
+            scale
+                .smoothing(0.1)
+                .clamp(true)
+                .domain((0.1_f32, 100.0_f32))
+                .range_interval(lit(400.0), lit(0.0))
+        });
+
+    // The plot compiles with typed external scale - success!
+}
+
 #[test]
 fn test_scale_type_method_with_external_scale() {
     // Test that scale_type method works with external scales
