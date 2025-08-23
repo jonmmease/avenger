@@ -8,7 +8,7 @@ use std::any::Any;
 /// but that's fine since we always use it with concrete types via generics.
 pub trait CartesianAxis: AxisBase + Clone + Send + Sync + 'static {
     // === Getter methods ===
-    
+
     /// Get axis visibility
     fn visible(&self) -> bool;
 
@@ -31,7 +31,7 @@ pub trait CartesianAxis: AxisBase + Clone + Send + Sync + 'static {
     fn format_number(&self) -> Option<&str>;
 
     // === Setter methods (make trait non-object-safe) ===
-    
+
     /// Set axis visibility
     fn with_visible(self, visible: bool) -> Self;
 
@@ -54,7 +54,7 @@ pub trait CartesianAxis: AxisBase + Clone + Send + Sync + 'static {
     fn with_format_number(self, format: impl Into<String>) -> Self;
 
     // === Rendering ===
-    
+
     /// Render this axis to scene marks
     /// Each axis implementation is responsible for its complete rendering logic
     fn render(
@@ -235,21 +235,23 @@ impl CartesianAxis for DefaultCartesianAxis {
 
         // Skip if invisible
         if !self.visible {
-            return Ok(SceneMark::Group(avenger_scenegraph::marks::group::SceneGroup {
-                marks: vec![],
-                ..Default::default()
-            }));
+            return Ok(SceneMark::Group(
+                avenger_scenegraph::marks::group::SceneGroup {
+                    marks: vec![],
+                    ..Default::default()
+                },
+            ));
         }
 
         // Determine axis position
-        let position = self.position.unwrap_or_else(|| {
+        let position = self.position.unwrap_or(
             // Default positions based on channel name
             match channel {
                 "x" => AxisPosition::Bottom,
                 "y" => AxisPosition::Left,
                 _ => AxisPosition::Bottom,
-            }
-        });
+            },
+        );
 
         // Convert position to orientation
         let orientation = match position {

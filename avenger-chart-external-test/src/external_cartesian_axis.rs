@@ -61,9 +61,9 @@ impl AxisBase for LogarithmicAxis {
     }
 }
 
+use avenger_chart::error::AvengerChartError;
 use avenger_chart::render::Padding;
 use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_chart::error::AvengerChartError;
 
 impl CartesianAxis for LogarithmicAxis {
     // === Getters ===
@@ -148,19 +148,19 @@ impl CartesianAxis for LogarithmicAxis {
 
         // Skip if invisible
         if !self.visible {
-            return Ok(SceneMark::Group(avenger_scenegraph::marks::group::SceneGroup {
-                marks: vec![],
-                ..Default::default()
-            }));
+            return Ok(SceneMark::Group(
+                avenger_scenegraph::marks::group::SceneGroup {
+                    marks: vec![],
+                    ..Default::default()
+                },
+            ));
         }
 
         // Determine axis position
-        let position = self.position.unwrap_or_else(|| {
-            match channel {
-                "x" => AxisPosition::Bottom,
-                "y" => AxisPosition::Left,
-                _ => AxisPosition::Bottom,
-            }
+        let position = self.position.unwrap_or(match channel {
+            "x" => AxisPosition::Bottom,
+            "y" => AxisPosition::Left,
+            _ => AxisPosition::Bottom,
         });
 
         // Convert position to orientation
@@ -387,18 +387,18 @@ impl CartesianAxis for TemperatureAxis {
 
         // Skip if invisible
         if !self.visible {
-            return Ok(SceneMark::Group(avenger_scenegraph::marks::group::SceneGroup {
-                marks: vec![],
-                ..Default::default()
-            }));
+            return Ok(SceneMark::Group(
+                avenger_scenegraph::marks::group::SceneGroup {
+                    marks: vec![],
+                    ..Default::default()
+                },
+            ));
         }
 
-        let position = self.position.unwrap_or_else(|| {
-            match channel {
-                "x" => AxisPosition::Bottom,
-                "y" => AxisPosition::Left,
-                _ => AxisPosition::Bottom,
-            }
+        let position = self.position.unwrap_or(match channel {
+            "x" => AxisPosition::Bottom,
+            "y" => AxisPosition::Left,
+            _ => AxisPosition::Bottom,
         });
 
         let orientation = match position {

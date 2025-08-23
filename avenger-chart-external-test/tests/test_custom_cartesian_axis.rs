@@ -1,10 +1,6 @@
 //! Tests for custom Cartesian axis implementations from external crates
 
-use avenger_chart::{
-    cartesian::Cartesian,
-    marks::symbol::Symbol,
-    plot::Plot,
-};
+use avenger_chart::{cartesian::Cartesian, marks::symbol::Symbol, plot::Plot};
 use avenger_chart_external_test::external_cartesian_axis::{
     LogarithmicAxis, TemperatureAxis, TemperatureUnit,
 };
@@ -50,15 +46,15 @@ fn test_temperature_axis_creation() {
 fn test_custom_axis_default_initialization() {
     // Test that custom axes get reasonable defaults
     let log_axis = LogarithmicAxis::default();
-    assert_eq!(log_axis.visible, true);
-    assert_eq!(log_axis.grid, true);
+    assert!(log_axis.visible);
+    assert!(log_axis.grid);
     assert_eq!(log_axis.base, 10.0);
     assert_eq!(log_axis.label_angle, 0.0);
 
     let temp_axis = TemperatureAxis::default();
-    assert_eq!(temp_axis.visible, true); // Custom Default impl sets this to true
+    assert!(temp_axis.visible); // Custom Default impl sets this to true
     assert_eq!(temp_axis.unit, TemperatureUnit::Celsius);
-    assert_eq!(temp_axis.show_both_units, false);
+    assert!(!temp_axis.show_both_units);
 }
 
 #[test]
@@ -94,11 +90,11 @@ fn test_temperature_axis_formatting() {
 fn test_mixed_axis_types_not_allowed() {
     // This test demonstrates that you can't mix different axis types
     // The following would NOT compile (commented out to keep test passing):
-    
+
     // let plot = Plot::<Cartesian<LogarithmicAxis>>::new()
     //     .axis_x(|axis| axis.base(10.0))
     //     .axis_y(|axis: TemperatureAxis| axis.unit(TemperatureUnit::Celsius));
-    
+
     // This is correct - axes must all be the same type
 }
 
@@ -106,14 +102,12 @@ fn test_mixed_axis_types_not_allowed() {
 fn test_custom_axis_trait_methods() {
     use avenger_chart::cartesian::CartesianAxis;
 
-    let log_axis = LogarithmicAxis::default()
-        .title("Log Scale")
-        .grid(true);
+    let log_axis = LogarithmicAxis::default().title("Log Scale").grid(true);
 
     // Test trait methods work correctly (these are getters from the trait, not builders)
     assert_eq!(CartesianAxis::title(&log_axis), Some("Log Scale"));
-    assert_eq!(CartesianAxis::grid(&log_axis), true);
-    assert_eq!(CartesianAxis::visible(&log_axis), true);
+    assert!(CartesianAxis::grid(&log_axis));
+    assert!(CartesianAxis::visible(&log_axis));
     assert_eq!(CartesianAxis::position(&log_axis), None); // Not set by default
 
     let temp_axis = TemperatureAxis::default()
@@ -121,5 +115,5 @@ fn test_custom_axis_trait_methods() {
         .grid(false);
 
     assert_eq!(CartesianAxis::title(&temp_axis), Some("Temperature (°C)"));
-    assert_eq!(CartesianAxis::grid(&temp_axis), false);
+    assert!(!CartesianAxis::grid(&temp_axis));
 }

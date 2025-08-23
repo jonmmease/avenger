@@ -115,7 +115,8 @@ impl CartesianAxis for ScientificAxis {
         plot_width: f32,
         plot_height: f32,
         padding: &avenger_chart::render::Padding,
-    ) -> Result<avenger_scenegraph::marks::mark::SceneMark, avenger_chart::error::AvengerChartError> {
+    ) -> Result<avenger_scenegraph::marks::mark::SceneMark, avenger_chart::error::AvengerChartError>
+    {
         // For this example, delegate to standard numeric axis rendering
         // A real scientific axis might format numbers differently
         use avenger_guides::axis::{
