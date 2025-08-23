@@ -28,7 +28,7 @@ fn test_external_mark_can_be_created() {
 #[test]
 fn test_external_mark_can_be_added_to_plot() {
     // Create a plot
-    let plot = Plot::new(Cartesian);
+    let plot = Plot::<Cartesian>::new();
 
     // Create a custom mark
     let hexbin = HexBin::<Cartesian>::new()

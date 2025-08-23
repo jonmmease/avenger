@@ -12,7 +12,7 @@ use datafusion::logical_expr::{col, lit};
 async fn test_simple_bar_chart() {
     let df = datasets::simple_categories();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x_with::<Band>(|scale| {
             scale.domain_discrete(vec![
@@ -48,7 +48,7 @@ async fn test_simple_bar_chart() {
 async fn test_bar_chart_with_custom_colors() {
     let df = datasets::simple_categories();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x_with::<Band>(|s| {
             s.domain_discrete(vec![
@@ -84,7 +84,7 @@ async fn test_bar_chart_with_custom_colors() {
 async fn test_bar_chart_with_narrow_bars() {
     let df = datasets::simple_categories();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x_with::<Band>(|s| {
             s.domain_discrete(vec![
@@ -120,7 +120,7 @@ async fn test_bar_chart_with_narrow_bars() {
 async fn test_bar_chart_inferred_domains() {
     let df = datasets::simple_categories();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .axis_x(|a| a.title("Category").grid(false))
         .axis_y(|a| a.title("Value").grid(true))
@@ -146,7 +146,7 @@ async fn test_bar_chart_color_case_expression() {
 
     // Create a bar chart where each bar's color depends on its value
     // This demonstrates data-driven color encoding using conditional expressions
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x_with::<Band>(|s| {
             s.domain_discrete(vec![

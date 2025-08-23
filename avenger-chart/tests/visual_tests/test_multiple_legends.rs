@@ -49,7 +49,7 @@ async fn test_scatter_multiple_legends() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x(|s| s.domain((0.0, 10.0)))
         .scale_y(|s| s.domain((0.0, 10.0)))
@@ -121,7 +121,7 @@ async fn test_mixed_legend_types() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x(|s| s.domain((0.0, 6.0)))
         .scale_y(|s| s.domain((0.0, 8.0)))
@@ -204,7 +204,7 @@ async fn test_legends_different_positions() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x(|s| s.domain((0.0, 7.0)))
         .scale_y(|s| s.domain((0.0, 7.0)))
@@ -257,7 +257,7 @@ async fn test_colorbar_with_symbols() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x(|s| s.domain((0.0, 9.0)))
         .scale_y(|s| s.domain((0.0, 9.0)))
@@ -322,7 +322,7 @@ async fn test_legend_ordering() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x(|s| s.domain((0.0, 6.0)))
         .scale_y(|s| s.domain((0.0, 6.0)))

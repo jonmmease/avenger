@@ -153,7 +153,7 @@ async fn test_multi_series_line_with_color() {
     let df = create_multi_series_data();
 
     // Create a plot with lines colored by series
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_stroke_with::<Ordinal>(|s| s)
         .axis_x(|axis| axis.title("X").grid(true))
@@ -174,7 +174,7 @@ async fn test_multi_series_line_with_width() {
     let df = create_multi_series_with_widths();
 
     // Create a plot with lines having different widths per series
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .axis_x(|axis| axis.title("X").grid(true))
         .axis_y(|axis| axis.title("Y").grid(true))
@@ -194,7 +194,7 @@ async fn test_multi_series_with_color_and_width() {
     let df = create_multi_series_with_widths();
 
     // Create a plot where color and width vary by series
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_stroke_with::<Ordinal>(|s| s)
         .axis_x(|axis| axis.title("X").grid(true))
@@ -215,7 +215,7 @@ async fn test_line_with_order_channel() {
     let df = create_mixed_order_data();
 
     // Create a plot using order channel to sort points
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_stroke_with::<Ordinal>(|s| s)
         .axis_x(|axis| axis.title("X").grid(true))
@@ -260,7 +260,7 @@ async fn test_multi_series_line_with_dash() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_stroke_dash_with::<Ordinal>(|s| s.range_discrete(vec!["solid", "dashed", "dotted"]))
         .axis_x(|axis| axis.title("X").grid(true))
@@ -319,7 +319,7 @@ async fn test_multi_series_line_with_color_and_dash() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_stroke_with::<Ordinal>(|s| s)
         .scale_stroke_dash_with::<Ordinal>(|s| s.range_discrete(vec!["solid", "dashed"]))
@@ -380,7 +380,7 @@ async fn test_multi_series_line_all_encodings() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_stroke_with::<Ordinal>(|s| s)
         .scale_stroke_width_with::<Ordinal>(|s| s.range_discrete(vec![1.0, 2.0, 3.0]))

@@ -14,7 +14,7 @@ use palette::rgb::Srgba;
 async fn test_bar_chart_linear_color_interpolation() {
     let df = datasets::simple_categories();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x_with::<Band>(|s| {
             s.domain_discrete(vec![
@@ -66,7 +66,7 @@ async fn test_bar_chart_linear_color_interpolation() {
 async fn test_bar_chart_log_color_interpolation() {
     let df = datasets::simple_categories();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x_with::<Band>(|s| {
             s.domain_discrete(vec![
@@ -113,7 +113,7 @@ async fn test_bar_chart_log_color_interpolation() {
 async fn test_bar_chart_pow_color_interpolation() {
     let df = datasets::simple_categories();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x_with::<Band>(|s| {
             s.domain_discrete(vec![
@@ -160,7 +160,7 @@ async fn test_bar_chart_pow_color_interpolation() {
 async fn test_bar_chart_sqrt_color_interpolation() {
     let df = datasets::simple_categories();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x_with::<Band>(|s| {
             s.domain_discrete(vec![
@@ -211,7 +211,7 @@ async fn test_bar_chart_sqrt_color_interpolation() {
 async fn test_bar_chart_threshold_scale_colors() {
     let df = datasets::simple_categories();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x_with::<Band>(|s| {
             s.domain_discrete(vec![
@@ -259,7 +259,7 @@ async fn test_bar_chart_threshold_scale_colors() {
 async fn test_bar_chart_linear_color_default_colors() {
     let df = datasets::simple_categories();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .axis_x(|a| a.title("Category").grid(false))
         .axis_y(|a| a.title("Value").grid(true))
@@ -286,7 +286,7 @@ async fn test_bar_chart_linear_color_default_colors() {
 async fn test_bar_chart_ordinal_scale_colors() {
     let df = datasets::simple_categories();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x_with::<Band>(|s| s) // Domain will be inferred from data
         .scale_y(|s| s.domain((0.0, 100.0)))

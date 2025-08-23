@@ -1,3 +1,4 @@
+use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::line::Line;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::marks::{Mark, RadiusExpression};
@@ -11,7 +12,7 @@ async fn test_symbol_default_channel_values() {
     let ctx = SessionContext::new();
     let df = ctx.read_empty().unwrap();
 
-    let symbol = Symbol::new().data(df).x(col("x")).y(col("y"));
+    let symbol = Symbol::<Cartesian>::new().data(df).x(col("x")).y(col("y"));
 
     // Test default channel values
     assert_eq!(
@@ -48,7 +49,7 @@ async fn test_symbol_radius_expression() {
     let ctx = SessionContext::new();
     let df = ctx.read_empty().unwrap();
 
-    let symbol = Symbol::new().data(df).x(col("x")).y(col("y"));
+    let symbol = Symbol::<Cartesian>::new().data(df).x(col("x")).y(col("y"));
 
     // Create a simple channel resolver that returns the size and stroke_width defaults
     let resolve_channel = |channel: &str| -> datafusion::logical_expr::Expr {
@@ -99,7 +100,7 @@ async fn test_symbol_radius_expression_with_mapped_size() {
 
     let df = ctx.read_batch(batch).unwrap();
 
-    let symbol = Symbol::new()
+    let symbol = Symbol::<Cartesian>::new()
         .data(df)
         .x(col("x"))
         .y(col("y"))
@@ -123,7 +124,7 @@ async fn test_symbol_radius_includes_stroke_width() {
     let ctx = SessionContext::new();
     let df = ctx.read_empty().unwrap();
 
-    let symbol = Symbol::new().data(df).x(col("x")).y(col("y"));
+    let symbol = Symbol::<Cartesian>::new().data(df).x(col("x")).y(col("y"));
 
     // Test with specific size and stroke_width values
     let resolve_channel = |channel: &str| -> datafusion::logical_expr::Expr {
@@ -158,7 +159,7 @@ async fn test_line_radius_expression() {
     let ctx = SessionContext::new();
     let df = ctx.read_empty().unwrap();
 
-    let line = Line::new().data(df).x(col("x")).y(col("y"));
+    let line = Line::<Cartesian>::new().data(df).x(col("x")).y(col("y"));
 
     // Create a channel resolver that returns stroke_width
     let resolve_channel = |channel: &str| -> datafusion::logical_expr::Expr {

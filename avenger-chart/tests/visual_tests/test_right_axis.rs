@@ -61,7 +61,7 @@ fn make_df_for_line() -> DataFrame {
 async fn right_axis_no_legend_symbol_mark() {
     let df = make_df_for_symbol();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x(|s| s.domain((0.0, 10.0)))
         .scale_y(|s| s.domain((0.0, 12.0)))
@@ -82,7 +82,7 @@ async fn right_axis_no_legend_symbol_mark() {
 async fn right_axis_with_symbol_legend() {
     let df = make_df_for_symbol();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x(|s| s.domain((0.0, 10.0)))
         .scale_y(|s| s.domain((0.0, 12.0)))
@@ -103,7 +103,7 @@ async fn right_axis_with_symbol_legend() {
 async fn right_axis_with_line_legend() {
     let df = make_df_for_line();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x(|s| s.domain((0.0, 6.0)))
         .scale_y(|s| s.domain((0.0, 22.0)))
@@ -124,7 +124,7 @@ async fn right_axis_with_line_legend() {
 async fn right_axis_with_colorbar_legend() {
     let df = make_df_for_symbol();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x(|s| s.domain((0.0, 10.0)))
         .scale_y(|s| s.domain((0.0, 12.0)))
@@ -146,7 +146,7 @@ async fn right_axis_with_colorbar_legend() {
 async fn top_x_axis_with_right_y_no_legend() {
     let df = make_df_for_symbol();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x(|s| s.domain((0.0, 10.0)))
         .scale_y(|s| s.domain((0.0, 12.0)))

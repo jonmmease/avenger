@@ -36,7 +36,7 @@ async fn test_symbol_legend_with_title() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x(|s| s.domain((0.0, 7.0)))
         .scale_y(|s| s.domain((0.0, 7.0)))
@@ -73,7 +73,7 @@ async fn test_line_legend_with_title() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x(|s| s.domain((0.5, 4.5)))
         .scale_y(|s| s.domain((0.0, 5.0)))
@@ -118,7 +118,7 @@ async fn test_rect_stroke_legend_with_title() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a bar chart with stroke legend
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x_with::<Band>(|scale| scale.padding_inner(0.1))
         .scale_y(|scale| scale.domain((0.0, 60.0)))
@@ -167,7 +167,7 @@ async fn test_shape_legend_with_title() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x(|s| s.domain((0.0, 7.0)))
         .scale_y(|s| s.domain((0.0, 7.0)))
@@ -209,7 +209,7 @@ async fn test_legend_with_title_and_background() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x(|s| s.domain((0.0, 7.0)))
         .scale_y(|s| s.domain((0.0, 7.0)))

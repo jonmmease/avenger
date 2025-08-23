@@ -40,7 +40,7 @@ async fn test_default_axes_numeric_with_grid() {
     let df = create_test_data();
 
     // Create a plot without explicit axes
-    let plot = Plot::new(Cartesian).data(df).mark(
+    let plot = Plot::<Cartesian>::new().data(df).mark(
         Line::new()
             .x(col("x_val"))
             .y(col("y_val"))
@@ -59,7 +59,7 @@ async fn test_default_axes_band_without_grid() {
     let df = create_test_data();
 
     // Create a plot with band scale on x
-    let plot = Plot::new(Cartesian).data(df).mark(
+    let plot = Plot::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x(col("category"))
             .x2(col(":x").band(1.0))
@@ -79,7 +79,7 @@ async fn test_default_axes_disabled() {
     let df = create_test_data();
 
     // Create a plot and explicitly disable x axis
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .axis_x(|axis| axis.visible(false))
         .mark(
@@ -99,7 +99,7 @@ async fn test_default_axes_custom_title() {
     let df = create_test_data();
 
     // Create a plot and override some default axis properties
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .axis_x(|axis| axis.title("Custom X Title").grid(false))
         .mark(

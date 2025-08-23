@@ -1,9 +1,33 @@
-use crate::axis::{AxisPosition, AxisTrait};
+use crate::axis::{Axis as AxisBase, AxisPosition};
 use std::any::Any;
 
-/// Axis for Cartesian coordinates
+/// Trait for axes that can be used with Cartesian coordinates
+pub trait CartesianAxis: AxisBase + Clone + Send + Sync + 'static {
+    /// Get axis visibility
+    fn visible(&self) -> bool;
+
+    /// Get axis position (Top, Right, Bottom, Left)
+    fn position(&self) -> Option<AxisPosition>;
+
+    /// Get axis title
+    fn title(&self) -> Option<&str>;
+
+    /// Whether to show grid lines
+    fn grid(&self) -> bool;
+
+    /// Get tick count hint
+    fn tick_count(&self) -> Option<usize>;
+
+    /// Get label angle in degrees
+    fn label_angle(&self) -> f32;
+
+    /// Get number format pattern
+    fn format_number(&self) -> Option<&str>;
+}
+
+/// Default implementation of CartesianAxis
 #[derive(Clone, Debug)]
-pub struct CartesianAxis {
+pub struct DefaultCartesianAxis {
     pub visible: bool,
     pub position: Option<AxisPosition>,
     pub title: Option<String>,
@@ -13,7 +37,7 @@ pub struct CartesianAxis {
     pub format_number: Option<String>,
 }
 
-impl CartesianAxis {
+impl DefaultCartesianAxis {
     pub fn new() -> Self {
         Self::default()
     }
@@ -54,7 +78,7 @@ impl CartesianAxis {
     }
 }
 
-impl Default for CartesianAxis {
+impl Default for DefaultCartesianAxis {
     fn default() -> Self {
         Self {
             visible: true,
@@ -68,8 +92,8 @@ impl Default for CartesianAxis {
     }
 }
 
-impl AxisTrait for CartesianAxis {
-    fn clone_box(&self) -> Box<dyn AxisTrait> {
+impl AxisBase for DefaultCartesianAxis {
+    fn clone_box(&self) -> Box<dyn AxisBase> {
         Box::new(self.clone())
     }
 
@@ -77,7 +101,41 @@ impl AxisTrait for CartesianAxis {
         self
     }
 
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
     fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
+    }
+}
+
+impl CartesianAxis for DefaultCartesianAxis {
+    fn visible(&self) -> bool {
+        self.visible
+    }
+
+    fn position(&self) -> Option<AxisPosition> {
+        self.position
+    }
+
+    fn title(&self) -> Option<&str> {
+        self.title.as_deref()
+    }
+
+    fn grid(&self) -> bool {
+        self.grid
+    }
+
+    fn tick_count(&self) -> Option<usize> {
+        self.tick_count
+    }
+
+    fn label_angle(&self) -> f32 {
+        self.label_angle
+    }
+
+    fn format_number(&self) -> Option<&str> {
+        self.format_number.as_deref()
     }
 }

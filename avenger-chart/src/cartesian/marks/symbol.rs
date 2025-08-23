@@ -1,6 +1,6 @@
-use crate::cartesian::Cartesian;
+use crate::cartesian::{Cartesian, CartesianAxis};
+use crate::impl_mark_trait_common;
 use crate::marks::{ChannelType, Mark, RadiusExpression};
-use crate::{define_position_mark_channels, impl_mark_trait_common};
 use arrow::array::RecordBatch;
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -13,17 +13,46 @@ use crate::error::AvengerChartError;
 pub use crate::marks::symbol::Symbol;
 use crate::utils::ScalarValueHelpers;
 
-// Define position channels for Cartesian Symbol
-define_position_mark_channels! {
-    Symbol<Cartesian> {
-        x: { type: ChannelType::Numeric },
-        y: { type: ChannelType::Numeric },
+// Implement position channels for CartesianGeneric Symbol
+impl<A: CartesianAxis + Default + 'static> Symbol<Cartesian<A>> {
+    pub fn x<V: Into<crate::marks::ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("x", value.into())
+    }
+
+    pub fn y<V: Into<crate::marks::ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("y", value.into())
+    }
+
+    pub fn position_channel_descriptors() -> Vec<crate::marks::ChannelDescriptor> {
+        use crate::marks::ChannelDescriptor;
+        vec![
+            ChannelDescriptor {
+                name: "x",
+                channel_type: ChannelType::Numeric,
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "y",
+                channel_type: ChannelType::Numeric,
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+        ]
+    }
+
+    pub fn all_channel_descriptors() -> Vec<crate::marks::ChannelDescriptor> {
+        let mut descriptors = Self::common_channel_descriptors();
+        descriptors.extend(Self::position_channel_descriptors());
+        descriptors
     }
 }
 
-// Implement Mark trait for Cartesian Symbol
-impl Mark<Cartesian> for Symbol<Cartesian> {
-    impl_mark_trait_common!(Symbol, Cartesian, "symbol");
+// Implement Mark trait for CartesianGeneric Symbol with any axis type
+impl<A: CartesianAxis + Default + 'static> Mark<Cartesian<A>> for Symbol<Cartesian<A>> {
+    impl_mark_trait_common!(Symbol, Cartesian<A>, "symbol");
 
     fn default_channel_value(&self, channel: &str) -> Option<ScalarValue> {
         match channel {

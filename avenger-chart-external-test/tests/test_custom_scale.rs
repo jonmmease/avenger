@@ -33,7 +33,7 @@ fn test_custom_scale_with_typed_methods() {
 #[test]
 fn test_custom_scale_in_plot() {
     // Create a plot using the typed external scale with custom methods
-    let _plot = Plot::new(Cartesian)
+    let _plot = Plot::<Cartesian>::new()
         .mark(Symbol::new().x("value").y("result").fill("category"))
         .scale_y_with::<SmoothLog>(|scale| {
             scale

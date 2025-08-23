@@ -19,7 +19,7 @@
 //! ZeroDCoord should NOT be used for actual data visualization. All spatial methods
 //! will panic with `unreachable!()` as they are meaningless in zero dimensions.
 
-use crate::axis::AxisTrait;
+use crate::axis::Axis;
 use crate::coords::{CoordinateSystem, OverflowSpaceRequirement, TransformResult};
 use crate::error::AvengerChartError;
 use avenger_scenegraph::marks::group::Clip;
@@ -32,6 +32,7 @@ use std::collections::HashMap;
 ///
 /// Represents a 0D space (a single point) where marks have no spatial extent
 /// or position channels. Useful for legends and other non-spatial mark rendering.
+#[derive(Debug, Default)]
 pub struct ZeroDCoord;
 
 /// A placeholder axis for the zero-dimensional coordinate system
@@ -40,12 +41,16 @@ pub struct ZeroDAxis {
     // No axes exist in 0D space
 }
 
-impl AxisTrait for ZeroDAxis {
-    fn clone_box(&self) -> Box<dyn AxisTrait> {
+impl Axis for ZeroDAxis {
+    fn clone_box(&self) -> Box<dyn Axis> {
         Box::new(self.clone())
     }
 
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
 

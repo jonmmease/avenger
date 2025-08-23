@@ -14,7 +14,7 @@ use datafusion::logical_expr::{col, lit};
 async fn test_bar_chart_y_scale_auto_zero() {
     let df = datasets::simple_categories();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         // No explicit options:
         // - y scale should get nice=true,zero=true by default
@@ -41,7 +41,7 @@ async fn test_bar_chart_y_scale_auto_zero() {
 async fn test_bar_chart_y_scale_no_nice() {
     let df = datasets::simple_categories();
 
-    let plot = Plot::new(Cartesian)
+    let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_y_with::<Linear>(|s| s.nice(false))
         .axis_x(|a| a.title("Category").grid(false))
