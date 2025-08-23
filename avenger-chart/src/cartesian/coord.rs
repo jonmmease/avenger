@@ -213,7 +213,7 @@ where
 
             // Let the axis implementation handle all rendering logic
             let axis_mark = axis.render(channel, scale, plot_width, plot_height, padding)?;
-            
+
             // Only add non-empty marks
             if let SceneMark::Group(ref group) = axis_mark {
                 if !group.marks.is_empty() {
