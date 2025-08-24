@@ -57,8 +57,8 @@ async fn test_symbol_automatic_shape_scale() {
     // with shape strings as the range values
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        // .scale_x(|scale| scale.domain((60.0, 130.0)))
-        // .scale_y(|scale| scale.domain((10.0, 30.0)))
+        // .scale("x", |scale| scale.domain((60.0, 130.0)))
+        // .scale("y", |scale| scale.domain((10.0, 30.0)))
         .axis_x(|axis| axis.title("Sales ($k)"))
         .axis_y(|axis| axis.title("Profit ($k)"))
         .mark(

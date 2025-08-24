@@ -60,9 +60,9 @@ async fn test_line_discrete_stroke_legend() {
     // Create a multi-series line chart with stroke legend
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|scale| scale.domain((0.0, 6.0)))
-        .scale_y(|scale| scale.domain((0.0, 35.0)))
-        .legend_stroke(|legend| legend.title("Series"))
+        .scale("x", |scale| scale.domain((0.0, 6.0)))
+        .scale("y", |scale| scale.domain((0.0, 35.0)))
+        .legend("stroke", |legend| legend.title("Series"))
         .mark(
             Line::new()
                 .x(col("x"))
@@ -124,8 +124,8 @@ async fn test_line_stroke_width_legend() {
     // Create a line chart with stroke width legend
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|scale| scale.domain((0.0, 6.0)))
-        .scale_y(|scale| scale.domain((0.0, 15.0)))
+        .scale("x", |scale| scale.domain((0.0, 6.0)))
+        .scale("y", |scale| scale.domain((0.0, 15.0)))
         .scale_stroke_width_with::<Ordinal>(|scale| {
             scale.range_discrete(vec![1.0, 3.0, 6.0]).domain(vec![
                 lit("Low"),
@@ -133,7 +133,7 @@ async fn test_line_stroke_width_legend() {
                 lit("High"),
             ])
         })
-        .legend_stroke_width(|legend| legend.title("Importance"))
+        .legend("stroke_width", |legend| legend.title("Importance"))
         .mark(
             Line::new()
                 .x(col("x"))
@@ -275,8 +275,8 @@ async fn test_line_combined_stroke_width_legend() {
     // Create a line chart where priority encodes both stroke color and width
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|scale| scale.domain((0.0, 6.0)))
-        .scale_y(|scale| scale.domain((0.0, 25.0)))
+        .scale("x", |scale| scale.domain((0.0, 6.0)))
+        .scale("y", |scale| scale.domain((0.0, 25.0)))
         .scale_stroke_with::<Ordinal>(|scale| {
             scale
                 .range_discrete(vec!["#d62728", "#ff7f0e", "#2ca02c"])
@@ -289,7 +289,7 @@ async fn test_line_combined_stroke_width_legend() {
                 lit("Low"),
             ])
         })
-        .legend_stroke(|legend| legend.title("Priority"))
+        .legend("stroke", |legend| legend.title("Priority"))
         .mark(
             Line::new()
                 .x(col("x"))

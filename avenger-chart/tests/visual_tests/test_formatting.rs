@@ -1,5 +1,6 @@
 use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
+use avenger_chart::marks::ChannelExpr;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
 use datafusion::arrow::array::Float64Array;
@@ -47,16 +48,13 @@ async fn axis_y_currency_fixed() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|s| s.domain((0.0, 6.0)))
-        .scale_y(|s| s.domain((0.0, 100000.0)))
         .axis_y(|a| a.title("Revenue").format("$,.2f"))
-        .legend_fill(|l| l.visible(false))
         .mark(
             Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
+                .x(col("x").scale(|s| s.domain((0.0, 6.0))))
+                .y(col("y").scale(|s| s.domain((0.0, 100000.0))))
                 .size(80.0)
-                .fill("#2ca25f"),
+                .fill("#2ca25f".identity().no_legend()), // Using identity() to avoid scale, no_legend() to hide
         );
 
     assert_visual_match_default(plot, "layout", "format_axis_y_currency_fixed").await;
@@ -68,16 +66,13 @@ async fn axis_y_percent() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|s| s.domain((0.0, 6.0)))
-        .scale_y(|s| s.domain((0.0, 1.0)))
         .axis_y(|a| a.title("Completion").format(".0%"))
-        .legend_fill(|l| l.visible(false))
         .mark(
             Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
+                .x(col("x").scale(|s| s.domain((0.0, 6.0))))
+                .y(col("y").scale(|s| s.domain((0.0, 1.0))))
                 .size(80.0)
-                .fill("#3182bd"),
+                .fill("#3182bd".identity().no_legend()),
         );
 
     assert_visual_match_default(plot, "layout", "format_axis_y_percent").await;
@@ -92,16 +87,13 @@ async fn axis_y_si_prefix() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|s| s.domain((0.0, 6.0)))
-        .scale_y(|s| s.domain((0.0, 1.0e8)))
         .axis_y(|a| a.title("Population").format(".2s"))
-        .legend_fill(|l| l.visible(false))
         .mark(
             Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
+                .x(col("x").scale(|s| s.domain((0.0, 6.0))))
+                .y(col("y").scale(|s| s.domain((0.0, 1.0e8))))
                 .size(80.0)
-                .fill("#e6550d"),
+                .fill("#e6550d".identity().no_legend()),
         );
 
     assert_visual_match_default(plot, "layout", "format_axis_y_si_prefix").await;
@@ -115,19 +107,17 @@ async fn colorbar_percent() {
         &[0.05, 0.12, 0.38, 0.67, 0.91],
     );
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x(|s| s.domain((0.0, 6.0)))
-        .scale_y(|s| s.domain((0.0, 12.0)))
-        .scale_fill(|s| s.domain((0.0, 1.0)))
-        .legend_fill(|l| l.title("Percent").format_number(".0%"))
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .size(100.0)
-                .fill(col("v")),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x(col("x").scale(|s| s.domain((0.0, 6.0))))
+            .y(col("y").scale(|s| s.domain((0.0, 12.0))))
+            .size(100.0)
+            .fill(
+                col("v")
+                    .scale(|s| s.domain((0.0, 1.0)))
+                    .legend(|l| l.title("Percent").format_number(".0%")),
+            ),
+    );
 
     assert_visual_match_default(plot, "layout", "format_colorbar_percent").await;
 }
@@ -140,19 +130,17 @@ async fn colorbar_currency_fixed() {
         &[1200.0, 3400.0, 5600.0, 12345.0, 98765.0],
     );
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x(|s| s.domain((0.0, 6.0)))
-        .scale_y(|s| s.domain((0.0, 12.0)))
-        .scale_fill(|s| s.domain((0.0, 100000.0)))
-        .legend_fill(|l| l.title("Revenue").format_number("$,.0f"))
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .size(100.0)
-                .fill(col("v")),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x(col("x").scale(|s| s.domain((0.0, 6.0))))
+            .y(col("y").scale(|s| s.domain((0.0, 12.0))))
+            .size(100.0)
+            .fill(
+                col("v")
+                    .scale(|s| s.domain((0.0, 100000.0)))
+                    .legend(|l| l.title("Revenue").format_number("$,.0f")),
+            ),
+    );
 
     assert_visual_match_default(plot, "layout", "format_colorbar_currency_fixed").await;
 }
@@ -165,19 +153,17 @@ async fn colorbar_si_prefix() {
         &[1.2e3, 4.5e4, 7.8e5, 2.3e6, 9.9e7],
     );
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x(|s| s.domain((0.0, 6.0)))
-        .scale_y(|s| s.domain((0.0, 12.0)))
-        .scale_fill(|s| s.domain((0.0, 1.0e8)))
-        .legend_fill(|l| l.title("Population").format_number(".2s"))
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .size(100.0)
-                .fill(col("v")),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x(col("x").scale(|s| s.domain((0.0, 6.0))))
+            .y(col("y").scale(|s| s.domain((0.0, 12.0))))
+            .size(100.0)
+            .fill(
+                col("v")
+                    .scale(|s| s.domain((0.0, 1.0e8)))
+                    .legend(|l| l.title("Population").format_number(".2s")),
+            ),
+    );
 
     assert_visual_match_default(plot, "layout", "format_colorbar_si_prefix").await;
 }

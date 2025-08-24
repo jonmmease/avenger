@@ -38,10 +38,10 @@ async fn test_symbol_legend_with_title() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|s| s.domain((0.0, 7.0)))
-        .scale_y(|s| s.domain((0.0, 7.0)))
+        .scale("x", |s| s.domain((0.0, 7.0)))
+        .scale("y", |s| s.domain((0.0, 7.0)))
         .scale_fill_with::<Ordinal>(|s| s)
-        .legend_fill(|legend| legend.title("Category"))
+        .legend("fill", |legend| legend.title("Category"))
         .mark(Symbol::new().x(col("x")).y(col("y")).fill(col("category")));
 
     assert_visual_match_default(plot, "legend", "symbol_legend_with_title").await;
@@ -75,10 +75,10 @@ async fn test_line_legend_with_title() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|s| s.domain((0.5, 4.5)))
-        .scale_y(|s| s.domain((0.0, 5.0)))
+        .scale("x", |s| s.domain((0.5, 4.5)))
+        .scale("y", |s| s.domain((0.0, 5.0)))
         .scale_stroke_with::<Ordinal>(|s| s)
-        .legend_stroke(|legend| legend.title("Line Series"))
+        .legend("stroke", |legend| legend.title("Line Series"))
         .mark(
             Line::new()
                 .x(col("x"))
@@ -121,13 +121,13 @@ async fn test_rect_stroke_legend_with_title() {
     let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x_with::<Band>(|scale| scale.padding_inner(0.1))
-        .scale_y(|scale| scale.domain((0.0, 60.0)))
-        .scale_stroke(|scale| {
+        .scale("y", |scale| scale.domain((0.0, 60.0)))
+        .scale("stroke", |scale| {
             scale
                 .range_discrete(vec!["#d62728", "#2ca02c", "#ff7f0e"])
                 .domain(vec![lit("Premium"), lit("Standard"), lit("Budget")])
         })
-        .legend_stroke(|legend| legend.title("Quality Tier"))
+        .legend("stroke", |legend| legend.title("Quality Tier"))
         .mark(
             Rect::new()
                 .x(col("product").band(0.0))
@@ -169,10 +169,10 @@ async fn test_shape_legend_with_title() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|s| s.domain((0.0, 7.0)))
-        .scale_y(|s| s.domain((0.0, 7.0)))
+        .scale("x", |s| s.domain((0.0, 7.0)))
+        .scale("y", |s| s.domain((0.0, 7.0)))
         .scale_shape_with::<Ordinal>(|s| s)
-        .legend_shape(|legend| legend.title("Shape Type"))
+        .legend("shape", |legend| legend.title("Shape Type"))
         .mark(
             Symbol::new()
                 .x(col("x"))
@@ -211,10 +211,10 @@ async fn test_legend_with_title_and_background() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|s| s.domain((0.0, 7.0)))
-        .scale_y(|s| s.domain((0.0, 7.0)))
+        .scale("x", |s| s.domain((0.0, 7.0)))
+        .scale("y", |s| s.domain((0.0, 7.0)))
         .scale_fill_with::<Ordinal>(|s| s)
-        .legend_fill(|legend| {
+        .legend("fill", |legend| {
             legend
                 .title("Data Categories")
                 .background_fill("#f0f0f0")

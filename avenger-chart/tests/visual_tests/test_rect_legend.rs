@@ -40,8 +40,8 @@ async fn test_rect_discrete_fill_legend() {
     let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x_with::<Band>(|scale| scale.padding_inner(0.1))
-        .scale_y(|scale| scale.domain((0.0, 60.0)))
-        .legend_fill(|legend| legend.title("Category"))
+        .scale("y", |scale| scale.domain((0.0, 60.0)))
+        .legend("fill", |legend| legend.title("Category"))
         .mark(
             Rect::new()
                 .x(col("product").band(0.0))
@@ -86,9 +86,9 @@ async fn test_rect_continuous_fill_legend() {
     let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x_with::<Band>(|scale| scale.padding_inner(0.15))
-        .scale_y(|scale| scale.domain((0.0, 70.0)))
-        .scale_fill(|scale| scale.domain((0.0, 40.0)))
-        .legend_fill(|legend| legend.title("Temperature (°C)"))
+        .scale("y", |scale| scale.domain((0.0, 70.0)))
+        .scale("fill", |scale| scale.domain((0.0, 40.0)))
+        .legend("fill", |legend| legend.title("Temperature (°C)"))
         .mark(
             Rect::new()
                 .x(col("quarter").band(0.0))
@@ -133,13 +133,13 @@ async fn test_rect_stroke_legend() {
     let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x_with::<Band>(|scale| scale.padding_inner(0.1))
-        .scale_y(|scale| scale.domain((0.0, 60.0)))
-        .scale_stroke(|scale| {
+        .scale("y", |scale| scale.domain((0.0, 60.0)))
+        .scale("stroke", |scale| {
             scale
                 .range_discrete(vec!["#d62728", "#2ca02c", "#ff7f0e"])
                 .domain(vec![lit("Premium"), lit("Standard"), lit("Budget")])
         })
-        .legend_stroke(|legend| legend.title("Quality Tier"))
+        .legend("stroke", |legend| legend.title("Quality Tier"))
         .mark(
             Rect::new()
                 .x(col("product").band(0.0))

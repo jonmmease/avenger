@@ -266,7 +266,7 @@ async fn test_scatter_with_size_encoding_legend() {
         .scale_y_with::<Linear>(|scale| scale.nice(false).zero(false))
         .axis_x(|axis| axis.title("X Value").grid(true))
         .axis_y(|axis| axis.title("Y Value").grid(true))
-        .legend_fill(|legend| legend)
+        .legend("fill", |legend| legend)
         .mark(
             Symbol::new()
                 .x(col("x"))

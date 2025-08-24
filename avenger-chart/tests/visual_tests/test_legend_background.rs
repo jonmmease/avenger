@@ -61,10 +61,10 @@ async fn symbol_legend_with_background() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|s| s.domain((0.0, 8.0)))
-        .scale_y(|s| s.domain((0.0, 8.0)))
-        .scale_fill_with::<Ordinal>(|s| s)
-        .legend_fill(|l| {
+        .scale("x", |s| s.domain((0.0, 8.0)))
+        .scale("y", |s| s.domain((0.0, 8.0)))
+        .scale_with::<Ordinal>("fill", |s| s)
+        .legend("fill", |l| {
             l.title("Category")
                 .background_padding(6.0)
                 .background_corner_radius(6.0)
@@ -113,10 +113,10 @@ async fn line_legend_with_background() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|s| s.domain((0.0, 5.0)))
-        .scale_y(|s| s.domain((0.0, 6.0)))
-        .scale_stroke(|s| s)
-        .legend_stroke(|l| {
+        .scale("x", |s| s.domain((0.0, 5.0)))
+        .scale("y", |s| s.domain((0.0, 6.0)))
+        .scale("stroke", |s| s)
+        .legend("stroke", |l| {
             l.title("Series")
                 // .background_padding(6.0)
                 .background_corner_radius(6.0)
@@ -139,10 +139,10 @@ async fn symbol_legend_without_visible_background() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|s| s.domain((0.0, 8.0)))
-        .scale_y(|s| s.domain((0.0, 8.0)))
-        .scale_fill_with::<Ordinal>(|s| s)
-        .legend_fill(|l| l.title("Category")) // No background styling
+        .scale("x", |s| s.domain((0.0, 8.0)))
+        .scale("y", |s| s.domain((0.0, 8.0)))
+        .scale_with::<Ordinal>("fill", |s| s)
+        .legend("fill", |l| l.title("Category")) // No background styling
         .mark(
             Symbol::new()
                 .x(col("x"))
@@ -165,10 +165,11 @@ async fn colorbar_legend_with_background() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|s| s.domain((0.0, 7.0)))
-        .scale_y(|s| s.domain((0.0, 7.0)))
-        .scale_fill(|s| s.domain((0.0, 1.0)))
-        .legend_fill(
+        .scale("x", |s| s.domain((0.0, 7.0)))
+        .scale("y", |s| s.domain((0.0, 7.0)))
+        .scale("fill", |s| s.domain((0.0, 1.0)))
+        .legend(
+            "fill",
             |l| {
                 l.title("Intensity")
                     .background_corner_radius(6.0)

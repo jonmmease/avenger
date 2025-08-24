@@ -25,11 +25,15 @@
 //!     expr: col("value"),
 //!     scale_name: None,
 //!     band: None,
+//!     scale_config: None,
+//!     legend_config: None,
 //! });
 //! channels.insert("y2".to_string(), ChannelValue::Scaled {
 //!     expr: col(":y") + lit(10.0),  // References y channel
 //!     scale_name: None,
 //!     band: None,
+//!     scale_config: None,
+//!     legend_config: None,
 //! });
 //!
 //! // Resolve references (function would be imported from this module)
@@ -445,11 +449,17 @@ pub fn resolve_all_channel_refs(
             // Preserve the channel value structure (Scaled vs Identity)
             let resolved_value = match value {
                 ChannelValue::Scaled {
-                    scale_name, band, ..
+                    scale_name,
+                    band,
+                    scale_config,
+                    legend_config,
+                    ..
                 } => ChannelValue::Scaled {
                     expr: resolved_expr,
                     scale_name: scale_name.clone(),
                     band: *band,
+                    scale_config: scale_config.clone(),
+                    legend_config: legend_config.clone(),
                 },
                 ChannelValue::Identity { .. } => ChannelValue::Identity {
                     expr: resolved_expr,
@@ -477,6 +487,8 @@ mod tests {
                 expr: col("value"),
                 scale_name: None,
                 band: None,
+                scale_config: None,
+                legend_config: None,
             },
         );
         channels.insert(
@@ -485,6 +497,8 @@ mod tests {
                 expr: col(":x") + lit(10.0),
                 scale_name: None,
                 band: None,
+                scale_config: None,
+                legend_config: None,
             },
         );
 
@@ -509,6 +523,8 @@ mod tests {
                 expr: col("base"),
                 scale_name: None,
                 band: None,
+                scale_config: None,
+                legend_config: None,
             },
         );
         channels.insert(
@@ -517,6 +533,8 @@ mod tests {
                 expr: col(":a") * lit(2.0),
                 scale_name: None,
                 band: None,
+                scale_config: None,
+                legend_config: None,
             },
         );
         channels.insert(
@@ -525,6 +543,8 @@ mod tests {
                 expr: col(":b") + lit(5.0),
                 scale_name: None,
                 band: None,
+                scale_config: None,
+                legend_config: None,
             },
         );
 
@@ -555,6 +575,8 @@ mod tests {
                 expr: col(":x") + lit(1.0),
                 scale_name: None,
                 band: None,
+                scale_config: None,
+                legend_config: None,
             },
         );
 
@@ -578,6 +600,8 @@ mod tests {
                 expr: col(":y"),
                 scale_name: None,
                 band: None,
+                scale_config: None,
+                legend_config: None,
             },
         );
         channels.insert(
@@ -586,6 +610,8 @@ mod tests {
                 expr: col(":x"),
                 scale_name: None,
                 band: None,
+                scale_config: None,
+                legend_config: None,
             },
         );
 
@@ -616,6 +642,8 @@ mod tests {
                 expr: col("value"),
                 scale_name: None,
                 band: None,
+                scale_config: None,
+                legend_config: None,
             },
         );
         channels.insert(
@@ -624,6 +652,8 @@ mod tests {
                 expr: col(":bogus"),
                 scale_name: None,
                 band: None,
+                scale_config: None,
+                legend_config: None,
             },
         );
 
@@ -655,6 +685,8 @@ mod tests {
                 expr: col("a"),
                 scale_name: None,
                 band: None,
+                scale_config: None,
+                legend_config: None,
             },
         );
         channels.insert(
@@ -663,6 +695,8 @@ mod tests {
                 expr: col("b"),
                 scale_name: None,
                 band: None,
+                scale_config: None,
+                legend_config: None,
             },
         );
         channels.insert(
@@ -671,6 +705,8 @@ mod tests {
                 expr: col(":x") + col(":y"),
                 scale_name: None,
                 band: None,
+                scale_config: None,
+                legend_config: None,
             },
         );
 
@@ -728,6 +764,8 @@ mod tests {
                 expr: col("base"),
                 scale_name: None,
                 band: None,
+                scale_config: None,
+                legend_config: None,
             },
         );
         channels.insert(
@@ -736,6 +774,8 @@ mod tests {
                 expr: col(":a") * lit(2.0),
                 scale_name: None,
                 band: None,
+                scale_config: None,
+                legend_config: None,
             },
         );
         channels.insert(
@@ -744,6 +784,8 @@ mod tests {
                 expr: col(":a") * lit(3.0),
                 scale_name: None,
                 band: None,
+                scale_config: None,
+                legend_config: None,
             },
         );
         channels.insert(
@@ -752,6 +794,8 @@ mod tests {
                 expr: col(":b") + col(":c"),
                 scale_name: None,
                 band: None,
+                scale_config: None,
+                legend_config: None,
             },
         );
 
@@ -773,6 +817,8 @@ mod tests {
                 expr: col("color"),
                 scale_name: None,
                 band: None,
+                scale_config: None,
+                legend_config: None,
             },
         );
         channels.insert(
@@ -781,6 +827,8 @@ mod tests {
                 expr: col(":bogus"),
                 scale_name: None,
                 band: None,
+                scale_config: None,
+                legend_config: None,
             },
         );
 

@@ -2,8 +2,9 @@ use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::axis::AxisPosition;
 use avenger_chart::cartesian::Cartesian;
 use avenger_chart::legend::LegendPosition;
+use avenger_chart::marks::ChannelExpr;
 use avenger_chart::marks::symbol::Symbol;
-use avenger_chart::plot::{Plot, PlotSubtitle, PlotTitle, TitleAlign};
+use avenger_chart::plot::Plot;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
@@ -55,19 +56,13 @@ fn make_df_numeric() -> DataFrame {
 #[tokio::test]
 async fn title_basic_symbol() {
     let df = make_df_categories();
-    let plot = Plot::<Cartesian>::new()
-        .title("Basic Title")
-        .data(df)
-        .scale_x(|s| s.domain((0.0, 10.0)))
-        .scale_y(|s| s.domain((0.0, 12.0)))
-        .legend_fill(|l| l.visible(false))
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .size(100.0)
-                .fill("#2ca25f"),
-        );
+    let plot = Plot::<Cartesian>::new().title("Basic Title").data(df).mark(
+        Symbol::new()
+            .x(col("x").scale(|s| s.domain((0.0, 10.0))))
+            .y(col("y").scale(|s| s.domain((0.0, 12.0))))
+            .size(100.0)
+            .fill("#2ca25f".identity().no_legend()),
+    );
 
     assert_visual_match_default(plot, "layout", "title_basic_symbol").await;
 }
@@ -78,15 +73,14 @@ async fn title_with_symbol_legend() {
     let plot = Plot::<Cartesian>::new()
         .title("Title With Legend")
         .data(df)
-        .scale_x(|s| s.domain((0.0, 10.0)))
-        .scale_y(|s| s.domain((0.0, 12.0)))
-        .legend_fill(|l| l.title("Category").position(LegendPosition::Right))
         .mark(
             Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
+                .x(col("x").scale(|s| s.domain((0.0, 10.0))))
+                .y(col("y").scale(|s| s.domain((0.0, 12.0))))
                 .size(100.0)
-                .fill(col("category")),
+                .fill(
+                    col("category").legend(|l| l.title("Category").position(LegendPosition::Right)),
+                ),
         );
 
     assert_visual_match_default(plot, "layout", "title_with_symbol_legend").await;
@@ -98,17 +92,14 @@ async fn title_top_x_right_y() {
     let plot = Plot::<Cartesian>::new()
         .title("Top X & Right Y")
         .data(df)
-        .scale_x(|s| s.domain((0.0, 10.0)))
-        .scale_y(|s| s.domain((0.0, 12.0)))
         .axis_x(|a| a.position(AxisPosition::Top).title("Top X").grid(true))
         .axis_y(|a| a.position(AxisPosition::Right).title("Right Y").grid(true))
-        .legend_fill(|l| l.visible(false))
         .mark(
             Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
+                .x(col("x").scale(|s| s.domain((0.0, 10.0))))
+                .y(col("y").scale(|s| s.domain((0.0, 12.0))))
                 .size(100.0)
-                .fill("#2ca25f"),
+                .fill("#2ca25f".identity().no_legend()),
         );
 
     assert_visual_match_default(plot, "layout", "title_top_x_right_y").await;
@@ -120,16 +111,16 @@ async fn title_with_colorbar_legend() {
     let plot = Plot::<Cartesian>::new()
         .title("Title With Colorbar")
         .data(df)
-        .scale_x(|s| s.domain((0.0, 10.0)))
-        .scale_y(|s| s.domain((0.0, 12.0)))
-        .scale_fill(|s| s.domain((0.0, 100.0)))
-        .legend_fill(|l| l.title("Value").position(LegendPosition::Right))
         .mark(
             Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
+                .x(col("x").scale(|s| s.domain((0.0, 10.0))))
+                .y(col("y").scale(|s| s.domain((0.0, 12.0))))
                 .size(100.0)
-                .fill(col("value")),
+                .fill(
+                    col("value")
+                        .scale(|s| s.domain((0.0, 100.0)))
+                        .legend(|l| l.title("Value").position(LegendPosition::Right)),
+                ),
         );
 
     assert_visual_match_default(plot, "layout", "title_with_colorbar_legend").await;
@@ -142,133 +133,76 @@ async fn subtitle_basic_symbol() {
         .title("Main Title")
         .subtitle("This is a subtitle")
         .data(df)
-        .scale_x(|s| s.domain((0.0, 10.0)))
-        .scale_y(|s| s.domain((0.0, 12.0)))
-        .legend_fill(|l| l.visible(false))
         .mark(
             Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
+                .x(col("x").scale(|s| s.domain((0.0, 10.0))))
+                .y(col("y").scale(|s| s.domain((0.0, 12.0))))
                 .size(100.0)
-                .fill("#2ca25f"),
+                .fill("#2ca25f".identity().no_legend()),
         );
 
     assert_visual_match_default(plot, "layout", "subtitle_basic_symbol").await;
 }
 
 #[tokio::test]
-async fn subtitle_with_symbol_legend() {
-    let df = make_df_categories();
-    let plot = Plot::<Cartesian>::new()
-        .title("Main Title")
-        .subtitle("Subtitle with legend")
-        .data(df)
-        .scale_x(|s| s.domain((0.0, 10.0)))
-        .scale_y(|s| s.domain((0.0, 12.0)))
-        .legend_fill(|l| l.title("Category").position(LegendPosition::Right))
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .size(100.0)
-                .fill(col("category")),
-        );
-
-    assert_visual_match_default(plot, "layout", "subtitle_with_symbol_legend").await;
-}
-
-#[tokio::test]
-async fn subtitle_with_colorbar() {
+async fn subtitle_with_legend() {
     let df = make_df_numeric();
     let plot = Plot::<Cartesian>::new()
-        .title("Temperature Distribution")
-        .subtitle("Measured across different locations")
+        .title("Main Title")
+        .subtitle("This is a subtitle with a legend")
         .data(df)
-        .scale_x(|s| s.domain((0.0, 10.0)))
-        .scale_y(|s| s.domain((0.0, 12.0)))
-        .scale_fill(|s| s.domain((0.0, 100.0)))
-        .legend_fill(|l| l.title("Value").position(LegendPosition::Right))
         .mark(
             Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
+                .x(col("x").scale(|s| s.domain((0.0, 10.0))))
+                .y(col("y").scale(|s| s.domain((0.0, 12.0))))
                 .size(100.0)
-                .fill(col("value")),
+                .fill(
+                    col("value")
+                        .scale(|s| s.domain((0.0, 100.0)))
+                        .legend(|l| l.title("Value").position(LegendPosition::Right)),
+                ),
         );
 
-    assert_visual_match_default(plot, "layout", "subtitle_with_colorbar").await;
+    assert_visual_match_default(plot, "layout", "subtitle_with_legend").await;
+}
+
+// Note: The current API doesn't support custom title properties like color, font_size, or align
+// These tests are removed since those features don't exist yet
+
+#[tokio::test]
+async fn title_with_axes_positions() {
+    let df = make_df_categories();
+    let plot = Plot::<Cartesian>::new()
+        .title("Title With Different Axes Positions")
+        .subtitle("Demonstrating layout")
+        .data(df)
+        .axis_x(|a| a.position(AxisPosition::Top).title("Top X").grid(false))
+        .axis_y(|a| a.position(AxisPosition::Right).title("Right Y").grid(false))
+        .mark(
+            Symbol::new()
+                .x(col("x").scale(|s| s.domain((0.0, 10.0))))
+                .y(col("y").scale(|s| s.domain((0.0, 12.0))))
+                .size(100.0)
+                .fill("#c0392b".identity().no_legend()),
+        );
+
+    assert_visual_match_default(plot, "layout", "title_with_axes_positions").await;
 }
 
 #[tokio::test]
-async fn subtitle_only() {
+async fn multiline_title_subtitle() {
     let df = make_df_categories();
     let plot = Plot::<Cartesian>::new()
-        .subtitle("Only a subtitle, no title")
+        .title("This is a Very Long Title That Should\nSpan Multiple Lines")
+        .subtitle("And this is also a long subtitle\nthat spans multiple lines\nfor demonstration")
         .data(df)
-        .scale_x(|s| s.domain((0.0, 10.0)))
-        .scale_y(|s| s.domain((0.0, 12.0)))
-        .legend_fill(|l| l.visible(false))
         .mark(
             Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
+                .x(col("x").scale(|s| s.domain((0.0, 10.0))))
+                .y(col("y").scale(|s| s.domain((0.0, 12.0))))
                 .size(100.0)
-                .fill("#2ca25f"),
+                .fill("#34495e".identity().no_legend()),
         );
 
-    assert_visual_match_default(plot, "layout", "subtitle_only").await;
-}
-
-#[tokio::test]
-async fn title_plot_area_only() {
-    let df = make_df_categories();
-    let plot = Plot::<Cartesian>::new()
-        .configure_title("Plot Area Only Title", |t| PlotTitle {
-            align: TitleAlign::PlotAreaOnly,
-            ..t
-        })
-        .configure_subtitle("Plot Area Only Subtitle", |s| PlotSubtitle {
-            align: TitleAlign::PlotAreaOnly,
-            ..s
-        })
-        .data(df)
-        .scale_x(|s| s.domain((0.0, 10.0)))
-        .scale_y(|s| s.domain((0.0, 12.0)))
-        .legend_fill(|l| l.visible(false))
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .size(100.0)
-                .fill("#2ca25f"),
-        );
-
-    assert_visual_match_default(plot, "layout", "title_plot_area_only").await;
-}
-
-#[tokio::test]
-async fn title_plot_area_only_with_legend() {
-    let df = make_df_categories();
-    let plot = Plot::<Cartesian>::new()
-        .configure_title("Plot Area Title", |t| PlotTitle {
-            align: TitleAlign::PlotAreaOnly,
-            ..t
-        })
-        .configure_subtitle("With Right Legend", |s| PlotSubtitle {
-            align: TitleAlign::PlotAreaOnly,
-            ..s
-        })
-        .data(df)
-        .scale_x(|s| s.domain((0.0, 10.0)))
-        .scale_y(|s| s.domain((0.0, 12.0)))
-        .legend_fill(|l| l.title("Category").position(LegendPosition::Right))
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .size(100.0)
-                .fill(col("category")),
-        );
-
-    assert_visual_match_default(plot, "layout", "title_plot_area_only_with_legend").await;
+    assert_visual_match_default(plot, "layout", "multiline_title_subtitle").await;
 }

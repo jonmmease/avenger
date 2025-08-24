@@ -63,10 +63,10 @@ async fn right_axis_no_legend_symbol_mark() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|s| s.domain((0.0, 10.0)))
-        .scale_y(|s| s.domain((0.0, 12.0)))
+        .scale("x", |s| s.domain((0.0, 10.0)))
+        .scale("y", |s| s.domain((0.0, 12.0)))
         .axis_y(|a| a.position(AxisPosition::Right).title("Y Right").grid(true))
-        .legend_fill(|l| l.visible(false))
+        .legend("fill", |l| l.visible(false))
         .mark(
             Symbol::new()
                 .x(col("x"))
@@ -84,10 +84,12 @@ async fn right_axis_with_symbol_legend() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|s| s.domain((0.0, 10.0)))
-        .scale_y(|s| s.domain((0.0, 12.0)))
+        .scale("x", |s| s.domain((0.0, 10.0)))
+        .scale("y", |s| s.domain((0.0, 12.0)))
         .axis_y(|a| a.position(AxisPosition::Right).title("Y Right").grid(true))
-        .legend_fill(|l| l.title("Category").position(LegendPosition::Right))
+        .legend("fill", |l| {
+            l.title("Category").position(LegendPosition::Right)
+        })
         .mark(
             Symbol::new()
                 .x(col("x"))
@@ -105,10 +107,12 @@ async fn right_axis_with_line_legend() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|s| s.domain((0.0, 6.0)))
-        .scale_y(|s| s.domain((0.0, 22.0)))
+        .scale("x", |s| s.domain((0.0, 6.0)))
+        .scale("y", |s| s.domain((0.0, 22.0)))
         .axis_y(|a| a.position(AxisPosition::Right).title("Y Right").grid(true))
-        .legend_stroke(|l| l.title("Series").position(LegendPosition::Right))
+        .legend("stroke", |l| {
+            l.title("Series").position(LegendPosition::Right)
+        })
         .mark(
             Line::new()
                 .x(col("x"))
@@ -126,11 +130,11 @@ async fn right_axis_with_colorbar_legend() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|s| s.domain((0.0, 10.0)))
-        .scale_y(|s| s.domain((0.0, 12.0)))
-        .scale_fill(|s| s.domain((0.0, 100.0)))
+        .scale("x", |s| s.domain((0.0, 10.0)))
+        .scale("y", |s| s.domain((0.0, 12.0)))
+        .scale("fill", |s| s.domain((0.0, 100.0)))
         .axis_y(|a| a.position(AxisPosition::Right).title("Y Right").grid(true))
-        .legend_fill(|l| l.title("Temp").position(LegendPosition::Right))
+        .legend("fill", |l| l.title("Temp").position(LegendPosition::Right))
         .mark(
             Symbol::new()
                 .x(col("x"))
@@ -148,11 +152,11 @@ async fn top_x_axis_with_right_y_no_legend() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|s| s.domain((0.0, 10.0)))
-        .scale_y(|s| s.domain((0.0, 12.0)))
+        .scale("x", |s| s.domain((0.0, 10.0)))
+        .scale("y", |s| s.domain((0.0, 12.0)))
         .axis_x(|a| a.position(AxisPosition::Top).title("X Top").grid(true))
         .axis_y(|a| a.position(AxisPosition::Right).title("Y Right").grid(true))
-        .legend_fill(|l| l.visible(false))
+        .legend("fill", |l| l.visible(false))
         .mark(
             Symbol::new()
                 .x(col("x"))

@@ -10,7 +10,7 @@ use palette::rgb::Srgba;
 fn test_typed_scale_with_linear() {
     // Test that we can specify Linear type and get Linear-specific methods
     let _plot = Plot::<Cartesian>::new()
-        .scale_fill_with::<Linear>(|s| {
+        .scale_with::<Linear>("fill", |s| {
             s.range_colors(vec![
                 Srgba::new(0.97, 0.96, 0.89, 1.0),
                 Srgba::new(0.96, 0.64, 0.38, 1.0),
@@ -31,7 +31,7 @@ fn test_typed_scale_with_linear() {
 fn test_typed_scale_with_band() {
     // Test that we can specify Band type and get Band-specific methods
     let _plot = Plot::<Cartesian>::new()
-        .scale_x_with::<Band>(|s| {
+        .scale_with::<Band>("x", |s| {
             s.domain_discrete(vec![lit("A"), lit("B"), lit("C")])
                 .padding_inner(0.1) // Band-specific method
                 .padding_outer(0.05) // Band-specific method
@@ -44,7 +44,7 @@ fn test_typed_scale_with_band() {
 fn test_auto_scale_preserves_type() {
     // Test that Auto scale preserves the inferred type
     let _plot = Plot::<Cartesian>::new()
-        .scale_fill(|s| {
+        .scale("fill", |s| {
             // s is Scale<Auto> which uses the inferred type
             s.range_colors(vec![
                 Srgba::new(0.0, 0.0, 1.0, 1.0),
@@ -64,7 +64,7 @@ fn test_auto_scale_preserves_type() {
 fn test_scale_preserves_domain_from_data() {
     // Test that the typed scale preserves domain configuration from data
     let _plot = Plot::<Cartesian>::new()
-        .scale_y_with::<Linear>(|s| {
+        .scale_with::<Linear>("y", |s| {
             // The scale should already have domain expressions from the mark's y channel
             // We're just adding configuration on top
             s.nice(true).zero(true)

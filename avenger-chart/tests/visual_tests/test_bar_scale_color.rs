@@ -29,7 +29,7 @@ async fn test_bar_chart_linear_color_interpolation() {
                 lit("I"),
             ])
         })
-        .scale_y(|s| s.domain((0.0, 100.0)))
+        .scale("y", |s| s.domain((0.0, 100.0)))
         // Linear scale with color range
         .scale_fill_with::<Linear>(|s| {
             s
@@ -46,7 +46,7 @@ async fn test_bar_chart_linear_color_interpolation() {
             Rect::new()
                 .x(col("category"))
                 .x2(ChannelValue::column("category").band(1.0))
-                .y(lit(0.0).scaled())
+                .y(lit(0.0))
                 .y2(col("value"))
                 .fill(col("value")) // Map value through the linear color scale
                 .stroke("#333333".identity())
@@ -81,7 +81,7 @@ async fn test_bar_chart_log_color_interpolation() {
                 lit("I"),
             ])
         })
-        .scale_y(|s| s.domain((0.0, 100.0)))
+        .scale("y", |s| s.domain((0.0, 100.0)))
         // Log scale with color range
         .scale_fill_with::<Log>(|s| {
             s.base(10.0)
@@ -98,7 +98,7 @@ async fn test_bar_chart_log_color_interpolation() {
             Rect::new()
                 .x(col("category"))
                 .x2(ChannelValue::column("category").band(1.0))
-                .y(lit(0.0).scaled())
+                .y(lit(0.0))
                 .y2(col("value"))
                 .fill(col("value")) // Map value through the log color scale
                 .stroke("#222222".identity())
@@ -128,7 +128,7 @@ async fn test_bar_chart_pow_color_interpolation() {
                 lit("I"),
             ])
         })
-        .scale_y(|s| s.domain((0.0, 100.0)))
+        .scale("y", |s| s.domain((0.0, 100.0)))
         // Power scale with color range (exponent = 2)
         .scale_fill_with::<Pow>(|s| {
             s.exponent(2.0)
@@ -145,7 +145,7 @@ async fn test_bar_chart_pow_color_interpolation() {
             Rect::new()
                 .x(col("category"))
                 .x2(ChannelValue::column("category").band(1.0))
-                .y(lit(0.0).scaled())
+                .y(lit(0.0))
                 .y2(col("value"))
                 .fill(col("value")) // Map value through the power color scale
                 .stroke("#333333".identity())
@@ -175,7 +175,7 @@ async fn test_bar_chart_sqrt_color_interpolation() {
                 lit("I"),
             ])
         })
-        .scale_y(|s| s.domain((0.0, 100.0)))
+        .scale("y", |s| s.domain((0.0, 100.0)))
         // Square root scale with color range
         .scale_fill_with::<Pow>(|s| {
             s.exponent(0.5)
@@ -192,7 +192,7 @@ async fn test_bar_chart_sqrt_color_interpolation() {
             Rect::new()
                 .x(col("category"))
                 .x2(ChannelValue::column("category").band(1.0))
-                .y(lit(0.0).scaled())
+                .y(lit(0.0))
                 .y2(col("value"))
                 .fill(col("value")) // Map value through the sqrt color scale
                 .stroke("#222222".identity())
@@ -226,7 +226,7 @@ async fn test_bar_chart_threshold_scale_colors() {
                 lit("I"),
             ])
         })
-        .scale_y(|s| s.domain((0.0, 100.0)))
+        .scale("y", |s| s.domain((0.0, 100.0)))
         // Add threshold scale for colors
         .scale_fill_with::<Threshold>(|s| {
             s.domain_discrete(vec![lit(30.0f32), lit(50.0f32), lit(70.0f32), lit(85.0f32)])
@@ -244,7 +244,7 @@ async fn test_bar_chart_threshold_scale_colors() {
             Rect::new()
                 .x(col("category"))
                 .x2(ChannelValue::column("category").band(1.0))
-                .y(lit(0.0).scaled())
+                .y(lit(0.0))
                 .y2(col("value"))
                 .fill(col("value")) // Map value through the threshold scale
                 .stroke("#222222".identity())
@@ -289,14 +289,14 @@ async fn test_bar_chart_ordinal_scale_colors() {
     let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x_with::<Band>(|s| s) // Domain will be inferred from data
-        .scale_y(|s| s.domain((0.0, 100.0)))
+        .scale("y", |s| s.domain((0.0, 100.0)))
         .axis_x(|a| a.title("Category").grid(false))
         .axis_y(|a| a.title("Value").grid(true))
         .mark(
             Rect::new()
                 .x(col("category"))
                 .x2(ChannelValue::column("category").band(1.0))
-                .y(lit(0.0).scaled())
+                .y(lit(0.0))
                 .y2(col("value"))
                 .fill(col("category")) // Map fill to category column
                 .stroke("#222222".identity())

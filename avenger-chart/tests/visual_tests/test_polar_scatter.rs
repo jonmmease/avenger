@@ -71,7 +71,7 @@ async fn test_polar_scatter_plot() {
         .scale_fill_with::<Ordinal>(|scale| scale)
         .axis_r(|axis| axis.tick_count(6))
         .axis_theta(|axis| axis.visible(true))
-        .legend_fill(|legend| legend.title("Category"))
+        .legend("fill", |legend| legend.title("Category"))
         .mark(
             Symbol::new()
                 .r(col("radius"))
@@ -153,7 +153,7 @@ async fn test_polar_scatter_with_clipping() {
         })
         .axis_r(|axis| axis.tick_count(5).title("Radius (max: 80)"))
         .axis_theta(|axis| axis.visible(true))
-        .legend_fill(|legend| legend.title("Data Range"))
+        .legend("fill", |legend| legend.title("Data Range"))
         .mark(
             Symbol::new()
                 .r(col("radius"))
@@ -255,8 +255,8 @@ async fn test_polar_scatter_with_size_color() {
         })
         .axis_r(|axis| axis.title("Radius").tick_count(6))
         .axis_theta(|axis| axis.title("Angle"))
-        .legend_size(|legend| legend.title("Size"))
-        .legend_fill(|legend| legend.title("Color Value"))
+        .legend("size", |legend| legend.title("Size"))
+        .legend("fill", |legend| legend.title("Color Value"))
         .mark(
             Symbol::new()
                 .r(col("radius"))

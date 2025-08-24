@@ -27,14 +27,14 @@ async fn test_simple_bar_chart() {
                 lit("I"),
             ])
         })
-        .scale_y(|scale| scale.domain((0.0, 100.0)))
+        .scale("y", |scale| scale.domain((0.0, 100.0)))
         .axis_x(|axis| axis.title("Category").grid(false))
         .axis_y(|axis| axis.title("Value").grid(true))
         .mark(
             Rect::new()
                 .x(col("category"))
                 .x2(col(":x").band(1.0))
-                .y(lit(0.0).scaled())
+                .y(lit(0.0))
                 .y2(col("value"))
                 .fill("#4682b4".identity())
                 .stroke("#000000".identity())
@@ -63,14 +63,13 @@ async fn test_bar_chart_with_custom_colors() {
                 lit("I"),
             ])
         })
-        .scale_y(|s| s.domain((0.0, 100.0)))
         .axis_x(|a| a.title("Category"))
         .axis_y(|a| a.title("Value"))
         .mark(
             Rect::new()
                 .x(col("category"))
                 .x2(col(":x").band(1.0))
-                .y(lit(0.0).scaled())
+                .y(lit(0.0).scale(|s| s.domain((0.0, 120.0))))
                 .y2(col("value"))
                 .fill("#e74c3c".identity())
                 .stroke("#c0392b".identity())
@@ -99,14 +98,14 @@ async fn test_bar_chart_with_narrow_bars() {
                 lit("I"),
             ])
         })
-        .scale_y(|s| s.domain((0.0, 100.0)))
+        .scale("y", |s| s.domain((0.0, 100.0)))
         .axis_x(|a| a.title("Category").grid(false))
         .axis_y(|a| a.title("Value").grid(true))
         .mark(
             Rect::new()
                 .x(col("category"))
                 .x2(ChannelValue::column("category").band(0.7)) // 70% of band width
-                .y(lit(0.0).scaled())
+                .y(lit(0.0))
                 .y2(col("value"))
                 .fill("#3498db".identity())
                 .stroke("#2980b9".identity())
@@ -128,7 +127,7 @@ async fn test_bar_chart_inferred_domains() {
             Rect::new()
                 .x(col("category"))
                 .x2(col(":x").band(1.0))
-                .y(lit(0.0).scaled())
+                .y(lit(0.0))
                 .y2(col("value"))
                 .fill("#4682b4".identity())
                 .stroke("#000000".identity())
@@ -161,14 +160,14 @@ async fn test_bar_chart_color_case_expression() {
                 lit("I"),
             ])
         })
-        .scale_y(|s| s.domain((0.0, 100.0)))
+        .scale("y", |s| s.domain((0.0, 100.0)))
         .axis_x(|a| a.title("Category").grid(false))
         .axis_y(|a| a.title("Value").grid(true))
         .mark(
             Rect::new()
                 .x(col("category"))
                 .x2(col(":x").band(1.0))
-                .y(lit(0.0).scaled())
+                .y(lit(0.0))
                 .y2(col("value"))
                 // Use conditional expressions to create a gradient effect
                 // Colors range from light blue-grey for low values to dark blue for high values

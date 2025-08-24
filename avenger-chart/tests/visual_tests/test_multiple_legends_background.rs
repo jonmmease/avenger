@@ -48,14 +48,16 @@ async fn test_multiple_legends_with_backgrounds() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|s| s.domain((0.0, 10.0)))
-        .scale_y(|s| s.domain((0.0, 10.0)))
+        .scale("x", |s| s.domain((0.0, 10.0)))
+        .scale("y", |s| s.domain((0.0, 10.0)))
         .scale_fill_with::<Ordinal>(|s| s)
-        .scale_size(|s| s.domain((5.0, 40.0)).range_interval(lit(25.0), lit(200.0)))
+        .scale("size", |s| {
+            s.domain((5.0, 40.0)).range_interval(lit(25.0), lit(200.0))
+        })
         .scale_shape_with::<Ordinal>(|s| s)
         .axis_x(|axis| axis.title("X Axis"))
         .axis_y(|axis| axis.title("Y Axis"))
-        .legend_fill(|legend| {
+        .legend("fill", |legend| {
             legend
                 .title("Category")
                 .position(LegendPosition::Right)
@@ -65,7 +67,7 @@ async fn test_multiple_legends_with_backgrounds() {
                 .background_corner_radius(4.0)
                 .background_padding(8.0)
         })
-        .legend_size(|legend| {
+        .legend("size", |legend| {
             legend
                 .title("Size")
                 .position(LegendPosition::Right)
@@ -75,7 +77,7 @@ async fn test_multiple_legends_with_backgrounds() {
                 .background_corner_radius(4.0)
                 .background_padding(8.0)
         })
-        .legend_shape(|legend| {
+        .legend("shape", |legend| {
             legend
                 .title("Shape")
                 .position(LegendPosition::Right)
@@ -134,14 +136,14 @@ async fn test_colorbar_with_symbols_backgrounds() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|s| s.domain((0.0, 9.0)))
-        .scale_y(|s| s.domain((0.0, 9.0)))
+        .scale("x", |s| s.domain((0.0, 9.0)))
+        .scale("y", |s| s.domain((0.0, 9.0)))
         .scale_fill_with::<Linear>(|s| s.domain((5.0, 40.0)))
         .scale_shape_with::<Ordinal>(|s| s)
         .scale_stroke_with::<Ordinal>(|s| s)
         .axis_x(|axis| axis.title("X Axis"))
         .axis_y(|axis| axis.title("Y Axis"))
-        .legend_fill(|legend| {
+        .legend("fill", |legend| {
             legend
                 .title("Temperature °C")
                 .position(LegendPosition::Right)
@@ -151,7 +153,7 @@ async fn test_colorbar_with_symbols_backgrounds() {
                 .background_corner_radius(4.0)
                 .background_padding(10.0)
         })
-        .legend_shape(|legend| {
+        .legend("shape", |legend| {
             legend
                 .title("Type")
                 .position(LegendPosition::Right)
@@ -161,7 +163,7 @@ async fn test_colorbar_with_symbols_backgrounds() {
                 .background_corner_radius(4.0)
                 .background_padding(10.0)
         })
-        .legend_stroke(|legend| {
+        .legend("stroke", |legend| {
             legend
                 .title("Series")
                 .position(LegendPosition::Right)
@@ -219,14 +221,16 @@ async fn test_legends_different_positions_backgrounds() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|s| s.domain((0.0, 7.0)))
-        .scale_y(|s| s.domain((0.0, 7.0)))
+        .scale("x", |s| s.domain((0.0, 7.0)))
+        .scale("y", |s| s.domain((0.0, 7.0)))
         .scale_fill_with::<Ordinal>(|s| s)
-        .scale_size(|s| s.domain((5.0, 35.0)).range_interval(lit(25.0), lit(150.0)))
+        .scale("size", |s| {
+            s.domain((5.0, 35.0)).range_interval(lit(25.0), lit(150.0))
+        })
         .scale_stroke_with::<Ordinal>(|s| s)
         .axis_x(|axis| axis.title("X Axis"))
         .axis_y(|axis| axis.title("Y Axis"))
-        .legend_fill(|legend| {
+        .legend("fill", |legend| {
             legend
                 .title("Category")
                 .position(LegendPosition::Right)
@@ -235,7 +239,7 @@ async fn test_legends_different_positions_backgrounds() {
                 .background_corner_radius(6.0)
                 .background_padding(10.0)
         })
-        .legend_stroke(|legend| {
+        .legend("stroke", |legend| {
             legend
                 .title("Series")
                 .position(LegendPosition::Right)
@@ -244,7 +248,7 @@ async fn test_legends_different_positions_backgrounds() {
                 .background_corner_radius(6.0)
                 .background_padding(10.0)
         })
-        .legend_size(|legend| {
+        .legend("size", |legend| {
             legend
                 .title("Size")
                 .position(LegendPosition::Bottom)
