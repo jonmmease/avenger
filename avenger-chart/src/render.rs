@@ -648,7 +648,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 // Check if this is a positional channel
                 if positional_channels.contains(channel_name) {
                     // Check if this is a literal value (no scale needed)
-                    if channel_value.scale_name(channel_name).is_none() {
+                    if channel_value.get_scale_name(channel_name).is_none() {
                         // Get the base scale name (e.g., "x" from "x2")
                         let base_scale_name = channel_name.trim_end_matches('2');
 

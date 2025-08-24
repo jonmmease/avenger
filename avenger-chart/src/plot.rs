@@ -432,6 +432,11 @@ impl<C: CoordinateSystem> Plot<C> {
         &self.marks
     }
 
+    /// Get a reference to the legends
+    pub fn legends(&self) -> &IndexMap<String, Legend> {
+        &self.legends
+    }
+
     /// Internal helper to create a default scale for a channel
     fn create_default_scale_for_channel_internal(&self, channel: &str) -> Scale {
         use crate::scales::inference::{get_default_scale_options, infer_scale_impl_with_mark};
@@ -550,8 +555,56 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     pub fn mark<M: Mark<C> + 'static>(mut self, mark: M) -> Self {
+        // Extract scale and legend configurations from the mark's channels
+        self.extract_channel_configs(&mark);
+
+        // Add the mark
         self.marks.push(Box::new(mark));
         self
+    }
+
+    /// Extract scale and legend configurations from a mark's channels
+    fn extract_channel_configs(&mut self, mark: &impl Mark<C>) {
+        use crate::marks::ChannelValue;
+
+        // Get all channel encodings from the mark
+        let channels = mark.data_context().channels();
+
+        for (channel_name, channel_value) in channels {
+            match channel_value {
+                ChannelValue::Scaled {
+                    scale_config,
+                    legend_config,
+                    scale_name,
+                    ..
+                } => {
+                    // For now, always use channel name as scale name
+                    let scale_key = scale_name.as_deref().unwrap_or(channel_name).to_string();
+
+                    // Extract scale config if present
+                    if let Some(config) = scale_config {
+                        // Only insert if not already configured at plot level
+                        self.scale_specs
+                            .entry(scale_key.clone())
+                            .or_insert_with(|| ScaleSpec::Local(config.clone()));
+                    }
+
+                    // Extract legend config if present
+                    if let Some(config) = legend_config {
+                        // Apply config to existing or new legend
+                        let legend = self
+                            .legends
+                            .shift_remove(channel_name.as_str())
+                            .unwrap_or_default();
+                        let configured = config(legend);
+                        self.legends.insert(channel_name.clone(), configured);
+                    }
+                }
+                ChannelValue::Identity { .. } => {
+                    // No scale or legend for identity mappings
+                }
+            }
+        }
     }
 
     /// Set plot-level data that can be inherited by marks and used for faceting
@@ -696,7 +749,7 @@ impl<C: CoordinateSystem> Plot<C> {
             for (channel, channel_value) in &resolved_channels {
                 // Check if this channel uses our scale
                 // Get the scale name this channel would use
-                if let Some(channel_scale_name) = channel_value.scale_name(channel) {
+                if let Some(channel_scale_name) = channel_value.get_scale_name(channel) {
                     if channel_scale_name == scale_name {
                         // Get the expression - we'll cast later if needed
                         let expr = channel_value.expr().clone();
@@ -826,7 +879,7 @@ impl<C: CoordinateSystem> Plot<C> {
 
             for (channel, position_channel_value) in &resolved_encodings {
                 // Check if this channel uses our scale
-                if let Some(channel_scale_name) = position_channel_value.scale_name(channel) {
+                if let Some(channel_scale_name) = position_channel_value.get_scale_name(channel) {
                     if channel_scale_name == scale_name {
                         // Get the position expression
                         let position_expr = position_channel_value.expr().clone();
@@ -869,7 +922,7 @@ impl<C: CoordinateSystem> Plot<C> {
         let mut used_channels = HashSet::new();
         for mark in &self.marks {
             for (channel_name, channel_value) in mark.data_context().channels() {
-                if channel_value.scale_name(channel_name).is_some() {
+                if channel_value.get_scale_name(channel_name).is_some() {
                     used_channels.insert(channel_name.clone());
                 }
             }

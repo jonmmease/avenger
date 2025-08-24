@@ -31,16 +31,13 @@ async fn test_discrete_color_legend() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .legend_fill(|legend| legend.title("Category"))
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .fill(col("category"))
-                .size(lit(100.0).identity()),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x(col("x"))
+            .y(col("y"))
+            .fill(col("category").legend(|legend| legend.title("Category")))
+            .size(lit(100.0).identity()),
+    );
 
     assert_visual_match_default(plot, "legend", "discrete_color_legend").await;
 }
@@ -67,19 +64,17 @@ async fn test_legend_visibility() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x(|scale| scale.domain((0.0, 10.0)))
-        .scale_y(|scale| scale.domain((0.0, 12.0)))
-        .scale_fill(|scale| scale.domain_discrete(vec![lit("A"), lit("B"), lit("C")]))
-        .legend_fill(|legend| legend.visible(false))
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .fill(col("category"))
-                .size(100.0),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x(col("x").scale(|scale| scale.domain((0.0, 10.0))))
+            .y(col("y").scale(|scale| scale.domain((0.0, 12.0))))
+            .fill(
+                col("category")
+                    .scale(|scale| scale.domain_discrete(vec![lit("A"), lit("B"), lit("C")]))
+                    .no_legend(),
+            )
+            .size(100.0),
+    );
 
     assert_visual_match_default(plot, "legend", "legend_visibility_disabled").await;
 }
@@ -111,19 +106,17 @@ async fn test_continuous_color_legend() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x(|scale| scale.domain((0.0, 10.0)))
-        .scale_y(|scale| scale.domain((0.0, 12.0)))
-        .scale_fill(|scale| scale.domain((0.0, 100.0)))
-        .legend_fill(|legend| legend.title("Temperature"))
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .fill(col("temperature"))
-                .size(100.0),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x(col("x").scale(|scale| scale.domain((0.0, 10.0))))
+            .y(col("y").scale(|scale| scale.domain((0.0, 12.0))))
+            .fill(
+                col("temperature")
+                    .scale(|scale| scale.domain((0.0, 100.0)))
+                    .legend(|legend| legend.title("Temperature")),
+            )
+            .size(100.0),
+    );
 
     assert_visual_match_default(plot, "legend", "continuous_color_legend").await;
 }
@@ -152,17 +145,14 @@ async fn test_continuous_color_legend() {
 //     let df = ctx.read_batch(batch).unwrap();
 //
 //     let plot = Plot::<Cartesian>::new()
-//
 //         .data(df)
-//         .scale_x(|scale| scale.domain((0.0, 7.0)))
-//         .scale_y(|scale| scale.domain((0.0, 8.0)))
-//         .scale_size(|scale| scale.range_discrete(vec![50.0, 100.0, 200.0]))
-//         .legend_size(|legend| legend.title("Size"))
 //         .mark(
 //             Symbol::new()
-//                 .x(col("x"))
-//                 .y(col("y"))
-//                 .size(col("size_value"))
+//                 .x(col("x").scale(|scale| scale.domain((0.0, 7.0))))
+//                 .y(col("y").scale(|scale| scale.domain((0.0, 8.0))))
+//                 .size(col("size_value")
+//                     .scale(|scale| scale.range_discrete(vec![50.0, 100.0, 200.0]))
+//                     .legend(|legend| legend.title("Size")))
 //                 .fill("#4682b4")
 //         );
 //
@@ -193,22 +183,20 @@ async fn test_shape_legend() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x(|scale| scale.domain((0.0, 7.0)))
-        .scale_y(|scale| scale.domain((0.0, 8.0)))
-        .scale_shape(|scale| {
-            scale.domain_discrete(vec![lit("Type A"), lit("Type B"), lit("Type C")])
-        })
-        .legend_shape(|legend| legend.title("Shape Type"))
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .shape(col("shape_type"))
-                .size(100.0)
-                .fill("#4682b4"),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x(col("x").scale(|scale| scale.domain((0.0, 7.0))))
+            .y(col("y").scale(|scale| scale.domain((0.0, 8.0))))
+            .shape(
+                col("shape_type")
+                    .scale(|scale| {
+                        scale.domain_discrete(vec![lit("Type A"), lit("Type B"), lit("Type C")])
+                    })
+                    .legend(|legend| legend.title("Shape Type")),
+            )
+            .size(100.0)
+            .fill("#4682b4"),
+    );
 
     assert_visual_match_default(plot, "legend", "shape_legend").await;
 }
@@ -235,17 +223,14 @@ async fn test_combined_fill_and_shape_legend() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .legend_fill(|legend| legend.title("Category"))
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .fill(col("category")) // Both fill and shape map to same column
-                .shape(col("category")) // This should result in legend with both color AND shape varying
-                .size(lit(100.0).identity()),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x(col("x"))
+            .y(col("y"))
+            .fill(col("category").legend(|legend| legend.title("Category"))) // Legend config on channel
+            .shape(col("category")) // This should result in legend with both color AND shape varying
+            .size(lit(100.0).identity()),
+    );
 
     assert_visual_match_default(plot, "legend", "combined_fill_and_shape_legend").await;
 }
@@ -275,21 +260,18 @@ async fn test_combined_fill_and_shape_legend() {
 //     let df = ctx.read_batch(batch).unwrap();
 //
 //     let plot = Plot::<Cartesian>::new()
-//
 //         .data(df)
-//         .scale_x(|scale| scale.domain((0.0, 7.0)))
-//         .scale_y(|scale| scale.domain((0.0, 8.0)))
-//         .scale_fill(|scale| scale.domain_discrete(vec![lit("A"), lit("B"), lit("C")]))
-//         .scale_size(|scale| scale.domain_discrete(vec![lit("small"), lit("medium"), lit("large")])
-//             .range_discrete(vec![50.0, 100.0, 200.0]))
-//         .legend_fill(|legend| legend.title("Category"))
-//         .legend_size(|legend| legend.title("Size"))
 //         .mark(
 //             Symbol::new()
-//                 .x(col("x"))
-//                 .y(col("y"))
-//                 .fill(col("category"))
-//                 .size(col("size_value"))
+//                 .x(col("x").scale(|scale| scale.domain((0.0, 7.0))))
+//                 .y(col("y").scale(|scale| scale.domain((0.0, 8.0))))
+//                 .fill(col("category")
+//                     .scale(|scale| scale.domain_discrete(vec![lit("A"), lit("B"), lit("C")]))
+//                     .legend(|legend| legend.title("Category")))
+//                 .size(col("size_value")
+//                     .scale(|scale| scale.domain_discrete(vec![lit("small"), lit("medium"), lit("large")])
+//                         .range_discrete(vec![50.0, 100.0, 200.0]))
+//                     .legend(|legend| legend.title("Size")))
 //         );
 //
 //     assert_visual_match_default(plot, "legend", "multiple_legends").await;

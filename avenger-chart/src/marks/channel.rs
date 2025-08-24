@@ -1,7 +1,16 @@
+use crate::legend::Legend;
+use crate::scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec};
 use datafusion::logical_expr::{Expr, ident, lit};
+use std::sync::Arc;
+
+/// Type alias for scale configuration function
+pub type ScaleConfig = Arc<dyn Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync>;
+
+/// Type alias for legend configuration function  
+pub type LegendConfig = Arc<dyn Fn(Legend) -> Legend + Send + Sync>;
 
 /// Represents a channel encoding value
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum ChannelValue {
     /// Expression that will be transformed through a scale
     Scaled {
@@ -10,22 +19,123 @@ pub enum ChannelValue {
         scale_name: Option<String>,
         /// Band parameter for band scales (0.0 = start of band, 1.0 = end of band)
         band: Option<f64>,
+        /// Optional scale configuration
+        scale_config: Option<ScaleConfig>,
+        /// Optional legend configuration
+        legend_config: Option<LegendConfig>,
     },
     /// Expression that bypasses scaling (identity transformation)
     Identity { expr: Expr },
 }
 
+impl std::fmt::Debug for ChannelValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ChannelValue::Scaled {
+                expr,
+                scale_name,
+                band,
+                ..
+            } => f
+                .debug_struct("Scaled")
+                .field("expr", expr)
+                .field("scale_name", scale_name)
+                .field("band", band)
+                .field("has_scale_config", &self.has_scale_config())
+                .field("has_legend_config", &self.has_legend_config())
+                .finish(),
+            ChannelValue::Identity { expr } => {
+                f.debug_struct("Identity").field("expr", expr).finish()
+            }
+        }
+    }
+}
+
+impl ChannelValue {
+    /// Check if this channel has scale configuration
+    pub fn has_scale_config(&self) -> bool {
+        match self {
+            ChannelValue::Scaled { scale_config, .. } => scale_config.is_some(),
+            _ => false,
+        }
+    }
+
+    /// Check if this channel has legend configuration
+    pub fn has_legend_config(&self) -> bool {
+        match self {
+            ChannelValue::Scaled { legend_config, .. } => legend_config.is_some(),
+            _ => false,
+        }
+    }
+
+    /// Get the scale configuration if present
+    pub fn get_scale_config(&self) -> Option<&ScaleConfig> {
+        match self {
+            ChannelValue::Scaled { scale_config, .. } => scale_config.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// Get the legend configuration if present
+    pub fn get_legend_config(&self) -> Option<&LegendConfig> {
+        match self {
+            ChannelValue::Scaled { legend_config, .. } => legend_config.as_ref(),
+            _ => None,
+        }
+    }
+}
+
 /// Trait for types that can be converted to channel values
 pub trait ChannelExpr: Sized {
-    /// Scale this value (default for expressions)
-    fn scaled(self) -> ChannelValue;
-
     /// Use this value as-is without scaling (identity)
     fn identity(self) -> ChannelValue;
 
-    /// Scale this value with a band parameter (convenience for .scaled().with_band())
-    fn band(self, band: f64) -> ChannelValue {
-        self.scaled().band(band)
+    /// Set the band parameter for this channel
+    fn band(self, band: f64) -> ChannelValue
+    where
+        Self: Into<ChannelValue>,
+    {
+        let channel_value: ChannelValue = self.into();
+        channel_value.band(band)
+    }
+
+    /// Configure the scale for this value
+    fn scale<F>(self, f: F) -> ChannelValue
+    where
+        F: Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync + 'static,
+        Self: Into<ChannelValue>,
+    {
+        let channel_value: ChannelValue = self.into();
+        channel_value.scale(f)
+    }
+
+    /// Configure the scale with explicit type
+    fn scale_with<S: ScaleTypeSpec, F>(self, f: F) -> ChannelValue
+    where
+        F: Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
+        Self: Into<ChannelValue>,
+    {
+        let channel_value: ChannelValue = self.into();
+        channel_value.scale_with(f)
+    }
+
+    /// Configure the legend for this value
+    fn legend<F>(self, f: F) -> ChannelValue
+    where
+        F: Fn(Legend) -> Legend + Send + Sync + 'static,
+        Self: Into<ChannelValue>,
+    {
+        let channel_value: ChannelValue = self.into();
+        channel_value.legend(f)
+    }
+
+    /// Disable legend for this value
+    fn no_legend(self) -> ChannelValue
+    where
+        Self: Into<ChannelValue>,
+    {
+        let channel_value: ChannelValue = self.into();
+        channel_value.no_legend()
     }
 }
 
@@ -39,7 +149,7 @@ impl ChannelValue {
     }
 
     /// Get the scale name for this channel
-    pub fn scale_name(&self, channel_name: &str) -> Option<String> {
+    pub fn get_scale_name(&self, channel_name: &str) -> Option<String> {
         match self {
             ChannelValue::Scaled { scale_name, .. } => {
                 scale_name.clone().or_else(|| {
@@ -55,23 +165,37 @@ impl ChannelValue {
     pub fn band(self, band: f64) -> Self {
         match self {
             ChannelValue::Scaled {
-                expr, scale_name, ..
+                expr,
+                scale_name,
+                scale_config,
+                legend_config,
+                ..
             } => ChannelValue::Scaled {
                 expr,
                 scale_name,
                 band: Some(band),
+                scale_config,
+                legend_config,
             },
             identity => identity, // No-op for identity values
         }
     }
 
     /// Set a custom scale name (only for scaled values)
-    pub fn scale(self, name: impl Into<String>) -> Self {
+    pub fn with_scale_name(self, name: impl Into<String>) -> Self {
         match self {
-            ChannelValue::Scaled { expr, band, .. } => ChannelValue::Scaled {
+            ChannelValue::Scaled {
+                expr,
+                band,
+                scale_config,
+                legend_config,
+                ..
+            } => ChannelValue::Scaled {
                 expr,
                 scale_name: Some(name.into()),
                 band,
+                scale_config,
+                legend_config,
             },
             ChannelValue::Identity { expr } => {
                 // Convert to scaled with custom scale
@@ -79,14 +203,90 @@ impl ChannelValue {
                     expr,
                     scale_name: Some(name.into()),
                     band: None,
+                    scale_config: None,
+                    legend_config: None,
                 }
             }
         }
     }
 
+    /// Configure the scale for this channel
+    pub fn scale<F>(self, f: F) -> Self
+    where
+        F: Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync + 'static,
+    {
+        match self {
+            ChannelValue::Scaled {
+                expr,
+                scale_name,
+                band,
+                legend_config,
+                ..
+            } => ChannelValue::Scaled {
+                expr,
+                scale_name,
+                band,
+                scale_config: Some(Arc::new(f)),
+                legend_config,
+            },
+            ChannelValue::Identity { expr } => {
+                // Convert to scaled with scale config
+                ChannelValue::Scaled {
+                    expr,
+                    scale_name: None,
+                    band: None,
+                    scale_config: Some(Arc::new(f)),
+                    legend_config: None,
+                }
+            }
+        }
+    }
+
+    /// Configure the scale with explicit type
+    pub fn scale_with<S: ScaleTypeSpec, F>(self, f: F) -> Self
+    where
+        F: Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
+    {
+        self.scale(move |default_scale| {
+            let typed_scale = default_scale.into_type::<S>();
+            f(typed_scale).into_auto()
+        })
+    }
+
+    /// Configure the legend for this channel
+    pub fn legend<F>(self, f: F) -> Self
+    where
+        F: Fn(Legend) -> Legend + Send + Sync + 'static,
+    {
+        match self {
+            ChannelValue::Scaled {
+                expr,
+                scale_name,
+                band,
+                scale_config,
+                ..
+            } => ChannelValue::Scaled {
+                expr,
+                scale_name,
+                band,
+                scale_config,
+                legend_config: Some(Arc::new(f)),
+            },
+            ChannelValue::Identity { .. } => {
+                // No-op for identity values - they don't have legends
+                self
+            }
+        }
+    }
+
+    /// Disable legend for this channel
+    pub fn no_legend(self) -> Self {
+        self.legend(|_| Legend::new().visible(false))
+    }
+
     /// Helper for creating column references
     pub fn column(column: impl Into<String>) -> Self {
-        ident(column.into()).scaled()
+        ident(column.into()).into()
     }
 
     /// Helper for creating unscaled values (backwards compat)
@@ -113,14 +313,6 @@ pub(crate) fn strip_trailing_numbers(name: &str) -> &str {
 
 // Implement ChannelExpr for Expr
 impl ChannelExpr for Expr {
-    fn scaled(self) -> ChannelValue {
-        ChannelValue::Scaled {
-            expr: self,
-            scale_name: None,
-            band: None,
-        }
-    }
-
     fn identity(self) -> ChannelValue {
         ChannelValue::Identity { expr: self }
     }
@@ -128,11 +320,6 @@ impl ChannelExpr for Expr {
 
 // Implement ChannelExpr for &str
 impl ChannelExpr for &str {
-    fn scaled(self) -> ChannelValue {
-        // Always treat strings as literals
-        lit(self).scaled()
-    }
-
     fn identity(self) -> ChannelValue {
         lit(self).identity()
     }
@@ -149,7 +336,13 @@ impl From<&str> for ChannelValue {
 // Expressions default to scaled
 impl From<Expr> for ChannelValue {
     fn from(expr: Expr) -> Self {
-        expr.scaled()
+        ChannelValue::Scaled {
+            expr,
+            scale_name: None,
+            band: None,
+            scale_config: None,
+            legend_config: None,
+        }
     }
 }
 
@@ -200,8 +393,8 @@ mod tests {
 
     #[test]
     fn test_channel_expr_trait() {
-        // Test scaled
-        let cv = lit(5).scaled();
+        // Test default conversion to scaled
+        let cv: ChannelValue = lit(5).into();
         assert!(matches!(cv, ChannelValue::Scaled { .. }));
 
         // Test identity
@@ -218,9 +411,10 @@ mod tests {
             }
         ));
 
-        // Test band is equivalent to scaled().band()
+        // Test band on expression creates scaled with band
         let cv1 = col("x").band(1.0);
-        let cv2 = col("x").scaled().band(1.0);
+        let cv2: ChannelValue = col("x").into();
+        let cv2 = cv2.band(1.0);
         match (cv1, cv2) {
             (ChannelValue::Scaled { band: b1, .. }, ChannelValue::Scaled { band: b2, .. }) => {
                 assert_eq!(b1, b2);

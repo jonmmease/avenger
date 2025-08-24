@@ -34,7 +34,7 @@ async fn test_symbol_legend_with_scalar_expressions() {
     // Create plot with scalar expressions for various channels
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .legend_shape(|legend| legend.title("Category"))
+        .legend("shape", |legend| legend.title("Category"))
         .mark(
             Symbol::new()
                 .x(col("x"))
@@ -82,7 +82,7 @@ async fn test_symbol_legend_with_column_dependencies() {
     // Create plot where size depends on a column (not the legend channel)
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .legend_fill(|legend| legend.title("Category"))
+        .legend("fill", |legend| legend.title("Category"))
         .mark(
             Symbol::new()
                 .x(col("x"))
@@ -120,8 +120,8 @@ async fn test_ordinal_size_legend() {
     // Create plot with ordinal size scale
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .legend_size(|legend| legend.title("Size Category"))
-        .scale_size(|scale| {
+        .legend("size", |legend| legend.title("Size Category"))
+        .scale("size", |scale| {
             scale.range_discrete(vec![50.0, 150.0, 300.0]).domain(vec![
                 lit("Small"),
                 lit("Medium"),
@@ -171,25 +171,25 @@ async fn test_combined_size_color_shape_legend() {
     let plot = Plot::<Cartesian>::new()
         .data(df)
         // Configure scales for the shared category column
-        .scale_size(|scale| {
+        .scale("size", |scale| {
             scale.range_discrete(vec![30.0, 120.0, 480.0]).domain(vec![
                 lit("Type A"),
                 lit("Type B"),
                 lit("Type C"),
             ])
         })
-        .scale_fill(|scale| {
+        .scale("fill", |scale| {
             scale
                 .range_discrete(vec!["#e41a1c", "#377eb8", "#4daf4a"])
                 .domain(vec![lit("Type A"), lit("Type B"), lit("Type C")])
         })
-        .scale_shape(|scale| {
+        .scale("shape", |scale| {
             scale
                 .range_discrete(vec!["circle", "square", "triangle-up"])
                 .domain(vec![lit("Type A"), lit("Type B"), lit("Type C")])
         })
         // Configure the legend to show all three varying properties
-        .legend_fill(|legend| legend.title("Type"))
+        .legend("fill", |legend| legend.title("Type"))
         .mark(
             Symbol::new()
                 .x(col("x"))

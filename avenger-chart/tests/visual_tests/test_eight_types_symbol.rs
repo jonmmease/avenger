@@ -69,7 +69,7 @@ async fn test_eight_types_fill_shape() {
         .subtitle("Okabe-Ito colors with distinct shapes")
         .axis_x(|axis| axis.title("Sample Index").grid(true))
         .axis_y(|axis| axis.title("Performance Metric (%)").grid(true))
-        .legend_fill(|legend| legend.title("Category")) // Only one legend since both use same column
+        .legend("fill", |legend| legend.title("Category")) // Only one legend since both use same column
         .mark(
             Symbol::new()
                 .x(col("x"))
