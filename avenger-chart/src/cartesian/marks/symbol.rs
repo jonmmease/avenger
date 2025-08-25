@@ -19,32 +19,60 @@ impl<A: CartesianAxis + Default + 'static> Symbol<Cartesian<A>> {
         self.with_channel_value("x", value.into())
     }
 
-    pub fn x_with<F>(self, value: impl Into<datafusion::logical_expr::Expr>, f: F) -> Self
+    pub fn x_with<F>(self, value: impl Into<crate::marks::ChannelValue>, f: F) -> Self
     where
         F: FnOnce(
-            crate::marks::typed_channels::PositionChannel,
-        ) -> crate::marks::typed_channels::PositionChannel,
+            crate::cartesian::channels::CartesianPositionChannel<A>,
+        ) -> crate::cartesian::channels::CartesianPositionChannel<A>,
     {
-        let channel = f(crate::marks::typed_channels::PositionChannel::from(
-            value.into(),
-        ));
-        self.with_channel_value("x", channel.into())
+        let channel_value: crate::marks::ChannelValue = value.into();
+        let channel = crate::cartesian::channels::CartesianPositionChannel::<A>::new(channel_value);
+        let configured = f(channel);
+        
+        // Extract axis config before consuming channel
+        let axis_config = configured.axis_config().cloned();
+        
+        // Store channel value
+        let mut mark = self.with_channel_value("x", configured.into_inner());
+        
+        // Store axis config if present
+        if let Some(axis_config) = axis_config {
+            mark.state_mut()
+                .axis_configs
+                .insert("x".to_string(), axis_config);
+        }
+        
+        mark
     }
 
     pub fn y<V: Into<crate::marks::ChannelValue>>(self, value: V) -> Self {
         self.with_channel_value("y", value.into())
     }
 
-    pub fn y_with<F>(self, value: impl Into<datafusion::logical_expr::Expr>, f: F) -> Self
+    pub fn y_with<F>(self, value: impl Into<crate::marks::ChannelValue>, f: F) -> Self
     where
         F: FnOnce(
-            crate::marks::typed_channels::PositionChannel,
-        ) -> crate::marks::typed_channels::PositionChannel,
+            crate::cartesian::channels::CartesianPositionChannel<A>,
+        ) -> crate::cartesian::channels::CartesianPositionChannel<A>,
     {
-        let channel = f(crate::marks::typed_channels::PositionChannel::from(
-            value.into(),
-        ));
-        self.with_channel_value("y", channel.into())
+        let channel_value: crate::marks::ChannelValue = value.into();
+        let channel = crate::cartesian::channels::CartesianPositionChannel::<A>::new(channel_value);
+        let configured = f(channel);
+        
+        // Extract axis config before consuming channel
+        let axis_config = configured.axis_config().cloned();
+        
+        // Store channel value
+        let mut mark = self.with_channel_value("y", configured.into_inner());
+        
+        // Store axis config if present
+        if let Some(axis_config) = axis_config {
+            mark.state_mut()
+                .axis_configs
+                .insert("y".to_string(), axis_config);
+        }
+        
+        mark
     }
 
     pub fn position_channel_descriptors() -> Vec<crate::marks::ChannelDescriptor> {

@@ -1279,6 +1279,16 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 }
             }
         }
+        
+        // Apply axis configurations from mark channels (last mark wins for conflicts)
+        for mark in &self.plot.marks {
+            for (channel, axis_config) in mark.state().axis_configs.iter() {
+                if let Some(base_axis) = all_axes.get(channel).cloned() {
+                    let configured = axis_config(base_axis);
+                    all_axes.insert(channel.clone(), configured);
+                }
+            }
+        }
 
         // Delegate all axis rendering to the coordinate system
         self.plot
