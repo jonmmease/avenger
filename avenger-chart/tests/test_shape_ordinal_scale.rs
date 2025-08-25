@@ -40,7 +40,7 @@ mod tests {
             .read_batch(batch)
             .expect("Failed to read batch into DataFrame");
 
-        // Create plot using col("shape") without .identity()
+        // Create plot using col("shape") without
         // This should automatically create an ordinal scale with shape strings as range
         let plot = Plot::<Cartesian>::new().data(df).mark(
             Symbol::new()

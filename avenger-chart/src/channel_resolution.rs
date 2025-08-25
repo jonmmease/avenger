@@ -202,7 +202,14 @@ fn validate_channel_refs(
     channels: &IndexMap<String, ChannelValue>,
 ) -> Result<(), ChannelResolutionError> {
     for (name, value) in channels {
-        let refs = extract_channel_refs(value.expr());
+        // Skip conditional values for now - they need special handling
+        let expr = if let Some(e) = value.expr() {
+            e
+        } else {
+            continue;
+        };
+
+        let refs = extract_channel_refs(expr);
 
         // Check for self-reference
         if refs.contains(name) {
@@ -243,8 +250,11 @@ fn build_dependency_graph(
     let mut graph = HashMap::new();
 
     for (name, value) in channels {
-        let deps = extract_channel_refs(value.expr());
-        graph.insert(name.clone(), deps);
+        // Skip conditional values for now - they need special handling
+        if let Some(expr) = value.expr() {
+            let deps = extract_channel_refs(expr);
+            graph.insert(name.clone(), deps);
+        }
     }
 
     graph
@@ -413,7 +423,13 @@ pub fn resolve_channel_refs(expr: Expr, channels: &IndexMap<String, ChannelValue
                 // Look up the channel
                 if let Some(channel_value) = channels.get(channel_name) {
                     // Return the expression directly (already resolved)
-                    Ok(Transformed::yes(channel_value.expr().clone()))
+                    // For conditional values, we can't resolve here - keep as-is
+                    if let Some(expr) = channel_value.expr() {
+                        Ok(Transformed::yes(expr.clone()))
+                    } else {
+                        // Conditional value - can't resolve yet
+                        Ok(Transformed::no(e))
+                    }
                 } else {
                     // Channel not found, keep as-is (will error later)
                     Ok(Transformed::no(e))
@@ -444,9 +460,15 @@ pub fn resolve_all_channel_refs(
     for name in &order {
         if let Some(value) = channels.get(name) {
             // Resolve references using already-resolved channels
-            let resolved_expr = resolve_channel_refs(value.expr().clone(), &resolved_channels);
+            // For conditional values, we'll handle them later - for now just skip
+            let resolved_expr = if let Some(expr) = value.expr() {
+                resolve_channel_refs(expr.clone(), &resolved_channels)
+            } else {
+                // Conditional value - TODO: implement proper resolution
+                continue;
+            };
 
-            // Preserve the channel value structure (Scaled vs Identity)
+            // Preserve the channel value structure (Scaled vs Identity vs Conditional)
             let resolved_value = match value {
                 ChannelValue::Scaled {
                     scale_name,
@@ -464,6 +486,13 @@ pub fn resolve_all_channel_refs(
                 ChannelValue::Identity { .. } => ChannelValue::Identity {
                     expr: resolved_expr,
                 },
+                ChannelValue::Conditional { .. } => {
+                    // TODO: Implement proper conditional resolution
+                    // For now, just return a placeholder
+                    ChannelValue::Identity {
+                        expr: resolved_expr,
+                    }
+                }
             };
 
             resolved_channels.insert(name.clone(), resolved_value);
@@ -505,11 +534,14 @@ mod tests {
         let resolved = resolve_all_channel_refs(&channels).unwrap();
 
         // x should remain unchanged
-        assert_eq!(resolved.get("x").unwrap().expr().to_string(), "value");
+        assert_eq!(
+            resolved.get("x").unwrap().expr().unwrap().to_string(),
+            "value"
+        );
 
         // x2 should have :x replaced with col("value")
         assert_eq!(
-            resolved.get("x2").unwrap().expr().to_string(),
+            resolved.get("x2").unwrap().expr().unwrap().to_string(),
             "value + Float64(10)"
         );
     }
@@ -551,17 +583,20 @@ mod tests {
         let resolved = resolve_all_channel_refs(&channels).unwrap();
 
         // a should remain unchanged
-        assert_eq!(resolved.get("a").unwrap().expr().to_string(), "base");
+        assert_eq!(
+            resolved.get("a").unwrap().expr().unwrap().to_string(),
+            "base"
+        );
 
         // b should have :a replaced
         assert_eq!(
-            resolved.get("b").unwrap().expr().to_string(),
+            resolved.get("b").unwrap().expr().unwrap().to_string(),
             "base * Float64(2)"
         );
 
         // c should have :b fully resolved
         assert_eq!(
-            resolved.get("c").unwrap().expr().to_string(),
+            resolved.get("c").unwrap().expr().unwrap().to_string(),
             "base * Float64(2) + Float64(5)"
         );
     }
@@ -713,7 +748,10 @@ mod tests {
         let resolved = resolve_all_channel_refs(&channels).unwrap();
 
         // z should have both :x and :y resolved
-        assert_eq!(resolved.get("z").unwrap().expr().to_string(), "a + b");
+        assert_eq!(
+            resolved.get("z").unwrap().expr().unwrap().to_string(),
+            "a + b"
+        );
     }
 
     #[test]
@@ -744,7 +782,7 @@ mod tests {
 
         // y should have :x resolved
         assert_eq!(
-            resolved.get("y").unwrap().expr().to_string(),
+            resolved.get("y").unwrap().expr().unwrap().to_string(),
             "value * Float64(2)"
         );
     }
@@ -803,7 +841,7 @@ mod tests {
 
         // d should have both paths resolved
         assert_eq!(
-            resolved.get("d").unwrap().expr().to_string(),
+            resolved.get("d").unwrap().expr().unwrap().to_string(),
             "base * Float64(2) + base * Float64(3)"
         );
     }

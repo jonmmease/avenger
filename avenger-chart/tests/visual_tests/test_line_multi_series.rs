@@ -155,7 +155,7 @@ async fn test_multi_series_line_with_color() {
     // Create a plot with lines colored by series
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_stroke_with::<Ordinal>(|s| s)
+        ._scale_with::<Ordinal>("stroke", |s| s)
         .axis_x(|axis| axis.title("X").grid(true))
         .axis_y(|axis| axis.title("Y").grid(true))
         .mark(
@@ -196,7 +196,7 @@ async fn test_multi_series_with_color_and_width() {
     // Create a plot where color and width vary by series
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_stroke_with::<Ordinal>(|s| s)
+        ._scale_with::<Ordinal>("stroke", |s| s)
         .axis_x(|axis| axis.title("X").grid(true))
         .axis_y(|axis| axis.title("Y").grid(true))
         .mark(
@@ -217,7 +217,7 @@ async fn test_line_with_order_channel() {
     // Create a plot using order channel to sort points
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_stroke_with::<Ordinal>(|s| s)
+        ._scale_with::<Ordinal>("stroke", |s| s)
         .axis_x(|axis| axis.title("X").grid(true))
         .axis_y(|axis| axis.title("Y").grid(true))
         .mark(
@@ -262,7 +262,9 @@ async fn test_multi_series_line_with_dash() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_stroke_dash_with::<Ordinal>(|s| s.range_discrete(vec!["solid", "dashed", "dotted"]))
+        ._scale_with::<Ordinal>("stroke_dash", |s| {
+            s.range_discrete(vec!["solid", "dashed", "dotted"])
+        })
         .axis_x(|axis| axis.title("X").grid(true))
         .axis_y(|axis| axis.title("Y").grid(true))
         .mark(
@@ -321,8 +323,8 @@ async fn test_multi_series_line_with_color_and_dash() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_stroke_with::<Ordinal>(|s| s)
-        .scale_stroke_dash_with::<Ordinal>(|s| s.range_discrete(vec!["solid", "dashed"]))
+        ._scale_with::<Ordinal>("stroke", |s| s)
+        ._scale_with::<Ordinal>("stroke_dash", |s| s.range_discrete(vec!["solid", "dashed"]))
         .axis_x(|axis| axis.title("X").grid(true))
         .axis_y(|axis| axis.title("Y").grid(true))
         .mark(
@@ -382,9 +384,11 @@ async fn test_multi_series_line_all_encodings() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_stroke_with::<Ordinal>(|s| s)
-        .scale_stroke_width_with::<Ordinal>(|s| s.range_discrete(vec![1.0, 2.0, 3.0]))
-        .scale_stroke_dash_with::<Ordinal>(|s| s.range_discrete(vec!["solid", "dashed", "dotted"]))
+        ._scale_with::<Ordinal>("stroke", |s| s)
+        ._scale_with::<Ordinal>("stroke_width", |s| s.range_discrete(vec![1.0, 2.0, 3.0]))
+        ._scale_with::<Ordinal>("stroke_dash", |s| {
+            s.range_discrete(vec!["solid", "dashed", "dotted"])
+        })
         .axis_x(|axis| axis.title("X").grid(true))
         .axis_y(|axis| axis.title("Y").grid(true))
         .mark(

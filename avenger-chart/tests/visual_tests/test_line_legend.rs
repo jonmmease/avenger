@@ -1,9 +1,9 @@
 use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::ChannelExpr;
+
 use avenger_chart::marks::line::Line;
 use avenger_chart::plot::Plot;
-use avenger_chart::scales::Ordinal;
+use avenger_chart::scales::{Ordinal, Scale};
 use datafusion::arrow::array::{ArrayRef, Float32Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
@@ -60,8 +60,8 @@ async fn test_line_discrete_stroke_legend() {
     // Create a multi-series line chart with stroke legend
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale("x", |scale| scale.domain((0.0, 6.0)))
-        .scale("y", |scale| scale.domain((0.0, 35.0)))
+        .scale_x(|scale| scale.domain((0.0, 6.0)))
+        .scale_y(|scale| scale.domain((0.0, 35.0)))
         .legend("stroke", |legend| legend.title("Series"))
         .mark(
             Line::new()
@@ -124,22 +124,23 @@ async fn test_line_stroke_width_legend() {
     // Create a line chart with stroke width legend
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale("x", |scale| scale.domain((0.0, 6.0)))
-        .scale("y", |scale| scale.domain((0.0, 15.0)))
-        .scale_stroke_width_with::<Ordinal>(|scale| {
-            scale.range_discrete(vec![1.0, 3.0, 6.0]).domain(vec![
-                lit("Low"),
-                lit("Medium"),
-                lit("High"),
-            ])
-        })
+        .scale_x(|scale| scale.domain((0.0, 6.0)))
+        .scale_y(|scale| scale.domain((0.0, 15.0)))
         .legend("stroke_width", |legend| legend.title("Importance"))
         .mark(
             Line::new()
                 .x(col("x"))
                 .y(col("y"))
-                .stroke(lit("#1f77b4").identity())
-                .stroke_width(col("importance"))
+                .stroke_with(lit("#1f77b4"), |c| c.no_scale())
+                .stroke_width_with(col("importance"), |c| {
+                    c.scale_with(|scale: Scale<Ordinal>| {
+                        scale.range_discrete(vec![1.0, 3.0, 6.0]).domain(vec![
+                            lit("Low"),
+                            lit("Medium"),
+                            lit("High"),
+                        ])
+                    })
+                })
                 .order(col("order")),
         );
 
@@ -275,27 +276,29 @@ async fn test_line_combined_stroke_width_legend() {
     // Create a line chart where priority encodes both stroke color and width
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale("x", |scale| scale.domain((0.0, 6.0)))
-        .scale("y", |scale| scale.domain((0.0, 25.0)))
-        .scale_stroke_with::<Ordinal>(|scale| {
-            scale
-                .range_discrete(vec!["#d62728", "#ff7f0e", "#2ca02c"])
-                .domain(vec![lit("High"), lit("Medium"), lit("Low")])
-        })
-        .scale_stroke_width_with::<Ordinal>(|scale| {
-            scale.range_discrete(vec![4.0, 2.5, 1.0]).domain(vec![
-                lit("High"),
-                lit("Medium"),
-                lit("Low"),
-            ])
-        })
+        .scale_x(|scale| scale.domain((0.0, 6.0)))
+        .scale_y(|scale| scale.domain((0.0, 25.0)))
         .legend("stroke", |legend| legend.title("Priority"))
         .mark(
             Line::new()
                 .x(col("x"))
                 .y(col("y"))
-                .stroke(col("priority"))
-                .stroke_width(col("priority"))
+                .stroke_with(col("priority"), |c| {
+                    c.scale_with::<Ordinal>(|scale| {
+                        scale
+                            .range_discrete(vec!["#d62728", "#ff7f0e", "#2ca02c"])
+                            .domain(vec![lit("High"), lit("Medium"), lit("Low")])
+                    })
+                })
+                .stroke_width_with(col("priority"), |c| {
+                    c.scale_with(|scale: Scale<Ordinal>| {
+                        scale.range_discrete(vec![4.0, 2.5, 1.0]).domain(vec![
+                            lit("High"),
+                            lit("Medium"),
+                            lit("Low"),
+                        ])
+                    })
+                })
                 .order(col("order")),
         );
 

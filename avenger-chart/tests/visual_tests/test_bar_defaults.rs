@@ -3,8 +3,6 @@
 use super::datasets;
 use super::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::ChannelExpr;
-use avenger_chart::marks::ChannelValue;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
 use avenger_chart::scales::Linear;
@@ -24,11 +22,11 @@ async fn test_bar_chart_y_scale_auto_zero() {
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(ChannelValue::column("category").band(1.0))
+                .x2_with(col("category"), |c| c.band(1.0))
                 .y(lit(0.0))
                 .y2(col("value"))
-                .fill("#4682b4".identity())
-                .stroke("#000000".identity())
+                .fill("#4682b4")
+                .stroke("#000000")
                 .stroke_width(1.0),
         );
 
@@ -49,11 +47,11 @@ async fn test_bar_chart_y_scale_no_nice() {
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(ChannelValue::column("category").band(1.0))
+                .x2_with(col("category"), |c| c.band(1.0))
                 .y(lit(0.0))
                 .y2(col("value"))
-                .fill("#e74c3c".identity())
-                .stroke("#c0392b".identity())
+                .fill("#e74c3c")
+                .stroke("#c0392b")
                 .stroke_width(1.0),
         );
 

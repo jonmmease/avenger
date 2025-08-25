@@ -1,8 +1,6 @@
 // Visual tests for data domain inference
 
 use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::ChannelExpr;
-use avenger_chart::marks::ChannelValue;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
 use datafusion::prelude::*;
@@ -30,20 +28,18 @@ async fn test_bar_chart_inferred_domain() {
     let plot = Plot::<Cartesian>::new()
         .data(df)
         // No explicit domain specifications - should be inferred
-        .scale("x", |s| s)
-        .scale("y", |s| {
-            s.option("zero", lit(false)).option("nice", lit(false))
-        })
+        .scale_x(|s| s)
+        .scale_y(|s| s.option("zero", lit(false)).option("nice", lit(false)))
         .axis_x(|a| a.title("Category").grid(false))
         .axis_y(|a| a.title("Value").grid(true))
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(ChannelValue::column("category").band(1.0))
+                .x2_with(col("category"), |c| c.band(1.0))
                 .y(lit(0.0))
                 .y2(col("value"))
-                .fill("#3498db".identity())
-                .stroke("crimson".identity())
+                .fill("#3498db")
+                .stroke("crimson")
                 .stroke_width(1.0),
         );
 
@@ -72,8 +68,8 @@ async fn test_scatter_plot_inferred_domain() {
         .data(df)
         // No explicit domain specifications - should compute min/max from expressions
         // The issue was that nice=true was rounding 13.5 down to 10
-        .scale("x", |s| s)
-        .scale("y", |s| s)
+        .scale_x(|s| s)
+        .scale_y(|s| s)
         .axis_x(|a| a.title("X Value"))
         .axis_y(|a| a.title("Y Value"))
         .mark(
@@ -82,7 +78,7 @@ async fn test_scatter_plot_inferred_domain() {
                 .x2(col("x").add(lit(2.0)))
                 .y(col("y").sub(lit(2.0)))
                 .y2(col("y").add(lit(2.0)))
-                .fill("#e74c3c".identity())
+                .fill("#e74c3c")
                 .opacity(0.7),
         );
 

@@ -1,6 +1,6 @@
 use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::ChannelExpr;
+
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
 use datafusion::arrow::array::{Float64Array, StringArray};
@@ -35,8 +35,10 @@ async fn test_discrete_color_legend() {
         Symbol::new()
             .x(col("x"))
             .y(col("y"))
-            .fill(col("category").legend(|legend| legend.title("Category")))
-            .size(lit(100.0).identity()),
+            .fill_with(col("category"), |c| {
+                c.legend(|legend| legend.title("Category"))
+            })
+            .size_with(lit(100.0), |c| c.no_scale()),
     );
 
     assert_visual_match_default(plot, "legend", "discrete_color_legend").await;
@@ -66,13 +68,14 @@ async fn test_legend_visibility() {
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Symbol::new()
-            .x(col("x").scale(|scale| scale.domain((0.0, 10.0))))
-            .y(col("y").scale(|scale| scale.domain((0.0, 12.0))))
-            .fill(
-                col("category")
-                    .scale(|scale| scale.domain_discrete(vec![lit("A"), lit("B"), lit("C")]))
-                    .no_legend(),
+            .x_with(col("x"), |c| c
+                .scale(|scale| scale.domain((0.0, 10.0)))
             )
+            .y_with(col("y"), |c| c.scale(|scale| scale.domain((0.0, 12.0))))
+            .fill_with(col("category"), |c| {
+                c.scale(|scale| scale.domain_discrete(vec![lit("A"), lit("B"), lit("C")]))
+                    .no_legend()
+            })
             .size(100.0),
     );
 
@@ -108,13 +111,12 @@ async fn test_continuous_color_legend() {
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Symbol::new()
-            .x(col("x").scale(|scale| scale.domain((0.0, 10.0))))
-            .y(col("y").scale(|scale| scale.domain((0.0, 12.0))))
-            .fill(
-                col("temperature")
-                    .scale(|scale| scale.domain((0.0, 100.0)))
-                    .legend(|legend| legend.title("Temperature")),
-            )
+            .x_with(col("x"), |c| c.scale(|scale| scale.domain((0.0, 10.0))))
+            .y_with(col("y"), |c| c.scale(|scale| scale.domain((0.0, 12.0))))
+            .fill_with(col("temperature"), |c| {
+                c.scale(|scale| scale.domain((0.0, 100.0)))
+                    .legend(|legend| legend.title("Temperature"))
+            })
             .size(100.0),
     );
 
@@ -148,8 +150,8 @@ async fn test_continuous_color_legend() {
 //         .data(df)
 //         .mark(
 //             Symbol::new()
-//                 .x(col("x").scale(|scale| scale.domain((0.0, 7.0))))
-//                 .y(col("y").scale(|scale| scale.domain((0.0, 8.0))))
+//                 .x_with(col("x"), |c| c.scale(|scale| scale.domain((0.0, 7.0))))
+//                 .y_with(col("y"), |c| c.scale(|scale| scale.domain((0.0, 8.0))))
 //                 .size(col("size_value")
 //                     .scale(|scale| scale.range_discrete(vec![50.0, 100.0, 200.0]))
 //                     .legend(|legend| legend.title("Size")))
@@ -185,15 +187,14 @@ async fn test_shape_legend() {
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Symbol::new()
-            .x(col("x").scale(|scale| scale.domain((0.0, 7.0))))
-            .y(col("y").scale(|scale| scale.domain((0.0, 8.0))))
-            .shape(
-                col("shape_type")
-                    .scale(|scale| {
-                        scale.domain_discrete(vec![lit("Type A"), lit("Type B"), lit("Type C")])
-                    })
-                    .legend(|legend| legend.title("Shape Type")),
-            )
+            .x_with(col("x"), |c| c.scale(|scale| scale.domain((0.0, 7.0))))
+            .y_with(col("y"), |c| c.scale(|scale| scale.domain((0.0, 8.0))))
+            .shape_with(col("shape_type"), |c| {
+                c.scale(|scale| {
+                    scale.domain_discrete(vec![lit("Type A"), lit("Type B"), lit("Type C")])
+                })
+                .legend(|legend| legend.title("Shape Type"))
+            })
             .size(100.0)
             .fill("#4682b4"),
     );
@@ -227,9 +228,11 @@ async fn test_combined_fill_and_shape_legend() {
         Symbol::new()
             .x(col("x"))
             .y(col("y"))
-            .fill(col("category").legend(|legend| legend.title("Category"))) // Legend config on channel
+            .fill_with(col("category"), |c| {
+                c.legend(|legend| legend.title("Category"))
+            }) // Legend config on channel
             .shape(col("category")) // This should result in legend with both color AND shape varying
-            .size(lit(100.0).identity()),
+            .size_with(lit(100.0), |c| c.no_scale()),
     );
 
     assert_visual_match_default(plot, "legend", "combined_fill_and_shape_legend").await;
@@ -263,8 +266,8 @@ async fn test_combined_fill_and_shape_legend() {
 //         .data(df)
 //         .mark(
 //             Symbol::new()
-//                 .x(col("x").scale(|scale| scale.domain((0.0, 7.0))))
-//                 .y(col("y").scale(|scale| scale.domain((0.0, 8.0))))
+//                 .x_with(col("x"), |c| c.scale(|scale| scale.domain((0.0, 7.0))))
+//                 .y_with(col("y"), |c| c.scale(|scale| scale.domain((0.0, 8.0))))
 //                 .fill(col("category")
 //                     .scale(|scale| scale.domain_discrete(vec![lit("A"), lit("B"), lit("C")]))
 //                     .legend(|legend| legend.title("Category")))

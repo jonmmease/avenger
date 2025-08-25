@@ -2,7 +2,6 @@ use super::datasets;
 use super::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::rect::Rect;
-use avenger_chart::marks::{ChannelExpr, ChannelValue};
 use avenger_chart::plot::Plot;
 use avenger_chart::scales::Band;
 use datafusion::logical_expr::{col, lit};
@@ -27,17 +26,17 @@ async fn test_simple_bar_chart() {
                 lit("I"),
             ])
         })
-        .scale("y", |scale| scale.domain((0.0, 100.0)))
+        .scale_y(|scale| scale.domain((0.0, 100.0)))
         .axis_x(|axis| axis.title("Category").grid(false))
         .axis_y(|axis| axis.title("Value").grid(true))
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(col(":x").band(1.0))
+                .x2_with(col(":x"), |c| c.band(1.0))
                 .y(lit(0.0))
                 .y2(col("value"))
-                .fill("#4682b4".identity())
-                .stroke("#000000".identity())
+                .fill("#4682b4")
+                .stroke("#000000")
                 .stroke_width(1.0),
         );
 
@@ -68,11 +67,11 @@ async fn test_bar_chart_with_custom_colors() {
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(col(":x").band(1.0))
-                .y(lit(0.0).scale(|s| s.domain((0.0, 120.0))))
+                .x2_with(col(":x"), |c| c.band(1.0))
+                .y_with(lit(0.0), |c| c.scale(|s| s.domain((0.0, 120.0))))
                 .y2(col("value"))
-                .fill("#e74c3c".identity())
-                .stroke("#c0392b".identity())
+                .fill("#e74c3c")
+                .stroke("#c0392b")
                 .stroke_width(2.0),
         );
 
@@ -98,17 +97,17 @@ async fn test_bar_chart_with_narrow_bars() {
                 lit("I"),
             ])
         })
-        .scale("y", |s| s.domain((0.0, 100.0)))
+        .scale_y(|s| s.domain((0.0, 100.0)))
         .axis_x(|a| a.title("Category").grid(false))
         .axis_y(|a| a.title("Value").grid(true))
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(ChannelValue::column("category").band(0.7)) // 70% of band width
+                .x2_with(col("category"), |c| c.band(0.7)) // 70% of band width
                 .y(lit(0.0))
                 .y2(col("value"))
-                .fill("#3498db".identity())
-                .stroke("#2980b9".identity())
+                .fill("#3498db")
+                .stroke("#2980b9")
                 .stroke_width(1.5),
         );
 
@@ -126,11 +125,11 @@ async fn test_bar_chart_inferred_domains() {
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(col(":x").band(1.0))
+                .x2_with(col(":x"), |c| c.band(1.0))
                 .y(lit(0.0))
                 .y2(col("value"))
-                .fill("#4682b4".identity())
-                .stroke("#000000".identity())
+                .fill("#4682b4")
+                .stroke("#000000")
                 .stroke_width(1.0),
         );
 
@@ -160,26 +159,27 @@ async fn test_bar_chart_color_case_expression() {
                 lit("I"),
             ])
         })
-        .scale("y", |s| s.domain((0.0, 100.0)))
+        .scale_y(|s| s.domain((0.0, 100.0)))
         .axis_x(|a| a.title("Category").grid(false))
         .axis_y(|a| a.title("Value").grid(true))
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(col(":x").band(1.0))
+                .x2_with(col(":x"), |c| c.band(1.0))
                 .y(lit(0.0))
                 .y2(col("value"))
                 // Use conditional expressions to create a gradient effect
                 // Colors range from light blue-grey for low values to dark blue for high values
-                .fill(ChannelValue::no_scale(
+                .fill_with(
                     when(col("value").lt(lit(30.0)), lit("#c8d6e5")) // Light blue-grey
                         .when(col("value").lt(lit(50.0)), lit("#8395a7")) // Medium blue-grey
                         .when(col("value").lt(lit(70.0)), lit("#576574")) // Darker blue-grey
                         .when(col("value").lt(lit(85.0)), lit("#2e86ab")) // Blue
                         .otherwise(lit("#0a3d62")) // Dark blue
                         .unwrap(),
-                ))
-                .stroke("#222222".identity())
+                    |c| c.no_scale(),
+                )
+                .stroke("#222222")
                 .stroke_width(1.0)
                 .opacity(0.9),
         );

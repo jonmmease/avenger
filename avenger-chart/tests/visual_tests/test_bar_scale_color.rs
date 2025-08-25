@@ -1,8 +1,6 @@
 use super::datasets;
 use super::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::ChannelExpr;
-use avenger_chart::marks::ChannelValue;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
 use avenger_chart::scales::{Band, Linear, Log, Pow, Threshold};
@@ -29,27 +27,28 @@ async fn test_bar_chart_linear_color_interpolation() {
                 lit("I"),
             ])
         })
-        .scale("y", |s| s.domain((0.0, 100.0)))
+        .scale_y(|s| s.domain((0.0, 100.0)))
         // Linear scale with color range
-        .scale_fill_with::<Linear>(|s| {
-            s
-                // Domain will be inferred from data automatically
-                .range_colors(vec![
-                    Srgba::new(0.97, 0.96, 0.89, 1.0), // Light cream (#f8f5e4)
-                    Srgba::new(0.96, 0.64, 0.38, 1.0), // Light orange (#f5a462)
-                    Srgba::new(0.84, 0.19, 0.11, 1.0), // Dark red (#d6301d)
-                ])
-        })
         .axis_x(|a| a.title("Category").grid(false))
         .axis_y(|a| a.title("Value").grid(true))
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(ChannelValue::column("category").band(1.0))
+                .x2_with(col("category"), |c| c.band(1.0))
                 .y(lit(0.0))
                 .y2(col("value"))
-                .fill(col("value")) // Map value through the linear color scale
-                .stroke("#333333".identity())
+                .fill_with(col("value"), |c| {
+                    c.scale_with::<Linear>(|s| {
+                        s
+                            // Domain will be inferred from data automatically
+                            .range_colors(vec![
+                                Srgba::new(0.97, 0.96, 0.89, 1.0), // Light cream (#f8f5e4)
+                                Srgba::new(0.96, 0.64, 0.38, 1.0), // Light orange (#f5a462)
+                                Srgba::new(0.84, 0.19, 0.11, 1.0), // Dark red (#d6301d)
+                            ])
+                    })
+                }) // Map value through the linear color scale
+                .stroke("#333333")
                 .stroke_width(0.5)
                 .opacity(0.95),
         );
@@ -81,9 +80,9 @@ async fn test_bar_chart_log_color_interpolation() {
                 lit("I"),
             ])
         })
-        .scale("y", |s| s.domain((0.0, 100.0)))
+        .scale_y(|s| s.domain((0.0, 100.0)))
         // Log scale with color range
-        .scale_fill_with::<Log>(|s| {
+        ._scale_with::<Log>("fill", |s| {
             s.base(10.0)
                 // Domain will be inferred from data automatically
                 .range_colors(vec![
@@ -97,11 +96,21 @@ async fn test_bar_chart_log_color_interpolation() {
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(ChannelValue::column("category").band(1.0))
+                .x2_with(col("category"), |c| c.band(1.0))
                 .y(lit(0.0))
                 .y2(col("value"))
-                .fill(col("value")) // Map value through the log color scale
-                .stroke("#222222".identity())
+                .fill_with(col("value"), |c| {
+                    c.scale_with::<Linear>(|s| {
+                        s
+                            // Domain will be inferred from data automatically
+                            .range_colors(vec![
+                                Srgba::new(0.97, 0.96, 0.89, 1.0), // Light cream (#f8f5e4)
+                                Srgba::new(0.96, 0.64, 0.38, 1.0), // Light orange (#f5a462)
+                                Srgba::new(0.84, 0.19, 0.11, 1.0), // Dark red (#d6301d)
+                            ])
+                    })
+                }) // Map value through the log color scale
+                .stroke("#222222")
                 .stroke_width(0.5)
                 .opacity(0.95),
         );
@@ -128,9 +137,9 @@ async fn test_bar_chart_pow_color_interpolation() {
                 lit("I"),
             ])
         })
-        .scale("y", |s| s.domain((0.0, 100.0)))
+        .scale_y(|s| s.domain((0.0, 100.0)))
         // Power scale with color range (exponent = 2)
-        .scale_fill_with::<Pow>(|s| {
+        ._scale_with::<Pow>("fill", |s| {
             s.exponent(2.0)
                 // Domain will be inferred from data automatically
                 .range_colors(vec![
@@ -144,11 +153,11 @@ async fn test_bar_chart_pow_color_interpolation() {
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(ChannelValue::column("category").band(1.0))
+                .x2_with(col("category"), |c| c.band(1.0))
                 .y(lit(0.0))
                 .y2(col("value"))
                 .fill(col("value")) // Map value through the power color scale
-                .stroke("#333333".identity())
+                .stroke("#333333")
                 .stroke_width(0.5)
                 .opacity(0.95),
         );
@@ -175,27 +184,27 @@ async fn test_bar_chart_sqrt_color_interpolation() {
                 lit("I"),
             ])
         })
-        .scale("y", |s| s.domain((0.0, 100.0)))
-        // Square root scale with color range
-        .scale_fill_with::<Pow>(|s| {
-            s.exponent(0.5)
-                // Domain will be inferred from data automatically
-                .range_colors(vec![
-                    Srgba::new(0.97, 0.91, 0.81, 1.0), // Light tan (#f8e8cf)
-                    Srgba::new(0.94, 0.60, 0.15, 1.0), // Orange (#f09a27)
-                    Srgba::new(0.58, 0.21, 0.05, 1.0), // Dark brown (#943508)
-                ])
-        })
+        .scale_y(|s| s.domain((0.0, 100.0)))
         .axis_x(|a| a.title("Category").grid(false))
         .axis_y(|a| a.title("Value").grid(true))
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(ChannelValue::column("category").band(1.0))
+                .x2_with(col("category"), |c| c.band(1.0))
                 .y(lit(0.0))
                 .y2(col("value"))
-                .fill(col("value")) // Map value through the sqrt color scale
-                .stroke("#222222".identity())
+                .fill_with(col("value"), |c| {
+                    c.scale_with::<Pow>(|s| {
+                        s.exponent(0.5)
+                            // Domain will be inferred from data automatically
+                            .range_colors(vec![
+                                Srgba::new(0.97, 0.91, 0.81, 1.0), // Light tan (#f8e8cf)
+                                Srgba::new(0.94, 0.60, 0.15, 1.0), // Orange (#f09a27)
+                                Srgba::new(0.58, 0.21, 0.05, 1.0), // Dark brown (#943508)
+                            ])
+                    })
+                }) // Map value through the sqrt color scale
+                .stroke("#222222")
                 .stroke_width(0.75),
         );
 
@@ -226,9 +235,9 @@ async fn test_bar_chart_threshold_scale_colors() {
                 lit("I"),
             ])
         })
-        .scale("y", |s| s.domain((0.0, 100.0)))
+        .scale_y(|s| s.domain((0.0, 100.0)))
         // Add threshold scale for colors
-        .scale_fill_with::<Threshold>(|s| {
+        ._scale_with::<Threshold>("fill", |s| {
             s.domain_discrete(vec![lit(30.0f32), lit(50.0f32), lit(70.0f32), lit(85.0f32)])
                 .range_discrete(vec![
                     "#c8d6e5", // Light blue-grey (< 30)
@@ -243,11 +252,11 @@ async fn test_bar_chart_threshold_scale_colors() {
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(ChannelValue::column("category").band(1.0))
+                .x2_with(col("category"), |c| c.band(1.0))
                 .y(lit(0.0))
                 .y2(col("value"))
                 .fill(col("value")) // Map value through the threshold scale
-                .stroke("#222222".identity())
+                .stroke("#222222")
                 .stroke_width(1.0)
                 .opacity(0.9),
         );
@@ -266,7 +275,7 @@ async fn test_bar_chart_linear_color_default_colors() {
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(ChannelValue::column("category").band(1.0))
+                .x2_with(col("category"), |c| c.band(1.0))
                 .y(lit(0.0))
                 .y2(col("value"))
                 .fill(col("value"))
@@ -289,17 +298,17 @@ async fn test_bar_chart_ordinal_scale_colors() {
     let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x_with::<Band>(|s| s) // Domain will be inferred from data
-        .scale("y", |s| s.domain((0.0, 100.0)))
+        .scale_y(|s| s.domain((0.0, 100.0)))
         .axis_x(|a| a.title("Category").grid(false))
         .axis_y(|a| a.title("Value").grid(true))
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(ChannelValue::column("category").band(1.0))
+                .x2_with(col("category"), |c| c.band(1.0))
                 .y(lit(0.0))
                 .y2(col("value"))
                 .fill(col("category")) // Map fill to category column
-                .stroke("#222222".identity())
+                .stroke("#222222")
                 .stroke_width(1.0),
         );
 

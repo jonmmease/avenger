@@ -1,6 +1,6 @@
 use super::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::ChannelExpr;
+
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
 use avenger_chart::scales::Linear;
@@ -221,7 +221,7 @@ async fn test_scatter_with_size_encoding() {
             Symbol::new()
                 .x(col("x"))
                 .y(col("y"))
-                .size(col("size").identity())
+                .size_with(col("size"), |c| c.no_scale())
                 .fill("rgba(255, 99, 71, 0.5)")
                 .stroke("#8b0000")
                 .stroke_width(2.0),
@@ -271,7 +271,7 @@ async fn test_scatter_with_size_encoding_legend() {
             Symbol::new()
                 .x(col("x"))
                 .y(col("y"))
-                .size(col("size").identity())
+                .size_with(col("size"), |c| c.no_scale())
                 .fill(col("size"))
                 .stroke("#8b0000")
                 .stroke_width(2.0),
@@ -319,7 +319,7 @@ async fn test_scatter_with_angle() {
                 .x(col("x"))
                 .y(col("y"))
                 .shape("arrow")
-                .angle(col("angle").identity())
+                .angle_with(col("angle"), |c| c.no_scale())
                 .size(800.0)
                 .fill("#ff8c00")
                 .stroke("#000000")

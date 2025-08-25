@@ -48,13 +48,13 @@ async fn test_multiple_legends_with_backgrounds() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale("x", |s| s.domain((0.0, 10.0)))
-        .scale("y", |s| s.domain((0.0, 10.0)))
-        .scale_fill_with::<Ordinal>(|s| s)
-        .scale("size", |s| {
+        .scale_x(|s| s.domain((0.0, 10.0)))
+        .scale_y(|s| s.domain((0.0, 10.0)))
+        ._scale_with::<Ordinal>("fill", |s| s)
+        ._scale("size", |s| {
             s.domain((5.0, 40.0)).range_interval(lit(25.0), lit(200.0))
         })
-        .scale_shape_with::<Ordinal>(|s| s)
+        ._scale_with::<Ordinal>("shape", |s| s)
         .axis_x(|axis| axis.title("X Axis"))
         .axis_y(|axis| axis.title("Y Axis"))
         .legend("fill", |legend| {
@@ -136,11 +136,11 @@ async fn test_colorbar_with_symbols_backgrounds() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale("x", |s| s.domain((0.0, 9.0)))
-        .scale("y", |s| s.domain((0.0, 9.0)))
-        .scale_fill_with::<Linear>(|s| s.domain((5.0, 40.0)))
-        .scale_shape_with::<Ordinal>(|s| s)
-        .scale_stroke_with::<Ordinal>(|s| s)
+        .scale_x(|s| s.domain((0.0, 9.0)))
+        .scale_y(|s| s.domain((0.0, 9.0)))
+        ._scale_with::<Linear>("fill", |s| s.domain((5.0, 40.0)))
+        ._scale_with::<Ordinal>("shape", |s| s)
+        ._scale_with::<Ordinal>("stroke", |s| s)
         .axis_x(|axis| axis.title("X Axis"))
         .axis_y(|axis| axis.title("Y Axis"))
         .legend("fill", |legend| {
@@ -221,13 +221,13 @@ async fn test_legends_different_positions_backgrounds() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale("x", |s| s.domain((0.0, 7.0)))
-        .scale("y", |s| s.domain((0.0, 7.0)))
-        .scale_fill_with::<Ordinal>(|s| s)
-        .scale("size", |s| {
+        .scale_x(|s| s.domain((0.0, 7.0)))
+        .scale_y(|s| s.domain((0.0, 7.0)))
+        ._scale_with::<Ordinal>("fill", |s| s)
+        ._scale("size", |s| {
             s.domain((5.0, 35.0)).range_interval(lit(25.0), lit(150.0))
         })
-        .scale_stroke_with::<Ordinal>(|s| s)
+        ._scale_with::<Ordinal>("stroke", |s| s)
         .axis_x(|axis| axis.title("X Axis"))
         .axis_y(|axis| axis.title("Y Axis"))
         .legend("fill", |legend| {

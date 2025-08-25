@@ -152,8 +152,10 @@ mod tests {
     #[test]
     fn test_legend_fill_with_configuration() {
         let plot = Plot::<ZeroDCoord>::new()
-            .scale_fill(|scale| scale)
-            .legend_fill(|legend| legend.title("Temperature").position(LegendPosition::Right));
+            ._scale("fill", |scale| scale)
+            .legend("fill", |legend| {
+                legend.title("Temperature").position(LegendPosition::Right)
+            });
 
         // Should have legend configured
         assert!(plot.legends.contains_key("fill"));
@@ -165,8 +167,8 @@ mod tests {
     #[test]
     fn test_legend_fill_with_visible_false() {
         let plot = Plot::<ZeroDCoord>::new()
-            .scale_fill(|scale| scale)
-            .legend_fill(|legend| legend.visible(false));
+            ._scale("fill", |scale| scale)
+            .legend("fill", |legend| legend.visible(false));
 
         // Legend exists but is marked invisible
         assert!(plot.legends.contains_key("fill"));
@@ -177,8 +179,8 @@ mod tests {
     #[test]
     fn test_legend_stroke_with_orientation() {
         let plot = Plot::<ZeroDCoord>::new()
-            .scale_stroke(|scale| scale)
-            .legend_stroke(|legend| {
+            ._scale("stroke", |scale| scale)
+            .legend("stroke", |legend| {
                 legend
                     .title("Category")
                     .orientation(LegendOrientation::Horizontal)
@@ -195,8 +197,10 @@ mod tests {
     #[test]
     fn test_legend_size_with_symbol_size() {
         let plot = Plot::<ZeroDCoord>::new()
-            .scale_size(|scale| scale)
-            .legend_size(|legend| legend.title("Population").symbol_size(20.0));
+            ._scale("size", |scale| scale)
+            .legend("size", |legend| {
+                legend.title("Population").symbol_size(20.0)
+            });
 
         assert!(plot.legends.contains_key("size"));
         let legend = &plot.legends["size"];
@@ -207,8 +211,8 @@ mod tests {
     #[test]
     fn test_legend_opacity_with_gradient() {
         let plot = Plot::<ZeroDCoord>::new()
-            .scale_opacity(|scale| scale)
-            .legend_opacity(|legend| {
+            ._scale("opacity", |scale| scale)
+            .legend("opacity", |legend| {
                 legend
                     .title("Confidence")
                     .gradient_length(150.0)
@@ -225,10 +229,14 @@ mod tests {
     #[test]
     fn test_multiple_legends() {
         let plot = Plot::<ZeroDCoord>::new()
-            .scale_fill(|scale| scale)
-            .scale_size(|scale| scale)
-            .legend_fill(|legend| legend.title("Temperature").position(LegendPosition::Right))
-            .legend_size(|legend| legend.title("Population").position(LegendPosition::Left));
+            ._scale("fill", |scale| scale)
+            ._scale("size", |scale| scale)
+            .legend("fill", |legend| {
+                legend.title("Temperature").position(LegendPosition::Right)
+            })
+            .legend("size", |legend| {
+                legend.title("Population").position(LegendPosition::Left)
+            });
 
         assert_eq!(plot.legends.len(), 2);
         assert!(plot.legends.contains_key("fill"));
@@ -238,9 +246,9 @@ mod tests {
     #[test]
     fn test_legend_modification() {
         let plot = Plot::<ZeroDCoord>::new()
-            .scale_fill(|scale| scale)
-            .legend_fill(|legend| legend.title("First Title"))
-            .legend_fill(|legend| legend.title("Updated Title"));
+            ._scale("fill", |scale| scale)
+            .legend("fill", |legend| legend.title("First Title"))
+            .legend("fill", |legend| legend.title("Updated Title"));
 
         // Second call should update the existing legend
         assert_eq!(plot.legends.len(), 1);

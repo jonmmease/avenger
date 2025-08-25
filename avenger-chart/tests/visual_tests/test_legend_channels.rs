@@ -1,6 +1,6 @@
 use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::ChannelExpr;
+
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
 use datafusion::arrow::array::{ArrayRef, Float32Array, StringArray};
@@ -40,11 +40,11 @@ async fn test_symbol_legend_with_scalar_expressions() {
                 .x(col("x"))
                 .y(col("y"))
                 .shape(col("category")) // This is the legend channel
-                .size(lit(100.0).identity()) // Scalar expression - should use this value
-                .fill(lit("#ff0000").identity()) // Scalar expression - should use red
-                .stroke(lit("#0000ff").identity()) // Scalar expression - should use blue
-                .stroke_width(lit(2.0).identity()) // Scalar expression - should use 2.0
-                .angle(lit(45.0).identity()), // Scalar expression - should use 45 degrees
+                .size_with(lit(100.0), |c| c.no_scale()) // Scalar expression - should use this value
+                .fill_with(lit("#ff0000"), |c| c.no_scale()) // Scalar expression - should use red
+                .stroke_with(lit("#0000ff"), |c| c.no_scale()) // Scalar expression - should use blue
+                .stroke_width_with(lit(2.0), |c| c.no_scale()) // Scalar expression - should use 2.0
+                .angle_with(lit(45.0), |c| c.no_scale()), // Scalar expression - should use 45 degrees
         );
 
     assert_visual_match_default(plot, "legend", "symbol_scalar_expressions").await;
@@ -121,7 +121,7 @@ async fn test_ordinal_size_legend() {
     let plot = Plot::<Cartesian>::new()
         .data(df)
         .legend("size", |legend| legend.title("Size Category"))
-        .scale("size", |scale| {
+        ._scale("size", |scale| {
             scale.range_discrete(vec![50.0, 150.0, 300.0]).domain(vec![
                 lit("Small"),
                 lit("Medium"),
@@ -133,8 +133,8 @@ async fn test_ordinal_size_legend() {
                 .x(col("x"))
                 .y(col("y"))
                 .size(col("size_category"))
-                .fill(lit("#1f77b4").identity())
-                .shape(lit("circle").identity()),
+                .fill_with(lit("#1f77b4"), |c| c.no_scale())
+                .shape_with(lit("circle"), |c| c.no_scale()),
         );
 
     assert_visual_match_default(plot, "legend", "ordinal_size_legend").await;
@@ -171,19 +171,19 @@ async fn test_combined_size_color_shape_legend() {
     let plot = Plot::<Cartesian>::new()
         .data(df)
         // Configure scales for the shared category column
-        .scale("size", |scale| {
+        ._scale("size", |scale| {
             scale.range_discrete(vec![30.0, 120.0, 480.0]).domain(vec![
                 lit("Type A"),
                 lit("Type B"),
                 lit("Type C"),
             ])
         })
-        .scale("fill", |scale| {
+        ._scale("fill", |scale| {
             scale
                 .range_discrete(vec!["#e41a1c", "#377eb8", "#4daf4a"])
                 .domain(vec![lit("Type A"), lit("Type B"), lit("Type C")])
         })
-        .scale("shape", |scale| {
+        ._scale("shape", |scale| {
             scale
                 .range_discrete(vec!["circle", "square", "triangle-up"])
                 .domain(vec![lit("Type A"), lit("Type B"), lit("Type C")])
@@ -198,8 +198,8 @@ async fn test_combined_size_color_shape_legend() {
                 .size(col("category"))
                 .fill(col("category"))
                 .shape(col("category"))
-                .stroke(lit("#000000").identity())
-                .stroke_width(lit(1.0).identity()),
+                .stroke_with(lit("#000000"), |c| c.no_scale())
+                .stroke_width_with(lit(1.0), |c| c.no_scale()),
         );
 
     assert_visual_match_default(plot, "legend", "combined_size_color_shape_legend").await;

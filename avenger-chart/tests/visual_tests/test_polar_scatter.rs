@@ -68,7 +68,7 @@ async fn test_polar_scatter_plot() {
             ))
         })
         .scale_theta_with::<Linear>(|scale| scale)
-        .scale_fill_with::<Ordinal>(|scale| scale)
+        ._scale_with::<Ordinal>("fill", |scale| scale)
         .axis_r(|axis| axis.tick_count(6))
         .axis_theta(|axis| axis.visible(true))
         .legend("fill", |legend| legend.title("Category"))
@@ -144,7 +144,7 @@ async fn test_polar_scatter_with_clipping() {
             ))
         })
         .scale_theta_with::<Linear>(|scale| scale)
-        .scale_fill_with::<Ordinal>(|scale| {
+        ._scale_with::<Ordinal>("fill", |scale| {
             use palette::Srgba;
             scale.range_colors(vec![
                 Srgba::new(0.2, 0.6, 1.0, 1.0), // Blue for within bounds
@@ -226,11 +226,11 @@ async fn test_polar_scatter_with_size_color() {
             ))
         })
         .scale_theta_with::<Linear>(|scale| scale)
-        .scale_size_with::<Linear>(|scale| {
+        ._scale_with::<Linear>("size", |scale| {
             use datafusion::logical_expr::lit;
             scale.range_interval(lit(50.0), lit(300.0))
         })
-        .scale_fill_with::<Linear>(|scale| {
+        ._scale_with::<Linear>("fill", |scale| {
             use palette::Srgba;
             scale.range_colors(vec![
                 Srgba::new(

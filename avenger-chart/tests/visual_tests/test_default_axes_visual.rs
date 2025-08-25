@@ -1,7 +1,6 @@
 // Visual tests for default axis creation
 
 use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::ChannelExpr;
 use avenger_chart::marks::line::Line;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
@@ -62,7 +61,7 @@ async fn test_default_axes_band_without_grid() {
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x(col("category"))
-            .x2(col(":x").band(1.0))
+            .x2_with(col(":x"), |c| c.band(1.0))
             .y(lit(0.0))
             .y2(col("y_val"))
             .fill("#4682b4"),
