@@ -13,6 +13,7 @@ macro_rules! impl_mark_base {
                         facet_strategy: $crate::marks::FacetStrategy::Filter,
                         details: None,
                         zindex: None,
+                        axis_configs: std::collections::HashMap::new(),
                     },
                     _phantom: std::marker::PhantomData,
                 }
@@ -91,6 +92,12 @@ macro_rules! impl_mark_base {
             ) -> Self {
                 self.state.data = self.state.data.with_channel_value(name, value);
                 self
+            }
+            
+            /// Get mutable access to state (for use by coordinate-specific implementations)
+            #[doc(hidden)]
+            pub fn state_mut(&mut self) -> &mut $crate::marks::MarkState<C> {
+                &mut self.state
             }
         }
     };
