@@ -465,10 +465,12 @@ impl<C: CoordinateSystem> Plot<C> {
                 // Try to get the data type of the expression
                 if let Some(df) = df {
                     let schema = df.schema();
-                    if let Ok(expr_type) = channel_value.expr().get_type(schema) {
-                        data_type = Some(expr_type);
-                        mark_type = Some(mark.mark_type());
-                        break;
+                    if let Some(expr) = channel_value.expr() {
+                        if let Ok(expr_type) = expr.get_type(schema) {
+                            data_type = Some(expr_type);
+                            mark_type = Some(mark.mark_type());
+                            break;
+                        }
                     }
                 }
             }
@@ -571,38 +573,53 @@ impl<C: CoordinateSystem> Plot<C> {
         let channels = mark.data_context().channels();
 
         for (channel_name, channel_value) in channels {
-            match channel_value {
+            // Extract scale and legend configs
+            let (scale_config, legend_config) = match channel_value {
                 ChannelValue::Scaled {
                     scale_config,
                     legend_config,
-                    scale_name,
                     ..
-                } => {
-                    // For now, always use channel name as scale name
-                    let scale_key = scale_name.as_deref().unwrap_or(channel_name).to_string();
-
-                    // Extract scale config if present
-                    if let Some(config) = scale_config {
-                        // Only insert if not already configured at plot level
-                        self.scale_specs
-                            .entry(scale_key.clone())
-                            .or_insert_with(|| ScaleSpec::Local(config.clone()));
-                    }
-
-                    // Extract legend config if present
-                    if let Some(config) = legend_config {
-                        // Apply config to existing or new legend
-                        let legend = self
-                            .legends
-                            .shift_remove(channel_name.as_str())
-                            .unwrap_or_default();
-                        let configured = config(legend);
-                        self.legends.insert(channel_name.clone(), configured);
-                    }
                 }
+                | ChannelValue::Conditional {
+                    scale_config,
+                    legend_config,
+                    ..
+                } => (scale_config, legend_config),
                 ChannelValue::Identity { .. } => {
                     // No scale or legend for identity mappings
+                    continue;
                 }
+            };
+
+            // Determine scale name
+            let scale_key = match channel_value {
+                ChannelValue::Scaled { scale_name, .. } => {
+                    scale_name.as_deref().unwrap_or(channel_name).to_string()
+                }
+                ChannelValue::Conditional { .. } => {
+                    // Conditional always uses channel name
+                    channel_name.to_string()
+                }
+                _ => unreachable!(),
+            };
+
+            // Extract scale config if present
+            if let Some(config) = scale_config {
+                // Only insert if not already configured at plot level
+                self.scale_specs
+                    .entry(scale_key.clone())
+                    .or_insert_with(|| ScaleSpec::Local(config.clone()));
+            }
+
+            // Extract legend config if present
+            if let Some(config) = legend_config {
+                // Apply config to existing or new legend
+                let legend = self
+                    .legends
+                    .shift_remove(channel_name.as_str())
+                    .unwrap_or_default();
+                let configured = config(legend);
+                self.legends.insert(channel_name.clone(), configured);
             }
         }
     }
@@ -752,8 +769,10 @@ impl<C: CoordinateSystem> Plot<C> {
                 if let Some(channel_scale_name) = channel_value.get_scale_name(channel) {
                     if channel_scale_name == scale_name {
                         // Get the expression - we'll cast later if needed
-                        let expr = channel_value.expr().clone();
-                        data_expressions.push((df.clone(), expr));
+                        if let Some(expr) = channel_value.expr() {
+                            data_expressions.push((df.clone(), expr.clone()));
+                        }
+                        // Skip conditional values for now
                     }
                 }
             }
@@ -778,11 +797,12 @@ impl<C: CoordinateSystem> Plot<C> {
             if let Some(channel_value) = encodings.get(channel_name) {
                 // Apply scaling if needed
                 match channel_value {
-                    ChannelValue::Identity { .. } => {
+                    ChannelValue::Identity { expr } => {
                         // No scaling requested
-                        channel_value.expr().clone()
+                        expr.clone()
                     }
                     ChannelValue::Scaled {
+                        expr,
                         scale_name: custom_scale_name,
                         band,
                         ..
@@ -800,17 +820,22 @@ impl<C: CoordinateSystem> Plot<C> {
                             // Use ConfiguredScale.to_expr()
                             if let Some(band_value) = band {
                                 configured
-                                    .to_expr_with_band(channel_value.expr().clone(), *band_value)
-                                    .unwrap_or_else(|_| channel_value.expr().clone())
+                                    .to_expr_with_band(expr.clone(), *band_value)
+                                    .unwrap_or_else(|_| expr.clone())
                             } else {
                                 configured
-                                    .to_expr(channel_value.expr().clone())
-                                    .unwrap_or_else(|_| channel_value.expr().clone())
+                                    .to_expr(expr.clone())
+                                    .unwrap_or_else(|_| expr.clone())
                             }
                         } else {
                             // No scale configured for this channel - use raw expression
-                            channel_value.expr().clone()
+                            expr.clone()
                         }
+                    }
+                    ChannelValue::Conditional { .. } => {
+                        // TODO: Conditional encoding resolution will be handled in a later phase
+                        // For now, return a placeholder
+                        lit(datafusion::scalar::ScalarValue::Null)
                     }
                 }
             } else if let Some(default_scalar) = mark.default_channel_value(channel_name) {
@@ -882,13 +907,14 @@ impl<C: CoordinateSystem> Plot<C> {
                 if let Some(channel_scale_name) = position_channel_value.get_scale_name(channel) {
                     if channel_scale_name == scale_name {
                         // Get the position expression
-                        let position_expr = position_channel_value.expr().clone();
+                        if let Some(position_expr) = position_channel_value.expr() {
+                            // Get radius expression from the mark
+                            let radius_expr = mark.radius_expression(scale_name, &resolve_channel);
 
-                        // Get radius expression from the mark
-                        let radius_expr = mark.radius_expression(scale_name, &resolve_channel);
-
-                        // Add to expressions with radius info
-                        data_expressions.push((df.clone(), position_expr, radius_expr));
+                            // Add to expressions with radius info
+                            data_expressions.push((df.clone(), position_expr.clone(), radius_expr));
+                        }
+                        // Skip conditional values for now
                     }
                 }
             }

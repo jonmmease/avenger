@@ -1133,7 +1133,7 @@ impl ChartLayout {
                     use crate::utils::ScalarValueHelpers;
                     use datafusion::logical_expr::Expr;
                     match size_encoding.expr() {
-                        Expr::Literal(scalar_value, _) => {
+                        Some(Expr::Literal(scalar_value, _)) => {
                             // It's a literal value - try to extract as f32
                             if let Ok(f_val) = scalar_value.as_f32() {
                                 ScalarOrArray::new_scalar(f_val)
@@ -1275,7 +1275,7 @@ impl ChartLayout {
                     use crate::utils::ScalarValueHelpers;
                     use datafusion::logical_expr::Expr;
                     match stroke_width_encoding.expr() {
-                        Expr::Literal(scalar_value, _) => {
+                        Some(Expr::Literal(scalar_value, _)) => {
                             // It's a literal value - try to extract as f32
                             scalar_value.as_f32().unwrap_or(1.0)
                         }

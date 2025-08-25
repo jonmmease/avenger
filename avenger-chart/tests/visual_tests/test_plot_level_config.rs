@@ -3,7 +3,6 @@
 
 use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::ChannelExpr;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
 use datafusion::arrow::array::{Float64Array, StringArray};
@@ -31,8 +30,8 @@ async fn test_plot_level_scale_config() {
     // Using plot-level scale configuration
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale("x", |scale| scale.domain((0.0, 6.0)))
-        .scale("y", |scale| scale.domain((0.0, 8.0)))
+        .scale_x(|scale| scale.domain((0.0, 6.0)))
+        .scale_y(|scale| scale.domain((0.0, 8.0)))
         .mark(
             Symbol::new()
                 .x(col("x"))
@@ -113,18 +112,17 @@ async fn test_plot_and_channel_level_mixed() {
     // Mix plot-level and channel-level configuration
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale("x", |scale| scale.domain((0.0, 7.0))) // Plot-level
+        .scale_x(|scale| scale.domain((0.0, 7.0))) // Plot-level
         .legend("fill", |legend| legend.title("Category (Plot)")) // Plot-level
         .mark(
             Symbol::new()
                 .x(col("x")) // Uses plot-level scale
-                .y(col("y").scale(|scale| scale.domain((0.0, 8.0)))) // Channel-level scale
+                .y_with(col("y"), |c| c.scale(|scale| scale.domain((0.0, 8.0)))) // Channel-level scale
                 .fill(col("category")) // Uses plot-level legend
-                .size(
-                    col("size_val")
-                        .scale(|scale| scale.domain((0.0, 40.0))) // Channel-level scale
-                        .legend(|legend| legend.title("Size (Channel)")),
-                ), // Channel-level legend
+                .size_with(col("size_val"), |c| {
+                    c.scale(|scale| scale.domain((0.0, 40.0))) // Channel-level scale
+                        .legend(|legend| legend.title("Size (Channel)"))
+                }), // Channel-level legend
         );
 
     assert_visual_match_default(plot, "plot_level_config", "mixed_config").await;

@@ -1202,15 +1202,23 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
     ) -> Result<datafusion::logical_expr::Expr, AvengerChartError> {
         use crate::marks::channel::strip_trailing_numbers;
 
-        let expr = channel_value.expr();
-
         match channel_value {
-            ChannelValue::Identity { .. } => {
+            ChannelValue::Identity { expr } => {
                 // No scaling requested, return expression as-is
                 Ok(expr.clone())
             }
+            ChannelValue::Conditional { .. } => {
+                // TODO: Implement conditional resolution properly
+                // For now, return a placeholder
+                Ok(datafusion::logical_expr::lit(
+                    datafusion::scalar::ScalarValue::Null,
+                ))
+            }
             ChannelValue::Scaled {
-                scale_name, band, ..
+                expr,
+                scale_name,
+                band,
+                ..
             } => {
                 // Determine scale name (custom or derived from channel)
                 let scale_key = scale_name
@@ -1797,14 +1805,15 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         } else if let Some(channel_value) = mark_encodings.get("shape") {
             // Shape channel exists but this legend is not for shape
             // Only use it if it's a scalar (constant) expression
-            if !Self::references_columns(channel_value.expr()) {
-                // Scalar expression - evaluate it
-                if let Ok(scalars) =
-                    crate::utils::eval_to_scalars(vec![channel_value.expr().clone()], None, None)
-                        .await
-                {
-                    if let Some(ScalarValue::Utf8(Some(s))) = scalars.into_iter().next() {
-                        config.shape = ScalarOrArray::new_scalar(parse_shape(&s)?);
+            if let Some(expr) = channel_value.expr() {
+                if !Self::references_columns(expr) {
+                    // Scalar expression - evaluate it
+                    if let Ok(scalars) =
+                        crate::utils::eval_to_scalars(vec![expr.clone()], None, None).await
+                    {
+                        if let Some(ScalarValue::Utf8(Some(s))) = scalars.into_iter().next() {
+                            config.shape = ScalarOrArray::new_scalar(parse_shape(&s)?);
+                        }
                     }
                 }
             }
@@ -1824,35 +1833,36 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         } else if let Some(channel_value) = mark_encodings.get("size") {
             // Size channel exists but this legend is not for size
             // Only use it if it's a scalar (constant) expression
-            if !Self::references_columns(channel_value.expr()) {
-                // Scalar expression - evaluate it and scale it through the size scale
-                if let Ok(scalars) =
-                    crate::utils::eval_to_scalars(vec![channel_value.expr().clone()], None, None)
-                        .await
-                {
-                    if let Some(value) = scalars.into_iter().next() {
-                        // If there's a size scale, map the value through it
-                        // Otherwise use the raw value (capped for shape legends)
-                        let scaled_size = if let Some(size_scale) = params.scales.get("size") {
-                            // Map the size value through the scale
-                            let size_values = vec![value];
-                            if let Ok(scaled) = size_scale.map_values_numeric(&size_values) {
-                                scaled.first().copied().unwrap_or(default_size)
+            if let Some(expr) = channel_value.expr() {
+                if !Self::references_columns(expr) {
+                    // Scalar expression - evaluate it and scale it through the size scale
+                    if let Ok(scalars) =
+                        crate::utils::eval_to_scalars(vec![expr.clone()], None, None).await
+                    {
+                        if let Some(value) = scalars.into_iter().next() {
+                            // If there's a size scale, map the value through it
+                            // Otherwise use the raw value (capped for shape legends)
+                            let scaled_size = if let Some(size_scale) = params.scales.get("size") {
+                                // Map the size value through the scale
+                                let size_values = vec![value];
+                                if let Ok(scaled) = size_scale.map_values_numeric(&size_values) {
+                                    scaled.first().copied().unwrap_or(default_size)
+                                } else {
+                                    default_size
+                                }
                             } else {
-                                default_size
-                            }
-                        } else {
-                            // No size scale, use the raw value
-                            value.as_f32().ok().unwrap_or(default_size)
-                        };
+                                // No size scale, use the raw value
+                                value.as_f32().ok().unwrap_or(default_size)
+                            };
 
-                        // For shape legends, cap the size to a reasonable maximum
-                        let legend_size = if params.channel == "shape" {
-                            scaled_size.min(49.0) // Use default size as max for shape legends
-                        } else {
-                            scaled_size
-                        };
-                        config.size = ScalarOrArray::new_scalar(legend_size);
+                            // For shape legends, cap the size to a reasonable maximum
+                            let legend_size = if params.channel == "shape" {
+                                scaled_size.min(49.0) // Use default size as max for shape legends
+                            } else {
+                                scaled_size
+                            };
+                            config.size = ScalarOrArray::new_scalar(legend_size);
+                        }
                     }
                 }
             }
@@ -1888,18 +1898,20 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         } else if let Some(channel_value) = mark_encodings.get("fill") {
             // Fill channel exists but this legend is not for fill
             // Only use it if it's a scalar (constant) expression
-            if !Self::references_columns(channel_value.expr()) {
-                // Scalar expression - evaluate it
-                if let Ok(scalars) =
-                    crate::utils::eval_to_scalars(vec![channel_value.expr().clone()], None, None)
-                        .await
-                {
-                    if let Ok(color_array) = ScalarValue::iter_to_array(scalars.iter().cloned()) {
-                        use avenger_scales::scales::coerce::Coercer;
-                        let coercer = Coercer::default();
-                        if let Ok(colors) = coercer.to_color(&color_array, None) {
-                            if let Some(color) = colors.as_vec(1, None).first() {
-                                config.fill = ScalarOrArray::new_scalar(color.clone());
+            if let Some(expr) = channel_value.expr() {
+                if !Self::references_columns(expr) {
+                    // Scalar expression - evaluate it
+                    if let Ok(scalars) =
+                        crate::utils::eval_to_scalars(vec![expr.clone()], None, None).await
+                    {
+                        if let Ok(color_array) = ScalarValue::iter_to_array(scalars.iter().cloned())
+                        {
+                            use avenger_scales::scales::coerce::Coercer;
+                            let coercer = Coercer::default();
+                            if let Ok(colors) = coercer.to_color(&color_array, None) {
+                                if let Some(color) = colors.as_vec(1, None).first() {
+                                    config.fill = ScalarOrArray::new_scalar(color.clone());
+                                }
                             }
                         }
                     }
@@ -1930,18 +1942,20 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         } else if let Some(channel_value) = mark_encodings.get("stroke") {
             // Stroke channel exists but this legend is not for stroke
             // Only use it if it's a scalar (constant) expression
-            if !Self::references_columns(channel_value.expr()) {
-                // Scalar expression - evaluate it
-                if let Ok(scalars) =
-                    crate::utils::eval_to_scalars(vec![channel_value.expr().clone()], None, None)
-                        .await
-                {
-                    if let Ok(color_array) = ScalarValue::iter_to_array(scalars.iter().cloned()) {
-                        use avenger_scales::scales::coerce::Coercer;
-                        let coercer = Coercer::default();
-                        if let Ok(colors) = coercer.to_color(&color_array, None) {
-                            if let Some(color) = colors.as_vec(1, None).first() {
-                                config.stroke = ScalarOrArray::new_scalar(color.clone());
+            if let Some(expr) = channel_value.expr() {
+                if !Self::references_columns(expr) {
+                    // Scalar expression - evaluate it
+                    if let Ok(scalars) =
+                        crate::utils::eval_to_scalars(vec![expr.clone()], None, None).await
+                    {
+                        if let Ok(color_array) = ScalarValue::iter_to_array(scalars.iter().cloned())
+                        {
+                            use avenger_scales::scales::coerce::Coercer;
+                            let coercer = Coercer::default();
+                            if let Ok(colors) = coercer.to_color(&color_array, None) {
+                                if let Some(color) = colors.as_vec(1, None).first() {
+                                    config.stroke = ScalarOrArray::new_scalar(color.clone());
+                                }
                             }
                         }
                     }
@@ -1956,14 +1970,17 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         }
 
         if let Some(channel_value) = mark_encodings.get("stroke_width") {
-            if !Self::references_columns(channel_value.expr()) {
-                // Scalar expression - evaluate it
-                if let Ok(scalars) =
-                    crate::utils::eval_to_scalars(vec![channel_value.expr().clone()], None, None)
-                        .await
-                {
-                    if let Some(value) = scalars.into_iter().next().and_then(|s| s.as_f32().ok()) {
-                        config.stroke_width = Some(value);
+            if let Some(expr) = channel_value.expr() {
+                if !Self::references_columns(expr) {
+                    // Scalar expression - evaluate it
+                    if let Ok(scalars) =
+                        crate::utils::eval_to_scalars(vec![expr.clone()], None, None).await
+                    {
+                        if let Some(value) =
+                            scalars.into_iter().next().and_then(|s| s.as_f32().ok())
+                        {
+                            config.stroke_width = Some(value);
+                        }
                     }
                 }
             }
@@ -1979,14 +1996,17 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         } else if let Some(channel_value) = mark_encodings.get("angle") {
             // Angle channel exists but this legend is not for angle
             // Only use it if it's a scalar (constant) expression
-            if !Self::references_columns(channel_value.expr()) {
-                // Scalar expression - evaluate it
-                if let Ok(scalars) =
-                    crate::utils::eval_to_scalars(vec![channel_value.expr().clone()], None, None)
-                        .await
-                {
-                    if let Some(value) = scalars.into_iter().next().and_then(|s| s.as_f32().ok()) {
-                        config.angle = ScalarOrArray::new_scalar(value);
+            if let Some(expr) = channel_value.expr() {
+                if !Self::references_columns(expr) {
+                    // Scalar expression - evaluate it
+                    if let Ok(scalars) =
+                        crate::utils::eval_to_scalars(vec![expr.clone()], None, None).await
+                    {
+                        if let Some(value) =
+                            scalars.into_iter().next().and_then(|s| s.as_f32().ok())
+                        {
+                            config.angle = ScalarOrArray::new_scalar(value);
+                        }
                     }
                 }
             }
@@ -2236,20 +2256,26 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         } else if let Some(channel_value) = mark_encodings.get("stroke") {
             // Stroke channel exists but this legend is not for stroke
             // Only use it if it's a scalar (constant) expression
-            if !Self::references_columns(channel_value.expr()) {
-                // Constant expression - evaluate it
-                if let Ok(scalars) =
-                    crate::utils::eval_to_scalars(vec![channel_value.expr().clone()], None, None)
-                        .await
-                {
-                    if let Some(ScalarValue::Utf8(Some(color_str))) = scalars.into_iter().next() {
-                        if let Some(color) = parse_color_string(&color_str) {
-                            config.stroke = ScalarOrArray::new_scalar(color);
+            let mut stroke_set = false;
+            if let Some(expr) = channel_value.expr() {
+                if !Self::references_columns(expr) {
+                    // Constant expression - evaluate it
+                    if let Ok(scalars) =
+                        crate::utils::eval_to_scalars(vec![expr.clone()], None, None).await
+                    {
+                        if let Some(ScalarValue::Utf8(Some(color_str))) = scalars.into_iter().next()
+                        {
+                            if let Some(color) = parse_color_string(&color_str) {
+                                config.stroke = ScalarOrArray::new_scalar(color);
+                                stroke_set = true;
+                            }
                         }
                     }
                 }
-            } else {
-                // Stroke references columns, use a default color for non-stroke legends
+            }
+
+            // If we didn't set stroke (either because expr references columns or is conditional), use default
+            if !stroke_set {
                 // For stroke_width and stroke_dash legends, we need a visible default color
                 if params.channel == "stroke_width" || params.channel == "stroke_dash" {
                     let color = avenger_common::types::ColorOrGradient::Color([0.2, 0.2, 0.2, 1.0]); // Dark gray
@@ -2279,19 +2305,34 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         } else if let Some(channel_value) = mark_encodings.get("stroke_width") {
             // Stroke width channel exists but this legend is not for stroke_width
             // Only use it if it's a scalar (constant) expression
-            if !Self::references_columns(channel_value.expr()) {
-                // Constant expression - evaluate it
-                if let Ok(scalars) =
-                    crate::utils::eval_to_scalars(vec![channel_value.expr().clone()], None, None)
-                        .await
-                {
-                    if let Some(value) = scalars.into_iter().next().and_then(|s| s.as_f32().ok()) {
-                        config.stroke_width = ScalarOrArray::new_scalar(value);
+            if let Some(expr) = channel_value.expr() {
+                if !Self::references_columns(expr) {
+                    // Constant expression - evaluate it
+                    if let Ok(scalars) =
+                        crate::utils::eval_to_scalars(vec![expr.clone()], None, None).await
+                    {
+                        if let Some(value) =
+                            scalars.into_iter().next().and_then(|s| s.as_f32().ok())
+                        {
+                            config.stroke_width = ScalarOrArray::new_scalar(value);
+                        } else {
+                            // Failed to get value, use default
+                            config.stroke_width = ScalarOrArray::new_scalar(default_stroke_width);
+                        }
+                    } else {
+                        // Failed to evaluate, use default
+                        config.stroke_width = ScalarOrArray::new_scalar(default_stroke_width);
                     }
+                } else {
+                    // Expression references columns, use default for non-stroke_width legends
+                    config.stroke_width = ScalarOrArray::new_scalar(default_stroke_width);
                 }
+            } else {
+                // Conditional or no expression, use default
+                config.stroke_width = ScalarOrArray::new_scalar(default_stroke_width);
             }
         } else {
-            // Use default stroke width
+            // No stroke_width channel at all, use default
             config.stroke_width = ScalarOrArray::new_scalar(default_stroke_width);
         }
 
@@ -2394,15 +2435,18 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         } else if let Some(channel_value) = mark_encodings.get("stroke_dash") {
             // Stroke dash channel exists but this legend is not for stroke_dash
             // Only use it if it's a scalar (constant) expression
-            if !Self::references_columns(channel_value.expr()) {
-                // Constant expression - evaluate it
-                if let Ok(scalars) =
-                    crate::utils::eval_to_scalars(vec![channel_value.expr().clone()], None, None)
-                        .await
-                {
-                    if let Some(ScalarValue::Utf8(Some(pattern_str))) = scalars.into_iter().next() {
-                        let dash = Self::convert_dash_pattern(&pattern_str);
-                        config.stroke_dash = ScalarOrArray::new_scalar(dash);
+            if let Some(expr) = channel_value.expr() {
+                if !Self::references_columns(expr) {
+                    // Constant expression - evaluate it
+                    if let Ok(scalars) =
+                        crate::utils::eval_to_scalars(vec![expr.clone()], None, None).await
+                    {
+                        if let Some(ScalarValue::Utf8(Some(pattern_str))) =
+                            scalars.into_iter().next()
+                        {
+                            let dash = Self::convert_dash_pattern(&pattern_str);
+                            config.stroke_dash = ScalarOrArray::new_scalar(dash);
+                        }
                     }
                 }
             }

@@ -1,6 +1,6 @@
 use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::ChannelExpr;
+
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
 use avenger_chart::scales::Band;
@@ -40,17 +40,17 @@ async fn test_rect_discrete_fill_legend() {
     let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x_with::<Band>(|scale| scale.padding_inner(0.1))
-        .scale("y", |scale| scale.domain((0.0, 60.0)))
+        .scale_y(|scale| scale.domain((0.0, 60.0)))
         .legend("fill", |legend| legend.title("Category"))
         .mark(
             Rect::new()
-                .x(col("product").band(0.0))
-                .x2(col(":x").band(1.0))
+                .x_with(col("product"), |c| c.band(0.0))
+                .x2_with(col(":x"), |c| c.band(1.0))
                 .y(lit(0.0))
                 .y2(col("value"))
                 .fill(col("category"))
-                .stroke(lit("#333333").identity())
-                .stroke_width(lit(1.0).identity()),
+                .stroke_with(lit("#333333"), |c| c.no_scale())
+                .stroke_width_with(lit(1.0), |c| c.no_scale()),
         );
 
     assert_visual_match_default(plot, "legend", "rect_discrete_fill_legend").await;
@@ -86,18 +86,18 @@ async fn test_rect_continuous_fill_legend() {
     let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x_with::<Band>(|scale| scale.padding_inner(0.15))
-        .scale("y", |scale| scale.domain((0.0, 70.0)))
-        .scale("fill", |scale| scale.domain((0.0, 40.0)))
+        .scale_y(|scale| scale.domain((0.0, 70.0)))
+        ._scale("fill", |scale| scale.domain((0.0, 40.0)))
         .legend("fill", |legend| legend.title("Temperature (°C)"))
         .mark(
             Rect::new()
-                .x(col("quarter").band(0.0))
-                .x2(col(":x").band(1.0))
+                .x_with(col("quarter"), |c| c.band(0.0))
+                .x2_with(col(":x"), |c| c.band(1.0))
                 .y(lit(0.0))
                 .y2(col("sales"))
                 .fill(col("temperature"))
-                .stroke(lit("#000000").identity())
-                .stroke_width(lit(0.5).identity()),
+                .stroke_with(lit("#000000"), |c| c.no_scale())
+                .stroke_width_with(lit(0.5), |c| c.no_scale()),
         );
 
     assert_visual_match_default(plot, "legend", "rect_continuous_fill_legend").await;
@@ -133,8 +133,8 @@ async fn test_rect_stroke_legend() {
     let plot = Plot::<Cartesian>::new()
         .data(df)
         .scale_x_with::<Band>(|scale| scale.padding_inner(0.1))
-        .scale("y", |scale| scale.domain((0.0, 60.0)))
-        .scale("stroke", |scale| {
+        .scale_y(|scale| scale.domain((0.0, 60.0)))
+        ._scale("stroke", |scale| {
             scale
                 .range_discrete(vec!["#d62728", "#2ca02c", "#ff7f0e"])
                 .domain(vec![lit("Premium"), lit("Standard"), lit("Budget")])
@@ -142,13 +142,13 @@ async fn test_rect_stroke_legend() {
         .legend("stroke", |legend| legend.title("Quality Tier"))
         .mark(
             Rect::new()
-                .x(col("product").band(0.0))
-                .x2(col(":x").band(1.0))
+                .x_with(col("product"), |c| c.band(0.0))
+                .x2_with(col(":x"), |c| c.band(1.0))
                 .y(lit(0.0))
                 .y2(col("value"))
-                .fill(lit("#1f77b4").identity())
+                .fill_with(lit("#1f77b4"), |c| c.no_scale())
                 .stroke(col("quality"))
-                .stroke_width(lit(3.0).identity()),
+                .stroke_width_with(lit(3.0), |c| c.no_scale()),
         );
 
     assert_visual_match_default(plot, "legend", "rect_stroke_legend").await;

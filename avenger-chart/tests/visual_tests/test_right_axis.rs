@@ -63,8 +63,8 @@ async fn right_axis_no_legend_symbol_mark() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale("x", |s| s.domain((0.0, 10.0)))
-        .scale("y", |s| s.domain((0.0, 12.0)))
+        .scale_x(|s| s.domain((0.0, 10.0)))
+        .scale_y(|s| s.domain((0.0, 12.0)))
         .axis_y(|a| a.position(AxisPosition::Right).title("Y Right").grid(true))
         .legend("fill", |l| l.visible(false))
         .mark(
@@ -84,8 +84,8 @@ async fn right_axis_with_symbol_legend() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale("x", |s| s.domain((0.0, 10.0)))
-        .scale("y", |s| s.domain((0.0, 12.0)))
+        .scale_x(|s| s.domain((0.0, 10.0)))
+        .scale_y(|s| s.domain((0.0, 12.0)))
         .axis_y(|a| a.position(AxisPosition::Right).title("Y Right").grid(true))
         .legend("fill", |l| {
             l.title("Category").position(LegendPosition::Right)
@@ -107,8 +107,8 @@ async fn right_axis_with_line_legend() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale("x", |s| s.domain((0.0, 6.0)))
-        .scale("y", |s| s.domain((0.0, 22.0)))
+        .scale_x(|s| s.domain((0.0, 6.0)))
+        .scale_y(|s| s.domain((0.0, 22.0)))
         .axis_y(|a| a.position(AxisPosition::Right).title("Y Right").grid(true))
         .legend("stroke", |l| {
             l.title("Series").position(LegendPosition::Right)
@@ -130,9 +130,8 @@ async fn right_axis_with_colorbar_legend() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale("x", |s| s.domain((0.0, 10.0)))
-        .scale("y", |s| s.domain((0.0, 12.0)))
-        .scale("fill", |s| s.domain((0.0, 100.0)))
+        .scale_x(|s| s.domain((0.0, 10.0)))
+        .scale_y(|s| s.domain((0.0, 12.0)))
         .axis_y(|a| a.position(AxisPosition::Right).title("Y Right").grid(true))
         .legend("fill", |l| l.title("Temp").position(LegendPosition::Right))
         .mark(
@@ -140,7 +139,10 @@ async fn right_axis_with_colorbar_legend() {
                 .x(col("x"))
                 .y(col("y"))
                 .size(100.0)
-                .fill(lit(42.0)),
+                .fill_with(
+                    lit(42.0),
+                    |c| c.scale(|s| s.domain((0.0, 100.0)))
+                ),
         );
 
     assert_visual_match_default(plot, "layout", "right_axis_with_colorbar_legend").await;
@@ -152,8 +154,8 @@ async fn top_x_axis_with_right_y_no_legend() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale("x", |s| s.domain((0.0, 10.0)))
-        .scale("y", |s| s.domain((0.0, 12.0)))
+        .scale_x(|s| s.domain((0.0, 10.0)))
+        .scale_y(|s| s.domain((0.0, 12.0)))
         .axis_x(|a| a.position(AxisPosition::Top).title("X Top").grid(true))
         .axis_y(|a| a.position(AxisPosition::Right).title("Y Right").grid(true))
         .legend("fill", |l| l.visible(false))

@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use avenger_chart::cartesian::Cartesian;
-    use avenger_chart::marks::ChannelExpr;
+
     use avenger_chart::marks::symbol::Symbol;
     use avenger_chart::plot::Plot;
     use datafusion::arrow::array::Float64Array;
@@ -48,7 +48,7 @@ mod tests {
                     .data(df.clone())
                     .x(col("x"))
                     .y(col("y"))
-                    .size(col("size").identity())
+                    .size(col("size"))
                     .fill("#00ff00"),
             ),
             (
@@ -73,9 +73,9 @@ mod tests {
 
         for (name, symbol) in configs {
             let plot = Plot::<Cartesian>::new()
-                .scale("x", |s| s.domain((0.0, 200.0)))
-                .scale("y", |s| s.domain((0.0, 200.0)))
-                .scale("size", |s| s.range_interval(lit(16.0), lit(64.0))) // Set size scale range
+                .scale_x(|s| s.domain((0.0, 200.0)))
+                .scale_y(|s| s.domain((0.0, 200.0)))
+                ._scale("size", |s| s.range_interval(lit(16.0), lit(64.0))) // Set size scale range
                 .mark(symbol);
 
             let mut canvas = PngCanvas::new(dimensions, CanvasConfig::default())

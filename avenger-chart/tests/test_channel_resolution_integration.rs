@@ -1,5 +1,4 @@
 use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::ChannelExpr; // Need this for .band()
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
@@ -29,7 +28,7 @@ async fn test_channel_resolution_in_rendering() -> Result<(), Box<dyn std::error
         Rect::new()
             .data(df)
             .x(col("category"))
-            .x2(col(":x").band(1.0)) // This references the x channel
+            .x2_with(col(":x"), |c| c.band(1.0)) // This references the x channel
             .y(lit(0.0))
             .y2(col("value")),
     );
@@ -71,7 +70,7 @@ async fn test_channel_resolution_with_scale() -> Result<(), Box<dyn std::error::
             Rect::new()
                 .data(df)
                 .x(col("name"))
-                .x2(col(":x").band(1.0)) // Should resolve to the scaled x value
+                .x2_with(col(":x"), |c| c.band(1.0)) // Should resolve to the scaled x value
                 .y(lit(0.0))
                 .y2(col("value")),
         );

@@ -4,8 +4,8 @@
 //! avenger-chart API and render it to a PNG file using PngCanvas.
 
 use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::ChannelExpr;
 use avenger_chart::marks::rect::Rect;
+use avenger_chart::marks::typed_channels::PositionChannel;
 use avenger_chart::plot::Plot;
 use avenger_chart::render::CanvasExt;
 use avenger_common::canvas::CanvasDimensions;
@@ -42,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .mark(
             Rect::new()
                 .x(col("category"))
-                .x2(col(":x").band(1.0))
+                .x2(PositionChannel::from(col(":x")).band(1.0))
                 .y(lit(0.0))
                 .y2(col("value"))
                 .fill("#4682b4")

@@ -1,6 +1,6 @@
 use crate::legend::Legend;
 use crate::scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec};
-use datafusion::logical_expr::{Expr, ident, lit};
+use datafusion::logical_expr::{Expr, lit};
 use std::sync::Arc;
 
 /// Type alias for scale configuration function
@@ -8,6 +8,29 @@ pub type ScaleConfig = Arc<dyn Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync>;
 
 /// Type alias for legend configuration function  
 pub type LegendConfig = Arc<dyn Fn(Legend) -> Legend + Send + Sync>;
+
+/// Value for conditional encoding branches
+#[derive(Clone, Debug)]
+pub enum ConditionalValue {
+    /// Field value that gets scaled
+    Field { expr: Expr },
+    /// Literal value that bypasses scaling
+    Value { expr: Expr },
+}
+
+impl ConditionalValue {
+    /// Get the expression from this conditional value
+    pub fn expr(&self) -> &Expr {
+        match self {
+            ConditionalValue::Field { expr } | ConditionalValue::Value { expr } => expr,
+        }
+    }
+
+    /// Check if this is a field (scaled) value
+    pub fn is_field(&self) -> bool {
+        matches!(self, ConditionalValue::Field { .. })
+    }
+}
 
 /// Represents a channel encoding value
 #[derive(Clone)]
@@ -26,6 +49,17 @@ pub enum ChannelValue {
     },
     /// Expression that bypasses scaling (identity transformation)
     Identity { expr: Expr },
+    /// Conditional encoding with multiple branches
+    Conditional {
+        /// List of (condition, value) pairs
+        conditions: Vec<(Expr, ConditionalValue)>,
+        /// Default value when no conditions match
+        otherwise: ConditionalValue,
+        /// Optional scale configuration (applies to all Field branches)
+        scale_config: Option<ScaleConfig>,
+        /// Optional legend configuration (applies to all Field branches)
+        legend_config: Option<LegendConfig>,
+    },
 }
 
 impl std::fmt::Debug for ChannelValue {
@@ -47,6 +81,17 @@ impl std::fmt::Debug for ChannelValue {
             ChannelValue::Identity { expr } => {
                 f.debug_struct("Identity").field("expr", expr).finish()
             }
+            ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                ..
+            } => f
+                .debug_struct("Conditional")
+                .field("conditions", &conditions.len())
+                .field("otherwise", otherwise)
+                .field("has_scale_config", &self.has_scale_config())
+                .field("has_legend_config", &self.has_legend_config())
+                .finish(),
         }
     }
 }
@@ -55,7 +100,8 @@ impl ChannelValue {
     /// Check if this channel has scale configuration
     pub fn has_scale_config(&self) -> bool {
         match self {
-            ChannelValue::Scaled { scale_config, .. } => scale_config.is_some(),
+            ChannelValue::Scaled { scale_config, .. }
+            | ChannelValue::Conditional { scale_config, .. } => scale_config.is_some(),
             _ => false,
         }
     }
@@ -63,7 +109,8 @@ impl ChannelValue {
     /// Check if this channel has legend configuration
     pub fn has_legend_config(&self) -> bool {
         match self {
-            ChannelValue::Scaled { legend_config, .. } => legend_config.is_some(),
+            ChannelValue::Scaled { legend_config, .. }
+            | ChannelValue::Conditional { legend_config, .. } => legend_config.is_some(),
             _ => false,
         }
     }
@@ -71,7 +118,8 @@ impl ChannelValue {
     /// Get the scale configuration if present
     pub fn get_scale_config(&self) -> Option<&ScaleConfig> {
         match self {
-            ChannelValue::Scaled { scale_config, .. } => scale_config.as_ref(),
+            ChannelValue::Scaled { scale_config, .. }
+            | ChannelValue::Conditional { scale_config, .. } => scale_config.as_ref(),
             _ => None,
         }
     }
@@ -79,72 +127,41 @@ impl ChannelValue {
     /// Get the legend configuration if present
     pub fn get_legend_config(&self) -> Option<&LegendConfig> {
         match self {
-            ChannelValue::Scaled { legend_config, .. } => legend_config.as_ref(),
+            ChannelValue::Scaled { legend_config, .. }
+            | ChannelValue::Conditional { legend_config, .. } => legend_config.as_ref(),
             _ => None,
         }
     }
 }
 
-/// Trait for types that can be converted to channel values
-pub trait ChannelExpr: Sized {
-    /// Use this value as-is without scaling (identity)
-    fn identity(self) -> ChannelValue;
-
-    /// Set the band parameter for this channel
-    fn band(self, band: f64) -> ChannelValue
-    where
-        Self: Into<ChannelValue>,
-    {
-        let channel_value: ChannelValue = self.into();
-        channel_value.band(band)
-    }
-
-    /// Configure the scale for this value
-    fn scale<F>(self, f: F) -> ChannelValue
-    where
-        F: Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync + 'static,
-        Self: Into<ChannelValue>,
-    {
-        let channel_value: ChannelValue = self.into();
-        channel_value.scale(f)
-    }
-
-    /// Configure the scale with explicit type
-    fn scale_with<S: ScaleTypeSpec, F>(self, f: F) -> ChannelValue
-    where
-        F: Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
-        Self: Into<ChannelValue>,
-    {
-        let channel_value: ChannelValue = self.into();
-        channel_value.scale_with(f)
-    }
-
-    /// Configure the legend for this value
-    fn legend<F>(self, f: F) -> ChannelValue
-    where
-        F: Fn(Legend) -> Legend + Send + Sync + 'static,
-        Self: Into<ChannelValue>,
-    {
-        let channel_value: ChannelValue = self.into();
-        channel_value.legend(f)
-    }
-
-    /// Disable legend for this value
-    fn no_legend(self) -> ChannelValue
-    where
-        Self: Into<ChannelValue>,
-    {
-        let channel_value: ChannelValue = self.into();
-        channel_value.no_legend()
-    }
-}
-
 impl ChannelValue {
-    /// Get the expression
-    pub fn expr(&self) -> &Expr {
+    /// Get the expression (for non-conditional values)
+    /// For conditional values, returns None since there are multiple expressions
+    pub fn expr(&self) -> Option<&Expr> {
         match self {
-            ChannelValue::Scaled { expr, .. } => expr,
-            ChannelValue::Identity { expr } => expr,
+            ChannelValue::Scaled { expr, .. } => Some(expr),
+            ChannelValue::Identity { expr } => Some(expr),
+            ChannelValue::Conditional { .. } => None,
+        }
+    }
+
+    /// Get all expressions from this channel value
+    pub fn all_exprs(&self) -> Vec<&Expr> {
+        match self {
+            ChannelValue::Scaled { expr, .. } | ChannelValue::Identity { expr } => vec![expr],
+            ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                ..
+            } => {
+                let mut exprs = Vec::new();
+                for (cond, val) in conditions {
+                    exprs.push(cond);
+                    exprs.push(val.expr());
+                }
+                exprs.push(otherwise.expr());
+                exprs
+            }
         }
     }
 
@@ -156,6 +173,10 @@ impl ChannelValue {
                     // Use channel name with trailing numbers removed
                     Some(strip_trailing_numbers(channel_name).to_string())
                 })
+            }
+            ChannelValue::Conditional { .. } => {
+                // Conditional values with Field branches use scales
+                Some(strip_trailing_numbers(channel_name).to_string())
             }
             ChannelValue::Identity { .. } => None,
         }
@@ -177,7 +198,7 @@ impl ChannelValue {
                 scale_config,
                 legend_config,
             },
-            identity => identity, // No-op for identity values
+            other => other, // No-op for identity and conditional values
         }
     }
 
@@ -206,6 +227,10 @@ impl ChannelValue {
                     scale_config: None,
                     legend_config: None,
                 }
+            }
+            ChannelValue::Conditional { .. } => {
+                // Conditional values already have implicit scale names
+                self
             }
         }
     }
@@ -239,6 +264,17 @@ impl ChannelValue {
                     legend_config: None,
                 }
             }
+            ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                legend_config,
+                ..
+            } => ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                scale_config: Some(Arc::new(f)),
+                legend_config,
+            },
         }
     }
 
@@ -272,6 +308,17 @@ impl ChannelValue {
                 scale_config,
                 legend_config: Some(Arc::new(f)),
             },
+            ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                scale_config,
+                ..
+            } => ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                scale_config,
+                legend_config: Some(Arc::new(f)),
+            },
             ChannelValue::Identity { .. } => {
                 // No-op for identity values - they don't have legends
                 self
@@ -284,23 +331,101 @@ impl ChannelValue {
         self.legend(|_| Legend::new().visible(false))
     }
 
-    /// Helper for creating column references
-    pub fn column(column: impl Into<String>) -> Self {
-        ident(column.into()).into()
-    }
-
-    /// Helper for creating unscaled values (backwards compat)
-    pub fn no_scale(expr: Expr) -> Self {
-        expr.identity()
+    /// Disable scaling and use raw values
+    pub fn no_scale(self) -> Self {
+        match self {
+            ChannelValue::Scaled { expr, .. } => ChannelValue::Identity { expr },
+            other => other,
+        }
     }
 
     /// Extract column name if this is a simple column reference
     pub fn as_column_name(&self) -> Option<String> {
         // Check if expr is a simple column identifier
-        if let Expr::Column(col) = self.expr() {
+        if let Some(Expr::Column(col)) = self.expr() {
             Some(col.name.clone())
         } else {
             None
+        }
+    }
+
+    /// Create a conditional encoding
+    pub fn when(condition: Expr, field: Expr) -> ConditionalBuilder {
+        ConditionalBuilder {
+            conditions: vec![(condition, ConditionalValue::Field { expr: field })],
+            otherwise: None,
+        }
+    }
+
+    /// Create a conditional encoding with a literal value
+    pub fn when_value(condition: Expr, value: impl Into<ChannelValue>) -> ConditionalBuilder {
+        let value = value.into();
+        let cond_value = match value {
+            ChannelValue::Identity { expr } => ConditionalValue::Value { expr },
+            ChannelValue::Scaled { expr, .. } => ConditionalValue::Field { expr },
+            _ => panic!("Cannot use conditional value in when_value"),
+        };
+        ConditionalBuilder {
+            conditions: vec![(condition, cond_value)],
+            otherwise: None,
+        }
+    }
+}
+
+/// Builder for conditional channel values
+pub struct ConditionalBuilder {
+    conditions: Vec<(Expr, ConditionalValue)>,
+    otherwise: Option<ConditionalValue>,
+}
+
+impl ConditionalBuilder {
+    /// Add another condition with a field
+    pub fn when(mut self, condition: Expr, field: Expr) -> Self {
+        self.conditions
+            .push((condition, ConditionalValue::Field { expr: field }));
+        self
+    }
+
+    /// Add another condition with a literal value  
+    pub fn when_value(mut self, condition: Expr, value: impl Into<ChannelValue>) -> Self {
+        let value = value.into();
+        let cond_value = match value {
+            ChannelValue::Identity { expr } => ConditionalValue::Value { expr },
+            ChannelValue::Scaled { expr, .. } => ConditionalValue::Field { expr },
+            _ => panic!("Cannot use conditional value in when_value"),
+        };
+        self.conditions.push((condition, cond_value));
+        self
+    }
+
+    /// Set the default field value
+    pub fn otherwise(mut self, field: Expr) -> Self {
+        self.otherwise = Some(ConditionalValue::Field { expr: field });
+        self
+    }
+
+    /// Set the default literal value
+    pub fn otherwise_value(mut self, value: impl Into<ChannelValue>) -> Self {
+        let value = value.into();
+        let cond_value = match value {
+            ChannelValue::Identity { expr } => ConditionalValue::Value { expr },
+            ChannelValue::Scaled { expr, .. } => ConditionalValue::Field { expr },
+            _ => panic!("Cannot use conditional value in otherwise_value"),
+        };
+        self.otherwise = Some(cond_value);
+        self
+    }
+}
+
+impl From<ConditionalBuilder> for ChannelValue {
+    fn from(builder: ConditionalBuilder) -> Self {
+        ChannelValue::Conditional {
+            conditions: builder.conditions,
+            otherwise: builder
+                .otherwise
+                .expect("Conditional encoding must have an otherwise clause"),
+            scale_config: None,
+            legend_config: None,
         }
     }
 }
@@ -311,25 +436,11 @@ pub(crate) fn strip_trailing_numbers(name: &str) -> &str {
     name.trim_end_matches(char::is_numeric)
 }
 
-// Implement ChannelExpr for Expr
-impl ChannelExpr for Expr {
-    fn identity(self) -> ChannelValue {
-        ChannelValue::Identity { expr: self }
-    }
-}
-
-// Implement ChannelExpr for &str
-impl ChannelExpr for &str {
-    fn identity(self) -> ChannelValue {
-        lit(self).identity()
-    }
-}
-
 // Smart conversion for &str - always literals, identity by default
 impl From<&str> for ChannelValue {
     fn from(s: &str) -> Self {
         // Always treat strings as literals - identity by default
-        lit(s).identity()
+        ChannelValue::Identity { expr: lit(s) }
     }
 }
 
@@ -349,31 +460,31 @@ impl From<Expr> for ChannelValue {
 // Numeric literals default to identity
 impl From<f64> for ChannelValue {
     fn from(v: f64) -> Self {
-        lit(v).identity()
+        ChannelValue::Identity { expr: lit(v) }
     }
 }
 
 impl From<f32> for ChannelValue {
     fn from(v: f32) -> Self {
-        lit(v as f64).identity()
+        ChannelValue::Identity { expr: lit(v) }
     }
 }
 
 impl From<i32> for ChannelValue {
     fn from(v: i32) -> Self {
-        lit(v).identity()
+        ChannelValue::Identity { expr: lit(v) }
     }
 }
 
 impl From<i64> for ChannelValue {
     fn from(v: i64) -> Self {
-        lit(v).identity()
+        ChannelValue::Identity { expr: lit(v) }
     }
 }
 
 impl From<bool> for ChannelValue {
     fn from(v: bool) -> Self {
-        lit(v).identity()
+        ChannelValue::Identity { expr: lit(v) }
     }
 }
 
@@ -398,11 +509,12 @@ mod tests {
         assert!(matches!(cv, ChannelValue::Scaled { .. }));
 
         // Test identity
-        let cv = lit(5).identity();
+        let cv = ChannelValue::from(5);
         assert!(matches!(cv, ChannelValue::Identity { .. }));
 
-        // Test band
-        let cv = col("x").band(0.5);
+        // Test band - convert to ChannelValue first, then apply band
+        let cv: ChannelValue = col("x").into();
+        let cv = cv.band(0.5);
         assert!(matches!(
             cv,
             ChannelValue::Scaled {
@@ -411,8 +523,9 @@ mod tests {
             }
         ));
 
-        // Test band on expression creates scaled with band
-        let cv1 = col("x").band(1.0);
+        // Test band on ChannelValue
+        let cv1: ChannelValue = col("x").into();
+        let cv1 = cv1.band(1.0);
         let cv2: ChannelValue = col("x").into();
         let cv2 = cv2.band(1.0);
         match (cv1, cv2) {

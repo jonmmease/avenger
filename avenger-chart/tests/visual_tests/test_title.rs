@@ -1,8 +1,8 @@
 use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::axis::AxisPosition;
 use avenger_chart::cartesian::Cartesian;
+
 use avenger_chart::legend::LegendPosition;
-use avenger_chart::marks::ChannelExpr;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
 use datafusion::arrow::array::{Float64Array, StringArray};
@@ -58,10 +58,10 @@ async fn title_basic_symbol() {
     let df = make_df_categories();
     let plot = Plot::<Cartesian>::new().title("Basic Title").data(df).mark(
         Symbol::new()
-            .x(col("x").scale(|s| s.domain((0.0, 10.0))))
-            .y(col("y").scale(|s| s.domain((0.0, 12.0))))
+            .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 10.0))))
+            .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 12.0))))
             .size(100.0)
-            .fill("#2ca25f".identity().no_legend()),
+            .fill_with("#2ca25f", |c| c.no_legend()),
     );
 
     assert_visual_match_default(plot, "layout", "title_basic_symbol").await;
@@ -75,12 +75,12 @@ async fn title_with_symbol_legend() {
         .data(df)
         .mark(
             Symbol::new()
-                .x(col("x").scale(|s| s.domain((0.0, 10.0))))
-                .y(col("y").scale(|s| s.domain((0.0, 12.0))))
+                .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 10.0))))
+                .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 12.0))))
                 .size(100.0)
-                .fill(
-                    col("category").legend(|l| l.title("Category").position(LegendPosition::Right)),
-                ),
+                .fill_with(col("category"), |c| {
+                    c.legend(|l| l.title("Category").position(LegendPosition::Right))
+                }),
         );
 
     assert_visual_match_default(plot, "layout", "title_with_symbol_legend").await;
@@ -96,10 +96,10 @@ async fn title_top_x_right_y() {
         .axis_y(|a| a.position(AxisPosition::Right).title("Right Y").grid(true))
         .mark(
             Symbol::new()
-                .x(col("x").scale(|s| s.domain((0.0, 10.0))))
-                .y(col("y").scale(|s| s.domain((0.0, 12.0))))
+                .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 10.0))))
+                .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 12.0))))
                 .size(100.0)
-                .fill("#2ca25f".identity().no_legend()),
+                .fill_with("#2ca25f", |c| c.no_legend()),
         );
 
     assert_visual_match_default(plot, "layout", "title_top_x_right_y").await;
@@ -113,14 +113,13 @@ async fn title_with_colorbar_legend() {
         .data(df)
         .mark(
             Symbol::new()
-                .x(col("x").scale(|s| s.domain((0.0, 10.0))))
-                .y(col("y").scale(|s| s.domain((0.0, 12.0))))
+                .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 10.0))))
+                .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 12.0))))
                 .size(100.0)
-                .fill(
-                    col("value")
-                        .scale(|s| s.domain((0.0, 100.0)))
-                        .legend(|l| l.title("Value").position(LegendPosition::Right)),
-                ),
+                .fill_with(col("value"), |c| {
+                    c.scale(|s| s.domain((0.0, 100.0)))
+                        .legend(|l| l.title("Value").position(LegendPosition::Right))
+                }),
         );
 
     assert_visual_match_default(plot, "layout", "title_with_colorbar_legend").await;
@@ -135,10 +134,10 @@ async fn subtitle_basic_symbol() {
         .data(df)
         .mark(
             Symbol::new()
-                .x(col("x").scale(|s| s.domain((0.0, 10.0))))
-                .y(col("y").scale(|s| s.domain((0.0, 12.0))))
+                .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 10.0))))
+                .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 12.0))))
                 .size(100.0)
-                .fill("#2ca25f".identity().no_legend()),
+                .fill_with("#2ca25f", |c| c.no_legend()),
         );
 
     assert_visual_match_default(plot, "layout", "subtitle_basic_symbol").await;
@@ -153,14 +152,13 @@ async fn subtitle_with_legend() {
         .data(df)
         .mark(
             Symbol::new()
-                .x(col("x").scale(|s| s.domain((0.0, 10.0))))
-                .y(col("y").scale(|s| s.domain((0.0, 12.0))))
+                .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 10.0))))
+                .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 12.0))))
                 .size(100.0)
-                .fill(
-                    col("value")
-                        .scale(|s| s.domain((0.0, 100.0)))
-                        .legend(|l| l.title("Value").position(LegendPosition::Right)),
-                ),
+                .fill_with(col("value"), |c| {
+                    c.scale(|s| s.domain((0.0, 100.0)))
+                        .legend(|l| l.title("Value").position(LegendPosition::Right))
+                }),
         );
 
     assert_visual_match_default(plot, "layout", "subtitle_with_legend").await;
@@ -180,10 +178,10 @@ async fn title_with_axes_positions() {
         .axis_y(|a| a.position(AxisPosition::Right).title("Right Y").grid(false))
         .mark(
             Symbol::new()
-                .x(col("x").scale(|s| s.domain((0.0, 10.0))))
-                .y(col("y").scale(|s| s.domain((0.0, 12.0))))
+                .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 10.0))))
+                .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 12.0))))
                 .size(100.0)
-                .fill("#c0392b".identity().no_legend()),
+                .fill_with("#c0392b", |c| c.no_legend()),
         );
 
     assert_visual_match_default(plot, "layout", "title_with_axes_positions").await;
@@ -198,10 +196,10 @@ async fn multiline_title_subtitle() {
         .data(df)
         .mark(
             Symbol::new()
-                .x(col("x").scale(|s| s.domain((0.0, 10.0))))
-                .y(col("y").scale(|s| s.domain((0.0, 12.0))))
+                .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 10.0))))
+                .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 12.0))))
                 .size(100.0)
-                .fill("#34495e".identity().no_legend()),
+                .fill_with("#34495e", |c| c.no_legend()),
         );
 
     assert_visual_match_default(plot, "layout", "multiline_title_subtitle").await;

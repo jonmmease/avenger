@@ -19,8 +19,32 @@ impl<A: CartesianAxis + Default + 'static> Symbol<Cartesian<A>> {
         self.with_channel_value("x", value.into())
     }
 
+    pub fn x_with<F>(self, value: impl Into<datafusion::logical_expr::Expr>, f: F) -> Self
+    where
+        F: FnOnce(
+            crate::marks::typed_channels::PositionChannel,
+        ) -> crate::marks::typed_channels::PositionChannel,
+    {
+        let channel = f(crate::marks::typed_channels::PositionChannel::from(
+            value.into(),
+        ));
+        self.with_channel_value("x", channel.into())
+    }
+
     pub fn y<V: Into<crate::marks::ChannelValue>>(self, value: V) -> Self {
         self.with_channel_value("y", value.into())
+    }
+
+    pub fn y_with<F>(self, value: impl Into<datafusion::logical_expr::Expr>, f: F) -> Self
+    where
+        F: FnOnce(
+            crate::marks::typed_channels::PositionChannel,
+        ) -> crate::marks::typed_channels::PositionChannel,
+    {
+        let channel = f(crate::marks::typed_channels::PositionChannel::from(
+            value.into(),
+        ));
+        self.with_channel_value("y", channel.into())
     }
 
     pub fn position_channel_descriptors() -> Vec<crate::marks::ChannelDescriptor> {
