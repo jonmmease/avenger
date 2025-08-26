@@ -1,6 +1,6 @@
 use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
-
+use avenger_chart::cartesian::DefaultCartesianAxis;
 use avenger_chart::marks::line::Line;
 use avenger_chart::plot::Plot;
 use avenger_chart::scales::{Ordinal, Scale};
@@ -58,18 +58,15 @@ async fn test_line_discrete_stroke_legend() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a multi-series line chart with stroke legend
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x(|scale| scale.domain((0.0, 6.0)))
-        .scale_y(|scale| scale.domain((0.0, 35.0)))
-        .legend("stroke", |legend| legend.title("Series"))
-        .mark(
-            Line::new()
-                .x(col("x"))
-                .y(col("y"))
-                .stroke(col("series"))
-                .order(col("order")),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Line::new()
+            .x_with(col("x"), |c| c.scale(|scale| scale.domain((0.0, 6.0))))
+            .y_with(col("y"), |c| c.scale(|scale| scale.domain((0.0, 35.0))))
+            .stroke_with(col("series"), |c| {
+                c.scale(|s| s).legend(|legend| legend.title("Series"))
+            })
+            .order(col("order")),
+    );
 
     assert_visual_match_default(plot, "legend", "line_discrete_stroke_legend").await;
 }
@@ -122,27 +119,23 @@ async fn test_line_stroke_width_legend() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a line chart with stroke width legend
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x(|scale| scale.domain((0.0, 6.0)))
-        .scale_y(|scale| scale.domain((0.0, 15.0)))
-        .legend("stroke_width", |legend| legend.title("Importance"))
-        .mark(
-            Line::new()
-                .x(col("x"))
-                .y(col("y"))
-                .stroke_with(lit("#1f77b4"), |c| c.no_scale())
-                .stroke_width_with(col("importance"), |c| {
-                    c.scale_with(|scale: Scale<Ordinal>| {
-                        scale.range_discrete(vec![1.0, 3.0, 6.0]).domain(vec![
-                            lit("Low"),
-                            lit("Medium"),
-                            lit("High"),
-                        ])
-                    })
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Line::new()
+            .x_with(col("x"), |c| c.scale(|scale| scale.domain((0.0, 6.0))))
+            .y_with(col("y"), |c| c.scale(|scale| scale.domain((0.0, 15.0))))
+            .stroke_with(lit("#1f77b4"), |c| c.no_scale())
+            .stroke_width_with(col("importance"), |c| {
+                c.scale_with(|scale: Scale<Ordinal>| {
+                    scale.range_discrete(vec![1.0, 3.0, 6.0]).domain(vec![
+                        lit("Low"),
+                        lit("Medium"),
+                        lit("High"),
+                    ])
                 })
-                .order(col("order")),
-        );
+                .legend(|legend| legend.title("Importance"))
+            })
+            .order(col("order")),
+    );
 
     assert_visual_match_default(plot, "legend", "line_stroke_width_legend").await;
 }
@@ -214,15 +207,21 @@ async fn test_line_stroke_dash_legend() {
         .data(df)
         .title("Multi-Series Time Series Analysis")
         .subtitle("Eight distinct patterns with colorblind-safe palette")
-        .axis_x(|axis| axis.title("Sample Index").grid(true))
-        .axis_y(|axis| axis.title("Performance Metric (%)").grid(true))
-        .legend_stroke_dash(|legend| legend.title("Line Pattern"))
         .mark(
             Line::new()
-                .x(col("x"))
-                .y(col("y"))
+                .x_with(col("x"), |c| {
+                    c.scale(|s| s)
+                        .axis(|axis: DefaultCartesianAxis| axis.title("Sample Index").grid(true))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale(|s| s).axis(|axis: DefaultCartesianAxis| {
+                        axis.title("Performance Metric (%)").grid(true)
+                    })
+                })
                 .stroke(col("line_type"))
-                .stroke_dash(col("line_type")),
+                .stroke_dash_with(col("line_type"), |c| {
+                    c.scale(|s| s).legend(|legend| legend.title("Line Pattern"))
+                }),
         );
 
     assert_visual_match_default(plot, "legend", "line_stroke_dash_legend").await;
@@ -274,33 +273,29 @@ async fn test_line_combined_stroke_width_legend() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a line chart where priority encodes both stroke color and width
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x(|scale| scale.domain((0.0, 6.0)))
-        .scale_y(|scale| scale.domain((0.0, 25.0)))
-        .legend("stroke", |legend| legend.title("Priority"))
-        .mark(
-            Line::new()
-                .x(col("x"))
-                .y(col("y"))
-                .stroke_with(col("priority"), |c| {
-                    c.scale_with::<Ordinal>(|scale| {
-                        scale
-                            .range_discrete(vec!["#d62728", "#ff7f0e", "#2ca02c"])
-                            .domain(vec![lit("High"), lit("Medium"), lit("Low")])
-                    })
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Line::new()
+            .x_with(col("x"), |c| c.scale(|scale| scale.domain((0.0, 6.0))))
+            .y_with(col("y"), |c| c.scale(|scale| scale.domain((0.0, 25.0))))
+            .stroke_with(col("priority"), |c| {
+                c.scale_with::<Ordinal>(|scale| {
+                    scale
+                        .range_discrete(vec!["#d62728", "#ff7f0e", "#2ca02c"])
+                        .domain(vec![lit("High"), lit("Medium"), lit("Low")])
                 })
-                .stroke_width_with(col("priority"), |c| {
-                    c.scale_with(|scale: Scale<Ordinal>| {
-                        scale.range_discrete(vec![4.0, 2.5, 1.0]).domain(vec![
-                            lit("High"),
-                            lit("Medium"),
-                            lit("Low"),
-                        ])
-                    })
+                .legend(|legend| legend.title("Priority"))
+            })
+            .stroke_width_with(col("priority"), |c| {
+                c.scale_with(|scale: Scale<Ordinal>| {
+                    scale.range_discrete(vec![4.0, 2.5, 1.0]).domain(vec![
+                        lit("High"),
+                        lit("Medium"),
+                        lit("Low"),
+                    ])
                 })
-                .order(col("order")),
-        );
+            })
+            .order(col("order")),
+    );
 
     assert_visual_match_default(plot, "legend", "line_combined_stroke_width_legend").await;
 }

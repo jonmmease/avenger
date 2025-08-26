@@ -68,9 +68,7 @@ async fn test_legend_visibility() {
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Symbol::new()
-            .x_with(col("x"), |c| c
-                .scale(|scale| scale.domain((0.0, 10.0)))
-            )
+            .x_with(col("x"), |c| c.scale(|scale| scale.domain((0.0, 10.0))))
             .y_with(col("y"), |c| c.scale(|scale| scale.domain((0.0, 12.0))))
             .fill_with(col("category"), |c| {
                 c.scale(|scale| scale.domain_discrete(vec![lit("A"), lit("B"), lit("C")]))

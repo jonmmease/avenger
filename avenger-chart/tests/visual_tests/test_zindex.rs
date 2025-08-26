@@ -1,5 +1,5 @@
 use super::helpers::assert_visual_match_default;
-use avenger_chart::cartesian::Cartesian;
+use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
 use avenger_chart::marks::line::Line;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
@@ -32,15 +32,17 @@ async fn test_zindex_ordering() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x_with::<Linear>(|scale| scale.domain((0.0, 6.0)))
-        .scale_y_with::<Linear>(|scale| scale.domain((0.0, 60.0)))
-        .axis_x(|axis| axis.title("X"))
-        .axis_y(|axis| axis.title("Y"))
         // First: Light blue line (with high zindex=10, should be drawn last/on top)
         .mark(
             Line::new()
-                .x(col("x"))
-                .y(col("y"))
+                .x_with(col("x"), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((0.0, 6.0)))
+                        .axis(|a: DefaultCartesianAxis| a.title("X"))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((0.0, 60.0)))
+                        .axis(|a: DefaultCartesianAxis| a.title("Y"))
+                })
                 .stroke("#6699ff")
                 .stroke_width(8.0)
                 .zindex(10),
@@ -90,16 +92,18 @@ async fn test_zindex_default_order() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x_with::<Linear>(|scale| scale.domain((0.0, 6.0)))
-        .scale_y_with::<Linear>(|scale| scale.domain((0.0, 60.0)))
-        .axis_x(|axis| axis.title("X"))
-        .axis_y(|axis| axis.title("Y"))
         // SAME marks, SAME order, but NO zindex - should render in declaration order
         // First: Light blue line (no zindex, should be drawn first/bottom)
         .mark(
             Line::new()
-                .x(col("x"))
-                .y(col("y"))
+                .x_with(col("x"), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((0.0, 6.0)))
+                        .axis(|a: DefaultCartesianAxis| a.title("X"))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((0.0, 60.0)))
+                        .axis(|a: DefaultCartesianAxis| a.title("Y"))
+                })
                 .stroke("#6699ff")
                 .stroke_width(8.0),
         )

@@ -3,9 +3,8 @@
 //! This example shows how to create a basic bar chart using the high-level
 //! avenger-chart API and render it to a PNG file using PngCanvas.
 
-use avenger_chart::cartesian::Cartesian;
+use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
 use avenger_chart::marks::rect::Rect;
-use avenger_chart::marks::typed_channels::PositionChannel;
 use avenger_chart::plot::Plot;
 use avenger_chart::render::CanvasExt;
 use avenger_common::canvas::CanvasDimensions;
@@ -36,14 +35,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create bar chart using avenger-chart API
     let plot = Plot::<Cartesian>::new()
         .data(df.clone())
-        .axis_x(|axis| axis.title("Category").grid(false))
-        .axis_y(|axis| axis.title("Value").grid(true))
         // Add bar mark
         .mark(
             Rect::new()
-                .x(col("category"))
-                .x2(PositionChannel::from(col(":x")).band(1.0))
-                .y(lit(0.0))
+                .x_with(col("category"), |c| {
+                    c.band(0.0)
+                        .axis(|a: DefaultCartesianAxis| a.title("Category").grid(false))
+                })
+                .x2_with(col(":x"), |c| c.band(1.0))
+                .y_with(lit(0.0), |c| {
+                    c.axis(|a: DefaultCartesianAxis| a.title("Value").grid(true))
+                })
                 .y2(col("value"))
                 .fill("#4682b4")
                 .stroke("#000000")

@@ -2,7 +2,7 @@
 
 use super::datasets;
 use super::helpers::assert_visual_match_default;
-use avenger_chart::cartesian::Cartesian;
+use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
 use avenger_chart::scales::Linear;
@@ -12,23 +12,22 @@ use datafusion::logical_expr::{col, lit};
 async fn test_bar_chart_y_scale_auto_zero() {
     let df = datasets::simple_categories();
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        // No explicit options:
-        // - y scale should get nice=true,zero=true by default
-        // - x scale should get nice=true by default
-        .axis_x(|a| a.title("Category").grid(false))
-        .axis_y(|a| a.title("Value").grid(true))
-        .mark(
-            Rect::new()
-                .x(col("category"))
-                .x2_with(col("category"), |c| c.band(1.0))
-                .y(lit(0.0))
-                .y2(col("value"))
-                .fill("#4682b4")
-                .stroke("#000000")
-                .stroke_width(1.0),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Rect::new()
+            .x_with(col("category"), |c| {
+                c.scale(|s| s)
+                    .axis(|a: DefaultCartesianAxis| a.title("Category").grid(false))
+            })
+            .x2_with(col("category"), |c| c.band(1.0))
+            .y_with(lit(0.0), |c| {
+                c.scale(|s| s)
+                    .axis(|a: DefaultCartesianAxis| a.title("Value").grid(true))
+            })
+            .y2(col("value"))
+            .fill("#4682b4")
+            .stroke("#000000")
+            .stroke_width(1.0),
+    );
 
     // This should produce the same result as bar_chart_inferred_domains
     // since the zero option is now applied by default
@@ -39,21 +38,22 @@ async fn test_bar_chart_y_scale_auto_zero() {
 async fn test_bar_chart_y_scale_no_nice() {
     let df = datasets::simple_categories();
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_y_with::<Linear>(|s| s.nice(false))
-        .axis_x(|a| a.title("Category").grid(false))
-        .axis_y(|a| a.title("Value").grid(true))
-        .mark(
-            Rect::new()
-                .x(col("category"))
-                .x2_with(col("category"), |c| c.band(1.0))
-                .y(lit(0.0))
-                .y2(col("value"))
-                .fill("#e74c3c")
-                .stroke("#c0392b")
-                .stroke_width(1.0),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Rect::new()
+            .x_with(col("category"), |c| {
+                c.scale(|s| s)
+                    .axis(|a: DefaultCartesianAxis| a.title("Category").grid(false))
+            })
+            .x2_with(col("category"), |c| c.band(1.0))
+            .y_with(lit(0.0), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false))
+                    .axis(|a: DefaultCartesianAxis| a.title("Value").grid(true))
+            })
+            .y2(col("value"))
+            .fill("#e74c3c")
+            .stroke("#c0392b")
+            .stroke_width(1.0),
+    );
 
     // Y-axis should start near the data minimum, not at zero
     assert_visual_match_default(plot, "bar", "bar_chart_y_scale_no_nice").await;

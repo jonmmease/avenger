@@ -34,17 +34,17 @@ async fn create_simple_scatter_data() -> DataFrame {
 async fn test_symbol_padding_no_nice() {
     let df = create_simple_scatter_data().await;
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(false))
-        .scale_y_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(false))
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .size(100.0)
-                .shape(lit("circle")),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x_with(col("x"), |c| {
+                c.scale_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(false))
+            })
+            .y_with(col("y"), |c| {
+                c.scale_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(false))
+            })
+            .size(100.0)
+            .shape(lit("circle")),
+    );
 
     assert_visual_match_default(plot, "symbol", "test_symbol_padding_no_nice").await;
 }
@@ -53,17 +53,17 @@ async fn test_symbol_padding_no_nice() {
 async fn test_symbol_padding_with_nice() {
     let df = create_simple_scatter_data().await;
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(true))
-        .scale_y_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(true))
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .size(100.0)
-                .shape(lit("circle")),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x_with(col("x"), |c| {
+                c.scale_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(true))
+            })
+            .y_with(col("y"), |c| {
+                c.scale_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(true))
+            })
+            .size(100.0)
+            .shape(lit("circle")),
+    );
 
     assert_visual_match_default(plot, "symbol", "test_symbol_padding_with_nice").await;
 }
@@ -92,17 +92,13 @@ async fn test_arrow_symbol_asymmetric_padding() {
     ctx.register_batch("data", batch).unwrap();
     let df = ctx.table("data").await.unwrap();
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x_with::<Linear>(|s| s.nice(false)) // No nice to see exact padding
-        .scale_y_with::<Linear>(|s| s.nice(false))
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .size(500.0) // Larger triangles to make asymmetry more visible
-                .shape(col("shape")),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x_with(col("x"), |c| c.scale_with::<Linear>(|s| s.nice(false))) // No nice to see exact padding
+            .y_with(col("y"), |c| c.scale_with::<Linear>(|s| s.nice(false)))
+            .size(500.0) // Larger triangles to make asymmetry more visible
+            .shape_with(col("shape"), |c| c),
+    );
 
     // The triangle-down at (5, 5) should require more padding at lower bounds
     // The triangle-up at (95, 95) should require more padding at upper bounds
@@ -129,18 +125,18 @@ async fn test_exact_geometry_containment() {
     ctx.register_batch("data", batch).unwrap();
     let df = ctx.table("data").await.unwrap();
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(false))
-        .scale_y_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(false))
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .size(400.0) // Very large diamond
-                .shape(lit("square")) // Use square to test padding of rotated shapes
-                .angle(45.0), // Rotate to test rotated geometry padding
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x_with(col("x"), |c| {
+                c.scale_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(false))
+            })
+            .y_with(col("y"), |c| {
+                c.scale_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(false))
+            })
+            .size(400.0) // Very large diamond
+            .shape(lit("square")) // Use square to test padding of rotated shapes
+            .angle(45.0), // Rotate to test rotated geometry padding
+    );
 
     // Verify that the rendered image contains exactly the diamond geometry
     // with no clipping and minimal padding

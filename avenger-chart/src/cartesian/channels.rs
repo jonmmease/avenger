@@ -40,10 +40,10 @@ impl<A: CartesianAxis + Default> CartesianPositionChannel<A> {
     }
 
     /// Configure the scale with explicit type
-    pub fn scale_with<S: ScaleTypeSpec, F>(self, f: F) -> Self
-    where
-        F: Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
-    {
+    pub fn scale_with<S: ScaleTypeSpec>(
+        self,
+        f: impl Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
+    ) -> Self {
         Self {
             inner: self.inner.scale_with(f),
             axis_config: self.axis_config,
@@ -93,7 +93,9 @@ impl<A: CartesianAxis + Default> From<ChannelValue> for CartesianPositionChannel
     }
 }
 
-impl<A: CartesianAxis + Default> From<datafusion::logical_expr::Expr> for CartesianPositionChannel<A> {
+impl<A: CartesianAxis + Default> From<datafusion::logical_expr::Expr>
+    for CartesianPositionChannel<A>
+{
     fn from(expr: datafusion::logical_expr::Expr) -> Self {
         Self::new(ChannelValue::from(expr))
     }

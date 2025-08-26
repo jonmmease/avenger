@@ -7,7 +7,7 @@ mod tests {
     use datafusion::arrow::array::Float64Array;
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::arrow::record_batch::RecordBatch;
-    use datafusion::logical_expr::col;
+    use datafusion::logical_expr::{col, lit};
     use datafusion::prelude::*;
     use std::sync::Arc;
 
@@ -71,12 +71,19 @@ mod tests {
             scale: 2.0,
         };
 
-        for (name, symbol) in configs {
-            let plot = Plot::<Cartesian>::new()
-                .scale_x(|s| s.domain((0.0, 200.0)))
-                .scale_y(|s| s.domain((0.0, 200.0)))
-                ._scale("size", |s| s.range_interval(lit(16.0), lit(64.0))) // Set size scale range
-                .mark(symbol);
+        for (name, mut symbol) in configs {
+            // Configure the scales on the symbol's channels
+            symbol = symbol
+                .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 200.0))))
+                .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 200.0))));
+
+            if name == "column_scaled" {
+                symbol = symbol.size_with(col("size"), |c| {
+                    c.scale(|s| s.range_interval(lit(16.0), lit(64.0)))
+                });
+            }
+
+            let plot = Plot::<Cartesian>::new().mark(symbol);
 
             let mut canvas = PngCanvas::new(dimensions, CanvasConfig::default())
                 .await

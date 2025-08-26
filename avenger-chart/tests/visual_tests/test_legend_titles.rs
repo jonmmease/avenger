@@ -36,13 +36,15 @@ async fn test_symbol_legend_with_title() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x(|s| s.domain((0.0, 7.0)))
-        .scale_y(|s| s.domain((0.0, 7.0)))
-        ._scale_with::<Ordinal>("fill", |s| s)
-        .legend("fill", |legend| legend.title("Category"))
-        .mark(Symbol::new().x(col("x")).y(col("y")).fill(col("category")));
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 7.0))))
+            .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 7.0))))
+            .fill_with(col("category"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|legend| legend.title("Category"))
+            }),
+    );
 
     assert_visual_match_default(plot, "legend", "symbol_legend_with_title").await;
 }
@@ -73,19 +75,16 @@ async fn test_line_legend_with_title() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x(|s| s.domain((0.5, 4.5)))
-        .scale_y(|s| s.domain((0.0, 5.0)))
-        ._scale_with::<Ordinal>("stroke", |s| s)
-        .legend("stroke", |legend| legend.title("Line Series"))
-        .mark(
-            Line::new()
-                .x(col("x"))
-                .y(col("y"))
-                .stroke(col("series"))
-                .stroke_width(2.0),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Line::new()
+            .x_with(col("x"), |c| c.scale(|s| s.domain((0.5, 4.5))))
+            .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 5.0))))
+            .stroke_with(col("series"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|legend| legend.title("Line Series"))
+            })
+            .stroke_width(2.0),
+    );
 
     assert_visual_match_default(plot, "legend", "line_legend_with_title").await;
 }
@@ -118,26 +117,26 @@ async fn test_rect_stroke_legend_with_title() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a bar chart with stroke legend
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x_with::<Band>(|scale| scale.padding_inner(0.1))
-        .scale_y(|scale| scale.domain((0.0, 60.0)))
-        ._scale("stroke", |scale| {
-            scale
-                .range_discrete(vec!["#d62728", "#2ca02c", "#ff7f0e"])
-                .domain(vec![lit("Premium"), lit("Standard"), lit("Budget")])
-        })
-        .legend("stroke", |legend| legend.title("Quality Tier"))
-        .mark(
-            Rect::new()
-                .x_with(col("product"), |c| c.band(0.0))
-                .x2_with(col(":x"), |c| c.band(1.0))
-                .y(lit(0.0))
-                .y2(col("value"))
-                .fill_with(lit("#1f77b4"), |c| c.no_scale())
-                .stroke(col("quality"))
-                .stroke_width_with(lit(3.0), |c| c.no_scale()),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Rect::new()
+            .x_with(col("product"), |c| {
+                c.scale_with::<Band>(|scale| scale.padding_inner(0.1))
+                    .band(0.0)
+            })
+            .x2_with(col(":x"), |c| c.band(1.0))
+            .y_with(lit(0.0), |c| c.scale(|scale| scale.domain((0.0, 60.0))))
+            .y2(col("value"))
+            .fill_with(lit("#1f77b4"), |c| c.no_scale())
+            .stroke_with(col("quality"), |c| {
+                c.scale(|scale| {
+                    scale
+                        .range_discrete(vec!["#d62728", "#2ca02c", "#ff7f0e"])
+                        .domain(vec![lit("Premium"), lit("Standard"), lit("Budget")])
+                })
+                .legend(|legend| legend.title("Quality Tier"))
+            })
+            .stroke_width_with(lit(3.0), |c| c.no_scale()),
+    );
 
     assert_visual_match_default(plot, "legend", "rect_stroke_legend_with_title").await;
 }
@@ -167,19 +166,16 @@ async fn test_shape_legend_with_title() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x(|s| s.domain((0.0, 7.0)))
-        .scale_y(|s| s.domain((0.0, 7.0)))
-        ._scale_with::<Ordinal>("shape", |s| s)
-        .legend("shape", |legend| legend.title("Shape Type"))
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .shape(col("shape_type"))
-                .fill_with(lit("#1f77b4"), |c| c.no_scale()),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 7.0))))
+            .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 7.0))))
+            .shape_with(col("shape_type"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|legend| legend.title("Shape Type"))
+            })
+            .fill_with(lit("#1f77b4"), |c| c.no_scale()),
+    );
 
     assert_visual_match_default(plot, "legend", "shape_legend_with_title").await;
 }
@@ -209,20 +205,21 @@ async fn test_legend_with_title_and_background() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x(|s| s.domain((0.0, 7.0)))
-        .scale_y(|s| s.domain((0.0, 7.0)))
-        ._scale_with::<Ordinal>("fill", |s| s)
-        .legend("fill", |legend| {
-            legend
-                .title("Data Categories")
-                .background_fill("#f0f0f0")
-                .background_stroke("#888888")
-                .background_corner_radius(4.0)
-                .background_padding(8.0)
-        })
-        .mark(Symbol::new().x(col("x")).y(col("y")).fill(col("category")));
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 7.0))))
+            .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 7.0))))
+            .fill_with(col("category"), |c| {
+                c.scale_with::<Ordinal>(|s| s).legend(|legend| {
+                    legend
+                        .title("Data Categories")
+                        .background_fill("#f0f0f0")
+                        .background_stroke("#888888")
+                        .background_corner_radius(4.0)
+                        .background_padding(8.0)
+                })
+            }),
+    );
 
     assert_visual_match_default(plot, "legend", "legend_with_title_and_background").await;
 }

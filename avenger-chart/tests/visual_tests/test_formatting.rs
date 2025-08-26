@@ -1,6 +1,6 @@
 use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
-
+use avenger_chart::cartesian::DefaultCartesianAxis;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
 use datafusion::arrow::array::Float64Array;
@@ -46,16 +46,16 @@ async fn axis_y_currency_fixed() {
         &[1200.0, 3400.0, 5600.0, 12345.0, 98765.0],
     );
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .axis_y(|a| a.title("Revenue").format("$,.2f"))
-        .mark(
-            Symbol::new()
-                .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 6.0))))
-                .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 100000.0))))
-                .size(80.0)
-                .fill_with("#2ca25f", |c| c.no_legend()),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 6.0))))
+            .y_with(col("y"), |c| {
+                c.scale(|s| s.domain((0.0, 100000.0)))
+                    .axis(|a: DefaultCartesianAxis| a.title("Revenue").format("$,.2f"))
+            })
+            .size(80.0)
+            .fill_with("#2ca25f", |c| c.no_legend()),
+    );
 
     assert_visual_match_default(plot, "layout", "format_axis_y_currency_fixed").await;
 }
@@ -64,16 +64,16 @@ async fn axis_y_currency_fixed() {
 async fn axis_y_percent() {
     let df = make_df_xy(&[1.0, 2.0, 3.0, 4.0, 5.0], &[0.1, 0.25, 0.5, 0.75, 0.95]);
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .axis_y(|a| a.title("Completion").format(".0%"))
-        .mark(
-            Symbol::new()
-                .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 6.0))))
-                .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 1.0))))
-                .size(80.0)
-                .fill_with("#3182bd", |c| c.no_legend()),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 6.0))))
+            .y_with(col("y"), |c| {
+                c.scale(|s| s.domain((0.0, 1.0)))
+                    .axis(|a: DefaultCartesianAxis| a.title("Completion").format(".0%"))
+            })
+            .size(80.0)
+            .fill_with("#3182bd", |c| c.no_legend()),
+    );
 
     assert_visual_match_default(plot, "layout", "format_axis_y_percent").await;
 }
@@ -85,16 +85,16 @@ async fn axis_y_si_prefix() {
         &[1.2e3, 4.5e4, 7.8e5, 2.3e6, 9.9e7],
     );
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .axis_y(|a| a.title("Population").format(".2s"))
-        .mark(
-            Symbol::new()
-                .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 6.0))))
-                .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 1.0e8))))
-                .size(80.0)
-                .fill_with("#e6550d", |c| c.no_legend()),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 6.0))))
+            .y_with(col("y"), |c| {
+                c.scale(|s| s.domain((0.0, 1.0e8)))
+                    .axis(|a: DefaultCartesianAxis| a.title("Population").format(".2s"))
+            })
+            .size(80.0)
+            .fill_with("#e6550d", |c| c.no_legend()),
+    );
 
     assert_visual_match_default(plot, "layout", "format_axis_y_si_prefix").await;
 }

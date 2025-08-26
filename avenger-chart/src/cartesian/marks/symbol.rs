@@ -28,20 +28,20 @@ impl<A: CartesianAxis + Default + 'static> Symbol<Cartesian<A>> {
         let channel_value: crate::marks::ChannelValue = value.into();
         let channel = crate::cartesian::channels::CartesianPositionChannel::<A>::new(channel_value);
         let configured = f(channel);
-        
+
         // Extract axis config before consuming channel
         let axis_config = configured.axis_config().cloned();
-        
+
         // Store channel value
         let mut mark = self.with_channel_value("x", configured.into_inner());
-        
+
         // Store axis config if present
         if let Some(axis_config) = axis_config {
             mark.state_mut()
                 .axis_configs
                 .insert("x".to_string(), axis_config);
         }
-        
+
         mark
     }
 
@@ -58,20 +58,20 @@ impl<A: CartesianAxis + Default + 'static> Symbol<Cartesian<A>> {
         let channel_value: crate::marks::ChannelValue = value.into();
         let channel = crate::cartesian::channels::CartesianPositionChannel::<A>::new(channel_value);
         let configured = f(channel);
-        
+
         // Extract axis config before consuming channel
         let axis_config = configured.axis_config().cloned();
-        
+
         // Store channel value
         let mut mark = self.with_channel_value("y", configured.into_inner());
-        
+
         // Store axis config if present
         if let Some(axis_config) = axis_config {
             mark.state_mut()
                 .axis_configs
                 .insert("y".to_string(), axis_config);
         }
-        
+
         mark
     }
 

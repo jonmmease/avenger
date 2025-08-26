@@ -1,5 +1,5 @@
-// Test file specifically for plot-level scale and legend configuration
-// This ensures we maintain test coverage for the plot-level API
+// Test file for scale and legend configuration
+// Updated to use channel-level API instead of removed plot-level API
 
 use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
@@ -12,8 +12,8 @@ use datafusion::prelude::*;
 use std::sync::Arc;
 
 #[tokio::test]
-async fn test_plot_level_scale_config() {
-    // Test that plot-level scale configuration still works
+async fn test_channel_level_scale_config() {
+    // Test channel-level scale configuration
     let x_values = Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0]);
     let y_values = Float64Array::from(vec![2.0, 4.0, 3.0, 5.0, 7.0]);
 
@@ -27,25 +27,21 @@ async fn test_plot_level_scale_config() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    // Using plot-level scale configuration
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x(|scale| scale.domain((0.0, 6.0)))
-        .scale_y(|scale| scale.domain((0.0, 8.0)))
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .size(50.0)
-                .fill("#3498db"),
-        );
+    // Using channel-level scale configuration
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x_with(col("x"), |c| c.scale(|scale| scale.domain((0.0, 6.0))))
+            .y_with(col("y"), |c| c.scale(|scale| scale.domain((0.0, 8.0))))
+            .size(50.0)
+            .fill_with("#3498db", |c| c.no_scale()),
+    );
 
     assert_visual_match_default(plot, "plot_level_config", "plot_level_scales").await;
 }
 
 #[tokio::test]
-async fn test_plot_level_legend_config() {
-    // Test that plot-level legend configuration still works
+async fn test_channel_level_legend_config() {
+    // Test channel-level legend configuration
     let categories = StringArray::from(vec!["A", "B", "C", "A", "B", "C"]);
     let x_values = Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
     let y_values = Float64Array::from(vec![2.0, 4.0, 3.0, 5.0, 7.0, 6.0]);
@@ -65,24 +61,23 @@ async fn test_plot_level_legend_config() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    // Using plot-level legend configuration
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .legend("fill", |legend| legend.title("Plot-Level Category"))
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .fill(col("category"))
-                .size(100.0),
-        );
+    // Using channel-level legend configuration
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x_with(col("x"), |c| c)
+            .y_with(col("y"), |c| c)
+            .fill_with(col("category"), |c| {
+                c.legend(|legend| legend.title("Channel-Level Category"))
+            })
+            .size(100.0),
+    );
 
     assert_visual_match_default(plot, "plot_level_config", "plot_level_legend").await;
 }
 
 #[tokio::test]
-async fn test_plot_and_channel_level_mixed() {
-    // Test that plot-level and channel-level configs can be mixed
+async fn test_channel_level_mixed_config() {
+    // Test multiple channel-level configurations
     let categories = StringArray::from(vec!["A", "B", "C", "A", "B", "C"]);
     let x_values = Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
     let y_values = Float64Array::from(vec![2.0, 4.0, 3.0, 5.0, 7.0, 6.0]);
@@ -109,21 +104,19 @@ async fn test_plot_and_channel_level_mixed() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    // Mix plot-level and channel-level configuration
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x(|scale| scale.domain((0.0, 7.0))) // Plot-level
-        .legend("fill", |legend| legend.title("Category (Plot)")) // Plot-level
-        .mark(
-            Symbol::new()
-                .x(col("x")) // Uses plot-level scale
-                .y_with(col("y"), |c| c.scale(|scale| scale.domain((0.0, 8.0)))) // Channel-level scale
-                .fill(col("category")) // Uses plot-level legend
-                .size_with(col("size_val"), |c| {
-                    c.scale(|scale| scale.domain((0.0, 40.0))) // Channel-level scale
-                        .legend(|legend| legend.title("Size (Channel)"))
-                }), // Channel-level legend
-        );
+    // All configuration is now at channel-level
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x_with(col("x"), |c| c.scale(|scale| scale.domain((0.0, 7.0)))) // Channel-level
+            .y_with(col("y"), |c| c.scale(|scale| scale.domain((0.0, 8.0)))) // Channel-level
+            .fill_with(col("category"), |c| {
+                c.legend(|legend| legend.title("Category"))
+            }) // Channel-level
+            .size_with(col("size_val"), |c| {
+                c.scale(|scale| scale.domain((0.0, 40.0))) // Channel-level scale
+                    .legend(|legend| legend.title("Size")) // Channel-level legend
+            }),
+    );
 
     assert_visual_match_default(plot, "plot_level_config", "mixed_config").await;
 }

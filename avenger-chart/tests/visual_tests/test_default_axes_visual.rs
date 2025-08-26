@@ -1,6 +1,6 @@
 // Visual tests for default axis creation
 
-use avenger_chart::cartesian::Cartesian;
+use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
 use avenger_chart::marks::line::Line;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
@@ -41,8 +41,8 @@ async fn test_default_axes_numeric_with_grid() {
     // Create a plot without explicit axes
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Line::new()
-            .x(col("x_val"))
-            .y(col("y_val"))
+            .x_with(col("x_val"), |c| c.scale(|s| s))
+            .y_with(col("y_val"), |c| c.scale(|s| s))
             .stroke("#4682b4")
             .stroke_width(2.0),
     );
@@ -60,9 +60,9 @@ async fn test_default_axes_band_without_grid() {
     // Create a plot with band scale on x
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Rect::new()
-            .x(col("category"))
+            .x_with(col("category"), |c| c.scale(|s| s))
             .x2_with(col(":x"), |c| c.band(1.0))
-            .y(lit(0.0))
+            .y_with(lit(0.0), |c| c.scale(|s| s))
             .y2(col("y_val"))
             .fill("#4682b4"),
     );
@@ -78,16 +78,16 @@ async fn test_default_axes_disabled() {
     let df = create_test_data();
 
     // Create a plot and explicitly disable x axis
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .axis_x(|axis| axis.visible(false))
-        .mark(
-            Line::new()
-                .x(col("x_val"))
-                .y(col("y_val"))
-                .stroke("#4682b4")
-                .stroke_width(2.0),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Line::new()
+            .x_with(col("x_val"), |c| {
+                c.scale(|s| s)
+                    .axis(|a: DefaultCartesianAxis| a.visible(false))
+            })
+            .y_with(col("y_val"), |c| c.scale(|s| s))
+            .stroke("#4682b4")
+            .stroke_width(2.0),
+    );
 
     // X axis should be invisible, Y axis should be created with defaults
     assert_visual_match_default(plot, "default_axes", "x_axis_disabled").await;
@@ -98,16 +98,16 @@ async fn test_default_axes_custom_title() {
     let df = create_test_data();
 
     // Create a plot and override some default axis properties
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .axis_x(|axis| axis.title("Custom X Title").grid(false))
-        .mark(
-            Line::new()
-                .x(col("x_val"))
-                .y(col("y_val"))
-                .stroke("#4682b4")
-                .stroke_width(2.0),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Line::new()
+            .x_with(col("x_val"), |c| {
+                c.scale(|s| s)
+                    .axis(|a: DefaultCartesianAxis| a.title("Custom X Title").grid(false))
+            })
+            .y_with(col("y_val"), |c| c.scale(|s| s))
+            .stroke("#4682b4")
+            .stroke_width(2.0),
+    );
 
     // X axis should have custom title and no grid
     // Y axis should be created with defaults

@@ -39,16 +39,17 @@ async fn test_rect_discrete_fill_legend() {
     // Create a bar chart with fill legend
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x_with::<Band>(|scale| scale.padding_inner(0.1))
-        .scale_y(|scale| scale.domain((0.0, 60.0)))
         .legend("fill", |legend| legend.title("Category"))
         .mark(
             Rect::new()
-                .x_with(col("product"), |c| c.band(0.0))
+                .x_with(col("product"), |c| {
+                    c.scale_with::<Band>(|scale| scale.padding_inner(0.1))
+                        .band(0.0)
+                })
                 .x2_with(col(":x"), |c| c.band(1.0))
-                .y(lit(0.0))
-                .y2(col("value"))
-                .fill(col("category"))
+                .y_with(lit(0.0), |c| c.scale(|scale| scale.domain((0.0, 60.0))))
+                .y2_with(col("value"), |c| c)
+                .fill_with(col("category"), |c| c)
                 .stroke_with(lit("#333333"), |c| c.no_scale())
                 .stroke_width_with(lit(1.0), |c| c.no_scale()),
         );
@@ -85,17 +86,19 @@ async fn test_rect_continuous_fill_legend() {
     // Create a bar chart with continuous color legend
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x_with::<Band>(|scale| scale.padding_inner(0.15))
-        .scale_y(|scale| scale.domain((0.0, 70.0)))
-        ._scale("fill", |scale| scale.domain((0.0, 40.0)))
         .legend("fill", |legend| legend.title("Temperature (°C)"))
         .mark(
             Rect::new()
-                .x_with(col("quarter"), |c| c.band(0.0))
+                .x_with(col("quarter"), |c| {
+                    c.scale_with::<Band>(|scale| scale.padding_inner(0.15))
+                        .band(0.0)
+                })
                 .x2_with(col(":x"), |c| c.band(1.0))
-                .y(lit(0.0))
-                .y2(col("sales"))
-                .fill(col("temperature"))
+                .y_with(lit(0.0), |c| c.scale(|scale| scale.domain((0.0, 70.0))))
+                .y2_with(col("sales"), |c| c)
+                .fill_with(col("temperature"), |c| {
+                    c.scale(|scale| scale.domain((0.0, 40.0)))
+                })
                 .stroke_with(lit("#000000"), |c| c.no_scale())
                 .stroke_width_with(lit(0.5), |c| c.no_scale()),
         );
@@ -132,22 +135,24 @@ async fn test_rect_stroke_legend() {
     // Create a bar chart with stroke legend
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x_with::<Band>(|scale| scale.padding_inner(0.1))
-        .scale_y(|scale| scale.domain((0.0, 60.0)))
-        ._scale("stroke", |scale| {
-            scale
-                .range_discrete(vec!["#d62728", "#2ca02c", "#ff7f0e"])
-                .domain(vec![lit("Premium"), lit("Standard"), lit("Budget")])
-        })
         .legend("stroke", |legend| legend.title("Quality Tier"))
         .mark(
             Rect::new()
-                .x_with(col("product"), |c| c.band(0.0))
+                .x_with(col("product"), |c| {
+                    c.scale_with::<Band>(|scale| scale.padding_inner(0.1))
+                        .band(0.0)
+                })
                 .x2_with(col(":x"), |c| c.band(1.0))
-                .y(lit(0.0))
-                .y2(col("value"))
+                .y_with(lit(0.0), |c| c.scale(|scale| scale.domain((0.0, 60.0))))
+                .y2_with(col("value"), |c| c)
                 .fill_with(lit("#1f77b4"), |c| c.no_scale())
-                .stroke(col("quality"))
+                .stroke_with(col("quality"), |c| {
+                    c.scale(|scale| {
+                        scale
+                            .range_discrete(vec!["#d62728", "#2ca02c", "#ff7f0e"])
+                            .domain(vec![lit("Premium"), lit("Standard"), lit("Budget")])
+                    })
+                })
                 .stroke_width_with(lit(3.0), |c| c.no_scale()),
         );
 

@@ -210,6 +210,18 @@ macro_rules! define_position_mark_channels {
             }
         }
     };
+    (@generate_with_method r) => {
+        paste::paste! {
+            pub fn [<r _with>]<F>(self, value: impl Into<$crate::marks::ChannelValue>, f: F) -> Self
+            where
+                F: FnOnce($crate::marks::typed_channels::PositionChannel) -> $crate::marks::typed_channels::PositionChannel,
+            {
+                let channel_value: $crate::marks::ChannelValue = value.into();
+                let channel = f($crate::marks::typed_channels::PositionChannel(channel_value));
+                self.with_channel_value("r", channel.into())
+            }
+        }
+    };
     // Default case for other channels
     (@generate_with_method $name:ident) => {
         // No _with method for this channel

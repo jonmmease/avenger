@@ -18,7 +18,7 @@ pub struct MarkState<C: CoordinateSystem> {
 
     pub details: Option<Vec<String>>,
     pub zindex: Option<i32>,
-    
+
     // Store axis configurations from channels
     #[doc(hidden)]
     pub axis_configs: HashMap<String, Arc<dyn Fn(C::Axis) -> C::Axis + Send + Sync>>,

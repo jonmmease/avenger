@@ -279,10 +279,10 @@ impl ChannelValue {
     }
 
     /// Configure the scale with explicit type
-    pub fn scale_with<S: ScaleTypeSpec, F>(self, f: F) -> Self
-    where
-        F: Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
-    {
+    pub fn scale_with<S: ScaleTypeSpec>(
+        self,
+        f: impl Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
+    ) -> Self {
         self.scale(move |default_scale| {
             let typed_scale = default_scale.into_type::<S>();
             f(typed_scale).into_auto()

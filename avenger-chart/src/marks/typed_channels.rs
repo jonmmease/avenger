@@ -23,10 +23,10 @@ impl PositionChannel {
     }
 
     /// Configure the scale with explicit type
-    pub fn scale_with<S: ScaleTypeSpec, F>(self, f: F) -> Self
-    where
-        F: Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
-    {
+    pub fn scale_with<S: ScaleTypeSpec>(
+        self,
+        f: impl Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
+    ) -> Self {
         PositionChannel(self.0.scale_with(f))
     }
 
@@ -117,10 +117,10 @@ impl SizeChannel {
     }
 
     /// Configure the scale with explicit type
-    pub fn scale_with<S: ScaleTypeSpec, F>(self, f: F) -> Self
-    where
-        F: Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
-    {
+    pub fn scale_with<S: ScaleTypeSpec>(
+        self,
+        f: impl Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
+    ) -> Self {
         SizeChannel(self.0.scale_with(f))
     }
 
@@ -168,10 +168,10 @@ impl ShapeChannel {
     }
 
     /// Configure the scale with explicit type
-    pub fn scale_with<S: ScaleTypeSpec, F>(self, f: F) -> Self
-    where
-        F: Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
-    {
+    pub fn scale_with<S: ScaleTypeSpec>(
+        self,
+        f: impl Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
+    ) -> Self {
         ShapeChannel(self.0.scale_with(f))
     }
 
@@ -219,10 +219,10 @@ impl AngleChannel {
     }
 
     /// Configure the scale with explicit type
-    pub fn scale_with<S: ScaleTypeSpec, F>(self, f: F) -> Self
-    where
-        F: Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
-    {
+    pub fn scale_with<S: ScaleTypeSpec>(
+        self,
+        f: impl Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
+    ) -> Self {
         AngleChannel(self.0.scale_with(f))
     }
 
@@ -270,10 +270,10 @@ impl StrokeDashChannel {
     }
 
     /// Configure the scale with explicit type
-    pub fn scale_with<S: ScaleTypeSpec, F>(self, f: F) -> Self
-    where
-        F: Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
-    {
+    pub fn scale_with<S: ScaleTypeSpec>(
+        self,
+        f: impl Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
+    ) -> Self {
         StrokeDashChannel(self.0.scale_with(f))
     }
 

@@ -2,7 +2,7 @@
 
 use avenger_chart::{
     axis::{Axis as AxisBase, AxisPosition},
-    cartesian::{Cartesian, CartesianAxis},
+    cartesian::{Cartesian, CartesianAxis, DefaultCartesianAxis},
     marks::symbol::Symbol,
     plot::Plot,
 };
@@ -188,22 +188,32 @@ impl ScientificAxis {
 fn main() {
     // Example 1: Using default Cartesian axes
     // Type is Plot<Cartesian> which is Plot<Cartesian<DefaultCartesianAxis>>
-    let _plot_default = Plot::<Cartesian>::new()
-        .mark(Symbol::new().x("mass").y("energy"))
-        .axis_x(|axis| axis.title("Mass (kg)").grid(true))
-        .axis_y(|axis| axis.title("Energy (J)"));
+    let _plot_default = Plot::<Cartesian>::new().mark(
+        Symbol::new()
+            .x_with("mass", |c| {
+                c.axis(|axis: DefaultCartesianAxis| axis.title("Mass (kg)").grid(true))
+            })
+            .y_with("energy", |c| {
+                c.axis(|axis: DefaultCartesianAxis| axis.title("Energy (J)"))
+            }),
+    );
 
     // Example 2: Using custom scientific axes
     // Need to specify the full type for custom axes
-    let _plot_scientific = Plot::<Cartesian<ScientificAxis>>::new()
-        .mark(Symbol::new().x("wavelength").y("frequency"))
-        .axis_x(|axis| {
-            axis.title("Wavelength (m)")
-                .grid(true)
-                .exponent_threshold(3)
-                .show_mantissa(true)
-        })
-        .axis_y(|axis| axis.title("Frequency (Hz)").exponent_threshold(6));
+    let _plot_scientific = Plot::<Cartesian<ScientificAxis>>::new().mark(
+        Symbol::new()
+            .x_with("wavelength", |c| {
+                c.axis(|axis: ScientificAxis| {
+                    axis.title("Wavelength (m)")
+                        .grid(true)
+                        .exponent_threshold(3)
+                        .show_mantissa(true)
+                })
+            })
+            .y_with("frequency", |c| {
+                c.axis(|axis: ScientificAxis| axis.title("Frequency (Hz)").exponent_threshold(6))
+            }),
+    );
 
     println!("Successfully created plots with default and custom axes!");
 }

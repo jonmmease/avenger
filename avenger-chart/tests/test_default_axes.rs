@@ -1,10 +1,10 @@
 //! Tests for default axis creation
 
-use avenger_chart::cartesian::Cartesian;
+use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
 use avenger_chart::marks::line::Line;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
-use avenger_scales::scales::band::BandScale;
+use avenger_chart::scales::Band;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
@@ -74,17 +74,14 @@ async fn test_default_axes_with_band_scale() {
     let df = create_test_data();
 
     // Create a plot with band scale on x
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x(|s| s.scale_type(BandScale))
-        .mark(
-            Rect::new()
-                .x(col("category"))
-                .x2_with(col("category"), |c| c.band(1.0))
-                .y(lit(0.0))
-                .y2(col("y_val"))
-                .fill("#4682b4"),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Rect::new()
+            .x_with(col("category"), |c| c.scale_with::<Band>(|s| s))
+            .x2_with(col("category"), |c| c.band(1.0))
+            .y(lit(0.0))
+            .y2(col("y_val"))
+            .fill("#4682b4"),
+    );
 
     // Render to trigger default axis creation
     use avenger_chart::render::CanvasExt;
@@ -115,15 +112,14 @@ async fn test_disable_axis_with_visible_false() {
     let df = create_test_data();
 
     // Create a plot and explicitly disable x axis
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .axis_x(|axis| axis.visible(false))
-        .mark(
-            Line::new()
-                .x(col("x_val"))
-                .y(col("y_val"))
-                .stroke("#4682b4"),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Line::new()
+            .x_with(col("x_val"), |c| {
+                c.axis(|axis: DefaultCartesianAxis| axis.visible(false))
+            })
+            .y(col("y_val"))
+            .stroke("#4682b4"),
+    );
 
     // Render
     use avenger_chart::render::CanvasExt;
@@ -152,15 +148,14 @@ async fn test_override_default_axis_properties() {
     let df = create_test_data();
 
     // Create a plot and override some default axis properties
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .axis_x(|axis| axis.title("Custom X Title").grid(false))
-        .mark(
-            Line::new()
-                .x(col("x_val"))
-                .y(col("y_val"))
-                .stroke("#4682b4"),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Line::new()
+            .x_with(col("x_val"), |c| {
+                c.axis(|axis: DefaultCartesianAxis| axis.title("Custom X Title").grid(false))
+            })
+            .y(col("y_val"))
+            .stroke("#4682b4"),
+    );
 
     // Render
     use avenger_chart::render::CanvasExt;

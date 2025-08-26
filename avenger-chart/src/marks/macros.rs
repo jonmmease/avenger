@@ -93,7 +93,7 @@ macro_rules! impl_mark_base {
                 self.state.data = self.state.data.with_channel_value(name, value);
                 self
             }
-            
+
             /// Get mutable access to state (for use by coordinate-specific implementations)
             #[doc(hidden)]
             pub fn state_mut(&mut self) -> &mut $crate::marks::MarkState<C> {
