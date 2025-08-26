@@ -1,11 +1,11 @@
-use avenger_chart::cartesian::DefaultCartesianAxis;
+use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
 use avenger_chart::marks::symbol::Symbol;
 use datafusion::prelude::col;
 
 #[test]
 fn test_axis_config_from_channel() {
     // Create a simple plot with axis configuration via channel
-    let _symbol = Symbol::<avenger_chart::cartesian::Cartesian<DefaultCartesianAxis>>::new()
+    let _symbol = Symbol::<Cartesian>::new()
         .x_with(col("x"), |c| {
             c.scale(|s| s.domain((0.0, 100.0)))
                 .axis(|a| a.title("X Axis from Channel"))
@@ -22,7 +22,7 @@ fn test_axis_config_from_channel() {
 #[test]
 fn test_axis_config_with_no_scale() {
     // Test that axis config works with no_scale channels
-    let _symbol = Symbol::<avenger_chart::cartesian::Cartesian<DefaultCartesianAxis>>::new()
+    let _symbol = Symbol::<Cartesian>::new()
         .x_with(10.0, |c| c.no_scale().axis(|a| a.title("Fixed X")))
         .y_with(col("y"), |c| c.axis(|a| a.title("Y Column")));
 }
@@ -32,7 +32,7 @@ fn test_axis_config_precedence() {
     // Test that channel-level axis config takes precedence over plot-level
     // Since plot-level axis config is separate from channel-level,
     // we just verify that both syntaxes compile correctly
-    let _symbol = Symbol::<avenger_chart::cartesian::Cartesian<DefaultCartesianAxis>>::new()
+    let _symbol = Symbol::<Cartesian>::new()
         .x_with(col("x"), |c| {
             c.scale(|s| s.domain((0.0, 100.0)))
                 .axis(|a| a.title("Channel Level X"))

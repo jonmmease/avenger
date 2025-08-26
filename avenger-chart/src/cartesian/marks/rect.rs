@@ -4,14 +4,14 @@ use crate::marks::{ChannelType, Mark};
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
-
+use crate::cartesian::coord::CartesianGeneral;
 // Import Rect for the macro, then re-export it
 use crate::error::AvengerChartError;
 pub use crate::marks::rect::Rect;
 use crate::marks::util::{coerce_color_channel, coerce_numeric_channel};
 
 // Implement position channels for Cartesian Rect with generic axis support
-impl<A: CartesianAxis + Default + 'static> Rect<Cartesian<A>> {
+impl<A: CartesianAxis + Default + 'static> Rect<CartesianGeneral<A>> {
     pub fn x<V: Into<crate::marks::ChannelValue>>(self, value: V) -> Self {
         self.with_channel_value("x", value.into())
     }
@@ -174,8 +174,8 @@ impl<A: CartesianAxis + Default + 'static> Rect<Cartesian<A>> {
 }
 
 // Implement Mark trait for Cartesian Rect with any axis type
-impl<A: CartesianAxis + Default + 'static> Mark<Cartesian<A>> for Rect<Cartesian<A>> {
-    impl_mark_trait_common!(Rect, Cartesian<A>, "rect");
+impl<A: CartesianAxis + Default + 'static> Mark<CartesianGeneral<A>> for Rect<CartesianGeneral<A>> {
+    impl_mark_trait_common!(Rect, CartesianGeneral<A>, "rect");
 
     fn render_from_data(
         &self,
