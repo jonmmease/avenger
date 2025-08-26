@@ -3,10 +3,10 @@
 use avenger_chart::{
     axis::Axis,
     coords::{CoordinateSystem, OverflowSpaceRequirement, TransformResult},
-    define_common_mark_channels, define_position_mark_channels,
+    define_common_mark_channels,
     error::AvengerChartError,
     impl_mark_base, impl_mark_trait_common,
-    marks::{ChannelType, Mark, MarkState},
+    marks::{ChannelType, ChannelDescriptor, ChannelValue, Mark, MarkState},
     render::Padding,
 };
 use avenger_scenegraph::marks::group::Clip;
@@ -203,12 +203,89 @@ define_common_mark_channels! {
     }
 }
 
-// Define position channels for Isometric
-define_position_mark_channels! {
-    Cube<Isometric> {
-        iso_x: { type: ChannelType::Numeric, required: true },
-        iso_y: { type: ChannelType::Numeric, required: true },
-        iso_z: { type: ChannelType::Numeric, required: true },
+// Implement position channels for Isometric Cube manually
+impl Cube<Isometric> {
+    pub fn iso_x<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("iso_x", value.into())
+    }
+
+    pub fn iso_x_with<F>(self, value: impl Into<ChannelValue>, f: F) -> Self
+    where
+        F: FnOnce(
+            avenger_chart::marks::typed_channels::PositionChannel,
+        ) -> avenger_chart::marks::typed_channels::PositionChannel,
+    {
+        let channel_value: ChannelValue = value.into();
+        let channel = f(avenger_chart::marks::typed_channels::PositionChannel(
+            channel_value,
+        ));
+        self.with_channel_value("iso_x", channel.into())
+    }
+
+    pub fn iso_y<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("iso_y", value.into())
+    }
+
+    pub fn iso_y_with<F>(self, value: impl Into<ChannelValue>, f: F) -> Self
+    where
+        F: FnOnce(
+            avenger_chart::marks::typed_channels::PositionChannel,
+        ) -> avenger_chart::marks::typed_channels::PositionChannel,
+    {
+        let channel_value: ChannelValue = value.into();
+        let channel = f(avenger_chart::marks::typed_channels::PositionChannel(
+            channel_value,
+        ));
+        self.with_channel_value("iso_y", channel.into())
+    }
+
+    pub fn iso_z<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("iso_z", value.into())
+    }
+
+    pub fn iso_z_with<F>(self, value: impl Into<ChannelValue>, f: F) -> Self
+    where
+        F: FnOnce(
+            avenger_chart::marks::typed_channels::PositionChannel,
+        ) -> avenger_chart::marks::typed_channels::PositionChannel,
+    {
+        let channel_value: ChannelValue = value.into();
+        let channel = f(avenger_chart::marks::typed_channels::PositionChannel(
+            channel_value,
+        ));
+        self.with_channel_value("iso_z", channel.into())
+    }
+
+    pub fn position_channel_descriptors() -> Vec<ChannelDescriptor> {
+        vec![
+            ChannelDescriptor {
+                name: "iso_x",
+                channel_type: ChannelType::Numeric,
+                required: true,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "iso_y",
+                channel_type: ChannelType::Numeric,
+                required: true,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "iso_z",
+                channel_type: ChannelType::Numeric,
+                required: true,
+                default_value: None,
+                allow_column_ref: true,
+            },
+        ]
+    }
+
+    pub fn all_channel_descriptors() -> Vec<ChannelDescriptor> {
+        let mut descriptors = Self::common_channel_descriptors();
+        descriptors.extend(Self::position_channel_descriptors());
+        descriptors
     }
 }
 
