@@ -1,5 +1,6 @@
 use super::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
+use avenger_chart::cartesian::DefaultCartesianAxis;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
 use avenger_chart::scales::Linear;
@@ -17,16 +18,18 @@ async fn test_grid_lines_behind_data() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x_with::<Linear>(|scale| scale.domain((0.0, 10.0)))
-        .scale_y_with::<Linear>(|scale| scale.domain((0.0, 10.0)))
-        .axis_x(|axis| axis.title("X").grid(true))
-        .axis_y(|axis| axis.title("Y").grid(true))
         // Add a semi-transparent rectangle that covers part of the grid
         .mark(
             Rect::new()
-                .x(lit(2.0))
+                .x_with(lit(2.0), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((0.0, 10.0)))
+                        .axis(|a: DefaultCartesianAxis| a.title("X").grid(true))
+                })
                 .x2(lit(8.0))
-                .y(lit(3.0))
+                .y_with(lit(3.0), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((0.0, 10.0)))
+                        .axis(|a: DefaultCartesianAxis| a.title("Y").grid(true))
+                })
                 .y2(lit(7.0))
                 .fill("#ff0000")
                 .opacity(0.5), // Semi-transparent so we can see grid lines through it

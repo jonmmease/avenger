@@ -59,25 +59,21 @@ async fn symbol_legend_with_background() {
         &["A", "B", "C", "A", "B", "C"],
     );
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x(|s| s.domain((0.0, 8.0)))
-        .scale_y(|s| s.domain((0.0, 8.0)))
-        ._scale_with::<Ordinal>("fill", |s| s)
-        .legend("fill", |l| {
-            l.title("Category")
-                .background_padding(6.0)
-                .background_corner_radius(6.0)
-                .background_fill("rgba(255,255,255,0.75)")
-                .background_stroke("rgba(0,0,0,0.25)")
-        })
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .size(100.0)
-                .fill(col("category")),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 8.0))))
+            .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 8.0))))
+            .size(100.0)
+            .fill_with(col("category"), |c| {
+                c.scale_with::<Ordinal>(|s| s).legend(|l| {
+                    l.title("Category")
+                        .background_padding(6.0)
+                        .background_corner_radius(6.0)
+                        .background_fill("rgba(255,255,255,0.75)")
+                        .background_stroke("rgba(0,0,0,0.25)")
+                })
+            }),
+    );
 
     assert_visual_match_default(plot, "layout", "legend_symbol_background").await;
 }
@@ -111,19 +107,20 @@ async fn line_legend_with_background() {
         )
         .unwrap();
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x(|s| s.domain((0.0, 5.0)))
-        .scale_y(|s| s.domain((0.0, 6.0)))
-        ._scale("stroke", |s| s)
-        .legend("stroke", |l| {
-            l.title("Series")
-                // .background_padding(6.0)
-                .background_corner_radius(6.0)
-                .background_fill("rgba(255,255,255,0.75)")
-                .background_stroke("rgba(0,0,0,0.25)")
-        })
-        .mark(Line::new().x(col("x")).y(col("y")).stroke(col("series")));
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Line::new()
+            .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 5.0))))
+            .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 6.0))))
+            .stroke_with(col("series"), |c| {
+                c.scale(|s| s).legend(|l| {
+                    l.title("Series")
+                        // .background_padding(6.0)
+                        .background_corner_radius(6.0)
+                        .background_fill("rgba(255,255,255,0.75)")
+                        .background_stroke("rgba(0,0,0,0.25)")
+                })
+            }),
+    );
 
     assert_visual_match_default(plot, "layout", "legend_line_background").await;
 }
@@ -137,19 +134,16 @@ async fn symbol_legend_without_visible_background() {
         &["A", "B", "C", "A", "B", "C"],
     );
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x(|s| s.domain((0.0, 8.0)))
-        .scale_y(|s| s.domain((0.0, 8.0)))
-        ._scale_with::<Ordinal>("fill", |s| s)
-        .legend("fill", |l| l.title("Category")) // No background styling
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .size(100.0)
-                .fill(col("category")),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 8.0))))
+            .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 8.0))))
+            .size(100.0)
+            .fill_with(col("category"), |c| {
+                c.scale_with::<Ordinal>(|s| s)
+                    .legend(|l| l.title("Category")) // No background styling
+            }),
+    );
 
     assert_visual_match_default(plot, "layout", "legend_symbol_no_background").await;
 }
@@ -163,26 +157,21 @@ async fn colorbar_legend_with_background() {
         &[0.1, 0.3, 0.5, 0.7, 0.9, 0.2],
     );
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x(|s| s.domain((0.0, 7.0)))
-        .scale_y(|s| s.domain((0.0, 7.0)))
-        ._scale("fill", |s| s.domain((0.0, 1.0)))
-        .legend(
-            "fill",
-            |l| {
-                l.title("Intensity")
-                    .background_corner_radius(6.0)
-                    .background_fill("rgba(200,200,200,0.75)")
-            }, // .background_stroke("rgba(0,0,0,0.25)")
-        )
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .size(120.0)
-                .fill(col("c")),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 7.0))))
+            .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 7.0))))
+            .size(120.0)
+            .fill_with(col("c"), |c| {
+                c.scale(|s| s.domain((0.0, 1.0))).legend(
+                    |l| {
+                        l.title("Intensity")
+                            .background_corner_radius(6.0)
+                            .background_fill("rgba(200,200,200,0.75)")
+                    }, // .background_stroke("rgba(0,0,0,0.25)")
+                )
+            }),
+    );
 
     assert_visual_match_default(plot, "layout", "legend_colorbar_background").await;
 }

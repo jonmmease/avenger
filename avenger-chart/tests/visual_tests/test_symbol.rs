@@ -1,5 +1,5 @@
 use super::helpers::assert_visual_match_default;
-use avenger_chart::cartesian::Cartesian;
+use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
 
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
@@ -34,21 +34,21 @@ fn create_scatter_data() -> DataFrame {
 async fn test_simple_scatter_plot() {
     let df = create_scatter_data();
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x_with::<Linear>(|scale| scale)
-        .scale_y_with::<Linear>(|scale| scale)
-        .axis_x(|axis| axis.title("X Value"))
-        .axis_y(|axis| axis.title("Y Value"))
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .size(100.0)
-                .fill("#4682b4")
-                .stroke("#000000")
-                .stroke_width(1.0),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x_with(col("x"), |c| {
+                c.scale_with::<Linear>(|s| s)
+                    .axis(|a: DefaultCartesianAxis| a.title("X Value"))
+            })
+            .y_with(col("y"), |c| {
+                c.scale_with::<Linear>(|s| s)
+                    .axis(|a: DefaultCartesianAxis| a.title("Y Value"))
+            })
+            .size(100.0)
+            .fill("#4682b4")
+            .stroke("#000000")
+            .stroke_width(1.0),
+    );
 
     // Verify symbol mark is created correctly
     let renderer = avenger_chart::render::PlotRenderer::new(&plot);
@@ -133,22 +133,22 @@ async fn test_scatter_with_shapes() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x_with::<Linear>(|scale| scale)
-        .scale_y_with::<Linear>(|scale| scale)
-        .axis_x(|axis| axis.title("X Value"))
-        .axis_y(|axis| axis.title("Y Value"))
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .shape(col("shape")) // Now uses automatic ordinal scale
-                .fill("#ff6347")
-                .size(120.0)
-                .stroke("#333333")
-                .stroke_width(1.5),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x_with(col("x"), |c| {
+                c.scale_with::<Linear>(|s| s)
+                    .axis(|a: DefaultCartesianAxis| a.title("X Value"))
+            })
+            .y_with(col("y"), |c| {
+                c.scale_with::<Linear>(|s| s)
+                    .axis(|a: DefaultCartesianAxis| a.title("Y Value"))
+            })
+            .shape(col("shape")) // Now uses automatic ordinal scale
+            .fill("#ff6347")
+            .size(120.0)
+            .stroke("#333333")
+            .stroke_width(1.5),
+    );
 
     // Verify symbol mark has correct shapes
     let renderer = avenger_chart::render::PlotRenderer::new(&plot);
@@ -213,14 +213,16 @@ async fn test_scatter_with_size_encoding() {
     let plot = Plot::<Cartesian>::new()
         .with_size(600.0, 450.0)
         .data(df)
-        .scale_x_with::<Linear>(|scale| scale.nice(false))
-        .scale_y_with::<Linear>(|scale| scale.nice(false).zero(false))
-        .axis_x(|axis| axis.title("X Value").grid(true))
-        .axis_y(|axis| axis.title("Y Value").grid(true))
         .mark(
             Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
+                .x_with(col("x"), |c| {
+                    c.scale_with::<Linear>(|s| s.nice(false))
+                        .axis(|a: DefaultCartesianAxis| a.title("X Value").grid(true))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                        .axis(|a: DefaultCartesianAxis| a.title("Y Value").grid(true))
+                })
                 .size_with(col("size"), |c| c.no_scale())
                 .fill("rgba(255, 99, 71, 0.5)")
                 .stroke("#8b0000")
@@ -262,15 +264,17 @@ async fn test_scatter_with_size_encoding_legend() {
     let plot = Plot::<Cartesian>::new()
         .with_size(600.0, 450.0)
         .data(df)
-        .scale_x_with::<Linear>(|scale| scale.nice(false))
-        .scale_y_with::<Linear>(|scale| scale.nice(false).zero(false))
-        .axis_x(|axis| axis.title("X Value").grid(true))
-        .axis_y(|axis| axis.title("Y Value").grid(true))
         .legend("fill", |legend| legend)
         .mark(
             Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
+                .x_with(col("x"), |c| {
+                    c.scale_with::<Linear>(|s| s.nice(false))
+                        .axis(|a: DefaultCartesianAxis| a.title("X Value").grid(true))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                        .axis(|a: DefaultCartesianAxis| a.title("Y Value").grid(true))
+                })
                 .size_with(col("size"), |c| c.no_scale())
                 .fill(col("size"))
                 .stroke("#8b0000")
@@ -310,21 +314,21 @@ async fn test_scatter_with_angle() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .axis_x(|axis| axis.title("X Position"))
-        .axis_y(|axis| axis.title("Y Position"))
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .shape("arrow")
-                .angle_with(col("angle"), |c| c.no_scale())
-                .size(800.0)
-                .fill("#ff8c00")
-                .stroke("#000000")
-                .stroke_width(2.0),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x_with(col("x"), |c| {
+                c.axis(|a: DefaultCartesianAxis| a.title("X Position"))
+            })
+            .y_with(col("y"), |c| {
+                c.axis(|a: DefaultCartesianAxis| a.title("Y Position"))
+            })
+            .shape("arrow")
+            .angle_with(col("angle"), |c| c.no_scale())
+            .size(800.0)
+            .fill("#ff8c00")
+            .stroke("#000000")
+            .stroke_width(2.0),
+    );
 
     assert_visual_match_default(plot, "symbol", "scatter_with_angle").await;
 }
@@ -360,8 +364,8 @@ async fn test_scatter_with_angle_scale() {
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Symbol::new()
-            .x(col("x"))
-            .y(col("y"))
+            .x_with(col("x"), |c| c.scale(|s| s))
+            .y_with(col("y"), |c| c.scale(|s| s))
             .shape("arrow")
             .angle(col("angle"))
             .size(400.0)
@@ -406,20 +410,20 @@ async fn test_scatter_with_default_shape_scale() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .axis_x(|axis| axis.title("X Value"))
-        .axis_y(|axis| axis.title("Y Value"))
-        .mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .shape(col("category")) // This will trigger default ordinal scale
-                .size(200.0)
-                .fill("#3498db")
-                .stroke("#2c3e50")
-                .stroke_width(2.0),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x_with(col("x"), |c| {
+                c.axis(|a: DefaultCartesianAxis| a.title("X Value"))
+            })
+            .y_with(col("y"), |c| {
+                c.axis(|a: DefaultCartesianAxis| a.title("Y Value"))
+            })
+            .shape(col("category")) // This will trigger default ordinal scale
+            .size(200.0)
+            .fill("#3498db")
+            .stroke("#2c3e50")
+            .stroke_width(2.0),
+    );
 
     assert_visual_match_default(plot, "symbol", "scatter_with_default_shapes").await;
 }

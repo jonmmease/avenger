@@ -135,9 +135,12 @@ async fn test_explicit_domain_allows_literals() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a plot with numeric literal x value but explicit domain (should work)
-    let plot = Plot::<Cartesian>::new()
-        .mark(Symbol::new().data(df).x(50.0).y(col("value")))
-        .scale_x(|s| s.domain_interval(lit(0), lit(100)));
+    let plot = Plot::<Cartesian>::new().mark(
+        Symbol::new()
+            .data(df)
+            .x_with(50.0, |c| c.scale(|s| s.domain_interval(lit(0), lit(100))))
+            .y(col("value")),
+    );
 
     // Try to render
     let dimensions = CanvasDimensions {

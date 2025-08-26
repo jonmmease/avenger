@@ -75,27 +75,29 @@ fn test_channel_scale_with_typed() {
 }
 
 #[test]
-fn test_channel_and_plot_config_coexist() {
-    // Test that plot-level and channel-level configs can coexist
-    let plot = Plot::<Cartesian>::new()
-        .scale_x(|s| s.domain((0.0, 100.0))) // Plot-level config
-        .legend("x", |l| l.visible(false)) // Plot-level config
-        .mark(
-            Symbol::new()
-                .x(col("x")) // No channel config, uses plot config
-                .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 50.0)))) // Channel-level config
-                // Note: Position channels don't have legends, they have axes
-                .fill(col("category")),
-        );
+fn test_channel_config() {
+    // Test that channel-level configs work properly
+    let plot = Plot::<Cartesian>::new().mark(
+        Symbol::new()
+            .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 100.0)))) // Channel-level config
+            .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 50.0)))) // Channel-level config
+            // Note: Position channels don't have legends, they have axes
+            .fill_with(col("category"), |c| {
+                c.scale(|s| s) // Configure scale to ensure it gets created
+                    .legend(|l| l.visible(false))
+            }),
+    );
 
-    // Both plot-level and channel-level configs should exist
-    assert!(plot.scale_specs().contains_key("x")); // From plot
+    // Channel-level configs should exist
+    assert!(plot.scale_specs().contains_key("x")); // From channel
     assert!(plot.scale_specs().contains_key("y")); // From channel
+    assert!(plot.scale_specs().contains_key("fill")); // From channel with scale config
 
-    assert!(plot.legends().contains_key("x")); // From plot
-    assert!(!plot.legends()["x"].visible);
+    assert!(plot.legends().contains_key("fill")); // From channel
+    assert!(!plot.legends()["fill"].visible);
 
     // Position channels don't have legends, they have axes
+    assert!(!plot.legends().contains_key("x"));
     assert!(!plot.legends().contains_key("y"));
 }
 

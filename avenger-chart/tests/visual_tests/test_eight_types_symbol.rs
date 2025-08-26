@@ -1,10 +1,12 @@
 use crate::visual_tests::helpers::assert_visual_match_default;
-use avenger_chart::cartesian::Cartesian;
+use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
+use avenger_chart::scales::Linear;
 use datafusion::arrow::array::{ArrayRef, Float32Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::logical_expr::col;
 use datafusion::prelude::*;
 use std::sync::Arc;
 
@@ -67,13 +69,19 @@ async fn test_eight_types_fill_shape() {
         .data(df)
         .title("Eight Category Scatter Plot")
         .subtitle("Okabe-Ito colors with distinct shapes")
-        .axis_x(|axis| axis.title("Sample Index").grid(true))
-        .axis_y(|axis| axis.title("Performance Metric (%)").grid(true))
         .legend("fill", |legend| legend.title("Category")) // Only one legend since both use same column
         .mark(
             Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
+                .x_with(col("x"), |c| {
+                    c.scale_with::<Linear>(|s| s)
+                        .axis(|a: DefaultCartesianAxis| a.title("Sample Index").grid(true))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale_with::<Linear>(|s| s)
+                        .axis(|a: DefaultCartesianAxis| {
+                            a.title("Performance Metric (%)").grid(true)
+                        })
+                })
                 .fill(col("category")) // Uses default Okabe-Ito colors
                 .shape(col("category")) // Uses default 8 shapes
                 .size(100.0), // Fixed size as number, not literal

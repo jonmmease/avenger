@@ -63,17 +63,14 @@ async fn test_channel_resolution_with_scale() -> Result<(), Box<dyn std::error::
         .await?;
 
     // Create a plot where channel reference goes through scale transformation
-    let plot = Plot::<Cartesian>::new()
-        .with_size(400.0, 300.0)
-        .scale_x_with::<Band>(|scale| scale)
-        .mark(
-            Rect::new()
-                .data(df)
-                .x(col("name"))
-                .x2_with(col(":x"), |c| c.band(1.0)) // Should resolve to the scaled x value
-                .y(lit(0.0))
-                .y2(col("value")),
-        );
+    let plot = Plot::<Cartesian>::new().with_size(400.0, 300.0).mark(
+        Rect::new()
+            .data(df)
+            .x_with(col("name"), |c| c.scale_with::<Band>(|scale| scale))
+            .x2_with(col(":x"), |c| c.band(1.0)) // Should resolve to the scaled x value
+            .y(lit(0.0))
+            .y2(col("value")),
+    );
 
     // Try to render
     let dimensions = CanvasDimensions {

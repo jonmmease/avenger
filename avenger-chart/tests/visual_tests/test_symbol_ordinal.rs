@@ -1,5 +1,5 @@
 use super::helpers::assert_visual_match_default;
-use avenger_chart::cartesian::Cartesian;
+use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
 use avenger_chart::scales::Linear;
@@ -55,22 +55,20 @@ async fn test_symbol_automatic_shape_scale() {
     // Create plot using col("category") for automatic shape mapping
     // This demonstrates that an ordinal scale is automatically created
     // with shape strings as the range values
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        // .scale_x(|scale| scale.domain((60.0, 130.0)))
-        // .scale_y(|scale| scale.domain((10.0, 30.0)))
-        .axis_x(|axis| axis.title("Sales ($k)"))
-        .axis_y(|axis| axis.title("Profit ($k)"))
-        .mark(
-            Symbol::new()
-                .x(col("sales"))
-                .y(col("profit"))
-                .shape(col("category")) // Automatic ordinal scale
-                .fill(col("category")) // Also use for color
-                .size(200.0)
-                .stroke("#333333")
-                .stroke_width(1.5),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x_with(col("sales"), |c| {
+                c.axis(|a: DefaultCartesianAxis| a.title("Sales ($k)"))
+            })
+            .y_with(col("profit"), |c| {
+                c.axis(|a: DefaultCartesianAxis| a.title("Profit ($k)"))
+            })
+            .shape(col("category")) // Automatic ordinal scale
+            .fill(col("category")) // Also use for color
+            .size(200.0)
+            .stroke("#333333")
+            .stroke_width(1.5),
+    );
 
     assert_visual_match_default(plot, "symbol_ordinal", "automatic_shape_scale").await;
 }
@@ -107,22 +105,22 @@ async fn test_symbol_custom_enumeration() {
         .expect("Failed to read batch into DataFrame");
 
     // Create plot demonstrating automatic ordinal scale for custom enumeration
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x_with::<Linear>(|scale| scale)
-        .scale_y_with::<Linear>(|scale| scale.domain((0.0, 100.0)))
-        .axis_x(|axis| axis.title("Task ID"))
-        .axis_y(|axis| axis.title("Completion %"))
-        .mark(
-            Symbol::new()
-                .x(col("task_id"))
-                .y(col("completion"))
-                .shape(col("priority")) // Maps priority levels to shapes
-                .fill(col("priority")) // Also use for color
-                .size(250.0)
-                .stroke("#000000")
-                .stroke_width(2.0),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x_with(col("task_id"), |c| {
+                c.scale_with::<Linear>(|s| s)
+                    .axis(|a: DefaultCartesianAxis| a.title("Task ID"))
+            })
+            .y_with(col("completion"), |c| {
+                c.scale_with::<Linear>(|s| s.domain((0.0, 100.0)))
+                    .axis(|a: DefaultCartesianAxis| a.title("Completion %"))
+            })
+            .shape(col("priority")) // Maps priority levels to shapes
+            .fill(col("priority")) // Also use for color
+            .size(250.0)
+            .stroke("#000000")
+            .stroke_width(2.0),
+    );
 
     assert_visual_match_default(plot, "symbol_ordinal", "custom_enumeration").await;
 }

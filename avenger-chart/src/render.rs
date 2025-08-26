@@ -767,6 +767,17 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             }
         }
 
+        // Apply axis configurations from mark channels (last mark wins for conflicts)
+        // This must happen BEFORE layout measurement so the layout system knows the actual axis titles
+        for mark in &self.plot.marks {
+            for (channel, axis_config) in mark.state().axis_configs.iter() {
+                if let Some(base_axis) = all_axes.get(channel).cloned() {
+                    let configured = axis_config(base_axis);
+                    all_axes.insert(channel.clone(), configured);
+                }
+            }
+        }
+
         // Call the dynamic layout helper with the coordinate system's axes
         self.compute_layout_with_dynamic_axes(width, height, scales, all_axes)
             .await
@@ -780,21 +791,9 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         axes: HashMap<String, C::Axis>,
     ) -> Result<LayoutSolution, AvengerChartError> {
-        // Apply user axis customizations before getting layout axes
-        let mut customized_axes = axes;
-        for (channel, axis_spec) in &self.plot.axis_specs {
-            if let Some(base_axis) = customized_axes.get(channel).cloned() {
-                match axis_spec {
-                    crate::plot::AxisSpec::Local(f) => {
-                        let customized = f(base_axis);
-                        customized_axes.insert(channel.clone(), customized);
-                    }
-                    crate::plot::AxisSpec::Reference(_) => {
-                        // Reference axes not yet supported
-                    }
-                }
-            }
-        }
+        // The axes parameter already has all customizations applied from compute_layout
+        // (both plot-level and mark-level configurations)
+        let customized_axes = axes;
 
         // Check for required positional scales before measuring overflow
         // This ensures we provide proper error messages for literal values
@@ -1279,8 +1278,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 }
             }
         }
-        
-        // Apply axis configurations from mark channels (last mark wins for conflicts)
+
+        // Apply axis configurations from mark channels (same as in compute_layout)
         for mark in &self.plot.marks {
             for (channel, axis_config) in mark.state().axis_configs.iter() {
                 if let Some(base_axis) = all_axes.get(channel).cloned() {

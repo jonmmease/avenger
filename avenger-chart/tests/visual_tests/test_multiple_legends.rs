@@ -1,5 +1,5 @@
 use super::helpers::assert_visual_match_default;
-use avenger_chart::cartesian::Cartesian;
+use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
 use avenger_chart::legend::LegendPosition;
 use avenger_chart::marks::line::Line;
 use avenger_chart::marks::rect::Rect;
@@ -51,15 +51,6 @@ async fn test_scatter_multiple_legends() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|s| s.domain((0.0, 10.0)))
-        .scale_y(|s| s.domain((0.0, 10.0)))
-        ._scale_with::<Ordinal>("fill", |s| s)
-        ._scale("size", |s| {
-            s.domain((5.0, 40.0)).range_interval(lit(25.0), lit(200.0))
-        })
-        ._scale_with::<Ordinal>("shape", |s| s)
-        .axis_x(|axis| axis.title("X Axis"))
-        .axis_y(|axis| axis.title("Y Axis"))
         .legend("fill", |legend| {
             legend
                 .title("Category")
@@ -80,11 +71,19 @@ async fn test_scatter_multiple_legends() {
         })
         .mark(
             Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .fill(col("category"))
-                .size(col("size_value"))
-                .shape(col("shape_type")),
+                .x_with(col("x"), |c| {
+                    c.scale(|s| s.domain((0.0, 10.0)))
+                        .axis(|axis: DefaultCartesianAxis| axis.title("X Axis"))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale(|s| s.domain((0.0, 10.0)))
+                        .axis(|axis: DefaultCartesianAxis| axis.title("Y Axis"))
+                })
+                .fill_with(col("category"), |c| c.scale_with::<Ordinal>(|s| s))
+                .size_with(col("size_value"), |c| {
+                    c.scale(|s| s.domain((5.0, 40.0)).range_interval(lit(25.0), lit(200.0)))
+                })
+                .shape_with(col("shape_type"), |c| c.scale_with::<Ordinal>(|s| s)),
         );
 
     assert_visual_match_default(plot, "layout", "scatter_multiple_legends").await;
@@ -125,13 +124,6 @@ async fn test_mixed_legend_types() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|s| s.domain((0.0, 6.0)))
-        .scale_y(|s| s.domain((0.0, 8.0)))
-        ._scale_with::<Ordinal>("stroke", |s| s)
-        ._scale_with::<Ordinal>("shape", |s| s)
-        ._scale_with::<Linear>("fill", |s| s.domain((0.0, 35.0)))
-        .axis_x(|axis| axis.title("X Axis"))
-        .axis_y(|axis| axis.title("Y Axis"))
         .legend("stroke", |legend| {
             legend
                 .title("Line Series")
@@ -152,25 +144,35 @@ async fn test_mixed_legend_types() {
         })
         .mark(
             Line::new()
-                .x(col("x"))
-                .y(col("y1"))
-                .stroke(col("series"))
+                .x_with(col("x"), |c| {
+                    c.scale(|s| s.domain((0.0, 6.0)))
+                        .axis(|axis: DefaultCartesianAxis| axis.title("X Axis"))
+                })
+                .y_with(col("y1"), |c| {
+                    c.scale(|s| s.domain((0.0, 8.0)))
+                        .axis(|axis: DefaultCartesianAxis| axis.title("Y Axis"))
+                })
+                .stroke_with(col("series"), |c| c.scale_with::<Ordinal>(|s| s))
                 .stroke_width(2.0),
         )
         .mark(
             Symbol::new()
-                .x(col("x"))
-                .y(col("y2"))
-                .shape(col("series"))
+                .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 6.0))))
+                .y_with(col("y2"), |c| c.scale(|s| s.domain((0.0, 8.0))))
+                .shape_with(col("series"), |c| c.scale_with::<Ordinal>(|s| s))
                 .size(50.0),
         )
         .mark(
             Rect::new()
-                .x(col("x") - lit(0.3))
-                .x2(col("x") + lit(0.3))
-                .y(lit(0.0))
-                .y2(col("temperature") / lit(5.0))
-                .fill(col("temperature")),
+                .x_with(col("x") - lit(0.3), |c| c.scale(|s| s.domain((0.0, 6.0))))
+                .x2_with(col("x") + lit(0.3), |c| c.scale(|s| s.domain((0.0, 6.0))))
+                .y_with(lit(0.0), |c| c.scale(|s| s.domain((0.0, 8.0))))
+                .y2_with(col("temperature") / lit(5.0), |c| {
+                    c.scale(|s| s.domain((0.0, 8.0)))
+                })
+                .fill_with(col("temperature"), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((0.0, 35.0)))
+                }),
         );
 
     assert_visual_match_default(plot, "layout", "mixed_legend_types").await;
@@ -208,14 +210,6 @@ async fn test_legends_different_positions() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|s| s.domain((0.0, 7.0)))
-        .scale_y(|s| s.domain((0.0, 7.0)))
-        ._scale_with::<Ordinal>("fill", |s| s)
-        ._scale("size", |s| {
-            s.domain((5.0, 35.0)).range_interval(lit(25.0), lit(150.0))
-        })
-        .axis_x(|axis| axis.title("X Axis"))
-        .axis_y(|axis| axis.title("Y Axis"))
         .legend("fill", |legend| {
             legend.title("Category").position(LegendPosition::Right)
         })
@@ -224,10 +218,18 @@ async fn test_legends_different_positions() {
         })
         .mark(
             Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .fill(col("category"))
-                .size(col("size_value")),
+                .x_with(col("x"), |c| {
+                    c.scale(|s| s.domain((0.0, 7.0)))
+                        .axis(|axis: DefaultCartesianAxis| axis.title("X Axis"))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale(|s| s.domain((0.0, 7.0)))
+                        .axis(|axis: DefaultCartesianAxis| axis.title("Y Axis"))
+                })
+                .fill_with(col("category"), |c| c.scale_with::<Ordinal>(|s| s))
+                .size_with(col("size_value"), |c| {
+                    c.scale(|s| s.domain((5.0, 35.0)).range_interval(lit(25.0), lit(150.0)))
+                }),
         );
 
     assert_visual_match_default(plot, "layout", "legends_different_positions").await;
@@ -267,12 +269,6 @@ async fn test_colorbar_with_symbols() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|s| s.domain((0.0, 9.0)))
-        .scale_y(|s| s.domain((0.0, 9.0)))
-        ._scale_with::<Linear>("fill", |s| s.domain((5.0, 40.0)))
-        ._scale_with::<Ordinal>("shape", |s| s)
-        .axis_x(|axis| axis.title("X Axis"))
-        .axis_y(|axis| axis.title("Y Axis"))
         .legend("fill", |legend| {
             legend
                 .title("Temperature °C")
@@ -287,10 +283,18 @@ async fn test_colorbar_with_symbols() {
         })
         .mark(
             Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .fill(col("temperature"))
-                .shape(col("shape_type"))
+                .x_with(col("x"), |c| {
+                    c.scale(|s| s.domain((0.0, 9.0)))
+                        .axis(|axis: DefaultCartesianAxis| axis.title("X Axis"))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale(|s| s.domain((0.0, 9.0)))
+                        .axis(|axis: DefaultCartesianAxis| axis.title("Y Axis"))
+                })
+                .fill_with(col("temperature"), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((5.0, 40.0)))
+                })
+                .shape_with(col("shape_type"), |c| c.scale_with::<Ordinal>(|s| s))
                 .size(100.0),
         );
 
@@ -332,13 +336,6 @@ async fn test_legend_ordering() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df)
-        .scale_x(|s| s.domain((0.0, 6.0)))
-        .scale_y(|s| s.domain((0.0, 6.0)))
-        ._scale_with::<Ordinal>("fill", |s| s)
-        ._scale_with::<Ordinal>("shape", |s| s)
-        ._scale_with::<Ordinal>("stroke", |s| s)
-        .axis_x(|axis| axis.title("X Axis"))
-        .axis_y(|axis| axis.title("Y Axis"))
         // Test explicit ordering - should appear in order 3, 1, 2
         .legend("shape", |legend| {
             legend
@@ -360,11 +357,17 @@ async fn test_legend_ordering() {
         })
         .mark(
             Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .fill(col("c"))
-                .shape(col("a"))
-                .stroke(col("b")),
+                .x_with(col("x"), |c| {
+                    c.scale(|s| s.domain((0.0, 6.0)))
+                        .axis(|axis: DefaultCartesianAxis| axis.title("X Axis"))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale(|s| s.domain((0.0, 6.0)))
+                        .axis(|axis: DefaultCartesianAxis| axis.title("Y Axis"))
+                })
+                .fill_with(col("c"), |c| c.scale_with::<Ordinal>(|s| s))
+                .shape_with(col("a"), |c| c.scale_with::<Ordinal>(|s| s))
+                .stroke_with(col("b"), |c| c.scale_with::<Ordinal>(|s| s)),
         );
 
     assert_visual_match_default(plot, "layout", "legend_ordering").await;

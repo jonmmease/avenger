@@ -1,5 +1,5 @@
 use super::helpers::assert_visual_match_default;
-use avenger_chart::cartesian::Cartesian;
+use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
 use avenger_chart::marks::line::Line;
 use avenger_chart::plot::Plot;
 use avenger_chart::scales::Linear;
@@ -35,19 +35,19 @@ fn create_line_data() -> DataFrame {
 async fn test_simple_line_chart() {
     let df = create_line_data();
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x_with::<Linear>(|scale| scale)
-        .scale_y_with::<Linear>(|scale| scale)
-        .axis_x(|axis| axis.title("X Value"))
-        .axis_y(|axis| axis.title("Y Value"))
-        .mark(
-            Line::new()
-                .x(col("x"))
-                .y(col("y"))
-                .stroke("#4682b4")
-                .stroke_width(2.0),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Line::new()
+            .x_with(col("x"), |c| {
+                c.scale_with::<Linear>(|s| s)
+                    .axis(|a: DefaultCartesianAxis| a.title("X Value"))
+            })
+            .y_with(col("y"), |c| {
+                c.scale_with::<Linear>(|s| s)
+                    .axis(|a: DefaultCartesianAxis| a.title("Y Value"))
+            })
+            .stroke("#4682b4")
+            .stroke_width(2.0),
+    );
 
     assert_visual_match_default(plot, "line", "simple_line_chart").await;
 }
@@ -56,20 +56,20 @@ async fn test_simple_line_chart() {
 async fn test_line_with_dashed_stroke() {
     let df = create_line_data();
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x_with::<Linear>(|scale| scale)
-        .scale_y_with::<Linear>(|scale| scale)
-        .axis_x(|axis| axis.title("X Value"))
-        .axis_y(|axis| axis.title("Y Value"))
-        .mark(
-            Line::new()
-                .x(col("x"))
-                .y(col("y"))
-                .stroke("#dc143c")
-                .stroke_width(3.0)
-                .stroke_dash("dashed"),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Line::new()
+            .x_with(col("x"), |c| {
+                c.scale_with::<Linear>(|s| s)
+                    .axis(|a: DefaultCartesianAxis| a.title("X Value"))
+            })
+            .y_with(col("y"), |c| {
+                c.scale_with::<Linear>(|s| s)
+                    .axis(|a: DefaultCartesianAxis| a.title("Y Value"))
+            })
+            .stroke("#dc143c")
+            .stroke_width(3.0)
+            .stroke_dash("dashed"),
+    );
 
     assert_visual_match_default(plot, "line", "line_dashed_stroke").await;
 }
@@ -105,20 +105,20 @@ async fn test_line_with_gaps() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x_with::<Linear>(|scale| scale)
-        .scale_y_with::<Linear>(|scale| scale)
-        .axis_x(|axis| axis.title("X Value"))
-        .axis_y(|axis| axis.title("Y Value"))
-        .mark(
-            Line::new()
-                .x(col("x"))
-                .y(col("y"))
-                .defined(col("defined")) // Using numeric column that will be coerced to boolean
-                .stroke("#2e8b57")
-                .stroke_width(2.5),
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Line::new()
+            .x_with(col("x"), |c| {
+                c.scale_with::<Linear>(|s| s)
+                    .axis(|a: DefaultCartesianAxis| a.title("X Value"))
+            })
+            .y_with(col("y"), |c| {
+                c.scale_with::<Linear>(|s| s)
+                    .axis(|a: DefaultCartesianAxis| a.title("Y Value"))
+            })
+            .defined(col("defined")) // Using numeric column that will be coerced to boolean
+            .stroke("#2e8b57")
+            .stroke_width(2.5),
+    );
 
     assert_visual_match_default(plot, "line", "line_with_gaps").await;
 }
@@ -161,10 +161,6 @@ async fn test_multiple_lines() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df.clone())
-        .scale_x_with::<Linear>(|scale| scale)
-        .scale_y_with::<Linear>(|scale| scale)
-        .axis_x(|axis| axis.title("X Value"))
-        .axis_y(|axis| axis.title("Y Value"))
         .mark(
             Line::new()
                 .data(
@@ -172,8 +168,14 @@ async fn test_multiple_lines() {
                         .filter(col("series").eq(datafusion::logical_expr::lit("A")))
                         .unwrap(),
                 )
-                .x(col("x"))
-                .y(col("y"))
+                .x_with(col("x"), |c| {
+                    c.scale_with::<Linear>(|s| s)
+                        .axis(|a: DefaultCartesianAxis| a.title("X Value"))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale_with::<Linear>(|s| s)
+                        .axis(|a: DefaultCartesianAxis| a.title("Y Value"))
+                })
                 .stroke("#e74c3c")
                 .stroke_width(2.0),
         )
@@ -210,16 +212,18 @@ async fn test_line_dash_patterns() {
 
     let plot = Plot::<Cartesian>::new()
         .data(df.clone())
-        .scale_x_with::<Linear>(|scale| scale)
-        .scale_y_with::<Linear>(|scale| scale.domain((0.0, 100.0)))
-        .axis_x(|axis| axis.title("X Value"))
-        .axis_y(|axis| axis.title("Y Value"))
         // Solid line
         .mark(
             Line::new()
                 .data(df.clone())
-                .x(col("x"))
-                .y(col("y"))
+                .x_with(col("x"), |c| {
+                    c.scale_with::<Linear>(|s| s)
+                        .axis(|a: DefaultCartesianAxis| a.title("X Value"))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale_with::<Linear>(|s| s.domain((0.0, 100.0)))
+                        .axis(|a: DefaultCartesianAxis| a.title("Y Value"))
+                })
                 .stroke("#2c3e50")
                 .stroke_width(2.0)
                 .stroke_dash("solid"),
@@ -277,22 +281,22 @@ async fn test_line_vertical_padding_no_nice() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new()
-        .data(df)
-        .scale_x_with::<Linear>(|scale| scale.nice(false))
-        .scale_y_with::<Linear>(|scale| {
-            scale.nice(false)
-            // Without radius padding, the line would be clipped at y=0 and y=100
-        })
-        .axis_x(|axis| axis.title("X Value"))
-        .axis_y(|axis| axis.title("Y Value"))
-        .mark(
-            Line::new()
-                .x(col("x"))
-                .y(col("y"))
-                .stroke("#e74c3c")
-                .stroke_width(10.0), // Large stroke width to make the effect visible
-        );
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Line::new()
+            .x_with(col("x"), |c| {
+                c.scale_with::<Linear>(|s| s.nice(false))
+                    .axis(|a: DefaultCartesianAxis| a.title("X Value"))
+            })
+            .y_with(col("y"), |c| {
+                c.scale_with::<Linear>(|s| {
+                    s.nice(false)
+                    // Without radius padding, the line would be clipped at y=0 and y=100
+                })
+                .axis(|a: DefaultCartesianAxis| a.title("Y Value"))
+            })
+            .stroke("#e74c3c")
+            .stroke_width(10.0), // Large stroke width to make the effect visible
+    );
 
     assert_visual_match_default(plot, "line", "line_vertical_padding_no_nice").await;
 }
