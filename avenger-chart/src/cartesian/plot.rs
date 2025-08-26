@@ -1,4 +1,4 @@
-use crate::cartesian::{Cartesian, CartesianAxis};
+use crate::cartesian::CartesianAxis;
 use crate::cartesian::coord::CartesianGeneral;
 use crate::plot::Plot;
 

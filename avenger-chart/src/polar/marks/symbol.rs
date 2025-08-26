@@ -1,8 +1,9 @@
 use crate::error::AvengerChartError;
+use crate::impl_mark_trait_common;
 use crate::marks::{ChannelType, Mark, RadiusExpression};
-use crate::polar::Polar;
+use crate::polar::PolarAxis;
+use crate::polar::coord::PolarGeneral;
 use crate::utils::ScalarValueHelpers;
-use crate::{define_position_mark_channels, impl_mark_trait_common};
 use arrow::array::RecordBatch;
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -12,17 +13,68 @@ use datafusion_common::ScalarValue;
 // Import Symbol for the macro, then re-export it
 use crate::marks::symbol::Symbol;
 
-// Define position channels for Polar Symbol
-define_position_mark_channels! {
-    Symbol<Polar> {
-        r: { type: ChannelType::Numeric },
-        theta: { type: ChannelType::Numeric },
+// Implement position channels for PolarGeneral Symbol with generic axis support
+impl<A: PolarAxis + Default + 'static> Symbol<PolarGeneral<A>> {
+    pub fn r<V: Into<crate::marks::ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("r", value.into())
+    }
+
+    pub fn r_with<F>(self, value: impl Into<crate::marks::ChannelValue>, f: F) -> Self
+    where
+        F: FnOnce(
+            crate::marks::typed_channels::PositionChannel,
+        ) -> crate::marks::typed_channels::PositionChannel,
+    {
+        let channel_value: crate::marks::ChannelValue = value.into();
+        let channel = f(crate::marks::typed_channels::PositionChannel(channel_value));
+        self.with_channel_value("r", channel.into())
+    }
+
+    pub fn theta<V: Into<crate::marks::ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("theta", value.into())
+    }
+
+    pub fn theta_with<F>(self, value: impl Into<crate::marks::ChannelValue>, f: F) -> Self
+    where
+        F: FnOnce(
+            crate::marks::typed_channels::PositionChannel,
+        ) -> crate::marks::typed_channels::PositionChannel,
+    {
+        let channel_value: crate::marks::ChannelValue = value.into();
+        let channel = f(crate::marks::typed_channels::PositionChannel(channel_value));
+        self.with_channel_value("theta", channel.into())
+    }
+
+    pub fn position_channel_descriptors() -> Vec<crate::marks::ChannelDescriptor> {
+        use crate::marks::ChannelDescriptor;
+        vec![
+            ChannelDescriptor {
+                name: "r",
+                channel_type: ChannelType::Numeric,
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "theta",
+                channel_type: ChannelType::Numeric,
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+        ]
+    }
+
+    pub fn all_channel_descriptors() -> Vec<crate::marks::ChannelDescriptor> {
+        let mut descriptors = Self::common_channel_descriptors();
+        descriptors.extend(Self::position_channel_descriptors());
+        descriptors
     }
 }
 
-// Implement Mark trait for Polar Symbol
-impl Mark<Polar> for Symbol<Polar> {
-    impl_mark_trait_common!(Symbol, Polar, "symbol");
+// Implement Mark trait for PolarGeneral Symbol with any axis type
+impl<A: PolarAxis + Default + 'static> Mark<PolarGeneral<A>> for Symbol<PolarGeneral<A>> {
+    impl_mark_trait_common!(Symbol, PolarGeneral<A>, "symbol");
 
     fn default_channel_value(&self, channel: &str) -> Option<ScalarValue> {
         match channel {

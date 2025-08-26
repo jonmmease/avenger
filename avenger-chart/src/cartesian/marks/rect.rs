@@ -1,10 +1,10 @@
-use crate::cartesian::{Cartesian, CartesianAxis};
+use crate::cartesian::CartesianAxis;
+use crate::cartesian::coord::CartesianGeneral;
 use crate::impl_mark_trait_common;
 use crate::marks::{ChannelType, Mark};
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
-use crate::cartesian::coord::CartesianGeneral;
 // Import Rect for the macro, then re-export it
 use crate::error::AvengerChartError;
 pub use crate::marks::rect::Rect;
