@@ -135,6 +135,13 @@ macro_rules! define_common_mark_channels {
 }
 
 /// Macro to define position channels specific to a coordinate system
+/// 
+/// This macro is primarily intended for external users who want to define
+/// custom coordinate systems with their own position channels. Internal
+/// coordinate systems (Cartesian, Polar) use manual implementations for
+/// better support of generic axis types.
+///
+/// For examples of usage, see the avenger-chart-external-test crate.
 #[macro_export]
 macro_rules! define_position_mark_channels {
     // Helper patterns for position channel _with methods
