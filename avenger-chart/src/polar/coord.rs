@@ -8,14 +8,14 @@ use datafusion::functions::math::expr_fn::{cos, sin};
 use datafusion::logical_expr::Expr;
 use std::collections::HashMap;
 
-pub struct Polar<A: PolarAxis = DefaultPolarAxis> {
+pub struct PolarGeneral<A: PolarAxis = DefaultPolarAxis> {
     // Fields for center injection from renderer
     center_x: Option<Expr>,
     center_y: Option<Expr>,
     _phantom: std::marker::PhantomData<A>,
 }
 
-impl<A: PolarAxis> Polar<A> {
+impl<A: PolarAxis> PolarGeneral<A> {
     pub fn new() -> Self {
         Self {
             center_x: None,
@@ -25,14 +25,16 @@ impl<A: PolarAxis> Polar<A> {
     }
 }
 
-impl<A: PolarAxis> Default for Polar<A> {
+impl<A: PolarAxis> Default for PolarGeneral<A> {
     fn default() -> Self {
         Self::new()
     }
 }
 
+pub type Polar = PolarGeneral<DefaultPolarAxis>;
+
 #[async_trait::async_trait]
-impl<A: PolarAxis> CoordinateSystem for Polar<A> {
+impl<A: PolarAxis> CoordinateSystem for PolarGeneral<A> {
     type Axis = A;
 
     fn required_channels(&self) -> &'static [&'static str] {

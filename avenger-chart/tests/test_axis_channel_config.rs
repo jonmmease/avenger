@@ -1,4 +1,4 @@
-use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
+use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::symbol::Symbol;
 use datafusion::prelude::col;
 
@@ -32,11 +32,10 @@ fn test_axis_config_precedence() {
     // Test that channel-level axis config takes precedence over plot-level
     // Since plot-level axis config is separate from channel-level,
     // we just verify that both syntaxes compile correctly
-    let _symbol = Symbol::<Cartesian>::new()
-        .x_with(col("x"), |c| {
-            c.scale(|s| s.domain((0.0, 100.0)))
-                .axis(|a| a.title("Channel Level X"))
-        });
+    let _symbol = Symbol::<Cartesian>::new().x_with(col("x"), |c| {
+        c.scale(|s| s.domain((0.0, 100.0)))
+            .axis(|a| a.title("Channel Level X"))
+    });
 
     // In practice, "Channel Level X" should be used since marks are processed after plot axes
 }

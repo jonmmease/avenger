@@ -1,4 +1,5 @@
-use crate::cartesian::{Cartesian, CartesianAxis};
+use crate::cartesian::CartesianAxis;
+use crate::cartesian::coord::CartesianGeneral;
 use crate::impl_mark_trait_common;
 use crate::marks::{ChannelType, Mark, RadiusExpression};
 use arrow::array::RecordBatch;
@@ -7,7 +8,6 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use datafusion::logical_expr::{Expr, lit};
 use datafusion_common::ScalarValue;
-use crate::cartesian::coord::CartesianGeneral;
 // Import Symbol for the macro, then re-export it
 use crate::error::AvengerChartError;
 pub use crate::marks::symbol::Symbol;
@@ -103,7 +103,9 @@ impl<A: CartesianAxis + Default + 'static> Symbol<CartesianGeneral<A>> {
 }
 
 // Implement Mark trait for CartesianGeneric Symbol with any axis type
-impl<A: CartesianAxis + Default + 'static> Mark<CartesianGeneral<A>> for Symbol<CartesianGeneral<A>> {
+impl<A: CartesianAxis + Default + 'static> Mark<CartesianGeneral<A>>
+    for Symbol<CartesianGeneral<A>>
+{
     impl_mark_trait_common!(Symbol, CartesianGeneral<A>, "symbol");
 
     fn default_channel_value(&self, channel: &str) -> Option<ScalarValue> {

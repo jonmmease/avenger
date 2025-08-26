@@ -1,4 +1,5 @@
-use crate::cartesian::{Cartesian, CartesianAxis};
+use crate::cartesian::CartesianAxis;
+use crate::cartesian::coord::CartesianGeneral;
 use crate::impl_mark_trait_common;
 use crate::marks::{ChannelType, Mark, RadiusExpression};
 use arrow::array::{AsArray, RecordBatch};
@@ -8,7 +9,6 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::logical_expr::{Expr, lit};
 use datafusion_common::ScalarValue;
 use indexmap::IndexMap;
-use crate::cartesian::coord::CartesianGeneral;
 // Import Line for the macro, then re-export it
 use crate::error::AvengerChartError;
 pub use crate::marks::line::{Line, ensure_dictionary_array};
