@@ -7,7 +7,7 @@
 use crate::error::AvengerChartError;
 use crate::marks::Mark;
 use crate::zerod::ZeroDCoord;
-use crate::{define_position_mark_channels, impl_mark_trait_common};
+use crate::impl_mark_trait_common;
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion_common::ScalarValue;
@@ -17,22 +17,42 @@ pub use crate::marks::line::Line;
 pub use crate::marks::rect::Rect;
 pub use crate::marks::symbol::Symbol;
 
-// ZeroDCoord has no position channels (0D space), so these macros define empty channel sets
-define_position_mark_channels! {
-    Symbol<ZeroDCoord> {
-        // No position channels in 0D space
+// Implement position channel methods for ZeroDCoord marks
+// Since ZeroDCoord has no position channels (0D space), these implementations are minimal
+
+impl Symbol<ZeroDCoord> {
+    pub fn position_channel_descriptors() -> Vec<crate::marks::ChannelDescriptor> {
+        vec![] // No position channels in 0D space
+    }
+
+    pub fn all_channel_descriptors() -> Vec<crate::marks::ChannelDescriptor> {
+        let mut descriptors = Self::common_channel_descriptors();
+        descriptors.extend(Self::position_channel_descriptors());
+        descriptors
     }
 }
 
-define_position_mark_channels! {
-    Line<ZeroDCoord> {
-        // No position channels in 0D space
+impl Line<ZeroDCoord> {
+    pub fn position_channel_descriptors() -> Vec<crate::marks::ChannelDescriptor> {
+        vec![] // No position channels in 0D space
+    }
+
+    pub fn all_channel_descriptors() -> Vec<crate::marks::ChannelDescriptor> {
+        let mut descriptors = Self::common_channel_descriptors();
+        descriptors.extend(Self::position_channel_descriptors());
+        descriptors
     }
 }
 
-define_position_mark_channels! {
-    Rect<ZeroDCoord> {
-        // No position channels in 0D space
+impl Rect<ZeroDCoord> {
+    pub fn position_channel_descriptors() -> Vec<crate::marks::ChannelDescriptor> {
+        vec![] // No position channels in 0D space
+    }
+
+    pub fn all_channel_descriptors() -> Vec<crate::marks::ChannelDescriptor> {
+        let mut descriptors = Self::common_channel_descriptors();
+        descriptors.extend(Self::position_channel_descriptors());
+        descriptors
     }
 }
 

@@ -6,4 +6,4 @@ pub mod plot;
 
 pub use axis::{CartesianAxis, DefaultCartesianAxis};
 pub use channels::CartesianPositionChannel;
-pub use coord::Cartesian;
+pub use coord::{Cartesian, CartesianGeneral};

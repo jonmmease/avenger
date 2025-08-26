@@ -2,7 +2,7 @@
 
 use avenger_chart::{
     axis::{Axis as AxisBase, AxisPosition},
-    cartesian::{Cartesian, CartesianAxis, DefaultCartesianAxis},
+    cartesian::{Cartesian, CartesianGeneral, CartesianAxis, DefaultCartesianAxis},
     marks::symbol::Symbol,
     plot::Plot,
 };
@@ -200,7 +200,7 @@ fn main() {
 
     // Example 2: Using custom scientific axes
     // Need to specify the full type for custom axes
-    let _plot_scientific = Plot::<Cartesian<ScientificAxis>>::new().mark(
+    let _plot_scientific = Plot::<CartesianGeneral<ScientificAxis>>::new().mark(
         Symbol::new()
             .x_with("wavelength", |c| {
                 c.axis(|axis: ScientificAxis| {
