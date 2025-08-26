@@ -4,9 +4,9 @@ use avenger_chart::error::AvengerChartError;
 use avenger_chart::{
     cartesian::Cartesian,
     coords::CoordinateSystem,
-    define_common_mark_channels, define_position_mark_channels, impl_mark_base,
+    define_common_mark_channels, impl_mark_base,
     impl_mark_trait_common,
-    marks::{ChannelType, Mark, MarkState},
+    marks::{ChannelDescriptor, ChannelType, ChannelValue, Mark, MarkState},
 };
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::record_batch::RecordBatch;
@@ -32,11 +32,65 @@ define_common_mark_channels! {
     }
 }
 
-// Define position channels for Cartesian
-define_position_mark_channels! {
-    HexBin<Cartesian> {
-        x: { type: ChannelType::Numeric, required: true },
-        y: { type: ChannelType::Numeric, required: true },
+// Implement position channels for Cartesian HexBin manually
+impl HexBin<Cartesian> {
+    pub fn x<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("x", value.into())
+    }
+
+    pub fn x_with<F>(self, value: impl Into<ChannelValue>, f: F) -> Self
+    where
+        F: FnOnce(
+            avenger_chart::marks::typed_channels::PositionChannel,
+        ) -> avenger_chart::marks::typed_channels::PositionChannel,
+    {
+        let channel_value: ChannelValue = value.into();
+        let channel = f(avenger_chart::marks::typed_channels::PositionChannel(
+            channel_value,
+        ));
+        self.with_channel_value("x", channel.into())
+    }
+
+    pub fn y<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("y", value.into())
+    }
+
+    pub fn y_with<F>(self, value: impl Into<ChannelValue>, f: F) -> Self
+    where
+        F: FnOnce(
+            avenger_chart::marks::typed_channels::PositionChannel,
+        ) -> avenger_chart::marks::typed_channels::PositionChannel,
+    {
+        let channel_value: ChannelValue = value.into();
+        let channel = f(avenger_chart::marks::typed_channels::PositionChannel(
+            channel_value,
+        ));
+        self.with_channel_value("y", channel.into())
+    }
+
+    pub fn position_channel_descriptors() -> Vec<ChannelDescriptor> {
+        vec![
+            ChannelDescriptor {
+                name: "x",
+                channel_type: ChannelType::Numeric,
+                required: true,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "y",
+                channel_type: ChannelType::Numeric,
+                required: true,
+                default_value: None,
+                allow_column_ref: true,
+            },
+        ]
+    }
+
+    pub fn all_channel_descriptors() -> Vec<ChannelDescriptor> {
+        let mut descriptors = Self::common_channel_descriptors();
+        descriptors.extend(Self::position_channel_descriptors());
+        descriptors
     }
 }
 
