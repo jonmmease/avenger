@@ -8,7 +8,7 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::logical_expr::{Expr, lit};
 use datafusion_common::ScalarValue;
 use indexmap::IndexMap;
-
+use crate::cartesian::coord::CartesianGeneral;
 // Import Line for the macro, then re-export it
 use crate::error::AvengerChartError;
 pub use crate::marks::line::{Line, ensure_dictionary_array};
@@ -18,7 +18,7 @@ use crate::marks::util::{
 };
 
 // Implement position channels for Cartesian Line with generic axis support
-impl<A: CartesianAxis + Default + 'static> Line<Cartesian<A>> {
+impl<A: CartesianAxis + Default + 'static> Line<CartesianGeneral<A>> {
     pub fn x<V: Into<crate::marks::ChannelValue>>(self, value: V) -> Self {
         self.with_channel_value("x", value.into())
     }
@@ -107,8 +107,8 @@ impl<A: CartesianAxis + Default + 'static> Line<Cartesian<A>> {
 }
 
 // Implement Mark trait for Cartesian Line with any axis type
-impl<A: CartesianAxis + Default + 'static> Mark<Cartesian<A>> for Line<Cartesian<A>> {
-    impl_mark_trait_common!(Line, Cartesian<A>, "line");
+impl<A: CartesianAxis + Default + 'static> Mark<CartesianGeneral<A>> for Line<CartesianGeneral<A>> {
+    impl_mark_trait_common!(Line, CartesianGeneral<A>, "line");
 
     fn supports_order(&self) -> bool {
         true

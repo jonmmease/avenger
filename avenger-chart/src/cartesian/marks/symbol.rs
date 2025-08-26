@@ -7,14 +7,14 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use datafusion::logical_expr::{Expr, lit};
 use datafusion_common::ScalarValue;
-
+use crate::cartesian::coord::CartesianGeneral;
 // Import Symbol for the macro, then re-export it
 use crate::error::AvengerChartError;
 pub use crate::marks::symbol::Symbol;
 use crate::utils::ScalarValueHelpers;
 
 // Implement position channels for CartesianGeneric Symbol
-impl<A: CartesianAxis + Default + 'static> Symbol<Cartesian<A>> {
+impl<A: CartesianAxis + Default + 'static> Symbol<CartesianGeneral<A>> {
     pub fn x<V: Into<crate::marks::ChannelValue>>(self, value: V) -> Self {
         self.with_channel_value("x", value.into())
     }
@@ -103,8 +103,8 @@ impl<A: CartesianAxis + Default + 'static> Symbol<Cartesian<A>> {
 }
 
 // Implement Mark trait for CartesianGeneric Symbol with any axis type
-impl<A: CartesianAxis + Default + 'static> Mark<Cartesian<A>> for Symbol<Cartesian<A>> {
-    impl_mark_trait_common!(Symbol, Cartesian<A>, "symbol");
+impl<A: CartesianAxis + Default + 'static> Mark<CartesianGeneral<A>> for Symbol<CartesianGeneral<A>> {
+    impl_mark_trait_common!(Symbol, CartesianGeneral<A>, "symbol");
 
     fn default_channel_value(&self, channel: &str) -> Option<ScalarValue> {
         match channel {

@@ -1,8 +1,9 @@
 use crate::cartesian::{Cartesian, CartesianAxis};
+use crate::cartesian::coord::CartesianGeneral;
 use crate::plot::Plot;
 
 // Generic implementation for any CartesianAxis type
-impl<A> Plot<Cartesian<A>>
+impl<A> Plot<CartesianGeneral<A>>
 where
     A: CartesianAxis + Default + 'static,
 {

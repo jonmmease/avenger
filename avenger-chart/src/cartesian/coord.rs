@@ -10,20 +10,22 @@ use std::marker::PhantomData;
 
 /// Generic Cartesian coordinate system with configurable axis type
 #[derive(Clone)]
-pub struct Cartesian<A: CartesianAxis = DefaultCartesianAxis> {
+pub struct CartesianGeneral<A: CartesianAxis> {
     _phantom: PhantomData<A>,
 }
 
-impl<A: CartesianAxis> Default for Cartesian<A> {
+impl<A: CartesianAxis> Default for CartesianGeneral<A> {
     fn default() -> Self {
-        Cartesian {
+        CartesianGeneral {
             _phantom: PhantomData,
         }
     }
 }
 
+pub type Cartesian = CartesianGeneral<DefaultCartesianAxis>;
+
 #[async_trait::async_trait]
-impl<A> CoordinateSystem for Cartesian<A>
+impl<A> CoordinateSystem for CartesianGeneral<A>
 where
     A: CartesianAxis + Default + 'static,
 {
