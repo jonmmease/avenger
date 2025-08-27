@@ -1,6 +1,5 @@
 use crate::coords::{CoordinateSystem, OverflowSpaceRequirement, TransformResult};
 use crate::error::AvengerChartError;
-use crate::polar::axis::DefaultPolarAxis;
 use crate::polar::{PolarAxis, PolarAxisType, PolarDirection};
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -8,34 +7,19 @@ use datafusion::functions::math::expr_fn::{cos, sin};
 use datafusion::logical_expr::Expr;
 use std::collections::HashMap;
 
-pub struct PolarGeneral<A: PolarAxis = DefaultPolarAxis> {
-    // Fields for center injection from renderer
-    center_x: Option<Expr>,
-    center_y: Option<Expr>,
-    _phantom: std::marker::PhantomData<A>,
-}
+/// Polar coordinate system with concrete axis type
+#[derive(Clone, Default)]
+pub struct Polar {}
 
-impl<A: PolarAxis> PolarGeneral<A> {
+impl Polar {
     pub fn new() -> Self {
-        Self {
-            center_x: None,
-            center_y: None,
-            _phantom: std::marker::PhantomData,
-        }
+        Self {}
     }
 }
-
-impl<A: PolarAxis> Default for PolarGeneral<A> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-pub type Polar = PolarGeneral<DefaultPolarAxis>;
 
 #[async_trait::async_trait]
-impl<A: PolarAxis> CoordinateSystem for PolarGeneral<A> {
-    type Axis = A;
+impl CoordinateSystem for Polar {
+    type Axis = PolarAxis;
 
     fn required_channels(&self) -> &'static [&'static str] {
         &["r", "theta"]
@@ -56,8 +40,6 @@ impl<A: PolarAxis> CoordinateSystem for PolarGeneral<A> {
         &self,
         mut channels: HashMap<String, Expr>,
     ) -> Result<TransformResult, AvengerChartError> {
-        use datafusion::logical_expr::lit;
-
         // Get required channels
         let r = channels
             .remove("r")
@@ -67,10 +49,11 @@ impl<A: PolarAxis> CoordinateSystem for PolarGeneral<A> {
             .remove("theta")
             .ok_or_else(|| AvengerChartError::MissingChannelError("theta".to_string()))?;
 
-        // Use injected center if available, otherwise use defaults
-        // The renderer will provide proper center based on plot dimensions
-        let cx = self.center_x.clone().unwrap_or_else(|| lit(250.0));
-        let cy = self.center_y.clone().unwrap_or_else(|| lit(250.0));
+        // Use center coordinates from scalar batch columns
+        // These are injected by prepare_scalar_batch
+        use datafusion::logical_expr::col;
+        let cx = col("center_x");
+        let cy = col("center_y");
 
         // Transform to cartesian coordinates with center offset
         // x = cx + r * cos(theta)
@@ -180,12 +163,12 @@ impl<A: PolarAxis> CoordinateSystem for PolarGeneral<A> {
                     _ => PolarAxisType::Radial,
                 };
 
-                let axis = A::default()
-                    .with_axis_type(axis_type)
-                    .with_visible(true)
-                    .with_grid(true)
-                    .with_start_angle(0.0)
-                    .with_direction(PolarDirection::Clockwise);
+                let axis = PolarAxis::default()
+                    .axis_type(axis_type)
+                    .visible(true)
+                    .grid(true)
+                    .start_angle(0.0)
+                    .direction(PolarDirection::Clockwise);
 
                 default_axes.insert(channel.to_string(), axis);
             }
@@ -215,6 +198,55 @@ impl<A: PolarAxis> CoordinateSystem for PolarGeneral<A> {
         }
 
         Ok(axis_marks)
+    }
+
+    fn prepare_scalar_batch(
+        &self,
+        batch: datafusion::arrow::record_batch::RecordBatch,
+        plot_width: f32,
+        plot_height: f32,
+    ) -> Result<datafusion::arrow::record_batch::RecordBatch, AvengerChartError> {
+        use datafusion::arrow::array::Float32Array;
+        use datafusion::arrow::datatypes::{DataType, Field};
+        use std::sync::Arc;
+
+        // Calculate the center of the plot area
+        let center_x = plot_width / 2.0;
+        let center_y = plot_height / 2.0;
+
+        // Create arrays with the center coordinates
+        let center_x_array = Float32Array::from(vec![center_x]);
+        let center_y_array = Float32Array::from(vec![center_y]);
+
+        // Get the existing columns from the batch
+        let mut columns: Vec<Arc<dyn datafusion::arrow::array::Array>> = batch.columns().to_vec();
+        let mut fields: Vec<Arc<Field>> = batch.schema().fields().to_vec();
+
+        // Add polar_center_x column if not present (mark expects this name)
+        if batch.column_by_name("polar_center_x").is_none() {
+            columns.push(Arc::new(center_x_array));
+            fields.push(Arc::new(Field::new(
+                "polar_center_x",
+                DataType::Float32,
+                false,
+            )));
+        }
+
+        // Add polar_center_y column if not present (mark expects this name)
+        if batch.column_by_name("polar_center_y").is_none() {
+            columns.push(Arc::new(center_y_array));
+            fields.push(Arc::new(Field::new(
+                "polar_center_y",
+                DataType::Float32,
+                false,
+            )));
+        }
+
+        // Create new schema and batch with center coordinates
+        let new_schema = Arc::new(datafusion::arrow::datatypes::Schema::new(fields));
+        Ok(datafusion::arrow::record_batch::RecordBatch::try_new(
+            new_schema, columns,
+        )?)
     }
 
     fn get_clip(
@@ -264,7 +296,7 @@ impl<A: PolarAxis> CoordinateSystem for PolarGeneral<A> {
                     lyon_path::math::point(center_x, center_y + max_radius),
                 );
 
-                // Bottom-right quadrant
+                // Bottom-right quadrant (back to start)
                 builder.cubic_bezier_to(
                     lyon_path::math::point(center_x + control_dist, center_y + max_radius),
                     lyon_path::math::point(center_x + max_radius, center_y + control_dist),
@@ -272,47 +304,18 @@ impl<A: PolarAxis> CoordinateSystem for PolarGeneral<A> {
                 );
 
                 builder.close();
+                let path = builder.build();
 
-                return Clip::Path(builder.build());
+                return Clip::Path(path);
             }
         }
 
-        // Fallback to no clipping if we can't determine the radius
-        Clip::None
-    }
-
-    fn prepare_scalar_batch(
-        &self,
-        batch: datafusion::arrow::record_batch::RecordBatch,
-        plot_width: f32,
-        plot_height: f32,
-    ) -> Result<datafusion::arrow::record_batch::RecordBatch, AvengerChartError> {
-        use datafusion::arrow::array::Float32Array;
-        use datafusion::arrow::datatypes::{DataType, Field, Schema};
-        use std::sync::Arc;
-
-        // Calculate center of plot area
-        let center_x = plot_width / 2.0;
-        let center_y = plot_height / 2.0;
-
-        // Get existing schema and columns
-        let schema = batch.schema();
-        let mut fields: Vec<Field> = schema.fields().iter().map(|f| f.as_ref().clone()).collect();
-        let mut columns: Vec<Arc<dyn datafusion::arrow::array::Array>> = batch.columns().to_vec();
-
-        // Add polar_center_x column
-        let center_x_array = Float32Array::from(vec![center_x; batch.num_rows()]);
-        columns.push(Arc::new(center_x_array));
-        fields.push(Field::new("polar_center_x", DataType::Float32, false));
-
-        // Add polar_center_y column
-        let center_y_array = Float32Array::from(vec![center_y; batch.num_rows()]);
-        columns.push(Arc::new(center_y_array));
-        fields.push(Field::new("polar_center_y", DataType::Float32, false));
-
-        // Create new batch with additional columns
-        let new_schema = Arc::new(Schema::new(fields));
-        datafusion::arrow::record_batch::RecordBatch::try_new(new_schema, columns)
-            .map_err(AvengerChartError::ArrowError)
+        // Fallback to rectangular clipping if scales are not configured properly
+        Clip::Rect {
+            x: 0.0,
+            y: 0.0,
+            width: plot_width,
+            height: plot_height,
+        }
     }
 }

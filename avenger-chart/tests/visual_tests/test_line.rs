@@ -1,5 +1,5 @@
 use super::helpers::assert_visual_match_default;
-use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
+use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::line::Line;
 use avenger_chart::plot::Plot;
 use avenger_chart::scales::Linear;
@@ -38,12 +38,10 @@ async fn test_simple_line_chart() {
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| {
-                c.scale_with::<Linear>(|s| s)
-                    .axis(|a: DefaultCartesianAxis| a.title("X Value"))
+                c.scale_with::<Linear>(|s| s).axis(|a| a.title("X Value"))
             })
             .y_with(col("y"), |c| {
-                c.scale_with::<Linear>(|s| s)
-                    .axis(|a: DefaultCartesianAxis| a.title("Y Value"))
+                c.scale_with::<Linear>(|s| s).axis(|a| a.title("Y Value"))
             })
             .stroke("#4682b4")
             .stroke_width(2.0),
@@ -59,12 +57,10 @@ async fn test_line_with_dashed_stroke() {
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| {
-                c.scale_with::<Linear>(|s| s)
-                    .axis(|a: DefaultCartesianAxis| a.title("X Value"))
+                c.scale_with::<Linear>(|s| s).axis(|a| a.title("X Value"))
             })
             .y_with(col("y"), |c| {
-                c.scale_with::<Linear>(|s| s)
-                    .axis(|a: DefaultCartesianAxis| a.title("Y Value"))
+                c.scale_with::<Linear>(|s| s).axis(|a| a.title("Y Value"))
             })
             .stroke("#dc143c")
             .stroke_width(3.0)
@@ -108,12 +104,10 @@ async fn test_line_with_gaps() {
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| {
-                c.scale_with::<Linear>(|s| s)
-                    .axis(|a: DefaultCartesianAxis| a.title("X Value"))
+                c.scale_with::<Linear>(|s| s).axis(|a| a.title("X Value"))
             })
             .y_with(col("y"), |c| {
-                c.scale_with::<Linear>(|s| s)
-                    .axis(|a: DefaultCartesianAxis| a.title("Y Value"))
+                c.scale_with::<Linear>(|s| s).axis(|a| a.title("Y Value"))
             })
             .defined(col("defined")) // Using numeric column that will be coerced to boolean
             .stroke("#2e8b57")
@@ -169,12 +163,10 @@ async fn test_multiple_lines() {
                         .unwrap(),
                 )
                 .x_with(col("x"), |c| {
-                    c.scale_with::<Linear>(|s| s)
-                        .axis(|a: DefaultCartesianAxis| a.title("X Value"))
+                    c.scale_with::<Linear>(|s| s).axis(|a| a.title("X Value"))
                 })
                 .y_with(col("y"), |c| {
-                    c.scale_with::<Linear>(|s| s)
-                        .axis(|a: DefaultCartesianAxis| a.title("Y Value"))
+                    c.scale_with::<Linear>(|s| s).axis(|a| a.title("Y Value"))
                 })
                 .stroke("#e74c3c")
                 .stroke_width(2.0),
@@ -217,12 +209,11 @@ async fn test_line_dash_patterns() {
             Line::new()
                 .data(df.clone())
                 .x_with(col("x"), |c| {
-                    c.scale_with::<Linear>(|s| s)
-                        .axis(|a: DefaultCartesianAxis| a.title("X Value"))
+                    c.scale_with::<Linear>(|s| s).axis(|a| a.title("X Value"))
                 })
                 .y_with(col("y"), |c| {
                     c.scale_with::<Linear>(|s| s.domain((0.0, 100.0)))
-                        .axis(|a: DefaultCartesianAxis| a.title("Y Value"))
+                        .axis(|a| a.title("Y Value"))
                 })
                 .stroke("#2c3e50")
                 .stroke_width(2.0)
@@ -285,14 +276,14 @@ async fn test_line_vertical_padding_no_nice() {
         Line::new()
             .x_with(col("x"), |c| {
                 c.scale_with::<Linear>(|s| s.nice(false))
-                    .axis(|a: DefaultCartesianAxis| a.title("X Value"))
+                    .axis(|a| a.title("X Value"))
             })
             .y_with(col("y"), |c| {
                 c.scale_with::<Linear>(|s| {
                     s.nice(false)
                     // Without radius padding, the line would be clipped at y=0 and y=100
                 })
-                .axis(|a: DefaultCartesianAxis| a.title("Y Value"))
+                .axis(|a| a.title("Y Value"))
             })
             .stroke("#e74c3c")
             .stroke_width(10.0), // Large stroke width to make the effect visible

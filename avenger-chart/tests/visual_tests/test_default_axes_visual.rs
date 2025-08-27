@@ -1,6 +1,6 @@
 // Visual tests for default axis creation
 
-use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
+use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::line::Line;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
@@ -80,10 +80,7 @@ async fn test_default_axes_disabled() {
     // Create a plot and explicitly disable x axis
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Line::new()
-            .x_with(col("x_val"), |c| {
-                c.scale(|s| s)
-                    .axis(|a: DefaultCartesianAxis| a.visible(false))
-            })
+            .x_with(col("x_val"), |c| c.scale(|s| s).axis(|a| a.visible(false)))
             .y_with(col("y_val"), |c| c.scale(|s| s))
             .stroke("#4682b4")
             .stroke_width(2.0),
@@ -102,7 +99,7 @@ async fn test_default_axes_custom_title() {
         Line::new()
             .x_with(col("x_val"), |c| {
                 c.scale(|s| s)
-                    .axis(|a: DefaultCartesianAxis| a.title("Custom X Title").grid(false))
+                    .axis(|a| a.title("Custom X Title").grid(false))
             })
             .y_with(col("y_val"), |c| c.scale(|s| s))
             .stroke("#4682b4")

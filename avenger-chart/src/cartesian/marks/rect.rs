@@ -1,5 +1,4 @@
-use crate::cartesian::CartesianAxis;
-use crate::cartesian::coord::CartesianGeneral;
+use crate::cartesian::Cartesian;
 use crate::impl_mark_trait_common;
 use crate::marks::{ChannelType, Mark};
 use arrow::array::RecordBatch;
@@ -11,7 +10,7 @@ pub use crate::marks::rect::Rect;
 use crate::marks::util::{coerce_color_channel, coerce_numeric_channel};
 
 // Implement position channels for Cartesian Rect with generic axis support
-impl<A: CartesianAxis + Default + 'static> Rect<CartesianGeneral<A>> {
+impl Rect<Cartesian> {
     pub fn x<V: Into<crate::marks::ChannelValue>>(self, value: V) -> Self {
         self.with_channel_value("x", value.into())
     }
@@ -19,11 +18,11 @@ impl<A: CartesianAxis + Default + 'static> Rect<CartesianGeneral<A>> {
     pub fn x_with<F>(self, value: impl Into<crate::marks::ChannelValue>, f: F) -> Self
     where
         F: FnOnce(
-            crate::cartesian::CartesianPositionChannel<A>,
-        ) -> crate::cartesian::CartesianPositionChannel<A>,
+            crate::cartesian::CartesianPositionChannel,
+        ) -> crate::cartesian::CartesianPositionChannel,
     {
         let channel_value: crate::marks::ChannelValue = value.into();
-        let channel = crate::cartesian::CartesianPositionChannel::<A>::new(channel_value);
+        let channel = crate::cartesian::CartesianPositionChannel::new(channel_value);
         let configured = f(channel);
 
         // Extract axis config before consuming channel
@@ -49,11 +48,11 @@ impl<A: CartesianAxis + Default + 'static> Rect<CartesianGeneral<A>> {
     pub fn x2_with<F>(self, value: impl Into<crate::marks::ChannelValue>, f: F) -> Self
     where
         F: FnOnce(
-            crate::cartesian::CartesianPositionChannel<A>,
-        ) -> crate::cartesian::CartesianPositionChannel<A>,
+            crate::cartesian::CartesianPositionChannel,
+        ) -> crate::cartesian::CartesianPositionChannel,
     {
         let channel_value: crate::marks::ChannelValue = value.into();
-        let channel = crate::cartesian::CartesianPositionChannel::<A>::new(channel_value);
+        let channel = crate::cartesian::CartesianPositionChannel::new(channel_value);
         let configured = f(channel);
 
         // Extract axis config before consuming channel
@@ -79,11 +78,11 @@ impl<A: CartesianAxis + Default + 'static> Rect<CartesianGeneral<A>> {
     pub fn y_with<F>(self, value: impl Into<crate::marks::ChannelValue>, f: F) -> Self
     where
         F: FnOnce(
-            crate::cartesian::CartesianPositionChannel<A>,
-        ) -> crate::cartesian::CartesianPositionChannel<A>,
+            crate::cartesian::CartesianPositionChannel,
+        ) -> crate::cartesian::CartesianPositionChannel,
     {
         let channel_value: crate::marks::ChannelValue = value.into();
-        let channel = crate::cartesian::CartesianPositionChannel::<A>::new(channel_value);
+        let channel = crate::cartesian::CartesianPositionChannel::new(channel_value);
         let configured = f(channel);
 
         // Extract axis config before consuming channel
@@ -109,11 +108,11 @@ impl<A: CartesianAxis + Default + 'static> Rect<CartesianGeneral<A>> {
     pub fn y2_with<F>(self, value: impl Into<crate::marks::ChannelValue>, f: F) -> Self
     where
         F: FnOnce(
-            crate::cartesian::CartesianPositionChannel<A>,
-        ) -> crate::cartesian::CartesianPositionChannel<A>,
+            crate::cartesian::CartesianPositionChannel,
+        ) -> crate::cartesian::CartesianPositionChannel,
     {
         let channel_value: crate::marks::ChannelValue = value.into();
-        let channel = crate::cartesian::CartesianPositionChannel::<A>::new(channel_value);
+        let channel = crate::cartesian::CartesianPositionChannel::new(channel_value);
         let configured = f(channel);
 
         // Extract axis config before consuming channel
@@ -174,8 +173,8 @@ impl<A: CartesianAxis + Default + 'static> Rect<CartesianGeneral<A>> {
 }
 
 // Implement Mark trait for Cartesian Rect with any axis type
-impl<A: CartesianAxis + Default + 'static> Mark<CartesianGeneral<A>> for Rect<CartesianGeneral<A>> {
-    impl_mark_trait_common!(Rect, CartesianGeneral<A>, "rect");
+impl Mark<Cartesian> for Rect<Cartesian> {
+    impl_mark_trait_common!(Rect, Cartesian, "rect");
 
     fn render_from_data(
         &self,

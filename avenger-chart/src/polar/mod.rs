@@ -4,4 +4,4 @@ pub mod marks;
 pub mod plot;
 
 pub use axis::{PolarAxis, PolarAxisType, PolarDirection};
-pub use coord::{Polar, PolarGeneral};
+pub use coord::Polar;

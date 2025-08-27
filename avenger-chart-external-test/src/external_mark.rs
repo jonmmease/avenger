@@ -4,8 +4,7 @@ use avenger_chart::error::AvengerChartError;
 use avenger_chart::{
     cartesian::Cartesian,
     coords::CoordinateSystem,
-    define_common_mark_channels, impl_mark_base,
-    impl_mark_trait_common,
+    define_common_mark_channels, impl_mark_base, impl_mark_trait_common,
     marks::{ChannelDescriptor, ChannelType, ChannelValue, Mark, MarkState},
 };
 use avenger_scenegraph::marks::mark::SceneMark;

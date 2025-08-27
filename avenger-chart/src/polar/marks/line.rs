@@ -1,7 +1,7 @@
 use crate::impl_mark_trait_common;
 use crate::marks::{ChannelType, Mark, RadiusExpression};
-use crate::polar::PolarAxis;
-use crate::polar::coord::PolarGeneral;
+
+use crate::polar::Polar;
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::logical_expr::{Expr, lit};
@@ -12,7 +12,7 @@ use crate::error::AvengerChartError;
 use crate::marks::line::Line;
 
 // Implement position channels for PolarGeneral Line with generic axis support
-impl<A: PolarAxis + Default + 'static> Line<PolarGeneral<A>> {
+impl Line<Polar> {
     pub fn r<V: Into<crate::marks::ChannelValue>>(self, value: V) -> Self {
         self.with_channel_value("r", value.into())
     }
@@ -71,8 +71,8 @@ impl<A: PolarAxis + Default + 'static> Line<PolarGeneral<A>> {
 }
 
 // Implement Mark trait for PolarGeneral Line with any axis type
-impl<A: PolarAxis + Default + 'static> Mark<PolarGeneral<A>> for Line<PolarGeneral<A>> {
-    impl_mark_trait_common!(Line, PolarGeneral<A>, "line");
+impl Mark<Polar> for Line<Polar> {
+    impl_mark_trait_common!(Line, Polar, "line");
 
     fn default_channel_value(&self, channel: &str) -> Option<ScalarValue> {
         match channel {

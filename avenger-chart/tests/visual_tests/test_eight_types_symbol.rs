@@ -1,5 +1,5 @@
 use crate::visual_tests::helpers::assert_visual_match_default;
-use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
+use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
 use avenger_chart::scales::Linear;
@@ -74,13 +74,11 @@ async fn test_eight_types_fill_shape() {
             Symbol::new()
                 .x_with(col("x"), |c| {
                     c.scale_with::<Linear>(|s| s)
-                        .axis(|a: DefaultCartesianAxis| a.title("Sample Index").grid(true))
+                        .axis(|a| a.title("Sample Index").grid(true))
                 })
                 .y_with(col("y"), |c| {
                     c.scale_with::<Linear>(|s| s)
-                        .axis(|a: DefaultCartesianAxis| {
-                            a.title("Performance Metric (%)").grid(true)
-                        })
+                        .axis(|a| a.title("Performance Metric (%)").grid(true))
                 })
                 .fill(col("category")) // Uses default Okabe-Ito colors
                 .shape(col("category")) // Uses default 8 shapes

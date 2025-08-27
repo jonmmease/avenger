@@ -1,6 +1,6 @@
 use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
-use avenger_chart::cartesian::DefaultCartesianAxis;
+
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
 use datafusion::arrow::array::Float64Array;
@@ -51,7 +51,7 @@ async fn axis_y_currency_fixed() {
             .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 6.0))))
             .y_with(col("y"), |c| {
                 c.scale(|s| s.domain((0.0, 100000.0)))
-                    .axis(|a: DefaultCartesianAxis| a.title("Revenue").format("$,.2f"))
+                    .axis(|a| a.title("Revenue").format("$,.2f"))
             })
             .size(80.0)
             .fill_with("#2ca25f", |c| c.no_legend()),
@@ -69,7 +69,7 @@ async fn axis_y_percent() {
             .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 6.0))))
             .y_with(col("y"), |c| {
                 c.scale(|s| s.domain((0.0, 1.0)))
-                    .axis(|a: DefaultCartesianAxis| a.title("Completion").format(".0%"))
+                    .axis(|a| a.title("Completion").format(".0%"))
             })
             .size(80.0)
             .fill_with("#3182bd", |c| c.no_legend()),
@@ -90,7 +90,7 @@ async fn axis_y_si_prefix() {
             .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 6.0))))
             .y_with(col("y"), |c| {
                 c.scale(|s| s.domain((0.0, 1.0e8)))
-                    .axis(|a: DefaultCartesianAxis| a.title("Population").format(".2s"))
+                    .axis(|a| a.title("Population").format(".2s"))
             })
             .size(80.0)
             .fill_with("#e6550d", |c| c.no_legend()),

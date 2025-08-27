@@ -3,7 +3,7 @@
 //! This example shows how to create a basic bar chart using the high-level
 //! avenger-chart API and render it to a PNG file using PngCanvas.
 
-use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
+use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
 use avenger_chart::render::CanvasExt;
@@ -37,15 +37,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .data(df.clone())
         // Add bar mark
         .mark(
-            Rect::new()
+            Rect::<Cartesian>::new()
                 .x_with(col("category"), |c| {
-                    c.band(0.0)
-                        .axis(|a: DefaultCartesianAxis| a.title("Category").grid(false))
+                    c.band(0.0).axis(|a| a.title("Category").grid(false))
                 })
                 .x2_with(col(":x"), |c| c.band(1.0))
-                .y_with(lit(0.0), |c| {
-                    c.axis(|a: DefaultCartesianAxis| a.title("Value").grid(true))
-                })
+                .y_with(lit(0.0), |c| c.axis(|a| a.title("Value").grid(true)))
                 .y2(col("value"))
                 .fill("#4682b4")
                 .stroke("#000000")
