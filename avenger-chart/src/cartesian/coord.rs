@@ -1,35 +1,19 @@
 use crate::axis::AxisPosition;
-use crate::cartesian::{CartesianAxis, DefaultCartesianAxis};
+use crate::cartesian::CartesianAxis;
 use crate::coords::{CoordinateSystem, OverflowSpaceRequirement, TransformResult};
 use crate::error::AvengerChartError;
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::logical_expr::Expr;
 use std::collections::HashMap;
-use std::marker::PhantomData;
 
-/// Generic Cartesian coordinate system with configurable axis type
-#[derive(Clone)]
-pub struct CartesianGeneral<A: CartesianAxis> {
-    _phantom: PhantomData<A>,
-}
-
-impl<A: CartesianAxis> Default for CartesianGeneral<A> {
-    fn default() -> Self {
-        CartesianGeneral {
-            _phantom: PhantomData,
-        }
-    }
-}
-
-pub type Cartesian = CartesianGeneral<DefaultCartesianAxis>;
+/// Cartesian coordinate system with concrete axis type
+#[derive(Clone, Default)]
+pub struct Cartesian;
 
 #[async_trait::async_trait]
-impl<A> CoordinateSystem for CartesianGeneral<A>
-where
-    A: CartesianAxis + Default + 'static,
-{
-    type Axis = A;
+impl CoordinateSystem for Cartesian {
+    type Axis = CartesianAxis;
 
     fn required_channels(&self) -> &'static [&'static str] {
         &["x", "y"]
@@ -91,13 +75,12 @@ where
                     _ => AxisPosition::Bottom,
                 };
 
-                // Create a default axis instance and configure it using trait methods
-                // No downcasting needed - works with any CartesianAxis implementation!
-                let axis = A::default()
-                    .with_position(position)
-                    .with_label_angle(0.0)
-                    .with_title(title)
-                    .with_grid(grid);
+                // Create a default axis instance with concrete type
+                let axis = CartesianAxis::default()
+                    .position(position)
+                    .label_angle(0.0)
+                    .title(title)
+                    .grid(grid);
 
                 default_axes.insert(channel.to_string(), axis);
             }

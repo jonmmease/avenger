@@ -1,5 +1,5 @@
 use super::helpers::assert_visual_match_default;
-use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
+use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
 use avenger_chart::scales::Linear;
@@ -57,12 +57,8 @@ async fn test_symbol_automatic_shape_scale() {
     // with shape strings as the range values
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Symbol::new()
-            .x_with(col("sales"), |c| {
-                c.axis(|a: DefaultCartesianAxis| a.title("Sales ($k)"))
-            })
-            .y_with(col("profit"), |c| {
-                c.axis(|a: DefaultCartesianAxis| a.title("Profit ($k)"))
-            })
+            .x_with(col("sales"), |c| c.axis(|a| a.title("Sales ($k)")))
+            .y_with(col("profit"), |c| c.axis(|a| a.title("Profit ($k)")))
             .shape(col("category")) // Automatic ordinal scale
             .fill(col("category")) // Also use for color
             .size(200.0)
@@ -108,12 +104,11 @@ async fn test_symbol_custom_enumeration() {
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("task_id"), |c| {
-                c.scale_with::<Linear>(|s| s)
-                    .axis(|a: DefaultCartesianAxis| a.title("Task ID"))
+                c.scale_with::<Linear>(|s| s).axis(|a| a.title("Task ID"))
             })
             .y_with(col("completion"), |c| {
                 c.scale_with::<Linear>(|s| s.domain((0.0, 100.0)))
-                    .axis(|a: DefaultCartesianAxis| a.title("Completion %"))
+                    .axis(|a| a.title("Completion %"))
             })
             .shape(col("priority")) // Maps priority levels to shapes
             .fill(col("priority")) // Also use for color

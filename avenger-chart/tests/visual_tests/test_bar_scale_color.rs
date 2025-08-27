@@ -1,6 +1,6 @@
 use super::datasets;
 use super::helpers::assert_visual_match_default;
-use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
+use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
 use avenger_chart::scales::{Band, Linear, Log, Pow, Threshold};
@@ -28,12 +28,12 @@ async fn test_bar_chart_linear_color_interpolation() {
                         lit("I"),
                     ])
                 })
-                .axis(|a: DefaultCartesianAxis| a.title("Category").grid(false))
+                .axis(|a| a.title("Category").grid(false))
             })
             .x2_with(col("category"), |c| c.band(1.0))
             .y_with(lit(0.0), |c| {
                 c.scale(|s| s.domain((0.0, 100.0)))
-                    .axis(|a: DefaultCartesianAxis| a.title("Value").grid(true))
+                    .axis(|a| a.title("Value").grid(true))
             })
             .y2(col("value"))
             .fill_with(col("value"), |c| {
@@ -67,12 +67,10 @@ async fn test_bar_chart_log_color_interpolation() {
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(col("category"), |c| {
-                c.axis(|a: DefaultCartesianAxis| a.title("Category").grid(false))
+                c.axis(|a| a.title("Category").grid(false))
             })
             .x2_with(col("category"), |c| c.band(1.0))
-            .y_with(lit(0.0), |c| {
-                c.axis(|a: DefaultCartesianAxis| a.title("Value").grid(true))
-            })
+            .y_with(lit(0.0), |c| c.axis(|a| a.title("Value").grid(true)))
             .y2(col("value"))
             .fill_with(col("value"), |c| {
                 c.scale_with::<Log>(|s| {
@@ -113,12 +111,12 @@ async fn test_bar_chart_pow_color_interpolation() {
                         lit("I"),
                     ])
                 })
-                .axis(|a: DefaultCartesianAxis| a.title("Category").grid(false))
+                .axis(|a| a.title("Category").grid(false))
             })
             .x2_with(col("category"), |c| c.band(1.0))
             .y_with(lit(0.0), |c| {
                 c.scale(|s| s.domain((0.0, 100.0)))
-                    .axis(|a: DefaultCartesianAxis| a.title("Value").grid(true))
+                    .axis(|a| a.title("Value").grid(true))
             })
             .y2(col("value"))
             .fill_with(col("value"), |c| {
@@ -160,12 +158,12 @@ async fn test_bar_chart_sqrt_color_interpolation() {
                         lit("I"),
                     ])
                 })
-                .axis(|a: DefaultCartesianAxis| a.title("Category").grid(false))
+                .axis(|a| a.title("Category").grid(false))
             })
             .x2_with(col("category"), |c| c.band(1.0))
             .y_with(lit(0.0), |c| {
                 c.scale(|s| s.domain((0.0, 100.0)))
-                    .axis(|a: DefaultCartesianAxis| a.title("Value").grid(true))
+                    .axis(|a| a.title("Value").grid(true))
             })
             .y2(col("value"))
             .fill_with(col("value"), |c| {
@@ -211,12 +209,12 @@ async fn test_bar_chart_threshold_scale_colors() {
                         lit("I"),
                     ])
                 })
-                .axis(|a: DefaultCartesianAxis| a.title("Category").grid(false))
+                .axis(|a| a.title("Category").grid(false))
             })
             .x2_with(col("category"), |c| c.band(1.0))
             .y_with(lit(0.0), |c| {
                 c.scale(|s| s.domain((0.0, 100.0)))
-                    .axis(|a: DefaultCartesianAxis| a.title("Value").grid(true))
+                    .axis(|a| a.title("Value").grid(true))
             })
             .y2(col("value"))
             .fill_with(col("value"), |c| {
@@ -246,12 +244,10 @@ async fn test_bar_chart_linear_color_default_colors() {
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(col("category"), |c| {
-                c.axis(|a: DefaultCartesianAxis| a.title("Category").grid(false))
+                c.axis(|a| a.title("Category").grid(false))
             })
             .x2_with(col("category"), |c| c.band(1.0))
-            .y_with(lit(0.0), |c| {
-                c.axis(|a: DefaultCartesianAxis| a.title("Value").grid(true))
-            })
+            .y_with(lit(0.0), |c| c.axis(|a| a.title("Value").grid(true)))
             .y2(col("value"))
             .fill(col("value"))
             .stroke("#222222")
@@ -274,12 +270,12 @@ async fn test_bar_chart_ordinal_scale_colors() {
         Rect::new()
             .x_with(col("category"), |c| {
                 c.scale_with::<Band>(|s| s)
-                    .axis(|a: DefaultCartesianAxis| a.title("Category").grid(false))
+                    .axis(|a| a.title("Category").grid(false))
             }) // Domain will be inferred from data
             .x2_with(col("category"), |c| c.band(1.0))
             .y_with(lit(0.0), |c| {
                 c.scale(|s| s.domain((0.0, 100.0)))
-                    .axis(|a: DefaultCartesianAxis| a.title("Value").grid(true))
+                    .axis(|a| a.title("Value").grid(true))
             })
             .y2(col("value"))
             .fill(col("category")) // Map fill to category column

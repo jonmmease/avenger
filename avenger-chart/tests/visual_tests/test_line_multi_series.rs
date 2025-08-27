@@ -1,6 +1,6 @@
 use super::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
-use avenger_chart::cartesian::DefaultCartesianAxis;
+
 use avenger_chart::marks::line::Line;
 use avenger_chart::plot::Plot;
 use avenger_chart::scales::Ordinal;
@@ -157,12 +157,10 @@ async fn test_multi_series_line_with_color() {
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| {
-                c.scale(|s| s)
-                    .axis(|axis: DefaultCartesianAxis| axis.title("X").grid(true))
+                c.scale(|s| s).axis(|axis| axis.title("X").grid(true))
             })
             .y_with(col("y"), |c| {
-                c.scale(|s| s)
-                    .axis(|axis: DefaultCartesianAxis| axis.title("Y").grid(true))
+                c.scale(|s| s).axis(|axis| axis.title("Y").grid(true))
             })
             .stroke_with(col("series"), |c| c.scale_with::<Ordinal>(|s| s)) // Color varies by series
             .stroke_width(2.0),
@@ -179,12 +177,10 @@ async fn test_multi_series_line_with_width() {
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| {
-                c.scale(|s| s)
-                    .axis(|axis: DefaultCartesianAxis| axis.title("X").grid(true))
+                c.scale(|s| s).axis(|axis| axis.title("X").grid(true))
             })
             .y_with(col("y"), |c| {
-                c.scale(|s| s)
-                    .axis(|axis: DefaultCartesianAxis| axis.title("Y").grid(true))
+                c.scale(|s| s).axis(|axis| axis.title("Y").grid(true))
             })
             .stroke("#4682b4")
             .stroke_width(col("width")),
@@ -201,12 +197,10 @@ async fn test_multi_series_with_color_and_width() {
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| {
-                c.scale(|s| s)
-                    .axis(|axis: DefaultCartesianAxis| axis.title("X").grid(true))
+                c.scale(|s| s).axis(|axis| axis.title("X").grid(true))
             })
             .y_with(col("y"), |c| {
-                c.scale(|s| s)
-                    .axis(|axis: DefaultCartesianAxis| axis.title("Y").grid(true))
+                c.scale(|s| s).axis(|axis| axis.title("Y").grid(true))
             })
             .stroke_with(col("series"), |c| c.scale_with::<Ordinal>(|s| s)) // Color varies by series
             .stroke_width(col("width")), // Width varies by series
@@ -223,12 +217,10 @@ async fn test_line_with_order_channel() {
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| {
-                c.scale(|s| s)
-                    .axis(|axis: DefaultCartesianAxis| axis.title("X").grid(true))
+                c.scale(|s| s).axis(|axis| axis.title("X").grid(true))
             })
             .y_with(col("y"), |c| {
-                c.scale(|s| s)
-                    .axis(|axis: DefaultCartesianAxis| axis.title("Y").grid(true))
+                c.scale(|s| s).axis(|axis| axis.title("Y").grid(true))
             })
             .stroke_with(col("series"), |c| c.scale_with::<Ordinal>(|s| s))
             .order(col("order")), // Use order channel
@@ -269,12 +261,10 @@ async fn test_multi_series_line_with_dash() {
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| {
-                c.scale(|s| s)
-                    .axis(|axis: DefaultCartesianAxis| axis.title("X").grid(true))
+                c.scale(|s| s).axis(|axis| axis.title("X").grid(true))
             })
             .y_with(col("y"), |c| {
-                c.scale(|s| s)
-                    .axis(|axis: DefaultCartesianAxis| axis.title("Y").grid(true))
+                c.scale(|s| s).axis(|axis| axis.title("Y").grid(true))
             })
             .stroke_dash_with(col("dash_type"), |c| {
                 c.scale_with::<Ordinal>(|s| s.range_discrete(vec!["solid", "dashed", "dotted"]))
@@ -331,12 +321,10 @@ async fn test_multi_series_line_with_color_and_dash() {
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| {
-                c.scale(|s| s)
-                    .axis(|axis: DefaultCartesianAxis| axis.title("X").grid(true))
+                c.scale(|s| s).axis(|axis| axis.title("X").grid(true))
             })
             .y_with(col("y"), |c| {
-                c.scale(|s| s)
-                    .axis(|axis: DefaultCartesianAxis| axis.title("Y").grid(true))
+                c.scale(|s| s).axis(|axis| axis.title("Y").grid(true))
             })
             .stroke_with(col("series"), |c| c.scale_with::<Ordinal>(|s| s))
             .stroke_dash_with(col("line_style"), |c| {
@@ -394,12 +382,10 @@ async fn test_multi_series_line_all_encodings() {
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| {
-                c.scale(|s| s)
-                    .axis(|axis: DefaultCartesianAxis| axis.title("X").grid(true))
+                c.scale(|s| s).axis(|axis| axis.title("X").grid(true))
             })
             .y_with(col("y"), |c| {
-                c.scale(|s| s)
-                    .axis(|axis: DefaultCartesianAxis| axis.title("Y").grid(true))
+                c.scale(|s| s).axis(|axis| axis.title("Y").grid(true))
             })
             .stroke_with(col("series"), |c| c.scale_with::<Ordinal>(|s| s))
             .stroke_width_with(col("size"), |c| {

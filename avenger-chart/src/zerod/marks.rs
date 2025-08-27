@@ -5,9 +5,9 @@
 //! channels in 0D space, only visual channels (color, size, shape, etc.) are relevant.
 
 use crate::error::AvengerChartError;
+use crate::impl_mark_trait_common;
 use crate::marks::Mark;
 use crate::zerod::ZeroDCoord;
-use crate::impl_mark_trait_common;
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion_common::ScalarValue;

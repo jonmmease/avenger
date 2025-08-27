@@ -6,12 +6,12 @@ use std::sync::Arc;
 /// Typed wrapper for Cartesian position channels (x, y, x2, y2)
 /// These channels support scales and axes but not legends
 #[derive(Clone)]
-pub struct CartesianPositionChannel<A: CartesianAxis> {
+pub struct CartesianPositionChannel {
     pub(crate) inner: ChannelValue,
-    pub(crate) axis_config: Option<Arc<dyn Fn(A) -> A + Send + Sync>>,
+    pub(crate) axis_config: Option<Arc<dyn Fn(CartesianAxis) -> CartesianAxis + Send + Sync>>,
 }
 
-impl<A: CartesianAxis + Default> CartesianPositionChannel<A> {
+impl CartesianPositionChannel {
     /// Create a new position channel from a channel value
     pub fn new(value: ChannelValue) -> Self {
         Self {
@@ -53,7 +53,7 @@ impl<A: CartesianAxis + Default> CartesianPositionChannel<A> {
     /// Configure the axis for this channel
     pub fn axis<F>(mut self, f: F) -> Self
     where
-        F: Fn(A) -> A + Send + Sync + 'static,
+        F: Fn(CartesianAxis) -> CartesianAxis + Send + Sync + 'static,
     {
         self.axis_config = Some(Arc::new(f));
         self
@@ -81,45 +81,45 @@ impl<A: CartesianAxis + Default> CartesianPositionChannel<A> {
     }
 
     /// Get the axis configuration if present
-    pub fn axis_config(&self) -> Option<&Arc<dyn Fn(A) -> A + Send + Sync>> {
+    pub fn axis_config(
+        &self,
+    ) -> Option<&Arc<dyn Fn(CartesianAxis) -> CartesianAxis + Send + Sync>> {
         self.axis_config.as_ref()
     }
 }
 
 // Conversions from various types to CartesianPositionChannel
-impl<A: CartesianAxis + Default> From<ChannelValue> for CartesianPositionChannel<A> {
+impl From<ChannelValue> for CartesianPositionChannel {
     fn from(value: ChannelValue) -> Self {
         Self::new(value)
     }
 }
 
-impl<A: CartesianAxis + Default> From<datafusion::logical_expr::Expr>
-    for CartesianPositionChannel<A>
-{
+impl From<datafusion::logical_expr::Expr> for CartesianPositionChannel {
     fn from(expr: datafusion::logical_expr::Expr) -> Self {
         Self::new(ChannelValue::from(expr))
     }
 }
 
-impl<A: CartesianAxis + Default> From<&str> for CartesianPositionChannel<A> {
+impl From<&str> for CartesianPositionChannel {
     fn from(s: &str) -> Self {
         Self::new(ChannelValue::from(s))
     }
 }
 
-impl<A: CartesianAxis + Default> From<f64> for CartesianPositionChannel<A> {
+impl From<f64> for CartesianPositionChannel {
     fn from(v: f64) -> Self {
         Self::new(ChannelValue::from(v))
     }
 }
 
-impl<A: CartesianAxis + Default> From<f32> for CartesianPositionChannel<A> {
+impl From<f32> for CartesianPositionChannel {
     fn from(v: f32) -> Self {
         Self::new(ChannelValue::from(v))
     }
 }
 
-impl<A: CartesianAxis + Default> From<i32> for CartesianPositionChannel<A> {
+impl From<i32> for CartesianPositionChannel {
     fn from(v: i32) -> Self {
         Self::new(ChannelValue::from(v))
     }

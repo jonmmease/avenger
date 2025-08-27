@@ -2,7 +2,7 @@
 
 use super::datasets;
 use super::helpers::assert_visual_match_default;
-use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
+use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
 use avenger_chart::scales::Linear;
@@ -15,13 +15,11 @@ async fn test_bar_chart_y_scale_auto_zero() {
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(col("category"), |c| {
-                c.scale(|s| s)
-                    .axis(|a: DefaultCartesianAxis| a.title("Category").grid(false))
+                c.scale(|s| s).axis(|a| a.title("Category").grid(false))
             })
             .x2_with(col("category"), |c| c.band(1.0))
             .y_with(lit(0.0), |c| {
-                c.scale(|s| s)
-                    .axis(|a: DefaultCartesianAxis| a.title("Value").grid(true))
+                c.scale(|s| s).axis(|a| a.title("Value").grid(true))
             })
             .y2(col("value"))
             .fill("#4682b4")
@@ -41,13 +39,12 @@ async fn test_bar_chart_y_scale_no_nice() {
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(col("category"), |c| {
-                c.scale(|s| s)
-                    .axis(|a: DefaultCartesianAxis| a.title("Category").grid(false))
+                c.scale(|s| s).axis(|a| a.title("Category").grid(false))
             })
             .x2_with(col("category"), |c| c.band(1.0))
             .y_with(lit(0.0), |c| {
                 c.scale_with::<Linear>(|s| s.nice(false))
-                    .axis(|a: DefaultCartesianAxis| a.title("Value").grid(true))
+                    .axis(|a| a.title("Value").grid(true))
             })
             .y2(col("value"))
             .fill("#e74c3c")

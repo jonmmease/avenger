@@ -1,8 +1,8 @@
 use crate::error::AvengerChartError;
 use crate::impl_mark_trait_common;
 use crate::marks::{ChannelType, Mark, RadiusExpression};
-use crate::polar::PolarAxis;
-use crate::polar::coord::PolarGeneral;
+
+use crate::polar::Polar;
 use crate::utils::ScalarValueHelpers;
 use arrow::array::RecordBatch;
 use avenger_common::value::ScalarOrArray;
@@ -14,7 +14,7 @@ use datafusion_common::ScalarValue;
 use crate::marks::symbol::Symbol;
 
 // Implement position channels for PolarGeneral Symbol with generic axis support
-impl<A: PolarAxis + Default + 'static> Symbol<PolarGeneral<A>> {
+impl Symbol<Polar> {
     pub fn r<V: Into<crate::marks::ChannelValue>>(self, value: V) -> Self {
         self.with_channel_value("r", value.into())
     }
@@ -73,8 +73,8 @@ impl<A: PolarAxis + Default + 'static> Symbol<PolarGeneral<A>> {
 }
 
 // Implement Mark trait for PolarGeneral Symbol with any axis type
-impl<A: PolarAxis + Default + 'static> Mark<PolarGeneral<A>> for Symbol<PolarGeneral<A>> {
-    impl_mark_trait_common!(Symbol, PolarGeneral<A>, "symbol");
+impl Mark<Polar> for Symbol<Polar> {
+    impl_mark_trait_common!(Symbol, Polar, "symbol");
 
     fn default_channel_value(&self, channel: &str) -> Option<ScalarValue> {
         match channel {

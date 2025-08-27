@@ -6,7 +6,7 @@ use avenger_chart::{
     define_common_mark_channels,
     error::AvengerChartError,
     impl_mark_base, impl_mark_trait_common,
-    marks::{ChannelType, ChannelDescriptor, ChannelValue, Mark, MarkState},
+    marks::{ChannelDescriptor, ChannelType, ChannelValue, Mark, MarkState},
     render::Padding,
 };
 use avenger_scenegraph::marks::group::Clip;

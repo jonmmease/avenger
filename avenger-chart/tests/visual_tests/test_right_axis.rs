@@ -1,6 +1,6 @@
 use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::axis::AxisPosition;
-use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
+use avenger_chart::cartesian::Cartesian;
 use avenger_chart::legend::LegendPosition;
 use avenger_chart::marks::line::Line;
 use avenger_chart::marks::symbol::Symbol;
@@ -69,9 +69,7 @@ async fn right_axis_no_legend_symbol_mark() {
                 .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 10.0))))
                 .y_with(col("y"), |c| {
                     c.scale(|s| s.domain((0.0, 12.0)))
-                        .axis(|a: DefaultCartesianAxis| {
-                            a.position(AxisPosition::Right).title("Y Right").grid(true)
-                        })
+                        .axis(|a| a.position(AxisPosition::Right).title("Y Right").grid(true))
                 })
                 .size(100.0)
                 .fill_with("#2ca25f", |c| c.no_scale()),
@@ -94,9 +92,7 @@ async fn right_axis_with_symbol_legend() {
                 .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 10.0))))
                 .y_with(col("y"), |c| {
                     c.scale(|s| s.domain((0.0, 12.0)))
-                        .axis(|a: DefaultCartesianAxis| {
-                            a.position(AxisPosition::Right).title("Y Right").grid(true)
-                        })
+                        .axis(|a| a.position(AxisPosition::Right).title("Y Right").grid(true))
                 })
                 .size(100.0)
                 .fill_with(col("category"), |c| c),
@@ -119,9 +115,7 @@ async fn right_axis_with_line_legend() {
                 .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 6.0))))
                 .y_with(col("y"), |c| {
                     c.scale(|s| s.domain((0.0, 22.0)))
-                        .axis(|a: DefaultCartesianAxis| {
-                            a.position(AxisPosition::Right).title("Y Right").grid(true)
-                        })
+                        .axis(|a| a.position(AxisPosition::Right).title("Y Right").grid(true))
                 })
                 .stroke_with(col("series"), |c| c)
                 .stroke_width(2.0),
@@ -142,9 +136,7 @@ async fn right_axis_with_colorbar_legend() {
                 .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 10.0))))
                 .y_with(col("y"), |c| {
                     c.scale(|s| s.domain((0.0, 12.0)))
-                        .axis(|a: DefaultCartesianAxis| {
-                            a.position(AxisPosition::Right).title("Y Right").grid(true)
-                        })
+                        .axis(|a| a.position(AxisPosition::Right).title("Y Right").grid(true))
                 })
                 .size(100.0)
                 .fill_with(lit(42.0), |c| c.scale(|s| s.domain((0.0, 100.0)))),
@@ -164,15 +156,11 @@ async fn top_x_axis_with_right_y_no_legend() {
             Symbol::new()
                 .x_with(col("x"), |c| {
                     c.scale(|s| s.domain((0.0, 10.0)))
-                        .axis(|a: DefaultCartesianAxis| {
-                            a.position(AxisPosition::Top).title("X Top").grid(true)
-                        })
+                        .axis(|a| a.position(AxisPosition::Top).title("X Top").grid(true))
                 })
                 .y_with(col("y"), |c| {
                     c.scale(|s| s.domain((0.0, 12.0)))
-                        .axis(|a: DefaultCartesianAxis| {
-                            a.position(AxisPosition::Right).title("Y Right").grid(true)
-                        })
+                        .axis(|a| a.position(AxisPosition::Right).title("Y Right").grid(true))
                 })
                 .size(100.0)
                 .fill_with("#2ca25f", |c| c.no_scale()),

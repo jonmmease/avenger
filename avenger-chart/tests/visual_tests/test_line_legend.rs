@@ -1,6 +1,6 @@
 use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
-use avenger_chart::cartesian::DefaultCartesianAxis;
+
 use avenger_chart::marks::line::Line;
 use avenger_chart::plot::Plot;
 use avenger_chart::scales::{Ordinal, Scale};
@@ -211,12 +211,11 @@ async fn test_line_stroke_dash_legend() {
             Line::new()
                 .x_with(col("x"), |c| {
                     c.scale(|s| s)
-                        .axis(|axis: DefaultCartesianAxis| axis.title("Sample Index").grid(true))
+                        .axis(|axis| axis.title("Sample Index").grid(true))
                 })
                 .y_with(col("y"), |c| {
-                    c.scale(|s| s).axis(|axis: DefaultCartesianAxis| {
-                        axis.title("Performance Metric (%)").grid(true)
-                    })
+                    c.scale(|s| s)
+                        .axis(|axis| axis.title("Performance Metric (%)").grid(true))
                 })
                 .stroke(col("line_type"))
                 .stroke_dash_with(col("line_type"), |c| {

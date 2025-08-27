@@ -33,16 +33,21 @@ fn test_custom_scale_with_typed_methods() {
 #[test]
 fn test_custom_scale_in_plot() {
     // Create a plot using the typed external scale with custom methods
-    let _plot = Plot::<Cartesian>::new()
-        .mark(Symbol::new().x("value").y("result").fill("category"))
-        .scale_y_with::<SmoothLog>(|scale| {
-            scale
-                .smoothing(0.1)
-                .clamp(true)
-                .nice(false)
-                .domain((0.1_f32, 100.0_f32))
-                .range_interval(lit(400.0), lit(0.0))
-        });
+    let _plot = Plot::<Cartesian>::new().mark(
+        Symbol::new()
+            .x("value")
+            .y_with("result", |c| {
+                c.scale_with::<SmoothLog>(|scale| {
+                    scale
+                        .smoothing(0.1)
+                        .clamp(true)
+                        .nice(false)
+                        .domain((0.1_f32, 100.0_f32))
+                        .range_interval(lit(400.0), lit(0.0))
+                })
+            })
+            .fill("category"),
+    );
 
     // The plot compiles with typed external scale and custom methods - success!
 }

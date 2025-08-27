@@ -1,7 +1,7 @@
 use crate::impl_mark_trait_common;
 use crate::marks::{ChannelType, Mark};
-use crate::polar::PolarAxis;
-use crate::polar::coord::PolarGeneral;
+
+use crate::polar::Polar;
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
 
@@ -10,7 +10,7 @@ use crate::error::AvengerChartError;
 use crate::marks::rect::Rect;
 
 // Implement position channels for PolarGeneral Rect with generic axis support
-impl<A: PolarAxis + Default + 'static> Rect<PolarGeneral<A>> {
+impl Rect<Polar> {
     pub fn r<V: Into<crate::marks::ChannelValue>>(self, value: V) -> Self {
         self.with_channel_value("r", value.into())
     }
@@ -113,8 +113,8 @@ impl<A: PolarAxis + Default + 'static> Rect<PolarGeneral<A>> {
 }
 
 // Implement Mark trait for PolarGeneral Rect with any axis type
-impl<A: PolarAxis + Default + 'static> Mark<PolarGeneral<A>> for Rect<PolarGeneral<A>> {
-    impl_mark_trait_common!(Rect, PolarGeneral<A>, "rect");
+impl Mark<Polar> for Rect<Polar> {
+    impl_mark_trait_common!(Rect, Polar, "rect");
 
     fn render_from_data(
         &self,

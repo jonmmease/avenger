@@ -1,5 +1,5 @@
 use super::helpers::assert_visual_match_default;
-use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
+use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::line::Line;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
@@ -37,11 +37,11 @@ async fn test_zindex_ordering() {
             Line::new()
                 .x_with(col("x"), |c| {
                     c.scale_with::<Linear>(|s| s.domain((0.0, 6.0)))
-                        .axis(|a: DefaultCartesianAxis| a.title("X"))
+                        .axis(|a| a.title("X"))
                 })
                 .y_with(col("y"), |c| {
                     c.scale_with::<Linear>(|s| s.domain((0.0, 60.0)))
-                        .axis(|a: DefaultCartesianAxis| a.title("Y"))
+                        .axis(|a| a.title("Y"))
                 })
                 .stroke("#6699ff")
                 .stroke_width(8.0)
@@ -98,11 +98,11 @@ async fn test_zindex_default_order() {
             Line::new()
                 .x_with(col("x"), |c| {
                     c.scale_with::<Linear>(|s| s.domain((0.0, 6.0)))
-                        .axis(|a: DefaultCartesianAxis| a.title("X"))
+                        .axis(|a| a.title("X"))
                 })
                 .y_with(col("y"), |c| {
                     c.scale_with::<Linear>(|s| s.domain((0.0, 60.0)))
-                        .axis(|a: DefaultCartesianAxis| a.title("Y"))
+                        .axis(|a| a.title("Y"))
                 })
                 .stroke("#6699ff")
                 .stroke_width(8.0),

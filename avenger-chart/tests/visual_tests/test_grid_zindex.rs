@@ -1,6 +1,6 @@
 use super::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::Cartesian;
-use avenger_chart::cartesian::DefaultCartesianAxis;
+
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
 use avenger_chart::scales::Linear;
@@ -23,12 +23,12 @@ async fn test_grid_lines_behind_data() {
             Rect::new()
                 .x_with(lit(2.0), |c| {
                     c.scale_with::<Linear>(|s| s.domain((0.0, 10.0)))
-                        .axis(|a: DefaultCartesianAxis| a.title("X").grid(true))
+                        .axis(|a| a.title("X").grid(true))
                 })
                 .x2(lit(8.0))
                 .y_with(lit(3.0), |c| {
                     c.scale_with::<Linear>(|s| s.domain((0.0, 10.0)))
-                        .axis(|a: DefaultCartesianAxis| a.title("Y").grid(true))
+                        .axis(|a| a.title("Y").grid(true))
                 })
                 .y2(lit(7.0))
                 .fill("#ff0000")

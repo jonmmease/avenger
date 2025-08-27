@@ -1,12 +1,8 @@
-use crate::cartesian::CartesianAxis;
-use crate::cartesian::coord::CartesianGeneral;
+use crate::cartesian::Cartesian;
 use crate::plot::Plot;
 
-// Generic implementation for any CartesianAxis type
-impl<A> Plot<CartesianGeneral<A>>
-where
-    A: CartesianAxis + Default + 'static,
-{
+// Implementation for concrete Cartesian type
+impl Plot<Cartesian> {
     // All axis and scale configuration has been moved to channel-level
     // Use mark.x_with() and mark.y_with() for configuring axes and scales
 }

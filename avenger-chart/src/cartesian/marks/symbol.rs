@@ -1,5 +1,4 @@
-use crate::cartesian::CartesianAxis;
-use crate::cartesian::coord::CartesianGeneral;
+use crate::cartesian::Cartesian;
 use crate::impl_mark_trait_common;
 use crate::marks::{ChannelType, Mark, RadiusExpression};
 use arrow::array::RecordBatch;
@@ -13,8 +12,8 @@ use crate::error::AvengerChartError;
 pub use crate::marks::symbol::Symbol;
 use crate::utils::ScalarValueHelpers;
 
-// Implement position channels for CartesianGeneric Symbol
-impl<A: CartesianAxis + Default + 'static> Symbol<CartesianGeneral<A>> {
+// Implement position channels for Cartesian Symbol
+impl Symbol<Cartesian> {
     pub fn x<V: Into<crate::marks::ChannelValue>>(self, value: V) -> Self {
         self.with_channel_value("x", value.into())
     }
@@ -22,11 +21,11 @@ impl<A: CartesianAxis + Default + 'static> Symbol<CartesianGeneral<A>> {
     pub fn x_with<F>(self, value: impl Into<crate::marks::ChannelValue>, f: F) -> Self
     where
         F: FnOnce(
-            crate::cartesian::channels::CartesianPositionChannel<A>,
-        ) -> crate::cartesian::channels::CartesianPositionChannel<A>,
+            crate::cartesian::channels::CartesianPositionChannel,
+        ) -> crate::cartesian::channels::CartesianPositionChannel,
     {
         let channel_value: crate::marks::ChannelValue = value.into();
-        let channel = crate::cartesian::channels::CartesianPositionChannel::<A>::new(channel_value);
+        let channel = crate::cartesian::channels::CartesianPositionChannel::new(channel_value);
         let configured = f(channel);
 
         // Extract axis config before consuming channel
@@ -52,11 +51,11 @@ impl<A: CartesianAxis + Default + 'static> Symbol<CartesianGeneral<A>> {
     pub fn y_with<F>(self, value: impl Into<crate::marks::ChannelValue>, f: F) -> Self
     where
         F: FnOnce(
-            crate::cartesian::channels::CartesianPositionChannel<A>,
-        ) -> crate::cartesian::channels::CartesianPositionChannel<A>,
+            crate::cartesian::channels::CartesianPositionChannel,
+        ) -> crate::cartesian::channels::CartesianPositionChannel,
     {
         let channel_value: crate::marks::ChannelValue = value.into();
-        let channel = crate::cartesian::channels::CartesianPositionChannel::<A>::new(channel_value);
+        let channel = crate::cartesian::channels::CartesianPositionChannel::new(channel_value);
         let configured = f(channel);
 
         // Extract axis config before consuming channel
@@ -102,11 +101,9 @@ impl<A: CartesianAxis + Default + 'static> Symbol<CartesianGeneral<A>> {
     }
 }
 
-// Implement Mark trait for CartesianGeneric Symbol with any axis type
-impl<A: CartesianAxis + Default + 'static> Mark<CartesianGeneral<A>>
-    for Symbol<CartesianGeneral<A>>
-{
-    impl_mark_trait_common!(Symbol, CartesianGeneral<A>, "symbol");
+// Implement Mark trait for Cartesian Symbol
+impl Mark<Cartesian> for Symbol<Cartesian> {
+    impl_mark_trait_common!(Symbol, Cartesian, "symbol");
 
     fn default_channel_value(&self, channel: &str) -> Option<ScalarValue> {
         match channel {

@@ -1,6 +1,6 @@
 use super::datasets;
 use super::helpers::assert_visual_match_default;
-use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
+use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
 use avenger_chart::scales::Band;
@@ -27,12 +27,12 @@ async fn test_simple_bar_chart() {
                         lit("I"),
                     ])
                 })
-                .axis(|a: DefaultCartesianAxis| a.title("Category").grid(false))
+                .axis(|a| a.title("Category").grid(false))
             })
             .x2_with(col(":x"), |c| c.band(1.0))
             .y_with(lit(0.0), |c| {
                 c.scale(|s| s.domain((0.0, 100.0)))
-                    .axis(|a: DefaultCartesianAxis| a.title("Value").grid(true))
+                    .axis(|a| a.title("Value").grid(true))
             })
             .y2(col("value"))
             .fill("#4682b4")
@@ -63,12 +63,12 @@ async fn test_bar_chart_with_custom_colors() {
                         lit("I"),
                     ])
                 })
-                .axis(|a: DefaultCartesianAxis| a.title("Category"))
+                .axis(|a| a.title("Category"))
             })
             .x2_with(col(":x"), |c| c.band(1.0))
             .y_with(lit(0.0), |c| {
                 c.scale(|s| s.domain((0.0, 120.0)))
-                    .axis(|a: DefaultCartesianAxis| a.title("Value"))
+                    .axis(|a| a.title("Value"))
             })
             .y2(col("value"))
             .fill("#e74c3c")
@@ -99,12 +99,12 @@ async fn test_bar_chart_with_narrow_bars() {
                         lit("I"),
                     ])
                 })
-                .axis(|a: DefaultCartesianAxis| a.title("Category").grid(false))
+                .axis(|a| a.title("Category").grid(false))
             })
             .x2_with(col("category"), |c| c.band(0.7)) // 70% of band width
             .y_with(lit(0.0), |c| {
                 c.scale(|s| s.domain((0.0, 100.0)))
-                    .axis(|a: DefaultCartesianAxis| a.title("Value").grid(true))
+                    .axis(|a| a.title("Value").grid(true))
             })
             .y2(col("value"))
             .fill("#3498db")
@@ -122,12 +122,10 @@ async fn test_bar_chart_inferred_domains() {
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(col("category"), |c| {
-                c.axis(|a: DefaultCartesianAxis| a.title("Category").grid(false))
+                c.axis(|a| a.title("Category").grid(false))
             })
             .x2_with(col(":x"), |c| c.band(1.0))
-            .y_with(lit(0.0), |c| {
-                c.axis(|a: DefaultCartesianAxis| a.title("Value").grid(true))
-            })
+            .y_with(lit(0.0), |c| c.axis(|a| a.title("Value").grid(true)))
             .y2(col("value"))
             .fill("#4682b4")
             .stroke("#000000")
@@ -161,12 +159,12 @@ async fn test_bar_chart_color_case_expression() {
                         lit("I"),
                     ])
                 })
-                .axis(|a: DefaultCartesianAxis| a.title("Category").grid(false))
+                .axis(|a| a.title("Category").grid(false))
             })
             .x2_with(col(":x"), |c| c.band(1.0))
             .y_with(lit(0.0), |c| {
                 c.scale(|s| s.domain((0.0, 100.0)))
-                    .axis(|a: DefaultCartesianAxis| a.title("Value").grid(true))
+                    .axis(|a| a.title("Value").grid(true))
             })
             .y2(col("value"))
             // Use conditional expressions to create a gradient effect

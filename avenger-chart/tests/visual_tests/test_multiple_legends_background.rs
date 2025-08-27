@@ -1,5 +1,5 @@
 use super::helpers::assert_visual_match_default;
-use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
+use avenger_chart::cartesian::Cartesian;
 use avenger_chart::legend::LegendPosition;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
@@ -82,11 +82,11 @@ async fn test_multiple_legends_with_backgrounds() {
             Symbol::new()
                 .x_with(col("x"), |c| {
                     c.scale(|s| s.domain((0.0, 10.0)))
-                        .axis(|axis: DefaultCartesianAxis| axis.title("X Axis"))
+                        .axis(|axis| axis.title("X Axis"))
                 })
                 .y_with(col("y"), |c| {
                     c.scale(|s| s.domain((0.0, 10.0)))
-                        .axis(|axis: DefaultCartesianAxis| axis.title("Y Axis"))
+                        .axis(|axis| axis.title("Y Axis"))
                 })
                 .fill_with(col("category"), |c| c.scale_with::<Ordinal>(|s| s))
                 .size_with(col("size_value"), |c| {
@@ -169,11 +169,11 @@ async fn test_colorbar_with_symbols_backgrounds() {
             Symbol::new()
                 .x_with(col("x"), |c| {
                     c.scale(|s| s.domain((0.0, 9.0)))
-                        .axis(|axis: DefaultCartesianAxis| axis.title("X Axis"))
+                        .axis(|axis| axis.title("X Axis"))
                 })
                 .y_with(col("y"), |c| {
                     c.scale(|s| s.domain((0.0, 9.0)))
-                        .axis(|axis: DefaultCartesianAxis| axis.title("Y Axis"))
+                        .axis(|axis| axis.title("Y Axis"))
                 })
                 .fill_with(col("temperature"), |c| {
                     c.scale_with::<Linear>(|s| s.domain((5.0, 40.0)))
@@ -252,11 +252,11 @@ async fn test_legends_different_positions_backgrounds() {
             Symbol::new()
                 .x_with(col("x"), |c| {
                     c.scale(|s| s.domain((0.0, 7.0)))
-                        .axis(|axis: DefaultCartesianAxis| axis.title("X Axis"))
+                        .axis(|axis| axis.title("X Axis"))
                 })
                 .y_with(col("y"), |c| {
                     c.scale(|s| s.domain((0.0, 7.0)))
-                        .axis(|axis: DefaultCartesianAxis| axis.title("Y Axis"))
+                        .axis(|axis| axis.title("Y Axis"))
                 })
                 .fill_with(col("category"), |c| c.scale_with::<Ordinal>(|s| s))
                 .size_with(col("size_value"), |c| {

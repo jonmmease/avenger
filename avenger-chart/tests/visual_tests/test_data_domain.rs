@@ -1,6 +1,6 @@
 // Visual tests for data domain inference
 
-use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
+use avenger_chart::cartesian::Cartesian;
 use avenger_chart::marks::rect::Rect;
 use avenger_chart::plot::Plot;
 use datafusion::prelude::*;
@@ -28,13 +28,12 @@ async fn test_bar_chart_inferred_domain() {
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(col("category"), |c| {
-                c.scale(|s| s)
-                    .axis(|a: DefaultCartesianAxis| a.title("Category").grid(false))
+                c.scale(|s| s).axis(|a| a.title("Category").grid(false))
             })
             .x2_with(col("category"), |c| c.band(1.0))
             .y_with(lit(0.0), |c| {
                 c.scale(|s| s.option("zero", lit(false)).option("nice", lit(false)))
-                    .axis(|a: DefaultCartesianAxis| a.title("Value").grid(true))
+                    .axis(|a| a.title("Value").grid(true))
             })
             .y2(col("value"))
             .fill("#3498db")
@@ -66,13 +65,11 @@ async fn test_scatter_plot_inferred_domain() {
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(col("x").sub(lit(2.0)), |c| {
-                c.scale(|s| s)
-                    .axis(|a: DefaultCartesianAxis| a.title("X Value"))
+                c.scale(|s| s).axis(|a| a.title("X Value"))
             })
             .x2(col("x").add(lit(2.0)))
             .y_with(col("y").sub(lit(2.0)), |c| {
-                c.scale(|s| s)
-                    .axis(|a: DefaultCartesianAxis| a.title("Y Value"))
+                c.scale(|s| s).axis(|a| a.title("Y Value"))
             })
             .y2(col("y").add(lit(2.0)))
             .fill("#e74c3c")

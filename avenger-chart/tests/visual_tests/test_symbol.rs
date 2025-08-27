@@ -1,5 +1,5 @@
 use super::helpers::assert_visual_match_default;
-use avenger_chart::cartesian::{Cartesian, DefaultCartesianAxis};
+use avenger_chart::cartesian::Cartesian;
 
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
@@ -37,12 +37,10 @@ async fn test_simple_scatter_plot() {
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| {
-                c.scale_with::<Linear>(|s| s)
-                    .axis(|a: DefaultCartesianAxis| a.title("X Value"))
+                c.scale_with::<Linear>(|s| s).axis(|a| a.title("X Value"))
             })
             .y_with(col("y"), |c| {
-                c.scale_with::<Linear>(|s| s)
-                    .axis(|a: DefaultCartesianAxis| a.title("Y Value"))
+                c.scale_with::<Linear>(|s| s).axis(|a| a.title("Y Value"))
             })
             .size(100.0)
             .fill("#4682b4")
@@ -136,12 +134,10 @@ async fn test_scatter_with_shapes() {
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| {
-                c.scale_with::<Linear>(|s| s)
-                    .axis(|a: DefaultCartesianAxis| a.title("X Value"))
+                c.scale_with::<Linear>(|s| s).axis(|a| a.title("X Value"))
             })
             .y_with(col("y"), |c| {
-                c.scale_with::<Linear>(|s| s)
-                    .axis(|a: DefaultCartesianAxis| a.title("Y Value"))
+                c.scale_with::<Linear>(|s| s).axis(|a| a.title("Y Value"))
             })
             .shape(col("shape")) // Now uses automatic ordinal scale
             .fill("#ff6347")
@@ -217,11 +213,11 @@ async fn test_scatter_with_size_encoding() {
             Symbol::new()
                 .x_with(col("x"), |c| {
                     c.scale_with::<Linear>(|s| s.nice(false))
-                        .axis(|a: DefaultCartesianAxis| a.title("X Value").grid(true))
+                        .axis(|a| a.title("X Value").grid(true))
                 })
                 .y_with(col("y"), |c| {
                     c.scale_with::<Linear>(|s| s.nice(false).zero(false))
-                        .axis(|a: DefaultCartesianAxis| a.title("Y Value").grid(true))
+                        .axis(|a| a.title("Y Value").grid(true))
                 })
                 .size_with(col("size"), |c| c.no_scale())
                 .fill("rgba(255, 99, 71, 0.5)")
@@ -269,11 +265,11 @@ async fn test_scatter_with_size_encoding_legend() {
             Symbol::new()
                 .x_with(col("x"), |c| {
                     c.scale_with::<Linear>(|s| s.nice(false))
-                        .axis(|a: DefaultCartesianAxis| a.title("X Value").grid(true))
+                        .axis(|a| a.title("X Value").grid(true))
                 })
                 .y_with(col("y"), |c| {
                     c.scale_with::<Linear>(|s| s.nice(false).zero(false))
-                        .axis(|a: DefaultCartesianAxis| a.title("Y Value").grid(true))
+                        .axis(|a| a.title("Y Value").grid(true))
                 })
                 .size_with(col("size"), |c| c.no_scale())
                 .fill(col("size"))
@@ -316,12 +312,8 @@ async fn test_scatter_with_angle() {
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Symbol::new()
-            .x_with(col("x"), |c| {
-                c.axis(|a: DefaultCartesianAxis| a.title("X Position"))
-            })
-            .y_with(col("y"), |c| {
-                c.axis(|a: DefaultCartesianAxis| a.title("Y Position"))
-            })
+            .x_with(col("x"), |c| c.axis(|a| a.title("X Position")))
+            .y_with(col("y"), |c| c.axis(|a| a.title("Y Position")))
             .shape("arrow")
             .angle_with(col("angle"), |c| c.no_scale())
             .size(800.0)
@@ -412,12 +404,8 @@ async fn test_scatter_with_default_shape_scale() {
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Symbol::new()
-            .x_with(col("x"), |c| {
-                c.axis(|a: DefaultCartesianAxis| a.title("X Value"))
-            })
-            .y_with(col("y"), |c| {
-                c.axis(|a: DefaultCartesianAxis| a.title("Y Value"))
-            })
+            .x_with(col("x"), |c| c.axis(|a| a.title("X Value")))
+            .y_with(col("y"), |c| c.axis(|a| a.title("Y Value")))
             .shape(col("category")) // This will trigger default ordinal scale
             .size(200.0)
             .fill("#3498db")
