@@ -5,5 +5,5 @@ pub mod marks;
 pub mod plot;
 
 pub use axis::CartesianAxis;
-pub use channels::CartesianPositionChannel;
+pub use channels::CartesianPositionConfig;
 pub use coord::Cartesian;

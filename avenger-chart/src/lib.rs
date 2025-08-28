@@ -1,11 +1,13 @@
 pub mod axis;
 pub mod cartesian;
+pub mod channel_configs;
 mod channel_resolution;
 mod chart_layout;
 pub mod constants;
 pub mod coords;
 pub mod error;
 pub mod legend;
+pub mod legend_builder;
 pub mod marks;
 pub mod plot;
 mod plot_legends;

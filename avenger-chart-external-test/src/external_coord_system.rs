@@ -3,11 +3,12 @@
 use avenger_chart::{
     axis::Axis,
     coords::{CoordinateSystem, OverflowSpaceRequirement, TransformResult},
-    define_common_mark_channels,
+    define_common_mark_channels, define_position_channels,
     error::AvengerChartError,
     impl_mark_base, impl_mark_trait_common,
-    marks::{ChannelDescriptor, ChannelType, ChannelValue, Mark, MarkState},
+    marks::{ChannelType, ChannelValue, Mark, MarkState},
     render::Padding,
+    scales::{Auto, Scale},
 };
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -37,6 +38,94 @@ impl Default for Isometric {
 impl Isometric {
     pub fn new() -> Self {
         Self::default()
+    }
+}
+
+/// Configuration for Isometric position channels (iso_x, iso_y, iso_z)
+/// These channels support scales and axes
+#[derive(Clone)]
+pub struct IsometricPositionConfig {
+    pub(crate) inner: ChannelValue,
+    pub(crate) axis_config:
+        Option<std::sync::Arc<dyn Fn(IsometricAxis) -> IsometricAxis + Send + Sync>>,
+}
+
+impl IsometricPositionConfig {
+    /// Create a new position channel from a channel value
+    pub fn new(value: ChannelValue) -> Self {
+        Self {
+            inner: value,
+            axis_config: None,
+        }
+    }
+
+    /// Configure the scale for this channel
+    pub fn scale<F>(self, f: F) -> Self
+    where
+        F: Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync + 'static,
+    {
+        Self {
+            inner: self.inner.scale(f),
+            axis_config: self.axis_config,
+        }
+    }
+
+    /// Configure the axis for this channel
+    pub fn axis<F>(mut self, f: F) -> Self
+    where
+        F: Fn(IsometricAxis) -> IsometricAxis + Send + Sync + 'static,
+    {
+        self.axis_config = Some(std::sync::Arc::new(f));
+        self
+    }
+
+    /// Get the inner ChannelValue
+    pub fn into_inner(self) -> ChannelValue {
+        self.inner
+    }
+}
+
+// Implement the PositionConfig trait to work with the macro
+impl avenger_chart::cartesian::channels::PositionConfig for IsometricPositionConfig {
+    type Axis = IsometricAxis;
+
+    fn new(value: ChannelValue) -> Self {
+        Self {
+            inner: value,
+            axis_config: None,
+        }
+    }
+
+    fn take_axis_config(
+        self,
+    ) -> (
+        ChannelValue,
+        Option<std::sync::Arc<dyn Fn(IsometricAxis) -> IsometricAxis + Send + Sync>>,
+    ) {
+        (self.inner, self.axis_config)
+    }
+
+    fn into_inner(self) -> ChannelValue {
+        self.inner
+    }
+}
+
+// Conversions from various types
+impl From<ChannelValue> for IsometricPositionConfig {
+    fn from(value: ChannelValue) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<datafusion::logical_expr::Expr> for IsometricPositionConfig {
+    fn from(expr: datafusion::logical_expr::Expr) -> Self {
+        Self::new(ChannelValue::from(expr))
+    }
+}
+
+impl From<&str> for IsometricPositionConfig {
+    fn from(s: &str) -> Self {
+        Self::new(ChannelValue::from(s))
     }
 }
 
@@ -203,89 +292,24 @@ define_common_mark_channels! {
     }
 }
 
-// Implement position channels for Isometric Cube manually
-impl Cube<Isometric> {
-    pub fn iso_x<V: Into<ChannelValue>>(self, value: V) -> Self {
-        self.with_channel_value("iso_x", value.into())
-    }
-
-    pub fn iso_x_with<F>(self, value: impl Into<ChannelValue>, f: F) -> Self
-    where
-        F: FnOnce(
-            avenger_chart::marks::typed_channels::PositionChannel,
-        ) -> avenger_chart::marks::typed_channels::PositionChannel,
-    {
-        let channel_value: ChannelValue = value.into();
-        let channel = f(avenger_chart::marks::typed_channels::PositionChannel(
-            channel_value,
-        ));
-        self.with_channel_value("iso_x", channel.into())
-    }
-
-    pub fn iso_y<V: Into<ChannelValue>>(self, value: V) -> Self {
-        self.with_channel_value("iso_y", value.into())
-    }
-
-    pub fn iso_y_with<F>(self, value: impl Into<ChannelValue>, f: F) -> Self
-    where
-        F: FnOnce(
-            avenger_chart::marks::typed_channels::PositionChannel,
-        ) -> avenger_chart::marks::typed_channels::PositionChannel,
-    {
-        let channel_value: ChannelValue = value.into();
-        let channel = f(avenger_chart::marks::typed_channels::PositionChannel(
-            channel_value,
-        ));
-        self.with_channel_value("iso_y", channel.into())
-    }
-
-    pub fn iso_z<V: Into<ChannelValue>>(self, value: V) -> Self {
-        self.with_channel_value("iso_z", value.into())
-    }
-
-    pub fn iso_z_with<F>(self, value: impl Into<ChannelValue>, f: F) -> Self
-    where
-        F: FnOnce(
-            avenger_chart::marks::typed_channels::PositionChannel,
-        ) -> avenger_chart::marks::typed_channels::PositionChannel,
-    {
-        let channel_value: ChannelValue = value.into();
-        let channel = f(avenger_chart::marks::typed_channels::PositionChannel(
-            channel_value,
-        ));
-        self.with_channel_value("iso_z", channel.into())
-    }
-
-    pub fn position_channel_descriptors() -> Vec<ChannelDescriptor> {
-        vec![
-            ChannelDescriptor {
-                name: "iso_x",
-                channel_type: ChannelType::Numeric,
-                required: true,
-                default_value: None,
-                allow_column_ref: true,
-            },
-            ChannelDescriptor {
-                name: "iso_y",
-                channel_type: ChannelType::Numeric,
-                required: true,
-                default_value: None,
-                allow_column_ref: true,
-            },
-            ChannelDescriptor {
-                name: "iso_z",
-                channel_type: ChannelType::Numeric,
-                required: true,
-                default_value: None,
-                allow_column_ref: true,
-            },
-        ]
-    }
-
-    pub fn all_channel_descriptors() -> Vec<ChannelDescriptor> {
-        let mut descriptors = Self::common_channel_descriptors();
-        descriptors.extend(Self::position_channel_descriptors());
-        descriptors
+// Define position channels for Isometric Cube using the macro
+define_position_channels! {
+    Cube<Isometric> {
+        iso_x: {
+            type: ChannelType::Numeric,
+            required: true,
+            with_config: IsometricPositionConfig
+        },
+        iso_y: {
+            type: ChannelType::Numeric,
+            required: true,
+            with_config: IsometricPositionConfig
+        },
+        iso_z: {
+            type: ChannelType::Numeric,
+            required: true,
+            with_config: IsometricPositionConfig
+        }
     }
 }
 

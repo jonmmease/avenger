@@ -3,7 +3,6 @@
 use avenger_chart::cartesian::Cartesian;
 
 use avenger_chart::marks::symbol::Symbol;
-use avenger_chart::marks::typed_channels::ColorChannel;
 use avenger_chart::plot::Plot;
 use avenger_chart::scales::Ordinal;
 use datafusion::logical_expr::{col, lit};
@@ -60,14 +59,17 @@ fn test_channel_legend_config() {
 #[test]
 fn test_channel_scale_with_typed() {
     // Test that we can use typed scales on channel values
-    let plot = Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y")).fill(
-        ColorChannel::from(col("category")).scale_with::<Ordinal>(|s| {
-            s.range_colors(vec![
-                Srgba::new(0.984, 0.706, 0.682, 1.0), // Light pink
-                Srgba::new(0.702, 0.804, 0.890, 1.0), // Light blue
-                Srgba::new(0.800, 0.922, 0.773, 1.0), // Light green
-            ])
-        }),
+    let plot = Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y")).fill_with(
+        col("category"),
+        |c| {
+            c.scale_with::<Ordinal>(|s| {
+                s.range_colors(vec![
+                    Srgba::new(0.984, 0.706, 0.682, 1.0), // Light pink
+                    Srgba::new(0.702, 0.804, 0.890, 1.0), // Light blue
+                    Srgba::new(0.800, 0.922, 0.773, 1.0), // Light green
+                ])
+            })
+        },
     ));
 
     // The scale config should be extracted

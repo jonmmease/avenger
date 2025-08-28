@@ -1,3 +1,6 @@
+use crate::channel_configs::{
+    ColorChannelConfig, OpacityChannelConfig, StrokeDashChannelConfig, StrokeWidthChannelConfig,
+};
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::marks::{ChannelDefault, ChannelType, MarkState};
@@ -21,17 +24,20 @@ define_common_mark_channels! {
         stroke: {
             type: ChannelType::Color,
             default: ChannelDefault::Scalar(ScalarValue::Utf8(Some("#000000".to_string()))),
-            allow_column: true
+            allow_column: true,
+            with_config: ColorChannelConfig
         },
         stroke_width: {
             type: ChannelType::Numeric,
             default: ChannelDefault::Scalar(ScalarValue::Float32(Some(2.0))),
-            allow_column: true
+            allow_column: true,
+            with_config: StrokeWidthChannelConfig
         },
         stroke_dash: {
             type: ChannelType::StrokeDash,
             default: ChannelDefault::Scalar(ScalarValue::Utf8(Some("solid".to_string()))),
-            allow_column: true
+            allow_column: true,
+            with_config: StrokeDashChannelConfig
         },
         stroke_cap: {
             type: ChannelType::StrokeCap,
@@ -46,7 +52,8 @@ define_common_mark_channels! {
         opacity: {
             type: ChannelType::Numeric,
             default: ChannelDefault::Scalar(ScalarValue::Float32(Some(1.0))),
-            allow_column: false  // Line opacity must be constant
+            allow_column: false,
+            with_config: OpacityChannelConfig
         },
         defined: {
             type: ChannelType::Boolean,
