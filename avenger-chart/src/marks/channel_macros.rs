@@ -1,97 +1,35 @@
 /// Macro to define common channels shared across all coordinate systems
+///
+/// This macro generates:
+/// 1. Basic setter methods for all channels (e.g., `fill()`, `size()`)
+/// 2. Configuration methods with callbacks when `with_config` is specified
+/// 3. Channel descriptors for the mark type
+///
+/// Each channel must specify `with_config` to get a `_with` method.
 #[macro_export]
 macro_rules! define_common_mark_channels {
-    // Helper pattern to generate _with methods based on channel type
-    (@generate_with_method $mark:ident, fill, $channel_type:expr) => {
+    // Generate _with method using explicitly specified config type
+    (@generate_with_method $mark:ident, $name:ident, $channel_type:expr, with_config: $config_type:ty $(,$rest:tt)*) => {
         paste::paste! {
-            pub fn [<fill _with>]<F>(self, value: impl Into<$crate::marks::ChannelValue>, f: F) -> Self
+            pub fn [<$name _with>]<V, F>(self, value: V, f: F) -> Self
             where
-                F: FnOnce($crate::marks::typed_channels::ColorChannel) -> $crate::marks::typed_channels::ColorChannel,
+                V: Into<$crate::marks::ChannelValue>,
+                F: FnOnce($config_type) -> $config_type,
             {
-                let channel_value: $crate::marks::ChannelValue = value.into();
-                let channel = f($crate::marks::typed_channels::ColorChannel(channel_value));
-                self.with_channel_value("fill", channel.into())
+                let channel_value = value.into();
+                let config = <$config_type>::new(channel_value);
+                let configured = f(config);
+                self.with_channel_value(stringify!($name), configured.into_inner())
             }
         }
     };
-    (@generate_with_method $mark:ident, stroke, $channel_type:expr) => {
-        paste::paste! {
-            pub fn [<stroke _with>]<F>(self, value: impl Into<$crate::marks::ChannelValue>, f: F) -> Self
-            where
-                F: FnOnce($crate::marks::typed_channels::ColorChannel) -> $crate::marks::typed_channels::ColorChannel,
-            {
-                let channel_value: $crate::marks::ChannelValue = value.into();
-                let channel = f($crate::marks::typed_channels::ColorChannel(channel_value));
-                self.with_channel_value("stroke", channel.into())
-            }
-        }
-    };
-    (@generate_with_method $mark:ident, size, $channel_type:expr) => {
-        paste::paste! {
-            pub fn [<size _with>]<F>(self, value: impl Into<$crate::marks::ChannelValue>, f: F) -> Self
-            where
-                F: FnOnce($crate::marks::typed_channels::SizeChannel) -> $crate::marks::typed_channels::SizeChannel,
-            {
-                let channel_value: $crate::marks::ChannelValue = value.into();
-                let channel = f($crate::marks::typed_channels::SizeChannel(channel_value));
-                self.with_channel_value("size", channel.into())
-            }
-        }
-    };
-    (@generate_with_method $mark:ident, stroke_width, $channel_type:expr) => {
-        paste::paste! {
-            pub fn [<stroke_width _with>]<F>(self, value: impl Into<$crate::marks::ChannelValue>, f: F) -> Self
-            where
-                F: FnOnce($crate::marks::typed_channels::SizeChannel) -> $crate::marks::typed_channels::SizeChannel,
-            {
-                let channel_value: $crate::marks::ChannelValue = value.into();
-                let channel = f($crate::marks::typed_channels::SizeChannel(channel_value));
-                self.with_channel_value("stroke_width", channel.into())
-            }
-        }
-    };
-    (@generate_with_method $mark:ident, shape, $channel_type:expr) => {
-        paste::paste! {
-            pub fn [<shape _with>]<F>(self, value: impl Into<$crate::marks::ChannelValue>, f: F) -> Self
-            where
-                F: FnOnce($crate::marks::typed_channels::ShapeChannel) -> $crate::marks::typed_channels::ShapeChannel,
-            {
-                let channel_value: $crate::marks::ChannelValue = value.into();
-                let channel = f($crate::marks::typed_channels::ShapeChannel(channel_value));
-                self.with_channel_value("shape", channel.into())
-            }
-        }
-    };
-    (@generate_with_method $mark:ident, angle, $channel_type:expr) => {
-        paste::paste! {
-            pub fn [<angle _with>]<F>(self, value: impl Into<$crate::marks::ChannelValue>, f: F) -> Self
-            where
-                F: FnOnce($crate::marks::typed_channels::AngleChannel) -> $crate::marks::typed_channels::AngleChannel,
-            {
-                let channel_value: $crate::marks::ChannelValue = value.into();
-                let channel = f($crate::marks::typed_channels::AngleChannel(channel_value));
-                self.with_channel_value("angle", channel.into())
-            }
-        }
-    };
-    (@generate_with_method $mark:ident, stroke_dash, $channel_type:expr) => {
-        paste::paste! {
-            pub fn [<stroke_dash _with>]<F>(self, value: impl Into<$crate::marks::ChannelValue>, f: F) -> Self
-            where
-                F: FnOnce($crate::marks::typed_channels::StrokeDashChannel) -> $crate::marks::typed_channels::StrokeDashChannel,
-            {
-                let channel_value: $crate::marks::ChannelValue = value.into();
-                let channel = f($crate::marks::typed_channels::StrokeDashChannel(channel_value));
-                self.with_channel_value("stroke_dash", channel.into())
-            }
-        }
-    };
-    // Default case for channels without typed wrappers - do nothing
-    (@generate_with_method $mark:ident, $name:ident, $channel_type:expr) => {
+
+    // No with_config specified - no _with method generated
+    (@generate_with_method $mark:ident, $name:ident, $channel_type:expr $(,$rest:tt)*) => {
         // No _with method for this channel
     };
 
-    // Main pattern
+    // Main pattern - now accepts optional with_config and axis_config fields
     (
         $mark:ident {
             $(
@@ -100,6 +38,8 @@ macro_rules! define_common_mark_channels {
                     $(, default: $default:expr)?
                     $(, allow_column: $allow_column:expr)?
                     $(, required: $required:expr)?
+                    $(, with_config: $config_type:ty)?
+                    $(, axis_config: $is_axis:expr)?
                 }
             ),* $(,)?
         }
@@ -112,8 +52,14 @@ macro_rules! define_common_mark_channels {
                     self.with_channel_value(stringify!($name), channel_value)
                 }
 
-                // Generate _with configuration method based on channel type
-                define_common_mark_channels!(@generate_with_method $mark, $name, $channel_type);
+                // Generate _with configuration method based on channel type and optional config
+                define_common_mark_channels!(@generate_with_method
+                    $mark,
+                    $name,
+                    $channel_type
+                    $(, with_config: $config_type)?
+                    $(, axis_config: $is_axis)?
+                );
             )*
 
             /// Get common channel descriptors for this mark type

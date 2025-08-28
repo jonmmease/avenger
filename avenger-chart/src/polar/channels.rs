@@ -1,37 +1,17 @@
-use crate::cartesian::CartesianAxis;
 use crate::marks::channel::ChannelValue;
+use crate::polar::axis::PolarAxis;
 use crate::scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec};
 use std::sync::Arc;
 
-/// Trait for all position configuration types
-pub trait PositionConfig: Sized {
-    type Axis;
-
-    /// Create a new position config from a channel value
-    fn new(value: ChannelValue) -> Self;
-
-    /// Extract the axis configuration, consuming self
-    /// Returns None for coordinate systems that don't support axes
-    fn take_axis_config(
-        self,
-    ) -> (
-        ChannelValue,
-        Option<Arc<dyn Fn(Self::Axis) -> Self::Axis + Send + Sync>>,
-    );
-
-    /// Get the inner channel value without axis config
-    fn into_inner(self) -> ChannelValue;
-}
-
-/// Configuration for Cartesian position channels (x, y, x2, y2)
-/// These channels support scales and axes but not legends
+/// Configuration for Polar position channels (r, theta)
+/// These channels support scales and axes
 #[derive(Clone)]
-pub struct CartesianPositionConfig {
+pub struct PolarPositionConfig {
     pub(crate) inner: ChannelValue,
-    pub(crate) axis_config: Option<Arc<dyn Fn(CartesianAxis) -> CartesianAxis + Send + Sync>>,
+    pub(crate) axis_config: Option<Arc<dyn Fn(PolarAxis) -> PolarAxis + Send + Sync>>,
 }
 
-impl CartesianPositionConfig {
+impl PolarPositionConfig {
     /// Create a new position channel from a channel value
     pub fn new(value: ChannelValue) -> Self {
         Self {
@@ -70,15 +50,6 @@ impl CartesianPositionConfig {
         }
     }
 
-    /// Configure the axis for this channel
-    pub fn axis<F>(mut self, f: F) -> Self
-    where
-        F: Fn(CartesianAxis) -> CartesianAxis + Send + Sync + 'static,
-    {
-        self.axis_config = Some(Arc::new(f));
-        self
-    }
-
     /// Set the band parameter
     pub fn band(self, band: f64) -> Self {
         Self {
@@ -95,21 +66,23 @@ impl CartesianPositionConfig {
         }
     }
 
+    /// Configure the axis for this channel
+    pub fn axis<F>(mut self, f: F) -> Self
+    where
+        F: Fn(PolarAxis) -> PolarAxis + Send + Sync + 'static,
+    {
+        self.axis_config = Some(Arc::new(f));
+        self
+    }
+
     /// Get the inner ChannelValue
     pub fn into_inner(self) -> ChannelValue {
         self.inner
     }
-
-    /// Get the axis configuration if present
-    pub fn axis_config(
-        &self,
-    ) -> Option<&Arc<dyn Fn(CartesianAxis) -> CartesianAxis + Send + Sync>> {
-        self.axis_config.as_ref()
-    }
 }
 
-impl PositionConfig for CartesianPositionConfig {
-    type Axis = <crate::cartesian::Cartesian as crate::coords::CoordinateSystem>::Axis;
+impl crate::cartesian::channels::PositionConfig for PolarPositionConfig {
+    type Axis = <crate::polar::Polar as crate::coords::CoordinateSystem>::Axis;
 
     fn new(value: ChannelValue) -> Self {
         Self {
@@ -132,39 +105,40 @@ impl PositionConfig for CartesianPositionConfig {
     }
 }
 
-// Conversions from various types to CartesianPositionConfig
-impl From<ChannelValue> for CartesianPositionConfig {
+// Conversions from various types to PolarPositionConfig
+impl From<ChannelValue> for PolarPositionConfig {
     fn from(value: ChannelValue) -> Self {
         Self::new(value)
     }
 }
 
-impl From<datafusion::logical_expr::Expr> for CartesianPositionConfig {
+impl From<datafusion::logical_expr::Expr> for PolarPositionConfig {
     fn from(expr: datafusion::logical_expr::Expr) -> Self {
         Self::new(ChannelValue::from(expr))
     }
 }
 
-impl From<&str> for CartesianPositionConfig {
+impl From<&str> for PolarPositionConfig {
     fn from(s: &str) -> Self {
         Self::new(ChannelValue::from(s))
     }
 }
 
-impl From<f64> for CartesianPositionConfig {
+impl From<f64> for PolarPositionConfig {
     fn from(v: f64) -> Self {
         Self::new(ChannelValue::from(v))
     }
 }
 
-impl From<f32> for CartesianPositionConfig {
+impl From<f32> for PolarPositionConfig {
     fn from(v: f32) -> Self {
         Self::new(ChannelValue::from(v))
     }
 }
 
-impl From<i32> for CartesianPositionConfig {
+impl From<i32> for PolarPositionConfig {
     fn from(v: i32) -> Self {
         Self::new(ChannelValue::from(v))
     }
 }
+

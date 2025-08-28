@@ -6,21 +6,19 @@ pub mod line;
 pub mod rect;
 pub mod state;
 pub mod symbol;
-pub mod typed_channels;
 pub mod util;
 #[macro_use]
 pub mod macros;
 #[macro_use]
 pub mod channel_macros;
+#[macro_use]
+pub mod position_channel_macros;
 
 pub use channel::{ChannelValue, ConditionalBuilder, ConditionalValue};
 pub use channel_descriptor::{ChannelDefault, ChannelDescriptor, ChannelType};
 pub use data_context::DataContext;
 pub use data_source::{DataSource, FacetStrategy};
 pub use state::MarkState;
-pub use typed_channels::{
-    AngleChannel, ColorChannel, PositionChannel, ShapeChannel, SizeChannel, StrokeDashChannel,
-};
 
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;

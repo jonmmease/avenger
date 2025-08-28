@@ -1,4 +1,5 @@
 use crate::cartesian::Cartesian;
+use crate::define_position_channels;
 use crate::impl_mark_trait_common;
 use crate::marks::{ChannelType, Mark, RadiusExpression};
 use arrow::array::RecordBatch;
@@ -12,92 +13,17 @@ use crate::error::AvengerChartError;
 pub use crate::marks::symbol::Symbol;
 use crate::utils::ScalarValueHelpers;
 
-// Implement position channels for Cartesian Symbol
-impl Symbol<Cartesian> {
-    pub fn x<V: Into<crate::marks::ChannelValue>>(self, value: V) -> Self {
-        self.with_channel_value("x", value.into())
-    }
-
-    pub fn x_with<F>(self, value: impl Into<crate::marks::ChannelValue>, f: F) -> Self
-    where
-        F: FnOnce(
-            crate::cartesian::channels::CartesianPositionChannel,
-        ) -> crate::cartesian::channels::CartesianPositionChannel,
-    {
-        let channel_value: crate::marks::ChannelValue = value.into();
-        let channel = crate::cartesian::channels::CartesianPositionChannel::new(channel_value);
-        let configured = f(channel);
-
-        // Extract axis config before consuming channel
-        let axis_config = configured.axis_config().cloned();
-
-        // Store channel value
-        let mut mark = self.with_channel_value("x", configured.into_inner());
-
-        // Store axis config if present
-        if let Some(axis_config) = axis_config {
-            mark.state_mut()
-                .axis_configs
-                .insert("x".to_string(), axis_config);
+// Define position channels for Cartesian Symbol using the macro
+define_position_channels! {
+    Symbol<Cartesian> {
+        x: {
+            type: ChannelType::Numeric,
+            with_config: crate::cartesian::channels::CartesianPositionConfig
+        },
+        y: {
+            type: ChannelType::Numeric,
+            with_config: crate::cartesian::channels::CartesianPositionConfig
         }
-
-        mark
-    }
-
-    pub fn y<V: Into<crate::marks::ChannelValue>>(self, value: V) -> Self {
-        self.with_channel_value("y", value.into())
-    }
-
-    pub fn y_with<F>(self, value: impl Into<crate::marks::ChannelValue>, f: F) -> Self
-    where
-        F: FnOnce(
-            crate::cartesian::channels::CartesianPositionChannel,
-        ) -> crate::cartesian::channels::CartesianPositionChannel,
-    {
-        let channel_value: crate::marks::ChannelValue = value.into();
-        let channel = crate::cartesian::channels::CartesianPositionChannel::new(channel_value);
-        let configured = f(channel);
-
-        // Extract axis config before consuming channel
-        let axis_config = configured.axis_config().cloned();
-
-        // Store channel value
-        let mut mark = self.with_channel_value("y", configured.into_inner());
-
-        // Store axis config if present
-        if let Some(axis_config) = axis_config {
-            mark.state_mut()
-                .axis_configs
-                .insert("y".to_string(), axis_config);
-        }
-
-        mark
-    }
-
-    pub fn position_channel_descriptors() -> Vec<crate::marks::ChannelDescriptor> {
-        use crate::marks::ChannelDescriptor;
-        vec![
-            ChannelDescriptor {
-                name: "x",
-                channel_type: ChannelType::Numeric,
-                required: false,
-                default_value: None,
-                allow_column_ref: true,
-            },
-            ChannelDescriptor {
-                name: "y",
-                channel_type: ChannelType::Numeric,
-                required: false,
-                default_value: None,
-                allow_column_ref: true,
-            },
-        ]
-    }
-
-    pub fn all_channel_descriptors() -> Vec<crate::marks::ChannelDescriptor> {
-        let mut descriptors = Self::common_channel_descriptors();
-        descriptors.extend(Self::position_channel_descriptors());
-        descriptors
     }
 }
 
