@@ -249,4 +249,33 @@ impl Mark<Polar> for Symbol<Polar> {
 
         Ok(vec![SceneMark::Symbol(symbol_mark)])
     }
+
+    fn preferred_legend_renderer(
+        &self,
+        channel: &str,
+        scale: &avenger_scales::scales::ConfiguredScale,
+    ) -> Option<std::sync::Arc<dyn crate::legend_renderer::LegendRenderer>> {
+        use crate::legend_renderer::{ColorbarRenderer, SymbolLegendRenderer};
+        use std::sync::Arc;
+
+        // Check if scale is continuous (for colorbar)
+        let scale_type = scale.scale_impl.scale_type();
+        let is_continuous = matches!(
+            scale_type,
+            "linear" | "log" | "pow" | "sqrt" | "symlog" | "time"
+        );
+
+        match channel {
+            // Use colorbar for continuous color scales
+            "fill" | "stroke" | "color" if is_continuous => Some(Arc::new(ColorbarRenderer::new())),
+            // Symbol marks use symbol legend for discrete scales and other visual properties
+            "fill" | "stroke" | "color" | "size" | "shape" | "opacity" | "stroke_width" => {
+                Some(Arc::new(SymbolLegendRenderer::new()))
+            }
+            // No legend for position channels and other non-visual channels
+            "r" | "theta" | "defined" | "order" => None,
+            // For any other channel, default to symbol legend
+            _ => Some(Arc::new(SymbolLegendRenderer::new())),
+        }
+    }
 }

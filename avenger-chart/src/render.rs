@@ -7,24 +7,19 @@ use crate::error::AvengerChartError;
 use crate::marks::{ChannelValue, Mark};
 use crate::plot::Plot;
 use crate::scales::Scale;
-use crate::utils::ScalarValueHelpers;
-use crate::zerod::ZeroDCoord;
 use avenger_common::types::ColorOrGradient;
 use avenger_scenegraph::marks::group::SceneGroup;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, PngCanvas};
-use datafusion::arrow::array::ArrayRef;
 use datafusion::arrow::datatypes::{Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::Expr;
 use datafusion::prelude::DataFrame;
-use datafusion_common::ScalarValue;
 use indexmap::IndexMap;
 use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, trace};
 
 /// Estimated proportion of plot area relative to total size for initial scale computation.
 /// This is used before layout is calculated to build scales with approximate dimensions.
@@ -40,108 +35,22 @@ pub struct Padding {
     pub bottom: f32,
 }
 
-/// Result of layout computation, containing padding and optional Taffy layout
+/// Result of layout computation, containing padding and Taffy layout
 #[derive(Debug, Clone)]
 pub struct LayoutSolution {
     /// Padding around the plot area
     pub padding: Padding,
     /// The actual plot area rectangle (x, y, width, height)
     pub plot_area: (f32, f32, f32, f32),
-    /// Optional Taffy layout result for dynamic positioning
-    pub taffy_layout: Option<crate::chart_layout::LayoutResult>,
-    /// Cache of pre-created legend groups for exact sizing
-    pub legend_cache: Option<LegendCache>,
+    /// Taffy layout result for dynamic positioning
+    pub taffy_layout: crate::chart_layout::LayoutResult,
 }
 
 impl LayoutSolution {
-    /// Create a simple layout solution with just padding
-    pub fn from_padding(padding: Padding, total_width: f32, total_height: f32) -> Self {
-        let plot_area = (
-            padding.left,
-            padding.top,
-            total_width - padding.left - padding.right,
-            total_height - padding.top - padding.bottom,
-        );
-        Self {
-            padding,
-            plot_area,
-            taffy_layout: None,
-            legend_cache: None,
-        }
-    }
-
-    /// Check if this solution uses dynamic layout
-    pub fn has_dynamic_layout(&self) -> bool {
-        self.taffy_layout.is_some()
-    }
-
-    /// Get the plot area dimensions
+    /// Get the plot area bounds as a tuple
     pub fn plot_area_bounds(&self) -> (f32, f32, f32, f32) {
         self.plot_area
     }
-}
-
-/// Cache for pre-created legend scene groups
-/// Ensures exact matching between measurement and rendering
-#[derive(Debug, Clone, Default)]
-pub struct LegendCache {
-    /// Maps channel names to their pre-created legend scene groups
-    legends: HashMap<String, SceneGroup>,
-}
-
-impl LegendCache {
-    /// Create a new empty legend cache
-    pub fn new() -> Self {
-        Self {
-            legends: HashMap::new(),
-        }
-    }
-
-    /// Add a legend to the cache
-    pub fn insert(&mut self, channel: String, legend: SceneGroup) {
-        self.legends.insert(channel, legend);
-    }
-
-    /// Get a legend from the cache
-    pub fn get(&self, channel: &str) -> Option<&SceneGroup> {
-        self.legends.get(channel)
-    }
-
-    /// Iterate over all cached legends
-    pub fn iter(&self) -> impl Iterator<Item = (&String, &SceneGroup)> {
-        self.legends.iter()
-    }
-
-    /// Get a mutable reference to a legend from the cache
-    pub fn get_mut(&mut self, channel: &str) -> Option<&mut SceneGroup> {
-        self.legends.get_mut(channel)
-    }
-
-    /// Remove and return a legend from the cache
-    pub fn take(&mut self, channel: &str) -> Option<SceneGroup> {
-        self.legends.remove(channel)
-    }
-}
-
-/// Type of legend to create based on mark type and channel
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum LegendType {
-    Symbol,
-    Line,
-    Colorbar,
-}
-
-/// Parameters for creating a legend
-#[derive(Debug, Clone)]
-struct LegendParams<'a> {
-    channel: &'a str,
-    legend: &'a crate::legend::Legend,
-    scales: &'a HashMap<String, avenger_scales::scales::ConfiguredScale>, // All available scales
-    plot_width: f32,
-    plot_height: f32,
-    padding: &'a Padding,
-    legend_margin: f32,
-    y_offset: f32,
 }
 
 /// Result of rendering a plot to scene graph components
@@ -158,27 +67,10 @@ pub struct PlotRenderer<'a, C: CoordinateSystem> {
 }
 
 /// Helper to parse shape strings
+#[allow(dead_code)]
 fn parse_shape(s: &str) -> Result<avenger_common::types::SymbolShape, AvengerChartError> {
     avenger_common::types::SymbolShape::from_vega_str(s)
         .map_err(|_| AvengerChartError::InternalError(format!("Invalid shape name: '{}'", s)))
-}
-
-/// Helper to parse color from string using the color coercer
-fn parse_color_string(color_str: &str) -> Option<avenger_common::types::ColorOrGradient> {
-    use avenger_scales::scales::coerce::Coercer;
-    use datafusion_common::ScalarValue;
-
-    let coercer = Coercer::default();
-    let array = ScalarValue::iter_to_array(
-        [ScalarValue::Utf8(Some(color_str.to_string()))]
-            .iter()
-            .cloned(),
-    )
-    .ok()?;
-    coercer
-        .to_color(&array, None)
-        .ok()
-        .and_then(|colors| colors.as_vec(1, None).first().cloned())
 }
 
 impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
@@ -266,9 +158,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         // 6. Debug: Add Taffy layout bounds visualization if AVENGER_CHART_DEBUG_LAYOUT is set
         if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
-            if let Some(taffy_layout) = &layout.taffy_layout {
-                all_marks.extend(Self::create_debug_layout_rects(taffy_layout));
-            }
+            all_marks.extend(Self::create_debug_layout_rects(&layout.taffy_layout));
         }
 
         // Wrap everything in a single root group
@@ -822,15 +712,14 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         );
 
         // Use Taffy layout with the overflow requirements
-        let (padding, layout_bundle) = self
+        let (padding, taffy_layout) = self
             .compute_layout_with_overflow(width, height, scales, overflow)
             .await?;
 
         Ok(LayoutSolution {
             padding,
             plot_area: Self::calculate_plot_area_from_padding(&padding, width, height),
-            taffy_layout: layout_bundle.as_ref().map(|(layout, _)| layout.clone()),
-            legend_cache: layout_bundle.map(|(_, cache)| cache),
+            taffy_layout,
         })
     }
 
@@ -910,52 +799,37 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             .await?;
 
         // Create legends
-        let legend_marks = if let (Some(taffy_layout), Some(legend_cache)) =
-            (&layout.taffy_layout, &layout.legend_cache)
-        {
-            self.create_legends_with_layout(
+        let legend_marks = self
+            .create_legends_with_layout(
                 scales,
-                taffy_layout,
-                legend_cache,
+                &layout.taffy_layout,
                 plot_area_width,
                 plot_area_height,
             )
-            .await?
-        } else {
-            self.create_legends(scales, plot_area_width, plot_area_height, &layout.padding)
-                .await?
-        };
+            .await?;
 
         // Create title
-        let title_marks = if let Some(taffy_layout) = &layout.taffy_layout {
-            if let Some(title_bounds) = &taffy_layout.title {
-                self.create_title(
-                    width,
-                    &layout.padding,
-                    Some(*title_bounds),
-                    Some(taffy_layout.plot_area),
-                )?
-            } else {
-                Vec::new()
-            }
+        let title_marks = if let Some(title_bounds) = &layout.taffy_layout.title {
+            self.create_title(
+                width,
+                &layout.padding,
+                Some(*title_bounds),
+                Some(layout.taffy_layout.plot_area),
+            )?
         } else {
-            self.create_title(width, &layout.padding, None, None)?
+            Vec::new()
         };
 
         // Create subtitle
-        let subtitle_marks = if let Some(taffy_layout) = &layout.taffy_layout {
-            if let Some(subtitle_bounds) = &taffy_layout.subtitle {
-                self.create_subtitle(
-                    width,
-                    &layout.padding,
-                    Some(*subtitle_bounds),
-                    Some(taffy_layout.plot_area),
-                )?
-            } else {
-                Vec::new()
-            }
+        let subtitle_marks = if let Some(subtitle_bounds) = &layout.taffy_layout.subtitle {
+            self.create_subtitle(
+                width,
+                &layout.padding,
+                Some(*subtitle_bounds),
+                Some(layout.taffy_layout.plot_area),
+            )?
         } else {
-            self.create_subtitle(width, &layout.padding, None, None)?
+            Vec::new()
         };
 
         Ok((
@@ -1302,10 +1176,11 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         layout: &crate::chart_layout::LayoutResult,
-        legend_cache: &LegendCache,
         _plot_width: f32,
         _plot_height: f32,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        use crate::legend_renderer::LegendChannel;
+
         // Get default legends for channels with data-driven scales
         let default_legends = self.create_default_legends(scales);
 
@@ -1325,140 +1200,123 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
             // Get layout bounds for this legend
             if let Some(bounds) = layout.legends.get(channel) {
-                // Determine legend type and create it
+                // Get the scale for this channel
                 let scale = scales.get(channel).ok_or_else(|| {
                     AvengerChartError::InternalError(format!(
                         "Scale for channel '{}' not found",
                         channel
                     ))
                 })?;
-                let legend_type = self.determine_legend_type(channel, scale);
 
-                let params = LegendParams {
-                    channel,
-                    legend,
-                    scales,
-                    plot_width: bounds.width,
-                    plot_height: bounds.height,
-                    padding: &Padding {
-                        left: 0.0,
-                        right: 0.0,
-                        top: 0.0,
-                        bottom: 0.0,
-                    },
-                    legend_margin: 0.0,
-                    y_offset: 0.0,
+                // Determine renderer based on legend's renderer override or mark preference
+                let renderer_opt = if let Some(ref renderer) = legend.renderer {
+                    // Use explicitly configured renderer
+                    Some(renderer.clone())
+                } else {
+                    // Find the first mark that uses this channel and get its preference
+                    self.plot
+                        .marks
+                        .iter()
+                        .find(|m| {
+                            m.data_context()
+                                .channels()
+                                .iter()
+                                .any(|(name, _)| name == channel)
+                        })
+                        .and_then(|mark| mark.preferred_legend_renderer(channel, scale))
                 };
 
-                // Prefer cached legend to guarantee measurement/render match
-                if let Some(group) = legend_cache.get(channel) {
-                    legend_marks.push(SceneMark::Group(group.clone()));
-                } else {
-                    let legend_group = match legend_type {
-                        LegendType::Symbol => self.create_symbol_legend(params).await?,
-                        LegendType::Line => self.create_line_legend(params).await?,
-                        LegendType::Colorbar => self.create_colorbar_legend(params).await?,
-                    };
-                    if let Some(mut group) = legend_group {
-                        // For symbol legends, shift down slightly to account for stroke extending beyond bounds
-                        let y_offset = if matches!(legend_type, LegendType::Symbol) {
-                            // The stroke width is 1.0 by default for symbol legends
-                            1.0
-                        } else {
-                            0.0
-                        };
-                        group.origin = [bounds.x, bounds.y + y_offset];
-                        legend_marks.push(SceneMark::Group(group));
-                    }
-                }
-            }
-        }
+                // Skip this legend if no renderer is available
+                let Some(renderer) = renderer_opt else {
+                    continue;
+                };
 
-        Ok(legend_marks)
-    }
+                // Get mark type, expression, and related channels from the first mark that uses this channel
+                let (mark_type, expression, related_channels) = self
+                    .plot
+                    .marks
+                    .iter()
+                    .find(|m| {
+                        m.data_context()
+                            .channels()
+                            .iter()
+                            .any(|(name, _)| name == channel)
+                    })
+                    .map(|m| {
+                        let mark_type = m.mark_type().to_string();
+                        let expr = m
+                            .data_context()
+                            .channels()
+                            .iter()
+                            .find(|(name, _)| name == &channel)
+                            .and_then(|(_, value)| value.expr());
 
-    async fn create_legends(
-        &self,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        plot_width: f32,
-        plot_height: f32,
-        padding: &Padding,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // Get default legends for channels with data-driven scales
-        let default_legends = self.create_default_legends(scales);
+                        // Collect all other channels from this mark
+                        // Include channels even if they don't have scales (e.g., constant size values)
+                        let mut related = std::collections::HashMap::new();
+                        for (ch_name, ch_value) in m.data_context().channels() {
+                            if ch_name != channel {
+                                // Try to get the scale, or use a default linear scale for constants
+                                let ch_scale = scales.get(ch_name).cloned().unwrap_or_else(|| {
+                                    // Create a default linear scale for channels without configured scales
+                                    // This handles cases like .size(100.0) where there's no scale
+                                    use arrow::array::Float64Array;
+                                    use avenger_scales::scales::{
+                                        ConfiguredScale, ScaleConfig, ScaleContext,
+                                        linear::LinearScale,
+                                    };
+                                    use std::collections::HashMap;
+                                    use std::sync::Arc;
 
-        // Combine existing legends with defaults
-        let mut all_legends = self.plot.legends.clone();
-        for (channel, default_legend) in default_legends {
-            all_legends.entry(channel).or_insert(default_legend);
-        }
+                                    let scale_impl = Arc::new(LinearScale);
+                                    let domain = Arc::new(Float64Array::from(vec![0.0, 1.0]));
+                                    let range = Arc::new(Float64Array::from(vec![0.0, 1.0]));
+                                    let config = ScaleConfig {
+                                        domain,
+                                        range,
+                                        options: HashMap::new(),
+                                        context: ScaleContext::default(),
+                                    };
+                                    ConfiguredScale { scale_impl, config }
+                                });
+                                related
+                                    .insert(ch_name.clone(), (ch_value.expr().cloned(), ch_scale));
+                            }
+                        }
 
-        // Filter out invisible legends and pair with their scales
-        let visible_legends: Vec<_> = all_legends
-            .iter()
-            .filter(|(channel, legend)| legend.visible && scales.contains_key(*channel))
-            .collect();
+                        (mark_type, expr, related)
+                    })
+                    .unwrap_or_else(|| {
+                        (
+                            "unknown".to_string(),
+                            None,
+                            std::collections::HashMap::new(),
+                        )
+                    });
 
-        if visible_legends.is_empty() {
-            return Ok(Vec::new());
-        }
+                // Create legend channel info
+                let legend_channel = LegendChannel {
+                    name: channel.clone(),
+                    expression: expression.cloned(),
+                    scale: scale.clone(),
+                    channel_type: channel.clone(),
+                    mark_type,
+                    related_channels,
+                };
 
-        let mut legend_marks = Vec::new();
-
-        // Group legends by position for better layout
-        let mut right_legends = Vec::new();
-        let mut left_legends = Vec::new();
-        let mut top_legends = Vec::new();
-        let mut bottom_legends = Vec::new();
-
-        for (channel, legend) in visible_legends {
-            let position = legend
-                .position
-                .unwrap_or(crate::legend::LegendPosition::Right);
-            match position {
-                crate::legend::LegendPosition::Right => right_legends.push((channel, legend)),
-                crate::legend::LegendPosition::Left => left_legends.push((channel, legend)),
-                crate::legend::LegendPosition::Top => top_legends.push((channel, legend)),
-                crate::legend::LegendPosition::Bottom => bottom_legends.push((channel, legend)),
-            }
-        }
-
-        // Render legends by position
-        // For now, only implement right position
-        if !right_legends.is_empty() {
-            let mut y_offset = 0.0;
-            let legend_margin = 20.0; // Space between plot and legend
-            let legend_spacing = 20.0; // Space between multiple legends
-
-            for (channel, legend) in right_legends {
-                if let Some(scale) = scales.get(channel) {
-                    let legend_type = self.determine_legend_type(channel, scale);
-
-                    // Create legend based on type
-                    let params = LegendParams {
-                        channel,
+                // Render the legend
+                if let Some(group) = renderer
+                    .render(
+                        &[legend_channel],
                         legend,
-                        scales,
-                        plot_width,
-                        plot_height,
-                        padding,
-                        legend_margin,
-                        y_offset,
-                    };
-
-                    let legend_group = match legend_type {
-                        LegendType::Symbol => self.create_symbol_legend(params).await?,
-                        LegendType::Line => self.create_line_legend(params).await?,
-                        LegendType::Colorbar => self.create_colorbar_legend(params).await?,
-                    };
-
-                    if let Some(group) = legend_group {
-                        // Calculate legend height for spacing
-                        // For now, use a fixed height estimate
-                        y_offset += 100.0 + legend_spacing;
-
-                        legend_marks.push(SceneMark::Group(group));
-                    }
+                        bounds.x,
+                        bounds.y,
+                        bounds.width,
+                        bounds.height,
+                    )
+                    .await?
+                {
+                    legend_marks.push(SceneMark::Group(group));
                 }
             }
         }
@@ -1542,1021 +1400,6 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         crate::legend::LegendPosition::Right
     }
 
-    /// Determine the type of legend to create based on mark type, channel, and scale
-    fn determine_legend_type(
-        &self,
-        channel: &str,
-        scale: &avenger_scales::scales::ConfiguredScale,
-    ) -> LegendType {
-        // Check if scale is continuous (for colorbar)
-        let scale_type = scale.scale_impl.scale_type();
-        let is_continuous = matches!(scale_type, "linear" | "log" | "pow" | "sqrt");
-
-        // Color channels with continuous scales use colorbar
-        if matches!(channel, "fill" | "stroke" | "color") && is_continuous {
-            return LegendType::Colorbar;
-        }
-
-        // Check if any mark is a line mark
-        let has_line_mark = self
-            .plot
-            .marks
-            .iter()
-            .any(|mark| mark.mark_type() == "line");
-
-        // Use line legend for stroke properties on line marks
-        if has_line_mark && matches!(channel, "stroke" | "stroke_width" | "stroke_dash") {
-            return LegendType::Line;
-        }
-
-        // Default to symbol legend
-        LegendType::Symbol
-    }
-
-    /// Create a symbol legend
-    async fn create_symbol_legend(
-        &self,
-        params: LegendParams<'_>,
-    ) -> Result<Option<SceneGroup>, AvengerChartError> {
-        use avenger_common::value::ScalarOrArray;
-        use avenger_guides::legend::symbol::{SymbolLegendConfig, make_symbol_legend};
-
-        // Extract domain values from scale using extension trait
-        use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
-
-        let legend_scale = params.scales.get(params.channel).ok_or_else(|| {
-            AvengerChartError::InternalError(format!(
-                "Scale for channel '{}' not found",
-                params.channel
-            ))
-        })?;
-        let domain_values = match legend_scale.domain_values()? {
-            DomainValues::Discrete(values) => {
-                // Debug: log discrete values
-                debug!(
-                    channel = params.channel,
-                    scale_type = ?legend_scale.scale_impl.scale_type(),
-                    values = ?values,
-                    "Symbol legend domain values"
-                );
-                values
-            }
-            DomainValues::Interval(min, max) => vec![min, max],
-        };
-        if domain_values.is_empty() {
-            return Ok(None);
-        }
-
-        // Create text labels - use special labels for threshold scales
-        let text_values: Vec<String> = if legend_scale.scale_impl.scale_type() == "threshold" {
-            // Use interval labels for threshold scales
-            let labels = legend_scale.domain_labels()?;
-            debug!(
-                channel = params.channel,
-                labels = ?labels,
-                "Threshold scale legend labels"
-            );
-            labels
-        } else {
-            // Regular labels from domain values
-            domain_values
-                .iter()
-                .map(|v| match v {
-                    datafusion_common::ScalarValue::Utf8(Some(s)) => s.clone(),
-                    datafusion_common::ScalarValue::Float64(Some(f)) => {
-                        // Format float nicely - remove trailing zeros
-                        if f.fract() == 0.0 && f.abs() < 1e10 {
-                            format!("{:.0}", f)
-                        } else {
-                            format!("{}", f)
-                        }
-                    }
-                    datafusion_common::ScalarValue::Float32(Some(f)) => {
-                        if f.fract() == 0.0 && f.abs() < 1e10 {
-                            format!("{:.0}", f)
-                        } else {
-                            format!("{}", f)
-                        }
-                    }
-                    datafusion_common::ScalarValue::Int64(Some(i)) => i.to_string(),
-                    datafusion_common::ScalarValue::Int32(Some(i)) => i.to_string(),
-                    datafusion_common::ScalarValue::Int16(Some(i)) => i.to_string(),
-                    datafusion_common::ScalarValue::Int8(Some(i)) => i.to_string(),
-                    datafusion_common::ScalarValue::UInt64(Some(i)) => i.to_string(),
-                    datafusion_common::ScalarValue::UInt32(Some(i)) => i.to_string(),
-                    datafusion_common::ScalarValue::UInt16(Some(i)) => i.to_string(),
-                    datafusion_common::ScalarValue::UInt8(Some(i)) => i.to_string(),
-                    _ => format!("{:?}", v), // Fallback for other types
-                })
-                .collect()
-        };
-
-        // Check if any mark is a rect mark
-        let has_rect_mark = self
-            .plot
-            .marks
-            .iter()
-            .any(|mark| mark.mark_type() == "rect");
-
-        // Get mark defaults - use rect defaults if we have rect marks, otherwise symbol defaults
-        // Using ZeroDCoord to access coordinate-agnostic default values
-        use crate::marks::{Mark, rect::Rect, symbol::Symbol};
-
-        let (
-            default_size,
-            default_shape,
-            default_angle,
-            default_fill,
-            default_stroke,
-            default_stroke_width,
-        ) = if has_rect_mark {
-            // For rect marks, use fixed square shape and appropriate size
-            let temp_rect = Rect::<ZeroDCoord>::default();
-            let temp_rect_ref: &dyn Mark<ZeroDCoord> = &temp_rect;
-
-            let fill = temp_rect_ref
-                .default_channel_value("fill")
-                .and_then(|scalar| scalar.as_scalar_string().ok())
-                .unwrap_or_else(|| "#4682b4".to_string());
-
-            let stroke = temp_rect_ref
-                .default_channel_value("stroke")
-                .and_then(|scalar| scalar.as_scalar_string().ok())
-                .unwrap_or_else(|| "#000000".to_string());
-
-            let stroke_width = temp_rect_ref
-                .default_channel_value("stroke_width")
-                .and_then(|scalar| scalar.as_f32().ok())
-                .unwrap_or(1.0);
-
-            // Use fixed square shape and appropriate size for rect legends
-            // Use smaller size for legend to match symbol legends
-            (64.0, "square".to_string(), 0.0, fill, stroke, stroke_width)
-        } else {
-            // Use symbol defaults
-            let temp_symbol = Symbol::<ZeroDCoord>::default();
-            let temp_symbol_ref: &dyn Mark<ZeroDCoord> = &temp_symbol;
-
-            let size = temp_symbol_ref
-                .default_channel_value("size")
-                .and_then(|scalar| scalar.as_f32().ok())
-                .unwrap_or(64.0);
-
-            let shape = temp_symbol_ref
-                .default_channel_value("shape")
-                .and_then(|scalar| scalar.as_scalar_string().ok())
-                .unwrap_or_else(|| "circle".to_string());
-
-            let angle = temp_symbol_ref
-                .default_channel_value("angle")
-                .and_then(|scalar| scalar.as_f32().ok())
-                .unwrap_or(0.0);
-
-            let fill = temp_symbol_ref
-                .default_channel_value("fill")
-                .and_then(|scalar| scalar.as_scalar_string().ok())
-                .unwrap_or_else(|| "#4682b4".to_string());
-
-            let stroke = temp_symbol_ref
-                .default_channel_value("stroke")
-                .and_then(|scalar| scalar.as_scalar_string().ok())
-                .unwrap_or_else(|| "#000000".to_string());
-
-            let stroke_width = temp_symbol_ref
-                .default_channel_value("stroke_width")
-                .and_then(|scalar| scalar.as_f32().ok())
-                .unwrap_or(1.0);
-
-            (size, shape, angle, fill, stroke, stroke_width)
-        };
-
-        // Initialize config with defaults
-        debug!(
-            channel = params.channel,
-            text_values = ?text_values,
-            default_size = default_size,
-            scale_type = ?legend_scale.scale_impl.scale_type(),
-            "Creating symbol legend with inner_width: 0.0, inner_height: 100.0, outer_margin: 0.0, text_padding: 2.0"
-        );
-        let mut config = SymbolLegendConfig {
-            title: params.legend.title.clone(),
-            text: ScalarOrArray::new_array(text_values),
-            inner_width: 0.0, // Don't offset internally, we'll position the whole group
-            inner_height: 100.0, // Will be calculated by legend
-            outer_margin: 0.0, // Don't offset legend entries
-            text_padding: 2.0, // Consistent padding
-            ..Default::default()
-        };
-
-        // Apply legend background styling if provided
-        if let Some(pad) = params.legend.background_padding {
-            config.background_padding = Some(pad);
-            trace!(padding = pad, "Symbol legend padding set");
-        } else {
-            trace!("Symbol legend padding: None (will use default)");
-        }
-        if let Some(r) = params.legend.background_corner_radius {
-            config.background_corner_radius = Some(r);
-        }
-        if let Some(ref fill_str) = params.legend.background_fill {
-            if let Some(color) = parse_color_string(fill_str) {
-                config.background_fill = Some(color);
-            }
-        }
-        if let Some(ref stroke_str) = params.legend.background_stroke {
-            if let Some(color) = parse_color_string(stroke_str) {
-                config.background_stroke = Some(color);
-            }
-        }
-
-        // Analyze mark encodings to determine how to set each channel
-        // We'll look at all marks to find symbol or rect marks and check their encodings
-        let mut mark_encodings = HashMap::new();
-        for mark in &self.plot.marks {
-            // Check if this is a symbol or rect mark by checking the mark type
-            let mark_type = mark.mark_type();
-            let is_relevant = mark_type == "symbol" || mark_type == "rect";
-            if is_relevant {
-                let channels = mark.data_context().channels();
-                for (channel, value) in channels {
-                    mark_encodings.insert(channel.clone(), value.clone());
-                }
-            }
-        }
-
-        // Each legend only shows its own channel varying - no cross-channel variation
-
-        // Shape channel
-        let default_shape_parsed = parse_shape(&default_shape)?;
-        config.shape = ScalarOrArray::new_scalar(default_shape_parsed);
-
-        if params.channel == "shape" {
-            // Shape is the legend channel - map domain values to shapes
-            // Try to get shapes from the scale's range; if not present, fall back to default shapes
-            let shape_names = {
-                let names = legend_scale.extract_shape_range();
-                if !names.is_empty() {
-                    names
-                } else {
-                    crate::scales::shape_defaults::DEFAULT_SHAPES
-                        .iter()
-                        .map(|&s| s.to_string())
-                        .collect()
-                }
-            };
-
-            let shapes: Result<Vec<_>, _> = domain_values
-                .iter()
-                .enumerate()
-                .map(|(i, _)| parse_shape(&shape_names[i % shape_names.len()]))
-                .collect();
-            config.shape = ScalarOrArray::new_array(shapes?);
-        } else if let Some(channel_value) = mark_encodings.get("shape") {
-            // Shape channel exists but this legend is not for shape
-            // Only use it if it's a scalar (constant) expression
-            if let Some(expr) = channel_value.expr() {
-                if !Self::references_columns(expr) {
-                    // Scalar expression - evaluate it
-                    if let Ok(scalars) =
-                        crate::utils::eval_to_scalars(vec![expr.clone()], None, None).await
-                    {
-                        if let Some(ScalarValue::Utf8(Some(s))) = scalars.into_iter().next() {
-                            config.shape = ScalarOrArray::new_scalar(parse_shape(&s)?);
-                        }
-                    }
-                }
-            }
-            // Otherwise keep the default shape - don't vary it
-        }
-
-        // Size channel
-        config.size = ScalarOrArray::new_scalar(default_size);
-        if params.channel == "shape" {
-            trace!(default_size = default_size, "Initial size set to default");
-        }
-
-        if params.channel == "size" {
-            // Size is the legend channel - map through scale
-            let sizes = legend_scale.map_values_numeric(&domain_values)?;
-            config.size = ScalarOrArray::new_array(sizes);
-        } else if let Some(channel_value) = mark_encodings.get("size") {
-            // Size channel exists but this legend is not for size
-            // Only use it if it's a scalar (constant) expression
-            if let Some(expr) = channel_value.expr() {
-                if !Self::references_columns(expr) {
-                    // Scalar expression - evaluate it and scale it through the size scale
-                    if let Ok(scalars) =
-                        crate::utils::eval_to_scalars(vec![expr.clone()], None, None).await
-                    {
-                        if let Some(value) = scalars.into_iter().next() {
-                            // If there's a size scale, map the value through it
-                            // Otherwise use the raw value (capped for shape legends)
-                            let scaled_size = if let Some(size_scale) = params.scales.get("size") {
-                                // Map the size value through the scale
-                                let size_values = vec![value];
-                                if let Ok(scaled) = size_scale.map_values_numeric(&size_values) {
-                                    scaled.first().copied().unwrap_or(default_size)
-                                } else {
-                                    default_size
-                                }
-                            } else {
-                                // No size scale, use the raw value
-                                value.as_f32().ok().unwrap_or(default_size)
-                            };
-
-                            // For shape legends, cap the size to a reasonable maximum
-                            let legend_size = if params.channel == "shape" {
-                                scaled_size.min(49.0) // Use default size as max for shape legends
-                            } else {
-                                scaled_size
-                            };
-                            config.size = ScalarOrArray::new_scalar(legend_size);
-                        }
-                    }
-                }
-            }
-            // Otherwise keep the default size - don't vary it
-        }
-
-        if params.channel == "shape" {
-            let sizes = config.size.as_vec(3, None);
-            trace!(sizes = ?sizes, "After size logic");
-        }
-
-        // Fill channel
-        let default_fill_color = parse_color_string(&default_fill).unwrap_or(
-            avenger_common::types::ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
-        );
-        config.fill = ScalarOrArray::new_scalar(default_fill_color.clone());
-
-        if params.channel == "fill" || params.channel == "color" {
-            // Fill/color is the legend channel - map through scale
-            let colors = if legend_scale.scale_impl.scale_type() == "threshold" {
-                // For threshold scales, get the range colors directly
-                // The range has one more color than the domain has thresholds
-                legend_scale.range_colors()?
-            } else {
-                legend_scale.map_values_colors(&domain_values)?
-            };
-            config.fill = ScalarOrArray::new_array(
-                colors
-                    .into_iter()
-                    .map(avenger_common::types::ColorOrGradient::Color)
-                    .collect(),
-            );
-        } else if let Some(channel_value) = mark_encodings.get("fill") {
-            // Fill channel exists but this legend is not for fill
-            // Only use it if it's a scalar (constant) expression
-            if let Some(expr) = channel_value.expr() {
-                if !Self::references_columns(expr) {
-                    // Scalar expression - evaluate it
-                    if let Ok(scalars) =
-                        crate::utils::eval_to_scalars(vec![expr.clone()], None, None).await
-                    {
-                        if let Ok(color_array) = ScalarValue::iter_to_array(scalars.iter().cloned())
-                        {
-                            use avenger_scales::scales::coerce::Coercer;
-                            let coercer = Coercer::default();
-                            if let Ok(colors) = coercer.to_color(&color_array, None) {
-                                if let Some(color) = colors.as_vec(1, None).first() {
-                                    config.fill = ScalarOrArray::new_scalar(color.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Stroke channel
-        let default_stroke_color = parse_color_string(&default_stroke).unwrap_or(
-            avenger_common::types::ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]),
-        );
-        config.stroke = ScalarOrArray::new_scalar(default_stroke_color.clone());
-
-        if params.channel == "stroke" {
-            // Stroke is the legend channel - map through scale
-            let colors = if legend_scale.scale_impl.scale_type() == "threshold" {
-                // For threshold scales, get the range colors directly
-                legend_scale.range_colors()?
-            } else {
-                legend_scale.map_values_colors(&domain_values)?
-            };
-            config.stroke = ScalarOrArray::new_array(
-                colors
-                    .into_iter()
-                    .map(avenger_common::types::ColorOrGradient::Color)
-                    .collect(),
-            );
-        } else if let Some(channel_value) = mark_encodings.get("stroke") {
-            // Stroke channel exists but this legend is not for stroke
-            // Only use it if it's a scalar (constant) expression
-            if let Some(expr) = channel_value.expr() {
-                if !Self::references_columns(expr) {
-                    // Scalar expression - evaluate it
-                    if let Ok(scalars) =
-                        crate::utils::eval_to_scalars(vec![expr.clone()], None, None).await
-                    {
-                        if let Ok(color_array) = ScalarValue::iter_to_array(scalars.iter().cloned())
-                        {
-                            use avenger_scales::scales::coerce::Coercer;
-                            let coercer = Coercer::default();
-                            if let Ok(colors) = coercer.to_color(&color_array, None) {
-                                if let Some(color) = colors.as_vec(1, None).first() {
-                                    config.stroke = ScalarOrArray::new_scalar(color.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Stroke width channel - start with default
-        config.stroke_width = Some(default_stroke_width);
-        if params.channel == "shape" {
-            trace!(stroke_width = default_stroke_width, "Stroke width set");
-        }
-
-        if let Some(channel_value) = mark_encodings.get("stroke_width") {
-            if let Some(expr) = channel_value.expr() {
-                if !Self::references_columns(expr) {
-                    // Scalar expression - evaluate it
-                    if let Ok(scalars) =
-                        crate::utils::eval_to_scalars(vec![expr.clone()], None, None).await
-                    {
-                        if let Some(value) =
-                            scalars.into_iter().next().and_then(|s| s.as_f32().ok())
-                        {
-                            config.stroke_width = Some(value);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Angle channel
-        config.angle = ScalarOrArray::new_scalar(default_angle);
-
-        if params.channel == "angle" {
-            // Angle is the legend channel - map through scale
-            let angles = legend_scale.map_values_numeric(&domain_values)?;
-            config.angle = ScalarOrArray::new_array(angles);
-        } else if let Some(channel_value) = mark_encodings.get("angle") {
-            // Angle channel exists but this legend is not for angle
-            // Only use it if it's a scalar (constant) expression
-            if let Some(expr) = channel_value.expr() {
-                if !Self::references_columns(expr) {
-                    // Scalar expression - evaluate it
-                    if let Ok(scalars) =
-                        crate::utils::eval_to_scalars(vec![expr.clone()], None, None).await
-                    {
-                        if let Some(value) =
-                            scalars.into_iter().next().and_then(|s| s.as_f32().ok())
-                        {
-                            config.angle = ScalarOrArray::new_scalar(value);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Create the legend marks
-        if params.channel == "shape" {
-            let sizes = config.size.as_vec(3, None);
-            trace!(sizes = ?sizes, "Final config.size for shape");
-        }
-        let mut legend_group = make_symbol_legend(&config)?;
-
-        // Position the legend
-        let x = params.padding.left + params.plot_width + params.legend_margin;
-        let y = params.padding.top + params.y_offset;
-
-        // Update position
-        legend_group.origin = [x, y];
-        legend_group.zindex = Some(10); // Legends above data but below title
-
-        Ok(Some(legend_group))
-    }
-
-    /// Convert dash pattern names to numeric arrays using the coercer
-    fn convert_dash_pattern(pattern: &str) -> Option<Vec<f32>> {
-        use avenger_scales::scales::coerce::Coercer;
-        use datafusion::arrow::array::StringArray;
-
-        // Create a single-element string array with the pattern
-        let array = StringArray::from(vec![Some(pattern)]);
-        let array_ref = Arc::new(array) as ArrayRef;
-
-        // Use coercer to convert
-        let coercer = Coercer::default();
-        if let Ok(dash_result) = coercer.to_stroke_dash(&array_ref) {
-            // Get the first element from the ScalarOrArray result
-            if let Some(dash_vec) = dash_result.first() {
-                if dash_vec.is_empty() {
-                    None // solid pattern
-                } else {
-                    Some(dash_vec.clone())
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-
-    /// Create a line legend
-    async fn create_line_legend(
-        &self,
-        params: LegendParams<'_>,
-    ) -> Result<Option<SceneGroup>, AvengerChartError> {
-        use avenger_common::value::ScalarOrArray;
-        use avenger_guides::legend::line::{LineLegendConfig, make_line_legend};
-        use std::collections::HashMap;
-
-        // Extract domain values from scale using extension trait
-        use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
-
-        let legend_scale = params.scales.get(params.channel).ok_or_else(|| {
-            AvengerChartError::InternalError(format!(
-                "Scale for channel '{}' not found",
-                params.channel
-            ))
-        })?;
-
-        let domain_values = match legend_scale.domain_values()? {
-            DomainValues::Discrete(values) => values,
-            DomainValues::Interval(min, max) => vec![min, max],
-        };
-        if domain_values.is_empty() {
-            return Ok(None);
-        }
-
-        // Create text labels - use special labels for threshold scales
-        let text_values: Vec<String> = if legend_scale.scale_impl.scale_type() == "threshold" {
-            // Use interval labels for threshold scales
-            let labels = legend_scale.domain_labels()?;
-            debug!(
-                channel = params.channel,
-                labels = ?labels,
-                "Threshold scale legend labels"
-            );
-            labels
-        } else {
-            // Regular labels from domain values
-            domain_values
-                .iter()
-                .map(|v| match v {
-                    datafusion_common::ScalarValue::Utf8(Some(s)) => s.clone(),
-                    datafusion_common::ScalarValue::Float64(Some(f)) => {
-                        // Format float nicely - remove trailing zeros
-                        if f.fract() == 0.0 && f.abs() < 1e10 {
-                            format!("{:.0}", f)
-                        } else {
-                            format!("{}", f)
-                        }
-                    }
-                    datafusion_common::ScalarValue::Float32(Some(f)) => {
-                        if f.fract() == 0.0 && f.abs() < 1e10 {
-                            format!("{:.0}", f)
-                        } else {
-                            format!("{}", f)
-                        }
-                    }
-                    datafusion_common::ScalarValue::Int64(Some(i)) => i.to_string(),
-                    datafusion_common::ScalarValue::Int32(Some(i)) => i.to_string(),
-                    datafusion_common::ScalarValue::Int16(Some(i)) => i.to_string(),
-                    datafusion_common::ScalarValue::Int8(Some(i)) => i.to_string(),
-                    datafusion_common::ScalarValue::UInt64(Some(i)) => i.to_string(),
-                    datafusion_common::ScalarValue::UInt32(Some(i)) => i.to_string(),
-                    datafusion_common::ScalarValue::UInt16(Some(i)) => i.to_string(),
-                    datafusion_common::ScalarValue::UInt8(Some(i)) => i.to_string(),
-                    _ => format!("{:?}", v), // Fallback for other types
-                })
-                .collect()
-        };
-
-        // Get mark defaults from a default line mark instance
-        // Using ZeroDCoord to access coordinate-agnostic default values
-        use crate::marks::{Mark, line::Line};
-        let temp_line = Line::<ZeroDCoord>::default();
-        let temp_line_ref: &dyn Mark<ZeroDCoord> = &temp_line;
-
-        // Extract defaults using the mark's default_channel_value method
-        let default_stroke = temp_line_ref
-            .default_channel_value("stroke")
-            .and_then(|scalar| scalar.as_scalar_string().ok())
-            .unwrap_or_else(|| "#000000".to_string());
-
-        let default_stroke_width = temp_line_ref
-            .default_channel_value("stroke_width")
-            .and_then(|scalar| scalar.as_f32().ok())
-            .unwrap_or(2.0);
-
-        // Get stroke_cap and stroke_join from line marks
-        let (stroke_cap, stroke_join) = {
-            let mut cap = avenger_common::types::StrokeCap::Round; // Default to round
-            let mut join = avenger_common::types::StrokeJoin::Round; // Default to round
-
-            // Find the first line mark and use its stroke_cap/stroke_join settings
-            for mark in &self.plot.marks {
-                if mark.mark_type() == "line" {
-                    // Try to get stroke_cap from mark's default channel values
-                    if let Some(cap_value) = mark.default_channel_value("stroke_cap") {
-                        if let Ok(cap_str) = cap_value.as_scalar_string() {
-                            cap = match cap_str.as_str() {
-                                "butt" => avenger_common::types::StrokeCap::Butt,
-                                "round" => avenger_common::types::StrokeCap::Round,
-                                "square" => avenger_common::types::StrokeCap::Square,
-                                _ => cap,
-                            };
-                        }
-                    }
-                    // Try to get stroke_join from mark's default channel values
-                    if let Some(join_value) = mark.default_channel_value("stroke_join") {
-                        if let Ok(join_str) = join_value.as_scalar_string() {
-                            join = match join_str.as_str() {
-                                "miter" => avenger_common::types::StrokeJoin::Miter,
-                                "round" => avenger_common::types::StrokeJoin::Round,
-                                "bevel" => avenger_common::types::StrokeJoin::Bevel,
-                                _ => join,
-                            };
-                        }
-                    }
-                    break;
-                }
-            }
-            (cap, join)
-        };
-
-        // Initialize config with defaults
-        // Use longer line length for better dash pattern visibility
-        let mut config = LineLegendConfig {
-            title: params.legend.title.clone(),
-            text: ScalarOrArray::new_array(text_values),
-            stroke_cap,
-            stroke_join: Some(stroke_join), // Add stroke_join to config
-            inner_width: 0.0,
-            inner_height: 100.0,
-            outer_margin: 0.0, // Don't offset legend entries
-            line_length: ScalarOrArray::new_scalar(16.0), // Default, will be adjusted for dash patterns
-            text_padding: 4.0,                            // Consistent with symbol legend
-            ..Default::default()
-        };
-
-        // Apply legend background styling if provided
-        if let Some(pad) = params.legend.background_padding {
-            config.background_padding = Some(pad);
-            trace!(
-                channel = params.channel,
-                padding = pad,
-                "Line legend setting padding"
-            );
-        } else {
-            trace!(
-                channel = params.channel,
-                "Line legend has no padding specified, will use default"
-            );
-        }
-        if let Some(r) = params.legend.background_corner_radius {
-            config.background_corner_radius = Some(r);
-        }
-        if let Some(ref fill_str) = params.legend.background_fill {
-            if let Some(color) = parse_color_string(fill_str) {
-                config.background_fill = Some(color);
-            }
-        }
-        if let Some(ref stroke_str) = params.legend.background_stroke {
-            if let Some(color) = parse_color_string(stroke_str) {
-                config.background_stroke = Some(color);
-            }
-        }
-
-        // Analyze mark encodings to determine how to set each channel
-        // We'll look at all marks to find line marks and check their encodings
-        let mut mark_encodings = HashMap::new();
-        for mark in &self.plot.marks {
-            // Check if this is a line mark by checking the mark type
-            let mark_type = mark.mark_type();
-            if mark_type == "line" {
-                let channels = mark.data_context().channels();
-                for (channel, value) in channels {
-                    mark_encodings.insert(channel.clone(), value.clone());
-                }
-            }
-        }
-
-        // Each legend only shows its own channel varying - no cross-channel variation
-
-        // Set stroke color based on whether it varies with the legend channel
-        if params.channel == "stroke" {
-            // Legend is for stroke itself - vary stroke color
-            // Always map through the scale for the legend channel
-            let colors = legend_scale.map_values_colors(&domain_values)?;
-            config.stroke = ScalarOrArray::new_array(
-                colors
-                    .into_iter()
-                    .map(avenger_common::types::ColorOrGradient::Color)
-                    .collect(),
-            );
-
-            // Don't vary dash patterns in stroke legend - each legend only shows its own channel
-        } else if let Some(channel_value) = mark_encodings.get("stroke") {
-            // Stroke channel exists but this legend is not for stroke
-            // Only use it if it's a scalar (constant) expression
-            let mut stroke_set = false;
-            if let Some(expr) = channel_value.expr() {
-                if !Self::references_columns(expr) {
-                    // Constant expression - evaluate it
-                    if let Ok(scalars) =
-                        crate::utils::eval_to_scalars(vec![expr.clone()], None, None).await
-                    {
-                        if let Some(ScalarValue::Utf8(Some(color_str))) = scalars.into_iter().next()
-                        {
-                            if let Some(color) = parse_color_string(&color_str) {
-                                config.stroke = ScalarOrArray::new_scalar(color);
-                                stroke_set = true;
-                            }
-                        }
-                    }
-                }
-            }
-
-            // If we didn't set stroke (either because expr references columns or is conditional), use default
-            if !stroke_set {
-                // For stroke_width and stroke_dash legends, we need a visible default color
-                if params.channel == "stroke_width" || params.channel == "stroke_dash" {
-                    let color = avenger_common::types::ColorOrGradient::Color([0.2, 0.2, 0.2, 1.0]); // Dark gray
-                    config.stroke = ScalarOrArray::new_scalar(color);
-                } else {
-                    // For other legends, use the parsed default
-                    let color = parse_color_string(&default_stroke).unwrap_or(
-                        avenger_common::types::ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]),
-                    );
-                    config.stroke = ScalarOrArray::new_scalar(color);
-                }
-            }
-        } else {
-            // No stroke channel in mark encodings - use default stroke color
-            let color = parse_color_string(&default_stroke).unwrap_or(
-                avenger_common::types::ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]),
-            );
-            config.stroke = ScalarOrArray::new_scalar(color);
-        }
-
-        // Set stroke width based on whether it varies with the legend channel
-        if params.channel == "stroke_width" {
-            // Legend is for stroke_width itself - vary width
-            // Always map through the scale for the legend channel
-            let widths = legend_scale.map_values_numeric(&domain_values)?;
-            config.stroke_width = ScalarOrArray::new_array(widths);
-        } else if let Some(channel_value) = mark_encodings.get("stroke_width") {
-            // Stroke width channel exists but this legend is not for stroke_width
-            // Only use it if it's a scalar (constant) expression
-            if let Some(expr) = channel_value.expr() {
-                if !Self::references_columns(expr) {
-                    // Constant expression - evaluate it
-                    if let Ok(scalars) =
-                        crate::utils::eval_to_scalars(vec![expr.clone()], None, None).await
-                    {
-                        if let Some(value) =
-                            scalars.into_iter().next().and_then(|s| s.as_f32().ok())
-                        {
-                            config.stroke_width = ScalarOrArray::new_scalar(value);
-                        } else {
-                            // Failed to get value, use default
-                            config.stroke_width = ScalarOrArray::new_scalar(default_stroke_width);
-                        }
-                    } else {
-                        // Failed to evaluate, use default
-                        config.stroke_width = ScalarOrArray::new_scalar(default_stroke_width);
-                    }
-                } else {
-                    // Expression references columns, use default for non-stroke_width legends
-                    config.stroke_width = ScalarOrArray::new_scalar(default_stroke_width);
-                }
-            } else {
-                // Conditional or no expression, use default
-                config.stroke_width = ScalarOrArray::new_scalar(default_stroke_width);
-            }
-        } else {
-            // No stroke_width channel at all, use default
-            config.stroke_width = ScalarOrArray::new_scalar(default_stroke_width);
-        }
-
-        // Set stroke dash based on whether it varies with the legend channel
-        if params.channel == "stroke_dash" {
-            // Legend is for stroke_dash itself - vary dash pattern
-            let dash_patterns = legend_scale.map_dash_patterns(&domain_values);
-
-            debug!(
-                channel = params.channel,
-                domain_values = ?domain_values,
-                dash_patterns = ?dash_patterns,
-                "Line legend dash patterns"
-            );
-
-            // Don't vary stroke colors - each legend only shows its own channel varying
-
-            // Use 32 as the target legend length - all patterns are designed to align at this length
-            let max_legend_length = 32.0;
-
-            // Now calculate optimal length for each pattern
-            let mut individual_lengths = Vec::new();
-
-            for (i, pattern) in dash_patterns.iter().enumerate() {
-                let optimal_length = if let Some(pattern) = pattern.as_ref() {
-                    if pattern.is_empty() {
-                        // Solid line - should be exactly the same as max length
-                        max_legend_length
-                    } else {
-                        // Calculate how many complete dash segments fit within max_legend_length
-                        let mut current_pos = 0.0;
-                        let mut last_valid_length = 0.0;
-                        let mut is_dash = true; // Start with a dash segment
-                        let mut pattern_idx = 0;
-
-                        // Simulate drawing the pattern
-                        while current_pos < max_legend_length {
-                            let segment_length = pattern[pattern_idx];
-                            let next_pos = current_pos + segment_length;
-
-                            if next_pos > max_legend_length {
-                                // This segment would exceed our limit
-                                break;
-                            }
-
-                            if is_dash {
-                                // This is a dash segment - update our valid length
-                                last_valid_length = next_pos;
-                            }
-
-                            current_pos = next_pos;
-                            is_dash = !is_dash;
-                            pattern_idx = (pattern_idx + 1) % pattern.len();
-                        }
-
-                        // Make sure we show at least some pattern
-                        if last_valid_length == 0.0 && !pattern.is_empty() {
-                            last_valid_length = pattern[0]; // At least show first dash
-                        }
-
-                        last_valid_length
-                    }
-                } else {
-                    // No pattern (solid line)
-                    max_legend_length
-                };
-
-                individual_lengths.push(optimal_length);
-
-                trace!(
-                    index = i,
-                    pattern = ?pattern,
-                    length = optimal_length,
-                    max_length = max_legend_length,
-                    "Dash pattern"
-                );
-            }
-
-            trace!(max_legend_length = max_legend_length, "Max legend length");
-
-            // Add some extra for rounded caps if used
-            let cap_extension = if stroke_cap == avenger_common::types::StrokeCap::Round {
-                default_stroke_width // Add stroke width for rounded caps at both ends
-            } else {
-                0.0
-            };
-
-            // Set individual lengths for each pattern
-            config.line_length = ScalarOrArray::new_array(
-                individual_lengths
-                    .into_iter()
-                    .map(|l| l + cap_extension)
-                    .collect(),
-            );
-
-            // Keep the same stroke width as the chart lines for consistency
-            // The default is already set to match the chart
-
-            config.stroke_dash = ScalarOrArray::new_array(dash_patterns);
-        } else if let Some(channel_value) = mark_encodings.get("stroke_dash") {
-            // Stroke dash channel exists but this legend is not for stroke_dash
-            // Only use it if it's a scalar (constant) expression
-            if let Some(expr) = channel_value.expr() {
-                if !Self::references_columns(expr) {
-                    // Constant expression - evaluate it
-                    if let Ok(scalars) =
-                        crate::utils::eval_to_scalars(vec![expr.clone()], None, None).await
-                    {
-                        if let Some(ScalarValue::Utf8(Some(pattern_str))) =
-                            scalars.into_iter().next()
-                        {
-                            let dash = Self::convert_dash_pattern(&pattern_str);
-                            config.stroke_dash = ScalarOrArray::new_scalar(dash);
-                        }
-                    }
-                }
-            }
-        } else {
-            // Use default (solid)
-            config.stroke_dash = ScalarOrArray::new_scalar(None);
-        }
-
-        debug!(
-            channel = params.channel,
-            stroke = ?config.stroke.as_vec(8, None),
-            stroke_width = ?config.stroke_width.as_vec(8, None),
-            stroke_dash = ?config.stroke_dash.as_vec(8, None),
-            line_length = ?config.line_length.as_vec(8, None),
-            "Line legend config"
-        );
-
-        let mut legend_group = make_line_legend(&config)?;
-        let x = params.padding.left + params.plot_width + params.legend_margin;
-        let y = params.padding.top + params.y_offset;
-
-        // Update position and add debug stroke
-        legend_group.origin = [x, y];
-        legend_group.zindex = Some(10);
-
-        Ok(Some(legend_group))
-    }
-
-    /// Create a colorbar legend
-    async fn create_colorbar_legend(
-        &self,
-        params: LegendParams<'_>,
-    ) -> Result<Option<SceneGroup>, AvengerChartError> {
-        use avenger_guides::legend::colorbar::{
-            ColorbarConfig, ColorbarOrientation, make_colorbar_marks,
-        };
-
-        // Get the ConfiguredScale for this channel
-        let configured_scale = params.scales.get(params.channel).ok_or_else(|| {
-            AvengerChartError::InternalError(format!(
-                "Scale for channel '{}' not found",
-                params.channel
-            ))
-        })?;
-
-        // Determine colorbar dimensions
-        // When using Taffy layout, params.plot_height is the allocated height
-        // We should use this directly as the total colorbar height
-        let colorbar_height = params.plot_height;
-        let colorbar_width = params.legend.gradient_thickness.unwrap_or(15.0) as f32;
-
-        let mut config = ColorbarConfig {
-            orientation: ColorbarOrientation::Right,
-            dimensions: [params.plot_width, params.plot_height], // Available space for the colorbar
-            colorbar_width: Some(colorbar_width),
-            colorbar_height: Some(colorbar_height),
-            colorbar_margin: Some(0.0), // No margin - align exactly with axis
-            format_number: params.legend.format_number.clone(),
-            background_fill: None,
-            background_stroke: None,
-            background_corner_radius: None,
-            background_padding: None,
-        };
-
-        // Apply legend background styling if provided
-        if let Some(pad) = params.legend.background_padding {
-            config.background_padding = Some(pad);
-        }
-        if let Some(r) = params.legend.background_corner_radius {
-            config.background_corner_radius = Some(r);
-        }
-        if let Some(ref fill_str) = params.legend.background_fill {
-            if let Some(color) = parse_color_string(fill_str) {
-                config.background_fill = Some(color);
-            }
-        }
-        if let Some(ref stroke_str) = params.legend.background_stroke {
-            if let Some(color) = parse_color_string(stroke_str) {
-                config.background_stroke = Some(color);
-            }
-        }
-
-        // Create the colorbar marks at origin [0, 0] (will be positioned by group origin)
-        let plot_origin = [0.0, 0.0];
-        let title = params.legend.title.as_deref().unwrap_or("");
-
-        let mut colorbar_group =
-            make_colorbar_marks(configured_scale, title, plot_origin, &config)?;
-
-        // Adjust vertical position for multiple legends
-        if params.y_offset > 0.0 {
-            // Offset the colorbar marks vertically
-            colorbar_group.origin[1] += params.y_offset;
-        }
-
-        // Set z-index
-        colorbar_group.zindex = Some(10); // Legends above data but below title
-
-        Ok(Some(colorbar_group))
-    }
-
     /// Create title mark if configured
     fn create_title(
         &self,
@@ -2577,8 +1420,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             // Use the title node's x position, not the plot area's
             (bounds.x, bounds.y + bounds.height / 2.0)
         } else {
-            // Fallback: left-aligned at top with small margin
-            (10.0, 16.0)
+            // Fallback: centered at top of canvas
+            (10.0, 10.0)
         };
 
         let text = SceneTextMark {
@@ -2655,13 +1498,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         height: f32,
         configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         overflow: crate::coords::OverflowSpaceRequirement,
-    ) -> Result<
-        (
-            Padding,
-            Option<(crate::chart_layout::LayoutResult, LegendCache)>,
-        ),
-        AvengerChartError,
-    > {
+    ) -> Result<(Padding, crate::chart_layout::LayoutResult), AvengerChartError> {
         use crate::chart_layout::ChartLayout;
 
         // Get default legends for channels with ConfiguredScale
@@ -2704,11 +1541,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             bottom: height - (layout_result.plot_area.y + layout_result.plot_area.height),
         };
 
-        // Build legend cache - for now return empty cache
-        // TODO: Implement proper legend creation in the overflow-based layout
-        let legend_cache = LegendCache::new();
-
-        Ok((padding, Some((layout_result, legend_cache))))
+        Ok((padding, layout_result))
     }
 
     /// Calculate plot area from padding and total dimensions

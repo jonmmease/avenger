@@ -8,6 +8,7 @@ pub mod coords;
 pub mod error;
 pub mod legend;
 pub mod legend_builder;
+pub mod legend_renderer;
 pub mod marks;
 pub mod plot;
 mod plot_legends;
