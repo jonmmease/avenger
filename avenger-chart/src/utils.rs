@@ -13,6 +13,24 @@ use datafusion::prelude::{DataFrame, Expr, SessionContext, col, lit};
 use datafusion::scalar::ScalarValue;
 use std::sync::Arc;
 
+/// Helper to parse color from string using the color coercer
+pub fn parse_color_string(color_str: &str) -> Option<avenger_common::types::ColorOrGradient> {
+    use avenger_scales::scales::coerce::Coercer;
+    use datafusion::scalar::ScalarValue;
+
+    let coercer = Coercer::default();
+    let array = ScalarValue::iter_to_array(
+        [ScalarValue::Utf8(Some(color_str.to_string()))]
+            .iter()
+            .cloned(),
+    )
+    .ok()?;
+    coercer
+        .to_color(&array, None)
+        .ok()
+        .and_then(|colors| colors.as_vec(1, None).first().cloned())
+}
+
 pub trait DataFrameChartHelpers {
     /// Return two-element array of min and max values across all the columns in the input DataFrame
     fn span(&self) -> Result<Expr, AvengerChartError>;

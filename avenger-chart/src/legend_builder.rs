@@ -1,4 +1,6 @@
 use crate::legend::{Legend, LegendOrientation, LegendPosition};
+use crate::legend_renderer::LegendRenderer;
+use std::sync::Arc;
 
 /// Base trait for legend builders - just for common functionality
 /// Each concrete builder implements this for shared methods
@@ -106,6 +108,11 @@ impl ColorLegendBuilder {
         self.legend.background_padding = Some(padding);
         self
     }
+
+    pub fn renderer(mut self, renderer: impl LegendRenderer + 'static) -> Self {
+        self.legend.renderer = Some(Arc::new(renderer));
+        self
+    }
 }
 
 impl LegendBuilder for ColorLegendBuilder {
@@ -184,6 +191,11 @@ impl SizeLegendBuilder {
         self.legend.format_number = Some(format.into());
         self
     }
+
+    pub fn renderer(mut self, renderer: impl LegendRenderer + 'static) -> Self {
+        self.legend.renderer = Some(Arc::new(renderer));
+        self
+    }
 }
 
 impl LegendBuilder for SizeLegendBuilder {
@@ -255,6 +267,11 @@ impl ShapeLegendBuilder {
 
     pub fn label_limit(mut self, limit: f64) -> Self {
         self.legend.label_limit = Some(limit);
+        self
+    }
+
+    pub fn renderer(mut self, renderer: impl LegendRenderer + 'static) -> Self {
+        self.legend.renderer = Some(Arc::new(renderer));
         self
     }
 }
@@ -335,6 +352,11 @@ impl OpacityLegendBuilder {
         self.legend.label_limit = Some(limit);
         self
     }
+
+    pub fn renderer(mut self, renderer: impl LegendRenderer + 'static) -> Self {
+        self.legend.renderer = Some(Arc::new(renderer));
+        self
+    }
 }
 
 impl LegendBuilder for OpacityLegendBuilder {
@@ -406,6 +428,11 @@ impl AngleLegendBuilder {
 
     pub fn label_limit(mut self, limit: f64) -> Self {
         self.legend.label_limit = Some(limit);
+        self
+    }
+
+    pub fn renderer(mut self, renderer: impl LegendRenderer + 'static) -> Self {
+        self.legend.renderer = Some(Arc::new(renderer));
         self
     }
 }
@@ -481,6 +508,11 @@ impl StrokeWidthLegendBuilder {
         self.legend.label_limit = Some(limit);
         self
     }
+
+    pub fn renderer(mut self, renderer: impl LegendRenderer + 'static) -> Self {
+        self.legend.renderer = Some(Arc::new(renderer));
+        self
+    }
 }
 
 impl LegendBuilder for StrokeWidthLegendBuilder {
@@ -554,6 +586,11 @@ impl StrokeDashLegendBuilder {
         self.legend.label_limit = Some(limit);
         self
     }
+
+    pub fn renderer(mut self, renderer: impl LegendRenderer + 'static) -> Self {
+        self.legend.renderer = Some(Arc::new(renderer));
+        self
+    }
 }
 
 impl LegendBuilder for StrokeDashLegendBuilder {
@@ -565,4 +602,3 @@ impl LegendBuilder for StrokeDashLegendBuilder {
         self.legend
     }
 }
-

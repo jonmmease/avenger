@@ -1,0 +1,417 @@
+//! Line legend renderer for stroke properties on line marks
+
+use crate::error::AvengerChartError;
+use crate::legend::Legend;
+use crate::legend_renderer::{LegendChannel, LegendRenderer, helpers};
+use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
+use crate::utils::ScalarValueHelpers;
+use avenger_common::types::{ColorOrGradient, StrokeCap, StrokeJoin};
+use avenger_common::value::ScalarOrArray;
+use avenger_guides::legend::line::{LineLegendConfig, make_line_legend};
+use avenger_scenegraph::marks::group::SceneGroup;
+use datafusion::arrow::array::{ArrayRef, StringArray};
+use datafusion_common::ScalarValue;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+/// Line legend renderer for stroke properties on line marks
+pub struct LineLegendRenderer {
+    /// Map of mark encodings from the plot  
+    mark_encodings: HashMap<String, crate::marks::channel::ChannelValue>,
+    /// Stroke cap and join settings from line marks
+    stroke_cap: StrokeCap,
+    stroke_join: StrokeJoin,
+}
+
+impl Default for LineLegendRenderer {
+    fn default() -> Self {
+        Self {
+            mark_encodings: HashMap::new(),
+            stroke_cap: StrokeCap::Round,
+            stroke_join: StrokeJoin::Round,
+        }
+    }
+}
+
+impl LineLegendRenderer {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_plot_context<C: crate::coords::CoordinateSystem>(
+        plot: &crate::plot::Plot<C>,
+    ) -> Self {
+        let mut mark_encodings = HashMap::new();
+        let mut stroke_cap = StrokeCap::Round; // Default to round
+        let mut stroke_join = StrokeJoin::Round; // Default to round
+
+        // Analyze mark encodings and extract stroke settings
+        for mark in &plot.marks {
+            let mark_type = mark.mark_type();
+            if mark_type == "line" {
+                let channels = mark.data_context().channels();
+                for (channel, value) in channels {
+                    mark_encodings.insert(channel.clone(), value.clone());
+                }
+
+                // Try to get stroke_cap from mark's default channel values
+                if let Some(cap_value) = mark.default_channel_value("stroke_cap") {
+                    if let Ok(cap_str) = cap_value.as_scalar_string() {
+                        stroke_cap = match cap_str.as_str() {
+                            "butt" => StrokeCap::Butt,
+                            "round" => StrokeCap::Round,
+                            "square" => StrokeCap::Square,
+                            _ => stroke_cap,
+                        };
+                    }
+                }
+                // Try to get stroke_join from mark's default channel values
+                if let Some(join_value) = mark.default_channel_value("stroke_join") {
+                    if let Ok(join_str) = join_value.as_scalar_string() {
+                        stroke_join = match join_str.as_str() {
+                            "miter" => StrokeJoin::Miter,
+                            "round" => StrokeJoin::Round,
+                            "bevel" => StrokeJoin::Bevel,
+                            _ => stroke_join,
+                        };
+                    }
+                }
+                break; // Use settings from first line mark
+            }
+        }
+
+        Self {
+            mark_encodings,
+            stroke_cap,
+            stroke_join,
+        }
+    }
+
+    /// Convert dash pattern names to numeric arrays using the coercer
+    fn convert_dash_pattern(pattern: &str) -> Option<Vec<f32>> {
+        use avenger_scales::scales::coerce::Coercer;
+
+        // Create a single-element string array with the pattern
+        let array = StringArray::from(vec![Some(pattern)]);
+        let array_ref = Arc::new(array) as ArrayRef;
+
+        // Use coercer to convert
+        let coercer = Coercer::default();
+        if let Ok(dash_result) = coercer.to_stroke_dash(&array_ref) {
+            // Get the first element from the ScalarOrArray result
+            if let Some(dash_vec) = dash_result.first() {
+                if dash_vec.is_empty() {
+                    None // solid pattern
+                } else {
+                    Some(dash_vec.clone())
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl LegendRenderer for LineLegendRenderer {
+    fn can_render(&self, channels: &[LegendChannel]) -> bool {
+        // Line legend is for line marks with stroke properties
+        channels.iter().any(|c| c.mark_type == "line")
+            && channels.iter().all(|c| {
+                matches!(
+                    c.channel_type.as_str(),
+                    "stroke" | "stroke_width" | "stroke_dash" | "stroke_opacity"
+                )
+            })
+    }
+
+    async fn render(
+        &self,
+        channels: &[LegendChannel],
+        config: &Legend,
+        x: f32,
+        y: f32,
+        _width: f32,
+        _height: f32,
+    ) -> Result<Option<SceneGroup>, AvengerChartError> {
+        if channels.is_empty() {
+            return Ok(None);
+        }
+
+        // Get the primary channel
+        let primary_channel = &channels[0];
+        let channel_name = &primary_channel.channel_type;
+
+        // Extract domain values
+        let domain_values = match primary_channel.scale.domain_values()? {
+            DomainValues::Discrete(values) => values,
+            DomainValues::Interval(min, max) => vec![min, max],
+        };
+
+        if domain_values.is_empty() {
+            return Ok(None);
+        }
+
+        // Create text labels - use special labels for threshold scales
+        let text_values: Vec<String> =
+            if primary_channel.scale.scale_impl.scale_type() == "threshold" {
+                let labels = primary_channel.scale.domain_labels()?;
+                tracing::debug!(
+                    channel = channel_name.as_str(),
+                    labels = ?labels,
+                    "Threshold scale legend labels"
+                );
+                labels
+            } else {
+                domain_values.iter().map(format_scalar_value).collect()
+            };
+
+        // Get default stroke properties
+        let _default_stroke = "#000000".to_string();
+        let default_stroke_width = 2.0;
+
+        // Initialize config with defaults
+        // Use longer line length for better dash pattern visibility
+        let mut legend_config = LineLegendConfig {
+            title: config.title.clone(),
+            text: ScalarOrArray::new_array(text_values),
+            stroke_cap: self.stroke_cap,
+            stroke_join: Some(self.stroke_join), // Add stroke_join to config
+            inner_width: 0.0,
+            inner_height: 100.0,
+            outer_margin: 0.0, // Don't offset legend entries
+            line_length: ScalarOrArray::new_scalar(16.0), // Default, will be adjusted for dash patterns
+            text_padding: 4.0,                            // Consistent with symbol legend
+            ..Default::default()
+        };
+
+        // Apply legend background styling if provided
+        if let Some(pad) = config.background_padding {
+            legend_config.background_padding = Some(pad);
+            tracing::trace!(
+                channel = channel_name.as_str(),
+                padding = pad,
+                "Line legend setting padding"
+            );
+        } else {
+            tracing::trace!(
+                channel = channel_name.as_str(),
+                "Line legend has no padding specified, will use default"
+            );
+        }
+        if let Some(r) = config.background_corner_radius {
+            legend_config.background_corner_radius = Some(r);
+        }
+        if let Some(ref fill_str) = config.background_fill {
+            if let Some(color) = crate::utils::parse_color_string(fill_str) {
+                legend_config.background_fill = Some(color);
+            }
+        }
+        if let Some(ref stroke_str) = config.background_stroke {
+            if let Some(color) = crate::utils::parse_color_string(stroke_str) {
+                legend_config.background_stroke = Some(color);
+            }
+        }
+
+        // Each legend only shows its own channel varying - no cross-channel variation
+
+        // Set stroke color based on whether it varies with the legend channel
+        if channel_name == "stroke" {
+            // Legend is for stroke itself - vary stroke color
+            // Always map through the scale for the legend channel
+            let colors = primary_channel.scale.map_values_colors(&domain_values)?;
+            legend_config.stroke =
+                ScalarOrArray::new_array(colors.into_iter().map(ColorOrGradient::Color).collect());
+            // Don't vary dash patterns in stroke legend - each legend only shows its own channel
+        } else {
+            // Stroke channel exists but this legend is not for stroke
+            // Try to get constant stroke color from mark
+            if let Some(color) = helpers::get_constant_color(
+                "stroke",
+                &primary_channel.related_channels,
+                &self.mark_encodings,
+            )
+            .await
+            {
+                legend_config.stroke = ScalarOrArray::new_scalar(color);
+            } else {
+                // No constant stroke color - use gray #666666 for non-stroke legends
+                let color = ColorOrGradient::Color([0.4, 0.4, 0.4, 1.0]); // #666666 gray
+                legend_config.stroke = ScalarOrArray::new_scalar(color);
+            }
+        }
+
+        // Set stroke width based on whether it varies with the legend channel
+        if channel_name == "stroke_width" {
+            // Legend is for stroke_width itself - vary width
+            let widths = primary_channel.scale.map_values_numeric(&domain_values)?;
+            legend_config.stroke_width = ScalarOrArray::new_array(widths);
+        } else {
+            // Try to get constant stroke width from mark
+            let width = helpers::get_constant_f32(
+                "stroke_width",
+                &primary_channel.related_channels,
+                &self.mark_encodings,
+            )
+            .await
+            .unwrap_or(default_stroke_width);
+            legend_config.stroke_width = ScalarOrArray::new_scalar(width);
+        }
+
+        // Set stroke dash based on whether it varies with the legend channel
+        if channel_name == "stroke_dash" {
+            // Legend is for stroke_dash itself - vary dash pattern
+            let dash_patterns = primary_channel.scale.map_dash_patterns(&domain_values);
+
+            tracing::debug!(
+                channel = channel_name.as_str(),
+                domain_values = ?domain_values,
+                dash_patterns = ?dash_patterns,
+                "Line legend dash patterns"
+            );
+
+            // Don't vary stroke colors - each legend only shows its own channel varying
+
+            // Use 32 as the target legend length - all patterns are designed to align at this length
+            let max_legend_length = 32.0;
+
+            // Now calculate optimal length for each pattern
+            let mut individual_lengths = Vec::new();
+
+            for (i, pattern) in dash_patterns.iter().enumerate() {
+                let optimal_length = if let Some(pattern) = pattern.as_ref() {
+                    if pattern.is_empty() {
+                        // Solid line - should be exactly the same as max length
+                        max_legend_length
+                    } else {
+                        // Calculate how many complete dash segments fit within max_legend_length
+                        let mut current_pos = 0.0;
+                        let mut last_valid_length = 0.0;
+                        let mut is_dash = true; // Start with a dash segment
+                        let mut pattern_idx = 0;
+
+                        // Simulate drawing the pattern
+                        while current_pos < max_legend_length {
+                            let segment_length = pattern[pattern_idx];
+                            let next_pos = current_pos + segment_length;
+
+                            if next_pos > max_legend_length {
+                                // This segment would exceed our limit
+                                break;
+                            }
+
+                            if is_dash {
+                                // This is a dash segment - update our valid length
+                                last_valid_length = next_pos;
+                            }
+
+                            current_pos = next_pos;
+                            is_dash = !is_dash;
+                            pattern_idx = (pattern_idx + 1) % pattern.len();
+                        }
+
+                        // Make sure we show at least some pattern
+                        if last_valid_length == 0.0 && !pattern.is_empty() {
+                            last_valid_length = pattern[0]; // At least show first dash
+                        }
+
+                        last_valid_length
+                    }
+                } else {
+                    // No pattern (solid line)
+                    max_legend_length
+                };
+
+                individual_lengths.push(optimal_length);
+
+                tracing::trace!(
+                    index = i,
+                    pattern = ?pattern,
+                    length = optimal_length,
+                    max_length = max_legend_length,
+                    "Dash pattern"
+                );
+            }
+
+            tracing::trace!(max_legend_length = max_legend_length, "Max legend length");
+
+            // Add some extra for rounded caps if used
+            let cap_extension = if self.stroke_cap == StrokeCap::Round {
+                default_stroke_width // Add stroke width for rounded caps at both ends
+            } else {
+                0.0
+            };
+
+            // Set individual lengths for each pattern
+            legend_config.line_length = ScalarOrArray::new_array(
+                individual_lengths
+                    .into_iter()
+                    .map(|l| l + cap_extension)
+                    .collect(),
+            );
+
+            // Keep the same stroke width as the chart lines for consistency
+            // The default is already set to match the chart
+
+            legend_config.stroke_dash = ScalarOrArray::new_array(dash_patterns);
+        } else {
+            // Try to get constant stroke dash from mark
+            if let Some(pattern_str) = helpers::get_constant_string(
+                "stroke_dash",
+                &primary_channel.related_channels,
+                &self.mark_encodings,
+            )
+            .await
+            {
+                let dash = Self::convert_dash_pattern(&pattern_str);
+                legend_config.stroke_dash = ScalarOrArray::new_scalar(dash);
+            } else {
+                // Use default (solid)
+                legend_config.stroke_dash = ScalarOrArray::new_scalar(None);
+            }
+        }
+
+        tracing::debug!(
+            channel = channel_name.as_str(),
+            stroke = ?legend_config.stroke.as_vec(8, None),
+            stroke_width = ?legend_config.stroke_width.as_vec(8, None),
+            stroke_dash = ?legend_config.stroke_dash.as_vec(8, None),
+            line_length = ?legend_config.line_length.as_vec(8, None),
+            "Line legend config"
+        );
+
+        let mut legend_group = make_line_legend(&legend_config)?;
+
+        // Update position and add debug stroke
+        legend_group.origin = [x, y];
+        legend_group.zindex = Some(10);
+
+        Ok(Some(legend_group))
+    }
+}
+
+fn format_scalar_value(value: &ScalarValue) -> String {
+    match value {
+        ScalarValue::Utf8(Some(s)) => s.clone(),
+        ScalarValue::Float64(Some(f)) => {
+            // Format float nicely - remove trailing zeros
+            if f.fract() == 0.0 && f.abs() < 1e10 {
+                format!("{:.0}", f)
+            } else {
+                format!("{}", f)
+            }
+        }
+        ScalarValue::Float32(Some(f)) => {
+            if f.fract() == 0.0 && f.abs() < 1e10 {
+                format!("{:.0}", f)
+            } else {
+                format!("{}", f)
+            }
+        }
+        ScalarValue::Int64(Some(i)) => i.to_string(),
+        ScalarValue::Int32(Some(i)) => i.to_string(),
+        _ => format!("{:?}", value),
+    }
+}

@@ -141,4 +141,3 @@ impl From<i32> for PolarPositionConfig {
         Self::new(ChannelValue::from(v))
     }
 }
-

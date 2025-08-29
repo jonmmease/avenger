@@ -411,4 +411,31 @@ impl Mark<Cartesian> for Line<Cartesian> {
 
         Ok(scene_marks)
     }
+
+    fn preferred_legend_renderer(
+        &self,
+        channel: &str,
+        scale: &avenger_scales::scales::ConfiguredScale,
+    ) -> Option<std::sync::Arc<dyn crate::legend_renderer::LegendRenderer>> {
+        use crate::legend_renderer::{ColorbarRenderer, LineLegendRenderer};
+        use std::sync::Arc;
+
+        // Check if scale is continuous (for colorbar)
+        let scale_type = scale.scale_impl.scale_type();
+        let is_continuous = matches!(
+            scale_type,
+            "linear" | "log" | "pow" | "sqrt" | "symlog" | "time"
+        );
+
+        match channel {
+            // Use colorbar for continuous color scales
+            "stroke" if is_continuous => Some(Arc::new(ColorbarRenderer::new())),
+            // Line marks use line legend for stroke properties
+            "stroke" | "stroke_width" | "stroke_dash" => Some(Arc::new(LineLegendRenderer::new())),
+            // No legend for position channels and other non-visual channels
+            "x" | "y" | "x2" | "y2" | "defined" | "order" => None,
+            // For other channels like opacity, use line legend
+            _ => Some(Arc::new(LineLegendRenderer::new())),
+        }
+    }
 }

@@ -78,4 +78,34 @@ impl Mark<Cartesian> for Rect<Cartesian> {
 
         Ok(vec![SceneMark::Rect(rect_mark)])
     }
+
+    fn preferred_legend_renderer(
+        &self,
+        channel: &str,
+        scale: &avenger_scales::scales::ConfiguredScale,
+    ) -> Option<std::sync::Arc<dyn crate::legend_renderer::LegendRenderer>> {
+        use crate::legend_renderer::{ColorbarRenderer, RectLegendRenderer};
+        use std::sync::Arc;
+
+        // Check if scale is continuous (for colorbar)
+        let scale_type = scale.scale_impl.scale_type();
+        let is_continuous = matches!(
+            scale_type,
+            "linear" | "log" | "pow" | "sqrt" | "symlog" | "time"
+        );
+
+        match channel {
+            // Use colorbar for continuous color scales
+            "fill" | "stroke" | "color" if is_continuous => Some(Arc::new(ColorbarRenderer::new())),
+            // Rect marks use RectLegendRenderer for discrete scales and other visual properties
+            "fill" | "stroke" | "color" | "opacity" | "stroke_width" => {
+                Some(Arc::new(RectLegendRenderer::new()))
+            }
+            // No legend for position channels and other non-visual channels
+            "x" | "y" | "x2" | "y2" | "width" | "height" | "defined" | "order"
+            | "corner_radius" => None,
+            // For any other channel, default to RectLegendRenderer
+            _ => Some(Arc::new(RectLegendRenderer::new())),
+        }
+    }
 }

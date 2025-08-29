@@ -74,4 +74,3 @@ fn test_channel_config_legend() {
     // Verify we can get the channel value back
     let _channel_value = configured.into_inner();
 }
-

@@ -75,4 +75,31 @@ impl Mark<Polar> for Line<Polar> {
             "Polar line mark rendering not yet implemented".to_string(),
         ))
     }
+
+    fn preferred_legend_renderer(
+        &self,
+        channel: &str,
+        scale: &avenger_scales::scales::ConfiguredScale,
+    ) -> Option<std::sync::Arc<dyn crate::legend_renderer::LegendRenderer>> {
+        use crate::legend_renderer::{ColorbarRenderer, LineLegendRenderer};
+        use std::sync::Arc;
+
+        // Check if scale is continuous (for colorbar)
+        let scale_type = scale.scale_impl.scale_type();
+        let is_continuous = matches!(
+            scale_type,
+            "linear" | "log" | "pow" | "sqrt" | "symlog" | "time"
+        );
+
+        match channel {
+            // Use colorbar for continuous color scales
+            "stroke" if is_continuous => Some(Arc::new(ColorbarRenderer::new())),
+            // Line marks use line legend for discrete scales and line-specific properties
+            "stroke" | "stroke_width" | "stroke_dash" => Some(Arc::new(LineLegendRenderer::new())),
+            // No legend for position channels and other non-visual channels
+            "r" | "theta" | "r2" | "theta2" | "defined" | "order" => None,
+            // For any other channel, default to line legend
+            _ => Some(Arc::new(LineLegendRenderer::new())),
+        }
+    }
 }

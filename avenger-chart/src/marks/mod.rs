@@ -22,10 +22,13 @@ pub use state::MarkState;
 
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
+use crate::legend_renderer::LegendRenderer;
+use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::Expr;
 use datafusion::scalar::ScalarValue;
+use std::sync::Arc;
 
 /// Expression for computing radius/padding requirements
 #[derive(Debug, Clone)]
@@ -86,5 +89,15 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
         _resolve_channel: &dyn Fn(&str) -> Expr,
     ) -> Option<RadiusExpression> {
         None
+    }
+
+    /// Get the preferred legend renderer for a channel
+    /// Returns None if this mark doesn't want a legend for the channel
+    fn preferred_legend_renderer(
+        &self,
+        _channel: &str,
+        _scale: &ConfiguredScale,
+    ) -> Option<Arc<dyn LegendRenderer>> {
+        None // Default: no legend preference
     }
 }

@@ -1,5 +1,8 @@
+use crate::legend_renderer::LegendRenderer;
+use std::sync::Arc;
+
 /// Legend configuration for visualizations
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Legend {
     pub visible: bool,
     pub title: Option<String>,
@@ -17,6 +20,33 @@ pub struct Legend {
     pub background_padding: Option<f32>,
     pub order: Option<i32>,
     pub contributing_marks: Vec<String>,
+    /// Optional custom renderer override
+    pub renderer: Option<Arc<dyn LegendRenderer>>,
+}
+
+// Custom Debug implementation since LegendRenderer doesn't implement Debug
+impl std::fmt::Debug for Legend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Legend")
+            .field("visible", &self.visible)
+            .field("title", &self.title)
+            .field("position", &self.position)
+            .field("orientation", &self.orientation)
+            .field("symbol_size", &self.symbol_size)
+            .field("gradient_length", &self.gradient_length)
+            .field("gradient_thickness", &self.gradient_thickness)
+            .field("columns", &self.columns)
+            .field("label_limit", &self.label_limit)
+            .field("format_number", &self.format_number)
+            .field("background_fill", &self.background_fill)
+            .field("background_stroke", &self.background_stroke)
+            .field("background_corner_radius", &self.background_corner_radius)
+            .field("background_padding", &self.background_padding)
+            .field("order", &self.order)
+            .field("contributing_marks", &self.contributing_marks)
+            .field("renderer", &self.renderer.is_some())
+            .finish()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -52,6 +82,7 @@ impl Legend {
             background_padding: None,
             order: None,
             contributing_marks: Vec::new(),
+            renderer: None,
         }
     }
 
@@ -133,6 +164,12 @@ impl Legend {
 
     pub fn add_contributing_mark(mut self, mark_id: impl Into<String>) -> Self {
         self.contributing_marks.push(mark_id.into());
+        self
+    }
+
+    /// Set a custom renderer for this legend
+    pub fn renderer(mut self, renderer: impl LegendRenderer + 'static) -> Self {
+        self.renderer = Some(Arc::new(renderer));
         self
     }
 }
