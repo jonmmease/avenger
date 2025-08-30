@@ -45,6 +45,10 @@ impl RectLegendRenderer {
 
 #[async_trait::async_trait]
 impl LegendRenderer for RectLegendRenderer {
+    fn name(&self) -> &'static str {
+        "RectLegendRenderer"
+    }
+
     fn can_render(&self, channels: &[LegendChannel]) -> bool {
         // Can render discrete scales and certain continuous scales
         channels.iter().all(|c| {
@@ -53,6 +57,12 @@ impl LegendRenderer for RectLegendRenderer {
                 "fill" | "stroke" | "color" | "opacity" | "stroke_width"
             )
         })
+    }
+
+    fn supported_merge_channels(&self) -> std::collections::HashSet<&'static str> {
+        ["fill", "stroke", "color", "opacity", "stroke_width"]
+            .into_iter()
+            .collect()
     }
 
     async fn render(

@@ -100,4 +100,33 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
     ) -> Option<Arc<dyn LegendRenderer>> {
         None // Default: no legend preference
     }
+
+    /// Get the preferred legend renderer for merged channels
+    /// Only called when channels have matching MergeKeys
+    fn preferred_merged_legend_renderer(
+        &self,
+        channels: &[crate::legend_renderer::LegendChannel],
+        scales: &std::collections::HashMap<String, ConfiguredScale>,
+    ) -> Option<Arc<dyn LegendRenderer>> {
+        // Default implementation: try to find a renderer that supports all channels
+        // Marks can override this for custom behavior
+
+        // Get the renderer from the first channel
+        let first_channel = &channels[0];
+        let scale = scales.get(&first_channel.name)?;
+        let renderer = self.preferred_legend_renderer(&first_channel.channel_type, scale)?;
+
+        // Check if it supports merging all the channels
+        if renderer.supports_merge(channels) {
+            Some(renderer)
+        } else {
+            None // Can't merge these channels
+        }
+    }
+
+    /// Get a unique identifier for this mark instance
+    fn mark_id(&self) -> String {
+        // Default: use pointer address as unique ID
+        format!("{:p}", self as *const _)
+    }
 }

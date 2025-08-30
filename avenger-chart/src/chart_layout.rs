@@ -972,11 +972,15 @@ impl ChartLayout {
             // Create a line legend for line-based channels
             use avenger_guides::legend::line::{LineLegendConfig, make_line_legend};
 
-            // For line legends, check if we're measuring a stroke_dash or stroke_width channel
-            // These need special handling for proper measurement
-            let (stroke_widths, stroke_dashes) = if channel == "stroke_dash" {
-                // Vary stroke dash if that's the legend channel
-                // Use common dash patterns for measurement
+            // For line legends, check if we're measuring merged channels
+            // Check if this legend has merged channels
+            let has_stroke_dash = legend.merged_channels.contains(&"stroke_dash".to_string())
+                || channel == "stroke_dash";
+            let has_stroke_width = legend.merged_channels.contains(&"stroke_width".to_string())
+                || channel == "stroke_width";
+
+            let (stroke_widths, stroke_dashes) = if has_stroke_dash && has_stroke_width {
+                // Vary BOTH stroke dash and width for merged legend
                 let dash_patterns = [
                     None,                 // Solid
                     Some(vec![4.0, 4.0]), // Dashed
@@ -985,13 +989,29 @@ impl ChartLayout {
                 let patterns = (0..text_values.len())
                     .map(|i| dash_patterns[i % dash_patterns.len()].clone())
                     .collect();
+                let widths: Vec<f32> = (0..text_values.len())
+                    .map(|i| 1.0 + (i as f32) * 2.0) // 1, 3, 5, etc.
+                    .collect();
+                (
+                    ScalarOrArray::new_array(widths),
+                    ScalarOrArray::new_array(patterns),
+                )
+            } else if has_stroke_dash {
+                // Vary stroke dash only
+                let dash_patterns = [
+                    None,                 // Solid
+                    Some(vec![4.0, 4.0]), // Dashed
+                    Some(vec![1.0, 3.0]), // Dotted
+                ];
+                let patterns: Vec<_> = (0..text_values.len())
+                    .map(|i| dash_patterns[i % dash_patterns.len()].clone())
+                    .collect();
                 (
                     ScalarOrArray::new_scalar(2.0),
                     ScalarOrArray::new_array(patterns),
                 )
-            } else if channel == "stroke_width" {
-                // Vary stroke width if that's the legend channel
-                // Use a range of widths
+            } else if has_stroke_width {
+                // Vary stroke width only
                 let widths: Vec<f32> = (0..text_values.len())
                     .map(|i| 1.0 + (i as f32) * 2.0) // 1, 3, 5, etc.
                     .collect();
@@ -1005,6 +1025,14 @@ impl ChartLayout {
                     ScalarOrArray::new_scalar(2.0),
                     ScalarOrArray::new_scalar(None),
                 )
+            };
+
+            // Calculate line lengths - use longer lines when dash patterns are present
+            let line_length = if has_stroke_dash {
+                // When we have dash patterns, use 32.0 as the max to match the renderer
+                ScalarOrArray::new_scalar(32.0)
+            } else {
+                ScalarOrArray::new_scalar(16.0)
             };
 
             let config = LineLegendConfig {
@@ -1022,7 +1050,7 @@ impl ChartLayout {
                 outer_margin: 0.0,
                 entry_margin: 2.0,
                 text_padding: 4.0, // Consistent with symbol legend spacing
-                line_length: ScalarOrArray::new_scalar(16.0), // Similar to symbol size, enough for dash patterns
+                line_length,       // Use calculated line length
                 background_fill: legend
                     .background_fill
                     .as_ref()
@@ -1535,12 +1563,15 @@ impl GridBuilder {
         for component in &self.right_components {
             if let ComponentType::LegendContainer(position) = component {
                 if *position == LegendPosition::Right {
-                    // Get channels for this position from legends_by_position
-                    let channels: Vec<String> = self
-                        .legends_by_position
-                        .get(position)
-                        .map(|legends| legends.iter().map(|(ch, _)| ch.clone()).collect())
-                        .unwrap_or_default();
+                    // Get channels from the merged legends map (not legends_by_position which has unmerged channels)
+                    // Filter legends by position to get only those in this container
+                    let channels: Vec<String> = legends
+                        .iter()
+                        .filter(|(_, legend)| {
+                            legend.position.unwrap_or(LegendPosition::Right) == *position
+                        })
+                        .map(|(ch, _)| ch.clone())
+                        .collect();
                     let width =
                         self.measure_legend_container_width(&channels, legends, scales, _marks)?;
                     cols.push(length(width));

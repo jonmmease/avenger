@@ -22,6 +22,8 @@ pub struct Legend {
     pub contributing_marks: Vec<String>,
     /// Optional custom renderer override
     pub renderer: Option<Arc<dyn LegendRenderer>>,
+    /// Channels that have been merged into this legend (for layout width calculation)
+    pub merged_channels: Vec<String>,
 }
 
 // Custom Debug implementation since LegendRenderer doesn't implement Debug
@@ -45,6 +47,7 @@ impl std::fmt::Debug for Legend {
             .field("order", &self.order)
             .field("contributing_marks", &self.contributing_marks)
             .field("renderer", &self.renderer.is_some())
+            .field("merged_channels", &self.merged_channels)
             .finish()
     }
 }
@@ -83,6 +86,7 @@ impl Legend {
             order: None,
             contributing_marks: Vec::new(),
             renderer: None,
+            merged_channels: Vec::new(),
         }
     }
 

@@ -19,6 +19,10 @@ impl ColorbarRenderer {
 
 #[async_trait::async_trait]
 impl LegendRenderer for ColorbarRenderer {
+    fn name(&self) -> &'static str {
+        "ColorbarRenderer"
+    }
+
     fn can_render(&self, channels: &[LegendChannel]) -> bool {
         // Colorbar is for continuous color scales
         channels.iter().all(|c| {

@@ -116,6 +116,10 @@ impl LineLegendRenderer {
 
 #[async_trait::async_trait]
 impl LegendRenderer for LineLegendRenderer {
+    fn name(&self) -> &'static str {
+        "LineLegendRenderer"
+    }
+
     fn can_render(&self, channels: &[LegendChannel]) -> bool {
         // Line legend is for line marks with stroke properties
         channels.iter().any(|c| c.mark_type == "line")
@@ -125,6 +129,12 @@ impl LegendRenderer for LineLegendRenderer {
                     "stroke" | "stroke_width" | "stroke_dash" | "stroke_opacity"
                 )
             })
+    }
+
+    fn supported_merge_channels(&self) -> std::collections::HashSet<&'static str> {
+        ["stroke", "stroke_width", "stroke_dash", "opacity"]
+            .into_iter()
+            .collect()
     }
 
     async fn render(
@@ -215,19 +225,21 @@ impl LegendRenderer for LineLegendRenderer {
             }
         }
 
-        // Each legend only shows its own channel varying - no cross-channel variation
+        // When multiple channels are present, vary all of them together
+        // Check each channel in the group to see if it should vary
 
-        // Set stroke color based on whether it varies with the legend channel
-        if channel_name == "stroke" {
-            // Legend is for stroke itself - vary stroke color
-            // Always map through the scale for the legend channel
-            let colors = primary_channel.scale.map_values_colors(&domain_values)?;
-            legend_config.stroke =
-                ScalarOrArray::new_array(colors.into_iter().map(ColorOrGradient::Color).collect());
-            // Don't vary dash patterns in stroke legend - each legend only shows its own channel
+        // Set stroke color - varies if any channel in the group is "stroke"
+        let has_stroke_channel = channels.iter().any(|c| c.channel_type == "stroke");
+        if has_stroke_channel {
+            // Find the stroke channel and map its values
+            if let Some(stroke_channel) = channels.iter().find(|c| c.channel_type == "stroke") {
+                let colors = stroke_channel.scale.map_values_colors(&domain_values)?;
+                legend_config.stroke = ScalarOrArray::new_array(
+                    colors.into_iter().map(ColorOrGradient::Color).collect(),
+                );
+            }
         } else {
-            // Stroke channel exists but this legend is not for stroke
-            // Try to get constant stroke color from mark
+            // No stroke channel in group - try to get constant stroke color from mark
             if let Some(color) = helpers::get_constant_color(
                 "stroke",
                 &primary_channel.related_channels,
@@ -243,11 +255,15 @@ impl LegendRenderer for LineLegendRenderer {
             }
         }
 
-        // Set stroke width based on whether it varies with the legend channel
-        if channel_name == "stroke_width" {
-            // Legend is for stroke_width itself - vary width
-            let widths = primary_channel.scale.map_values_numeric(&domain_values)?;
-            legend_config.stroke_width = ScalarOrArray::new_array(widths);
+        // Set stroke width - varies if any channel in the group is "stroke_width"
+        let has_width_channel = channels.iter().any(|c| c.channel_type == "stroke_width");
+        if has_width_channel {
+            // Find the stroke_width channel and map its values
+            if let Some(width_channel) = channels.iter().find(|c| c.channel_type == "stroke_width")
+            {
+                let widths = width_channel.scale.map_values_numeric(&domain_values)?;
+                legend_config.stroke_width = ScalarOrArray::new_array(widths);
+            }
         } else {
             // Try to get constant stroke width from mark
             let width = helpers::get_constant_f32(
@@ -260,102 +276,101 @@ impl LegendRenderer for LineLegendRenderer {
             legend_config.stroke_width = ScalarOrArray::new_scalar(width);
         }
 
-        // Set stroke dash based on whether it varies with the legend channel
-        if channel_name == "stroke_dash" {
-            // Legend is for stroke_dash itself - vary dash pattern
-            let dash_patterns = primary_channel.scale.map_dash_patterns(&domain_values);
+        // Set stroke dash - varies if any channel in the group is "stroke_dash"
+        let has_dash_channel = channels.iter().any(|c| c.channel_type == "stroke_dash");
+        if has_dash_channel {
+            // Find the stroke_dash channel and process it
+            if let Some(dash_channel) = channels.iter().find(|c| c.channel_type == "stroke_dash") {
+                // Vary dash pattern based on the dash channel's scale
+                let dash_patterns = dash_channel.scale.map_dash_patterns(&domain_values);
 
-            tracing::debug!(
-                channel = channel_name.as_str(),
-                domain_values = ?domain_values,
-                dash_patterns = ?dash_patterns,
-                "Line legend dash patterns"
-            );
+                tracing::debug!(
+                    channel = channel_name.as_str(),
+                    domain_values = ?domain_values,
+                    dash_patterns = ?dash_patterns,
+                    "Line legend dash patterns"
+                );
 
-            // Don't vary stroke colors - each legend only shows its own channel varying
+                // Use 32 as the target legend length - all patterns are designed to align at this length
+                let max_legend_length = 32.0;
 
-            // Use 32 as the target legend length - all patterns are designed to align at this length
-            let max_legend_length = 32.0;
+                // Now calculate optimal length for each pattern
+                let mut individual_lengths = Vec::new();
 
-            // Now calculate optimal length for each pattern
-            let mut individual_lengths = Vec::new();
+                for (i, pattern) in dash_patterns.iter().enumerate() {
+                    let optimal_length = if let Some(pattern) = pattern.as_ref() {
+                        if pattern.is_empty() {
+                            // Solid line - should be exactly the same as max length
+                            max_legend_length
+                        } else {
+                            // Calculate how many complete dash segments fit within max_legend_length
+                            let mut current_pos = 0.0;
+                            let mut last_valid_length = 0.0;
+                            let mut is_dash = true; // Start with a dash segment
+                            let mut pattern_idx = 0;
 
-            for (i, pattern) in dash_patterns.iter().enumerate() {
-                let optimal_length = if let Some(pattern) = pattern.as_ref() {
-                    if pattern.is_empty() {
-                        // Solid line - should be exactly the same as max length
-                        max_legend_length
+                            // Simulate drawing the pattern
+                            while current_pos < max_legend_length {
+                                let segment_length = pattern[pattern_idx];
+                                let next_pos = current_pos + segment_length;
+
+                                if next_pos > max_legend_length {
+                                    // This segment would exceed our limit
+                                    break;
+                                }
+
+                                if is_dash {
+                                    // This is a dash segment - update our valid length
+                                    last_valid_length = next_pos;
+                                }
+
+                                current_pos = next_pos;
+                                is_dash = !is_dash;
+                                pattern_idx = (pattern_idx + 1) % pattern.len();
+                            }
+
+                            // Make sure we show at least some pattern
+                            if last_valid_length == 0.0 && !pattern.is_empty() {
+                                last_valid_length = pattern[0]; // At least show first dash
+                            }
+
+                            last_valid_length
+                        }
                     } else {
-                        // Calculate how many complete dash segments fit within max_legend_length
-                        let mut current_pos = 0.0;
-                        let mut last_valid_length = 0.0;
-                        let mut is_dash = true; // Start with a dash segment
-                        let mut pattern_idx = 0;
+                        // No pattern (solid line)
+                        max_legend_length
+                    };
 
-                        // Simulate drawing the pattern
-                        while current_pos < max_legend_length {
-                            let segment_length = pattern[pattern_idx];
-                            let next_pos = current_pos + segment_length;
+                    individual_lengths.push(optimal_length);
 
-                            if next_pos > max_legend_length {
-                                // This segment would exceed our limit
-                                break;
-                            }
+                    tracing::trace!(
+                        index = i,
+                        pattern = ?pattern,
+                        length = optimal_length,
+                        max_length = max_legend_length,
+                        "Dash pattern"
+                    );
+                }
 
-                            if is_dash {
-                                // This is a dash segment - update our valid length
-                                last_valid_length = next_pos;
-                            }
+                tracing::trace!(max_legend_length = max_legend_length, "Max legend length");
 
-                            current_pos = next_pos;
-                            is_dash = !is_dash;
-                            pattern_idx = (pattern_idx + 1) % pattern.len();
-                        }
-
-                        // Make sure we show at least some pattern
-                        if last_valid_length == 0.0 && !pattern.is_empty() {
-                            last_valid_length = pattern[0]; // At least show first dash
-                        }
-
-                        last_valid_length
-                    }
+                // Add some extra for rounded caps if used
+                let cap_extension = if self.stroke_cap == StrokeCap::Round {
+                    default_stroke_width // Add stroke width for rounded caps at both ends
                 } else {
-                    // No pattern (solid line)
-                    max_legend_length
+                    0.0
                 };
 
-                individual_lengths.push(optimal_length);
-
-                tracing::trace!(
-                    index = i,
-                    pattern = ?pattern,
-                    length = optimal_length,
-                    max_length = max_legend_length,
-                    "Dash pattern"
+                // Set individual lengths for each pattern
+                legend_config.line_length = ScalarOrArray::new_array(
+                    individual_lengths
+                        .into_iter()
+                        .map(|l| l + cap_extension)
+                        .collect(),
                 );
+
+                legend_config.stroke_dash = ScalarOrArray::new_array(dash_patterns);
             }
-
-            tracing::trace!(max_legend_length = max_legend_length, "Max legend length");
-
-            // Add some extra for rounded caps if used
-            let cap_extension = if self.stroke_cap == StrokeCap::Round {
-                default_stroke_width // Add stroke width for rounded caps at both ends
-            } else {
-                0.0
-            };
-
-            // Set individual lengths for each pattern
-            legend_config.line_length = ScalarOrArray::new_array(
-                individual_lengths
-                    .into_iter()
-                    .map(|l| l + cap_extension)
-                    .collect(),
-            );
-
-            // Keep the same stroke width as the chart lines for consistency
-            // The default is already set to match the chart
-
-            legend_config.stroke_dash = ScalarOrArray::new_array(dash_patterns);
         } else {
             // Try to get constant stroke dash from mark
             if let Some(pattern_str) = helpers::get_constant_string(

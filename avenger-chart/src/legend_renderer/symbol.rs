@@ -65,6 +65,10 @@ impl SymbolLegendRenderer {
 
 #[async_trait::async_trait]
 impl LegendRenderer for SymbolLegendRenderer {
+    fn name(&self) -> &'static str {
+        "SymbolLegendRenderer"
+    }
+
     fn can_render(&self, channels: &[LegendChannel]) -> bool {
         // Symbol legend can render discrete channels
         channels.iter().all(|c| {
@@ -73,6 +77,20 @@ impl LegendRenderer for SymbolLegendRenderer {
                 "ordinal" | "band" | "point" | "threshold" | "quantile" | "quantize"
             )
         })
+    }
+
+    fn supported_merge_channels(&self) -> std::collections::HashSet<&'static str> {
+        [
+            "fill",
+            "stroke",
+            "color",
+            "shape",
+            "size",
+            "opacity",
+            "stroke_width",
+        ]
+        .into_iter()
+        .collect()
     }
 
     async fn render(
@@ -194,172 +212,118 @@ impl LegendRenderer for SymbolLegendRenderer {
             }
         }
 
-        // Each legend only shows its own channel varying - no cross-channel variation
+        // Apply each channel's mapping
+        // When multiple channels are present, they all vary together
 
-        // Shape channel
-        let default_shape_parsed = parse_shape(&default_shape)?;
-        legend_config.shape = ScalarOrArray::new_scalar(default_shape_parsed);
-
-        if channel_name == "shape" {
-            // Shape is the legend channel - map domain values to shapes
-            let shape_names = {
-                let names = primary_channel.scale.extract_shape_range();
-                if !names.is_empty() {
-                    names
-                } else {
-                    crate::scales::shape_defaults::DEFAULT_SHAPES
-                        .iter()
-                        .map(|&s| s.to_string())
-                        .collect()
-                }
-            };
-
-            let shapes: Result<Vec<_>, _> = domain_values
-                .iter()
-                .enumerate()
-                .map(|(i, _)| parse_shape(&shape_names[i % shape_names.len()]))
-                .collect();
-            legend_config.shape = ScalarOrArray::new_array(shapes?);
-        } else {
-            // Shape channel exists but this legend is not for shape - use constant value if available
-            if let Some(shape_str) = helpers::get_constant_string(
-                "shape",
-                &primary_channel.related_channels,
-                &self.mark_encodings,
-            )
-            .await
-            {
-                legend_config.shape = ScalarOrArray::new_scalar(parse_shape(&shape_str)?);
-            }
-            // Otherwise keep the default shape
-        }
-
-        // Size channel
-        legend_config.size = ScalarOrArray::new_scalar(default_size);
-        if channel_name == "shape" {
-            tracing::trace!(default_size = default_size, "Initial size set to default");
-        }
-
-        // Debug: log related channels
-        tracing::debug!(
-            channel = channel_name.as_str(),
-            related_channels = ?primary_channel.related_channels.keys().collect::<Vec<_>>(),
-            has_size = primary_channel.related_channels.contains_key("size"),
-            "Checking for size channel"
+        // Start with defaults
+        legend_config.shape = ScalarOrArray::new_scalar(parse_shape(&default_shape)?);
+        legend_config.fill = ScalarOrArray::new_scalar(
+            crate::utils::parse_color_string(&default_fill)
+                .unwrap_or(ColorOrGradient::Color([0.27, 0.51, 0.71, 1.0])),
         );
+        legend_config.stroke = ScalarOrArray::new_scalar(
+            crate::utils::parse_color_string(&default_stroke)
+                .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
+        );
+        legend_config.size = ScalarOrArray::new_scalar(default_size as f32);
+        legend_config.angle = ScalarOrArray::new_scalar(default_angle as f32);
+        legend_config.stroke_width = Some(default_stroke_width as f32);
 
-        if channel_name == "size" {
-            // Size is the legend channel - map through scale
-            let sizes = primary_channel.scale.map_values_numeric(&domain_values)?;
-            legend_config.size = ScalarOrArray::new_array(sizes);
-        } else {
-            // Size channel exists but this legend is not for size - use constant value if available
-            if let Some(size_value) = helpers::get_constant_f32(
-                "size",
+        // Process each channel
+        for channel in channels {
+            match channel.channel_type.as_str() {
+                "shape" => {
+                    // Shape channel - map domain values to shapes
+                    let shape_names = {
+                        let names = channel.scale.extract_shape_range();
+                        if !names.is_empty() {
+                            names
+                        } else {
+                            crate::scales::shape_defaults::DEFAULT_SHAPES
+                                .iter()
+                                .map(|&s| s.to_string())
+                                .collect()
+                        }
+                    };
+
+                    let shapes: Result<Vec<_>, _> = domain_values
+                        .iter()
+                        .enumerate()
+                        .map(|(i, _)| parse_shape(&shape_names[i % shape_names.len()]))
+                        .collect();
+                    legend_config.shape = ScalarOrArray::new_array(shapes?);
+                }
+                "size" => {
+                    // Size channel - map through scale
+                    let sizes = channel.scale.map_values_numeric(&domain_values)?;
+                    legend_config.size = ScalarOrArray::new_array(sizes);
+                }
+                "fill" | "color" => {
+                    // Fill/color channel - map through scale
+                    let colors = if channel.scale.scale_impl.scale_type() == "threshold" {
+                        // For threshold scales, get the range colors directly
+                        channel.scale.range_colors()?
+                    } else {
+                        channel.scale.map_values_colors(&domain_values)?
+                    };
+                    legend_config.fill = ScalarOrArray::new_array(
+                        colors.into_iter().map(ColorOrGradient::Color).collect(),
+                    );
+                }
+                "stroke" => {
+                    // Stroke channel - map through scale
+                    let colors = if channel.scale.scale_impl.scale_type() == "threshold" {
+                        // For threshold scales, get the range colors directly
+                        channel.scale.range_colors()?
+                    } else {
+                        channel.scale.map_values_colors(&domain_values)?
+                    };
+                    legend_config.stroke = ScalarOrArray::new_array(
+                        colors.into_iter().map(ColorOrGradient::Color).collect(),
+                    );
+                }
+                "angle" => {
+                    // Angle channel - map through scale
+                    let angles = channel.scale.map_values_numeric(&domain_values)?;
+                    legend_config.angle = ScalarOrArray::new_array(angles);
+                }
+                "opacity" => {
+                    // Opacity channel - map through scale
+                    let _opacities = channel.scale.map_values_numeric(&domain_values)?;
+                    // TODO: Apply opacity to fill/stroke colors
+                }
+                "stroke_width" => {
+                    // Stroke width channel - map through scale
+                    let widths = channel.scale.map_values_numeric(&domain_values)?;
+                    // SymbolLegendConfig expects a single stroke_width value
+                    // Use the first value for now
+                    if !widths.is_empty() {
+                        legend_config.stroke_width = Some(widths[0]);
+                    }
+                }
+                _ => {
+                    // Unknown channel type - skip
+                }
+            }
+        }
+
+        // Apply constant values from related channels if not varying
+        // This ensures legends use the same visual properties as the marks
+        if channels.iter().all(|c| c.channel_type != "stroke_width") {
+            // Stroke width not varying - use constant if available
+            if let Some(width) = helpers::get_constant_f32(
+                "stroke_width",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
             )
             .await
             {
-                tracing::debug!(
-                    channel = channel_name.as_str(),
-                    size_value = size_value,
-                    "Setting legend size from constant value"
-                );
-                legend_config.size = ScalarOrArray::new_scalar(size_value);
+                legend_config.stroke_width = Some(width);
             }
-            // Otherwise keep the default size
         }
 
-        if channel_name == "shape" {
-            let sizes = legend_config.size.as_vec(3, None);
-            tracing::trace!(sizes = ?sizes, "After size logic");
-        }
-
-        // Fill channel
-        let default_fill_color = crate::utils::parse_color_string(&default_fill)
-            .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]));
-        legend_config.fill = ScalarOrArray::new_scalar(default_fill_color.clone());
-
-        if channel_name == "fill" || channel_name == "color" {
-            // Fill/color is the legend channel - map through scale
-            let colors = if primary_channel.scale.scale_impl.scale_type() == "threshold" {
-                // For threshold scales, get the range colors directly
-                primary_channel.scale.range_colors()?
-            } else {
-                primary_channel.scale.map_values_colors(&domain_values)?
-            };
-            legend_config.fill =
-                ScalarOrArray::new_array(colors.into_iter().map(ColorOrGradient::Color).collect());
-        } else {
-            // Fill channel exists but this legend is not for fill - use constant value if available
-            if let Some(color) = helpers::get_constant_color(
-                "fill",
-                &primary_channel.related_channels,
-                &self.mark_encodings,
-            )
-            .await
-            {
-                legend_config.fill = ScalarOrArray::new_scalar(color);
-            }
-            // Otherwise keep the default fill
-        }
-
-        // Stroke channel
-        let default_stroke_color = crate::utils::parse_color_string(&default_stroke)
-            .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]));
-        legend_config.stroke = ScalarOrArray::new_scalar(default_stroke_color.clone());
-
-        if channel_name == "stroke" {
-            // Stroke is the legend channel - map through scale
-            let colors = if primary_channel.scale.scale_impl.scale_type() == "threshold" {
-                // For threshold scales, get the range colors directly
-                primary_channel.scale.range_colors()?
-            } else {
-                primary_channel.scale.map_values_colors(&domain_values)?
-            };
-            legend_config.stroke =
-                ScalarOrArray::new_array(colors.into_iter().map(ColorOrGradient::Color).collect());
-        } else {
-            // Stroke channel exists but this legend is not for stroke - use constant value if available
-            if let Some(color) = helpers::get_constant_color(
-                "stroke",
-                &primary_channel.related_channels,
-                &self.mark_encodings,
-            )
-            .await
-            {
-                legend_config.stroke = ScalarOrArray::new_scalar(color);
-            }
-            // Otherwise keep the default stroke
-        }
-
-        // Stroke width channel - start with default
-        legend_config.stroke_width = Some(default_stroke_width);
-        if channel_name == "shape" {
-            tracing::trace!(stroke_width = default_stroke_width, "Stroke width set");
-        }
-
-        // Stroke width - use constant value if available
-        if let Some(width) = helpers::get_constant_f32(
-            "stroke_width",
-            &primary_channel.related_channels,
-            &self.mark_encodings,
-        )
-        .await
-        {
-            legend_config.stroke_width = Some(width);
-        }
-
-        // Angle channel
-        legend_config.angle = ScalarOrArray::new_scalar(default_angle);
-
-        if channel_name == "angle" {
-            // Angle is the legend channel - map through scale
-            let angles = primary_channel.scale.map_values_numeric(&domain_values)?;
-            legend_config.angle = ScalarOrArray::new_array(angles);
-        } else {
-            // Angle channel exists but this legend is not for angle - use constant value if available
+        if channels.iter().all(|c| c.channel_type != "angle") {
+            // Angle not varying - use constant if available
             if let Some(angle) = helpers::get_constant_f32(
                 "angle",
                 &primary_channel.related_channels,
@@ -369,14 +333,64 @@ impl LegendRenderer for SymbolLegendRenderer {
             {
                 legend_config.angle = ScalarOrArray::new_scalar(angle);
             }
-            // Otherwise keep the default angle
+        }
+
+        if channels.iter().all(|c| c.channel_type != "shape") {
+            // Shape not varying - use constant if available
+            if let Some(shape_str) = helpers::get_constant_string(
+                "shape",
+                &primary_channel.related_channels,
+                &self.mark_encodings,
+            )
+            .await
+            {
+                legend_config.shape = ScalarOrArray::new_scalar(parse_shape(&shape_str)?);
+            }
+        }
+
+        if channels
+            .iter()
+            .all(|c| c.channel_type != "fill" && c.channel_type != "color")
+        {
+            // Fill not varying - use constant if available
+            if let Some(color) = helpers::get_constant_color(
+                "fill",
+                &primary_channel.related_channels,
+                &self.mark_encodings,
+            )
+            .await
+            {
+                legend_config.fill = ScalarOrArray::new_scalar(color);
+            }
+        }
+
+        if channels.iter().all(|c| c.channel_type != "stroke") {
+            // Stroke not varying - use constant if available
+            if let Some(color) = helpers::get_constant_color(
+                "stroke",
+                &primary_channel.related_channels,
+                &self.mark_encodings,
+            )
+            .await
+            {
+                legend_config.stroke = ScalarOrArray::new_scalar(color);
+            }
+        }
+
+        if channels.iter().all(|c| c.channel_type != "size") {
+            // Size not varying - use constant if available
+            if let Some(size_value) = helpers::get_constant_f32(
+                "size",
+                &primary_channel.related_channels,
+                &self.mark_encodings,
+            )
+            .await
+            {
+                legend_config.size = ScalarOrArray::new_scalar(size_value);
+            }
         }
 
         // Create the legend marks
-        if channel_name == "shape" {
-            let sizes = legend_config.size.as_vec(3, None);
-            tracing::trace!(sizes = ?sizes, "Final config.size for shape");
-        }
         let mut legend_group = make_symbol_legend(&legend_config)?;
 
         // Position the legend

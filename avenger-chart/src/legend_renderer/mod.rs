@@ -21,8 +21,36 @@ use std::sync::Arc;
 /// Trait for implementing custom legend renderers
 #[async_trait::async_trait]
 pub trait LegendRenderer: Send + Sync + 'static {
+    /// Get the name of this renderer for debugging
+    fn name(&self) -> &'static str {
+        "UnnamedRenderer"
+    }
+
     /// Check if this renderer can handle the given channels
     fn can_render(&self, channels: &[LegendChannel]) -> bool;
+
+    /// Check if this renderer supports merging these specific channels
+    /// Only called when channels have matching MergeKeys (same expression, same domain)
+    fn supports_merge(&self, channels: &[LegendChannel]) -> bool {
+        // Only called for channels that are already verified to be mergeable
+        // (same expression, same discrete domain, same mark)
+
+        if channels.len() <= 1 {
+            return true; // Single channel is always "mergeable"
+        }
+
+        // Check if this renderer can vary all the channel types
+        let channel_types: std::collections::HashSet<_> =
+            channels.iter().map(|c| c.channel_type.as_str()).collect();
+
+        // All channel types must be in the supported set
+        channel_types.is_subset(&self.supported_merge_channels())
+    }
+
+    /// Return set of channel types this renderer can merge
+    fn supported_merge_channels(&self) -> std::collections::HashSet<&'static str> {
+        std::collections::HashSet::new() // Default: no merging support
+    }
 
     /// Render the legend to scene marks
     async fn render(
@@ -44,6 +72,7 @@ pub struct LegendChannel {
     pub scale: ConfiguredScale,
     pub channel_type: String, // "fill", "stroke", "size", etc.
     pub mark_type: String,    // "point", "line", "rect", etc.
+    pub mark_id: String,      // Unique identifier for the mark instance
     pub related_channels: std::collections::HashMap<String, (Option<Expr>, ConfiguredScale)>, // Other channels from same mark
 }
 
@@ -57,9 +86,46 @@ pub enum DomainType {
 /// Key for identifying mergeable channels
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct MergeKey {
-    pub expression: String, // Normalized expression string
-    pub domain_type: DomainType,
-    pub range_hash: u64, // Hash of the range values for comparison
+    /// Normalized expression (e.g., "col(category)")
+    pub expression: String,
+    /// The actual domain values for exact matching
+    pub domain_values: Vec<ScalarValue>,
+    /// Mark identifier for same-mark merging
+    pub mark_id: String,
+}
+
+impl MergeKey {
+    /// Create a merge key from a legend channel
+    pub fn from_channel(channel: &LegendChannel) -> Option<Self> {
+        use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
+
+        // Only discrete scales can be merged
+        let domain_values = match channel.scale.domain_values().ok()? {
+            DomainValues::Discrete(values) => values,
+            DomainValues::Interval(_, _) => return None, // No merging for continuous
+        };
+
+        // Must have an expression to merge
+        let expression = channel
+            .expression
+            .as_ref()
+            .map(|e| normalize_expression(e))?;
+
+        Some(MergeKey {
+            expression,
+            domain_values,
+            mark_id: channel.mark_id.clone(),
+        })
+    }
+
+    /// Check if two channels are mergeable
+    pub fn is_mergeable(a: &LegendChannel, b: &LegendChannel) -> bool {
+        // Generate keys for both
+        match (Self::from_channel(a), Self::from_channel(b)) {
+            (Some(key_a), Some(key_b)) => key_a == key_b,
+            _ => false,
+        }
+    }
 }
 
 /// Trait for channel configs to declare legend capabilities
