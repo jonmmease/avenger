@@ -282,7 +282,17 @@ impl LegendRenderer for LineLegendRenderer {
             // Find the stroke_dash channel and process it
             if let Some(dash_channel) = channels.iter().find(|c| c.channel_type == "stroke_dash") {
                 // Vary dash pattern based on the dash channel's scale
-                let dash_patterns = dash_channel.scale.map_dash_patterns(&domain_values);
+                let mut dash_patterns = dash_channel.scale.map_dash_patterns(&domain_values);
+
+                // Replace empty patterns (solid lines) with a dash pattern for uniform processing
+                // Use a slightly shorter dash to account for visual alignment with dashed patterns
+                for pattern in dash_patterns.iter_mut() {
+                    if let Some(p) = pattern {
+                        if p.is_empty() {
+                            *p = vec![30.0, 0.0];
+                        }
+                    }
+                }
 
                 tracing::debug!(
                     channel = channel_name.as_str(),
@@ -297,48 +307,127 @@ impl LegendRenderer for LineLegendRenderer {
                 // Now calculate optimal length for each pattern
                 let mut individual_lengths = Vec::new();
 
-                for (i, pattern) in dash_patterns.iter().enumerate() {
-                    let optimal_length = if let Some(pattern) = pattern.as_ref() {
-                        if pattern.is_empty() {
-                            // Solid line - should be exactly the same as max length
-                            max_legend_length
-                        } else {
-                            // Calculate how many complete dash segments fit within max_legend_length
-                            let mut current_pos = 0.0;
-                            let mut last_valid_length = 0.0;
-                            let mut is_dash = true; // Start with a dash segment
-                            let mut pattern_idx = 0;
+                // Calculate cap extension first as we'll need it for determining actual_max_length
+                let cap_extension = if self.stroke_cap == StrokeCap::Round {
+                    default_stroke_width // Add stroke width for rounded caps at both ends
+                } else {
+                    0.0
+                };
 
-                            // Simulate drawing the pattern
-                            while current_pos < max_legend_length {
-                                let segment_length = pattern[pattern_idx];
-                                let next_pos = current_pos + segment_length;
+                let mut actual_max_length_without_caps: f32 = 0.0; // Track the longest dash pattern
 
-                                if next_pos > max_legend_length {
-                                    // This segment would exceed our limit
+                // First pass: calculate lengths for all dash patterns
+                for pattern in dash_patterns.iter() {
+                    if let Some(pattern) = pattern.as_ref() {
+                        // Calculate how many complete dash segments fit within max_legend_length
+                        let mut current_pos = 0.0;
+                        let mut last_valid_length = 0.0;
+                        let mut is_dash = true; // Start with a dash segment
+                        let mut pattern_idx = 0;
+
+                        // Simulate drawing the pattern
+                        // We want to fit complete dash-gap pairs where possible
+                        while current_pos <= max_legend_length {
+                            let segment_length = pattern[pattern_idx];
+                            let next_pos = current_pos + segment_length;
+
+                            if is_dash {
+                                // This is a dash segment
+                                if next_pos <= max_legend_length {
+                                    // Dash fits completely
+                                    last_valid_length = next_pos;
+                                } else {
+                                    // Dash would exceed limit, don't include it
                                     break;
                                 }
-
-                                if is_dash {
-                                    // This is a dash segment - update our valid length
-                                    last_valid_length = next_pos;
+                            } else {
+                                // This is a gap - we include it if the next dash will also fit
+                                // Look ahead to see if there's room for the next dash
+                                let next_pattern_idx = (pattern_idx + 1) % pattern.len();
+                                let next_dash_length = pattern[next_pattern_idx];
+                                if next_pos + next_dash_length > max_legend_length {
+                                    // Next dash won't fit, so stop here
+                                    break;
                                 }
-
-                                current_pos = next_pos;
-                                is_dash = !is_dash;
-                                pattern_idx = (pattern_idx + 1) % pattern.len();
                             }
 
-                            // Make sure we show at least some pattern
-                            if last_valid_length == 0.0 && !pattern.is_empty() {
-                                last_valid_length = pattern[0]; // At least show first dash
-                            }
-
-                            last_valid_length
+                            current_pos = next_pos;
+                            is_dash = !is_dash;
+                            pattern_idx = (pattern_idx + 1) % pattern.len();
                         }
+
+                        // Make sure we show at least some pattern
+                        if last_valid_length == 0.0 {
+                            last_valid_length = pattern[0].min(max_legend_length); // At least show first dash
+                        }
+
+                        actual_max_length_without_caps =
+                            actual_max_length_without_caps.max(last_valid_length);
+                    }
+                }
+
+                // If no dash patterns were found, use the theoretical max
+                if actual_max_length_without_caps == 0.0 {
+                    actual_max_length_without_caps = max_legend_length;
+                }
+
+                tracing::debug!(
+                    actual_max = actual_max_length_without_caps,
+                    theoretical_max = max_legend_length,
+                    cap_extension = cap_extension,
+                    "Calculated actual max length from dash patterns"
+                );
+
+                // Second pass: assign lengths
+                for (i, pattern) in dash_patterns.iter().enumerate() {
+                    let optimal_length = if let Some(pattern) = pattern.as_ref() {
+                        // Calculate how many complete dash segments fit within max_legend_length
+                        // All patterns including [32, 0] for solid lines are processed uniformly
+                        let mut current_pos = 0.0;
+                        let mut last_valid_length = 0.0;
+                        let mut is_dash = true; // Start with a dash segment
+                        let mut pattern_idx = 0;
+
+                        // Simulate drawing the pattern
+                        // We want to fit complete dash-gap pairs where possible
+                        while current_pos <= max_legend_length {
+                            let segment_length = pattern[pattern_idx];
+                            let next_pos = current_pos + segment_length;
+
+                            if is_dash {
+                                // This is a dash segment
+                                if next_pos <= max_legend_length {
+                                    // Dash fits completely
+                                    last_valid_length = next_pos;
+                                } else {
+                                    // Dash would exceed limit, don't include it
+                                    break;
+                                }
+                            } else {
+                                // This is a gap - we include it if the next dash will also fit
+                                // Look ahead to see if there's room for the next dash
+                                let next_pattern_idx = (pattern_idx + 1) % pattern.len();
+                                let next_dash_length = pattern[next_pattern_idx];
+                                if next_pos + next_dash_length > max_legend_length {
+                                    // Next dash won't fit, so stop here
+                                    break;
+                                }
+                            }
+
+                            current_pos = next_pos;
+                            is_dash = !is_dash;
+                            pattern_idx = (pattern_idx + 1) % pattern.len();
+                        }
+
+                        // Make sure we show at least some pattern
+                        if last_valid_length == 0.0 && !pattern.is_empty() {
+                            last_valid_length = pattern[0].min(max_legend_length); // At least show first dash
+                        }
+
+                        last_valid_length
                     } else {
                         // No pattern (solid line)
-                        max_legend_length
+                        actual_max_length_without_caps
                     };
 
                     individual_lengths.push(optimal_length);
@@ -354,14 +443,7 @@ impl LegendRenderer for LineLegendRenderer {
 
                 tracing::trace!(max_legend_length = max_legend_length, "Max legend length");
 
-                // Add some extra for rounded caps if used
-                let cap_extension = if self.stroke_cap == StrokeCap::Round {
-                    default_stroke_width // Add stroke width for rounded caps at both ends
-                } else {
-                    0.0
-                };
-
-                // Set individual lengths for each pattern
+                // Set individual lengths for each pattern (cap_extension already calculated above)
                 legend_config.line_length = ScalarOrArray::new_array(
                     individual_lengths
                         .into_iter()
