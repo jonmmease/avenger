@@ -11,6 +11,8 @@ use std::collections::HashMap;
 use taffy::prelude::*;
 use taffy::{NodeId, TaffyTree};
 
+const OVERFLOW_THRESHOLD: f32 = 2.0;
+
 #[derive(Debug)]
 pub struct ChartLayout {
     taffy: TaffyTree,
@@ -179,17 +181,17 @@ impl ChartLayout {
             builder.add_subtitle();
         }
 
-        // Add overflow regions as needed
-        if overflow.top > 0.0 {
+        // Add overflow regions as needed (only if above threshold)
+        if overflow.top > OVERFLOW_THRESHOLD {
             builder.add_axes_at_position(AxisPosition::Top, 1);
         }
-        if overflow.bottom > 0.0 {
+        if overflow.bottom > OVERFLOW_THRESHOLD {
             builder.add_axes_at_position(AxisPosition::Bottom, 1);
         }
-        if overflow.left > 0.0 {
+        if overflow.left > OVERFLOW_THRESHOLD {
             builder.add_axes_at_position(AxisPosition::Left, 1);
         }
-        if overflow.right > 0.0 {
+        if overflow.right > OVERFLOW_THRESHOLD {
             builder.add_axes_at_position(AxisPosition::Right, 1);
         }
 
@@ -364,7 +366,8 @@ impl ChartLayout {
             }
         }
 
-        if overflow.top > 0.0 {
+        const OVERFLOW_THRESHOLD: f32 = 2.0;
+        if overflow.top > OVERFLOW_THRESHOLD {
             if let Some((row, col)) =
                 self.find_component_position(&ComponentType::Axis(AxisPosition::Top))
             {
@@ -379,7 +382,7 @@ impl ChartLayout {
             }
         }
 
-        if overflow.bottom > 0.0 {
+        if overflow.bottom > OVERFLOW_THRESHOLD {
             if let Some((row, col)) =
                 self.find_component_position(&ComponentType::Axis(AxisPosition::Bottom))
             {
@@ -1534,7 +1537,9 @@ impl GridBuilder {
         let mut col_index = 1;
 
         // Track column index for left overflow
-        let left_overflow_col = if overflow.left > 0.0 {
+        // Only create overflow column if it's more than a minimal threshold
+        const OVERFLOW_THRESHOLD: f32 = 2.0; // Minimum pixels to create an overflow region
+        let left_overflow_col = if overflow.left > OVERFLOW_THRESHOLD {
             cols.push(length(overflow.left)); // Exact overflow size
             let idx = col_index;
             col_index += 1;
@@ -1549,7 +1554,7 @@ impl GridBuilder {
         col_index += 1;
 
         // Track column index for right overflow
-        let right_overflow_col = if overflow.right > 0.0 {
+        let right_overflow_col = if overflow.right > OVERFLOW_THRESHOLD {
             cols.push(length(overflow.right)); // Exact overflow size
             let idx = col_index;
             col_index += 1;
@@ -1609,7 +1614,7 @@ impl GridBuilder {
         }
 
         // Add top overflow space if needed
-        if overflow.top > 0.0 {
+        if overflow.top > OVERFLOW_THRESHOLD {
             rows.push(length(overflow.top)); // Exact overflow size
             component_map.add_component(
                 ComponentType::Axis(AxisPosition::Top),
@@ -1659,7 +1664,7 @@ impl GridBuilder {
         row_index += 1;
 
         // Add bottom overflow space if needed
-        if overflow.bottom > 0.0 {
+        if overflow.bottom > OVERFLOW_THRESHOLD {
             rows.push(length(overflow.bottom)); // Exact overflow size
             component_map.add_component(
                 ComponentType::Axis(AxisPosition::Bottom),
