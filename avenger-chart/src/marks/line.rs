@@ -3,7 +3,7 @@ use crate::channel_configs::{
 };
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
-use crate::marks::{ChannelDefault, ChannelType, MarkState};
+use crate::marks::{ChannelDefault, MarkState};
 use crate::{define_common_mark_channels, impl_mark_base};
 use datafusion::arrow::array::ArrayRef;
 use datafusion::arrow::compute::kernels::cast::cast;
@@ -22,46 +22,38 @@ impl_mark_base!(Line);
 define_common_mark_channels! {
     Line {
         stroke: {
-            type: ChannelType::Color,
             default: ChannelDefault::Scalar(ScalarValue::Utf8(Some("#000000".to_string()))),
             allow_column: true,
-            with_config: ColorChannelConfig
+            with_config: ColorChannelConfig,
         },
         stroke_width: {
-            type: ChannelType::Numeric,
             default: ChannelDefault::Scalar(ScalarValue::Float32(Some(2.0))),
             allow_column: true,
-            with_config: StrokeWidthChannelConfig
+            with_config: StrokeWidthChannelConfig,
         },
         stroke_dash: {
-            type: ChannelType::StrokeDash,
             default: ChannelDefault::Scalar(ScalarValue::Utf8(Some("solid".to_string()))),
             allow_column: true,
-            with_config: StrokeDashChannelConfig
+            with_config: StrokeDashChannelConfig,
         },
         stroke_cap: {
-            type: ChannelType::StrokeCap,
             default: ChannelDefault::Scalar(ScalarValue::Utf8(Some("round".to_string()))),
-            allow_column: false
+            allow_column: false,
         },
         stroke_join: {
-            type: ChannelType::StrokeJoin,
             default: ChannelDefault::Scalar(ScalarValue::Utf8(Some("round".to_string()))),
-            allow_column: false
+            allow_column: false,
         },
         opacity: {
-            type: ChannelType::Numeric,
             default: ChannelDefault::Scalar(ScalarValue::Float32(Some(1.0))),
             allow_column: false,
-            with_config: OpacityChannelConfig
+            with_config: OpacityChannelConfig,
         },
         defined: {
-            type: ChannelType::Boolean,
-            default: ChannelDefault::Scalar(ScalarValue::Boolean(Some(true)))
+            default: ChannelDefault::Scalar(ScalarValue::Boolean(Some(true))),
         },
         order: {
-            type: ChannelType::Numeric,
-            allow_column: true
+            allow_column: true,
         },
     }
 }

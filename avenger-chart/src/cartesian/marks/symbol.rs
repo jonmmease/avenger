@@ -1,7 +1,7 @@
 use crate::cartesian::Cartesian;
 use crate::define_position_channels;
 use crate::impl_mark_trait_common;
-use crate::marks::{ChannelType, Mark, RadiusExpression};
+use crate::marks::{Mark, RadiusExpression};
 use arrow::array::RecordBatch;
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -17,12 +17,10 @@ use crate::utils::ScalarValueHelpers;
 define_position_channels! {
     Symbol<Cartesian> {
         x: {
-            type: ChannelType::Numeric,
-            with_config: crate::cartesian::channels::CartesianPositionConfig
+            with_config: crate::cartesian::channels::CartesianPositionConfig,
         },
         y: {
-            type: ChannelType::Numeric,
-            with_config: crate::cartesian::channels::CartesianPositionConfig
+            with_config: crate::cartesian::channels::CartesianPositionConfig,
         }
     }
 }

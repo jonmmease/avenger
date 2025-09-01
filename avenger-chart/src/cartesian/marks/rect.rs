@@ -1,7 +1,7 @@
 use crate::cartesian::Cartesian;
 use crate::define_position_channels;
 use crate::impl_mark_trait_common;
-use crate::marks::{ChannelType, Mark};
+use crate::marks::Mark;
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
@@ -14,20 +14,16 @@ use crate::marks::util::{coerce_color_channel, coerce_numeric_channel};
 define_position_channels! {
     Rect<Cartesian> {
         x: {
-            type: ChannelType::Numeric,
-            with_config: crate::cartesian::channels::CartesianPositionConfig
+            with_config: crate::cartesian::channels::CartesianPositionConfig,
         },
         x2: {
-            type: ChannelType::Numeric,
-            with_config: crate::cartesian::channels::CartesianPositionConfig
+            with_config: crate::cartesian::channels::CartesianPositionConfig,
         },
         y: {
-            type: ChannelType::Numeric,
-            with_config: crate::cartesian::channels::CartesianPositionConfig
+            with_config: crate::cartesian::channels::CartesianPositionConfig,
         },
         y2: {
-            type: ChannelType::Numeric,
-            with_config: crate::cartesian::channels::CartesianPositionConfig
+            with_config: crate::cartesian::channels::CartesianPositionConfig,
         }
     }
 }

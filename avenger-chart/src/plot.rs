@@ -585,7 +585,7 @@ impl<C: CoordinateSystem> Plot<C> {
                     legend_config,
                     ..
                 } => (scale_config, legend_config),
-                ChannelValue::Identity { .. } => {
+                ChannelValue::Value { .. } => {
                     // No scale or legend for identity mappings
                     continue;
                 }
@@ -770,25 +770,29 @@ impl<C: CoordinateSystem> Plot<C> {
                     if channel_scale_name == scale_name {
                         // Get the expressions - handle conditional values properly
                         match channel_value {
-                            crate::marks::ChannelValue::Scaled { expr, .. } |
-                            crate::marks::ChannelValue::Identity { expr } => {
+                            crate::marks::ChannelValue::Scaled { expr, .. }
+                            | crate::marks::ChannelValue::Value { expr } => {
                                 data_expressions.push((df.clone(), expr.clone()));
                             }
-                            crate::marks::ChannelValue::Conditional { conditions, otherwise, .. } => {
-                                // For conditional values, we need to extract field expressions 
+                            crate::marks::ChannelValue::Conditional {
+                                conditions,
+                                otherwise,
+                                ..
+                            } => {
+                                // For conditional values, we need to extract field expressions
                                 // (not literal values) for domain inference
                                 use crate::marks::channel::ConditionalValue;
-                                
+
                                 // Add field expressions from conditions
                                 for (_, value) in conditions {
-                                    if let ConditionalValue::Field { expr } = value {
+                                    if let ConditionalValue::Scaled { expr } = value {
                                         data_expressions.push((df.clone(), expr.clone()));
                                     }
                                     // Skip ConditionalValue::Value as those are literals
                                 }
-                                
+
                                 // Add field expression from otherwise branch if it's a field
-                                if let ConditionalValue::Field { expr } = otherwise {
+                                if let ConditionalValue::Scaled { expr } = otherwise {
                                     data_expressions.push((df.clone(), expr.clone()));
                                 }
                             }
@@ -817,7 +821,7 @@ impl<C: CoordinateSystem> Plot<C> {
             if let Some(channel_value) = encodings.get(channel_name) {
                 // Apply scaling if needed
                 match channel_value {
-                    ChannelValue::Identity { expr } => {
+                    ChannelValue::Value { expr } => {
                         // No scaling requested
                         expr.clone()
                     }
@@ -928,29 +932,39 @@ impl<C: CoordinateSystem> Plot<C> {
                     if channel_scale_name == scale_name {
                         // Get the position expressions - handle conditional values properly
                         match position_channel_value {
-                            crate::marks::ChannelValue::Scaled { expr, .. } |
-                            crate::marks::ChannelValue::Identity { expr } => {
+                            crate::marks::ChannelValue::Scaled { expr, .. }
+                            | crate::marks::ChannelValue::Value { expr } => {
                                 // Get radius expression from the mark
-                                let radius_expr = mark.radius_expression(scale_name, &resolve_channel);
+                                let radius_expr =
+                                    mark.radius_expression(scale_name, &resolve_channel);
                                 data_expressions.push((df.clone(), expr.clone(), radius_expr));
                             }
-                            crate::marks::ChannelValue::Conditional { conditions, otherwise, .. } => {
+                            crate::marks::ChannelValue::Conditional {
+                                conditions,
+                                otherwise,
+                                ..
+                            } => {
                                 // For conditional values, we need to extract field expressions
                                 use crate::marks::channel::ConditionalValue;
-                                
+
                                 // For radius expressions, we use the mark's radius for all branches
                                 // since radius doesn't vary by condition
-                                let radius_expr = mark.radius_expression(scale_name, &resolve_channel);
-                                
+                                let radius_expr =
+                                    mark.radius_expression(scale_name, &resolve_channel);
+
                                 // Add field expressions from conditions
                                 for (_, value) in conditions {
-                                    if let ConditionalValue::Field { expr } = value {
-                                        data_expressions.push((df.clone(), expr.clone(), radius_expr.clone()));
+                                    if let ConditionalValue::Scaled { expr } = value {
+                                        data_expressions.push((
+                                            df.clone(),
+                                            expr.clone(),
+                                            radius_expr.clone(),
+                                        ));
                                     }
                                 }
-                                
+
                                 // Add field expression from otherwise branch if it's a field
-                                if let ConditionalValue::Field { expr } = otherwise {
+                                if let ConditionalValue::Scaled { expr } = otherwise {
                                     data_expressions.push((df.clone(), expr.clone(), radius_expr));
                                 }
                             }

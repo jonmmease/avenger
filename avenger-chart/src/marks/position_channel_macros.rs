@@ -11,14 +11,10 @@
 /// define_position_channels! {
 ///     Symbol<Cartesian> {
 ///         x: {
-///             type: ChannelType::Numeric,
 ///             with_config: CartesianPositionConfig,
-///             has_axis: true
 ///         },
 ///         y: {
-///             type: ChannelType::Numeric,
 ///             with_config: CartesianPositionConfig,
-///             has_axis: true
 ///         }
 ///     }
 /// }
@@ -29,14 +25,10 @@
 /// define_position_channels! {
 ///     Symbol<Polar> {
 ///         r: {
-///             type: ChannelType::Numeric,
 ///             with_config: PolarPositionConfig,
-///             has_axis: false
 ///         },
 ///         theta: {
-///             type: ChannelType::Numeric,
 ///             with_config: PolarPositionConfig,
-///             has_axis: false
 ///         }
 ///     }
 /// }
@@ -87,10 +79,9 @@ macro_rules! define_position_channels {
         $mark:ident<$coord:ty> {
             $(
                 $name:ident: {
-                    type: $channel_type:expr
-                    $(, default: $default:expr)?
-                    $(, required: $required:expr)?
-                    $(, with_config: $config_type:ty)?
+                    $(default: $default:expr,)?
+                    $(required: $required:expr,)?
+                    $(with_config: $config_type:ty,)?
                 }
             ),* $(,)?
         }
@@ -118,7 +109,6 @@ macro_rules! define_position_channels {
                         $crate::marks::ChannelDescriptor {
                             name: stringify!($name),
                             required: false $(|| $required)?,
-                            channel_type: $channel_type,
                             default_value: None $(.or(Some($default)))?,
                             allow_column_ref: true,
                         },

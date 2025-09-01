@@ -1,7 +1,7 @@
 use crate::define_position_channels;
 use crate::error::AvengerChartError;
 use crate::impl_mark_trait_common;
-use crate::marks::{ChannelType, Mark, RadiusExpression};
+use crate::marks::{Mark, RadiusExpression};
 
 use crate::polar::Polar;
 use crate::utils::ScalarValueHelpers;
@@ -18,12 +18,10 @@ use crate::marks::symbol::Symbol;
 define_position_channels! {
     Symbol<Polar> {
         r: {
-            type: ChannelType::Numeric,
-            with_config: crate::polar::channels::PolarPositionConfig
+            with_config: crate::polar::channels::PolarPositionConfig,
         },
         theta: {
-            type: ChannelType::Numeric,
-            with_config: crate::polar::channels::PolarPositionConfig
+            with_config: crate::polar::channels::PolarPositionConfig,
         }
     }
 }

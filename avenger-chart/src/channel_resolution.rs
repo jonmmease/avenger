@@ -87,6 +87,10 @@ pub enum ChannelResolutionError {
         referenced_by: String,
         available_channels: Vec<String>,
     },
+    ConditionalChannelReference {
+        channel: String,
+        referenced_by: String,
+    },
 }
 
 impl std::fmt::Display for ChannelResolutionError {
@@ -143,6 +147,22 @@ impl std::fmt::Display for ChannelResolutionError {
                 }
 
                 write!(f, "{}", msg)
+            }
+            ChannelResolutionError::ConditionalChannelReference {
+                channel,
+                referenced_by,
+            } => {
+                write!(
+                    f,
+                    "Cannot reference conditional channel '{}' from '{}'\n\n\
+                     Channel '{}' uses conditional encoding (when_value/when_scaled), \
+                     which cannot be referenced by other channels.\n\n\
+                     To fix this:\n\
+                     • Use a direct data expression instead of referencing '{}'\n\
+                     • Extract the common expression to a variable\n\
+                     • Consider using a non-conditional channel for the shared value",
+                    channel, referenced_by, channel, channel
+                )
             }
         }
     }
@@ -220,7 +240,7 @@ fn validate_channel_refs(
             });
         }
 
-        // Check for undefined channels
+        // Check for undefined channels and conditional references
         for ref_name in &refs {
             // Check for empty channel name (e.g., from col(":"))
             if ref_name.is_empty() {
@@ -231,7 +251,15 @@ fn validate_channel_refs(
                 });
             }
 
-            if !channels.contains_key(ref_name) {
+            if let Some(referenced_channel) = channels.get(ref_name) {
+                // Check if the referenced channel is conditional
+                if matches!(referenced_channel, ChannelValue::Conditional { .. }) {
+                    return Err(ChannelResolutionError::ConditionalChannelReference {
+                        channel: ref_name.clone(),
+                        referenced_by: name.clone(),
+                    });
+                }
+            } else {
                 let available_channels: Vec<String> = channels.keys().cloned().collect();
                 return Err(ChannelResolutionError::UndefinedChannel {
                     channel: ref_name.clone(),
@@ -484,9 +512,9 @@ pub fn resolve_all_channel_refs(
                         legend_config: legend_config.clone(),
                     }
                 }
-                ChannelValue::Identity { expr } => {
+                ChannelValue::Value { expr } => {
                     let resolved_expr = resolve_channel_refs(expr.clone(), &resolved_channels);
-                    ChannelValue::Identity {
+                    ChannelValue::Value {
                         expr: resolved_expr,
                     }
                 }
@@ -505,7 +533,7 @@ pub fn resolve_all_channel_refs(
                             let resolved_test =
                                 resolve_channel_refs(test.clone(), &resolved_channels);
                             let resolved_value = match value {
-                                ConditionalValue::Field { expr } => ConditionalValue::Field {
+                                ConditionalValue::Scaled { expr } => ConditionalValue::Scaled {
                                     expr: resolve_channel_refs(expr.clone(), &resolved_channels),
                                 },
                                 ConditionalValue::Value { expr } => ConditionalValue::Value {
@@ -517,7 +545,7 @@ pub fn resolve_all_channel_refs(
                         .collect();
 
                     let resolved_otherwise = match otherwise {
-                        ConditionalValue::Field { expr } => ConditionalValue::Field {
+                        ConditionalValue::Scaled { expr } => ConditionalValue::Scaled {
                             expr: resolve_channel_refs(expr.clone(), &resolved_channels),
                         },
                         ConditionalValue::Value { expr } => ConditionalValue::Value {
@@ -796,13 +824,10 @@ mod tests {
     #[test]
     fn test_identity_channel_preservation() {
         let mut channels = IndexMap::new();
-        channels.insert(
-            "x".to_string(),
-            ChannelValue::Identity { expr: col("value") },
-        );
+        channels.insert("x".to_string(), ChannelValue::Value { expr: col("value") });
         channels.insert(
             "y".to_string(),
-            ChannelValue::Identity {
+            ChannelValue::Value {
                 expr: col(":x") * lit(2.0),
             },
         );
@@ -812,11 +837,11 @@ mod tests {
         // Both should remain Identity variants
         assert!(matches!(
             resolved.get("x").unwrap(),
-            ChannelValue::Identity { .. }
+            ChannelValue::Value { .. }
         ));
         assert!(matches!(
             resolved.get("y").unwrap(),
-            ChannelValue::Identity { .. }
+            ChannelValue::Value { .. }
         ));
 
         // y should have :x resolved
