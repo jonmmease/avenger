@@ -118,10 +118,13 @@ impl ScaleSpec for Sqrt {
     fn name() -> &'static str {
         "sqrt"
     }
-    
+
     fn default_options() -> HashMap<String, avenger_scales::scalar::Scalar> {
         let mut options = HashMap::new();
-        options.insert("exponent".to_string(), avenger_scales::scalar::Scalar::from(0.5_f32));
+        options.insert(
+            "exponent".to_string(),
+            avenger_scales::scalar::Scalar::from(0.5_f32),
+        );
         options
     }
 }
@@ -232,9 +235,12 @@ mod tests {
     fn test_sqrt_scale_default_options() {
         // Test that Sqrt scale has exponent = 0.5 as default
         let options = Sqrt::default_options();
-        
-        assert!(options.contains_key("exponent"), "Sqrt scale should have exponent option");
-        
+
+        assert!(
+            options.contains_key("exponent"),
+            "Sqrt scale should have exponent option"
+        );
+
         let exponent = options.get("exponent").unwrap();
         assert_eq!(
             exponent.as_f32().unwrap(),
@@ -247,6 +253,9 @@ mod tests {
     fn test_linear_scale_default_options() {
         // Test that Linear scale has no default options
         let options = Linear::default_options();
-        assert!(options.is_empty(), "Linear scale should have no default options");
+        assert!(
+            options.is_empty(),
+            "Linear scale should have no default options"
+        );
     }
 }
