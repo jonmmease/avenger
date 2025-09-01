@@ -1,6 +1,6 @@
 use crate::coords::CoordinateSystem;
 use crate::legend::Legend;
-use crate::marks::{Mark, RadiusExpression};
+use crate::marks::{ChannelValue, Mark, RadiusExpression};
 use crate::scales::{Auto, Ordinal, Scale};
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::lit;
@@ -451,16 +451,8 @@ impl<C: CoordinateSystem> Plot<C> {
         for mark in &self.marks {
             if let Some(channel_value) = mark.data_context().channels().get(channel) {
                 // Get the dataframe for this mark
-                let df = match mark.data_source() {
-                    crate::marks::DataSource::Explicit => mark.data_context().dataframe(),
-                    crate::marks::DataSource::Inherited => {
-                        if let Some(plot_df) = &self.data {
-                            Some(plot_df)
-                        } else {
-                            continue;
-                        }
-                    }
-                };
+                // Use mark's explicit data if available, otherwise inherit from plot
+                let df = mark.data_context().dataframe().or(self.data.as_ref());
 
                 // Try to get the data type of the expression
                 if let Some(df) = df {
@@ -733,34 +725,53 @@ impl<C: CoordinateSystem> Plot<C> {
         Vec<(Arc<DataFrame>, datafusion::logical_expr::Expr)>,
         crate::error::AvengerChartError,
     > {
-        use crate::marks::DataSource;
-
         let mut data_expressions = Vec::new();
 
         for mark in &self.marks {
-            // Get the appropriate DataFrame based on data source
-            let df = match mark.data_source() {
-                DataSource::Explicit => {
-                    if let Some(df) = mark.data_context().dataframe() {
-                        Arc::new(df.clone())
-                    } else {
-                        continue;
-                    }
-                }
-                DataSource::Inherited => {
-                    // Use plot-level data if available
-                    if let Some(plot_data) = &self.data {
-                        Arc::new(plot_data.clone())
-                    } else {
-                        // Skip this mark if no plot data is available
-                        continue;
-                    }
-                }
-            };
-
-            // Get channels and resolve channel references
+            // Get channels and resolve references first to check if columns are referenced
             let channels = mark.data_context().channels();
             let resolved_channels = crate::channel_resolution::resolve_all_channel_refs(channels)?;
+
+            // Check if any expressions reference columns
+            let references_columns =
+                resolved_channels
+                    .values()
+                    .any(|channel_value| match channel_value {
+                        ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
+                            crate::scales::validation::expr_references_columns(expr)
+                        }
+                        ChannelValue::Conditional {
+                            conditions,
+                            otherwise,
+                            ..
+                        } => {
+                            conditions.iter().any(|(condition, value)| {
+                                crate::scales::validation::expr_references_columns(condition)
+                                    || crate::scales::validation::expr_references_columns(
+                                        value.expr(),
+                                    )
+                            }) || crate::scales::validation::expr_references_columns(
+                                otherwise.expr(),
+                            )
+                        }
+                    });
+
+            // Determine DataFrame for this mark
+            let df = if let Some(mark_df) = mark.data_context().dataframe() {
+                // Mark has explicit data
+                Arc::new(mark_df.clone())
+            } else if !references_columns {
+                // No column references - skip domain inference for unit marks
+                continue;
+            } else if let Some(plot_data) = &self.data {
+                // Inherit from plot
+                Arc::new(plot_data.clone())
+            } else {
+                // No data available - skip this mark
+                continue;
+            };
+
+            // Already resolved channels above
 
             // Check all encodings in the mark's data context
             for (channel, channel_value) in &resolved_channels {
@@ -879,8 +890,6 @@ impl<C: CoordinateSystem> Plot<C> {
         scale_name: &str,
         configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
     ) -> Result<ScaleDomainWithRadius, crate::error::AvengerChartError> {
-        use crate::marks::DataSource;
-
         let mut data_expressions = Vec::new();
 
         // Only gather radius for positional scales (including x2, y2 which map to x, y scales)
@@ -894,30 +903,49 @@ impl<C: CoordinateSystem> Plot<C> {
         }
 
         for mark in &self.marks {
-            // Get the appropriate DataFrame based on data source
-            let df = match mark.data_source() {
-                DataSource::Explicit => {
-                    if let Some(df) = mark.data_context().dataframe() {
-                        Arc::new(df.clone())
-                    } else {
-                        continue;
-                    }
-                }
-                DataSource::Inherited => {
-                    // Use plot-level data if available
-                    if let Some(plot_data) = &self.data {
-                        Arc::new(plot_data.clone())
-                    } else {
-                        // Skip this mark if no plot data is available
-                        continue;
-                    }
-                }
-            };
-
-            // Get channels and resolve channel references
+            // Get channels and resolve references first
             let encodings = mark.data_context().channels();
             let resolved_encodings =
                 crate::channel_resolution::resolve_all_channel_refs(encodings)?;
+
+            // Check if any expressions reference columns
+            let references_columns =
+                resolved_encodings
+                    .values()
+                    .any(|channel_value| match channel_value {
+                        ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
+                            crate::scales::validation::expr_references_columns(expr)
+                        }
+                        ChannelValue::Conditional {
+                            conditions,
+                            otherwise,
+                            ..
+                        } => {
+                            conditions.iter().any(|(condition, value)| {
+                                crate::scales::validation::expr_references_columns(condition)
+                                    || crate::scales::validation::expr_references_columns(
+                                        value.expr(),
+                                    )
+                            }) || crate::scales::validation::expr_references_columns(
+                                otherwise.expr(),
+                            )
+                        }
+                    });
+
+            // Determine DataFrame for this mark
+            let df = if let Some(mark_df) = mark.data_context().dataframe() {
+                // Mark has explicit data
+                Arc::new(mark_df.clone())
+            } else if !references_columns {
+                // No column references - skip domain inference for unit marks
+                continue;
+            } else if let Some(plot_data) = &self.data {
+                // Inherit from plot
+                Arc::new(plot_data.clone())
+            } else {
+                // No data available - skip this mark
+                continue;
+            };
 
             // Create channel resolver for this mark (uses configured non-positional scales)
             let resolve_channel = Self::create_channel_resolver(

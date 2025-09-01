@@ -7,34 +7,47 @@ use avenger_chart::prelude::*;
 async fn test_simple_bar_chart() {
     let df = datasets::simple_categories();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
-        Rect::new()
-            .x_with(col("category"), |c| {
-                c.scale_with::<Band>(|s| {
-                    s.domain_discrete(vec![
-                        lit("A"),
-                        lit("B"),
-                        lit("C"),
-                        lit("D"),
-                        lit("E"),
-                        lit("F"),
-                        lit("G"),
-                        lit("H"),
-                        lit("I"),
-                    ])
+    let plot = Plot::<Cartesian>::new()
+        .data(df)
+        .mark(
+            Rect::new()
+                .x_with(col("category"), |c| {
+                    c.scale_with::<Band>(|s| {
+                        s.domain_discrete(vec![
+                            lit("A"),
+                            lit("B"),
+                            lit("C"),
+                            lit("D"),
+                            lit("E"),
+                            lit("F"),
+                            lit("G"),
+                            lit("H"),
+                            lit("I"),
+                        ])
+                    })
+                    .axis(|a| a.title("Category").grid(false))
                 })
-                .axis(|a| a.title("Category").grid(false))
-            })
-            .x2_with(col(":x"), |c| c.band(1.0))
-            .y_with(lit(0.0), |c| {
-                c.scale(|s| s.domain((0.0, 100.0)))
-                    .axis(|a| a.title("Value").grid(true))
-            })
-            .y2(col("value"))
-            .fill("#4682b4")
-            .stroke("#000000")
-            .stroke_width(1.0),
-    );
+                .x2_with(col(":x"), |c| c.band(1.0))
+                .y_with(lit(0.0), |c| {
+                    c.scale(|s| s.domain((0.0, 100.0)))
+                        .axis(|a| a.title("Value").grid(true))
+                })
+                .y2(col("value"))
+                .fill("#4682b4")
+                .stroke("#000000")
+                .stroke_width(1.0),
+        )
+        .mark(
+            // Add a horizontal rule at y=50 using Unit data source (the default)
+            Rect::new()
+                .x(0.0)
+                .x2(1.0)
+                .y(50.0)
+                .y2(50.0)
+                .stroke("#ff0000")
+                .stroke_width(2.0)
+                .opacity(0.7),
+        );
 
     assert_visual_match_default(plot, "bar", "simple_bar_chart").await;
 }

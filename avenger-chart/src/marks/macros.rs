@@ -9,7 +9,6 @@ macro_rules! impl_mark_base {
                     state: $crate::marks::MarkState {
                         _phantom: std::marker::PhantomData,
                         data: $crate::marks::DataContext::default(),
-                        data_source: $crate::marks::DataSource::Inherited,
                         facet_strategy: $crate::marks::FacetStrategy::Filter,
                         details: None,
                         zindex: None,
@@ -29,13 +28,6 @@ macro_rules! impl_mark_base {
             /// Set explicit data for this mark
             pub fn data(mut self, dataframe: datafusion::dataframe::DataFrame) -> Self {
                 self.state.data = $crate::marks::DataContext::new(dataframe);
-                self.state.data_source = $crate::marks::DataSource::Explicit;
-                self
-            }
-
-            /// Explicitly inherit data from the plot
-            pub fn use_plot_data(mut self) -> Self {
-                self.state.data_source = $crate::marks::DataSource::Inherited;
                 self
             }
 
@@ -77,12 +69,6 @@ macro_rules! impl_mark_base {
                 &self.state.data
             }
 
-            /// Get the data source
-            #[inline]
-            pub fn get_data_source(&self) -> $crate::marks::DataSource {
-                self.state.data_source.clone()
-            }
-
             /// Set a channel value (for use by macros)
             #[doc(hidden)]
             pub fn with_channel_value(
@@ -118,10 +104,6 @@ macro_rules! impl_mark_trait_common {
 
         fn data_context(&self) -> &$crate::marks::DataContext {
             self.get_data_context()
-        }
-
-        fn data_source(&self) -> $crate::marks::DataSource {
-            self.get_data_source()
         }
 
         fn mark_type(&self) -> &str {
