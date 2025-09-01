@@ -12,6 +12,7 @@ use taffy::prelude::*;
 use taffy::{NodeId, TaffyTree};
 
 const OVERFLOW_THRESHOLD: f32 = 2.0;
+const EDGE_MARGIN: f32 = 10.0;
 
 #[derive(Debug)]
 pub struct ChartLayout {
@@ -1525,8 +1526,6 @@ impl GridBuilder {
         subtitle: Option<&PlotSubtitle>,
     ) -> Result<(GridTemplate, ComponentGridMap), AvengerChartError> {
         // Use edge margins from constants to ensure consistent padding
-        use crate::constants::EDGE_MARGIN;
-
         let mut cols = Vec::new();
         let mut rows = Vec::new();
         let mut component_map = ComponentGridMap::new();

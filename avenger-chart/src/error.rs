@@ -37,9 +37,6 @@ pub enum AvengerChartError {
     #[error("Non-constant channel: `{0}`")]
     NonConstantChannel(String),
 
-    #[error("Missing required channel: `{0}`")]
-    MissingRequiredChannel(String),
-
     #[error("SceneGraph error: `{0}`")]
     SceneGraphError(#[from] AvengerSceneGraphError),
 
