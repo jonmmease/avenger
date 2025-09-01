@@ -261,7 +261,6 @@ pub trait ScalarValueHelpers {
     fn as_f32x2(&self) -> Result<[f32; 2], DataFusionError>;
     fn as_f64x2(&self) -> Result<[f64; 2], DataFusionError>;
     fn as_scalar_string(&self) -> Result<String, DataFusionError>;
-    fn negate(&self) -> Self;
     fn as_scale_scalar(&self) -> Result<Scalar, DataFusionError>;
 }
 
@@ -339,23 +338,7 @@ impl ScalarValueHelpers for ScalarValue {
             }
         })
     }
-
-    fn negate(&self) -> Self {
-        match self {
-            ScalarValue::Float32(Some(e)) => ScalarValue::Float32(Some(-*e)),
-            ScalarValue::Float64(Some(e)) => ScalarValue::Float64(Some(-*e)),
-            ScalarValue::Int8(Some(e)) => ScalarValue::Int8(Some(-*e)),
-            ScalarValue::Int16(Some(e)) => ScalarValue::Int16(Some(-*e)),
-            ScalarValue::Int32(Some(e)) => ScalarValue::Int32(Some(-*e)),
-            ScalarValue::Int64(Some(e)) => ScalarValue::Int64(Some(-*e)),
-            ScalarValue::UInt8(Some(e)) => ScalarValue::Int16(Some(-(*e as i16))),
-            ScalarValue::UInt16(Some(e)) => ScalarValue::Int32(Some(-(*e as i32))),
-            ScalarValue::UInt32(Some(e)) => ScalarValue::Int64(Some(-(*e as i64))),
-            ScalarValue::UInt64(Some(e)) => ScalarValue::Int64(Some(-(*e as i64))),
-            _ => self.clone(),
-        }
-    }
-
+    
     fn as_scale_scalar(&self) -> Result<Scalar, DataFusionError> {
         let scalar = match self {
             Self::Float64(Some(v)) => Scalar::from_f32(*v as f32),
