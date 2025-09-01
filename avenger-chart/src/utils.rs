@@ -567,3 +567,20 @@ mod tests {
         }
     }
 }
+
+/// Convert avenger_scales::scalar::Scalar to datafusion::scalar::ScalarValue
+pub fn scalar_to_scalar_value(scalar: &Scalar) -> ScalarValue {
+    // Try each conversion in order of most likely types
+    if let Ok(b) = scalar.as_boolean() {
+        ScalarValue::Boolean(Some(b))
+    } else if let Ok(f) = scalar.as_f32() {
+        ScalarValue::Float32(Some(f))
+    } else if let Ok(i) = scalar.as_i32() {
+        ScalarValue::Int32(Some(i))
+    } else if let Ok(s) = scalar.as_string() {
+        ScalarValue::Utf8(Some(s))
+    } else {
+        // If none of the conversions work, return Null
+        ScalarValue::Null
+    }
+}

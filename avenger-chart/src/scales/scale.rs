@@ -5,7 +5,7 @@ use crate::scales::domain::{DomainExpr, ScaleDefaultDomain, ScaleDomain};
 use crate::scales::domain_inference::DomainInferrer;
 use crate::scales::range::ScaleRange;
 use crate::scales::spec::*;
-use crate::utils::{ScalarValueHelpers, eval_to_scalars};
+use crate::utils::{ScalarValueHelpers, eval_to_scalars, scalar_to_scalar_value};
 use avenger_scales::scales::ScaleImpl;
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::{Expr, lit};
@@ -14,6 +14,16 @@ use palette::Srgba;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
+
+/// Helper to infer default domain from scale implementation
+fn infer_default_domain(scale_impl: &Arc<dyn ScaleImpl>) -> ScaleDomain {
+    use avenger_scales::scales::InferDomainFromDataMethod;
+    match scale_impl.infer_domain_from_data_method() {
+        InferDomainFromDataMethod::Unique => ScaleDomain::new_discrete(vec![]),
+        InferDomainFromDataMethod::Interval => ScaleDomain::new_interval(lit(0.0), lit(1.0)),
+        InferDomainFromDataMethod::All => ScaleDomain::new_discrete(vec![]), // Treat All as discrete
+    }
+}
 
 /// Type-safe scale with compile-time method resolution
 #[derive(Debug, Clone)]
@@ -36,15 +46,7 @@ impl<S: ScaleSpec> Scale<S> {
     /// Create a new scale of this type
     pub fn new() -> Self {
         let scale_impl = S::create_impl();
-
-        // Use the scale's domain inference method to determine domain type
-        // This is more extensible than hard-coding scale names
-        use avenger_scales::scales::InferDomainFromDataMethod;
-        let domain = match scale_impl.infer_domain_from_data_method() {
-            InferDomainFromDataMethod::Unique => ScaleDomain::new_discrete(vec![]),
-            InferDomainFromDataMethod::Interval => ScaleDomain::new_interval(lit(0.0), lit(1.0)),
-            InferDomainFromDataMethod::All => ScaleDomain::new_discrete(vec![]), // Treat All as discrete
-        };
+        let domain = infer_default_domain(&scale_impl);
 
         // Get default options from both the scale implementation and specification
         // Start with implementation defaults, then override with spec defaults
@@ -55,17 +57,7 @@ impl<S: ScaleSpec> Scale<S> {
 
         // Convert Scalar values to Expr values
         for (key, scalar) in default_options {
-            let scalar_value = if let Ok(b) = scalar.as_boolean() {
-                ScalarValue::Boolean(Some(b))
-            } else if let Ok(f) = scalar.as_f32() {
-                ScalarValue::Float32(Some(f))
-            } else if let Ok(i) = scalar.as_i32() {
-                ScalarValue::Int32(Some(i))
-            } else if let Ok(s) = scalar.as_string() {
-                ScalarValue::Utf8(Some(s))
-            } else {
-                ScalarValue::Null
-            };
+            let scalar_value = scalar_to_scalar_value(&scalar);
             options.insert(key, lit(scalar_value));
         }
 
@@ -207,22 +199,12 @@ impl<S: ScaleSpec> Scale<S> {
             // User can override these with the builder methods
             let mut default_options = scale_impl.default_options();
             default_options.extend(T::default_options());
-            
+
             let mut new_options = HashMap::new();
 
             // Convert Scalar values to Expr values
             for (key, scalar) in default_options {
-                let scalar_value = if let Ok(b) = scalar.as_boolean() {
-                    ScalarValue::Boolean(Some(b))
-                } else if let Ok(f) = scalar.as_f32() {
-                    ScalarValue::Float32(Some(f))
-                } else if let Ok(i) = scalar.as_i32() {
-                    ScalarValue::Int32(Some(i))
-                } else if let Ok(s) = scalar.as_string() {
-                    ScalarValue::Utf8(Some(s))
-                } else {
-                    ScalarValue::Null
-                };
+                let scalar_value = scalar_to_scalar_value(&scalar);
                 new_options.insert(key, lit(scalar_value));
             }
             new_options
@@ -677,14 +659,7 @@ impl Scale<Auto> {
 
     /// Create a scale from a dynamic ScaleImpl (used when type is not known at compile time)
     pub fn from_impl(scale_impl: Arc<dyn ScaleImpl>) -> Self {
-        // Use the scale's domain inference method to determine domain type
-        // This is more extensible than hard-coding scale names
-        use avenger_scales::scales::InferDomainFromDataMethod;
-        let domain = match scale_impl.infer_domain_from_data_method() {
-            InferDomainFromDataMethod::Unique => ScaleDomain::new_discrete(vec![]),
-            InferDomainFromDataMethod::Interval => ScaleDomain::new_interval(lit(0.0), lit(1.0)),
-            InferDomainFromDataMethod::All => ScaleDomain::new_discrete(vec![]), // Treat All as discrete
-        };
+        let domain = infer_default_domain(&scale_impl);
 
         // Get default options from the scale implementation
         let default_options = scale_impl.default_options();
@@ -692,17 +667,7 @@ impl Scale<Auto> {
 
         // Convert Scalar values to Expr values
         for (key, scalar) in default_options {
-            let scalar_value = if let Ok(b) = scalar.as_boolean() {
-                ScalarValue::Boolean(Some(b))
-            } else if let Ok(f) = scalar.as_f32() {
-                ScalarValue::Float32(Some(f))
-            } else if let Ok(i) = scalar.as_i32() {
-                ScalarValue::Int32(Some(i))
-            } else if let Ok(s) = scalar.as_string() {
-                ScalarValue::Utf8(Some(s))
-            } else {
-                ScalarValue::Null
-            };
+            let scalar_value = scalar_to_scalar_value(&scalar);
             options.insert(key, lit(scalar_value));
         }
 
