@@ -1,8 +1,4 @@
-use avenger_chart::cartesian::Cartesian;
-use avenger_chart::legend::LegendPosition;
-use avenger_chart::marks::symbol::Symbol;
-use avenger_chart::plot::Plot;
-use datafusion::prelude::{col, lit};
+use avenger_chart::prelude::*;
 
 #[test]
 fn test_symbol_with_typed_legend() {

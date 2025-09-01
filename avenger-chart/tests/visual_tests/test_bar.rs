@@ -1,10 +1,6 @@
 use super::datasets;
 use super::helpers::assert_visual_match_default;
-use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::rect::Rect;
-use avenger_chart::plot::Plot;
-use avenger_chart::scales::Band;
-use datafusion::logical_expr::{col, lit};
+use avenger_chart::prelude::*;
 // Visual tests for bar charts
 
 #[tokio::test]

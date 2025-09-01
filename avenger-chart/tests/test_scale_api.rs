@@ -1,9 +1,5 @@
 // Test that the new scale API works correctly
-use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::rect::Rect;
-use avenger_chart::plot::Plot;
-use avenger_chart::scales::{Band, Linear};
-use datafusion::logical_expr::{col, lit};
+use avenger_chart::prelude::*;
 use palette::rgb::Srgba;
 
 #[test]

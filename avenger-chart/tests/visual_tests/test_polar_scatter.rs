@@ -1,8 +1,5 @@
 use super::helpers::assert_visual_match_default;
-use avenger_chart::marks::symbol::Symbol;
-use avenger_chart::plot::Plot;
-use avenger_chart::polar::Polar;
-use avenger_chart::scales::Linear;
+use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;

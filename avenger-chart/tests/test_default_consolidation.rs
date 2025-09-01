@@ -1,8 +1,6 @@
 //! Test that verifies mark default values are consistently used
 
-use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::Mark;
-use avenger_chart::marks::symbol::Symbol;
+use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 use datafusion::scalar::ScalarValue;
 use std::sync::Arc;

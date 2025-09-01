@@ -4,25 +4,24 @@ use std::sync::Arc;
 
 /// Base trait for legend builders - just for common functionality
 /// Each concrete builder implements this for shared methods
-pub trait LegendBuilder {
+pub trait LegendBuilder: Sized {
     /// Get mutable access to the inner legend
     fn legend_mut(&mut self) -> &mut Legend;
 
     /// Build the final legend
     fn build(self) -> Legend;
+
+    /// Set visibility - available on all legend builders
+    fn visible(mut self, visible: bool) -> Self {
+        self.legend_mut().visible = visible;
+        self
+    }
 }
 
 // Concrete builder for color channels (fill, stroke)
+#[derive(Default)]
 pub struct ColorLegendBuilder {
     legend: Legend,
-}
-
-impl Default for ColorLegendBuilder {
-    fn default() -> Self {
-        Self {
-            legend: Legend::default(),
-        }
-    }
 }
 
 impl ColorLegendBuilder {
@@ -126,16 +125,9 @@ impl LegendBuilder for ColorLegendBuilder {
 }
 
 // Concrete builder for size channels
+#[derive(Default)]
 pub struct SizeLegendBuilder {
     legend: Legend,
-}
-
-impl Default for SizeLegendBuilder {
-    fn default() -> Self {
-        Self {
-            legend: Legend::default(),
-        }
-    }
 }
 
 impl SizeLegendBuilder {
@@ -209,16 +201,9 @@ impl LegendBuilder for SizeLegendBuilder {
 }
 
 // Concrete builder for shape channels
+#[derive(Default)]
 pub struct ShapeLegendBuilder {
     legend: Legend,
-}
-
-impl Default for ShapeLegendBuilder {
-    fn default() -> Self {
-        Self {
-            legend: Legend::default(),
-        }
-    }
 }
 
 impl ShapeLegendBuilder {
@@ -287,16 +272,9 @@ impl LegendBuilder for ShapeLegendBuilder {
 }
 
 // Concrete builder for opacity channels
+#[derive(Default)]
 pub struct OpacityLegendBuilder {
     legend: Legend,
-}
-
-impl Default for OpacityLegendBuilder {
-    fn default() -> Self {
-        Self {
-            legend: Legend::default(),
-        }
-    }
 }
 
 impl OpacityLegendBuilder {
@@ -370,16 +348,9 @@ impl LegendBuilder for OpacityLegendBuilder {
 }
 
 // Concrete builder for angle channels
+#[derive(Default)]
 pub struct AngleLegendBuilder {
     legend: Legend,
-}
-
-impl Default for AngleLegendBuilder {
-    fn default() -> Self {
-        Self {
-            legend: Legend::default(),
-        }
-    }
 }
 
 impl AngleLegendBuilder {
@@ -448,16 +419,9 @@ impl LegendBuilder for AngleLegendBuilder {
 }
 
 // Concrete builder for stroke width channels
+#[derive(Default)]
 pub struct StrokeWidthLegendBuilder {
     legend: Legend,
-}
-
-impl Default for StrokeWidthLegendBuilder {
-    fn default() -> Self {
-        Self {
-            legend: Legend::default(),
-        }
-    }
 }
 
 impl StrokeWidthLegendBuilder {
@@ -526,16 +490,9 @@ impl LegendBuilder for StrokeWidthLegendBuilder {
 }
 
 // Concrete builder for stroke dash channels
+#[derive(Default)]
 pub struct StrokeDashLegendBuilder {
     legend: Legend,
-}
-
-impl Default for StrokeDashLegendBuilder {
-    fn default() -> Self {
-        Self {
-            legend: Legend::default(),
-        }
-    }
 }
 
 impl StrokeDashLegendBuilder {

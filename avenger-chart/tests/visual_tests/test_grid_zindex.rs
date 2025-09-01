@@ -1,9 +1,6 @@
 use super::helpers::assert_visual_match_default;
-use avenger_chart::cartesian::Cartesian;
+use avenger_chart::prelude::*;
 
-use avenger_chart::marks::rect::Rect;
-use avenger_chart::plot::Plot;
-use avenger_chart::scales::Linear;
 use datafusion::prelude::*;
 // Visual tests for grid line z-index behavior
 

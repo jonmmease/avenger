@@ -1,8 +1,6 @@
 //! Test channel reference resolution in expressions
 
-use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::Mark;
-use avenger_chart::marks::line::Line;
+use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
 #[test]

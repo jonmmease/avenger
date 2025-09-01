@@ -1,8 +1,6 @@
+use avenger_chart::prelude::*;
 // Visual tests for data domain inference
 
-use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::rect::Rect;
-use avenger_chart::plot::Plot;
 use datafusion::prelude::*;
 
 use super::helpers::assert_visual_match;

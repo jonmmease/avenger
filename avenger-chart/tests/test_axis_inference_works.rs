@@ -1,7 +1,4 @@
-use avenger_chart::axis::AxisPosition;
-use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::symbol::Symbol;
-use avenger_chart::plot::Plot;
+use avenger_chart::prelude::*;
 
 #[test]
 fn test_cartesian_axis_inference_works() {

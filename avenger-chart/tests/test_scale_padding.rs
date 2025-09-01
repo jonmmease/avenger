@@ -1,4 +1,4 @@
-use avenger_chart::scales::{Linear, Scale};
+use avenger_chart::prelude::*;
 use datafusion::logical_expr::lit;
 
 #[test]

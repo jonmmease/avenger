@@ -1,14 +1,10 @@
+use avenger_chart::prelude::*;
 // Visual tests for symbol padding calculation
 
 use super::helpers::assert_visual_match_default;
-use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::symbol::Symbol;
-use avenger_chart::plot::Plot;
-use avenger_chart::scales::Linear;
 use datafusion::arrow::array::{Float32Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::col;
 use datafusion::prelude::*;
 use std::sync::Arc;

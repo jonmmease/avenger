@@ -202,14 +202,16 @@ fn validate_channel_refs(
     channels: &IndexMap<String, ChannelValue>,
 ) -> Result<(), ChannelResolutionError> {
     for (name, value) in channels {
-        // Skip conditional values for now - they need special handling
-        let expr = if let Some(e) = value.expr() {
-            e
-        } else {
-            continue;
-        };
+        // Get all expressions from the channel value (handles conditionals too)
+        let exprs = value.all_exprs();
+        let mut all_refs = HashSet::new();
 
-        let refs = extract_channel_refs(expr);
+        for expr in exprs {
+            let refs = extract_channel_refs(expr);
+            all_refs.extend(refs);
+        }
+
+        let refs = all_refs;
 
         // Check for self-reference
         if refs.contains(name) {
@@ -250,11 +252,16 @@ fn build_dependency_graph(
     let mut graph = HashMap::new();
 
     for (name, value) in channels {
-        // Skip conditional values for now - they need special handling
-        if let Some(expr) = value.expr() {
+        // Get all expressions from the channel value (handles conditionals too)
+        let exprs = value.all_exprs();
+        let mut all_deps = HashSet::new();
+
+        for expr in exprs {
             let deps = extract_channel_refs(expr);
-            graph.insert(name.clone(), deps);
+            all_deps.extend(deps);
         }
+
+        graph.insert(name.clone(), all_deps);
     }
 
     graph
@@ -459,38 +466,70 @@ pub fn resolve_all_channel_refs(
 
     for name in &order {
         if let Some(value) = channels.get(name) {
-            // Resolve references using already-resolved channels
-            // For conditional values, we'll handle them later - for now just skip
-            let resolved_expr = if let Some(expr) = value.expr() {
-                resolve_channel_refs(expr.clone(), &resolved_channels)
-            } else {
-                // Conditional value - TODO: implement proper resolution
-                continue;
-            };
-
             // Preserve the channel value structure (Scaled vs Identity vs Conditional)
             let resolved_value = match value {
                 ChannelValue::Scaled {
+                    expr,
                     scale_name,
                     band,
                     scale_config,
                     legend_config,
-                    ..
-                } => ChannelValue::Scaled {
-                    expr: resolved_expr,
-                    scale_name: scale_name.clone(),
-                    band: *band,
-                    scale_config: scale_config.clone(),
-                    legend_config: legend_config.clone(),
-                },
-                ChannelValue::Identity { .. } => ChannelValue::Identity {
-                    expr: resolved_expr,
-                },
-                ChannelValue::Conditional { .. } => {
-                    // TODO: Implement proper conditional resolution
-                    // For now, just return a placeholder
+                } => {
+                    let resolved_expr = resolve_channel_refs(expr.clone(), &resolved_channels);
+                    ChannelValue::Scaled {
+                        expr: resolved_expr,
+                        scale_name: scale_name.clone(),
+                        band: *band,
+                        scale_config: scale_config.clone(),
+                        legend_config: legend_config.clone(),
+                    }
+                }
+                ChannelValue::Identity { expr } => {
+                    let resolved_expr = resolve_channel_refs(expr.clone(), &resolved_channels);
                     ChannelValue::Identity {
                         expr: resolved_expr,
+                    }
+                }
+                ChannelValue::Conditional {
+                    conditions,
+                    otherwise,
+                    scale_config,
+                    legend_config,
+                } => {
+                    // Resolve channel references in conditions and otherwise
+                    use crate::marks::channel::ConditionalValue;
+
+                    let resolved_conditions = conditions
+                        .iter()
+                        .map(|(test, value)| {
+                            let resolved_test =
+                                resolve_channel_refs(test.clone(), &resolved_channels);
+                            let resolved_value = match value {
+                                ConditionalValue::Field { expr } => ConditionalValue::Field {
+                                    expr: resolve_channel_refs(expr.clone(), &resolved_channels),
+                                },
+                                ConditionalValue::Value { expr } => ConditionalValue::Value {
+                                    expr: resolve_channel_refs(expr.clone(), &resolved_channels),
+                                },
+                            };
+                            (resolved_test, resolved_value)
+                        })
+                        .collect();
+
+                    let resolved_otherwise = match otherwise {
+                        ConditionalValue::Field { expr } => ConditionalValue::Field {
+                            expr: resolve_channel_refs(expr.clone(), &resolved_channels),
+                        },
+                        ConditionalValue::Value { expr } => ConditionalValue::Value {
+                            expr: resolve_channel_refs(expr.clone(), &resolved_channels),
+                        },
+                    };
+
+                    ChannelValue::Conditional {
+                        conditions: resolved_conditions,
+                        otherwise: resolved_otherwise,
+                        scale_config: scale_config.clone(),
+                        legend_config: legend_config.clone(),
                     }
                 }
             };

@@ -10,7 +10,7 @@ pub type ScaleConfig = Arc<dyn Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync>;
 pub type LegendConfig = Arc<dyn Fn(Legend) -> Legend + Send + Sync>;
 
 /// Value for conditional encoding branches
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ConditionalValue {
     /// Field value that gets scaled
     Field { expr: Expr },
@@ -130,6 +130,43 @@ impl ChannelValue {
             ChannelValue::Scaled { legend_config, .. }
             | ChannelValue::Conditional { legend_config, .. } => legend_config.as_ref(),
             _ => None,
+        }
+    }
+}
+
+impl PartialEq for ChannelValue {
+    fn eq(&self, other: &Self) -> bool {
+        // Note: This implementation ignores scale_config and legend_config fields
+        // since they contain function pointers that cannot be compared
+        match (self, other) {
+            (
+                ChannelValue::Scaled {
+                    expr: e1,
+                    scale_name: s1,
+                    band: b1,
+                    ..
+                },
+                ChannelValue::Scaled {
+                    expr: e2,
+                    scale_name: s2,
+                    band: b2,
+                    ..
+                },
+            ) => e1 == e2 && s1 == s2 && b1 == b2,
+            (ChannelValue::Identity { expr: e1 }, ChannelValue::Identity { expr: e2 }) => e1 == e2,
+            (
+                ChannelValue::Conditional {
+                    conditions: c1,
+                    otherwise: o1,
+                    ..
+                },
+                ChannelValue::Conditional {
+                    conditions: c2,
+                    otherwise: o2,
+                    ..
+                },
+            ) => c1 == c2 && o1 == o2,
+            _ => false,
         }
     }
 }

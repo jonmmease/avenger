@@ -1,12 +1,8 @@
 use super::helpers::assert_visual_match_default;
-use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::line::Line;
-use avenger_chart::plot::Plot;
-use avenger_chart::scales::Linear;
+use avenger_chart::prelude::*;
 use datafusion::arrow::array::{Float64Array, Int32Array};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::logical_expr::{col, lit};
 use datafusion::prelude::*;
 use std::sync::Arc;
 // Visual tests for line charts

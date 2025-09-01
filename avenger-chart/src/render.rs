@@ -1080,12 +1080,99 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 // No scaling requested, return expression as-is
                 Ok(expr.clone())
             }
-            ChannelValue::Conditional { .. } => {
-                // TODO: Implement conditional resolution properly
-                // For now, return a placeholder
-                Ok(datafusion::logical_expr::lit(
-                    datafusion::scalar::ScalarValue::Null,
-                ))
+            ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                ..
+            } => {
+                // Build a CASE WHEN expression from the conditions
+                use crate::marks::channel::{ConditionalValue, strip_trailing_numbers};
+                use datafusion::arrow::datatypes::DataType;
+                use datafusion::logical_expr::{lit, when};
+                use datafusion::scalar::ScalarValue;
+
+                // Helper to convert color string literals to the proper ScalarValue format
+                let convert_color_literal =
+                    |expr: &datafusion::logical_expr::Expr| -> datafusion::logical_expr::Expr {
+                        // Check if this is a string literal that might be a color
+                        if let datafusion::logical_expr::Expr::Literal(scalar_value, _) = expr {
+                            if let ScalarValue::Utf8(Some(s)) = scalar_value {
+                                // Use our existing color parsing utility
+                                if let Some(color_or_gradient) = crate::utils::parse_color_string(s)
+                                {
+                                    use avenger_common::types::ColorOrGradient;
+                                    if let ColorOrGradient::Color(rgba) = color_or_gradient {
+                                        // Convert to List ScalarValue with Float32 values
+                                        let values: Vec<ScalarValue> = rgba
+                                            .into_iter()
+                                            .map(|v| ScalarValue::Float32(Some(v)))
+                                            .collect();
+
+                                        // Create the list array and wrap in ScalarValue
+                                        let list_array = ScalarValue::new_list_nullable(
+                                            &values,
+                                            &DataType::Float32,
+                                        );
+                                        let scalar_list = ScalarValue::List(list_array);
+                                        return lit(scalar_list);
+                                    }
+                                }
+                            }
+                        }
+                        // Not a color literal or failed to parse, return as-is
+                        expr.clone()
+                    };
+
+                // For conditional values, the scale name is derived from the channel name
+                let scale_key = strip_trailing_numbers(channel_name).to_string();
+
+                // Get the scale if it exists (for applying to Field branches)
+                let scale_opt = scales.get(&scale_key);
+
+                // Process the otherwise value
+                let otherwise_expr = match otherwise {
+                    ConditionalValue::Field { expr } => {
+                        // This needs scaling
+                        if let Some(scale) = scale_opt {
+                            use crate::scales::ConfiguredScaleDataFusionExt;
+                            scale.to_expr(expr.clone())?
+                        } else {
+                            // No scale available, use expression as-is
+                            expr.clone()
+                        }
+                    }
+                    ConditionalValue::Value { expr } => {
+                        // Literal value - convert if it's a color string
+                        convert_color_literal(expr)
+                    }
+                };
+
+                // Build CASE WHEN expression from conditions (in reverse order to match priority)
+                let mut case_expr = otherwise_expr;
+                for (test, value) in conditions.iter().rev() {
+                    let value_expr = match value {
+                        ConditionalValue::Field { expr } => {
+                            // This needs scaling
+                            if let Some(scale) = scale_opt {
+                                use crate::scales::ConfiguredScaleDataFusionExt;
+                                scale.to_expr(expr.clone())?
+                            } else {
+                                expr.clone()
+                            }
+                        }
+                        ConditionalValue::Value { expr } => {
+                            // Literal value - convert if it's a color string
+                            convert_color_literal(expr)
+                        }
+                    };
+
+                    // Wrap in WHEN clause
+                    case_expr = when(test.clone(), value_expr)
+                        .otherwise(case_expr)?
+                        .alias(channel_name);
+                }
+
+                Ok(case_expr)
             }
             ChannelValue::Scaled {
                 expr,

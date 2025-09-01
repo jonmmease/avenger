@@ -3,6 +3,9 @@ use crate::marks::channel::ChannelValue;
 use crate::scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec};
 use std::sync::Arc;
 
+/// Type alias for axis configuration function
+type AxisConfigFn<A> = Arc<dyn Fn(A) -> A + Send + Sync>;
+
 /// Trait for all position configuration types
 pub trait PositionConfig: Sized {
     type Axis;
@@ -12,12 +15,7 @@ pub trait PositionConfig: Sized {
 
     /// Extract the axis configuration, consuming self
     /// Returns None for coordinate systems that don't support axes
-    fn take_axis_config(
-        self,
-    ) -> (
-        ChannelValue,
-        Option<Arc<dyn Fn(Self::Axis) -> Self::Axis + Send + Sync>>,
-    );
+    fn take_axis_config(self) -> (ChannelValue, Option<AxisConfigFn<Self::Axis>>);
 
     /// Get the inner channel value without axis config
     fn into_inner(self) -> ChannelValue;
@@ -28,7 +26,7 @@ pub trait PositionConfig: Sized {
 #[derive(Clone)]
 pub struct CartesianPositionConfig {
     pub(crate) inner: ChannelValue,
-    pub(crate) axis_config: Option<Arc<dyn Fn(CartesianAxis) -> CartesianAxis + Send + Sync>>,
+    pub(crate) axis_config: Option<AxisConfigFn<CartesianAxis>>,
 }
 
 impl CartesianPositionConfig {
@@ -101,9 +99,7 @@ impl CartesianPositionConfig {
     }
 
     /// Get the axis configuration if present
-    pub fn axis_config(
-        &self,
-    ) -> Option<&Arc<dyn Fn(CartesianAxis) -> CartesianAxis + Send + Sync>> {
+    pub fn axis_config(&self) -> Option<&AxisConfigFn<CartesianAxis>> {
         self.axis_config.as_ref()
     }
 }
@@ -118,12 +114,7 @@ impl PositionConfig for CartesianPositionConfig {
         }
     }
 
-    fn take_axis_config(
-        self,
-    ) -> (
-        ChannelValue,
-        Option<Arc<dyn Fn(Self::Axis) -> Self::Axis + Send + Sync>>,
-    ) {
+    fn take_axis_config(self) -> (ChannelValue, Option<AxisConfigFn<Self::Axis>>) {
         (self.inner, self.axis_config)
     }
 
