@@ -1,6 +1,7 @@
 //! Scale type specifications for compile-time type safety
 
 use avenger_scales::scales::ScaleImpl;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Marker trait for scale types
@@ -10,6 +11,12 @@ pub trait ScaleSpec: 'static {
 
     /// Get the name of this scale type
     fn name() -> &'static str;
+
+    /// Get default options for this scale type
+    /// Returns a map of option name to scalar value
+    fn default_options() -> HashMap<String, avenger_scales::scalar::Scalar> {
+        HashMap::new()
+    }
 }
 
 // ===== Marker types for each scale =====
@@ -105,11 +112,17 @@ impl ScaleSpec for Sqrt {
     fn create_impl() -> Arc<dyn ScaleImpl> {
         // Sqrt is not a separate scale in avenger_scales, use Pow with exponent 0.5
         use avenger_scales::scales::pow::PowScale;
-        Arc::new(PowScale) // Will be configured with exponent 0.5 via options
+        Arc::new(PowScale)
     }
 
     fn name() -> &'static str {
         "sqrt"
+    }
+    
+    fn default_options() -> HashMap<String, avenger_scales::scalar::Scalar> {
+        let mut options = HashMap::new();
+        options.insert("exponent".to_string(), avenger_scales::scalar::Scalar::from(0.5_f32));
+        options
     }
 }
 
@@ -208,5 +221,32 @@ impl ScaleSpec for Auto {
 
     fn name() -> &'static str {
         "auto"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sqrt_scale_default_options() {
+        // Test that Sqrt scale has exponent = 0.5 as default
+        let options = Sqrt::default_options();
+        
+        assert!(options.contains_key("exponent"), "Sqrt scale should have exponent option");
+        
+        let exponent = options.get("exponent").unwrap();
+        assert_eq!(
+            exponent.as_f32().unwrap(),
+            0.5,
+            "Sqrt scale should have exponent = 0.5"
+        );
+    }
+
+    #[test]
+    fn test_linear_scale_default_options() {
+        // Test that Linear scale has no default options
+        let options = Linear::default_options();
+        assert!(options.is_empty(), "Linear scale should have no default options");
     }
 }

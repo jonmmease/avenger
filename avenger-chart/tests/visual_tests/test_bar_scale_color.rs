@@ -163,14 +163,12 @@ async fn test_bar_chart_sqrt_color_interpolation() {
             })
             .y2(col("value"))
             .fill_with(col("value"), |c| {
-                c.scale_with::<Pow>(|s| {
-                    s.exponent(0.5)
-                        // Domain will be inferred from data automatically
-                        .range_colors(vec![
-                            Srgba::new(0.97, 0.91, 0.81, 1.0), // Light tan (#f8e8cf)
-                            Srgba::new(0.94, 0.60, 0.15, 1.0), // Orange (#f09a27)
-                            Srgba::new(0.58, 0.21, 0.05, 1.0), // Dark brown (#943508)
-                        ])
+                c.scale_with::<Sqrt>(|s| {
+                    s.range_colors(vec![
+                        Srgba::new(0.97, 0.91, 0.81, 1.0), // Light tan (#f8e8cf)
+                        Srgba::new(0.94, 0.60, 0.15, 1.0), // Orange (#f09a27)
+                        Srgba::new(0.58, 0.21, 0.05, 1.0), // Dark brown (#943508)
+                    ])
                 })
             }) // Map value through the sqrt color scale
             .stroke("#222222")
