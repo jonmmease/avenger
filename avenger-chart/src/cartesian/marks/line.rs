@@ -13,8 +13,8 @@ use indexmap::IndexMap;
 use crate::error::AvengerChartError;
 pub use crate::marks::line::{Line, ensure_dictionary_array};
 use crate::marks::util::{
-    coerce_bool_channel, coerce_numeric_channel, coerce_stroke_cap_channel,
-    coerce_stroke_join_channel,
+    coerce_bool_channel_with_mark, coerce_numeric_channel_with_mark,
+    coerce_stroke_cap_channel_with_mark, coerce_stroke_join_channel_with_mark,
 };
 
 // Define position channels for Cartesian Line using the macro
@@ -93,20 +93,22 @@ impl Mark<Cartesian> for Line<Cartesian> {
         let coercer = Coercer::default();
 
         // Extract position arrays (x, y) - these must be arrays
-        let x = coerce_numeric_channel(Some(data), scalars, "x", 0.0)?;
-        let y = coerce_numeric_channel(Some(data), scalars, "y", 0.0)?;
+        let x = coerce_numeric_channel_with_mark(self, Some(data), scalars, "x", 0.0)?;
+        let y = coerce_numeric_channel_with_mark(self, Some(data), scalars, "y", 0.0)?;
 
         // Extract defined array (for gaps in the line)
-        let defined = coerce_bool_channel(Some(data), scalars, "defined", true)?;
+        let defined = coerce_bool_channel_with_mark(self, Some(data), scalars, "defined", true)?;
 
-        // These remain scalar-only
-        let stroke_cap = coerce_stroke_cap_channel(
+        // These remain scalar-only - use mark defaults
+        let stroke_cap = coerce_stroke_cap_channel_with_mark(
+            self,
             None,
             scalars,
             "stroke_cap",
             avenger_common::types::StrokeCap::Round,
         )?;
-        let stroke_join = coerce_stroke_join_channel(
+        let stroke_join = coerce_stroke_join_channel_with_mark(
+            self,
             None,
             scalars,
             "stroke_join",

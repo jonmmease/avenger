@@ -174,6 +174,28 @@ pub fn coerce_bool_channel(
     coerce_channel(data, scalars, channel, |c, a| c.to_boolean(a), default)
 }
 
+/// Get boolean channel values using Coercer with mark defaults
+pub fn coerce_bool_channel_with_mark<C: crate::coords::CoordinateSystem>(
+    mark: &dyn crate::marks::Mark<C>,
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    fallback_default: bool,
+) -> Result<ScalarOrArray<bool>, AvengerChartError> {
+    use datafusion::scalar::ScalarValue;
+
+    // Get default from mark, falling back to provided default
+    let default = mark
+        .default_channel_value(channel)
+        .and_then(|scalar| match scalar {
+            ScalarValue::Boolean(Some(b)) => Some(b),
+            _ => None,
+        })
+        .unwrap_or(fallback_default);
+
+    coerce_channel(data, scalars, channel, |c, a| c.to_boolean(a), default)
+}
+
 /// Get stroke cap channel value using Coercer
 /// Note: stroke_cap must be scalar (constant for entire mark)
 /// If an array is provided, takes the first value
@@ -187,6 +209,34 @@ pub fn coerce_stroke_cap_channel(
         .map(|v| v.first().cloned().unwrap_or(default))
 }
 
+/// Get stroke cap channel value using Coercer with mark defaults
+pub fn coerce_stroke_cap_channel_with_mark<C: crate::coords::CoordinateSystem>(
+    mark: &dyn crate::marks::Mark<C>,
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    fallback_default: StrokeCap,
+) -> Result<StrokeCap, AvengerChartError> {
+    use datafusion::scalar::ScalarValue;
+
+    // Get default from mark
+    let default = mark
+        .default_channel_value(channel)
+        .and_then(|scalar| match scalar {
+            ScalarValue::Utf8(Some(s)) => match s.as_str() {
+                "butt" => Some(StrokeCap::Butt),
+                "round" => Some(StrokeCap::Round),
+                "square" => Some(StrokeCap::Square),
+                _ => None,
+            },
+            _ => None,
+        })
+        .unwrap_or(fallback_default);
+
+    coerce_channel(data, scalars, channel, |c, a| c.to_stroke_cap(a), default)
+        .map(|v| v.first().cloned().unwrap_or(default))
+}
+
 /// Get stroke join channel value using Coercer
 /// Note: stroke_join must be scalar (constant for entire mark)
 /// If an array is provided, takes the first value
@@ -196,6 +246,34 @@ pub fn coerce_stroke_join_channel(
     channel: &str,
     default: StrokeJoin,
 ) -> Result<StrokeJoin, AvengerChartError> {
+    coerce_channel(data, scalars, channel, |c, a| c.to_stroke_join(a), default)
+        .map(|v| v.first().cloned().unwrap_or(default))
+}
+
+/// Get stroke join channel value using Coercer with mark defaults
+pub fn coerce_stroke_join_channel_with_mark<C: crate::coords::CoordinateSystem>(
+    mark: &dyn crate::marks::Mark<C>,
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    fallback_default: StrokeJoin,
+) -> Result<StrokeJoin, AvengerChartError> {
+    use datafusion::scalar::ScalarValue;
+
+    // Get default from mark
+    let default = mark
+        .default_channel_value(channel)
+        .and_then(|scalar| match scalar {
+            ScalarValue::Utf8(Some(s)) => match s.as_str() {
+                "miter" => Some(StrokeJoin::Miter),
+                "round" => Some(StrokeJoin::Round),
+                "bevel" => Some(StrokeJoin::Bevel),
+                _ => None,
+            },
+            _ => None,
+        })
+        .unwrap_or(fallback_default);
+
     coerce_channel(data, scalars, channel, |c, a| c.to_stroke_join(a), default)
         .map(|v| v.first().cloned().unwrap_or(default))
 }

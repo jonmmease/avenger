@@ -8,7 +8,8 @@ use avenger_scenegraph::marks::rect::SceneRectMark;
 // Import Rect for the macro, then re-export it
 use crate::error::AvengerChartError;
 pub use crate::marks::rect::Rect;
-use crate::marks::util::{coerce_color_channel, coerce_numeric_channel};
+use crate::marks::util::{coerce_color_channel_with_mark, coerce_numeric_channel_with_mark};
+use datafusion_common::ScalarValue;
 
 // Define position channels for Cartesian Rect using the macro
 define_position_channels! {
@@ -32,6 +33,17 @@ define_position_channels! {
 impl Mark<Cartesian> for Rect<Cartesian> {
     impl_mark_trait_common!(Rect, Cartesian, "rect");
 
+    fn default_channel_value(&self, channel: &str) -> Option<ScalarValue> {
+        match channel {
+            "fill" => Some(ScalarValue::Utf8(Some("#4682b4".to_string()))), // Default steel blue
+            "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))), // Default black
+            "stroke_width" => Some(ScalarValue::Float32(Some(1.0))),        // Default stroke width
+            "corner_radius" => Some(ScalarValue::Float32(Some(0.0))),       // Default no rounding
+            "opacity" => Some(ScalarValue::Float32(Some(1.0))),             // Fully opaque
+            _ => None,
+        }
+    }
+
     fn render_from_data(
         &self,
         data: Option<&RecordBatch>,
@@ -40,17 +52,26 @@ impl Mark<Cartesian> for Rect<Cartesian> {
         // Determine number of marks from data batch or default to 1
         let len = data.map_or(1, |data| data.num_rows()) as u32;
 
-        // Extract position values using Coercer
-        let x = coerce_numeric_channel(data, scalars, "x", 0.0)?;
-        let x2 = coerce_numeric_channel(data, scalars, "x2", 0.0)?;
-        let y = coerce_numeric_channel(data, scalars, "y", 0.0)?;
-        let y2 = coerce_numeric_channel(data, scalars, "y2", 0.0)?;
+        // Extract position values using Coercer with mark defaults
+        let x = coerce_numeric_channel_with_mark(self, data, scalars, "x", 0.0)?;
+        let x2 = coerce_numeric_channel_with_mark(self, data, scalars, "x2", 0.0)?;
+        let y = coerce_numeric_channel_with_mark(self, data, scalars, "y", 0.0)?;
+        let y2 = coerce_numeric_channel_with_mark(self, data, scalars, "y2", 0.0)?;
 
-        // Extract style values using Coercer
-        let fill = coerce_color_channel(data, scalars, "fill", [0.27, 0.51, 0.71, 1.0])?;
-        let stroke = coerce_color_channel(data, scalars, "stroke", [0.0, 0.0, 0.0, 1.0])?;
-        let stroke_width = coerce_numeric_channel(data, scalars, "stroke_width", 1.0)?;
-        let corner_radius = coerce_numeric_channel(data, scalars, "corner_radius", 0.0)?;
+        // Extract style values using Coercer with mark defaults
+        let fill = coerce_color_channel_with_mark(
+            self,
+            data,
+            scalars,
+            "fill",
+            [70.0 / 255.0, 130.0 / 255.0, 180.0 / 255.0, 1.0], // Fallback steel blue
+        )?;
+        let stroke =
+            coerce_color_channel_with_mark(self, data, scalars, "stroke", [0.0, 0.0, 0.0, 1.0])?;
+        let stroke_width =
+            coerce_numeric_channel_with_mark(self, data, scalars, "stroke_width", 1.0)?;
+        let corner_radius =
+            coerce_numeric_channel_with_mark(self, data, scalars, "corner_radius", 0.0)?;
 
         // Create SceneRectMark
         let rect_mark = SceneRectMark {
