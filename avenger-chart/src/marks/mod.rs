@@ -14,8 +14,8 @@ pub mod channel_macros;
 #[macro_use]
 pub mod position_channel_macros;
 
-pub use channel::{ChannelValue, ConditionalBuilder, ConditionalValue};
-pub use channel_descriptor::{ChannelDefault, ChannelDescriptor, ChannelType};
+pub use channel::{ChannelValue, ConditionalValue};
+pub use channel_descriptor::{ChannelDefault, ChannelDescriptor};
 pub use data_context::DataContext;
 pub use data_source::{DataSource, FacetStrategy};
 pub use state::MarkState;

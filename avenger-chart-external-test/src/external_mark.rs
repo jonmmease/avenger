@@ -5,7 +5,7 @@ use avenger_chart::{
     cartesian::Cartesian,
     coords::CoordinateSystem,
     define_common_mark_channels, define_position_channels, impl_mark_base, impl_mark_trait_common,
-    marks::{ChannelType, Mark, MarkState},
+    marks::{Mark, MarkState},
 };
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::record_batch::RecordBatch;
@@ -24,10 +24,10 @@ impl_mark_base!(HexBin);
 // Define common channels
 define_common_mark_channels! {
     HexBin {
-        fill: { type: ChannelType::Color },
-        stroke: { type: ChannelType::Color },
-        opacity: { type: ChannelType::Numeric },
-        size: { type: ChannelType::Numeric },
+        fill: {},
+        stroke: {},
+        opacity: {},
+        size: {},
     }
 }
 
@@ -35,14 +35,12 @@ define_common_mark_channels! {
 define_position_channels! {
     HexBin<Cartesian> {
         x: {
-            type: ChannelType::Numeric,
             required: true,
-            with_config: avenger_chart::cartesian::channels::CartesianPositionConfig
+            with_config: avenger_chart::cartesian::channels::CartesianPositionConfig,
         },
         y: {
-            type: ChannelType::Numeric,
             required: true,
-            with_config: avenger_chart::cartesian::channels::CartesianPositionConfig
+            with_config: avenger_chart::cartesian::channels::CartesianPositionConfig,
         }
     }
 }

@@ -9,7 +9,7 @@
 #[macro_export]
 macro_rules! define_common_mark_channels {
     // Generate _with method using explicitly specified config type
-    (@generate_with_method $mark:ident, $name:ident, $channel_type:expr, with_config: $config_type:ty $(,$rest:tt)*) => {
+    (@generate_with_method $mark:ident, $name:ident, with_config: $config_type:ty $(,$rest:tt)*) => {
         paste::paste! {
             pub fn [<$name _with>]<V, F>(self, value: V, f: F) -> Self
             where
@@ -26,7 +26,7 @@ macro_rules! define_common_mark_channels {
     };
 
     // No with_config specified - no _with method generated
-    (@generate_with_method $mark:ident, $name:ident, $channel_type:expr $(,$rest:tt)*) => {
+    (@generate_with_method $mark:ident, $name:ident $(,$rest:tt)*) => {
         // No _with method for this channel
     };
 
@@ -35,12 +35,11 @@ macro_rules! define_common_mark_channels {
         $mark:ident {
             $(
                 $name:ident: {
-                    type: $channel_type:expr
-                    $(, default: $default:expr)?
-                    $(, allow_column: $allow_column:expr)?
-                    $(, required: $required:expr)?
-                    $(, with_config: $config_type:ty)?
-                    $(, axis_config: $is_axis:expr)?
+                    $(default: $default:expr,)?
+                    $(allow_column: $allow_column:expr,)?
+                    $(required: $required:expr,)?
+                    $(with_config: $config_type:ty,)?
+                    $(axis_config: $is_axis:expr,)?
                 }
             ),* $(,)?
         }
@@ -53,11 +52,10 @@ macro_rules! define_common_mark_channels {
                     self.with_channel_value(stringify!($name), channel_value)
                 }
 
-                // Generate _with configuration method based on channel type and optional config
+                // Generate _with configuration method based on optional config
                 define_common_mark_channels!(@generate_with_method
                     $mark,
-                    $name,
-                    $channel_type
+                    $name
                     $(, with_config: $config_type)?
                     $(, axis_config: $is_axis)?
                 );
@@ -70,7 +68,6 @@ macro_rules! define_common_mark_channels {
                         $crate::marks::ChannelDescriptor {
                             name: stringify!($name),
                             required: false $(|| $required)?,
-                            channel_type: $channel_type,
                             default_value: None $(.or(Some($default)))?,
                             allow_column_ref: true $(&& $allow_column)?,
                         },

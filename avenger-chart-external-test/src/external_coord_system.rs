@@ -6,7 +6,7 @@ use avenger_chart::{
     define_common_mark_channels, define_position_channels,
     error::AvengerChartError,
     impl_mark_base, impl_mark_trait_common,
-    marks::{ChannelType, ChannelValue, Mark, MarkState},
+    marks::{ChannelValue, Mark, MarkState},
     render::Padding,
     scales::{Auto, Scale},
 };
@@ -285,10 +285,10 @@ impl_mark_base!(Cube);
 // Define common channels
 define_common_mark_channels! {
     Cube {
-        fill: { type: ChannelType::Color },
-        stroke: { type: ChannelType::Color },
-        opacity: { type: ChannelType::Numeric },
-        size: { type: ChannelType::Numeric },
+        fill: {},
+        stroke: {},
+        opacity: {},
+        size: {},
     }
 }
 
@@ -296,19 +296,16 @@ define_common_mark_channels! {
 define_position_channels! {
     Cube<Isometric> {
         iso_x: {
-            type: ChannelType::Numeric,
             required: true,
-            with_config: IsometricPositionConfig
+            with_config: IsometricPositionConfig,
         },
         iso_y: {
-            type: ChannelType::Numeric,
             required: true,
-            with_config: IsometricPositionConfig
+            with_config: IsometricPositionConfig,
         },
         iso_z: {
-            type: ChannelType::Numeric,
             required: true,
-            with_config: IsometricPositionConfig
+            with_config: IsometricPositionConfig,
         }
     }
 }

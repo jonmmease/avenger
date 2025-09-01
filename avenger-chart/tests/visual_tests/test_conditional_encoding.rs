@@ -49,9 +49,9 @@ async fn test_conditional_color_when_value() {
                 c.when_value(col("highlight"), lit("#ff0000")) // Red for highlighted
                     .scale_with::<Linear>(|s| {
                         s.range_colors(vec![
-                                Srgba::new(0.0, 0.0, 0.5, 1.0), // Dark blue
-                                Srgba::new(0.0, 0.5, 1.0, 1.0), // Light blue
-                            ])
+                            Srgba::new(0.0, 0.0, 0.5, 1.0), // Dark blue
+                            Srgba::new(0.0, 0.5, 1.0, 1.0), // Light blue
+                        ])
                     })
             }),
     );

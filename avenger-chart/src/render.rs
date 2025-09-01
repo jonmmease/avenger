@@ -571,7 +571,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         // Extract the literal value description
         let literal_value = match channel_value {
-            ChannelValue::Identity { expr } => {
+            ChannelValue::Value { expr } => {
                 // Check if the expression is a literal
                 match expr {
                     DfExpr::Literal(scalar_value, _) => match scalar_value {
@@ -1076,7 +1076,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         use crate::marks::channel::strip_trailing_numbers;
 
         match channel_value {
-            ChannelValue::Identity { expr } => {
+            ChannelValue::Value { expr } => {
                 // No scaling requested, return expression as-is
                 Ok(expr.clone())
             }
@@ -1131,7 +1131,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
                 // Process the otherwise value
                 let otherwise_expr = match otherwise {
-                    ConditionalValue::Field { expr } => {
+                    ConditionalValue::Scaled { expr } => {
                         // This needs scaling
                         if let Some(scale) = scale_opt {
                             use crate::scales::ConfiguredScaleDataFusionExt;
@@ -1147,11 +1147,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                     }
                 };
 
-                // Build CASE WHEN expression from conditions (in reverse order to match priority)
+                // Build CASE WHEN expression from conditions (evaluated in order added)
+                // We iterate in reverse because we're building nested when() calls from inside out
+                // The last condition in the array should be the innermost (evaluated last)
                 let mut case_expr = otherwise_expr;
                 for (test, value) in conditions.iter().rev() {
                     let value_expr = match value {
-                        ConditionalValue::Field { expr } => {
+                        ConditionalValue::Scaled { expr } => {
                             // This needs scaling
                             if let Some(scale) = scale_opt {
                                 use crate::scales::ConfiguredScaleDataFusionExt;

@@ -338,7 +338,7 @@ impl ScalarValueHelpers for ScalarValue {
             }
         })
     }
-    
+
     fn as_scale_scalar(&self) -> Result<Scalar, DataFusionError> {
         let scalar = match self {
             Self::Float64(Some(v)) => Scalar::from_f32(*v as f32),

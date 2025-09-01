@@ -1,6 +1,6 @@
 use crate::define_position_channels;
 use crate::impl_mark_trait_common;
-use crate::marks::{ChannelType, Mark};
+use crate::marks::Mark;
 
 use crate::polar::Polar;
 use arrow::array::RecordBatch;
@@ -14,20 +14,16 @@ use crate::marks::rect::Rect;
 define_position_channels! {
     Rect<Polar> {
         r: {
-            type: ChannelType::Numeric,
-            with_config: crate::polar::channels::PolarPositionConfig
+            with_config: crate::polar::channels::PolarPositionConfig,
         },
         r2: {
-            type: ChannelType::Numeric,
-            with_config: crate::polar::channels::PolarPositionConfig
+            with_config: crate::polar::channels::PolarPositionConfig,
         },
         theta: {
-            type: ChannelType::Numeric,
-            with_config: crate::polar::channels::PolarPositionConfig
+            with_config: crate::polar::channels::PolarPositionConfig,
         },
         theta2: {
-            type: ChannelType::Numeric,
-            with_config: crate::polar::channels::PolarPositionConfig
+            with_config: crate::polar::channels::PolarPositionConfig,
         }
     }
 }

@@ -214,6 +214,53 @@ mod tests {
     use crate::marks::channel::ConditionalValue;
     use datafusion::prelude::*;
 
+    // Helper function to check if two ChannelValues are structurally equal
+    // (ignoring scale_config and legend_config which contain function pointers)
+    fn assert_channel_value_eq(actual: &ChannelValue, expected: &ChannelValue) {
+        match (actual, expected) {
+            (
+                ChannelValue::Scaled {
+                    expr: e1,
+                    scale_name: s1,
+                    band: b1,
+                    ..
+                },
+                ChannelValue::Scaled {
+                    expr: e2,
+                    scale_name: s2,
+                    band: b2,
+                    ..
+                },
+            ) => {
+                assert_eq!(e1, e2, "Scaled expressions don't match");
+                assert_eq!(s1, s2, "Scale names don't match");
+                assert_eq!(b1, b2, "Band values don't match");
+            }
+            (ChannelValue::Value { expr: e1 }, ChannelValue::Value { expr: e2 }) => {
+                assert_eq!(e1, e2, "Value expressions don't match");
+            }
+            (
+                ChannelValue::Conditional {
+                    conditions: c1,
+                    otherwise: o1,
+                    ..
+                },
+                ChannelValue::Conditional {
+                    conditions: c2,
+                    otherwise: o2,
+                    ..
+                },
+            ) => {
+                assert_eq!(c1, c2, "Conditions don't match");
+                assert_eq!(o1, o2, "Otherwise values don't match");
+            }
+            _ => panic!(
+                "Channel value types don't match: expected {:?}, got {:?}",
+                expected, actual
+            ),
+        }
+    }
+
     #[test]
     fn test_color_config_when_value_on_scaled() {
         let config = ColorChannelConfig::new(col("temperature").into())
@@ -224,25 +271,25 @@ mod tests {
                 col("selected"),
                 ConditionalValue::Value { expr: lit("red") },
             )],
-            otherwise: ConditionalValue::Field {
+            otherwise: ConditionalValue::Scaled {
                 expr: col("temperature"),
             },
             scale_config: None,
             legend_config: None,
         };
 
-        assert_eq!(config.into_inner(), expected);
+        assert_channel_value_eq(&config.into_inner(), &expected);
     }
 
     #[test]
     fn test_color_config_when_scaled_on_identity() {
-        let config = ColorChannelConfig::new(ChannelValue::Identity { expr: lit("blue") })
+        let config = ColorChannelConfig::new(ChannelValue::Value { expr: lit("blue") })
             .when_scaled(col("important"), col("importance_score"));
 
         let expected = ChannelValue::Conditional {
             conditions: vec![(
                 col("important"),
-                ConditionalValue::Field {
+                ConditionalValue::Scaled {
                     expr: col("importance_score"),
                 },
             )],
@@ -251,7 +298,7 @@ mod tests {
             legend_config: None,
         };
 
-        assert_eq!(config.into_inner(), expected);
+        assert_channel_value_eq(&config.into_inner(), &expected);
     }
 
     #[test]
@@ -263,27 +310,27 @@ mod tests {
 
         let expected = ChannelValue::Conditional {
             conditions: vec![
-                // Most recent condition should be first (prepended)
-                (
-                    col("important"),
-                    ConditionalValue::Field { expr: col("score") },
-                ),
+                // Conditions now stored in order of addition
+                (col("error"), ConditionalValue::Value { expr: lit("red") }),
                 (
                     col("warning"),
                     ConditionalValue::Value {
                         expr: lit("orange"),
                     },
                 ),
-                (col("error"), ConditionalValue::Value { expr: lit("red") }),
+                (
+                    col("important"),
+                    ConditionalValue::Scaled { expr: col("score") },
+                ),
             ],
-            otherwise: ConditionalValue::Field {
+            otherwise: ConditionalValue::Scaled {
                 expr: col("default"),
             },
             scale_config: None,
             legend_config: None,
         };
 
-        assert_eq!(config.into_inner(), expected);
+        assert_channel_value_eq(&config.into_inner(), &expected);
     }
 
     #[test]
@@ -315,7 +362,7 @@ mod tests {
             );
             assert_eq!(
                 otherwise,
-                ConditionalValue::Field {
+                ConditionalValue::Scaled {
                     expr: col("temperature")
                 }
             );
@@ -354,7 +401,7 @@ mod tests {
             );
             assert_eq!(
                 otherwise,
-                ConditionalValue::Field {
+                ConditionalValue::Scaled {
                     expr: col("temperature")
                 }
             );
@@ -365,24 +412,24 @@ mod tests {
 
     #[test]
     fn test_color_config_chaining_order() {
-        // Test that conditions are evaluated in reverse order of addition (most recent first)
+        // Test that conditions are evaluated in order of addition (first added has highest priority)
         let config = ColorChannelConfig::new(col("base").into())
-            .when_value(col("a"), lit("red")) // Added first, evaluated last
+            .when_value(col("a"), lit("red")) // Added first, evaluated first (highest priority)
             .when_value(col("b"), lit("blue")) // Added second, evaluated second
-            .when_value(col("c"), lit("green")); // Added last, evaluated first
+            .when_value(col("c"), lit("green")); // Added last, evaluated last (lowest priority)
 
         let expected = ChannelValue::Conditional {
             conditions: vec![
-                // Most recent additions should be first
-                (col("c"), ConditionalValue::Value { expr: lit("green") }),
-                (col("b"), ConditionalValue::Value { expr: lit("blue") }),
+                // Conditions stored in order of addition
                 (col("a"), ConditionalValue::Value { expr: lit("red") }),
+                (col("b"), ConditionalValue::Value { expr: lit("blue") }),
+                (col("c"), ConditionalValue::Value { expr: lit("green") }),
             ],
-            otherwise: ConditionalValue::Field { expr: col("base") },
+            otherwise: ConditionalValue::Scaled { expr: col("base") },
             scale_config: None,
             legend_config: None,
         };
 
-        assert_eq!(config.into_inner(), expected);
+        assert_channel_value_eq(&config.into_inner(), &expected);
     }
 }
