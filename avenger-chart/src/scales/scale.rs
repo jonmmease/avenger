@@ -46,8 +46,11 @@ impl<S: ScaleSpec> Scale<S> {
             InferDomainFromDataMethod::All => ScaleDomain::new_discrete(vec![]), // Treat All as discrete
         };
 
-        // Get default options from the scale implementation
-        let default_options = scale_impl.default_options();
+        // Get default options from both the scale implementation and specification
+        // Start with implementation defaults, then override with spec defaults
+        let mut default_options = scale_impl.default_options();
+        default_options.extend(S::default_options());
+
         let mut options = HashMap::new();
 
         // Convert Scalar values to Expr values
@@ -202,7 +205,9 @@ impl<S: ScaleSpec> Scale<S> {
         } else {
             // Different scale type, start with new scale's default options
             // User can override these with the builder methods
-            let default_options = scale_impl.default_options();
+            let mut default_options = scale_impl.default_options();
+            default_options.extend(T::default_options());
+            
             let mut new_options = HashMap::new();
 
             // Convert Scalar values to Expr values
