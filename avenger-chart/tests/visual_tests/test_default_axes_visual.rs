@@ -1,13 +1,9 @@
+use avenger_chart::prelude::*;
 // Visual tests for default axis creation
 
-use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::line::Line;
-use avenger_chart::marks::rect::Rect;
-use avenger_chart::plot::Plot;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::logical_expr::{col, lit};
 use datafusion::prelude::*;
 use std::sync::Arc;
 

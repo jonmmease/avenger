@@ -1,10 +1,9 @@
+use crate::channel_config_traits::{ChannelConfig, LegendableChannel};
 use crate::legend_builder::{
-    AngleLegendBuilder, ColorLegendBuilder, LegendBuilder, OpacityLegendBuilder,
-    ShapeLegendBuilder, SizeLegendBuilder, StrokeDashLegendBuilder, StrokeWidthLegendBuilder,
+    AngleLegendBuilder, ColorLegendBuilder, OpacityLegendBuilder, ShapeLegendBuilder,
+    SizeLegendBuilder, StrokeDashLegendBuilder, StrokeWidthLegendBuilder,
 };
-use crate::marks::channel::{ChannelValue, LegendConfig, ScaleConfig};
-use crate::scales::{Auto, Scale, ScaleSpec};
-use std::sync::Arc;
+use crate::marks::channel::ChannelValue;
 
 // Channel config for color channels (fill, stroke, color)
 pub struct ColorChannelConfig {
@@ -15,122 +14,24 @@ impl ColorChannelConfig {
     pub fn new(value: ChannelValue) -> Self {
         Self { value }
     }
+}
 
-    /// Configure the legend for this color channel
-    pub fn legend<F>(mut self, f: F) -> Self
-    where
-        F: FnOnce(ColorLegendBuilder) -> ColorLegendBuilder,
-    {
-        let builder = ColorLegendBuilder::new();
-        let configured = f(builder);
-        let legend = configured.build();
-
-        // Convert to the closure type expected by ChannelValue
-        let legend_config: LegendConfig = Arc::new(move |_| legend.clone());
-
-        // Update the channel value with legend config
-        self.value = match self.value {
-            ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                scale_config,
-                ..
-            } => ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                scale_config,
-                legend_config: Some(legend_config),
-            },
-            ChannelValue::Conditional {
-                conditions,
-                otherwise,
-                scale_config,
-                ..
-            } => ChannelValue::Conditional {
-                conditions,
-                otherwise,
-                scale_config,
-                legend_config: Some(legend_config),
-            },
-            other => other,
-        };
-
-        self
+impl ChannelConfig for ColorChannelConfig {
+    fn get_value(&self) -> &ChannelValue {
+        &self.value
     }
 
-    /// Configure the scale for this channel
-    pub fn scale<F>(mut self, f: F) -> Self
-    where
-        F: Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync + 'static,
-    {
-        let scale_config: ScaleConfig = Arc::new(f);
-
-        self.value = match self.value {
-            ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                legend_config,
-                ..
-            } => ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                scale_config: Some(scale_config),
-                legend_config,
-            },
-            ChannelValue::Conditional {
-                conditions,
-                otherwise,
-                legend_config,
-                ..
-            } => ChannelValue::Conditional {
-                conditions,
-                otherwise,
-                scale_config: Some(scale_config),
-                legend_config,
-            },
-            other => other,
-        };
-
-        self
+    fn set_value(&mut self, value: ChannelValue) {
+        self.value = value;
     }
 
-    /// Configure the scale with a specific type
-    pub fn scale_with<S: ScaleSpec>(
-        self,
-        f: impl FnOnce(Scale<S>) -> Scale<S> + Send + Sync + 'static,
-    ) -> Self {
-        // Use Fn instead of FnOnce for the inner closure
-        let f = Arc::new(std::sync::Mutex::new(Some(f)));
-        self.scale(move |default_scale| {
-            let typed_scale = default_scale.into_type::<S>();
-            if let Some(f) = f.lock().unwrap().take() {
-                f(typed_scale).into_auto()
-            } else {
-                typed_scale.into_auto()
-            }
-        })
-    }
-
-    /// Disable legend for this channel
-    pub fn no_legend(self) -> Self {
-        // Create a legend but mark it as not visible
-        self.legend(|l| l.visible(false))
-    }
-
-    /// Disable scale for this channel
-    pub fn no_scale(mut self) -> Self {
-        self.value = self.value.no_scale();
-        self
-    }
-
-    /// Get the configured channel value
-    pub fn into_inner(self) -> ChannelValue {
+    fn into_inner(self) -> ChannelValue {
         self.value
     }
+}
+
+impl LegendableChannel for ColorChannelConfig {
+    type LegendBuilder = ColorLegendBuilder;
 }
 
 // Channel config for size channels
@@ -142,117 +43,24 @@ impl SizeChannelConfig {
     pub fn new(value: ChannelValue) -> Self {
         Self { value }
     }
+}
 
-    /// Configure the legend for this size channel
-    pub fn legend<F>(mut self, f: F) -> Self
-    where
-        F: FnOnce(SizeLegendBuilder) -> SizeLegendBuilder,
-    {
-        let builder = SizeLegendBuilder::new();
-        let configured = f(builder);
-        let legend = configured.build();
-
-        let legend_config: LegendConfig = Arc::new(move |_| legend.clone());
-
-        self.value = match self.value {
-            ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                scale_config,
-                ..
-            } => ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                scale_config,
-                legend_config: Some(legend_config),
-            },
-            ChannelValue::Conditional {
-                conditions,
-                otherwise,
-                scale_config,
-                ..
-            } => ChannelValue::Conditional {
-                conditions,
-                otherwise,
-                scale_config,
-                legend_config: Some(legend_config),
-            },
-            other => other,
-        };
-
-        self
+impl ChannelConfig for SizeChannelConfig {
+    fn get_value(&self) -> &ChannelValue {
+        &self.value
     }
 
-    pub fn scale<F>(mut self, f: F) -> Self
-    where
-        F: Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync + 'static,
-    {
-        let scale_config: ScaleConfig = Arc::new(f);
-
-        self.value = match self.value {
-            ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                legend_config,
-                ..
-            } => ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                scale_config: Some(scale_config),
-                legend_config,
-            },
-            ChannelValue::Conditional {
-                conditions,
-                otherwise,
-                legend_config,
-                ..
-            } => ChannelValue::Conditional {
-                conditions,
-                otherwise,
-                scale_config: Some(scale_config),
-                legend_config,
-            },
-            other => other,
-        };
-
-        self
+    fn set_value(&mut self, value: ChannelValue) {
+        self.value = value;
     }
 
-    pub fn scale_with<S: ScaleSpec>(
-        self,
-        f: impl FnOnce(Scale<S>) -> Scale<S> + Send + Sync + 'static,
-    ) -> Self {
-        // Use Fn instead of FnOnce for the inner closure
-        let f = Arc::new(std::sync::Mutex::new(Some(f)));
-        self.scale(move |default_scale| {
-            let typed_scale = default_scale.into_type::<S>();
-            if let Some(f) = f.lock().unwrap().take() {
-                f(typed_scale).into_auto()
-            } else {
-                typed_scale.into_auto()
-            }
-        })
-    }
-
-    /// Disable legend for this channel  
-    pub fn no_legend(self) -> Self {
-        // Create a legend but mark it as not visible
-        self.legend(|l| l.visible(false))
-    }
-
-    /// Disable scale for this channel
-    pub fn no_scale(mut self) -> Self {
-        self.value = self.value.no_scale();
-        self
-    }
-
-    pub fn into_inner(self) -> ChannelValue {
+    fn into_inner(self) -> ChannelValue {
         self.value
     }
+}
+
+impl LegendableChannel for SizeChannelConfig {
+    type LegendBuilder = SizeLegendBuilder;
 }
 
 // Channel config for shape channels
@@ -264,117 +72,24 @@ impl ShapeChannelConfig {
     pub fn new(value: ChannelValue) -> Self {
         Self { value }
     }
+}
 
-    /// Configure the legend for this shape channel
-    pub fn legend<F>(mut self, f: F) -> Self
-    where
-        F: FnOnce(ShapeLegendBuilder) -> ShapeLegendBuilder,
-    {
-        let builder = ShapeLegendBuilder::new();
-        let configured = f(builder);
-        let legend = configured.build();
-
-        let legend_config: LegendConfig = Arc::new(move |_| legend.clone());
-
-        self.value = match self.value {
-            ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                scale_config,
-                ..
-            } => ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                scale_config,
-                legend_config: Some(legend_config),
-            },
-            ChannelValue::Conditional {
-                conditions,
-                otherwise,
-                scale_config,
-                ..
-            } => ChannelValue::Conditional {
-                conditions,
-                otherwise,
-                scale_config,
-                legend_config: Some(legend_config),
-            },
-            other => other,
-        };
-
-        self
+impl ChannelConfig for ShapeChannelConfig {
+    fn get_value(&self) -> &ChannelValue {
+        &self.value
     }
 
-    pub fn scale<F>(mut self, f: F) -> Self
-    where
-        F: Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync + 'static,
-    {
-        let scale_config: ScaleConfig = Arc::new(f);
-
-        self.value = match self.value {
-            ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                legend_config,
-                ..
-            } => ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                scale_config: Some(scale_config),
-                legend_config,
-            },
-            ChannelValue::Conditional {
-                conditions,
-                otherwise,
-                legend_config,
-                ..
-            } => ChannelValue::Conditional {
-                conditions,
-                otherwise,
-                scale_config: Some(scale_config),
-                legend_config,
-            },
-            other => other,
-        };
-
-        self
+    fn set_value(&mut self, value: ChannelValue) {
+        self.value = value;
     }
 
-    pub fn scale_with<S: ScaleSpec>(
-        self,
-        f: impl FnOnce(Scale<S>) -> Scale<S> + Send + Sync + 'static,
-    ) -> Self {
-        // Use Fn instead of FnOnce for the inner closure
-        let f = Arc::new(std::sync::Mutex::new(Some(f)));
-        self.scale(move |default_scale| {
-            let typed_scale = default_scale.into_type::<S>();
-            if let Some(f) = f.lock().unwrap().take() {
-                f(typed_scale).into_auto()
-            } else {
-                typed_scale.into_auto()
-            }
-        })
-    }
-
-    /// Disable legend for this channel
-    pub fn no_legend(self) -> Self {
-        // Create a legend but mark it as not visible
-        self.legend(|l| l.visible(false))
-    }
-
-    /// Disable scale for this channel
-    pub fn no_scale(mut self) -> Self {
-        self.value = self.value.no_scale();
-        self
-    }
-
-    pub fn into_inner(self) -> ChannelValue {
+    fn into_inner(self) -> ChannelValue {
         self.value
     }
+}
+
+impl LegendableChannel for ShapeChannelConfig {
+    type LegendBuilder = ShapeLegendBuilder;
 }
 
 // Channel config for opacity channels
@@ -386,100 +101,24 @@ impl OpacityChannelConfig {
     pub fn new(value: ChannelValue) -> Self {
         Self { value }
     }
+}
 
-    /// Configure the legend for this opacity channel
-    pub fn legend<F>(mut self, f: F) -> Self
-    where
-        F: FnOnce(OpacityLegendBuilder) -> OpacityLegendBuilder,
-    {
-        let builder = OpacityLegendBuilder::new();
-        let configured = f(builder);
-        let legend = configured.build();
-
-        let legend_config: LegendConfig = Arc::new(move |_| legend.clone());
-
-        self.value = match self.value {
-            ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                scale_config,
-                ..
-            } => ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                scale_config,
-                legend_config: Some(legend_config),
-            },
-            ChannelValue::Conditional {
-                conditions,
-                otherwise,
-                scale_config,
-                ..
-            } => ChannelValue::Conditional {
-                conditions,
-                otherwise,
-                scale_config,
-                legend_config: Some(legend_config),
-            },
-            other => other,
-        };
-
-        self
+impl ChannelConfig for OpacityChannelConfig {
+    fn get_value(&self) -> &ChannelValue {
+        &self.value
     }
 
-    pub fn scale<F>(mut self, f: F) -> Self
-    where
-        F: Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync + 'static,
-    {
-        let scale_config: ScaleConfig = Arc::new(f);
-
-        self.value = match self.value {
-            ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                legend_config,
-                ..
-            } => ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                scale_config: Some(scale_config),
-                legend_config,
-            },
-            ChannelValue::Conditional {
-                conditions,
-                otherwise,
-                legend_config,
-                ..
-            } => ChannelValue::Conditional {
-                conditions,
-                otherwise,
-                scale_config: Some(scale_config),
-                legend_config,
-            },
-            other => other,
-        };
-
-        self
+    fn set_value(&mut self, value: ChannelValue) {
+        self.value = value;
     }
 
-    /// Disable legend for this channel
-    pub fn no_legend(self) -> Self {
-        // Create a legend but mark it as not visible
-        self.legend(|l| l.visible(false))
-    }
-
-    /// Disable scale for this channel  
-    pub fn no_scale(self) -> Self {
-        self
-    }
-
-    pub fn into_inner(self) -> ChannelValue {
+    fn into_inner(self) -> ChannelValue {
         self.value
     }
+}
+
+impl LegendableChannel for OpacityChannelConfig {
+    type LegendBuilder = OpacityLegendBuilder;
 }
 
 // Channel config for angle channels
@@ -491,79 +130,24 @@ impl AngleChannelConfig {
     pub fn new(value: ChannelValue) -> Self {
         Self { value }
     }
+}
 
-    /// Configure the legend for this angle channel  
-    pub fn legend<F>(mut self, f: F) -> Self
-    where
-        F: FnOnce(AngleLegendBuilder) -> AngleLegendBuilder,
-    {
-        let builder = AngleLegendBuilder::new();
-        let configured = f(builder);
-        let legend = configured.build();
-
-        let legend_config: LegendConfig = Arc::new(move |_| legend.clone());
-
-        self.value = match self.value {
-            ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                scale_config,
-                ..
-            } => ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                scale_config,
-                legend_config: Some(legend_config),
-            },
-            other => other,
-        };
-
-        self
+impl ChannelConfig for AngleChannelConfig {
+    fn get_value(&self) -> &ChannelValue {
+        &self.value
     }
 
-    pub fn scale<F>(mut self, f: F) -> Self
-    where
-        F: Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync + 'static,
-    {
-        let scale_config: ScaleConfig = Arc::new(f);
-
-        self.value = match self.value {
-            ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                legend_config,
-                ..
-            } => ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                scale_config: Some(scale_config),
-                legend_config,
-            },
-            other => other,
-        };
-
-        self
+    fn set_value(&mut self, value: ChannelValue) {
+        self.value = value;
     }
 
-    /// Disable legend for this channel
-    pub fn no_legend(self) -> Self {
-        // Create a legend but mark it as not visible
-        self.legend(|l| l.visible(false))
-    }
-
-    /// Disable scale for this channel
-    pub fn no_scale(mut self) -> Self {
-        self.value = self.value.no_scale();
-        self
-    }
-
-    pub fn into_inner(self) -> ChannelValue {
+    fn into_inner(self) -> ChannelValue {
         self.value
     }
+}
+
+impl LegendableChannel for AngleChannelConfig {
+    type LegendBuilder = AngleLegendBuilder;
 }
 
 // Channel config for stroke width channels
@@ -575,98 +159,26 @@ impl StrokeWidthChannelConfig {
     pub fn new(value: ChannelValue) -> Self {
         Self { value }
     }
+}
 
-    /// Configure the legend for this stroke width channel
-    pub fn legend<F>(mut self, f: F) -> Self
-    where
-        F: FnOnce(StrokeWidthLegendBuilder) -> StrokeWidthLegendBuilder,
-    {
-        let builder = StrokeWidthLegendBuilder::new();
-        let configured = f(builder);
-        let legend = configured.build();
-
-        let legend_config: LegendConfig = Arc::new(move |_| legend.clone());
-
-        self.value = match self.value {
-            ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                scale_config,
-                ..
-            } => ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                scale_config,
-                legend_config: Some(legend_config),
-            },
-            other => other,
-        };
-
-        self
+impl ChannelConfig for StrokeWidthChannelConfig {
+    fn get_value(&self) -> &ChannelValue {
+        &self.value
     }
 
-    pub fn scale<F>(mut self, f: F) -> Self
-    where
-        F: Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync + 'static,
-    {
-        let scale_config: ScaleConfig = Arc::new(f);
-
-        self.value = match self.value {
-            ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                legend_config,
-                ..
-            } => ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                scale_config: Some(scale_config),
-                legend_config,
-            },
-            other => other,
-        };
-
-        self
+    fn set_value(&mut self, value: ChannelValue) {
+        self.value = value;
     }
 
-    pub fn scale_with<S: ScaleSpec>(
-        self,
-        f: impl FnOnce(Scale<S>) -> Scale<S> + Send + Sync + 'static,
-    ) -> Self {
-        // Use Fn instead of FnOnce for the inner closure
-        let f = Arc::new(std::sync::Mutex::new(Some(f)));
-        self.scale(move |default_scale| {
-            let typed_scale = default_scale.into_type::<S>();
-            let f = f
-                .lock()
-                .unwrap()
-                .take()
-                .expect("scale_with closure already called");
-            let configured = f(typed_scale);
-            configured.into_type::<Auto>()
-        })
-    }
-
-    /// Disable legend for this channel
-    pub fn no_legend(self) -> Self {
-        // Create a legend but mark it as not visible
-        self.legend(|l| l.visible(false))
-    }
-
-    /// Disable scale for this channel
-    pub fn no_scale(mut self) -> Self {
-        self.value = self.value.no_scale();
-        self
-    }
-
-    pub fn into_inner(self) -> ChannelValue {
+    fn into_inner(self) -> ChannelValue {
         self.value
     }
 }
+
+impl LegendableChannel for StrokeWidthChannelConfig {
+    type LegendBuilder = StrokeWidthLegendBuilder;
+}
+
 // Channel config for stroke dash channels
 pub struct StrokeDashChannelConfig {
     value: ChannelValue,
@@ -676,117 +188,201 @@ impl StrokeDashChannelConfig {
     pub fn new(value: ChannelValue) -> Self {
         Self { value }
     }
+}
 
-    /// Configure the legend for this stroke dash channel
-    pub fn legend<F>(mut self, f: F) -> Self
-    where
-        F: FnOnce(StrokeDashLegendBuilder) -> StrokeDashLegendBuilder,
-    {
-        let builder = StrokeDashLegendBuilder::new();
-        let configured = f(builder);
-        let legend = configured.build();
-
-        let legend_config: LegendConfig = Arc::new(move |_| legend.clone());
-
-        self.value = match self.value {
-            ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                scale_config,
-                ..
-            } => ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                scale_config,
-                legend_config: Some(legend_config),
-            },
-            ChannelValue::Conditional {
-                conditions,
-                otherwise,
-                scale_config,
-                ..
-            } => ChannelValue::Conditional {
-                conditions,
-                otherwise,
-                scale_config,
-                legend_config: Some(legend_config),
-            },
-            other => other,
-        };
-
-        self
+impl ChannelConfig for StrokeDashChannelConfig {
+    fn get_value(&self) -> &ChannelValue {
+        &self.value
     }
 
-    pub fn scale<F>(mut self, f: F) -> Self
-    where
-        F: Fn(Scale<Auto>) -> Scale<Auto> + Send + Sync + 'static,
-    {
-        let scale_config: ScaleConfig = Arc::new(f);
-
-        self.value = match self.value {
-            ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                legend_config,
-                ..
-            } => ChannelValue::Scaled {
-                expr,
-                scale_name,
-                band,
-                scale_config: Some(scale_config),
-                legend_config,
-            },
-            ChannelValue::Conditional {
-                conditions,
-                otherwise,
-                legend_config,
-                ..
-            } => ChannelValue::Conditional {
-                conditions,
-                otherwise,
-                scale_config: Some(scale_config),
-                legend_config,
-            },
-            other => other,
-        };
-
-        self
+    fn set_value(&mut self, value: ChannelValue) {
+        self.value = value;
     }
 
-    pub fn scale_with<S: ScaleSpec>(
-        self,
-        f: impl FnOnce(Scale<S>) -> Scale<S> + Send + Sync + 'static,
-    ) -> Self {
-        // Use Fn instead of FnOnce for the inner closure
-        let f = Arc::new(std::sync::Mutex::new(Some(f)));
-        self.scale(move |default_scale| {
-            let typed_scale = default_scale.into_type::<S>();
-            let f = f
-                .lock()
-                .unwrap()
-                .take()
-                .expect("scale_with closure already called");
-            let configured = f(typed_scale);
-            configured.into_type::<Auto>()
-        })
-    }
-
-    /// Disable legend for this channel
-    pub fn no_legend(self) -> Self {
-        // Create a legend but mark it as not visible
-        self.legend(|l| l.visible(false))
-    }
-
-    /// Disable scale for this channel
-    pub fn no_scale(mut self) -> Self {
-        self.value = self.value.no_scale();
-        self
-    }
-
-    pub fn into_inner(self) -> ChannelValue {
+    fn into_inner(self) -> ChannelValue {
         self.value
+    }
+}
+
+impl LegendableChannel for StrokeDashChannelConfig {
+    type LegendBuilder = StrokeDashLegendBuilder;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::marks::channel::ConditionalValue;
+    use datafusion::prelude::*;
+
+    #[test]
+    fn test_color_config_when_value_on_scaled() {
+        let config = ColorChannelConfig::new(col("temperature").into())
+            .when_value(col("selected"), lit("red"));
+
+        let expected = ChannelValue::Conditional {
+            conditions: vec![(
+                col("selected"),
+                ConditionalValue::Value { expr: lit("red") },
+            )],
+            otherwise: ConditionalValue::Field {
+                expr: col("temperature"),
+            },
+            scale_config: None,
+            legend_config: None,
+        };
+
+        assert_eq!(config.into_inner(), expected);
+    }
+
+    #[test]
+    fn test_color_config_when_scaled_on_identity() {
+        let config = ColorChannelConfig::new(ChannelValue::Identity { expr: lit("blue") })
+            .when_scaled(col("important"), col("importance_score"));
+
+        let expected = ChannelValue::Conditional {
+            conditions: vec![(
+                col("important"),
+                ConditionalValue::Field {
+                    expr: col("importance_score"),
+                },
+            )],
+            otherwise: ConditionalValue::Value { expr: lit("blue") },
+            scale_config: None,
+            legend_config: None,
+        };
+
+        assert_eq!(config.into_inner(), expected);
+    }
+
+    #[test]
+    fn test_color_config_multiple_conditions() {
+        let config = ColorChannelConfig::new(col("default").into())
+            .when_value(col("error"), lit("red"))
+            .when_value(col("warning"), lit("orange"))
+            .when_scaled(col("important"), col("score"));
+
+        let expected = ChannelValue::Conditional {
+            conditions: vec![
+                // Most recent condition should be first (prepended)
+                (
+                    col("important"),
+                    ConditionalValue::Field { expr: col("score") },
+                ),
+                (
+                    col("warning"),
+                    ConditionalValue::Value {
+                        expr: lit("orange"),
+                    },
+                ),
+                (col("error"), ConditionalValue::Value { expr: lit("red") }),
+            ],
+            otherwise: ConditionalValue::Field {
+                expr: col("default"),
+            },
+            scale_config: None,
+            legend_config: None,
+        };
+
+        assert_eq!(config.into_inner(), expected);
+    }
+
+    #[test]
+    fn test_color_config_preserves_scale_config() {
+        let config = ColorChannelConfig::new(col("temperature").into())
+            .scale(|s| s) // Simple identity function for testing
+            .when_value(col("selected"), lit("#00ff00"));
+
+        let value = config.into_inner();
+        // We can't check the full equality due to the function pointer,
+        // but we can verify the structure and that scale_config exists
+        assert!(value.has_scale_config(), "Scale config should be preserved");
+
+        // Verify the rest of the structure
+        if let ChannelValue::Conditional {
+            conditions,
+            otherwise,
+            ..
+        } = value
+        {
+            assert_eq!(
+                conditions,
+                vec![(
+                    col("selected"),
+                    ConditionalValue::Value {
+                        expr: lit("#00ff00")
+                    }
+                )]
+            );
+            assert_eq!(
+                otherwise,
+                ConditionalValue::Field {
+                    expr: col("temperature")
+                }
+            );
+        } else {
+            panic!("Expected Conditional");
+        }
+    }
+
+    #[test]
+    fn test_color_config_preserves_legend_config() {
+        let config = ColorChannelConfig::new(col("temperature").into())
+            .legend(|l| l.title("Temperature"))
+            .when_value(col("selected"), lit("red"));
+
+        let value = config.into_inner();
+        // We can't check the full equality due to the function pointer,
+        // but we can verify the structure and that legend_config exists
+        assert!(
+            value.has_legend_config(),
+            "Legend config should be preserved"
+        );
+
+        // Verify the rest of the structure
+        if let ChannelValue::Conditional {
+            conditions,
+            otherwise,
+            ..
+        } = value
+        {
+            assert_eq!(
+                conditions,
+                vec![(
+                    col("selected"),
+                    ConditionalValue::Value { expr: lit("red") }
+                )]
+            );
+            assert_eq!(
+                otherwise,
+                ConditionalValue::Field {
+                    expr: col("temperature")
+                }
+            );
+        } else {
+            panic!("Expected Conditional");
+        }
+    }
+
+    #[test]
+    fn test_color_config_chaining_order() {
+        // Test that conditions are evaluated in reverse order of addition (most recent first)
+        let config = ColorChannelConfig::new(col("base").into())
+            .when_value(col("a"), lit("red")) // Added first, evaluated last
+            .when_value(col("b"), lit("blue")) // Added second, evaluated second
+            .when_value(col("c"), lit("green")); // Added last, evaluated first
+
+        let expected = ChannelValue::Conditional {
+            conditions: vec![
+                // Most recent additions should be first
+                (col("c"), ConditionalValue::Value { expr: lit("green") }),
+                (col("b"), ConditionalValue::Value { expr: lit("blue") }),
+                (col("a"), ConditionalValue::Value { expr: lit("red") }),
+            ],
+            otherwise: ConditionalValue::Field { expr: col("base") },
+            scale_config: None,
+            legend_config: None,
+        };
+
+        assert_eq!(config.into_inner(), expected);
     }
 }

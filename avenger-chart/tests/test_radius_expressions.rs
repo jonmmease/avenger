@@ -1,8 +1,4 @@
-use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::line::Line;
-use avenger_chart::marks::symbol::Symbol;
-use avenger_chart::marks::{Mark, RadiusExpression};
-use datafusion::logical_expr::{col, lit};
+use avenger_chart::prelude::*;
 use datafusion::prelude::SessionContext;
 use datafusion::scalar::ScalarValue;
 use std::sync::Arc;

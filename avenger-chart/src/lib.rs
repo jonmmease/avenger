@@ -1,5 +1,6 @@
 pub mod axis;
 pub mod cartesian;
+pub mod channel_config_traits;
 pub mod channel_configs;
 mod channel_resolution;
 mod chart_layout;
@@ -14,6 +15,7 @@ pub mod plot;
 mod plot_legends;
 mod plot_scales;
 pub mod polar;
+pub mod prelude;
 pub mod render;
 pub mod scales;
 pub mod utils;

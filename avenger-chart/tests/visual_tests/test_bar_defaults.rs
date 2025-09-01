@@ -2,11 +2,7 @@
 
 use super::datasets;
 use super::helpers::assert_visual_match_default;
-use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::rect::Rect;
-use avenger_chart::plot::Plot;
-use avenger_chart::scales::Linear;
-use datafusion::logical_expr::{col, lit};
+use avenger_chart::prelude::*;
 
 #[tokio::test]
 async fn test_bar_chart_y_scale_auto_zero() {

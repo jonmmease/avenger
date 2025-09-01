@@ -1,6 +1,4 @@
-use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::symbol::Symbol;
-use datafusion::prelude::col;
+use avenger_chart::prelude::*;
 
 #[test]
 fn test_axis_config_from_channel() {

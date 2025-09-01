@@ -1,10 +1,8 @@
+use avenger_chart::prelude::*;
 // Test file for scale and legend configuration
 // Updated to use channel-level API instead of removed plot-level API
 
 use crate::visual_tests::helpers::assert_visual_match_default;
-use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::symbol::Symbol;
-use avenger_chart::plot::Plot;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;

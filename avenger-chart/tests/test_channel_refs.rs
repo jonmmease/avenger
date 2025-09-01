@@ -1,8 +1,6 @@
 //! Test channel reference functionality
 
-use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::Mark;
-use avenger_chart::marks::line::Line;
+use avenger_chart::prelude::*;
 use datafusion::logical_expr::ident;
 use datafusion::prelude::*;
 

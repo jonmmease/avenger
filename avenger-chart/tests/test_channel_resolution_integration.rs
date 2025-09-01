@@ -1,9 +1,4 @@
-use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::rect::Rect;
-use avenger_chart::marks::symbol::Symbol;
-use avenger_chart::plot::Plot;
-use avenger_chart::render::CanvasExt;
-use avenger_chart::scales::Band;
+use avenger_chart::prelude::*;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{CanvasConfig, PngCanvas};
 use datafusion::prelude::*;

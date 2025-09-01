@@ -1,10 +1,6 @@
 use super::datasets;
 use super::helpers::assert_visual_match_default;
-use avenger_chart::cartesian::Cartesian;
-use avenger_chart::marks::rect::Rect;
-use avenger_chart::plot::Plot;
-use avenger_chart::scales::{Band, Linear, Log, Pow, Threshold};
-use datafusion::logical_expr::{col, lit};
+use avenger_chart::prelude::*;
 use palette::rgb::Srgba;
 // Visual tests for various scales with color ranges
 

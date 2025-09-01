@@ -1,8 +1,6 @@
 use crate::visual_tests::helpers::assert_visual_match_default;
-use avenger_chart::cartesian::Cartesian;
+use avenger_chart::prelude::*;
 
-use avenger_chart::marks::symbol::Symbol;
-use avenger_chart::plot::Plot;
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;

@@ -1,11 +1,7 @@
 // Test that channel-level scale and legend configuration works
 
-use avenger_chart::cartesian::Cartesian;
+use avenger_chart::prelude::*;
 
-use avenger_chart::marks::symbol::Symbol;
-use avenger_chart::plot::Plot;
-use avenger_chart::scales::Ordinal;
-use datafusion::logical_expr::{col, lit};
 use palette::Srgba;
 
 #[test]
