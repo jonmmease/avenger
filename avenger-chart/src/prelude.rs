@@ -33,7 +33,7 @@ pub use crate::marks::symbol::Symbol;
 
 // Re-export mark traits and types
 pub use crate::marks::{
-    ChannelValue, ConditionalValue, DataSource, FacetStrategy, Mark, MarkState, RadiusExpression,
+    ChannelValue, ConditionalValue, FacetStrategy, Mark, MarkState, RadiusExpression,
 };
 
 // Re-export channel config traits - ESSENTIAL for using channel methods

@@ -1,7 +1,7 @@
 pub mod channel;
 pub mod channel_descriptor;
 pub mod data_context;
-pub mod data_source;
+pub mod facet_strategy;
 pub mod line;
 pub mod rect;
 pub mod state;
@@ -17,7 +17,7 @@ pub mod position_channel_macros;
 pub use channel::{ChannelValue, ConditionalValue};
 pub use channel_descriptor::{ChannelDefault, ChannelDescriptor};
 pub use data_context::DataContext;
-pub use data_source::{DataSource, FacetStrategy};
+pub use facet_strategy::FacetStrategy;
 pub use state::MarkState;
 
 use crate::coords::CoordinateSystem;
@@ -49,9 +49,6 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
 
     /// Get the data context for this mark (for accessing encodings and data)
     fn data_context(&self) -> &DataContext;
-
-    /// Get the data source type
-    fn data_source(&self) -> DataSource;
 
     /// Get the mark type name (e.g., "rect", "line", "symbol")
     fn mark_type(&self) -> &str;

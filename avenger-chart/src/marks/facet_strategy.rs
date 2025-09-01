@@ -1,13 +1,4 @@
-//! Data source and faceting strategies for marks
-
-/// Data source strategy for marks in faceted plots
-#[derive(Debug, Clone)]
-pub enum DataSource {
-    /// Inherit data from plot level (default for new marks)
-    Inherited,
-    /// Use explicit mark-level data
-    Explicit,
-}
+//! Faceting strategies for marks
 
 /// Strategy for handling mark data in faceted plots
 #[derive(Debug, Clone)]

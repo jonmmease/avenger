@@ -1,7 +1,7 @@
 //! State for marks
 
 use crate::coords::CoordinateSystem;
-use crate::marks::{DataContext, DataSource, FacetStrategy};
+use crate::marks::{DataContext, FacetStrategy};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -9,9 +9,6 @@ use std::sync::Arc;
 pub struct MarkState<C: CoordinateSystem> {
     pub _phantom: std::marker::PhantomData<C>,
     pub data: DataContext,
-
-    // Data inheritance control
-    pub data_source: DataSource,
 
     // Faceting behavior for this mark
     pub facet_strategy: FacetStrategy,

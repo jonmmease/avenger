@@ -848,24 +848,48 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         plot_width: f32,
         plot_height: f32,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // Get the data - either from mark or inherit from plot
-        let df_ref = match mark.data_source() {
-            crate::marks::DataSource::Explicit => mark.data_context().dataframe(),
-            crate::marks::DataSource::Inherited => {
-                // Get plot-level data
-                Some(self.plot.data.as_ref().ok_or_else(|| {
-                    AvengerChartError::InternalError(
-                        "Mark expects inherited data but plot has no data".to_string(),
-                    )
-                })?)
-            }
-        };
-
         // Get channel mappings from DataContext
         let channels = mark.data_context().channels();
 
         // Resolve channel references (e.g., ":x" -> actual x expression)
         let channels = crate::channel_resolution::resolve_all_channel_refs(channels)?;
+
+        // Check if any channel expressions reference columns
+        let references_columns = channels.values().any(|channel_value| match channel_value {
+            ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
+                crate::scales::validation::expr_references_columns(expr)
+            }
+            ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                ..
+            } => {
+                conditions.iter().any(|(condition, value)| {
+                    crate::scales::validation::expr_references_columns(condition)
+                        || crate::scales::validation::expr_references_columns(value.expr())
+                }) || crate::scales::validation::expr_references_columns(otherwise.expr())
+            }
+        });
+
+        // Determine data source based on:
+        // 1. If mark has explicit data, use it
+        // 2. If no expressions reference columns, use unit (single row)
+        // 3. Otherwise inherit from plot if available
+        let df_ref = if let Some(mark_df) = mark.data_context().dataframe() {
+            // Mark has explicit data
+            Some(mark_df)
+        } else if !references_columns {
+            // No column references - use unit data
+            None
+        } else if let Some(plot_data) = &self.plot.data {
+            // Inherit from plot
+            Some(plot_data)
+        } else {
+            // No data available but columns are referenced
+            return Err(AvengerChartError::InternalError(
+                "Mark expressions reference columns but no data is available".to_string(),
+            ));
+        };
 
         // Check if mark supports order and has order encoding
         let df = if let Some(df_ref) = df_ref {
@@ -884,10 +908,15 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 Arc::new(df_ref.clone())
             }
         } else {
-            // No data - return error
-            return Err(AvengerChartError::InternalError(
-                "Mark requires data but none available".to_string(),
-            ));
+            // Unit data source - create minimal DataFrame with single row
+            // This allows scalar expressions to be evaluated
+            use datafusion::prelude::*;
+            let ctx = SessionContext::new();
+            let empty_df = ctx
+                .sql("SELECT 1 as _dummy")
+                .await
+                .map_err(|e| AvengerChartError::DataFusionError(e))?;
+            Arc::new(empty_df)
         };
 
         // Get supported channels from the mark
