@@ -6,9 +6,10 @@ use arrow::array::RecordBatch;
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
-use avenger_scales::scales::{ordinal::OrdinalScale, ScaleImpl};
+use avenger_scales::scales::{ordinal::OrdinalScale, pow::PowScale, ScaleImpl};
 use datafusion::arrow::datatypes::DataType;
-use datafusion::logical_expr::{Expr, lit};
+use datafusion::logical_expr::{lit, Expr};
+use std::collections::HashMap;
 use datafusion_common::ScalarValue;
 // Import Symbol for the macro, then re-export it
 use crate::error::AvengerChartError;
@@ -170,12 +171,26 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
 
     fn preferred_scale_type(&self, channel: &str, data_type: &DataType) -> Option<Arc<dyn ScaleImpl>> {
         match (channel, data_type) {
-            // Color and shape channels use ordinal scales for categorical data
-            ("fill" | "stroke" | "color" | "shape", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Arc::new(OrdinalScale))
+            // Size uses sqrt scale for numeric data (better for area perception)
+            ("size", DataType::Float32
+            | DataType::Float64
+            | DataType::Int8
+            | DataType::Int16
+            | DataType::Int32
+            | DataType::Int64
+            | DataType::UInt8
+            | DataType::UInt16
+            | DataType::UInt32
+            | DataType::UInt64) => {
+                // Use PowScale as a Sqrt scale (it will be configured with exponent 0.5 later)
+                Some(Arc::new(PowScale))
             }
             // Size uses ordinal for categorical data
             ("size", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
+                Some(Arc::new(OrdinalScale))
+            }
+            // Color and shape channels use ordinal scales for categorical data
+            ("fill" | "stroke" | "color" | "shape", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
                 Some(Arc::new(OrdinalScale))
             }
             // Stroke width always uses ordinal scale for discrete mapping
@@ -185,6 +200,22 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
             // Let the system handle other cases (positions handled by coordinate system)
             _ => None,
         }
+    }
+
+    fn default_scale_options(
+        &self,
+        channel: &str,
+        scale_type: &str,
+        _data_type: &DataType,
+    ) -> HashMap<String, Expr> {
+        let mut options = HashMap::new();
+        
+        // Configure PowScale as Sqrt scale for size channel
+        if channel == "size" && scale_type == "pow" {
+            options.insert("exponent".to_string(), lit(0.5f32));
+        }
+        
+        options
     }
 
     fn preferred_legend_renderer(
