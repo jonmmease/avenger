@@ -1867,21 +1867,51 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             .normalize_domain(plot_area_width, plot_area_height)
             .await?;
 
-        // Step 5: Apply mark-specific range if not a position channel
+        // Step 5: Apply mark-specific range if not a position channel AND no range is set
         // Position channels already have their ranges set in Step 2
         let is_position = self
             .plot
             .coord_system()
             .required_channels()
             .contains(&name.as_ref());
-        if !is_position {
+
+        // Check if scale already has a user-specified range
+        // The default range is [0, 1], so check if it's been customized from that
+        let has_user_range = match scale.get_range() {
+            crate::scales::ScaleRange::Color(_) => true, // Custom color range
+            crate::scales::ScaleRange::Enum(_) => true,  // Custom discrete values
+            crate::scales::ScaleRange::Numeric(start, end) => {
+                // Check if it's not the default [0, 1] range
+                use datafusion::logical_expr::Expr;
+                use datafusion_common::ScalarValue;
+                let is_default = match (start, end.as_ref()) {
+                    (
+                        Expr::Literal(ScalarValue::Float64(Some(v1)), _),
+                        Expr::Literal(ScalarValue::Float64(Some(v2)), _),
+                    ) => (*v1 - 0.0).abs() < 0.001 && (*v2 - 1.0).abs() < 0.001,
+                    (
+                        Expr::Literal(ScalarValue::Float32(Some(v1)), _),
+                        Expr::Literal(ScalarValue::Float32(Some(v2)), _),
+                    ) => (*v1 as f64 - 0.0).abs() < 0.001 && (*v2 as f64 - 1.0).abs() < 0.001,
+                    _ => false,
+                };
+                !is_default
+            }
+        };
+
+        if !is_position && !has_user_range {
             // Find the first mark that uses this channel
             for mark in &self.plot.marks {
                 if mark.data_context().channels().contains_key(name) {
                     // Get data type from the channel expression
-                    let data_type = mark
-                        .data_context()
-                        .channels()
+                    // First resolve channel references
+                    let channels = mark.data_context().channels();
+                    let resolved_channels =
+                        crate::channel_resolution::resolve_all_channel_refs(channels)
+                            .ok()
+                            .unwrap_or_else(|| channels.clone());
+
+                    let data_type = resolved_channels
                         .get(name)
                         .and_then(|channel_value| channel_value.expr())
                         .and_then(|expr| {

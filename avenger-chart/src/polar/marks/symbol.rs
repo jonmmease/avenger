@@ -4,11 +4,13 @@ use crate::impl_mark_trait_common;
 use crate::marks::{Mark, RadiusExpression};
 
 use crate::polar::Polar;
+use crate::scales::ScaleRange;
 use crate::utils::ScalarValueHelpers;
 use arrow::array::RecordBatch;
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
+use datafusion::arrow::datatypes::DataType;
 use datafusion::logical_expr::{Expr, lit};
 use datafusion_common::ScalarValue;
 // Import Symbol for the macro, then re-export it
@@ -246,6 +248,67 @@ impl Mark<Polar> for Symbol<Polar> {
         };
 
         Ok(vec![SceneMark::Symbol(symbol_mark)])
+    }
+
+    fn default_channel_range(
+        &self,
+        channel: &str,
+        scale_type: &str,
+        _data_type: &DataType,
+    ) -> Option<ScaleRange> {
+        match channel {
+            "size" => {
+                // Size range depends on scale type
+                match scale_type {
+                    "linear" | "pow" | "sqrt" => {
+                        // For continuous scales, use area range
+                        Some(ScaleRange::new_interval(lit(16.0), lit(64.0))) // 4^2 to 8^2
+                    }
+                    "ordinal" => {
+                        // For ordinal scales, create discrete sizes
+                        let n = 5; // Default to 5 sizes
+                        let sizes: Vec<f32> = (0..n)
+                            .map(|i| {
+                                let t = if n > 1 {
+                                    i as f32 / (n - 1) as f32
+                                } else {
+                                    0.5
+                                };
+                                16.0 + t * (64.0 - 16.0) // Interpolate areas from 4^2 to 8^2
+                            })
+                            .collect();
+                        Some(ScaleRange::new_discrete(sizes))
+                    }
+                    _ => None,
+                }
+            }
+            "shape" => {
+                if scale_type == "ordinal" {
+                    use crate::scales::shape_defaults::DEFAULT_SHAPES;
+                    let shapes: Vec<String> =
+                        DEFAULT_SHAPES.iter().map(|&s| s.to_string()).collect();
+                    Some(ScaleRange::new_discrete(shapes))
+                } else {
+                    None
+                }
+            }
+            "angle" => Some(ScaleRange::new_interval(lit(0.0), lit(360.0))),
+            "opacity" => Some(ScaleRange::new_interval(lit(0.0), lit(1.0))),
+            "stroke_width" => {
+                if scale_type == "ordinal" {
+                    let widths: Vec<f32> = (1..=5).map(|i| i as f32).collect();
+                    Some(ScaleRange::new_discrete(widths))
+                } else {
+                    Some(ScaleRange::new_interval(lit(0.5), lit(5.0)))
+                }
+            }
+            "fill" | "stroke" | "color" => {
+                // Use color defaults system
+                use crate::scales::color_defaults::get_default_color_range;
+                Some(get_default_color_range(scale_type, None))
+            }
+            _ => None,
+        }
     }
 
     fn preferred_legend_renderer(
