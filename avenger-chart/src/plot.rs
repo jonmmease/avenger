@@ -464,9 +464,17 @@ impl<C: CoordinateSystem> Plot<C> {
                             // First try to get the mark's preferred scale type
                             scale_impl = mark.preferred_scale_type(channel, &expr_type);
                             
-                            // If mark didn't specify, use the fallback logic
+                            // If mark didn't specify, check if it's a position channel
                             if scale_impl.is_none() {
-                                scale_impl = Some(infer_scale_impl(channel, &expr_type));
+                                // Check if this is a position channel handled by the coordinate system
+                                if self.coord_system.required_channels().contains(&channel.as_ref()) {
+                                    scale_impl = self.coord_system.preferred_position_scale_type(channel, &expr_type);
+                                }
+                            }
+                            
+                            // Finally, use the generic data type fallback
+                            if scale_impl.is_none() {
+                                scale_impl = Some(infer_scale_impl(&expr_type));
                             }
                             break;
                         }
@@ -476,23 +484,12 @@ impl<C: CoordinateSystem> Plot<C> {
         }
 
         // Create a scale based on the inferred type
-        use avenger_scales::scales::ordinal::OrdinalScale;
         let scale_impl = scale_impl.unwrap_or_else(|| {
-            if channel == "stroke_width" {
-                // stroke_width MUST always use ordinal scale with discrete domain
-                Arc::new(OrdinalScale) as Arc<dyn avenger_scales::scales::ScaleImpl>
-            } else if let Some(dt) = &data_type {
-                infer_scale_impl(channel, dt)
+            if let Some(dt) = &data_type {
+                infer_scale_impl(dt)
             } else {
-                // Fallback to channel-based defaults
-                match channel {
-                    // Color and discrete visual channels default to ordinal
-                    "fill" | "stroke" | "color" | "shape" | "stroke_dash" => {
-                        Arc::new(OrdinalScale) as Arc<dyn avenger_scales::scales::ScaleImpl>
-                    }
-                    // Everything else defaults to linear
-                    _ => Arc::new(LinearScale) as Arc<dyn avenger_scales::scales::ScaleImpl>,
-                }
+                // No data type available, default to linear
+                Arc::new(LinearScale) as Arc<dyn avenger_scales::scales::ScaleImpl>
             }
         });
 

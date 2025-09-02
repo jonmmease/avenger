@@ -2,10 +2,13 @@ use crate::axis::AxisPosition;
 use crate::cartesian::CartesianAxis;
 use crate::coords::{CoordinateSystem, OverflowSpaceRequirement, TransformResult};
 use crate::error::AvengerChartError;
+use avenger_scales::scales::{point::PointScale, ScaleImpl};
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
+use datafusion::arrow::datatypes::DataType;
 use datafusion::logical_expr::Expr;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Cartesian coordinate system with concrete axis type
 #[derive(Clone, Default)]
@@ -224,6 +227,18 @@ impl CoordinateSystem for Cartesian {
             y: 0.0,
             width: plot_width,
             height: plot_height,
+        }
+    }
+
+    fn preferred_position_scale_type(&self, channel: &str, data_type: &DataType) -> Option<Arc<dyn ScaleImpl>> {
+        match (channel, data_type) {
+            // Position channels use point scales for categorical data by default
+            // (marks can override this - e.g., rect marks use band scales)
+            ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
+                Some(Arc::new(PointScale))
+            }
+            // Let the system handle numeric and temporal types
+            _ => None,
         }
     }
 }

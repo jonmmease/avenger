@@ -1,9 +1,12 @@
 use crate::axis::Axis;
 use crate::error::AvengerChartError;
+use avenger_scales::scales::ScaleImpl;
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
+use datafusion::arrow::datatypes::DataType;
 use datafusion::logical_expr::Expr;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Space requirements for coordinate system guides that overflow the plot area
 #[derive(Debug, Clone)]
@@ -129,5 +132,11 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     ) -> Result<datafusion::arrow::record_batch::RecordBatch, AvengerChartError> {
         // Default implementation: return batch unchanged
         Ok(batch)
+    }
+
+    /// Get the preferred scale type for a position channel based on data type
+    /// Returns None to use system defaults (based on data type alone)
+    fn preferred_position_scale_type(&self, _channel: &str, _data_type: &DataType) -> Option<Arc<dyn ScaleImpl>> {
+        None
     }
 }

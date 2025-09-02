@@ -6,7 +6,7 @@ use arrow::array::RecordBatch;
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
-use avenger_scales::scales::{point::PointScale, ScaleImpl};
+use avenger_scales::scales::{ordinal::OrdinalScale, ScaleImpl};
 use datafusion::arrow::datatypes::DataType;
 use datafusion::logical_expr::{Expr, lit};
 use datafusion_common::ScalarValue;
@@ -170,11 +170,19 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
 
     fn preferred_scale_type(&self, channel: &str, data_type: &DataType) -> Option<Arc<dyn ScaleImpl>> {
         match (channel, data_type) {
-            // Symbol marks use point scales for categorical position data
-            ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Arc::new(PointScale))
+            // Color and shape channels use ordinal scales for categorical data
+            ("fill" | "stroke" | "color" | "shape", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
+                Some(Arc::new(OrdinalScale))
             }
-            // Let the system handle other cases
+            // Size uses ordinal for categorical data
+            ("size", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
+                Some(Arc::new(OrdinalScale))
+            }
+            // Stroke width always uses ordinal scale for discrete mapping
+            ("stroke_width", _) => {
+                Some(Arc::new(OrdinalScale))
+            }
+            // Let the system handle other cases (positions handled by coordinate system)
             _ => None,
         }
     }
