@@ -232,12 +232,12 @@ impl CoordinateSystem for Cartesian {
 
     fn preferred_position_scale_type(&self, channel: &str, data_type: &DataType) -> Option<Arc<dyn ScaleImpl>> {
         match (channel, data_type) {
-            // Position channels use point scales for categorical data by default
+            // Position channels use point scales for categorical data
             // (marks can override this - e.g., rect marks use band scales)
             ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
                 Some(Arc::new(PointScale))
             }
-            // Let the system handle numeric and temporal types
+            // Return None for numeric/temporal to use standard defaults
             _ => None,
         }
     }

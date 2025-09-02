@@ -439,7 +439,7 @@ impl<C: CoordinateSystem> Plot<C> {
 
     /// Internal helper to create a default scale for a channel
     fn create_default_scale_for_channel_internal(&self, channel: &str) -> Scale {
-        use crate::scales::inference::{get_default_scale_options, infer_scale_impl};
+        use crate::scales::inference::{get_default_scale_options, infer_scale_impl, infer_position_scale_impl};
         use avenger_scales::scales::linear::LinearScale;
         use datafusion::logical_expr::ExprSchemable;
 
@@ -467,14 +467,19 @@ impl<C: CoordinateSystem> Plot<C> {
                             // If mark didn't specify, check if it's a position channel
                             if scale_impl.is_none() {
                                 // Check if this is a position channel handled by the coordinate system
-                                if self.coord_system.required_channels().contains(&channel.as_ref()) {
+                                let is_position = self.coord_system.required_channels().contains(&channel.as_ref());
+                                if is_position {
                                     scale_impl = self.coord_system.preferred_position_scale_type(channel, &expr_type);
                                 }
-                            }
-                            
-                            // Finally, use the generic data type fallback
-                            if scale_impl.is_none() {
-                                scale_impl = Some(infer_scale_impl(&expr_type));
+                                
+                                // If still no preference, use the appropriate data type fallback
+                                if scale_impl.is_none() {
+                                    scale_impl = Some(if is_position {
+                                        infer_position_scale_impl(&expr_type)
+                                    } else {
+                                        infer_scale_impl(&expr_type)
+                                    });
+                                }
                             }
                             break;
                         }
