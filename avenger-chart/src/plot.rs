@@ -464,22 +464,15 @@ impl<C: CoordinateSystem> Plot<C> {
                             // First try to get the mark's preferred scale type
                             scale_impl = mark.preferred_scale_type(channel, &expr_type);
                             
-                            // If mark didn't specify, check if it's a position channel
+                            // If mark didn't specify, use the appropriate data type fallback
                             if scale_impl.is_none() {
-                                // Check if this is a position channel handled by the coordinate system
+                                // Check if this is a position channel
                                 let is_position = self.coord_system.required_channels().contains(&channel.as_ref());
-                                if is_position {
-                                    scale_impl = self.coord_system.preferred_position_scale_type(channel, &expr_type);
-                                }
-                                
-                                // If still no preference, use the appropriate data type fallback
-                                if scale_impl.is_none() {
-                                    scale_impl = Some(if is_position {
-                                        infer_position_scale_impl(&expr_type)
-                                    } else {
-                                        infer_scale_impl(&expr_type)
-                                    });
-                                }
+                                scale_impl = Some(if is_position {
+                                    infer_position_scale_impl(&expr_type)
+                                } else {
+                                    infer_scale_impl(&expr_type)
+                                });
                             }
                             break;
                         }

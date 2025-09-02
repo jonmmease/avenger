@@ -6,7 +6,7 @@ use arrow::array::{AsArray, RecordBatch};
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::line::SceneLineMark;
 use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scales::scales::{ordinal::OrdinalScale, ScaleImpl};
+use avenger_scales::scales::{ordinal::OrdinalScale, point::PointScale, ScaleImpl};
 use datafusion::arrow::datatypes::DataType;
 use datafusion::logical_expr::{Expr, lit};
 use datafusion_common::ScalarValue;
@@ -417,6 +417,10 @@ impl Mark<Cartesian> for Line<Cartesian> {
 
     fn preferred_scale_type(&self, channel: &str, data_type: &DataType) -> Option<Arc<dyn ScaleImpl>> {
         match (channel, data_type) {
+            // Line marks use point scales for categorical position data
+            ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
+                Some(Arc::new(PointScale))
+            }
             // Stroke color uses ordinal scales for categorical data
             ("stroke", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
                 Some(Arc::new(OrdinalScale))
@@ -429,7 +433,7 @@ impl Mark<Cartesian> for Line<Cartesian> {
             ("stroke_width", _) => {
                 Some(Arc::new(OrdinalScale))
             }
-            // Let the system handle other cases (positions handled by coordinate system)
+            // Let the system handle other cases
             _ => None,
         }
     }
