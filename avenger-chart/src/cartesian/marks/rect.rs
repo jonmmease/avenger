@@ -9,7 +9,7 @@ use avenger_scenegraph::marks::rect::SceneRectMark;
 use crate::error::AvengerChartError;
 pub use crate::marks::rect::Rect;
 use crate::marks::util::{coerce_color_channel_with_mark, coerce_numeric_channel_with_mark};
-use avenger_scales::scales::{band::BandScale, ScaleImpl};
+use avenger_scales::scales::{band::BandScale, ordinal::OrdinalScale, ScaleImpl};
 use datafusion::arrow::datatypes::DataType;
 use datafusion_common::ScalarValue;
 use std::sync::Arc;
@@ -104,6 +104,14 @@ impl Mark<Cartesian> for Rect<Cartesian> {
             // Rect marks use band scales for categorical position data
             ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
                 Some(Arc::new(BandScale))
+            }
+            // Color channels use ordinal scales for categorical data
+            ("fill" | "stroke" | "color", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
+                Some(Arc::new(OrdinalScale))
+            }
+            // Stroke width always uses ordinal scale for discrete mapping
+            ("stroke_width", _) => {
+                Some(Arc::new(OrdinalScale))
             }
             // Let the system handle other cases
             _ => None,

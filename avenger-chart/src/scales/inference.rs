@@ -2,53 +2,36 @@
 
 use avenger_scales::scales::ScaleImpl;
 use avenger_scales::scales::{
-    linear::LinearScale, ordinal::OrdinalScale, point::PointScale, time::TimeScale,
+    linear::LinearScale, ordinal::OrdinalScale, time::TimeScale,
 };
 use datafusion::arrow::datatypes::DataType;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// Determine the default scale implementation based on data type and channel
-/// This is used as a fallback when marks don't specify their own preferences
-pub fn infer_scale_impl(channel: &str, data_type: &DataType) -> Arc<dyn ScaleImpl> {
-    match (channel, data_type) {
-        // Default position scales for categorical data
-        ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-            Arc::new(PointScale)
-        }
+/// Determine the default scale implementation based on data type alone
+/// This is used as a fallback when marks and coordinate systems don't specify their own preferences
+pub fn infer_scale_impl(data_type: &DataType) -> Arc<dyn ScaleImpl> {
+    match data_type {
+        // String/categorical data uses ordinal scale
+        DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => Arc::new(OrdinalScale),
 
-        // Color, shape, size, and dash channels use ordinal scales for categorical data
-        (
-            "fill" | "stroke" | "color" | "shape" | "size" | "stroke_dash",
-            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
-        ) => Arc::new(OrdinalScale),
-
-        // Stroke width defaults to ordinal scale for discrete mapping
-        // (user can override with scale_stroke_width)
-        ("stroke_width", _) => Arc::new(OrdinalScale),
-
-        // Boolean data
-        (_, DataType::Boolean) => Arc::new(OrdinalScale),
+        // Boolean data uses ordinal scale
+        DataType::Boolean => Arc::new(OrdinalScale),
 
         // Numeric data defaults to linear
-        (
-            _,
-            DataType::Float32
-            | DataType::Float64
-            | DataType::Int8
-            | DataType::Int16
-            | DataType::Int32
-            | DataType::Int64
-            | DataType::UInt8
-            | DataType::UInt16
-            | DataType::UInt32
-            | DataType::UInt64,
-        ) => Arc::new(LinearScale),
+        DataType::Float32
+        | DataType::Float64
+        | DataType::Int8
+        | DataType::Int16
+        | DataType::Int32
+        | DataType::Int64
+        | DataType::UInt8
+        | DataType::UInt16
+        | DataType::UInt32
+        | DataType::UInt64 => Arc::new(LinearScale),
 
         // Temporal data uses time scale
-        (_, DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _)) => {
-            Arc::new(TimeScale)
-        }
+        DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _) => Arc::new(TimeScale),
 
         // Default to linear for unknown types
         _ => Arc::new(LinearScale),
