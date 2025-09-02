@@ -2,52 +2,18 @@
 
 use avenger_scales::scales::ScaleImpl;
 use avenger_scales::scales::{
-    band::BandScale, linear::LinearScale, ordinal::OrdinalScale, point::PointScale, time::TimeScale,
+    linear::LinearScale, ordinal::OrdinalScale, point::PointScale, time::TimeScale,
 };
 use datafusion::arrow::datatypes::DataType;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// Trait for marks to provide their own scale type and option preferences
-pub trait MarkScaleInference: Send + Sync {
-    /// Get the preferred scale type for a channel based on data type
-    fn preferred_scale_type(&self, channel: &str, data_type: &DataType) -> Option<&'static str> {
-        // Default implementation returns None, letting the system use defaults
-        let _ = (channel, data_type);
-        None
-    }
-
-    /// Get default scale options for a channel
-    fn default_scale_options(
-        &self,
-        channel: &str,
-        scale_type: &str,
-        data_type: &DataType,
-    ) -> HashMap<String, datafusion::logical_expr::Expr> {
-        let _ = (channel, scale_type, data_type);
-        HashMap::new()
-    }
-}
-
 /// Determine the default scale implementation based on data type and channel
+/// This is used as a fallback when marks don't specify their own preferences
 pub fn infer_scale_impl(channel: &str, data_type: &DataType) -> Arc<dyn ScaleImpl> {
-    infer_scale_impl_with_mark(channel, data_type, None)
-}
-
-/// Determine the default scale implementation based on data type, channel, and optionally mark type
-pub fn infer_scale_impl_with_mark(
-    channel: &str,
-    data_type: &DataType,
-    mark_type: Option<&str>,
-) -> Arc<dyn ScaleImpl> {
-    match (channel, data_type, mark_type) {
-        // Rect marks use band scales for categorical position data
-        ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View, Some("rect")) => {
-            Arc::new(BandScale)
-        }
-
-        // Other marks use point scales for categorical position data
-        ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View, _) => {
+    match (channel, data_type) {
+        // Default position scales for categorical data
+        ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
             Arc::new(PointScale)
         }
 
@@ -55,15 +21,14 @@ pub fn infer_scale_impl_with_mark(
         (
             "fill" | "stroke" | "color" | "shape" | "size" | "stroke_dash",
             DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
-            _,
         ) => Arc::new(OrdinalScale),
 
         // Stroke width defaults to ordinal scale for discrete mapping
         // (user can override with scale_stroke_width)
-        ("stroke_width", _, _) => Arc::new(OrdinalScale),
+        ("stroke_width", _) => Arc::new(OrdinalScale),
 
         // Boolean data
-        (_, DataType::Boolean, _) => Arc::new(OrdinalScale),
+        (_, DataType::Boolean) => Arc::new(OrdinalScale),
 
         // Numeric data defaults to linear
         (
@@ -78,11 +43,10 @@ pub fn infer_scale_impl_with_mark(
             | DataType::UInt16
             | DataType::UInt32
             | DataType::UInt64,
-            _,
         ) => Arc::new(LinearScale),
 
         // Temporal data uses time scale
-        (_, DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _), _) => {
+        (_, DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _)) => {
             Arc::new(TimeScale)
         }
 

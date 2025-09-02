@@ -9,7 +9,10 @@ use avenger_scenegraph::marks::rect::SceneRectMark;
 use crate::error::AvengerChartError;
 pub use crate::marks::rect::Rect;
 use crate::marks::util::{coerce_color_channel_with_mark, coerce_numeric_channel_with_mark};
+use avenger_scales::scales::{band::BandScale, ScaleImpl};
+use datafusion::arrow::datatypes::DataType;
 use datafusion_common::ScalarValue;
+use std::sync::Arc;
 
 // Define position channels for Cartesian Rect using the macro
 define_position_channels! {
@@ -94,6 +97,17 @@ impl Mark<Cartesian> for Rect<Cartesian> {
         };
 
         Ok(vec![SceneMark::Rect(rect_mark)])
+    }
+
+    fn preferred_scale_type(&self, channel: &str, data_type: &DataType) -> Option<Arc<dyn ScaleImpl>> {
+        match (channel, data_type) {
+            // Rect marks use band scales for categorical position data
+            ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
+                Some(Arc::new(BandScale))
+            }
+            // Let the system handle other cases
+            _ => None,
+        }
     }
 
     fn preferred_legend_renderer(

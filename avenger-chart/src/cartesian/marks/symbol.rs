@@ -6,12 +6,15 @@ use arrow::array::RecordBatch;
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
+use avenger_scales::scales::{point::PointScale, ScaleImpl};
+use datafusion::arrow::datatypes::DataType;
 use datafusion::logical_expr::{Expr, lit};
 use datafusion_common::ScalarValue;
 // Import Symbol for the macro, then re-export it
 use crate::error::AvengerChartError;
 pub use crate::marks::symbol::Symbol;
 use crate::utils::ScalarValueHelpers;
+use std::sync::Arc;
 
 // Define position channels for Cartesian Symbol using the macro
 define_position_channels! {
@@ -163,6 +166,17 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
         };
 
         Ok(vec![SceneMark::Symbol(symbol_mark)])
+    }
+
+    fn preferred_scale_type(&self, channel: &str, data_type: &DataType) -> Option<Arc<dyn ScaleImpl>> {
+        match (channel, data_type) {
+            // Symbol marks use point scales for categorical position data
+            ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
+                Some(Arc::new(PointScale))
+            }
+            // Let the system handle other cases
+            _ => None,
+        }
     }
 
     fn preferred_legend_renderer(

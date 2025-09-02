@@ -23,11 +23,13 @@ pub use state::MarkState;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::legend_renderer::LegendRenderer;
-use avenger_scales::scales::ConfiguredScale;
+use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
 use avenger_scenegraph::marks::mark::SceneMark;
+use datafusion::arrow::datatypes::DataType;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::Expr;
 use datafusion::scalar::ScalarValue;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Expression for computing radius/padding requirements
@@ -125,5 +127,22 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
     fn mark_id(&self) -> String {
         // Default: use pointer address as unique ID
         format!("{:p}", self as *const _)
+    }
+
+    /// Get the preferred scale type for a channel based on data type
+    /// Returns None to use system defaults
+    fn preferred_scale_type(&self, _channel: &str, _data_type: &DataType) -> Option<Arc<dyn ScaleImpl>> {
+        None
+    }
+
+    /// Get default scale options for a channel and scale type
+    /// These are mark-specific preferences that override system defaults
+    fn default_scale_options(
+        &self,
+        _channel: &str,
+        _scale_type: &str,
+        _data_type: &DataType,
+    ) -> HashMap<String, Expr> {
+        HashMap::new()
     }
 }

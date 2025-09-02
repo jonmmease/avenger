@@ -1,7 +1,4 @@
-use crate::error::AvengerChartError;
-use datafusion::arrow::datatypes::DataType;
-use datafusion::functions_array::expr_fn::make_array;
-use datafusion::logical_expr::{Expr, lit};
+use datafusion::logical_expr::Expr;
 use datafusion_common::ScalarValue;
 use palette::Srgba;
 
@@ -28,43 +25,5 @@ impl ScaleRange {
     /// Alias for new_enum (backward compat)
     pub fn new_discrete<T: Into<ScalarValue>>(values: Vec<T>) -> Self {
         Self::new_enum(values)
-    }
-
-    pub fn data_type(&self) -> Result<DataType, AvengerChartError> {
-        match self {
-            ScaleRange::Numeric(_, _) => Ok(DataType::Float32),
-            ScaleRange::Enum(vals) => {
-                vals.first()
-                    .map(|v| v.data_type().clone())
-                    .ok_or(AvengerChartError::InternalError(
-                        "Enum range may not be empty".to_string(),
-                    ))
-            }
-            ScaleRange::Color(_) => Ok(DataType::new_list(DataType::Float32, true)),
-        }
-    }
-
-    /// Compile range to an expression that evaluates to a list
-    pub fn compile(&self) -> Result<Expr, AvengerChartError> {
-        match self {
-            ScaleRange::Numeric(start, end) => {
-                Ok(make_array(vec![start.clone(), end.as_ref().clone()]))
-            }
-            ScaleRange::Enum(values) => {
-                let exprs = values.iter().map(|v| lit(v.clone())).collect::<Vec<_>>();
-                Ok(make_array(exprs))
-            }
-            ScaleRange::Color(colors) => {
-                // Convert colors to RGBA array expressions
-                let color_exprs = colors
-                    .iter()
-                    .map(|c| {
-                        // For now, create a simple array instead of struct
-                        make_array(vec![lit(c.red), lit(c.green), lit(c.blue), lit(c.alpha)])
-                    })
-                    .collect::<Vec<_>>();
-                Ok(make_array(color_exprs))
-            }
-        }
     }
 }

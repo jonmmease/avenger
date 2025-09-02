@@ -439,13 +439,13 @@ impl<C: CoordinateSystem> Plot<C> {
 
     /// Internal helper to create a default scale for a channel
     fn create_default_scale_for_channel_internal(&self, channel: &str) -> Scale {
-        use crate::scales::inference::{get_default_scale_options, infer_scale_impl_with_mark};
+        use crate::scales::inference::{get_default_scale_options, infer_scale_impl};
         use avenger_scales::scales::linear::LinearScale;
         use datafusion::logical_expr::ExprSchemable;
 
-        // Try to infer the data type and mark type for this channel
+        // Try to infer the data type and use mark-based scale preferences
         let mut data_type = None;
-        let mut mark_type = None;
+        let mut scale_impl = None;
 
         // Look through marks to find the expression for this channel
         for mark in &self.marks {
@@ -459,8 +459,15 @@ impl<C: CoordinateSystem> Plot<C> {
                     let schema = df.schema();
                     if let Some(expr) = channel_value.expr() {
                         if let Ok(expr_type) = expr.get_type(schema) {
-                            data_type = Some(expr_type);
-                            mark_type = Some(mark.mark_type());
+                            data_type = Some(expr_type.clone());
+                            
+                            // First try to get the mark's preferred scale type
+                            scale_impl = mark.preferred_scale_type(channel, &expr_type);
+                            
+                            // If mark didn't specify, use the fallback logic
+                            if scale_impl.is_none() {
+                                scale_impl = Some(infer_scale_impl(channel, &expr_type));
+                            }
                             break;
                         }
                     }
@@ -470,29 +477,43 @@ impl<C: CoordinateSystem> Plot<C> {
 
         // Create a scale based on the inferred type
         use avenger_scales::scales::ordinal::OrdinalScale;
-        let scale_impl = if channel == "stroke_width" {
-            // stroke_width MUST always use ordinal scale with discrete domain
-            Arc::new(OrdinalScale) as Arc<dyn avenger_scales::scales::ScaleImpl>
-        } else if let Some(dt) = &data_type {
-            infer_scale_impl_with_mark(channel, dt, mark_type)
-        } else {
-            // Fallback to channel-based defaults
-            match channel {
-                // Color and discrete visual channels default to ordinal
-                "fill" | "stroke" | "color" | "shape" | "stroke_dash" => {
-                    Arc::new(OrdinalScale) as Arc<dyn avenger_scales::scales::ScaleImpl>
+        let scale_impl = scale_impl.unwrap_or_else(|| {
+            if channel == "stroke_width" {
+                // stroke_width MUST always use ordinal scale with discrete domain
+                Arc::new(OrdinalScale) as Arc<dyn avenger_scales::scales::ScaleImpl>
+            } else if let Some(dt) = &data_type {
+                infer_scale_impl(channel, dt)
+            } else {
+                // Fallback to channel-based defaults
+                match channel {
+                    // Color and discrete visual channels default to ordinal
+                    "fill" | "stroke" | "color" | "shape" | "stroke_dash" => {
+                        Arc::new(OrdinalScale) as Arc<dyn avenger_scales::scales::ScaleImpl>
+                    }
+                    // Everything else defaults to linear
+                    _ => Arc::new(LinearScale) as Arc<dyn avenger_scales::scales::ScaleImpl>,
                 }
-                // Everything else defaults to linear
-                _ => Arc::new(LinearScale) as Arc<dyn avenger_scales::scales::ScaleImpl>,
             }
-        };
+        });
 
         let scale_type = scale_impl.scale_type();
-        let mut scale = Scale::<Auto>::from_impl(scale_impl);
+        let mut scale = Scale::<Auto>::from_impl(scale_impl.clone());
 
         // Apply default options based on channel and scale type
         if let Some(dt) = &data_type {
-            let default_options = get_default_scale_options(channel, scale_type, dt);
+            // First get system defaults
+            let mut default_options = get_default_scale_options(channel, scale_type, dt);
+            
+            // Then check if any mark has specific scale option preferences for this channel
+            for mark in &self.marks {
+                if mark.data_context().channels().contains_key(channel) {
+                    let mark_options = mark.default_scale_options(channel, scale_type, dt);
+                    // Mark preferences override system defaults
+                    default_options.extend(mark_options);
+                    break;
+                }
+            }
+            
             for (key, value) in default_options {
                 scale = scale.option(&key, value);
             }
