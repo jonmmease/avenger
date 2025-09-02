@@ -4,9 +4,9 @@ use crate::impl_mark_trait_common;
 use crate::marks::{Mark, RadiusExpression};
 use arrow::array::{AsArray, RecordBatch};
 use avenger_common::value::ScalarOrArray;
+use avenger_scales::scales::{ScaleImpl, ordinal::OrdinalScale, point::PointScale};
 use avenger_scenegraph::marks::line::SceneLineMark;
 use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_scales::scales::{ordinal::OrdinalScale, point::PointScale, ScaleImpl};
 use datafusion::arrow::datatypes::DataType;
 use datafusion::logical_expr::{Expr, lit};
 use datafusion_common::ScalarValue;
@@ -18,6 +18,7 @@ use crate::marks::util::{
     coerce_bool_channel_with_mark, coerce_numeric_channel_with_mark,
     coerce_stroke_cap_channel_with_mark, coerce_stroke_join_channel_with_mark,
 };
+use crate::scales::ScaleRange;
 use std::sync::Arc;
 
 // Define position channels for Cartesian Line using the macro
@@ -415,7 +416,11 @@ impl Mark<Cartesian> for Line<Cartesian> {
         Ok(scene_marks)
     }
 
-    fn preferred_scale_type(&self, channel: &str, data_type: &DataType) -> Option<Arc<dyn ScaleImpl>> {
+    fn preferred_scale_type(
+        &self,
+        channel: &str,
+        data_type: &DataType,
+    ) -> Option<Arc<dyn ScaleImpl>> {
         match (channel, data_type) {
             // Line marks use point scales for categorical position data
             ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
@@ -430,10 +435,45 @@ impl Mark<Cartesian> for Line<Cartesian> {
                 Some(Arc::new(OrdinalScale))
             }
             // Stroke width always uses ordinal scale for discrete mapping
-            ("stroke_width", _) => {
-                Some(Arc::new(OrdinalScale))
-            }
+            ("stroke_width", _) => Some(Arc::new(OrdinalScale)),
             // Let the system handle other cases
+            _ => None,
+        }
+    }
+
+    fn default_channel_range(
+        &self,
+        channel: &str,
+        scale_type: &str,
+        _data_type: &DataType,
+    ) -> Option<ScaleRange> {
+        match channel {
+            "opacity" => Some(ScaleRange::new_interval(lit(0.0), lit(1.0))),
+            "stroke_width" => {
+                if scale_type == "ordinal" {
+                    let widths: Vec<f32> = (1..=5).map(|i| i as f32).collect();
+                    Some(ScaleRange::new_discrete(widths))
+                } else {
+                    Some(ScaleRange::new_interval(lit(0.5), lit(5.0)))
+                }
+            }
+            "stroke_dash" => {
+                if scale_type == "ordinal" {
+                    use crate::scales::dash_defaults::DEFAULT_DASH_PATTERN_NAMES;
+                    let patterns: Vec<String> = DEFAULT_DASH_PATTERN_NAMES
+                        .iter()
+                        .map(|&s| s.to_string())
+                        .collect();
+                    Some(ScaleRange::new_discrete(patterns))
+                } else {
+                    None
+                }
+            }
+            "stroke" => {
+                // Use color defaults system
+                use crate::scales::color_defaults::get_default_color_range;
+                Some(get_default_color_range(scale_type, None))
+            }
             _ => None,
         }
     }

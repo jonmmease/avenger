@@ -23,6 +23,7 @@ pub use state::MarkState;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::legend_renderer::LegendRenderer;
+use crate::scales::ScaleRange;
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::datatypes::DataType;
@@ -131,7 +132,11 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
 
     /// Get the preferred scale type for a channel based on data type
     /// Returns None to use system defaults
-    fn preferred_scale_type(&self, _channel: &str, _data_type: &DataType) -> Option<Arc<dyn ScaleImpl>> {
+    fn preferred_scale_type(
+        &self,
+        _channel: &str,
+        _data_type: &DataType,
+    ) -> Option<Arc<dyn ScaleImpl>> {
         None
     }
 
@@ -144,5 +149,22 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
         _data_type: &DataType,
     ) -> HashMap<String, Expr> {
         HashMap::new()
+    }
+
+    /// Get default range for a channel after domain is known
+    ///
+    /// # Arguments
+    /// * `channel` - The channel name
+    /// * `scale_type` - The scale type being used
+    /// * `data_type` - The data type of the channel
+    ///
+    /// Returns None to use system defaults
+    fn default_channel_range(
+        &self,
+        _channel: &str,
+        _scale_type: &str,
+        _data_type: &DataType,
+    ) -> Option<ScaleRange> {
+        None
     }
 }

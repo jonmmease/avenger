@@ -2,15 +2,16 @@ use crate::cartesian::Cartesian;
 use crate::define_position_channels;
 use crate::impl_mark_trait_common;
 use crate::marks::{Mark, RadiusExpression};
+use crate::scales::ScaleRange;
 use arrow::array::RecordBatch;
 use avenger_common::value::ScalarOrArray;
+use avenger_scales::scales::{ScaleImpl, ordinal::OrdinalScale, point::PointScale, pow::PowScale};
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
-use avenger_scales::scales::{ordinal::OrdinalScale, point::PointScale, pow::PowScale, ScaleImpl};
 use datafusion::arrow::datatypes::DataType;
-use datafusion::logical_expr::{lit, Expr};
-use std::collections::HashMap;
+use datafusion::logical_expr::{Expr, lit};
 use datafusion_common::ScalarValue;
+use std::collections::HashMap;
 // Import Symbol for the macro, then re-export it
 use crate::error::AvengerChartError;
 pub use crate::marks::symbol::Symbol;
@@ -169,23 +170,30 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
         Ok(vec![SceneMark::Symbol(symbol_mark)])
     }
 
-    fn preferred_scale_type(&self, channel: &str, data_type: &DataType) -> Option<Arc<dyn ScaleImpl>> {
+    fn preferred_scale_type(
+        &self,
+        channel: &str,
+        data_type: &DataType,
+    ) -> Option<Arc<dyn ScaleImpl>> {
         match (channel, data_type) {
             // Symbol marks use point scales for categorical position data
             ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
                 Some(Arc::new(PointScale))
             }
             // Size uses sqrt scale for numeric data (better for area perception)
-            ("size", DataType::Float32
-            | DataType::Float64
-            | DataType::Int8
-            | DataType::Int16
-            | DataType::Int32
-            | DataType::Int64
-            | DataType::UInt8
-            | DataType::UInt16
-            | DataType::UInt32
-            | DataType::UInt64) => {
+            (
+                "size",
+                DataType::Float32
+                | DataType::Float64
+                | DataType::Int8
+                | DataType::Int16
+                | DataType::Int32
+                | DataType::Int64
+                | DataType::UInt8
+                | DataType::UInt16
+                | DataType::UInt32
+                | DataType::UInt64,
+            ) => {
                 // Use PowScale as a Sqrt scale (it will be configured with exponent 0.5 later)
                 Some(Arc::new(PowScale))
             }
@@ -194,13 +202,12 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
                 Some(Arc::new(OrdinalScale))
             }
             // Color and shape channels use ordinal scales for categorical data
-            ("fill" | "stroke" | "color" | "shape", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
-                Some(Arc::new(OrdinalScale))
-            }
+            (
+                "fill" | "stroke" | "color" | "shape",
+                DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
+            ) => Some(Arc::new(OrdinalScale)),
             // Stroke width always uses ordinal scale for discrete mapping
-            ("stroke_width", _) => {
-                Some(Arc::new(OrdinalScale))
-            }
+            ("stroke_width", _) => Some(Arc::new(OrdinalScale)),
             // Let the system handle other cases
             _ => None,
         }
@@ -213,13 +220,74 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
         _data_type: &DataType,
     ) -> HashMap<String, Expr> {
         let mut options = HashMap::new();
-        
+
         // Configure PowScale as Sqrt scale for size channel
         if channel == "size" && scale_type == "pow" {
             options.insert("exponent".to_string(), lit(0.5f32));
         }
-        
+
         options
+    }
+
+    fn default_channel_range(
+        &self,
+        channel: &str,
+        scale_type: &str,
+        _data_type: &DataType,
+    ) -> Option<ScaleRange> {
+        match channel {
+            "size" => {
+                // Size range depends on scale type
+                match scale_type {
+                    "linear" | "pow" | "sqrt" => {
+                        // For continuous scales, use area range
+                        Some(ScaleRange::new_interval(lit(16.0), lit(361.0))) // 4^2 to 19^2
+                    }
+                    "ordinal" => {
+                        // For ordinal scales, create discrete sizes
+                        let n = 5; // Default to 5 sizes
+                        let sizes: Vec<f32> = (0..n)
+                            .map(|i| {
+                                let t = if n > 1 {
+                                    i as f32 / (n - 1) as f32
+                                } else {
+                                    0.5
+                                };
+                                16.0 + t * (361.0 - 16.0) // Interpolate areas
+                            })
+                            .collect();
+                        Some(ScaleRange::new_discrete(sizes))
+                    }
+                    _ => None,
+                }
+            }
+            "shape" => {
+                if scale_type == "ordinal" {
+                    use crate::scales::shape_defaults::DEFAULT_SHAPES;
+                    let shapes: Vec<String> =
+                        DEFAULT_SHAPES.iter().map(|&s| s.to_string()).collect();
+                    Some(ScaleRange::new_discrete(shapes))
+                } else {
+                    None
+                }
+            }
+            "angle" => Some(ScaleRange::new_interval(lit(0.0), lit(360.0))),
+            "opacity" => Some(ScaleRange::new_interval(lit(0.0), lit(1.0))),
+            "stroke_width" => {
+                if scale_type == "ordinal" {
+                    let widths: Vec<f32> = (1..=5).map(|i| i as f32).collect();
+                    Some(ScaleRange::new_discrete(widths))
+                } else {
+                    Some(ScaleRange::new_interval(lit(0.5), lit(5.0)))
+                }
+            }
+            "fill" | "stroke" | "color" => {
+                // Use color defaults system
+                use crate::scales::color_defaults::get_default_color_range;
+                Some(get_default_color_range(scale_type, None))
+            }
+            _ => None,
+        }
     }
 
     fn preferred_legend_renderer(

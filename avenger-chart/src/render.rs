@@ -1867,7 +1867,46 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             .normalize_domain(plot_area_width, plot_area_height)
             .await?;
 
-        // Step 5: Create ConfiguredScale
+        // Step 5: Apply mark-specific range if not a position channel
+        // Position channels already have their ranges set in Step 2
+        let is_position = self
+            .plot
+            .coord_system()
+            .required_channels()
+            .contains(&name.as_ref());
+        if !is_position {
+            // Find the first mark that uses this channel
+            for mark in &self.plot.marks {
+                if mark.data_context().channels().contains_key(name) {
+                    // Get data type from the channel expression
+                    let data_type = mark
+                        .data_context()
+                        .channels()
+                        .get(name)
+                        .and_then(|channel_value| channel_value.expr())
+                        .and_then(|expr| {
+                            // Try to get data type from mark's dataframe
+                            let df = mark
+                                .data_context()
+                                .dataframe()
+                                .or(self.plot.data.as_ref())?;
+                            use datafusion::logical_expr::ExprSchemable;
+                            expr.get_type(df.schema()).ok()
+                        });
+
+                    if let Some(dt) = data_type {
+                        if let Some(mark_range) =
+                            mark.default_channel_range(name, scale.scale_impl.scale_type(), &dt)
+                        {
+                            scale = scale.range(mark_range);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Step 6: Create ConfiguredScale
         scale
             .create_configured_scale(plot_area_width, plot_area_height)
             .await

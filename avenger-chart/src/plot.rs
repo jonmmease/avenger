@@ -3,7 +3,6 @@ use crate::legend::Legend;
 use crate::marks::{ChannelValue, Mark, RadiusExpression};
 use crate::scales::{Auto, Ordinal, Scale};
 use datafusion::dataframe::DataFrame;
-use datafusion::logical_expr::lit;
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -439,7 +438,9 @@ impl<C: CoordinateSystem> Plot<C> {
 
     /// Internal helper to create a default scale for a channel
     fn create_default_scale_for_channel_internal(&self, channel: &str) -> Scale {
-        use crate::scales::inference::{get_default_scale_options, infer_scale_impl, infer_position_scale_impl};
+        use crate::scales::inference::{
+            get_default_scale_options, infer_position_scale_impl, infer_scale_impl,
+        };
         use avenger_scales::scales::linear::LinearScale;
         use datafusion::logical_expr::ExprSchemable;
 
@@ -449,7 +450,10 @@ impl<C: CoordinateSystem> Plot<C> {
 
         // Look through marks to find the expression for this channel
         for mark in &self.marks {
-            if let Some(channel_value) = mark.data_context().channels().get(channel) {
+            let encodings = mark.data_context().channels();
+            let resolved_encodings =
+                crate::channel_resolution::resolve_all_channel_refs(encodings).unwrap_or_default();
+            if let Some(channel_value) = resolved_encodings.get(channel) {
                 // Get the dataframe for this mark
                 // Use mark's explicit data if available, otherwise inherit from plot
                 let df = mark.data_context().dataframe().or(self.data.as_ref());
@@ -458,23 +462,37 @@ impl<C: CoordinateSystem> Plot<C> {
                 if let Some(df) = df {
                     let schema = df.schema();
                     if let Some(expr) = channel_value.expr() {
-                        if let Ok(expr_type) = expr.get_type(schema) {
-                            data_type = Some(expr_type.clone());
-                            
-                            // First try to get the mark's preferred scale type
-                            scale_impl = mark.preferred_scale_type(channel, &expr_type);
-                            
-                            // If mark didn't specify, use the appropriate data type fallback
-                            if scale_impl.is_none() {
-                                // Check if this is a position channel
-                                let is_position = self.coord_system.required_channels().contains(&channel.as_ref());
-                                scale_impl = Some(if is_position {
-                                    infer_position_scale_impl(&expr_type)
-                                } else {
-                                    infer_scale_impl(&expr_type)
-                                });
+                        // Check if this is a channel reference that we can't resolve yet
+                        let has_channel_ref =
+                            if let datafusion::logical_expr::Expr::Column(c) = expr {
+                                c.name.starts_with(':')
+                            } else {
+                                false
+                            };
+
+                        // Skip channel references - they'll get the fallback scale type
+                        if !has_channel_ref {
+                            if let Ok(expr_type) = expr.get_type(schema) {
+                                data_type = Some(expr_type.clone());
+
+                                // First try to get the mark's preferred scale type
+                                scale_impl = mark.preferred_scale_type(channel, &expr_type);
+
+                                // If mark didn't specify, use the appropriate data type fallback
+                                if scale_impl.is_none() {
+                                    // Check if this is a position channel
+                                    let is_position = self
+                                        .coord_system
+                                        .required_channels()
+                                        .contains(&channel.as_ref());
+                                    scale_impl = Some(if is_position {
+                                        infer_position_scale_impl(&expr_type)
+                                    } else {
+                                        infer_scale_impl(&expr_type)
+                                    });
+                                }
+                                break;
                             }
-                            break;
                         }
                     }
                 }
@@ -486,8 +504,17 @@ impl<C: CoordinateSystem> Plot<C> {
             if let Some(dt) = &data_type {
                 infer_scale_impl(dt)
             } else {
-                // No data type available, default to linear
-                Arc::new(LinearScale) as Arc<dyn avenger_scales::scales::ScaleImpl>
+                // No data type available, use channel-specific defaults
+                // This happens for channels with unresolved references
+                use avenger_scales::scales::ordinal::OrdinalScale;
+                match channel {
+                    // Color channels typically use ordinal scales for categorical data
+                    "fill" | "stroke" | "color" => {
+                        Arc::new(OrdinalScale) as Arc<dyn avenger_scales::scales::ScaleImpl>
+                    }
+                    // Default to linear for other channels
+                    _ => Arc::new(LinearScale) as Arc<dyn avenger_scales::scales::ScaleImpl>,
+                }
             }
         });
 
@@ -498,67 +525,24 @@ impl<C: CoordinateSystem> Plot<C> {
         if let Some(dt) = &data_type {
             // First get system defaults
             let mut default_options = get_default_scale_options(channel, scale_type, dt);
-            
+
             // Then check if any mark has specific scale option preferences for this channel
             for mark in &self.marks {
-                if mark.data_context().channels().contains_key(channel) {
+                let channels = mark.data_context().channels();
+                let resolved_channels =
+                    crate::channel_resolution::resolve_all_channel_refs(channels)
+                        .unwrap_or_default();
+                if resolved_channels.contains_key(channel) {
                     let mark_options = mark.default_scale_options(channel, scale_type, dt);
                     // Mark preferences override system defaults
                     default_options.extend(mark_options);
                     break;
                 }
             }
-            
+
             for (key, value) in default_options {
                 scale = scale.option(&key, value);
             }
-        }
-
-        // Apply channel-specific ranges
-        match channel {
-            "size" => scale = scale.range_interval(lit(16.0), lit(64.0)),
-            "stroke_width" => {
-                // stroke_width ALWAYS uses discrete range
-                scale = scale.range_discrete(vec![
-                    1.0f32, 2.0f32, 3.0f32, 4.0f32, 5.0f32, 6.0f32, 7.0f32, 8.0f32,
-                ])
-            }
-            "stroke_dash" => {
-                // Use discrete dash patterns for stroke_dash
-                if scale_type == "ordinal" {
-                    use crate::scales::dash_defaults::DEFAULT_DASH_PATTERN_NAMES;
-                    // Use the first 8 default pattern names
-                    let patterns: Vec<_> = DEFAULT_DASH_PATTERN_NAMES
-                        .iter()
-                        .take(8)
-                        .map(|&name| name.to_string())
-                        .collect();
-                    scale = scale.range_discrete(patterns)
-                }
-            }
-            "font_size" => scale = scale.range_interval(lit(0.0), lit(10.0)),
-            "corner_radius" => scale = scale.range_interval(lit(0.0), lit(10.0)),
-            "opacity" => scale = scale.range_interval(lit(0.0), lit(1.0)),
-            "angle" => scale = scale.range_interval(lit(0.0), lit(360.0)),
-            "fill" | "stroke" | "color" => {
-                // Apply default color range immediately
-                use crate::scales::color_defaults::get_default_color_range_for_channel;
-                if let Some(default_range) = get_default_color_range_for_channel(
-                    channel, scale_type,
-                    None, // Domain cardinality is not known yet, defaults will handle it
-                ) {
-                    scale = scale.range(default_range);
-                }
-            }
-            "shape" => {
-                // Apply default shape range immediately for ordinal scales
-                if scale_type == "ordinal" {
-                    use crate::scales::shape_defaults::DEFAULT_SHAPES;
-                    let shapes: Vec<_> = DEFAULT_SHAPES.iter().map(|&s| s.to_string()).collect();
-                    scale = scale.range_discrete(shapes);
-                }
-            }
-            _ => {}
         }
 
         scale
@@ -578,11 +562,13 @@ impl<C: CoordinateSystem> Plot<C> {
         use crate::marks::ChannelValue;
 
         // Get all channel encodings from the mark
-        let channels = mark.data_context().channels();
+        let encodings = mark.data_context().channels();
+        let resolved_encodings =
+            crate::channel_resolution::resolve_all_channel_refs(encodings).unwrap_or_default();
 
-        for (channel_name, channel_value) in channels {
+        for (channel_name, channel_value) in resolved_encodings {
             // Extract scale and legend configs
-            let (scale_config, legend_config) = match channel_value {
+            let (scale_config, legend_config) = match channel_value.clone() {
                 ChannelValue::Scaled {
                     scale_config,
                     legend_config,
@@ -602,7 +588,7 @@ impl<C: CoordinateSystem> Plot<C> {
             // Determine scale name
             let scale_key = match channel_value {
                 ChannelValue::Scaled { scale_name, .. } => {
-                    scale_name.as_deref().unwrap_or(channel_name).to_string()
+                    scale_name.as_deref().unwrap_or(&channel_name).to_string()
                 }
                 ChannelValue::Conditional { .. } => {
                     // Conditional always uses channel name
@@ -1045,8 +1031,12 @@ impl<C: CoordinateSystem> Plot<C> {
         use std::collections::HashSet;
         let mut used_channels = HashSet::new();
         for mark in &self.marks {
-            for (channel_name, channel_value) in mark.data_context().channels() {
-                if channel_value.get_scale_name(channel_name).is_some() {
+            // Get channels and resolve references first
+            let encodings = mark.data_context().channels();
+            let resolved_encodings =
+                crate::channel_resolution::resolve_all_channel_refs(encodings).unwrap_or_default();
+            for (channel_name, channel_value) in resolved_encodings {
+                if channel_value.get_scale_name(&channel_name).is_some() {
                     used_channels.insert(channel_name.clone());
                 }
             }
