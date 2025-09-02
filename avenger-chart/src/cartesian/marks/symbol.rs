@@ -241,7 +241,7 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
                 match scale_type {
                     "linear" | "pow" | "sqrt" => {
                         // For continuous scales, use area range
-                        Some(ScaleRange::new_interval(lit(16.0), lit(361.0))) // 4^2 to 19^2
+                        Some(ScaleRange::new_interval(lit(16.0), lit(64.0))) // 4^2 to 8^2
                     }
                     "ordinal" => {
                         // For ordinal scales, create discrete sizes
@@ -253,7 +253,7 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
                                 } else {
                                     0.5
                                 };
-                                16.0 + t * (361.0 - 16.0) // Interpolate areas
+                                16.0 + t * (64.0 - 16.0) // Interpolate areas from 4^2 to 8^2
                             })
                             .collect();
                         Some(ScaleRange::new_discrete(sizes))

@@ -450,10 +450,7 @@ impl<C: CoordinateSystem> Plot<C> {
 
         // Look through marks to find the expression for this channel
         for mark in &self.marks {
-            let encodings = mark.data_context().channels();
-            let resolved_encodings =
-                crate::channel_resolution::resolve_all_channel_refs(encodings).unwrap_or_default();
-            if let Some(channel_value) = resolved_encodings.get(channel) {
+            if let Some(channel_value) = mark.data_context().channels().get(channel) {
                 // Get the dataframe for this mark
                 // Use mark's explicit data if available, otherwise inherit from plot
                 let df = mark.data_context().dataframe().or(self.data.as_ref());
@@ -462,37 +459,34 @@ impl<C: CoordinateSystem> Plot<C> {
                 if let Some(df) = df {
                     let schema = df.schema();
                     if let Some(expr) = channel_value.expr() {
-                        // Check if this is a channel reference that we can't resolve yet
-                        let has_channel_ref =
-                            if let datafusion::logical_expr::Expr::Column(c) = expr {
-                                c.name.starts_with(':')
-                            } else {
-                                false
-                            };
-
-                        // Skip channel references - they'll get the fallback scale type
-                        if !has_channel_ref {
-                            if let Ok(expr_type) = expr.get_type(schema) {
-                                data_type = Some(expr_type.clone());
-
-                                // First try to get the mark's preferred scale type
-                                scale_impl = mark.preferred_scale_type(channel, &expr_type);
-
-                                // If mark didn't specify, use the appropriate data type fallback
-                                if scale_impl.is_none() {
-                                    // Check if this is a position channel
-                                    let is_position = self
-                                        .coord_system
-                                        .required_channels()
-                                        .contains(&channel.as_ref());
-                                    scale_impl = Some(if is_position {
-                                        infer_position_scale_impl(&expr_type)
-                                    } else {
-                                        infer_scale_impl(&expr_type)
-                                    });
-                                }
-                                break;
+                        // Skip channel references - they need to be resolved in gather_scale_domain_expressions
+                        if let datafusion::logical_expr::Expr::Column(c) = expr {
+                            if c.name.starts_with(':') {
+                                // This is a channel reference, skip it for scale type inference
+                                continue;
                             }
+                        }
+
+                        if let Ok(expr_type) = expr.get_type(schema) {
+                            data_type = Some(expr_type.clone());
+
+                            // First try to get the mark's preferred scale type
+                            scale_impl = mark.preferred_scale_type(channel, &expr_type);
+
+                            // If mark didn't specify, use the appropriate data type fallback
+                            if scale_impl.is_none() {
+                                // Check if this is a position channel
+                                let is_position = self
+                                    .coord_system
+                                    .required_channels()
+                                    .contains(&channel.as_ref());
+                                scale_impl = Some(if is_position {
+                                    infer_position_scale_impl(&expr_type)
+                                } else {
+                                    infer_scale_impl(&expr_type)
+                                });
+                            }
+                            break;
                         }
                     }
                 }
@@ -529,9 +523,10 @@ impl<C: CoordinateSystem> Plot<C> {
             // Then check if any mark has specific scale option preferences for this channel
             for mark in &self.marks {
                 let channels = mark.data_context().channels();
+                // Try to resolve, but use original channels if resolution fails
                 let resolved_channels =
                     crate::channel_resolution::resolve_all_channel_refs(channels)
-                        .unwrap_or_default();
+                        .unwrap_or_else(|_| channels.clone());
                 if resolved_channels.contains_key(channel) {
                     let mark_options = mark.default_scale_options(channel, scale_type, dt);
                     // Mark preferences override system defaults
@@ -563,8 +558,18 @@ impl<C: CoordinateSystem> Plot<C> {
 
         // Get all channel encodings from the mark
         let encodings = mark.data_context().channels();
+
+        // Try to resolve channel references, but if it fails (e.g., due to conditional references),
+        // we still want to extract configs from non-reference channels
         let resolved_encodings =
-            crate::channel_resolution::resolve_all_channel_refs(encodings).unwrap_or_default();
+            match crate::channel_resolution::resolve_all_channel_refs(encodings) {
+                Ok(resolved) => resolved,
+                Err(_) => {
+                    // Resolution failed (probably due to conditional references)
+                    // Use original encodings - we'll handle the error later during rendering
+                    encodings.clone()
+                }
+            };
 
         for (channel_name, channel_value) in resolved_encodings {
             // Extract scale and legend configs
@@ -1033,8 +1038,9 @@ impl<C: CoordinateSystem> Plot<C> {
         for mark in &self.marks {
             // Get channels and resolve references first
             let encodings = mark.data_context().channels();
-            let resolved_encodings =
-                crate::channel_resolution::resolve_all_channel_refs(encodings).unwrap_or_default();
+            // Try to resolve, but use original channels if resolution fails
+            let resolved_encodings = crate::channel_resolution::resolve_all_channel_refs(encodings)
+                .unwrap_or_else(|_| encodings.clone());
             for (channel_name, channel_value) in resolved_encodings {
                 if channel_value.get_scale_name(&channel_name).is_some() {
                     used_channels.insert(channel_name.clone());
