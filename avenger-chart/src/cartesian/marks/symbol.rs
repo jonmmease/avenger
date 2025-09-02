@@ -6,7 +6,7 @@ use arrow::array::RecordBatch;
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
-use avenger_scales::scales::{ordinal::OrdinalScale, pow::PowScale, ScaleImpl};
+use avenger_scales::scales::{ordinal::OrdinalScale, point::PointScale, pow::PowScale, ScaleImpl};
 use datafusion::arrow::datatypes::DataType;
 use datafusion::logical_expr::{lit, Expr};
 use std::collections::HashMap;
@@ -171,6 +171,10 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
 
     fn preferred_scale_type(&self, channel: &str, data_type: &DataType) -> Option<Arc<dyn ScaleImpl>> {
         match (channel, data_type) {
+            // Symbol marks use point scales for categorical position data
+            ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
+                Some(Arc::new(PointScale))
+            }
             // Size uses sqrt scale for numeric data (better for area perception)
             ("size", DataType::Float32
             | DataType::Float64
@@ -197,7 +201,7 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
             ("stroke_width", _) => {
                 Some(Arc::new(OrdinalScale))
             }
-            // Let the system handle other cases (positions handled by coordinate system)
+            // Let the system handle other cases
             _ => None,
         }
     }
