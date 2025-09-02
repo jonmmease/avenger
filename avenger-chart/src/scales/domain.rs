@@ -1,11 +1,5 @@
-use crate::error::AvengerChartError;
-use crate::utils::DataFrameChartHelpers;
-use avenger_scales::scales::InferDomainFromDataMethod;
-use datafusion::arrow::datatypes::DataType;
 use datafusion::dataframe::DataFrame;
-use datafusion::functions_array::expr_fn::make_array;
-use datafusion::logical_expr::{Expr, ExprSchemable, lit, when};
-use datafusion_common::{DFSchema, ScalarValue};
+use datafusion::logical_expr::{Expr, lit};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -82,101 +76,6 @@ impl ScaleDomain {
             }]),
             raw_domain: None,
         }
-    }
-
-    pub fn with_raw(self, raw_domain: Expr) -> Self {
-        Self {
-            default_domain: self.default_domain,
-            raw_domain: Some(raw_domain),
-        }
-    }
-
-    pub fn data_type(&self) -> Result<DataType, AvengerChartError> {
-        let schema = DFSchema::empty();
-        match &self.default_domain {
-            ScaleDefaultDomain::Interval(expr, _) => Ok(expr.get_type(&schema)?),
-            ScaleDefaultDomain::Discrete(exprs) => {
-                if exprs.is_empty() {
-                    // Default to string type for empty discrete domains
-                    Ok(DataType::Utf8)
-                } else {
-                    Ok(exprs[0].get_type(&schema)?)
-                }
-            }
-            ScaleDefaultDomain::DomainExprs(fields) => {
-                let DomainExpr {
-                    dataframe,
-                    expr,
-                    radius: _,
-                } = fields.first().ok_or_else(|| {
-                    AvengerChartError::InternalError(
-                        "Domain data fields may not be empty".to_string(),
-                    )
-                })?;
-                // Use the expression's data type
-                let schema = dataframe.schema();
-                let df_schema = schema.clone();
-                Ok(expr.get_type(&df_schema)?)
-            }
-        }
-    }
-
-    /// Compile domain to an expression that evaluates to a list
-    pub fn compile(&self, method: InferDomainFromDataMethod) -> Result<Expr, AvengerChartError> {
-        // If raw domain is provided, use it when not null
-        let raw_expr = if let Some(raw) = &self.raw_domain {
-            raw.clone()
-        } else {
-            lit(ScalarValue::Null)
-        };
-
-        // Compile default domain based on type
-        let default_expr = match &self.default_domain {
-            ScaleDefaultDomain::Interval(start, end) => {
-                if method != InferDomainFromDataMethod::Interval {
-                    return Err(AvengerChartError::InternalError(format!(
-                        "Scale does not support interval domain: {self:?}"
-                    )));
-                }
-                make_array(vec![start.clone(), end.as_ref().clone()])
-            }
-            ScaleDefaultDomain::Discrete(values) => make_array(values.clone()),
-            ScaleDefaultDomain::DomainExprs(data_fields) => {
-                let mut single_col_dfs: Vec<DataFrame> = Vec::new();
-
-                for DomainExpr {
-                    dataframe,
-                    expr,
-                    radius: _,
-                } in data_fields
-                {
-                    let df = dataframe.clone();
-                    // Select the expression and alias it to a consistent column name
-                    let df_with_expr = df
-                        .as_ref()
-                        .clone()
-                        .select(vec![expr.clone().alias("__domain_col__")])?;
-                    single_col_dfs.push(df_with_expr);
-                }
-
-                // Union all the single column dataframes
-                let union_df = single_col_dfs
-                    .iter()
-                    .skip(1)
-                    .fold(single_col_dfs[0].clone(), |acc, df| {
-                        acc.union(df.clone()).unwrap()
-                    });
-
-                match method {
-                    InferDomainFromDataMethod::Interval => union_df.span()?,
-                    InferDomainFromDataMethod::Unique => union_df.unique_values()?,
-                    InferDomainFromDataMethod::All => union_df.all_values()?,
-                }
-            }
-        };
-
-        // Use raw domain if not null, otherwise use default
-        Ok(when(raw_expr.clone().is_not_null(), raw_expr).otherwise(default_expr)?)
     }
 }
 

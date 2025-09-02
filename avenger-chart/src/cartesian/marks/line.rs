@@ -6,6 +6,8 @@ use arrow::array::{AsArray, RecordBatch};
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::line::SceneLineMark;
 use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_scales::scales::{point::PointScale, ScaleImpl};
+use datafusion::arrow::datatypes::DataType;
 use datafusion::logical_expr::{Expr, lit};
 use datafusion_common::ScalarValue;
 use indexmap::IndexMap;
@@ -16,6 +18,7 @@ use crate::marks::util::{
     coerce_bool_channel_with_mark, coerce_numeric_channel_with_mark,
     coerce_stroke_cap_channel_with_mark, coerce_stroke_join_channel_with_mark,
 };
+use std::sync::Arc;
 
 // Define position channels for Cartesian Line using the macro
 define_position_channels! {
@@ -410,6 +413,17 @@ impl Mark<Cartesian> for Line<Cartesian> {
         }
 
         Ok(scene_marks)
+    }
+
+    fn preferred_scale_type(&self, channel: &str, data_type: &DataType) -> Option<Arc<dyn ScaleImpl>> {
+        match (channel, data_type) {
+            // Line marks use point scales for categorical position data
+            ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
+                Some(Arc::new(PointScale))
+            }
+            // Let the system handle other cases
+            _ => None,
+        }
     }
 
     fn preferred_legend_renderer(
