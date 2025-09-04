@@ -441,11 +441,11 @@ impl<C: CoordinateSystem> Plot<C> {
         use crate::scales::inference::{
             get_default_scale_options, infer_position_scale_impl, infer_scale_impl,
         };
-        use avenger_scales::scales::linear::LinearScale;
 
         // Try to infer the data type and use mark-based scale preferences
-        let mut data_type = None;
         let mut scale_impl = None;
+        let mut data_type = None;
+        let mut found_mark = None;
 
         // Look through marks to find the expression for this channel
         for mark in &self.marks {
@@ -457,11 +457,11 @@ impl<C: CoordinateSystem> Plot<C> {
                 // Try to get the data type of the channel
                 if let Some(df) = df {
                     let schema = df.schema();
-                    if let Some(expr_type) = channel_value.get_data_type(schema) {
-                        data_type = Some(expr_type.clone());
-
+                    if let Some(dt) = channel_value.get_data_type(schema) {
+                        data_type = Some(dt.clone());
+                        
                         // First try to get the mark's preferred scale type
-                        scale_impl = mark.preferred_scale_type(channel, &expr_type);
+                        scale_impl = mark.preferred_scale_type(channel, &dt);
 
                         // If mark didn't specify, use the appropriate data type fallback
                         if scale_impl.is_none() {
@@ -471,53 +471,37 @@ impl<C: CoordinateSystem> Plot<C> {
                                 .required_channels()
                                 .contains(&channel.as_ref());
                             scale_impl = Some(if is_position {
-                                infer_position_scale_impl(&expr_type)
+                                infer_position_scale_impl(&dt)
                             } else {
-                                infer_scale_impl(&expr_type)
+                                infer_scale_impl(&dt)
                             });
                         }
+                        found_mark = Some(mark);
                         break;
                     }
                 }
             }
         }
 
-        // Create a scale based on the inferred type
-        let scale_impl = scale_impl.unwrap_or_else(|| {
-            if let Some(dt) = &data_type {
-                infer_scale_impl(dt)
-            } else {
-                // This should rarely happen now that we use 'otherwise' for conditional channels
-                // Fall back to mark-provided default or linear scale
-                if let Some(mark) = self.marks.first() {
-                    mark.default_scale_impl(channel)
-                } else {
-                    Arc::new(LinearScale) as Arc<dyn avenger_scales::scales::ScaleImpl>
-                }
-            }
-        });
-
+        let scale_impl = scale_impl.expect("Failed to infer scale implementation");
         let scale_type = scale_impl.scale_type();
         let mut scale = Scale::<Auto>::from_impl(scale_impl.clone());
 
         // Apply default options based on channel and scale type
-        if let Some(dt) = &data_type {
+        if let (Some(dt), Some(mark)) = (&data_type, found_mark) {
             // First get system defaults
             let mut default_options = get_default_scale_options(channel, scale_type, dt);
 
-            // Then check if any mark has specific scale option preferences for this channel
-            for mark in &self.marks {
-                let channels = mark.data_context().channels();
-                // Try to resolve, but use original channels if resolution fails
-                let resolved_channels =
-                    crate::channel_resolution::resolve_all_channel_refs(channels)
-                        .unwrap_or_else(|_| channels.clone());
-                if resolved_channels.contains_key(channel) {
-                    let mark_options = mark.default_scale_options(channel, scale_type, dt);
-                    // Mark preferences override system defaults
-                    default_options.extend(mark_options);
-                    break;
-                }
+            // Then get mark-specific scale option preferences
+            let channels = mark.data_context().channels();
+            // Try to resolve, but use original channels if resolution fails
+            let resolved_channels =
+                crate::channel_resolution::resolve_all_channel_refs(channels)
+                    .unwrap_or_else(|_| channels.clone());
+            if resolved_channels.contains_key(channel) {
+                let mark_options = mark.default_scale_options(channel, scale_type, dt);
+                // Mark preferences override system defaults
+                default_options.extend(mark_options);
             }
 
             for (key, value) in default_options {
