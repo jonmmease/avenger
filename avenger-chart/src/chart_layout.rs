@@ -635,10 +635,10 @@ impl ChartLayout {
                 "Plot area bounds"
             );
             result.plot_area = LayoutBounds {
-                x: layout.location.x,
-                y: layout.location.y,
-                width: layout.size.width,
-                height: layout.size.height,
+                x: layout.location.x.round(),
+                y: layout.location.y.round(),
+                width: layout.size.width.round(),
+                height: layout.size.height.round(),
             };
         }
 
@@ -656,10 +656,10 @@ impl ChartLayout {
             result.axes.insert(
                 *position,
                 LayoutBounds {
-                    x: layout.location.x,
-                    y: layout.location.y,
-                    width: layout.size.width,
-                    height: layout.size.height,
+                    x: layout.location.x.round(),
+                    y: layout.location.y.round(),
+                    width: layout.size.width.round(),
+                    height: layout.size.height.round(),
                 },
             );
         }
@@ -720,10 +720,10 @@ impl ChartLayout {
             result.legends.insert(
                 channel.clone(),
                 LayoutBounds {
-                    x: absolute_x,
-                    y: absolute_y,
-                    width: legend_layout.size.width,
-                    height: legend_layout.size.height,
+                    x: absolute_x.round(),
+                    y: absolute_y.round(),
+                    width: legend_layout.size.width.round(),
+                    height: legend_layout.size.height.round(),
                 },
             );
         }
@@ -732,10 +732,10 @@ impl ChartLayout {
         if let Some(title_node) = self.title_node {
             let layout = self.taffy.layout(title_node)?;
             result.title = Some(LayoutBounds {
-                x: layout.location.x,
-                y: layout.location.y,
-                width: layout.size.width,
-                height: layout.size.height,
+                x: layout.location.x.round(),
+                y: layout.location.y.round(),
+                width: layout.size.width.round(),
+                height: layout.size.height.round(),
             });
         }
 
@@ -743,10 +743,10 @@ impl ChartLayout {
         if let Some(subtitle_node) = self.subtitle_node {
             let layout = self.taffy.layout(subtitle_node)?;
             result.subtitle = Some(LayoutBounds {
-                x: layout.location.x,
-                y: layout.location.y,
-                width: layout.size.width,
-                height: layout.size.height,
+                x: layout.location.x.round(),
+                y: layout.location.y.round(),
+                width: layout.size.width.round(),
+                height: layout.size.height.round(),
             });
         }
 
