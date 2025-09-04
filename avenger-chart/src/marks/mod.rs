@@ -91,8 +91,20 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
         None
     }
 
+    /// Get the name of the channel used for sorting this mark's data
+    /// Returns None if the mark doesn't support sorting or uses default order
+    fn sorting_channel(&self) -> Option<&str> {
+        // Default: use "order" channel if mark supports ordering
+        if self.supports_order() {
+            Some("order")
+        } else {
+            None
+        }
+    }
+
     /// Get the preferred legend renderer for a channel
     /// Returns None if this mark doesn't want a legend for the channel
+    /// Note: Returning None means the channel does not get a legend
     fn preferred_legend_renderer(
         &self,
         _channel: &str,

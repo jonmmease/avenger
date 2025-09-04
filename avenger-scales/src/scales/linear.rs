@@ -307,6 +307,11 @@ impl ScaleImpl for LinearScale {
         &DEFINITIONS
     }
 
+    fn supports_radius_expansion(&self) -> bool {
+        // Linear scales support radius expansion for uncertainty/error bars
+        true
+    }
+
     fn invert(
         &self,
         config: &ScaleConfig,

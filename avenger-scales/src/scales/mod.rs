@@ -791,6 +791,12 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
         Ok(config.domain.clone())
     }
 
+    /// Check if this scale type supports radius expansion for
+    /// Used for positional scales that need to account for mark radius when computing domain
+    fn supports_radius_expansion(&self) -> bool {
+        false
+    }
+
     // Scale to enums
     declare_enum_scale_method!(StrokeCap);
     declare_enum_scale_method!(StrokeJoin);

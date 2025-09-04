@@ -309,11 +309,11 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
             // Use colorbar for continuous color scales
             "fill" | "stroke" | "color" if is_continuous => Some(Arc::new(ColorbarRenderer::new())),
             // Symbol marks use symbol legend for discrete scales and other properties
-            "fill" | "stroke" | "color" | "size" | "shape" | "opacity" | "angle" => {
+            "fill" | "stroke" | "color" | "size" | "shape" | "opacity" => {
                 Some(Arc::new(SymbolLegendRenderer::new()))
             }
-            // No legend for position channels and other non-visual channels
-            "x" | "y" | "x2" | "y2" | "defined" | "order" => None,
+            // No legend for position channels and utility channels
+            "x" | "y" | "x2" | "y2" | "defined" | "order" | "angle" => None,
             // For any other channel, default to symbol legend
             _ => Some(Arc::new(SymbolLegendRenderer::new())),
         }

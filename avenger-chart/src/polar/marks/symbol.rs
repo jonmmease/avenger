@@ -333,8 +333,8 @@ impl Mark<Polar> for Symbol<Polar> {
             "fill" | "stroke" | "color" | "size" | "shape" | "opacity" | "stroke_width" => {
                 Some(Arc::new(SymbolLegendRenderer::new()))
             }
-            // No legend for position channels and other non-visual channels
-            "r" | "theta" | "defined" | "order" => None,
+            // No legend for position channels and utility channels
+            "r" | "theta" | "defined" | "order" | "angle" => None,
             // For any other channel, default to symbol legend
             _ => Some(Arc::new(SymbolLegendRenderer::new())),
         }
