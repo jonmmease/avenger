@@ -151,7 +151,8 @@ impl ChartLayout {
         let bounds = measurer.measure_text_bounds(&config);
 
         // Return height with padding and width
-        // Add a small padding (10%) for visual breathing room on height
+        // Add 10% padding to line height for visual breathing room
+        // This matches the default line spacing in most typography systems
         (bounds.line_height * 1.1, bounds.width)
     }
 
@@ -774,38 +775,7 @@ impl ChartLayout {
             });
         }
 
-        // Find the mark that has this channel and get its preferred renderer
-        let renderer = if let Some(ref renderer) = legend.renderer {
-            // Use explicitly configured renderer
-            renderer.clone()
-        } else {
-            // Find the mark that has this channel
-            let mark_with_channel = marks
-                .iter()
-                .find(|m| m.data_context().channels().contains_key(channel));
-
-            match mark_with_channel {
-                Some(mark) => {
-                    // Get the mark's preferred renderer for this channel
-                    mark.preferred_legend_renderer(channel, scale)
-                        .ok_or_else(|| {
-                            AvengerChartError::InternalError(format!(
-                                "No legend renderer available for channel '{}'",
-                                channel
-                            ))
-                        })?
-                }
-                None => {
-                    return Err(AvengerChartError::InternalError(format!(
-                        "Channel '{}' not found in any mark",
-                        channel
-                    )));
-                }
-            }
-        };
-
-        // Create a LegendChannel for the measurement
-        // We need to provide the channel info that the renderer needs
+        // Find the mark that has this channel
         let mark_with_channel = marks
             .iter()
             .find(|m| m.data_context().channels().contains_key(channel))
@@ -815,6 +785,22 @@ impl ChartLayout {
                     channel
                 ))
             })?;
+
+        // Get the renderer - either explicitly configured or from the mark
+        let renderer = if let Some(ref renderer) = legend.renderer {
+            // Use explicitly configured renderer
+            renderer.clone()
+        } else {
+            // Get the mark's preferred renderer for this channel
+            mark_with_channel
+                .preferred_legend_renderer(channel, scale)
+                .ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "No legend renderer available for channel '{}'",
+                        channel
+                    ))
+                })?
+        };
 
         // Collect related channels from the mark (needed for correct size constants)
         use crate::legend_renderer::ChannelInfo;
