@@ -4,7 +4,6 @@ pub mod dash_defaults;
 pub mod extensions;
 pub mod shape_defaults;
 pub mod udf;
-pub mod validation;
 
 // Internal modules
 mod domain;
