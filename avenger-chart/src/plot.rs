@@ -430,9 +430,7 @@ impl<C: CoordinateSystem> Plot<C> {
         &self,
         channel: &str,
     ) -> Result<Scale, AvengerChartError> {
-        use crate::scales::inference::{
-            get_default_scale_options, infer_position_scale_impl, infer_scale_impl,
-        };
+        use crate::scales::inference::{infer_position_scale_impl, infer_scale_impl};
 
         // Try to infer the data type and use mark-based scale preferences
         let mut scale_impl = None;
@@ -505,13 +503,16 @@ impl<C: CoordinateSystem> Plot<C> {
 
         // Apply default options based on channel and scale type
         if let (Some(dt), Some(mark)) = (&data_type, found_mark) {
-            // First get system defaults
-            let mut default_options = get_default_scale_options(channel, scale_type, dt);
+            let mut default_options = HashMap::new();
+
+            // First get coordinate system defaults (for all channels, not just position)
+            let coord_options = self.coord_system.default_scale_options(channel, scale_type);
+            default_options.extend(coord_options);
 
             // Then get mark-specific scale option preferences
             // We already know this mark has the channel since we found it above
             let mark_options = mark.default_scale_options(channel, scale_type, dt);
-            // Mark preferences override system defaults
+            // Mark preferences override coordinate system defaults
             default_options.extend(mark_options);
 
             for (key, value) in default_options {

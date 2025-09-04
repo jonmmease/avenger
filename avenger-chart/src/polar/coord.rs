@@ -200,6 +200,34 @@ impl CoordinateSystem for Polar {
         Ok(axis_marks)
     }
 
+    fn default_scale_options(
+        &self,
+        channel: &str,
+        scale_type: &str,
+    ) -> HashMap<String, datafusion::logical_expr::Expr> {
+        use datafusion::logical_expr::lit;
+        let mut options = HashMap::new();
+
+        match (channel, scale_type) {
+            // Radial scales often start at zero
+            ("r", "linear") => {
+                options.insert("zero".to_string(), lit(true));
+                options.insert("nice".to_string(), lit(true));
+            }
+            // Angular scales for continuous data
+            ("theta", "linear") => {
+                options.insert("nice".to_string(), lit(true));
+            }
+            // Nice for other numeric scales
+            ("r" | "theta", "log" | "pow" | "sqrt" | "symlog") => {
+                options.insert("nice".to_string(), lit(true));
+            }
+            _ => {}
+        }
+
+        options
+    }
+
     fn prepare_scalar_batch(
         &self,
         batch: datafusion::arrow::record_batch::RecordBatch,
