@@ -817,32 +817,25 @@ impl ChartLayout {
             })?;
 
         // Collect related channels from the mark (needed for correct size constants)
+        use crate::legend_renderer::ChannelInfo;
         let mut related_channels = HashMap::new();
         for (other_name, other_value) in mark_with_channel.data_context().channels() {
             if other_name != channel {
-                let other_scale = scales.get(other_name).cloned().unwrap_or_else(|| {
-                    // Create dummy scale for constants
-                    use arrow::array::Float64Array;
-                    use avenger_scales::scales::{
-                        ConfiguredScale, ScaleConfig, ScaleContext, linear::LinearScale,
-                    };
-                    use std::sync::Arc;
-
-                    let scale_impl = Arc::new(LinearScale);
-                    let domain = Arc::new(Float64Array::from(vec![0.0, 1.0]));
-                    let range = Arc::new(Float64Array::from(vec![0.0, 1.0]));
-                    let config = ScaleConfig {
-                        domain,
-                        range,
-                        options: HashMap::new(),
-                        context: ScaleContext::default(),
-                    };
-                    ConfiguredScale { scale_impl, config }
-                });
-                related_channels.insert(
-                    other_name.clone(),
-                    (other_value.expr().cloned(), other_scale),
-                );
+                // Check if this channel has a scale or is constant
+                let channel_info = if let Some(other_scale) = scales.get(other_name) {
+                    // Channel has a scale
+                    ChannelInfo::Scaled {
+                        expr: other_value.expr().cloned(),
+                        scale: other_scale.clone(),
+                    }
+                } else if let Some(expr) = other_value.expr() {
+                    // Channel has a constant expression
+                    ChannelInfo::Constant { expr: expr.clone() }
+                } else {
+                    // Skip channels without expressions
+                    continue;
+                };
+                related_channels.insert(other_name.clone(), channel_info);
             }
         }
 
