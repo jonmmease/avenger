@@ -72,6 +72,12 @@ cargo test
 
 # Run specific crate tests
 cd avenger-wgpu && cargo test
+
+# Run tests with layout debugging (shows layout boxes in pink)
+AVENGER_CHART_DEBUG_LAYOUT=1 cargo test -p avenger-chart
+
+# Run specific visual regression test with layout debugging
+AVENGER_CHART_DEBUG_LAYOUT=1 cargo test -p avenger-chart --test visual_regression test_name -- --nocapture
 ```
 
 ## Project Structure
