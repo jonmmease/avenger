@@ -346,6 +346,34 @@ impl ChannelValue {
             None
         }
     }
+
+    /// Get the data type of this channel value.
+    /// For conditional values, uses the 'otherwise' expression for type inference.
+    /// Returns None if the expression is a channel reference or type cannot be determined.
+    pub fn get_data_type(
+        &self,
+        schema: &datafusion::common::DFSchema,
+    ) -> Option<datafusion::arrow::datatypes::DataType> {
+        use datafusion::logical_expr::ExprSchemable;
+
+        let expr = match self {
+            ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => expr,
+            ChannelValue::Conditional { otherwise, .. } => {
+                // For conditional channels, use the 'otherwise' expression for type inference
+                otherwise.expr()
+            }
+        };
+
+        // Skip channel references - they need to be resolved first
+        if let Expr::Column(c) = expr {
+            if c.name.starts_with(':') {
+                return None;
+            }
+        }
+
+        // Try to get the data type from the expression
+        expr.get_type(schema).ok()
+    }
 }
 
 /// Remove trailing numbers from a channel name to get the base scale name
