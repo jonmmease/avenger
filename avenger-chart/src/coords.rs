@@ -4,6 +4,7 @@ use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::logical_expr::Expr;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Space requirements for coordinate system guides that overflow the plot area
 #[derive(Debug, Clone)]
@@ -105,6 +106,17 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         plot_height: f32,
         padding: &crate::render::Padding,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
+
+    /// Get preferred scale type for a channel based on data type
+    /// Coordinate systems can override this for their position channels
+    fn preferred_scale_type(
+        &self,
+        _channel: &str,
+        _data_type: &datafusion::arrow::datatypes::DataType,
+    ) -> Option<Arc<dyn avenger_scales::scales::ScaleImpl>> {
+        // Default implementation returns None - each coord system overrides for position channels
+        None
+    }
 
     /// Get default scale options for channels in this coordinate system
     /// Each coordinate system knows its own position channels and their optimal defaults
