@@ -430,8 +430,6 @@ impl<C: CoordinateSystem> Plot<C> {
         &self,
         channel: &str,
     ) -> Result<Scale, AvengerChartError> {
-        use crate::scales::inference::{infer_position_scale_impl, infer_scale_impl};
-
         // Try to infer the data type and use mark-based scale preferences
         let mut scale_impl = None;
         let mut data_type = None;
@@ -469,22 +467,18 @@ impl<C: CoordinateSystem> Plot<C> {
                     if let Some(dt) = channel_value.get_data_type(schema) {
                         data_type = Some(dt.clone());
 
-                        // First try to get the mark's preferred scale type
-                        scale_impl = mark.preferred_scale_type(channel, &dt);
-
-                        // If mark didn't specify, use the appropriate data type fallback
-                        if scale_impl.is_none() {
-                            // Check if this is a position channel
-                            let is_position = self
-                                .coord_system
-                                .required_channels()
-                                .contains(&channel.as_ref());
-                            scale_impl = Some(if is_position {
-                                infer_position_scale_impl(&dt)
-                            } else {
-                                infer_scale_impl(&dt)
+                        // Try scale type preference in order:
+                        // 1. Mark's preference for this specific channel
+                        // 2. Coordinate system's preference (typically for position channels)
+                        // 3. Mark's base implementation (data type only, no channel names)
+                        scale_impl = mark.preferred_scale_type(channel, &dt)
+                            .or_else(|| self.coord_system.preferred_scale_type(channel, &dt))
+                            .or_else(|| {
+                                // Use base Mark implementation as fallback
+                                // Pass "_" as channel name to ensure we only get data-type-based defaults
+                                mark.preferred_scale_type("_", &dt)
                             });
-                        }
+                        
                         found_mark = Some(mark);
                         break;
                     }
