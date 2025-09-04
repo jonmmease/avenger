@@ -891,15 +891,16 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             ));
         };
 
-        // Check if mark supports order and has order encoding
+        // Check if mark has a sorting channel and apply sorting if needed
         let df = if let Some(df_ref) = df_ref {
-            if mark.supports_order() {
-                if let Some(order_channel) = channels.get("order") {
-                    // Apply order transformation
-                    let order_expr = self.apply_channel_scale("order", order_channel, scales)?;
+            if let Some(sort_channel_name) = mark.sorting_channel() {
+                if let Some(sort_channel) = channels.get(sort_channel_name) {
+                    // Apply sorting transformation
+                    let sort_expr =
+                        self.apply_channel_scale(sort_channel_name, sort_channel, scales)?;
 
-                    // Sort the DataFrame by the order expression
-                    let sorted_df = df_ref.clone().sort(vec![order_expr.sort(true, false)])?;
+                    // Sort the DataFrame by the sorting expression
+                    let sorted_df = df_ref.clone().sort(vec![sort_expr.sort(true, false)])?;
                     Arc::new(sorted_df)
                 } else {
                     Arc::new(df_ref.clone())
@@ -1401,11 +1402,15 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             skip_channels.insert(format!("{}2", channel));
         }
 
-        // Add utility channels that don't need legends
-        // These are non-positional but still shouldn't get legends
-        skip_channels.insert("order".to_string());
-        skip_channels.insert("defined".to_string());
-        skip_channels.insert("angle".to_string());
+        // Add channels that marks indicate shouldn't have legends
+        // (by returning None from preferred_legend_renderer)
+        for mark in &self.plot.marks {
+            for (channel, scale) in scales {
+                if mark.preferred_legend_renderer(channel, scale).is_none() {
+                    skip_channels.insert(channel.clone());
+                }
+            }
+        }
 
         // Sort channels for deterministic ordering
         let mut sorted_channels: Vec<_> = scales.keys().collect();
@@ -1774,7 +1779,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             &scale.domain.default_domain,
             crate::scales::ScaleDefaultDomain::DomainExprs(_)
         ) {
-            // Only use radius-aware gathering for linear positional scales with context
+            // Only use radius-aware gathering for positional scales that support it
             if let Some(configured_non_positional) = configured_non_positional {
                 // Check if this is a positional channel (including interval variants)
                 let is_positional = self
@@ -1784,7 +1789,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                     .iter()
                     .any(|&ch| name == ch || name == format!("{}2", ch));
 
-                if scale.get_scale_impl().scale_type() == "linear" && is_positional {
+                if scale.get_scale_impl().supports_radius_expansion() && is_positional {
                     // Use the method that gathers radius information
                     let data_expressions_with_radius =
                         self.plot.gather_scale_domain_expressions_with_radius(
