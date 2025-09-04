@@ -8,7 +8,6 @@ pub mod udf;
 // Internal modules
 mod domain;
 mod domain_inference;
-mod factory;
 mod range;
 mod registry;
 mod scale;
