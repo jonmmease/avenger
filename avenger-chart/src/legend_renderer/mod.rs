@@ -105,6 +105,18 @@ pub trait LegendRenderer: Send + Sync + 'static {
     }
 }
 
+/// Information about a related channel that may affect legend rendering
+#[derive(Clone, Debug)]
+pub enum ChannelInfo {
+    /// Channel that varies based on a scale
+    Scaled {
+        expr: Option<Expr>,
+        scale: ConfiguredScale,
+    },
+    /// Channel with a constant value (no scale needed)
+    Constant { expr: Expr },
+}
+
 /// Information about a channel that may contribute to a legend
 #[derive(Clone, Debug)]
 pub struct LegendChannel {
@@ -114,7 +126,7 @@ pub struct LegendChannel {
     pub channel_type: String, // "fill", "stroke", "size", etc.
     pub mark_type: String,    // "point", "line", "rect", etc.
     pub mark_id: String,      // Unique identifier for the mark instance
-    pub related_channels: std::collections::HashMap<String, (Option<Expr>, ConfiguredScale)>, // Other channels from same mark
+    pub related_channels: std::collections::HashMap<String, ChannelInfo>, // Other channels from same mark
 }
 
 /// Type of domain for merging purposes
@@ -203,7 +215,6 @@ pub mod helpers {
     use crate::marks::channel::ChannelValue;
     use crate::utils::ScalarValueHelpers;
     use avenger_common::types::ColorOrGradient;
-    use datafusion::logical_expr::Expr;
     use datafusion_common::ScalarValue;
     use std::collections::HashMap;
 
@@ -211,17 +222,23 @@ pub mod helpers {
     /// Returns None if the expression is not constant (references columns)
     pub fn get_constant_scalar(
         channel_name: &str,
-        related_channels: &HashMap<String, (Option<Expr>, super::ConfiguredScale)>,
+        related_channels: &HashMap<String, super::ChannelInfo>,
         mark_encodings: &HashMap<String, ChannelValue>,
     ) -> Option<ScalarValue> {
         // First check related_channels
-        if let Some((Some(expr), _)) = related_channels.get(channel_name) {
-            if expr.column_refs().is_empty() {
-                // Try to simplify - this handles literals and simple expressions
-                if let Ok(scalar) = crate::utils::simplify_to_scalar_sync(expr.clone()) {
-                    return Some(scalar);
+        match related_channels.get(channel_name) {
+            Some(super::ChannelInfo::Scaled {
+                expr: Some(expr), ..
+            })
+            | Some(super::ChannelInfo::Constant { expr }) => {
+                if expr.column_refs().is_empty() {
+                    // Try to simplify - this handles literals and simple expressions
+                    if let Ok(scalar) = crate::utils::simplify_to_scalar_sync(expr.clone()) {
+                        return Some(scalar);
+                    }
                 }
             }
+            _ => {}
         }
 
         // Fallback to mark_encodings
@@ -242,7 +259,7 @@ pub mod helpers {
     /// Extract a constant color value from related_channels or mark_encodings
     pub fn get_constant_color(
         channel_name: &str,
-        related_channels: &HashMap<String, (Option<Expr>, super::ConfiguredScale)>,
+        related_channels: &HashMap<String, super::ChannelInfo>,
         mark_encodings: &HashMap<String, ChannelValue>,
     ) -> Option<ColorOrGradient> {
         if let Some(scalar) = get_constant_scalar(channel_name, related_channels, mark_encodings) {
@@ -263,7 +280,7 @@ pub mod helpers {
     /// Extract a constant f32 value from related_channels or mark_encodings
     pub fn get_constant_f32(
         channel_name: &str,
-        related_channels: &HashMap<String, (Option<Expr>, super::ConfiguredScale)>,
+        related_channels: &HashMap<String, super::ChannelInfo>,
         mark_encodings: &HashMap<String, ChannelValue>,
     ) -> Option<f32> {
         if let Some(scalar) = get_constant_scalar(channel_name, related_channels, mark_encodings) {
@@ -276,7 +293,7 @@ pub mod helpers {
     /// Extract a constant string value from related_channels or mark_encodings
     pub fn get_constant_string(
         channel_name: &str,
-        related_channels: &HashMap<String, (Option<Expr>, super::ConfiguredScale)>,
+        related_channels: &HashMap<String, super::ChannelInfo>,
         mark_encodings: &HashMap<String, ChannelValue>,
     ) -> Option<String> {
         if let Some(ScalarValue::Utf8(Some(s))) =
