@@ -436,8 +436,8 @@ impl Mark<Cartesian> for Line<Cartesian> {
             }
             // Stroke width always uses ordinal scale for discrete mapping
             ("stroke_width", _) => Some(Arc::new(OrdinalScale)),
-            // Let the system handle other cases
-            _ => None,
+            // Fall back to data type-based inference for other channels
+            _ => crate::marks::default_scale_for_data_type(data_type),
         }
     }
 

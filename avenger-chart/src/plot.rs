@@ -470,14 +470,8 @@ impl<C: CoordinateSystem> Plot<C> {
                         // Try scale type preference in order:
                         // 1. Mark's preference for this specific channel
                         // 2. Coordinate system's preference (typically for position channels)
-                        // 3. Mark's base implementation (data type only, no channel names)
                         scale_impl = mark.preferred_scale_type(channel, &dt)
-                            .or_else(|| self.coord_system.preferred_scale_type(channel, &dt))
-                            .or_else(|| {
-                                // Use base Mark implementation as fallback
-                                // Pass "_" as channel name to ensure we only get data-type-based defaults
-                                mark.preferred_scale_type("_", &dt)
-                            });
+                            .or_else(|| self.coord_system.preferred_scale_type(channel, &dt));
                         
                         found_mark = Some(mark);
                         break;

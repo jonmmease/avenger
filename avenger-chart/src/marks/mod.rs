@@ -33,6 +33,34 @@ use datafusion::scalar::ScalarValue;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// Default scale type inference based on data type alone
+/// This function can be called by marks that override preferred_scale_type
+/// to provide fallback behavior for unhandled channels
+pub fn default_scale_for_data_type(data_type: &DataType) -> Option<Arc<dyn ScaleImpl>> {
+    use avenger_scales::scales::{
+        linear::LinearScale, ordinal::OrdinalScale, time::TimeScale,
+    };
+    
+    match data_type {
+        // Categorical data uses ordinal scale
+        DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View | DataType::Boolean => {
+            Some(Arc::new(OrdinalScale))
+        }
+        // Temporal data uses time scale
+        DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _) => {
+            Some(Arc::new(TimeScale))
+        }
+        // Numeric data defaults to linear
+        DataType::Float32 | DataType::Float64 |
+        DataType::Int8 | DataType::Int16 | DataType::Int32 | DataType::Int64 |
+        DataType::UInt8 | DataType::UInt16 | DataType::UInt32 | DataType::UInt64 => {
+            Some(Arc::new(LinearScale))
+        }
+        // Default to None for unknown types
+        _ => None
+    }
+}
+
 /// Expression for computing radius/padding requirements
 #[derive(Debug, Clone)]
 pub enum RadiusExpression {
@@ -149,30 +177,10 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
         _channel: &str,
         data_type: &DataType,
     ) -> Option<Arc<dyn ScaleImpl>> {
-        use avenger_scales::scales::{
-            linear::LinearScale, ordinal::OrdinalScale, time::TimeScale,
-        };
-        
-        // Base implementation only uses data type, no channel names
-        // Specific mark implementations can override for channel-specific behavior
-        match data_type {
-            // Categorical data uses ordinal scale for non-position channels
-            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View | DataType::Boolean => {
-                Some(Arc::new(OrdinalScale))
-            }
-            // Temporal data uses time scale
-            DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _) => {
-                Some(Arc::new(TimeScale))
-            }
-            // Numeric data defaults to linear
-            DataType::Float32 | DataType::Float64 |
-            DataType::Int8 | DataType::Int16 | DataType::Int32 | DataType::Int64 |
-            DataType::UInt8 | DataType::UInt16 | DataType::UInt32 | DataType::UInt64 => {
-                Some(Arc::new(LinearScale))
-            }
-            // Default to None for unknown types
-            _ => None
-        }
+        // Base implementation delegates to the standalone function
+        // Marks that override this method can call default_scale_for_data_type
+        // for channels they don't explicitly handle
+        default_scale_for_data_type(data_type)
     }
 
     /// Get default scale options for a channel and scale type
