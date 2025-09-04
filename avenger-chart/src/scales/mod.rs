@@ -9,7 +9,6 @@ pub mod udf;
 mod domain;
 mod domain_inference;
 mod range;
-mod registry;
 mod scale;
 mod spec;
 
@@ -17,7 +16,6 @@ mod spec;
 pub use domain::{DomainExpr, ScaleDefaultDomain, ScaleDomain};
 pub use extensions::{ConfiguredScaleDataFusionExt, ConfiguredScaleLegendExt, DomainValues};
 pub use range::ScaleRange;
-pub use registry::ScaleRegistry;
 pub use scale::Scale;
 pub use spec::{
     Auto, Band, Linear, Log, Ordinal, Point, Pow, Quantile, Quantize, ScaleSpec, Sqrt, Symlog,
