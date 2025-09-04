@@ -1366,17 +1366,14 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 };
 
                 // Render the legend with all channels in the group
-                if let Some(group) = renderer
-                    .render(
-                        &channels,
-                        legend,
-                        bounds.x,
-                        bounds.y,
-                        bounds.width,
-                        bounds.height,
-                    )
-                    .await?
-                {
+                if let Some(group) = renderer.render(
+                    &channels,
+                    legend,
+                    bounds.x,
+                    bounds.y,
+                    bounds.width,
+                    bounds.height,
+                )? {
                     legend_marks.push(SceneMark::Group(group));
                 }
             }

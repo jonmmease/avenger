@@ -63,7 +63,6 @@ impl SymbolLegendRenderer {
     }
 }
 
-#[async_trait::async_trait]
 impl LegendRenderer for SymbolLegendRenderer {
     fn name(&self) -> &'static str {
         "SymbolLegendRenderer"
@@ -93,7 +92,7 @@ impl LegendRenderer for SymbolLegendRenderer {
         .collect()
     }
 
-    async fn render(
+    fn render(
         &self,
         channels: &[LegendChannel],
         config: &Legend,
@@ -102,6 +101,18 @@ impl LegendRenderer for SymbolLegendRenderer {
         _width: f32,
         _height: f32,
     ) -> Result<Option<SceneGroup>, AvengerChartError> {
+        // Determine if this is a measure call (x=0, y=0) or actual render
+        let is_measure = x == 0.0 && y == 0.0;
+        let context = if is_measure { "measure" } else { "render" };
+
+        tracing::debug!(
+            context = context,
+            x = x,
+            y = y,
+            width = _width,
+            height = _height,
+            "Symbol legend render called"
+        );
         if channels.is_empty() {
             return Ok(None);
         }
@@ -183,7 +194,7 @@ impl LegendRenderer for SymbolLegendRenderer {
 
         let mut legend_config = SymbolLegendConfig {
             title: config.title.clone(),
-            text: ScalarOrArray::new_array(text_values),
+            text: ScalarOrArray::new_array(text_values.clone()),
             inner_width: 0.0, // Don't offset internally, we'll position the whole group
             inner_height: 100.0, // Will be calculated by legend
             outer_margin: 0.0, // Don't offset legend entries
@@ -251,7 +262,18 @@ impl LegendRenderer for SymbolLegendRenderer {
                         .enumerate()
                         .map(|(i, _)| parse_shape(&shape_names[i % shape_names.len()]))
                         .collect();
-                    legend_config.shape = ScalarOrArray::new_array(shapes?);
+                    let shapes = shapes?;
+
+                    tracing::debug!(
+                        channel = "shape",
+                        shape_names = ?shape_names,
+                        domain_values = ?domain_values,
+                        text_values = ?text_values,
+                        shapes = ?shapes,
+                        "Shape legend configuration"
+                    );
+
+                    legend_config.shape = ScalarOrArray::new_array(shapes);
                 }
                 "size" => {
                     // Size channel - map through scale
@@ -315,9 +337,7 @@ impl LegendRenderer for SymbolLegendRenderer {
                 "stroke_width",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
-            )
-            .await
-            {
+            ) {
                 legend_config.stroke_width = Some(width);
             }
         }
@@ -328,9 +348,7 @@ impl LegendRenderer for SymbolLegendRenderer {
                 "angle",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
-            )
-            .await
-            {
+            ) {
                 legend_config.angle = ScalarOrArray::new_scalar(angle);
             }
         }
@@ -341,9 +359,7 @@ impl LegendRenderer for SymbolLegendRenderer {
                 "shape",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
-            )
-            .await
-            {
+            ) {
                 legend_config.shape = ScalarOrArray::new_scalar(parse_shape(&shape_str)?);
             }
         }
@@ -357,9 +373,7 @@ impl LegendRenderer for SymbolLegendRenderer {
                 "fill",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
-            )
-            .await
-            {
+            ) {
                 legend_config.fill = ScalarOrArray::new_scalar(color);
             }
         }
@@ -370,9 +384,7 @@ impl LegendRenderer for SymbolLegendRenderer {
                 "stroke",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
-            )
-            .await
-            {
+            ) {
                 legend_config.stroke = ScalarOrArray::new_scalar(color);
             }
         }
@@ -383,12 +395,22 @@ impl LegendRenderer for SymbolLegendRenderer {
                 "size",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
-            )
-            .await
-            {
+            ) {
                 legend_config.size = ScalarOrArray::new_scalar(size_value);
             }
         }
+
+        // Log final legend configuration before rendering
+        tracing::debug!(
+            title = ?legend_config.title,
+            text = ?legend_config.text,
+            shape = ?legend_config.shape,
+            size = ?legend_config.size,
+            x = x,
+            y = y,
+            render_context = context,
+            "Final symbol legend configuration before rendering"
+        );
 
         // Create the legend marks
         let mut legend_group = make_symbol_legend(&legend_config)?;

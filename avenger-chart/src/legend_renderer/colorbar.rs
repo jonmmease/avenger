@@ -17,7 +17,6 @@ impl ColorbarRenderer {
     }
 }
 
-#[async_trait::async_trait]
 impl LegendRenderer for ColorbarRenderer {
     fn name(&self) -> &'static str {
         "ColorbarRenderer"
@@ -34,7 +33,7 @@ impl LegendRenderer for ColorbarRenderer {
         })
     }
 
-    async fn render(
+    fn render(
         &self,
         channels: &[LegendChannel],
         config: &Legend,

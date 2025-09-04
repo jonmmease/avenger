@@ -170,7 +170,6 @@ impl FacetResolve {
             self.get_scale_resolution(channel)
         })
     }
-
 }
 
 impl Default for FacetResolve {
@@ -427,7 +426,10 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     /// Internal helper to create a default scale for a channel
-    fn create_default_scale_for_channel_internal(&self, channel: &str) -> Result<Scale, AvengerChartError> {
+    fn create_default_scale_for_channel_internal(
+        &self,
+        channel: &str,
+    ) -> Result<Scale, AvengerChartError> {
         use crate::scales::inference::{
             get_default_scale_options, infer_position_scale_impl, infer_scale_impl,
         };
@@ -440,22 +442,24 @@ impl<C: CoordinateSystem> Plot<C> {
         // Look through marks to find the expression for this channel
         for mark in &self.marks {
             let channels = mark.data_context().channels();
-            
+
             // Try to resolve channel references first
-            let resolved_channels = match crate::channel_resolution::resolve_all_channel_refs(channels) {
-                Ok(resolved) => resolved,
-                Err(e) => {
-                    // If resolution failed (e.g., due to cycles), return an error
-                    if channels.contains_key(channel) {
-                        return Err(AvengerChartError::InternalError(
-                            format!("Cannot create scale for channel '{}': {}", channel, e)
-                        ));
+            let resolved_channels =
+                match crate::channel_resolution::resolve_all_channel_refs(channels) {
+                    Ok(resolved) => resolved,
+                    Err(e) => {
+                        // If resolution failed (e.g., due to cycles), return an error
+                        if channels.contains_key(channel) {
+                            return Err(AvengerChartError::InternalError(format!(
+                                "Cannot create scale for channel '{}': {}",
+                                channel, e
+                            )));
+                        }
+                        // Channel doesn't exist in this mark, continue to next
+                        continue;
                     }
-                    // Channel doesn't exist in this mark, continue to next
-                    continue;
-                }
-            };
-            
+                };
+
             if let Some(channel_value) = resolved_channels.get(channel) {
                 // Get the dataframe for this mark
                 // Use mark's explicit data if available, otherwise inherit from plot
@@ -466,7 +470,7 @@ impl<C: CoordinateSystem> Plot<C> {
                     let schema = df.schema();
                     if let Some(dt) = channel_value.get_data_type(schema) {
                         data_type = Some(dt.clone());
-                        
+
                         // First try to get the mark's preferred scale type
                         scale_impl = mark.preferred_scale_type(channel, &dt);
 
@@ -491,9 +495,10 @@ impl<C: CoordinateSystem> Plot<C> {
         }
 
         let scale_impl = scale_impl.ok_or_else(|| {
-            AvengerChartError::InternalError(
-                format!("Failed to infer scale implementation for channel '{}'", channel)
-            )
+            AvengerChartError::InternalError(format!(
+                "Failed to infer scale implementation for channel '{}'",
+                channel
+            ))
         })?;
         let scale_type = scale_impl.scale_type();
         let mut scale = Scale::<Auto>::from_impl(scale_impl.clone());
