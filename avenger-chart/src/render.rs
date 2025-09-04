@@ -1440,19 +1440,19 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
     /// Infer a title for the legend based on channel
     fn infer_legend_title(&self, channel: &str) -> String {
         // TODO: Could potentially extract field name from scale's domain expression
-        // For now, just use the channel name with proper casing
-        match channel {
-            "fill" => "Fill",
-            "stroke" => "Stroke",
-            "color" => "Color",
-            "size" => "Size",
-            "shape" => "Shape",
-            "opacity" => "Opacity",
-            "stroke_width" => "Stroke Width",
-            "stroke_dash" => "Stroke Dash",
-            _ => channel,
-        }
-        .to_string()
+        // For now, convert underscores to spaces and apply title case
+        channel
+            .split('_')
+            .map(|word| {
+                // Capitalize first letter of each word
+                let mut chars = word.chars();
+                match chars.next() {
+                    None => String::new(),
+                    Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     /// Get default legend position for a channel
