@@ -177,6 +177,36 @@ impl CoordinateSystem for Cartesian {
         Ok(result)
     }
 
+    fn default_scale_options(
+        &self,
+        channel: &str,
+        scale_type: &str,
+    ) -> HashMap<String, datafusion::logical_expr::Expr> {
+        use datafusion::logical_expr::lit;
+        let mut options = HashMap::new();
+
+        match (channel, scale_type) {
+            // Y-axis linear scales typically include zero
+            ("y" | "y2", "linear") => {
+                options.insert("zero".to_string(), lit(true));
+                options.insert("nice".to_string(), lit(true));
+                options.insert("round".to_string(), lit(true)); // Pixel-aligned for crisp grid lines
+            }
+            // X-axis linear scales don't necessarily need zero
+            ("x" | "x2", "linear") => {
+                options.insert("nice".to_string(), lit(true));
+                options.insert("round".to_string(), lit(true)); // Pixel-aligned for crisp grid lines
+            }
+            // For any numeric positional scale, enable rounding for pixel alignment
+            ("x" | "x2" | "y" | "y2", "log" | "pow" | "sqrt" | "symlog" | "time") => {
+                options.insert("round".to_string(), lit(true)); // Pixel-aligned positions
+            }
+            _ => {}
+        }
+
+        options
+    }
+
     async fn render_axes(
         &self,
         axes: &HashMap<String, Self::Axis>,

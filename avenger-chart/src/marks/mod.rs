@@ -156,11 +156,22 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
     /// These are mark-specific preferences that override system defaults
     fn default_scale_options(
         &self,
-        _channel: &str,
-        _scale_type: &str,
+        channel: &str,
+        scale_type: &str,
         _data_type: &DataType,
     ) -> HashMap<String, Expr> {
-        HashMap::new()
+        use datafusion::logical_expr::lit;
+        let mut options = HashMap::new();
+
+        // Default: Color scales with numeric data should use nice for better legend labels
+        match (channel, scale_type) {
+            ("fill" | "stroke" | "color", "linear" | "log" | "pow" | "sqrt" | "symlog") => {
+                options.insert("nice".to_string(), lit(true));
+            }
+            _ => {}
+        }
+
+        options
     }
 
     /// Get default range for a channel after domain is known
