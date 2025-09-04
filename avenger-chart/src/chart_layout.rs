@@ -150,10 +150,7 @@ impl ChartLayout {
 
         let bounds = measurer.measure_text_bounds(&config);
 
-        // Return height with padding and width
-        // Add 10% padding to line height for visual breathing room
-        // This matches the default line spacing in most typography systems
-        (bounds.line_height * 1.1, bounds.width)
+        (bounds.line_height, bounds.width)
     }
 
     /// Create a new chart layout with default axes and legends included
