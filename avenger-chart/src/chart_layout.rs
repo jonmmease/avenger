@@ -765,45 +765,132 @@ impl ChartLayout {
         available_space: Size<f32>,
         marks: &[Box<dyn crate::marks::Mark<C>>],
     ) -> Result<Size<f32>, AvengerChartError> {
-        use std::collections::HashMap;
+        use crate::legend_renderer::LegendChannel;
 
-        // Extract mark encodings from all marks and check for line marks
-        let mut mark_encodings = HashMap::new();
-        let mut has_line_mark = false;
-        if channel == "stroke" {
-            trace!(
-                mark_count = marks.len(),
-                "measure_legend_size: checking marks for line type"
-            );
-        }
-        for mark in marks {
-            let mark_type = mark.mark_type();
-            if channel == "stroke" {
-                trace!(mark_type = mark_type, "Mark type");
-            }
-
-            // Check for line marks (TODO: should be a trait method)
-            if mark_type == "line" {
-                has_line_mark = true;
-            }
-
-            // Extract encodings from all marks that have them
-            // Each mark can contribute its channels to the legend
-            let channels = mark.data_context().channels();
-            for (channel_name, value) in channels {
-                mark_encodings.insert(channel_name.clone(), value.clone());
-            }
+        // Skip invisible legends
+        if !legend.visible {
+            return Ok(Size {
+                width: 0.0,
+                height: 0.0,
+            });
         }
 
-        Self::measure_legend_size_impl(
-            channel,
-            legend,
-            scale,
-            scales,
-            available_space,
-            Some(&mark_encodings),
-            has_line_mark,
-        )
+        // Find the mark that has this channel and get its preferred renderer
+        let renderer = if let Some(ref renderer) = legend.renderer {
+            // Use explicitly configured renderer
+            renderer.clone()
+        } else {
+            // Find the mark that has this channel
+            let mark_with_channel = marks
+                .iter()
+                .find(|m| m.data_context().channels().contains_key(channel));
+
+            match mark_with_channel {
+                Some(mark) => {
+                    // Get the mark's preferred renderer for this channel
+                    mark.preferred_legend_renderer(channel, scale)
+                        .ok_or_else(|| {
+                            AvengerChartError::InternalError(format!(
+                                "No legend renderer available for channel '{}'",
+                                channel
+                            ))
+                        })?
+                }
+                None => {
+                    return Err(AvengerChartError::InternalError(format!(
+                        "Channel '{}' not found in any mark",
+                        channel
+                    )));
+                }
+            }
+        };
+
+        // Create a LegendChannel for the measurement
+        // We need to provide the channel info that the renderer needs
+        let mark_with_channel = marks
+            .iter()
+            .find(|m| m.data_context().channels().contains_key(channel))
+            .ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Channel '{}' not found in any mark",
+                    channel
+                ))
+            })?;
+
+        // Collect related channels from the mark (needed for correct size constants)
+        let mut related_channels = HashMap::new();
+        for (other_name, other_value) in mark_with_channel.data_context().channels() {
+            if other_name != channel {
+                let other_scale = scales.get(other_name).cloned().unwrap_or_else(|| {
+                    // Create dummy scale for constants
+                    use arrow::array::Float64Array;
+                    use avenger_scales::scales::{
+                        ConfiguredScale, ScaleConfig, ScaleContext, linear::LinearScale,
+                    };
+                    use std::sync::Arc;
+
+                    let scale_impl = Arc::new(LinearScale);
+                    let domain = Arc::new(Float64Array::from(vec![0.0, 1.0]));
+                    let range = Arc::new(Float64Array::from(vec![0.0, 1.0]));
+                    let config = ScaleConfig {
+                        domain,
+                        range,
+                        options: HashMap::new(),
+                        context: ScaleContext::default(),
+                    };
+                    ConfiguredScale { scale_impl, config }
+                });
+                related_channels.insert(
+                    other_name.clone(),
+                    (other_value.expr().cloned(), other_scale),
+                );
+            }
+        }
+
+        // Create legend channels for all merged channels, not just the primary one
+        let mut legend_channels = Vec::new();
+
+        // Always add the primary channel
+        legend_channels.push(LegendChannel {
+            name: channel.to_string(),
+            expression: mark_with_channel
+                .data_context()
+                .channels()
+                .get(channel)
+                .and_then(|v| v.expr().cloned()),
+            scale: scale.clone(),
+            channel_type: channel.to_string(),
+            mark_type: mark_with_channel.mark_type().to_string(),
+            mark_id: mark_with_channel.mark_id(),
+            related_channels: related_channels.clone(),
+        });
+
+        // Add any merged channels
+        for merged_channel_name in &legend.merged_channels {
+            if merged_channel_name != channel {
+                // Only add if this channel exists in the mark
+                if let Some(channel_value) = mark_with_channel
+                    .data_context()
+                    .channels()
+                    .get(merged_channel_name)
+                {
+                    if let Some(merged_scale) = scales.get(merged_channel_name) {
+                        legend_channels.push(LegendChannel {
+                            name: merged_channel_name.clone(),
+                            expression: channel_value.expr().cloned(),
+                            scale: merged_scale.clone(),
+                            channel_type: merged_channel_name.clone(),
+                            mark_type: mark_with_channel.mark_type().to_string(),
+                            mark_id: mark_with_channel.mark_id(),
+                            related_channels: related_channels.clone(),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Ask the renderer to measure itself with all merged channels
+        renderer.measure(&legend_channels, legend, available_space)
     }
 
     /// Measure legend size by creating the actual SceneGroup and measuring its bounding box
@@ -1249,44 +1336,10 @@ impl ChartLayout {
                                 trace!(color_count = colors.len(), "Converted to colors");
                                 colors
                             } else {
-                                // Fallback: try the old Float32 approach for backwards compatibility
-                                use datafusion::arrow::array::{Array, Float32Array};
-                                use datafusion::arrow::compute::cast;
-                                use datafusion::arrow::datatypes::DataType;
-
-                                if let Ok(color_array) = cast(&scaled_array, &DataType::Float32) {
-                                    if let Some(float_array) =
-                                        color_array.as_any().downcast_ref::<Float32Array>()
-                                    {
-                                        // Group into RGBA colors (4 values per color)
-                                        let mut colors = Vec::new();
-                                        let mut i = 0;
-                                        while i + 4 <= float_array.len() {
-                                            colors.push(ColorOrGradient::Color([
-                                                float_array.value(i),
-                                                float_array.value(i + 1),
-                                                float_array.value(i + 2),
-                                                float_array.value(i + 3),
-                                            ]));
-                                            i += 4;
-                                        }
-                                        if !colors.is_empty() {
-                                            ScalarOrArray::new_array(colors)
-                                        } else {
-                                            ScalarOrArray::new_scalar(ColorOrGradient::Color([
-                                                0.5, 0.5, 0.5, 1.0,
-                                            ]))
-                                        }
-                                    } else {
-                                        ScalarOrArray::new_scalar(ColorOrGradient::Color([
-                                            0.5, 0.5, 0.5, 1.0,
-                                        ]))
-                                    }
-                                } else {
-                                    ScalarOrArray::new_scalar(ColorOrGradient::Color([
-                                        0.5, 0.5, 0.5, 1.0,
-                                    ]))
-                                }
+                                // Default gray if color conversion fails
+                                ScalarOrArray::new_scalar(ColorOrGradient::Color([
+                                    0.5, 0.5, 0.5, 1.0,
+                                ]))
                             }
                         }
                         Err(_) => {

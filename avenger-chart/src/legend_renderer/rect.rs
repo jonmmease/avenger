@@ -43,7 +43,6 @@ impl RectLegendRenderer {
     }
 }
 
-#[async_trait::async_trait]
 impl LegendRenderer for RectLegendRenderer {
     fn name(&self) -> &'static str {
         "RectLegendRenderer"
@@ -65,7 +64,7 @@ impl LegendRenderer for RectLegendRenderer {
             .collect()
     }
 
-    async fn render(
+    fn render(
         &self,
         channels: &[LegendChannel],
         config: &Legend,
@@ -120,7 +119,6 @@ impl LegendRenderer for RectLegendRenderer {
             &primary_channel.related_channels,
             &self.mark_encodings,
         )
-        .await
         .unwrap_or(default_size as f32);
 
         // Create legend configuration
@@ -163,9 +161,7 @@ impl LegendRenderer for RectLegendRenderer {
                 "fill",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
-            )
-            .await
-            {
+            ) {
                 legend_config.fill = ScalarOrArray::new_scalar(color);
             }
         }
@@ -175,9 +171,7 @@ impl LegendRenderer for RectLegendRenderer {
                 "stroke",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
-            )
-            .await
-            {
+            ) {
                 legend_config.stroke = ScalarOrArray::new_scalar(color);
             }
         }
@@ -187,9 +181,7 @@ impl LegendRenderer for RectLegendRenderer {
                 "stroke_width",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
-            )
-            .await
-            {
+            ) {
                 legend_config.stroke_width = Some(width);
             }
         }

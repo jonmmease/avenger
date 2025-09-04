@@ -3,14 +3,17 @@ use arrow::array::{ArrayRef, ListArray};
 use arrow::datatypes::DataType;
 use async_trait::async_trait;
 use avenger_scales::scalar::Scalar;
+use datafusion::arrow::datatypes::Schema;
 use datafusion::common::{ParamValues, Spans};
 use datafusion::error::DataFusionError;
 use datafusion::functions_aggregate::expr_fn::array_agg;
 use datafusion::functions_aggregate::min_max::{max, min};
 use datafusion::functions_array::expr_fn::{array_sort, make_array};
 use datafusion::logical_expr::Subquery;
+use datafusion::optimizer::simplify_expressions::{ExprSimplifier, SimplifyContext};
 use datafusion::prelude::{DataFrame, Expr, SessionContext, col, lit};
 use datafusion::scalar::ScalarValue;
+use datafusion_common::ToDFSchema;
 use std::sync::Arc;
 
 /// Helper to parse color from string using the color coercer
@@ -252,6 +255,51 @@ pub async fn eval_to_scalars(
         );
     }
     Ok(result_scalars)
+}
+
+/// Synchronously simplify expressions to scalars using ExprSimplifier
+/// Returns an error if the expression cannot be simplified to a literal scalar
+pub fn simplify_to_scalar_sync(expr: Expr) -> Result<ScalarValue, DataFusionError> {
+    // Check if it's already a literal
+    if let Expr::Literal(scalar, _) = expr {
+        return Ok(scalar);
+    }
+
+    // Check if expression has column references - if so, it can't be simplified to a constant
+    if !expr.column_refs().is_empty() {
+        return Err(DataFusionError::Plan(
+            "Expression contains column references and cannot be simplified to a scalar"
+                .to_string(),
+        ));
+    }
+
+    // Create a simplifier with proper context for function evaluation
+    // Use a SessionContext to get access to all registered functions
+    let ctx = SessionContext::new();
+    let state = ctx.state();
+    let props = state.execution_props();
+
+    // Create an empty schema since we're only dealing with constants
+    let empty_schema = Schema::empty().to_dfschema_ref()?;
+    let context = SimplifyContext::new(&props).with_schema(empty_schema);
+
+    // Create simplifier with canonicalization to help evaluate more expressions
+    let simplifier = ExprSimplifier::new(context).with_canonicalize(true);
+
+    // Simplify the expression - this should evaluate arithmetic and functions
+    let simplified = simplifier.simplify(expr.clone())?;
+
+    // Debug: log what we got from simplification
+    tracing::trace!("Simplified {:?} to {:?}", expr, simplified);
+
+    // Check if result is a literal
+    match simplified {
+        Expr::Literal(scalar, _) => Ok(scalar),
+        _ => Err(DataFusionError::Plan(format!(
+            "Expression could not be simplified to a scalar: {:?}",
+            simplified
+        ))),
+    }
 }
 
 pub trait ScalarValueHelpers {

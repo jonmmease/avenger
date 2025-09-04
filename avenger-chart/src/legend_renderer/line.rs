@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 /// Line legend renderer for stroke properties on line marks
 pub struct LineLegendRenderer {
-    /// Map of mark encodings from the plot  
+    /// Map of mark encodings from the plot
     mark_encodings: HashMap<String, crate::marks::channel::ChannelValue>,
     /// Stroke cap and join settings from line marks
     stroke_cap: StrokeCap,
@@ -114,7 +114,6 @@ impl LineLegendRenderer {
     }
 }
 
-#[async_trait::async_trait]
 impl LegendRenderer for LineLegendRenderer {
     fn name(&self) -> &'static str {
         "LineLegendRenderer"
@@ -137,7 +136,7 @@ impl LegendRenderer for LineLegendRenderer {
             .collect()
     }
 
-    async fn render(
+    fn render(
         &self,
         channels: &[LegendChannel],
         config: &Legend,
@@ -244,9 +243,7 @@ impl LegendRenderer for LineLegendRenderer {
                 "stroke",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
-            )
-            .await
-            {
+            ) {
                 legend_config.stroke = ScalarOrArray::new_scalar(color);
             } else {
                 // No constant stroke color - use gray #666666 for non-stroke legends
@@ -271,7 +268,6 @@ impl LegendRenderer for LineLegendRenderer {
                 &primary_channel.related_channels,
                 &self.mark_encodings,
             )
-            .await
             .unwrap_or(default_stroke_width);
             legend_config.stroke_width = ScalarOrArray::new_scalar(width);
         }
@@ -286,11 +282,9 @@ impl LegendRenderer for LineLegendRenderer {
 
                 // Replace empty patterns (solid lines) with a dash pattern for uniform processing
                 // Use a slightly shorter dash to account for visual alignment with dashed patterns
-                for pattern in dash_patterns.iter_mut() {
-                    if let Some(p) = pattern {
-                        if p.is_empty() {
-                            *p = vec![30.0, 0.0];
-                        }
+                for p in dash_patterns.iter_mut().flatten() {
+                    if p.is_empty() {
+                        *p = vec![30.0, 0.0];
                     }
                 }
 
@@ -450,7 +444,6 @@ impl LegendRenderer for LineLegendRenderer {
                         .map(|l| l + cap_extension)
                         .collect(),
                 );
-
                 legend_config.stroke_dash = ScalarOrArray::new_array(dash_patterns);
             }
         } else {
@@ -459,9 +452,7 @@ impl LegendRenderer for LineLegendRenderer {
                 "stroke_dash",
                 &primary_channel.related_channels,
                 &self.mark_encodings,
-            )
-            .await
-            {
+            ) {
                 let dash = Self::convert_dash_pattern(&pattern_str);
                 legend_config.stroke_dash = ScalarOrArray::new_scalar(dash);
             } else {

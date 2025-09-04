@@ -19,7 +19,6 @@ use datafusion_common::ScalarValue;
 use std::sync::Arc;
 
 /// Trait for implementing custom legend renderers
-#[async_trait::async_trait]
 pub trait LegendRenderer: Send + Sync + 'static {
     /// Get the name of this renderer for debugging
     fn name(&self) -> &'static str {
@@ -53,7 +52,7 @@ pub trait LegendRenderer: Send + Sync + 'static {
     }
 
     /// Render the legend to scene marks
-    async fn render(
+    fn render(
         &self,
         channels: &[LegendChannel],
         config: &Legend,
@@ -62,6 +61,48 @@ pub trait LegendRenderer: Send + Sync + 'static {
         width: f32,
         height: f32,
     ) -> Result<Option<SceneGroup>, AvengerChartError>;
+
+    /// Measure the size this legend will require by rendering it
+    fn measure(
+        &self,
+        channels: &[LegendChannel],
+        config: &Legend,
+        available_space: taffy::Size<f32>,
+    ) -> Result<taffy::Size<f32>, AvengerChartError> {
+        // Default implementation: render at origin and measure bounds
+        use avenger_geometry::marks::MarkGeometryUtils;
+        use avenger_geometry::rtree::EnvelopeUtils;
+        use taffy::Size;
+
+        if let Some(group) = self.render(
+            channels,
+            config,
+            0.0,
+            0.0,
+            available_space.width,
+            available_space.height,
+        )? {
+            let bounds = group.bounding_box();
+
+            // Account for stroke width on background if present
+            // Background strokes extend 0.5 pixels outside on each side (total 1.0 pixel)
+            let stroke_adjustment = if config.background_stroke.is_some() {
+                1.0 // Total stroke width that extends beyond the fill
+            } else {
+                0.0
+            };
+
+            Ok(Size {
+                width: bounds.width() - stroke_adjustment,
+                height: bounds.height() - stroke_adjustment,
+            })
+        } else {
+            Ok(Size {
+                width: 0.0,
+                height: 0.0,
+            })
+        }
+    }
 }
 
 /// Information about a channel that may contribute to a legend
@@ -106,10 +147,7 @@ impl MergeKey {
         };
 
         // Must have an expression to merge
-        let expression = channel
-            .expression
-            .as_ref()
-            .map(|e| normalize_expression(e))?;
+        let expression = channel.expression.as_ref().map(normalize_expression)?;
 
         Some(MergeKey {
             expression,
@@ -171,7 +209,7 @@ pub mod helpers {
 
     /// Extract a constant scalar value from related_channels or mark_encodings
     /// Returns None if the expression is not constant (references columns)
-    pub async fn get_constant_scalar(
+    pub fn get_constant_scalar(
         channel_name: &str,
         related_channels: &HashMap<String, (Option<Expr>, super::ConfiguredScale)>,
         mark_encodings: &HashMap<String, ChannelValue>,
@@ -179,11 +217,9 @@ pub mod helpers {
         // First check related_channels
         if let Some((Some(expr), _)) = related_channels.get(channel_name) {
             if expr.column_refs().is_empty() {
-                // Scalar expression - evaluate it
-                if let Ok(scalars) =
-                    crate::utils::eval_to_scalars(vec![expr.clone()], None, None).await
-                {
-                    return scalars.into_iter().next();
+                // Try to simplify - this handles literals and simple expressions
+                if let Ok(scalar) = crate::utils::simplify_to_scalar_sync(expr.clone()) {
+                    return Some(scalar);
                 }
             }
         }
@@ -192,11 +228,9 @@ pub mod helpers {
         if let Some(channel_value) = mark_encodings.get(channel_name) {
             if let Some(expr) = channel_value.expr() {
                 if expr.column_refs().is_empty() {
-                    // Scalar expression - evaluate it
-                    if let Ok(scalars) =
-                        crate::utils::eval_to_scalars(vec![expr.clone()], None, None).await
-                    {
-                        return scalars.into_iter().next();
+                    // Try to simplify - this handles literals and simple expressions
+                    if let Ok(scalar) = crate::utils::simplify_to_scalar_sync(expr.clone()) {
+                        return Some(scalar);
                     }
                 }
             }
@@ -206,14 +240,12 @@ pub mod helpers {
     }
 
     /// Extract a constant color value from related_channels or mark_encodings
-    pub async fn get_constant_color(
+    pub fn get_constant_color(
         channel_name: &str,
         related_channels: &HashMap<String, (Option<Expr>, super::ConfiguredScale)>,
         mark_encodings: &HashMap<String, ChannelValue>,
     ) -> Option<ColorOrGradient> {
-        if let Some(scalar) =
-            get_constant_scalar(channel_name, related_channels, mark_encodings).await
-        {
+        if let Some(scalar) = get_constant_scalar(channel_name, related_channels, mark_encodings) {
             // Try to convert to color
             if let Ok(color_array) = ScalarValue::iter_to_array(std::iter::once(scalar)) {
                 use avenger_scales::scales::coerce::Coercer;
@@ -229,14 +261,12 @@ pub mod helpers {
     }
 
     /// Extract a constant f32 value from related_channels or mark_encodings
-    pub async fn get_constant_f32(
+    pub fn get_constant_f32(
         channel_name: &str,
         related_channels: &HashMap<String, (Option<Expr>, super::ConfiguredScale)>,
         mark_encodings: &HashMap<String, ChannelValue>,
     ) -> Option<f32> {
-        if let Some(scalar) =
-            get_constant_scalar(channel_name, related_channels, mark_encodings).await
-        {
+        if let Some(scalar) = get_constant_scalar(channel_name, related_channels, mark_encodings) {
             scalar.as_f32().ok()
         } else {
             None
@@ -244,13 +274,13 @@ pub mod helpers {
     }
 
     /// Extract a constant string value from related_channels or mark_encodings
-    pub async fn get_constant_string(
+    pub fn get_constant_string(
         channel_name: &str,
         related_channels: &HashMap<String, (Option<Expr>, super::ConfiguredScale)>,
         mark_encodings: &HashMap<String, ChannelValue>,
     ) -> Option<String> {
         if let Some(ScalarValue::Utf8(Some(s))) =
-            get_constant_scalar(channel_name, related_channels, mark_encodings).await
+            get_constant_scalar(channel_name, related_channels, mark_encodings)
         {
             return Some(s);
         }
