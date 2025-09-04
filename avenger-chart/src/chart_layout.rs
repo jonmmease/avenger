@@ -767,7 +767,7 @@ impl ChartLayout {
     ) -> Result<Size<f32>, AvengerChartError> {
         use std::collections::HashMap;
 
-        // Extract mark encodings from provided marks and check for line marks
+        // Extract mark encodings from all marks and check for line marks
         let mut mark_encodings = HashMap::new();
         let mut has_line_mark = false;
         if channel == "stroke" {
@@ -782,18 +782,16 @@ impl ChartLayout {
                 trace!(mark_type = mark_type, "Mark type");
             }
 
-            // Check for line marks
+            // Check for line marks (TODO: should be a trait method)
             if mark_type == "line" {
                 has_line_mark = true;
             }
 
-            // Extract encodings from symbol or rect marks
-            let is_relevant = mark_type == "symbol" || mark_type == "rect";
-            if is_relevant {
-                let channels = mark.data_context().channels();
-                for (channel_name, value) in channels {
-                    mark_encodings.insert(channel_name.clone(), value.clone());
-                }
+            // Extract encodings from all marks that have them
+            // Each mark can contribute its channels to the legend
+            let channels = mark.data_context().channels();
+            for (channel_name, value) in channels {
+                mark_encodings.insert(channel_name.clone(), value.clone());
             }
         }
 
