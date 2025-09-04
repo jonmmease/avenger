@@ -103,7 +103,8 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
     let bg_padding = config.background_padding.unwrap_or(max_text_height / 2.0);
 
     // Position legend content with padding from the background rect origin
-    let mut line_group_y = bg_padding + legend_group_height / 2.0;
+    // Round to pixel boundaries for crisp rendering
+    let mut line_group_y = (bg_padding + legend_group_height / 2.0).round();
 
     // Add title if present
     let title_height = if let Some(ref title_text) = config.title {
@@ -155,7 +156,7 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
             config.text_padding,
         );
         groups.push(SceneMark::Group(group));
-        line_group_y += legend_group_height;
+        line_group_y = (line_group_y + legend_group_height).round();
     }
 
     // Measure the content bounds
@@ -167,9 +168,9 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
 
     // Calculate total dimensions including padding
     // The background rect always exists and defines our coordinate system
-    // Add symmetric padding on all sides
-    let bg_width = content_bbox.width() + bg_padding * 2.0;
-    let bg_height = legend_group_height * len as f32 + bg_padding * 2.0 + title_height;
+    // Add symmetric padding on all sides and round to pixel boundaries
+    let bg_width = (content_bbox.width() + bg_padding * 2.0).round();
+    let bg_height = (legend_group_height * len as f32 + bg_padding * 2.0 + title_height).round();
 
     // Create a background rect at origin (0, 0)
     // This provides consistent layout whether visible or not
@@ -227,7 +228,7 @@ fn make_line_group(
     let x0 = 0.0;
     let x1 = line_length;
     // Text position is based on max_line_length to ensure horizontal alignment
-    let text_x = max_line_length + text_padding;
+    let text_x = (max_line_length + text_padding).round();
 
     // Line
     // Convert empty dash array to None (solid line)

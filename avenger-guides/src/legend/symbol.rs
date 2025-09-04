@@ -109,16 +109,17 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
         ..Default::default()
     };
 
-    let max_width = symbol_mark.bounding_box().width();
-    let center_x = max_width / 2.0;
+    let max_width = symbol_mark.bounding_box().width().round();
+    let center_x = (max_width / 2.0).round();
 
     // Use fixed 4px padding for top/bottom
-    let vertical_padding = 4.0;
+    let vertical_padding: f32 = 4.0;
     let horizontal_padding = config.background_padding.unwrap_or(4.0);
 
     // Position legend content with padding from the background rect origin
-    let content_offset_x = horizontal_padding + config.outer_margin;
-    let mut content_offset_y = vertical_padding;
+    // Round to pixel boundaries for crisp rendering
+    let content_offset_x = (horizontal_padding + config.outer_margin).round();
+    let mut content_offset_y = vertical_padding.round();
 
     let mut groups: Vec<SceneMark> = Vec::with_capacity(len + 1); // +1 for potential title
 
@@ -157,10 +158,11 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
         groups.push(SceneMark::Text(Arc::new(title_mark)));
 
         // Set content offset to title + its height + small gap
-        content_offset_y = title_y + title_bounds.height + 2.0; // Title position + height + 2px gap
+        // Round to pixel boundary
+        content_offset_y = (title_y + title_bounds.height + 2.0).round(); // Title position + height + 2px gap
     }
 
-    let mut y = content_offset_y;
+    let mut y = content_offset_y.round();
 
     let text_strs = config.text.as_vec(len, None);
 
@@ -172,14 +174,15 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
             config.text_padding,
             max_width,
             i,
-            [config.inner_width + content_offset_x, y],
+            [(config.inner_width + content_offset_x).round(), y.round()],
         );
         let height = group.bounding_box().height();
         if i == 0 {
             tracing::debug!(height = height, "First symbol group height");
         }
         groups.push(SceneMark::Group(group));
-        y += height;
+        // Round y position after adding height to stay on pixel boundaries
+        y = (y + height).round();
     }
 
     // Measure the content bounds
@@ -192,8 +195,9 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
     // Calculate total dimensions including padding
     // The background rect always exists and defines our coordinate system
     // Use fixed vertical padding and configurable horizontal padding
-    let bg_width = content_bbox.width() + horizontal_padding * 2.0; // Left + right padding
-    let bg_height = content_bbox.height() + vertical_padding * 2.0; // Fixed 4px top + 4px bottom
+    // Round to pixel boundaries for crisp rendering
+    let bg_width = (content_bbox.width() + horizontal_padding * 2.0).round(); // Left + right padding
+    let bg_height = (content_bbox.height() + vertical_padding * 2.0).round(); // Fixed 4px top + 4px bottom
 
     // Always create a background rect at origin (0, 0)
     // This provides consistent layout whether visible or not
@@ -262,12 +266,12 @@ fn make_symbol_group(
         tracing::debug!(text = text, height = symbol_height, "Symbol height");
     }
 
-    single_symbol_mark.y = (symbol_height / 2.0 + padding).into();
+    single_symbol_mark.y = ((symbol_height / 2.0 + padding).round()).into();
 
     tracing::debug!(text = text, "Creating legend text mark");
     let text_mark = SceneTextMark {
         text: text.to_string().into(),
-        x: (max_width + text_padding).into(),
+        x: ((max_width + text_padding).round()).into(),
         y: single_symbol_mark.y.clone(),
         align: TextAlign::Left.into(),
         baseline: TextBaseline::Middle.into(),
@@ -285,8 +289,8 @@ fn make_symbol_group(
             SceneMark::Rect(SceneRectMark {
                 x: 0.0.into(),
                 y: 0.0.into(),
-                width: Some(symbol_width.into()),
-                height: Some((symbol_height + padding * 2.0).into()),
+                width: Some(symbol_width.round().into()),
+                height: Some((symbol_height + padding * 2.0).round().into()),
                 stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
                 stroke_width: 0.1.into(),
                 ..Default::default()

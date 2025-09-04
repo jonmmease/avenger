@@ -34,10 +34,11 @@ pub fn make_colorbar_marks(
             let bg_padding = config.background_padding.unwrap_or(4.0);
 
             // Calculate the actual gradient height by subtracting padding
-            let gradient_height = (total_height - 2.0 * bg_padding).max(10.0);
+            // Round dimensions to pixel boundaries
+            let gradient_height = ((total_height - 2.0 * bg_padding).max(10.0)).round();
 
-            let colorbar_width = config.colorbar_width.unwrap_or(15.0);
-            let colorbar_margin = config.colorbar_margin.unwrap_or(5.0);
+            let colorbar_width = config.colorbar_width.unwrap_or(15.0).round();
+            let colorbar_margin = config.colorbar_margin.unwrap_or(5.0).round();
 
             // Create a gradient for the colorbar rect
             let gradient = Gradient::LinearGradient(LinearGradient {
@@ -88,9 +89,9 @@ pub fn make_colorbar_marks(
 
             // Calculate total dimensions including padding
             // The background rect always exists and defines our coordinate system
-            // total_height already includes the padding
-            let bg_width = content_bbox.width() + bg_padding * 2.0;
-            let bg_height = total_height;
+            // total_height already includes the padding, round to pixel boundaries
+            let bg_width = (content_bbox.width() + bg_padding * 2.0).round();
+            let bg_height = total_height.round();
 
             // Always create a background rect at origin (0, 0)
             // This provides consistent layout whether visible or not
