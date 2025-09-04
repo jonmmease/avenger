@@ -442,7 +442,6 @@ impl<C: CoordinateSystem> Plot<C> {
             get_default_scale_options, infer_position_scale_impl, infer_scale_impl,
         };
         use avenger_scales::scales::linear::LinearScale;
-        use datafusion::logical_expr::ExprSchemable;
 
         // Try to infer the data type and use mark-based scale preferences
         let mut data_type = None;
@@ -455,39 +454,29 @@ impl<C: CoordinateSystem> Plot<C> {
                 // Use mark's explicit data if available, otherwise inherit from plot
                 let df = mark.data_context().dataframe().or(self.data.as_ref());
 
-                // Try to get the data type of the expression
+                // Try to get the data type of the channel
                 if let Some(df) = df {
                     let schema = df.schema();
-                    if let Some(expr) = channel_value.expr() {
-                        // Skip channel references - they need to be resolved in gather_scale_domain_expressions
-                        if let datafusion::logical_expr::Expr::Column(c) = expr {
-                            if c.name.starts_with(':') {
-                                // This is a channel reference, skip it for scale type inference
-                                continue;
-                            }
+                    if let Some(expr_type) = channel_value.get_data_type(schema) {
+                        data_type = Some(expr_type.clone());
+
+                        // First try to get the mark's preferred scale type
+                        scale_impl = mark.preferred_scale_type(channel, &expr_type);
+
+                        // If mark didn't specify, use the appropriate data type fallback
+                        if scale_impl.is_none() {
+                            // Check if this is a position channel
+                            let is_position = self
+                                .coord_system
+                                .required_channels()
+                                .contains(&channel.as_ref());
+                            scale_impl = Some(if is_position {
+                                infer_position_scale_impl(&expr_type)
+                            } else {
+                                infer_scale_impl(&expr_type)
+                            });
                         }
-
-                        if let Ok(expr_type) = expr.get_type(schema) {
-                            data_type = Some(expr_type.clone());
-
-                            // First try to get the mark's preferred scale type
-                            scale_impl = mark.preferred_scale_type(channel, &expr_type);
-
-                            // If mark didn't specify, use the appropriate data type fallback
-                            if scale_impl.is_none() {
-                                // Check if this is a position channel
-                                let is_position = self
-                                    .coord_system
-                                    .required_channels()
-                                    .contains(&channel.as_ref());
-                                scale_impl = Some(if is_position {
-                                    infer_position_scale_impl(&expr_type)
-                                } else {
-                                    infer_scale_impl(&expr_type)
-                                });
-                            }
-                            break;
-                        }
+                        break;
                     }
                 }
             }
@@ -498,16 +487,12 @@ impl<C: CoordinateSystem> Plot<C> {
             if let Some(dt) = &data_type {
                 infer_scale_impl(dt)
             } else {
-                // No data type available, use channel-specific defaults
-                // This happens for channels with unresolved references
-                use avenger_scales::scales::ordinal::OrdinalScale;
-                match channel {
-                    // Color channels typically use ordinal scales for categorical data
-                    "fill" | "stroke" | "color" => {
-                        Arc::new(OrdinalScale) as Arc<dyn avenger_scales::scales::ScaleImpl>
-                    }
-                    // Default to linear for other channels
-                    _ => Arc::new(LinearScale) as Arc<dyn avenger_scales::scales::ScaleImpl>,
+                // This should rarely happen now that we use 'otherwise' for conditional channels
+                // Fall back to mark-provided default or linear scale
+                if let Some(mark) = self.marks.first() {
+                    mark.default_scale_impl(channel)
+                } else {
+                    Arc::new(LinearScale) as Arc<dyn avenger_scales::scales::ScaleImpl>
                 }
             }
         });

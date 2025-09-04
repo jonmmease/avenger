@@ -167,4 +167,23 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
     ) -> Option<ScaleRange> {
         None
     }
+
+    /// Get default scale implementation for a channel when no data type is available
+    /// This is used for channels with unresolved references (e.g., conditional encodings)
+    ///
+    /// # Arguments
+    /// * `channel` - The channel name
+    ///
+    /// Returns a default scale implementation appropriate for the channel
+    fn default_scale_impl(&self, channel: &str) -> Arc<dyn ScaleImpl> {
+        use avenger_scales::scales::linear::LinearScale;
+        use avenger_scales::scales::ordinal::OrdinalScale;
+
+        match channel {
+            // Color channels typically use ordinal scales for categorical data
+            "fill" | "stroke" | "color" => Arc::new(OrdinalScale) as Arc<dyn ScaleImpl>,
+            // Default to linear for other channels
+            _ => Arc::new(LinearScale) as Arc<dyn ScaleImpl>,
+        }
+    }
 }
