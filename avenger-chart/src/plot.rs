@@ -2,7 +2,7 @@ use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::legend::Legend;
 use crate::marks::{ChannelValue, Mark, RadiusExpression};
-use crate::scales::{Auto, Ordinal, Scale};
+use crate::scales::{Auto, Scale};
 use datafusion::dataframe::DataFrame;
 use indexmap::IndexMap;
 use std::collections::HashMap;
@@ -137,23 +137,15 @@ impl FacetResolve {
         self
     }
 
-    /// Configure axis resolution for a positional channel (x, y, r, theta)
+    /// Configure axis resolution for a positional channel
     pub fn axis<C: Into<String>>(mut self, channel: C, resolution: Resolution) -> Self {
-        let channel = channel.into();
-        if Self::is_positional_channel(&channel) {
-            self.axes.insert(channel, resolution);
-        }
-        // Silently ignore non-positional channels (or we could warn/error)
+        self.axes.insert(channel.into(), resolution);
         self
     }
 
-    /// Configure legend resolution for a non-positional channel (color, size, shape, etc.)
+    /// Configure legend resolution for a non-positional channel
     pub fn legend<C: Into<String>>(mut self, channel: C, resolution: Resolution) -> Self {
-        let channel = channel.into();
-        if !Self::is_positional_channel(&channel) {
-            self.legends.insert(channel, resolution);
-        }
-        // Silently ignore positional channels (or we could warn/error)
+        self.legends.insert(channel.into(), resolution);
         self
     }
 
@@ -179,9 +171,6 @@ impl FacetResolve {
         })
     }
 
-    fn is_positional_channel(channel: &str) -> bool {
-        matches!(channel, "x" | "y" | "r" | "theta")
-    }
 }
 
 impl Default for FacetResolve {
@@ -679,16 +668,7 @@ impl<C: CoordinateSystem> Plot<C> {
                 }
 
                 // Apply user's transformation
-                let mut user_scale = f(base_scale);
-
-                // Enforce stroke_width must always be ordinal
-                if name == "stroke_width" {
-                    // Force ordinal scale type even if user tried to set it to linear
-                    user_scale = user_scale.into_type::<Ordinal>().into_auto();
-                    // Note: Default discrete range is already set in create_default_scale_for_channel_internal
-                    // We don't override here to respect user-provided ranges
-                }
-
+                let user_scale = f(base_scale);
                 Ok(user_scale)
             }
             Some(ScaleSpec::Reference(_)) => {
@@ -884,9 +864,10 @@ impl<C: CoordinateSystem> Plot<C> {
     ) -> Result<ScaleDomainWithRadius, crate::error::AvengerChartError> {
         let mut data_expressions = Vec::new();
 
-        // Only gather radius for positional scales (including x2, y2 which map to x, y scales)
-        let is_positional = matches!(scale_name, "x" | "y");
-        if !is_positional {
+        // Only gather radius for Cartesian x/y scales (including x2, y2 which map to x, y scales)
+        // Polar coordinates (r, theta) don't use radius-based padding
+        let needs_radius = matches!(scale_name, "x" | "y");
+        if !needs_radius {
             // For non-positional scales, return without radius
             for (df, expr) in self.gather_scale_domain_expressions(scale_name)? {
                 data_expressions.push((df, expr, None));
