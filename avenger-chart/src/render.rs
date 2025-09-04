@@ -453,7 +453,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // Build initial scale definitions
         let mut initial_scales = HashMap::new();
         for channel in &channels_with_scales {
-            let scale = self.plot.get_scale(channel);
+            let scale = self.plot.get_scale(channel)?;
             initial_scales.insert(channel.clone(), scale);
         }
 

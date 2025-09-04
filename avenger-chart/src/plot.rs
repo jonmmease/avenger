@@ -1,4 +1,5 @@
 use crate::coords::CoordinateSystem;
+use crate::error::AvengerChartError;
 use crate::legend::Legend;
 use crate::marks::{ChannelValue, Mark, RadiusExpression};
 use crate::scales::{Auto, Ordinal, Scale};
@@ -437,7 +438,7 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     /// Internal helper to create a default scale for a channel
-    fn create_default_scale_for_channel_internal(&self, channel: &str) -> Scale {
+    fn create_default_scale_for_channel_internal(&self, channel: &str) -> Result<Scale, AvengerChartError> {
         use crate::scales::inference::{
             get_default_scale_options, infer_position_scale_impl, infer_scale_impl,
         };
@@ -449,7 +450,24 @@ impl<C: CoordinateSystem> Plot<C> {
 
         // Look through marks to find the expression for this channel
         for mark in &self.marks {
-            if let Some(channel_value) = mark.data_context().channels().get(channel) {
+            let channels = mark.data_context().channels();
+            
+            // Try to resolve channel references first
+            let resolved_channels = match crate::channel_resolution::resolve_all_channel_refs(channels) {
+                Ok(resolved) => resolved,
+                Err(e) => {
+                    // If resolution failed (e.g., due to cycles), return an error
+                    if channels.contains_key(channel) {
+                        return Err(AvengerChartError::InternalError(
+                            format!("Cannot create scale for channel '{}': {}", channel, e)
+                        ));
+                    }
+                    // Channel doesn't exist in this mark, continue to next
+                    continue;
+                }
+            };
+            
+            if let Some(channel_value) = resolved_channels.get(channel) {
                 // Get the dataframe for this mark
                 // Use mark's explicit data if available, otherwise inherit from plot
                 let df = mark.data_context().dataframe().or(self.data.as_ref());
@@ -483,7 +501,11 @@ impl<C: CoordinateSystem> Plot<C> {
             }
         }
 
-        let scale_impl = scale_impl.expect("Failed to infer scale implementation");
+        let scale_impl = scale_impl.ok_or_else(|| {
+            AvengerChartError::InternalError(
+                format!("Failed to infer scale implementation for channel '{}'", channel)
+            )
+        })?;
         let scale_type = scale_impl.scale_type();
         let mut scale = Scale::<Auto>::from_impl(scale_impl.clone());
 
@@ -493,23 +515,17 @@ impl<C: CoordinateSystem> Plot<C> {
             let mut default_options = get_default_scale_options(channel, scale_type, dt);
 
             // Then get mark-specific scale option preferences
-            let channels = mark.data_context().channels();
-            // Try to resolve, but use original channels if resolution fails
-            let resolved_channels =
-                crate::channel_resolution::resolve_all_channel_refs(channels)
-                    .unwrap_or_else(|_| channels.clone());
-            if resolved_channels.contains_key(channel) {
-                let mark_options = mark.default_scale_options(channel, scale_type, dt);
-                // Mark preferences override system defaults
-                default_options.extend(mark_options);
-            }
+            // We already know this mark has the channel since we found it above
+            let mark_options = mark.default_scale_options(channel, scale_type, dt);
+            // Mark preferences override system defaults
+            default_options.extend(mark_options);
 
             for (key, value) in default_options {
                 scale = scale.option(&key, value);
             }
         }
 
-        scale
+        Ok(scale)
     }
 
     pub fn mark<M: Mark<C> + 'static>(mut self, mark: M) -> Self {
@@ -643,7 +659,7 @@ impl<C: CoordinateSystem> Plot<C> {
 
     /// Build a scale by name, applying any configured transformations
     /// Note: Default range will be applied during rendering when actual dimensions are known
-    pub fn get_scale(&self, name: &str) -> Scale {
+    pub fn get_scale(&self, name: &str) -> Result<Scale, AvengerChartError> {
         use crate::marks::channel::strip_trailing_numbers;
 
         // Strip trailing numbers to get the base scale name
@@ -652,7 +668,7 @@ impl<C: CoordinateSystem> Plot<C> {
 
         match self.scale_specs.get(base_name) {
             Some(ScaleSpec::Local(f)) => {
-                let mut base_scale = self.create_default_scale_for_channel_internal(base_name);
+                let mut base_scale = self.create_default_scale_for_channel_internal(base_name)?;
 
                 // Gather and apply domain expressions to give the scale a data-driven domain
                 // This happens BEFORE the user's lambda, so the user can override if desired
@@ -673,13 +689,13 @@ impl<C: CoordinateSystem> Plot<C> {
                     // We don't override here to respect user-provided ranges
                 }
 
-                user_scale
+                Ok(user_scale)
             }
             Some(ScaleSpec::Reference(_)) => {
                 todo!("Referenced scales are not yet implemented");
             }
             None => {
-                let mut base_scale = self.create_default_scale_for_channel_internal(base_name);
+                let mut base_scale = self.create_default_scale_for_channel_internal(base_name)?;
 
                 // For scales without user configuration, also apply data domain
                 if let Ok(domain_exprs) = self.gather_scale_domain_expressions(base_name) {
@@ -688,7 +704,7 @@ impl<C: CoordinateSystem> Plot<C> {
                     }
                 }
 
-                base_scale
+                Ok(base_scale)
             }
         }
     }
@@ -1021,7 +1037,7 @@ impl<C: CoordinateSystem> Plot<C> {
 
     /// Create a default scale for a channel
     pub async fn create_default_scale_for_channel(&self, channel: &str) -> Option<Scale> {
-        Some(self.create_default_scale_for_channel_internal(channel))
+        self.create_default_scale_for_channel_internal(channel).ok()
     }
 
     /// Get preferred size for the plot
