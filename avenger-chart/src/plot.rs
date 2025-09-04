@@ -710,7 +710,7 @@ impl<C: CoordinateSystem> Plot<C> {
                     .values()
                     .any(|channel_value| match channel_value {
                         ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
-                            crate::scales::validation::expr_references_columns(expr)
+                            !expr.column_refs().is_empty()
                         }
                         ChannelValue::Conditional {
                             conditions,
@@ -718,13 +718,9 @@ impl<C: CoordinateSystem> Plot<C> {
                             ..
                         } => {
                             conditions.iter().any(|(condition, value)| {
-                                crate::scales::validation::expr_references_columns(condition)
-                                    || crate::scales::validation::expr_references_columns(
-                                        value.expr(),
-                                    )
-                            }) || crate::scales::validation::expr_references_columns(
-                                otherwise.expr(),
-                            )
+                                !condition.column_refs().is_empty()
+                                    || !value.expr().column_refs().is_empty()
+                            }) || !otherwise.expr().column_refs().is_empty()
                         }
                     });
 
@@ -887,7 +883,7 @@ impl<C: CoordinateSystem> Plot<C> {
                     .values()
                     .any(|channel_value| match channel_value {
                         ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
-                            crate::scales::validation::expr_references_columns(expr)
+                            !expr.column_refs().is_empty()
                         }
                         ChannelValue::Conditional {
                             conditions,
@@ -895,13 +891,9 @@ impl<C: CoordinateSystem> Plot<C> {
                             ..
                         } => {
                             conditions.iter().any(|(condition, value)| {
-                                crate::scales::validation::expr_references_columns(condition)
-                                    || crate::scales::validation::expr_references_columns(
-                                        value.expr(),
-                                    )
-                            }) || crate::scales::validation::expr_references_columns(
-                                otherwise.expr(),
-                            )
+                                !condition.column_refs().is_empty()
+                                    || !value.expr().column_refs().is_empty()
+                            }) || !otherwise.expr().column_refs().is_empty()
                         }
                     });
 
