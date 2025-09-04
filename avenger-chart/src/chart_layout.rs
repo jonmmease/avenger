@@ -24,6 +24,7 @@ pub struct ChartLayout {
     legend_container_nodes: HashMap<LegendPosition, NodeId>, // Flex containers for each position
     legend_nodes: HashMap<String, NodeId>, // Individual legend nodes keyed by channel
     legend_sizes: HashMap<String, Size<f32>>, // Store measured sizes
+    legend_flexible: HashMap<String, bool>, // Store whether legend prefers flexible layout
     title_node: Option<NodeId>,
     subtitle_node: Option<NodeId>,
 
@@ -245,6 +246,7 @@ impl ChartLayout {
             legend_container_nodes: HashMap::new(),
             legend_nodes: HashMap::new(),
             legend_sizes: HashMap::new(),
+            legend_flexible: HashMap::new(),
             title_node: None,
             subtitle_node: None,
             grid_template,
@@ -255,11 +257,12 @@ impl ChartLayout {
             subtitle_font_family: subtitle.map(|s| s.font_family.clone()),
         };
 
-        // Measure legend sizes
+        // Measure legend sizes and flexibility preferences
         let mut legend_sizes = HashMap::new();
+        let mut legend_flexible = HashMap::new();
         for (channel, legend) in legends.iter() {
             if let Some(scale) = scales.get(channel) {
-                let size = ChartLayout::measure_legend_size(
+                let (size, flexible) = ChartLayout::measure_legend_size(
                     channel,
                     legend,
                     scale,
@@ -271,9 +274,11 @@ impl ChartLayout {
                     marks,
                 )?;
                 legend_sizes.insert(channel.clone(), size);
+                legend_flexible.insert(channel.clone(), flexible);
             }
         }
         layout.legend_sizes = legend_sizes;
+        layout.legend_flexible = legend_flexible;
 
         // Create nodes for each component in the grid
         layout.create_component_nodes_with_overflow(overflow, legends, scales, title, subtitle)?;
@@ -302,7 +307,7 @@ impl ChartLayout {
         &mut self,
         overflow: &crate::coords::OverflowSpaceRequirement,
         legends: &IndexMap<String, Legend>,
-        scales: &HashMap<String, ConfiguredScale>,
+        _scales: &HashMap<String, ConfiguredScale>,
         title: Option<&PlotTitle>,
         subtitle: Option<&PlotSubtitle>,
     ) -> Result<(), AvengerChartError> {
@@ -494,21 +499,11 @@ impl ChartLayout {
 
                         // Create legend node
                         if let Some(size) = self.legend_sizes.get(channel) {
-                            // Check if this is a colorbar legend (continuous color scale)
-                            let is_colorbar = if let Some(scale) = scales.get(channel) {
-                                let is_color_channel =
-                                    matches!(channel.as_str(), "fill" | "stroke" | "color");
-                                let scale_type = scale.scale_impl.scale_type();
-                                let is_continuous = matches!(
-                                    scale_type,
-                                    "linear" | "log" | "pow" | "sqrt" | "symlog"
-                                );
-                                is_color_channel && is_continuous
-                            } else {
-                                false
-                            };
+                            // Check if this legend prefers flexible layout
+                            let is_flexible =
+                                self.legend_flexible.get(channel).copied().unwrap_or(false);
 
-                            let legend_style = if is_colorbar {
+                            let legend_style = if is_flexible {
                                 // Colorbar should stretch vertically
                                 Style {
                                     display: Display::Block,
@@ -753,7 +748,7 @@ impl ChartLayout {
         Ok(result)
     }
 
-    /// Measure legend size with mark encodings
+    /// Measure legend size with mark encodings and return flexibility preference
     pub fn measure_legend_size<C: crate::coords::CoordinateSystem>(
         channel: &str,
         legend: &Legend,
@@ -761,15 +756,18 @@ impl ChartLayout {
         scales: &HashMap<String, ConfiguredScale>,
         available_space: Size<f32>,
         marks: &[Box<dyn crate::marks::Mark<C>>],
-    ) -> Result<Size<f32>, AvengerChartError> {
+    ) -> Result<(Size<f32>, bool), AvengerChartError> {
         use crate::legend_renderer::LegendChannel;
 
         // Skip invisible legends
         if !legend.visible {
-            return Ok(Size {
-                width: 0.0,
-                height: 0.0,
-            });
+            return Ok((
+                Size {
+                    width: 0.0,
+                    height: 0.0,
+                },
+                false,
+            ));
         }
 
         // Find the mark that has this channel
@@ -865,7 +863,9 @@ impl ChartLayout {
         }
 
         // Ask the renderer to measure itself with all merged channels
-        renderer.measure(&legend_channels, legend, available_space)
+        let size = renderer.measure(&legend_channels, legend, available_space)?;
+        let flexible = renderer.prefers_flexible_layout();
+        Ok((size, flexible))
     }
 }
 
@@ -988,7 +988,7 @@ impl GridBuilder {
                         width: 200.0,
                         height: 400.0,
                     };
-                    let size = ChartLayout::measure_legend_size(
+                    let (size, _flexible) = ChartLayout::measure_legend_size(
                         channel, legend, scale, scales, available, marks,
                     )?;
                     max_width = max_width.max(size.width);

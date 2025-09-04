@@ -51,6 +51,12 @@ pub trait LegendRenderer: Send + Sync + 'static {
         std::collections::HashSet::new() // Default: no merging support
     }
 
+    /// Whether this legend prefers flexible layout (can stretch to fill space)
+    /// Used by layout system to determine if legend should grow/shrink
+    fn prefers_flexible_layout(&self) -> bool {
+        false // Default: fixed size
+    }
+
     /// Render the legend to scene marks
     fn render(
         &self,

@@ -22,6 +22,10 @@ impl LegendRenderer for ColorbarRenderer {
         "ColorbarRenderer"
     }
 
+    fn prefers_flexible_layout(&self) -> bool {
+        true // Colorbars can stretch vertically
+    }
+
     fn can_render(&self, channels: &[LegendChannel]) -> bool {
         // Colorbar is for continuous color scales
         channels.iter().all(|c| {
