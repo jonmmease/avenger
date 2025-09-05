@@ -1,8 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use super::{
-    ConfiguredScale, InferDomainFromDataMethod, OptionDefinition, ScaleConfig, ScaleContext,
-    ScaleImpl,
+    ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionDefinition, RangeKind,
+    ScaleConfig, ScaleContext, ScaleImpl,
 };
 use crate::error::AvengerScaleError;
 use lazy_static::lazy_static;
@@ -72,6 +72,14 @@ impl ScaleImpl for OrdinalScale {
 
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
+    }
+
+    fn domain_kind(&self) -> DomainKind {
+        DomainKind::Categorical
+    }
+
+    fn range_kind(&self) -> RangeKind {
+        RangeKind::Discrete
     }
 
     fn option_definitions(&self) -> &[OptionDefinition] {

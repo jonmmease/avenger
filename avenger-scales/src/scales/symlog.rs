@@ -13,8 +13,8 @@ use crate::{array, error::AvengerScaleError};
 
 use super::{
     linear::{LinearScale, NormalizationConfig},
-    ConfiguredScale, InferDomainFromDataMethod, OptionConstraint, OptionDefinition, ScaleConfig,
-    ScaleContext, ScaleImpl,
+    ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionConstraint, OptionDefinition,
+    RangeKind, ScaleConfig, ScaleContext, ScaleImpl,
 };
 
 /// Symmetric log scale that provides smooth linear-to-logarithmic transitions for data
@@ -197,6 +197,14 @@ impl ScaleImpl for SymlogScale {
 
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Interval
+    }
+
+    fn domain_kind(&self) -> DomainKind {
+        DomainKind::Numeric
+    }
+
+    fn range_kind(&self) -> RangeKind {
+        RangeKind::Continuous
     }
 
     fn default_options(&self) -> std::collections::HashMap<String, crate::scalar::Scalar> {

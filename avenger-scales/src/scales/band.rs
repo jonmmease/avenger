@@ -10,8 +10,8 @@ use lazy_static::lazy_static;
 use super::point::make_band_config;
 use super::ScaleContext;
 use super::{
-    ordinal::OrdinalScale, ConfiguredScale, InferDomainFromDataMethod, OptionConstraint,
-    OptionDefinition, ScaleConfig, ScaleImpl,
+    ordinal::OrdinalScale, ConfiguredScale, DomainKind, InferDomainFromDataMethod,
+    OptionConstraint, OptionDefinition, RangeKind, ScaleConfig, ScaleImpl,
 };
 
 /// Band scale that maps discrete domain values to continuous numeric bands with optional padding.
@@ -90,6 +90,14 @@ impl ScaleImpl for BandScale {
 
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
+    }
+
+    fn domain_kind(&self) -> DomainKind {
+        DomainKind::Categorical
+    }
+
+    fn range_kind(&self) -> RangeKind {
+        RangeKind::Continuous
     }
 
     fn default_options(&self) -> std::collections::HashMap<String, crate::scalar::Scalar> {

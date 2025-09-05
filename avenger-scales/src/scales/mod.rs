@@ -525,6 +525,45 @@ pub enum InferDomainFromDataMethod {
     /// Use all values of the data
     /// In this case the domain will be an array of all values
     All,
+    /// Domain cannot be inferred from data - must be explicitly specified
+    /// Used for scales like threshold that require explicit breakpoints
+    Explicit,
+}
+
+/// A legend entry provided by a scale for custom legend generation
+#[derive(Debug, Clone)]
+pub struct LegendEntry {
+    /// Display label for this entry
+    pub label: String,
+
+    /// Value to pass through the scale for color/shape/etc
+    /// Used for mapping the legend entry to its visual representation
+    pub representative_value: Scalar,
+}
+
+/// The kind of data a scale expects in its domain
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DomainKind {
+    /// Numeric values (floats, integers)
+    /// Used by linear, log, pow, sqrt, symlog, threshold, quantize, quantile scales
+    Numeric,
+    /// Temporal values (dates, timestamps)
+    /// Used by time, utc scales
+    Temporal,
+    /// Categorical values (strings, discrete categories)
+    /// Used by ordinal, band, point scales
+    Categorical,
+}
+
+/// The kind of values a scale produces in its range
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RangeKind {
+    /// Continuous numeric output
+    /// Used by most scales for position, size, etc.
+    Continuous,
+    /// Discrete categorical output
+    /// Used by ordinal scales for colors, shapes, etc.
+    Discrete,
 }
 
 pub trait ScaleImpl: Debug + Send + Sync + 'static {
@@ -533,6 +572,12 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
 
     /// Method that should be used to infer a scale's domain from the data that it will scale
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod;
+
+    /// The kind of data this scale expects in its domain
+    fn domain_kind(&self) -> DomainKind;
+
+    /// The kind of values this scale produces in its range
+    fn range_kind(&self) -> RangeKind;
 
     /// Return default option values for this scale type.
     ///
@@ -795,6 +840,15 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
     /// Used for positional scales that need to account for mark radius when computing domain
     fn supports_radius_expansion(&self) -> bool {
         false
+    }
+
+    /// Get custom legend entries for this scale
+    ///
+    /// Returns None to use default behavior (extract values directly from domain).
+    /// Scales like threshold, quantize, and quantile that create intervals
+    /// should return Some with their interval descriptions.
+    fn legend_entries(&self, _config: &ScaleConfig) -> Option<Vec<LegendEntry>> {
+        None // Default: let caller extract from domain
     }
 
     // Scale to enums

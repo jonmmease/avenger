@@ -7,7 +7,7 @@ use crate::error::AvengerChartError;
 use crate::marks::RadiusExpression;
 use crate::scales::domain::{DomainExpr, ScaleDefaultDomain, ScaleDomain};
 use crate::utils::DataFrameChartHelpers;
-use avenger_scales::scales::{InferDomainFromDataMethod, ScaleImpl};
+use avenger_scales::scales::{DomainKind, InferDomainFromDataMethod, RangeKind, ScaleImpl};
 use datafusion::arrow::array::{Array, AsArray};
 use datafusion::arrow::datatypes::{DataType, Field, Float64Type, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
@@ -70,8 +70,12 @@ impl DomainInferrer {
         mut data_fields: Vec<DomainExpr>,
         range_hint: Option<(f64, f64)>,
     ) -> Result<Vec<DomainExpr>, AvengerChartError> {
-        // Only process radius domains for linear scales with a range hint
-        match (scale_impl.scale_type() == "linear", range_hint) {
+        // Only process radius domains for numeric continuous scales with a range hint
+        let is_numeric_continuous = scale_impl.domain_kind() == DomainKind::Numeric
+            && scale_impl.range_kind() == RangeKind::Continuous
+            && scale_impl.scale_type() == "linear"; // Keep linear check for now as radius handling is specific to linear
+
+        match (is_numeric_continuous, range_hint) {
             (true, Some(range)) => {
                 // Process each field with radius expressions
                 for field in &mut data_fields {
@@ -234,13 +238,14 @@ impl DomainInferrer {
         for field in data_fields {
             let df = field.dataframe.clone();
 
-            // For ordinal scales, cast numeric values to strings
-            let expr = if scale_impl.scale_type() == "ordinal" {
+            // For scales expecting categorical domains, cast numeric values to strings
+            let expr = if scale_impl.domain_kind() == DomainKind::Categorical {
+                // Categorical scales expect string domains
                 use datafusion::arrow::datatypes::DataType;
                 use datafusion::logical_expr::cast;
-                // Cast to string for ordinal scale compatibility
                 cast(field.expr.clone(), DataType::Utf8)
             } else {
+                // Numeric and Temporal scales use values as-is
                 field.expr.clone()
             };
 
@@ -271,6 +276,12 @@ impl DomainInferrer {
             InferDomainFromDataMethod::Interval => union_df.span()?,
             InferDomainFromDataMethod::Unique => union_df.unique_values()?,
             InferDomainFromDataMethod::All => union_df.all_values()?,
+            InferDomainFromDataMethod::Explicit => {
+                // Explicit scales shouldn't infer domain from data
+                return Err(AvengerChartError::InternalError(
+                    "Scale requires explicit domain and cannot infer from data".to_string(),
+                ));
+            }
         };
 
         // Evaluate the domain expression

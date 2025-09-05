@@ -13,9 +13,10 @@ use lazy_static::lazy_static;
 use crate::error::AvengerScaleError;
 
 use super::{
-    ConfiguredScale, InferDomainFromDataMethod, OptionDefinition, ScaleConfig, ScaleContext,
-    ScaleImpl,
+    ConfiguredScale, DomainKind, InferDomainFromDataMethod, LegendEntry, OptionDefinition,
+    RangeKind, ScaleConfig, ScaleContext, ScaleImpl,
 };
+use crate::scalar::Scalar;
 
 /// Quantile scale that maps continuous numeric input values to discrete range values
 /// using quantile boundaries computed from the domain.
@@ -52,6 +53,14 @@ impl ScaleImpl for QuantileScale {
 
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
+    }
+
+    fn domain_kind(&self) -> DomainKind {
+        DomainKind::Numeric
+    }
+
+    fn range_kind(&self) -> RangeKind {
+        RangeKind::Discrete
     }
 
     fn option_definitions(&self) -> &[OptionDefinition] {
@@ -117,6 +126,80 @@ impl ScaleImpl for QuantileScale {
             config.range.len(),
         )?)) as ArrayRef;
         Ok(thresholds)
+    }
+
+    fn legend_entries(&self, config: &ScaleConfig) -> Option<Vec<LegendEntry>> {
+        let n = config.range.len();
+        if n == 0 || config.domain.is_empty() {
+            return None;
+        }
+
+        // Get quantile thresholds
+        let thresholds = match quantile_thresholds(&config.domain, n) {
+            Ok(t) => t,
+            Err(_) => return None,
+        };
+
+        // Get min and max from domain
+        let domain_sorted = match sort::sort(
+            &config.domain,
+            Some(SortOptions {
+                descending: false,
+                nulls_first: false,
+            }),
+        ) {
+            Ok(d) => d,
+            Err(_) => return None,
+        };
+
+        let domain_sorted = match cast(&domain_sorted, &DataType::Float32) {
+            Ok(d) => d,
+            Err(_) => return None,
+        };
+        let domain_sorted = domain_sorted.as_primitive::<Float32Type>();
+
+        if domain_sorted.is_empty() {
+            return None;
+        }
+
+        let min = domain_sorted.value(0);
+        let max = domain_sorted.value(domain_sorted.len() - 1);
+
+        let mut entries = Vec::new();
+
+        // Create n intervals for n quantiles
+        for i in 0..n {
+            let (start, end) = if i == 0 {
+                // First quantile: min to first threshold (or max if only one quantile)
+                if let Some(&threshold) = thresholds.first() {
+                    (min, threshold)
+                } else {
+                    (min, max) // Single quantile case
+                }
+            } else if i == n - 1 {
+                // Last quantile: last threshold to max
+                if let Some(&threshold) = thresholds.last() {
+                    (threshold, max)
+                } else {
+                    (min, max) // Shouldn't happen
+                }
+            } else {
+                // Middle quantiles: between consecutive thresholds
+                (thresholds[i - 1], thresholds[i])
+            };
+
+            // Use the formatter to format quantile boundary values
+            let formatter = &config.context.formatters.number;
+            let formatted_start = formatter.format(&[Some(start)], None);
+            let formatted_end = formatter.format(&[Some(end)], None);
+
+            entries.push(LegendEntry {
+                label: format!("{} - {}", formatted_start[0], formatted_end[0]),
+                representative_value: Scalar::from((start + end) / 2.0),
+            });
+        }
+
+        Some(entries)
     }
 }
 
