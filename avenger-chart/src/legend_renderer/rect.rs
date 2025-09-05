@@ -190,6 +190,7 @@ impl LegendRenderer for RectLegendRenderer {
         match channel_name.as_str() {
             "fill" | "color" => {
                 // Rect legends always use discrete entries, so use range colors directly
+                // For ordinal scales, range_colors() handles wrapping automatically
                 let colors = primary_channel.scale.range_colors()?;
                 legend_config.fill = ScalarOrArray::new_array(
                     colors.into_iter().map(ColorOrGradient::Color).collect(),

@@ -228,82 +228,160 @@ impl ConfiguredScaleLegendExt for ConfiguredScale {
 
     fn range_colors(&self) -> Result<Vec<[f32; 4]>, AvengerChartError> {
         use datafusion::arrow::datatypes::DataType;
+        use avenger_scales::scales::DomainKind;
 
-        match self.config.range.data_type() {
-            // List of color arrays (continuous color scales)
-            DataType::List(_) => {
-                // Extract colors from list array
-                let list_array = self
-                    .config
-                    .range
-                    .as_any()
-                    .downcast_ref::<ListArray>()
-                    .ok_or_else(|| {
-                        AvengerChartError::InternalError(format!(
-                            "Expected ListArray for color range, got {:?}",
-                            self.config.range.data_type()
-                        ))
-                    })?;
+        // For ordinal scales (categorical domain), return colors matching domain length with wrapping
+        if self.scale_impl.domain_kind() == DomainKind::Categorical {
+            let domain_len = self.config.domain.len();
+            let range_len = self.config.range.len();
+            
+            if domain_len == 0 || range_len == 0 {
+                return Ok(vec![]);
+            }
 
-                let mut colors = Vec::new();
-                for i in 0..list_array.len() {
-                    if let Some(color_array) =
-                        list_array.value(i).as_any().downcast_ref::<Float32Array>()
-                    {
-                        if color_array.len() >= 4 {
-                            colors.push([
-                                color_array.value(0),
-                                color_array.value(1),
-                                color_array.value(2),
-                                color_array.value(3),
-                            ]);
+            // Extract all range colors first
+            let all_colors = match self.config.range.data_type() {
+                DataType::Utf8 => {
+                    use datafusion::arrow::array::StringArray;
+                    let string_array = self
+                        .config
+                        .range
+                        .as_any()
+                        .downcast_ref::<StringArray>()
+                        .ok_or_else(|| {
+                            AvengerChartError::InternalError(format!(
+                                "Expected StringArray for ordinal color scale range, got {:?}",
+                                self.config.range.data_type()
+                            ))
+                        })?;
+
+                    let mut colors = Vec::new();
+                    for i in 0..string_array.len() {
+                        if !string_array.is_null(i) {
+                            let color_str = string_array.value(i);
+                            if let Some(color) = parse_color_to_rgba(color_str) {
+                                colors.push(color);
+                            }
                         }
                     }
+                    colors
                 }
-                Ok(colors)
+                _ => {
+                    return Err(AvengerChartError::InternalError(
+                        "Ordinal scale expected string color range".to_string()
+                    ));
+                }
+            };
+
+            // Return exactly domain_len colors, wrapping if necessary
+            let mut result = Vec::with_capacity(domain_len);
+            for i in 0..domain_len {
+                result.push(all_colors[i % all_colors.len()]);
             }
-            // String array (ordinal color scales with hex colors)
-            DataType::Utf8 => {
-                use datafusion::arrow::array::StringArray;
+            Ok(result)
+        } else {
+            // For non-ordinal scales, return all range colors
+            match self.config.range.data_type() {
+                // List of color arrays (continuous color scales)
+                DataType::List(_) => {
+                    // Extract colors from list array
+                    let list_array = self
+                        .config
+                        .range
+                        .as_any()
+                        .downcast_ref::<ListArray>()
+                        .ok_or_else(|| {
+                            AvengerChartError::InternalError(format!(
+                                "Expected ListArray for color range, got {:?}",
+                                self.config.range.data_type()
+                            ))
+                        })?;
 
-                let string_array = self
-                    .config
-                    .range
-                    .as_any()
-                    .downcast_ref::<StringArray>()
-                    .ok_or_else(|| {
-                        AvengerChartError::InternalError(format!(
-                            "Expected StringArray for ordinal color scale range, got {:?}",
-                            self.config.range.data_type()
-                        ))
-                    })?;
-
-                let mut colors = Vec::new();
-                for i in 0..string_array.len() {
-                    if !string_array.is_null(i) {
-                        let color_str = string_array.value(i);
-                        // Parse hex color to RGBA
-                        if let Some(color) = parse_color_to_rgba(color_str) {
-                            colors.push(color);
+                    let mut colors = Vec::new();
+                    for i in 0..list_array.len() {
+                        if let Some(color_array) =
+                            list_array.value(i).as_any().downcast_ref::<Float32Array>()
+                        {
+                            if color_array.len() >= 4 {
+                                colors.push([
+                                    color_array.value(0),
+                                    color_array.value(1),
+                                    color_array.value(2),
+                                    color_array.value(3),
+                                ]);
+                            }
                         }
                     }
+                    Ok(colors)
                 }
-                Ok(colors)
+                // String array (for discrete scales like threshold/quantize/quantile with hex colors)
+                DataType::Utf8 => {
+                    use datafusion::arrow::array::StringArray;
+
+                    let string_array = self
+                        .config
+                        .range
+                        .as_any()
+                        .downcast_ref::<StringArray>()
+                        .ok_or_else(|| {
+                            AvengerChartError::InternalError(format!(
+                                "Expected StringArray for discrete color scale range, got {:?}",
+                                self.config.range.data_type()
+                            ))
+                        })?;
+
+                    let mut colors = Vec::new();
+                    for i in 0..string_array.len() {
+                        if !string_array.is_null(i) {
+                            let color_str = string_array.value(i);
+                            // Parse hex color to RGBA
+                            if let Some(color) = parse_color_to_rgba(color_str) {
+                                colors.push(color);
+                            }
+                        }
+                    }
+                    Ok(colors)
+                }
+                _ => Err(AvengerChartError::InternalError(format!(
+                    "Cannot extract colors from range with data type: {:?}",
+                    self.config.range.data_type()
+                ))),
             }
-            _ => Err(AvengerChartError::InternalError(format!(
-                "Cannot extract colors from range with data type: {:?}",
-                self.config.range.data_type()
-            ))),
         }
     }
 
     fn range_strings(&self) -> Result<Vec<String>, AvengerChartError> {
-        // Extract all string values from the range array
-        let mut shapes = Vec::new();
-        for i in 0..self.config.range.len() {
-            shapes.push(ScalarValue::try_from_array(&self.config.range, i)?.as_scalar_string()?);
+        use avenger_scales::scales::DomainKind;
+        
+        // For ordinal scales, return strings matching domain length with wrapping
+        if self.scale_impl.domain_kind() == DomainKind::Categorical {
+            let domain_len = self.config.domain.len();
+            let range_len = self.config.range.len();
+            
+            if domain_len == 0 || range_len == 0 {
+                return Ok(vec![]);
+            }
+            
+            // Extract all range strings first
+            let mut all_strings = Vec::new();
+            for i in 0..range_len {
+                all_strings.push(ScalarValue::try_from_array(&self.config.range, i)?.as_scalar_string()?);
+            }
+            
+            // Return exactly domain_len strings, wrapping if necessary
+            let mut result = Vec::with_capacity(domain_len);
+            for i in 0..domain_len {
+                result.push(all_strings[i % all_strings.len()].clone());
+            }
+            Ok(result)
+        } else {
+            // For non-ordinal scales, return all range strings
+            let mut shapes = Vec::new();
+            for i in 0..self.config.range.len() {
+                shapes.push(ScalarValue::try_from_array(&self.config.range, i)?.as_scalar_string()?);
+            }
+            Ok(shapes)
         }
-        Ok(shapes)
     }
 
     fn scale_scalars_to_numeric(&self, values: &[ScalarValue]) -> Result<Vec<f32>, AvengerChartError> {
