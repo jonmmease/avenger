@@ -9,7 +9,7 @@
 use avenger_chart::scales::{Scale, ScaleSpec};
 use avenger_scales::{
     error::AvengerScaleError,
-    scales::{InferDomainFromDataMethod, ScaleConfig, ScaleImpl},
+    scales::{DomainKind, InferDomainFromDataMethod, RangeKind, ScaleConfig, ScaleImpl},
 };
 use datafusion::arrow::array::{Array, ArrayRef, Float32Array};
 use datafusion::logical_expr::lit;
@@ -45,6 +45,14 @@ impl ScaleImpl for SmoothLogScale {
 
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Interval
+    }
+
+    fn domain_kind(&self) -> DomainKind {
+        DomainKind::Numeric
+    }
+
+    fn range_kind(&self) -> RangeKind {
+        RangeKind::Continuous
     }
 
     fn scale(

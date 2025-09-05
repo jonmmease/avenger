@@ -169,6 +169,10 @@ impl ScaleImpl for QuantizeScale {
         Ok(Arc::new(Float32Array::from(vec![domain_start, domain_end])) as ArrayRef)
     }
 
+    fn creates_legend_intervals(&self) -> bool {
+        true
+    }
+    
     fn legend_entries(&self, config: &ScaleConfig) -> Option<Vec<LegendEntry>> {
         // Get the normalized domain (after applying nice/zero)
         let (min, max) = match QuantizeScale::apply_normalization(

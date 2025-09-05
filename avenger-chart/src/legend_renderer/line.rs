@@ -163,14 +163,14 @@ impl LegendRenderer for LineLegendRenderer {
             return Ok(None);
         }
 
-        // Create text labels - use special labels for threshold scales
+        // Create text labels - use custom labels for scales with legend entries
         let text_values: Vec<String> =
-            if primary_channel.scale.scale_impl.scale_type() == "threshold" {
+            if primary_channel.scale.scale_impl.creates_legend_intervals() {
                 let labels = primary_channel.scale.domain_labels()?;
                 tracing::debug!(
                     channel = channel_name.as_str(),
                     labels = ?labels,
-                    "Threshold scale legend labels"
+                    "Scale with legend entries - using custom labels"
                 );
                 labels
             } else {

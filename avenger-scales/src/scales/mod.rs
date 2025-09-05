@@ -850,6 +850,15 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
     fn legend_entries(&self, _config: &ScaleConfig) -> Option<Vec<LegendEntry>> {
         None // Default: let caller extract from domain
     }
+    
+    /// Returns true if this scale creates intervals that require special legend handling
+    ///
+    /// Interval-based scales (threshold, quantize, quantile) return true.
+    /// Direct-mapping scales (ordinal, linear, etc.) return false.
+    fn creates_legend_intervals(&self) -> bool {
+        // Scales that provide legend_entries typically create intervals
+        false
+    }
 
     // Scale to enums
     declare_enum_scale_method!(StrokeCap);
