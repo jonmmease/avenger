@@ -865,8 +865,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 ..
             } => {
                 conditions.iter().any(|(condition, value)| {
-                    !condition.column_refs().is_empty()
-                        || !value.expr().column_refs().is_empty()
+                    !condition.column_refs().is_empty() || !value.expr().column_refs().is_empty()
                 }) || !otherwise.expr().column_refs().is_empty()
             }
         });

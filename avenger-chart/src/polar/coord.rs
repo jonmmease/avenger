@@ -206,35 +206,39 @@ impl CoordinateSystem for Polar {
         channel: &str,
         data_type: &datafusion::arrow::datatypes::DataType,
     ) -> Option<Arc<dyn avenger_scales::scales::ScaleImpl>> {
-        use avenger_scales::scales::{
-            linear::LinearScale, point::PointScale, time::TimeScale,
-        };
+        use avenger_scales::scales::{linear::LinearScale, point::PointScale, time::TimeScale};
         use datafusion::arrow::datatypes::DataType;
-        
+
         // Handle position channels specifically
         match channel {
             "r" | "theta" => {
                 match data_type {
                     // Categorical data uses point scale for positions
-                    DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View | DataType::Boolean => {
-                        Some(Arc::new(PointScale))
-                    }
+                    DataType::Utf8
+                    | DataType::LargeUtf8
+                    | DataType::Utf8View
+                    | DataType::Boolean => Some(Arc::new(PointScale)),
                     // Temporal data uses time scale
                     DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _) => {
                         Some(Arc::new(TimeScale))
                     }
                     // Numeric data uses linear scale
-                    DataType::Float32 | DataType::Float64 |
-                    DataType::Int8 | DataType::Int16 | DataType::Int32 | DataType::Int64 |
-                    DataType::UInt8 | DataType::UInt16 | DataType::UInt32 | DataType::UInt64 => {
-                        Some(Arc::new(LinearScale))
-                    }
+                    DataType::Float32
+                    | DataType::Float64
+                    | DataType::Int8
+                    | DataType::Int16
+                    | DataType::Int32
+                    | DataType::Int64
+                    | DataType::UInt8
+                    | DataType::UInt16
+                    | DataType::UInt32
+                    | DataType::UInt64 => Some(Arc::new(LinearScale)),
                     // Default to linear for unknown types
-                    _ => Some(Arc::new(LinearScale))
+                    _ => Some(Arc::new(LinearScale)),
                 }
             }
             // Not a position channel - let marks decide
-            _ => None
+            _ => None,
         }
     }
 

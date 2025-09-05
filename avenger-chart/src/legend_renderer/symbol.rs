@@ -246,7 +246,7 @@ impl LegendRenderer for SymbolLegendRenderer {
                 "shape" => {
                     // Shape channel - map domain values to shapes
                     let shape_names = {
-                        let names = channel.scale.extract_shape_range();
+                        let names = channel.scale.range_strings()?;
                         if !names.is_empty() {
                             names
                         } else {
@@ -277,7 +277,7 @@ impl LegendRenderer for SymbolLegendRenderer {
                 }
                 "size" => {
                     // Size channel - map through scale
-                    let sizes = channel.scale.map_values_numeric(&domain_values)?;
+                    let sizes = channel.scale.scale_scalars_to_numeric(&domain_values)?;
                     legend_config.size = ScalarOrArray::new_array(sizes);
                 }
                 "fill" | "color" => {
@@ -286,7 +286,7 @@ impl LegendRenderer for SymbolLegendRenderer {
                         // For threshold scales, get the range colors directly
                         channel.scale.range_colors()?
                     } else {
-                        channel.scale.map_values_colors(&domain_values)?
+                        channel.scale.scale_scalars_to_colors(&domain_values)?
                     };
                     legend_config.fill = ScalarOrArray::new_array(
                         colors.into_iter().map(ColorOrGradient::Color).collect(),
@@ -298,7 +298,7 @@ impl LegendRenderer for SymbolLegendRenderer {
                         // For threshold scales, get the range colors directly
                         channel.scale.range_colors()?
                     } else {
-                        channel.scale.map_values_colors(&domain_values)?
+                        channel.scale.scale_scalars_to_colors(&domain_values)?
                     };
                     legend_config.stroke = ScalarOrArray::new_array(
                         colors.into_iter().map(ColorOrGradient::Color).collect(),
@@ -306,17 +306,17 @@ impl LegendRenderer for SymbolLegendRenderer {
                 }
                 "angle" => {
                     // Angle channel - map through scale
-                    let angles = channel.scale.map_values_numeric(&domain_values)?;
+                    let angles = channel.scale.scale_scalars_to_numeric(&domain_values)?;
                     legend_config.angle = ScalarOrArray::new_array(angles);
                 }
                 "opacity" => {
                     // Opacity channel - map through scale
-                    let _opacities = channel.scale.map_values_numeric(&domain_values)?;
+                    let _opacities = channel.scale.scale_scalars_to_numeric(&domain_values)?;
                     // TODO: Apply opacity to fill/stroke colors
                 }
                 "stroke_width" => {
                     // Stroke width channel - map through scale
-                    let widths = channel.scale.map_values_numeric(&domain_values)?;
+                    let widths = channel.scale.scale_scalars_to_numeric(&domain_values)?;
                     // SymbolLegendConfig expects a single stroke_width value
                     // Use the first value for now
                     if !widths.is_empty() {

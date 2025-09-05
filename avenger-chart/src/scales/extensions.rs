@@ -5,6 +5,7 @@
 
 use crate::error::AvengerChartError;
 use crate::scales::udf::create_scale_udf;
+use crate::utils::ScalarValueHelpers;
 use avenger_scales::scales::{ConfiguredScale, DomainKind, RangeKind};
 use datafusion::arrow::array::{Array, ArrayRef, AsArray, Float32Array, ListArray};
 use datafusion::arrow::datatypes::{Field, Float32Type};
@@ -31,27 +32,18 @@ pub trait ConfiguredScaleLegendExt {
     /// Extract color values from range if this is a color scale
     fn range_colors(&self) -> Result<Vec<[f32; 4]>, AvengerChartError>;
 
-    /// Get a specific color from the range by index
-    fn get_color_at(&self, index: usize) -> Option<[f32; 4]>;
-
-    /// Get a specific shape from the range by index
-    fn get_shape_at(&self, index: usize) -> Option<String>;
-
-    /// Get a specific dash pattern from the range by index
-    fn get_dash_pattern_at(&self, index: usize) -> Option<String>;
-
     /// Extract shape names from the scale's range
-    fn extract_shape_range(&self) -> Vec<String>;
+    fn range_strings(&self) -> Result<Vec<String>, AvengerChartError>;
 
     /// Map scalar values through the scale to get numeric values
-    fn map_values_numeric(&self, values: &[ScalarValue]) -> Result<Vec<f32>, AvengerChartError>;
+    fn scale_scalars_to_numeric(&self, values: &[ScalarValue]) -> Result<Vec<f32>, AvengerChartError>;
 
     /// Map scalar values through the scale to get color values
-    fn map_values_colors(&self, values: &[ScalarValue])
-    -> Result<Vec<[f32; 4]>, AvengerChartError>;
+    fn scale_scalars_to_colors(&self, values: &[ScalarValue])
+                               -> Result<Vec<[f32; 4]>, AvengerChartError>;
 
     /// Map domain values to dash patterns
-    fn map_dash_patterns(&self, values: &[ScalarValue]) -> Vec<Option<Vec<f32>>>;
+    fn scale_scalars_to_dash_patterns(&self, values: &[ScalarValue]) -> Vec<Option<Vec<f32>>>;
 }
 
 /// Domain values extracted for legend generation
@@ -88,7 +80,7 @@ impl ConfiguredScaleDataFusionExt for ConfiguredScale {
                 .iter()
                 .flat_map(|(key, value)| {
                     // Convert avenger_scales::Scalar to ScalarValue
-                    let scalar_value = scalar_to_scalar_value(value);
+                    let scalar_value = ScalarValue::try_from_array(&value.0, 0).unwrap_or(ScalarValue::Null);
                     vec![lit(key.clone()), lit(scalar_value)]
                 })
                 .collect();
@@ -305,39 +297,16 @@ impl ConfiguredScaleLegendExt for ConfiguredScale {
         }
     }
 
-    fn get_color_at(&self, index: usize) -> Option<[f32; 4]> {
-        self.range_colors().ok()?.get(index).copied()
-    }
-
-    fn get_shape_at(&self, index: usize) -> Option<String> {
-        // Extract shape from range array at index
-        if let Ok(ScalarValue::Utf8(Some(s))) =
-            ScalarValue::try_from_array(&self.config.range, index)
-        {
-            return Some(s);
-        }
-        None
-    }
-
-    fn get_dash_pattern_at(&self, index: usize) -> Option<String> {
-        // Same as get_shape_at for dash patterns
-        self.get_shape_at(index)
-    }
-
-    fn extract_shape_range(&self) -> Vec<String> {
+    fn range_strings(&self) -> Result<Vec<String>, AvengerChartError> {
         // Extract all string values from the range array
         let mut shapes = Vec::new();
         for i in 0..self.config.range.len() {
-            if let Ok(ScalarValue::Utf8(Some(s))) =
-                ScalarValue::try_from_array(&self.config.range, i)
-            {
-                shapes.push(s);
-            }
+            shapes.push(ScalarValue::try_from_array(&self.config.range, i)?.as_scalar_string()?);
         }
-        shapes
+        Ok(shapes)
     }
 
-    fn map_values_numeric(&self, values: &[ScalarValue]) -> Result<Vec<f32>, AvengerChartError> {
+    fn scale_scalars_to_numeric(&self, values: &[ScalarValue]) -> Result<Vec<f32>, AvengerChartError> {
         use datafusion::arrow::array::AsArray;
         use datafusion::arrow::compute::cast;
         use datafusion::arrow::datatypes::DataType;
@@ -366,7 +335,7 @@ impl ConfiguredScaleLegendExt for ConfiguredScale {
         }
     }
 
-    fn map_values_colors(
+    fn scale_scalars_to_colors(
         &self,
         values: &[ScalarValue],
     ) -> Result<Vec<[f32; 4]>, AvengerChartError> {
@@ -505,7 +474,7 @@ impl ConfiguredScaleLegendExt for ConfiguredScale {
         }
     }
 
-    fn map_dash_patterns(&self, values: &[ScalarValue]) -> Vec<Option<Vec<f32>>> {
+    fn scale_scalars_to_dash_patterns(&self, values: &[ScalarValue]) -> Vec<Option<Vec<f32>>> {
         // For ordinal scales, map each value through the scale to get its dash pattern
         // We need to evaluate the scale for each value to get the correct range value
 
@@ -561,13 +530,6 @@ impl ConfiguredScaleLegendExt for ConfiguredScale {
         // Fallback: return None for all values
         vec![None; values.len()]
     }
-}
-
-/// Convert avenger_scales::Scalar to datafusion::ScalarValue
-fn scalar_to_scalar_value(scalar: &avenger_scales::scalar::Scalar) -> ScalarValue {
-    // Scalar wraps an ArrayRef with a single element
-    // Convert it to ScalarValue
-    ScalarValue::try_from_array(&scalar.0, 0).unwrap_or(ScalarValue::Null)
 }
 
 /// Convert an Arrow array to a ScalarValue::List
