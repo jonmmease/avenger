@@ -121,19 +121,18 @@ impl ScaleImpl for OrdinalScale {
         use arrow::array::{Array, AsArray};
         use arrow::datatypes::{Float32Type, Int32Type, Int64Type};
         
-        // For ordinal scales, we need to match the number of entries to the range length
-        // to avoid mismatch errors in legend rendering
+        // For ordinal scales, create one legend entry for each domain value
+        // The legend renderers will handle mapping to colors via modulo/wrapping
         let formatter = &config.context.formatters.number;
         
         let mut entries = Vec::new();
         let domain = &config.domain;
-        let range_len = config.range.len();
         
-        // Handle different domain types and create entries up to range length
+        // Handle different domain types - create entries for ALL domain values
         match domain.data_type() {
             arrow::datatypes::DataType::Utf8 => {
                 let array = domain.as_string::<i32>();
-                for i in 0..array.len().min(range_len) {
+                for i in 0..array.len() {
                     if !array.is_null(i) {
                         let value = array.value(i);
                         entries.push(LegendEntry {
@@ -145,7 +144,7 @@ impl ScaleImpl for OrdinalScale {
             }
             arrow::datatypes::DataType::Int32 => {
                 let array = domain.as_primitive::<Int32Type>();
-                for i in 0..array.len().min(range_len) {
+                for i in 0..array.len() {
                     if !array.is_null(i) {
                         let value = array.value(i);
                         entries.push(LegendEntry {
@@ -157,7 +156,7 @@ impl ScaleImpl for OrdinalScale {
             }
             arrow::datatypes::DataType::Int64 => {
                 let array = domain.as_primitive::<Int64Type>();
-                for i in 0..array.len().min(range_len) {
+                for i in 0..array.len() {
                     if !array.is_null(i) {
                         let value = array.value(i);
                         entries.push(LegendEntry {
@@ -169,7 +168,7 @@ impl ScaleImpl for OrdinalScale {
             }
             arrow::datatypes::DataType::Float32 => {
                 let array = domain.as_primitive::<Float32Type>();
-                for i in 0..array.len().min(range_len) {
+                for i in 0..array.len() {
                     if !array.is_null(i) {
                         let value = array.value(i);
                         let formatted = formatter.format(&[Some(value)], None);
@@ -184,7 +183,7 @@ impl ScaleImpl for OrdinalScale {
                 // For other types, try to convert to string
                 if let Ok(string_array) = arrow::compute::kernels::cast::cast(domain, &arrow::datatypes::DataType::Utf8) {
                     let array = string_array.as_string::<i32>();
-                    for i in 0..array.len().min(range_len) {
+                    for i in 0..array.len() {
                         if !array.is_null(i) {
                             let value = array.value(i);
                             entries.push(LegendEntry {
@@ -195,15 +194,6 @@ impl ScaleImpl for OrdinalScale {
                     }
                 }
             }
-        }
-        
-        // If we have fewer entries than range length, pad with empty entries
-        // This ensures legend length matches range length
-        while entries.len() < range_len {
-            entries.push(LegendEntry {
-                label: String::new(),
-                representative_value: Scalar::from_string(""),
-            });
         }
         
         if entries.is_empty() {
