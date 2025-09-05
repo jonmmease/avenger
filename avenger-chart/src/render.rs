@@ -691,6 +691,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         self.validate_positional_scales_exist(scales)?;
 
         // Measure how much space the coordinate system's guides need
+        let theme = self.plot.get_theme();
         let overflow = self
             .plot
             .coord_system()
@@ -700,6 +701,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 width,
                 height,
                 INITIAL_PLOT_AREA_RATIO,
+                &theme,
             )
             .await?;
 
@@ -1009,7 +1011,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // Create render context with theme
         let theme = self.plot.get_theme();
         let context = RenderContext::new(theme);
-        
+
         // Call the mark's render_from_data method with context
         mark.render_from_data(data_batch.as_ref(), &scalar_batch, &context)
     }
@@ -1287,9 +1289,10 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         }
 
         // Delegate all axis rendering to the coordinate system
+        let theme = self.plot.get_theme();
         self.plot
             .coord_system()
-            .render_axes(&all_axes, scales, plot_width, plot_height, padding)
+            .render_axes(&all_axes, scales, plot_width, plot_height, padding, &theme)
             .await
     }
 
@@ -1433,9 +1436,20 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
             // ConfiguredScale always has resolved domain, so always create a legend
             // for channels that have scales
-            let legend = Legend::new()
+            let theme = self.plot.get_theme();
+            let mut legend = Legend::new()
                 .title(self.infer_legend_title(channel))
-                .position(self.default_legend_position(channel));
+                .position(self.default_legend_position(channel))
+                .background_padding(theme.legend.background_padding)
+                .background_corner_radius(theme.legend.background_corner_radius);
+
+            // Apply optional theme defaults
+            if let Some(ref fill) = theme.legend.background_fill {
+                legend = legend.background_fill(fill.clone());
+            }
+            if let Some(ref stroke) = theme.legend.background_stroke {
+                legend = legend.background_stroke(stroke.clone());
+            }
 
             default_legends.insert(channel.clone(), legend);
         }
@@ -1482,6 +1496,9 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             return Ok(Vec::new());
         };
 
+        // Get theme for typography
+        let theme = self.plot.get_theme();
+
         // If we have layout bounds from Taffy, place the title left-aligned within its bounds
         let (x, y) = if let Some(bounds) = layout_bounds {
             // Use the title node's x position, not the plot area's
@@ -1499,8 +1516,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             baseline: TextBaseline::Middle.into(),
             font: title.font_family.clone().into(),
             font_size: title.font_size.into(),
-            font_weight: avenger_text::types::FontWeight::Number(500.0).into(),
-            color: ColorOrGradient::Color([0.102, 0.102, 0.102, 1.0]).into(), // #1A1A1A
+            font_weight: avenger_text::types::FontWeight::Number(
+                theme.typography.title_font_weight(),
+            )
+            .into(),
+            color: crate::utils::parse_color_string(&theme.typography.title_color)
+                .unwrap_or(ColorOrGradient::Color([0.102, 0.102, 0.102, 1.0]))
+                .into(),
             ..Default::default()
         };
 
@@ -1527,6 +1549,9 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             return Ok(Vec::new());
         };
 
+        // Get theme for typography
+        let theme = self.plot.get_theme();
+
         // If we have layout bounds from Taffy, place the subtitle left-aligned within its bounds
         let (x, y) = if let Some(bounds) = layout_bounds {
             // Use the subtitle node's x position, not the plot area's
@@ -1544,8 +1569,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             baseline: TextBaseline::Middle.into(),
             font: subtitle.font_family.clone().into(),
             font_size: subtitle.font_size.into(),
-            font_weight: avenger_text::types::FontWeight::Number(200.0).into(),
-            color: ColorOrGradient::Color([0.290, 0.290, 0.290, 1.0]).into(), // #4A4A4A
+            font_weight: avenger_text::types::FontWeight::Number(
+                theme.typography.subtitle_font_weight(),
+            )
+            .into(),
+            color: crate::utils::parse_color_string(&theme.typography.subtitle_color)
+                .unwrap_or(ColorOrGradient::Color([0.290, 0.290, 0.290, 1.0]))
+                .into(),
             ..Default::default()
         };
 

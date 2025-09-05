@@ -64,6 +64,7 @@ impl CartesianAxis {
         plot_width: f32,
         plot_height: f32,
         padding: &crate::render::Padding,
+        theme: &crate::theme::Theme,
     ) -> Result<SceneMark, AvengerChartError> {
         use avenger_guides::axis::{
             band::make_band_axis_marks,
@@ -103,22 +104,37 @@ impl CartesianAxis {
         // Axis origin is always the top-left corner of the plot area
         let axis_origin = [padding.left, padding.top];
 
-        // Create axis config with plot dimensions
+        // Create axis config with plot dimensions and theme
         let axis_config = AxisConfig {
             orientation,
             dimensions: [plot_width, plot_height],
             grid: self.grid,
             format_number: self.format_number.clone(),
-            title_font_size: None, // Use default for regular axes
+            title_font_size: Some(theme.axis.title_font_size),
+            // Pass theme colors and styling
+            domain_color: Some(crate::utils::parse_color_to_array(&theme.axis.domain_color)),
+            tick_color: Some(crate::utils::parse_color_to_array(&theme.axis.tick_color)),
+            grid_color: Some({
+                let mut color = crate::utils::parse_color_to_array(&theme.axis.grid_color);
+                color[3] = theme.axis.grid_opacity; // Apply opacity to alpha channel
+                color
+            }),
+            grid_width: Some(theme.axis.grid_width),
+            label_color: Some(crate::utils::parse_color_to_array(&theme.axis.label_color)),
+            title_color: Some(crate::utils::parse_color_to_array(&theme.axis.title_color)),
+            tick_length: Some(theme.axis.tick_length),
+            label_font_size: Some(theme.axis.label_font_size),
+            label_font_weight: Some(theme.axis.label_font_weight),
+            title_font_weight: Some(theme.axis.title_font_weight),
         };
 
         // Generate axis marks based on scale characteristics
         // Use domain and range kinds to determine which axis maker to use
         use avenger_scales::scales::{DomainKind, RangeKind};
-        
+
         let domain_kind = scale.scale_impl.domain_kind();
         let range_kind = scale.scale_impl.range_kind();
-        
+
         // For categorical domains with continuous ranges, check if it's band or point
         let axis_group = match (domain_kind, range_kind) {
             (DomainKind::Categorical, RangeKind::Continuous) => {

@@ -85,6 +85,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         width: f32,
         height: f32,
         plot_area_ratio: f32,
+        theme: &crate::theme::Theme,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError>;
 
     /// Render all axes for this coordinate system
@@ -105,6 +106,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         plot_width: f32,
         plot_height: f32,
         padding: &crate::render::Padding,
+        theme: &crate::theme::Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
 
     /// Get preferred scale type for a channel based on data type

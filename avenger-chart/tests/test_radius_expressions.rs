@@ -12,32 +12,48 @@ async fn test_symbol_default_channel_values() {
 
     // Test default channel values
     assert_eq!(
-        symbol.default_channel_value_without_context("size").unwrap(),
+        symbol
+            .default_channel_value_without_context("size")
+            .unwrap(),
         ScalarValue::Float32(Some(64.0))
     );
     assert_eq!(
-        symbol.default_channel_value_without_context("shape").unwrap(),
+        symbol
+            .default_channel_value_without_context("shape")
+            .unwrap(),
         ScalarValue::Utf8(Some("circle".to_string()))
     );
     assert_eq!(
-        symbol.default_channel_value_without_context("angle").unwrap(),
+        symbol
+            .default_channel_value_without_context("angle")
+            .unwrap(),
         ScalarValue::Float32(Some(0.0))
     );
     assert_eq!(
-        symbol.default_channel_value_without_context("fill").unwrap(),
+        symbol
+            .default_channel_value_without_context("fill")
+            .unwrap(),
         ScalarValue::Utf8(Some("#4682b4".to_string()))
     );
     assert_eq!(
-        symbol.default_channel_value_without_context("stroke").unwrap(),
+        symbol
+            .default_channel_value_without_context("stroke")
+            .unwrap(),
         ScalarValue::Utf8(Some("#000000".to_string()))
     );
     assert_eq!(
-        symbol.default_channel_value_without_context("opacity").unwrap(),
+        symbol
+            .default_channel_value_without_context("opacity")
+            .unwrap(),
         ScalarValue::Float32(Some(1.0))
     );
 
     // Test unknown channel returns None
-    assert!(symbol.default_channel_value_without_context("unknown").is_none());
+    assert!(
+        symbol
+            .default_channel_value_without_context("unknown")
+            .is_none()
+    );
 }
 
 #[tokio::test]

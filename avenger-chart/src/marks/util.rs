@@ -148,7 +148,8 @@ pub fn coerce_color_channel_with_mark<C: crate::coords::CoordinateSystem>(
 ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerChartError> {
     // Get default from mark - the mark's default_channel_value returns a ScalarValue
     // which for colors is typically a string like "#4682b4"
-    let default = if let Some(default_scalar) = mark.default_channel_value_without_context(channel) {
+    let default = if let Some(default_scalar) = mark.default_channel_value_without_context(channel)
+    {
         scalar_to_color(&default_scalar, fallback_default)?
     } else {
         ColorOrGradient::Color(fallback_default)

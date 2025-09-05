@@ -1,7 +1,7 @@
 //! Rendering context that carries theme through the rendering pipeline
 
-use std::sync::Arc;
 use crate::theme::Theme;
+use std::sync::Arc;
 
 /// Context passed through the rendering pipeline
 #[derive(Clone)]

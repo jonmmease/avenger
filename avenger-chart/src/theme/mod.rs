@@ -52,10 +52,10 @@ pub struct Theme {
 pub struct LayoutDefaults {
     /// Default padding around the plot area
     pub padding: Padding,
-    
+
     /// Spacing between legend items
     pub legend_spacing: f32,
-    
+
     /// Spacing between faceted plots (row_spacing, col_spacing)
     pub facet_spacing: (f32, f32),
 }
@@ -94,30 +94,54 @@ impl Padding {
 pub struct AxisDefaults {
     /// Grid line color
     pub grid_color: String,
-    
+
+    /// Grid line opacity (0.0 to 1.0)
+    pub grid_opacity: f32,
+
     /// Grid line width
     pub grid_width: f32,
-    
+
     /// Grid line dash pattern (None for solid)
     pub grid_dash: Option<Vec<f32>>,
-    
+
     /// Axis domain line color
     pub domain_color: String,
-    
+
     /// Axis domain line width
     pub domain_width: f32,
-    
+
     /// Tick mark color
     pub tick_color: String,
-    
+
     /// Tick mark size
     pub tick_size: f32,
-    
+
+    /// Tick mark length
+    pub tick_length: f32,
+
     /// Label padding from tick marks
     pub label_padding: f32,
-    
+
     /// Default label angle (0 for horizontal)
     pub label_angle: f32,
+
+    /// Label text color
+    pub label_color: String,
+
+    /// Label font size
+    pub label_font_size: f32,
+
+    /// Label font weight
+    pub label_font_weight: f32,
+
+    /// Title text color
+    pub title_color: String,
+
+    /// Title font size
+    pub title_font_size: f32,
+
+    /// Title font weight
+    pub title_font_weight: f32,
 }
 
 /// Legend styling configuration
@@ -125,22 +149,22 @@ pub struct AxisDefaults {
 pub struct LegendDefaults {
     /// Background fill color (None for transparent)
     pub background_fill: Option<String>,
-    
+
     /// Background stroke color (None for no stroke)
     pub background_stroke: Option<String>,
-    
+
     /// Padding inside legend background
     pub background_padding: f32,
-    
+
     /// Corner radius for legend background
     pub background_corner_radius: f32,
-    
+
     /// Spacing between legend items
     pub item_spacing: f32,
-    
+
     /// Default symbol size in legends
     pub symbol_size: f32,
-    
+
     /// Padding between symbol and label
     pub label_padding: f32,
 }
@@ -150,7 +174,7 @@ pub struct LegendDefaults {
 pub struct BackgroundDefaults {
     /// Plot area background (None for transparent)
     pub plot_background: Option<String>,
-    
+
     /// Canvas background (None for transparent)
     pub canvas_background: Option<String>,
 }
@@ -184,15 +208,23 @@ impl Default for LayoutDefaults {
 impl Default for AxisDefaults {
     fn default() -> Self {
         Self {
-            grid_color: "#ddd".to_string(),
-            grid_width: 1.0,
+            grid_color: "#e0e0e0".to_string(), // #E0E0E0
+            grid_opacity: 0.5,                 // 50% opacity
+            grid_width: 0.5,
             grid_dash: None,
             domain_color: "#000".to_string(),
             domain_width: 1.0,
             tick_color: "#000".to_string(),
             tick_size: 5.0,
+            tick_length: 5.0,
             label_padding: 3.0,
             label_angle: 0.0,
+            label_color: "#5a5a5a".to_string(),
+            label_font_size: 10.0,
+            label_font_weight: 300.0,
+            title_color: "#2c2c2c".to_string(),
+            title_font_size: 12.0,
+            title_font_weight: 400.0,
         }
     }
 }
@@ -200,10 +232,10 @@ impl Default for AxisDefaults {
 impl Default for LegendDefaults {
     fn default() -> Self {
         Self {
-            background_fill: Some("#ffffff".to_string()),
-            background_stroke: Some("#cccccc".to_string()),
+            background_fill: None,   // No background by default
+            background_stroke: None, // No stroke by default
             background_padding: 8.0,
-            background_corner_radius: 4.0,
+            background_corner_radius: 0.0, // No radius by default
             item_spacing: 10.0,
             symbol_size: 100.0,
             label_padding: 5.0,
@@ -255,5 +287,4 @@ impl Theme {
         self.mark_defaults = self.mark_defaults.with_default(mark_type, channel, value);
         self
     }
-
 }

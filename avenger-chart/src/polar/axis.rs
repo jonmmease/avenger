@@ -91,6 +91,7 @@ impl PolarAxis {
         plot_width: f32,
         plot_height: f32,
         padding: &crate::render::Padding,
+        _theme: &crate::theme::Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Skip if invisible
         if !self.visible {

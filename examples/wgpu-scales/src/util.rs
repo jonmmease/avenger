@@ -260,6 +260,7 @@ pub async fn run() {
             grid: true,
             format_number: None,
             title_font_size: None,
+            ..Default::default()
         },
     )
     .unwrap();
@@ -275,6 +276,7 @@ pub async fn run() {
             grid: false,
             format_number: None,
             title_font_size: None,
+            ..Default::default()
         },
     )
     .unwrap();

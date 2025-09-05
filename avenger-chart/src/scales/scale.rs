@@ -254,22 +254,22 @@ impl<S: ScaleSpec> Scale<S> {
     pub fn get_options(&self) -> &HashMap<String, Expr> {
         &self.options
     }
-    
+
     /// Get the domain kind for this scale instance
     pub fn domain_kind(&self) -> DomainKind {
         self.scale_impl.domain_kind()
     }
-    
+
     /// Get the range kind for this scale instance
     pub fn range_kind(&self) -> RangeKind {
         self.scale_impl.range_kind()
     }
-    
+
     /// Check if this scale has bands (true for band scales, false for point scales)
     pub fn has_bands(&self) -> bool {
         self.scale_impl.scale_type() == "band"
     }
-    
+
     /// Get the scale type name
     pub fn scale_type_name(&self) -> &str {
         self.scale_impl.scale_type()

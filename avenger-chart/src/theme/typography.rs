@@ -48,44 +48,57 @@ pub struct Typography {
     // Font families
     /// Default font for all text
     pub default_font: String,
-    
+
     /// Font for titles (None means use default_font)
     pub title_font: Option<String>,
-    
+
     /// Font for axis labels (None means use default_font)
     pub axis_label_font: Option<String>,
-    
+
     /// Font for legend text (None means use default_font)
     pub legend_font: Option<String>,
 
     // Font sizes
     /// Title font size
     pub title_size: f32,
-    
+
     /// Subtitle font size
     pub subtitle_size: f32,
-    
+
     /// Axis label font size
     pub axis_label_size: f32,
-    
+
     /// Axis tick label font size
     pub axis_tick_size: f32,
-    
+
     /// Legend title font size
     pub legend_title_size: f32,
-    
+
     /// Legend item font size
     pub legend_item_size: f32,
 
     // Font weights
     /// Title font weight
     pub title_weight: FontWeight,
-    
+
+    /// Subtitle font weight
+    pub subtitle_weight: FontWeight,
+
     /// Axis label font weight
     pub axis_label_weight: FontWeight,
-    
+
     /// Default font weight
     pub default_weight: FontWeight,
+
+    // Colors
+    /// Title text color
+    pub title_color: String,
+
+    /// Subtitle text color
+    pub subtitle_color: String,
+
+    /// Default text color
+    pub default_color: String,
 }
 
 impl Default for Typography {
@@ -106,9 +119,15 @@ impl Default for Typography {
             legend_item_size: 10.0,
 
             // Font weights
-            title_weight: FontWeight::Named(NamedFontWeight::Bold),
+            title_weight: FontWeight::Named(NamedFontWeight::Medium), // 500 - matches original
+            subtitle_weight: FontWeight::Number(200.0),
             axis_label_weight: FontWeight::Named(NamedFontWeight::Normal),
             default_weight: FontWeight::Named(NamedFontWeight::Normal),
+
+            // Colors
+            title_color: "#1a1a1a".to_string(),
+            subtitle_color: "#4a4a4a".to_string(),
+            default_color: "#000000".to_string(),
         }
     }
 }
@@ -121,11 +140,23 @@ impl Typography {
 
     /// Get the effective font for axis labels
     pub fn axis_label_font(&self) -> &str {
-        self.axis_label_font.as_deref().unwrap_or(&self.default_font)
+        self.axis_label_font
+            .as_deref()
+            .unwrap_or(&self.default_font)
     }
 
     /// Get the effective font for legend text
     pub fn legend_font(&self) -> &str {
         self.legend_font.as_deref().unwrap_or(&self.default_font)
+    }
+
+    /// Get title font weight as a number
+    pub fn title_font_weight(&self) -> f32 {
+        self.title_weight.to_number()
+    }
+
+    /// Get subtitle font weight as a number
+    pub fn subtitle_font_weight(&self) -> f32 {
+        self.subtitle_weight.to_number()
     }
 }

@@ -53,13 +53,14 @@ impl Mark<Cartesian> for HexBin<Cartesian> {
         &self,
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
+        _context: &avenger_chart::render_context::RenderContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Custom hexbin rendering logic would go here
         // For this test, we just return an empty vector
         Ok(vec![])
     }
 
-    fn default_channel_value(&self, channel: &str) -> Option<ScalarValue> {
+    fn default_channel_value(&self, channel: &str, _context: &avenger_chart::render_context::RenderContext) -> Option<ScalarValue> {
         match channel {
             "size" => Some(ScalarValue::Float32(Some(20.0))),
             "fill" => Some(ScalarValue::Utf8(Some("#4682b4".to_string()))),

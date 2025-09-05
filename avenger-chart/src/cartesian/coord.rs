@@ -97,6 +97,7 @@ impl CoordinateSystem for Cartesian {
         width: f32,
         height: f32,
         plot_area_ratio: f32,
+        theme: &crate::theme::Theme,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         use crate::render::Padding;
         use avenger_geometry::marks::MarkGeometryUtils;
@@ -116,7 +117,14 @@ impl CoordinateSystem for Cartesian {
 
         // Render axes to measure their bounding box
         let axis_marks = self
-            .render_axes(&axes, scales, plot_width, plot_height, &initial_padding)
+            .render_axes(
+                &axes,
+                scales,
+                plot_width,
+                plot_height,
+                &initial_padding,
+                theme,
+            )
             .await?;
 
         // Calculate bounding box of all axis marks
@@ -256,6 +264,7 @@ impl CoordinateSystem for Cartesian {
         plot_width: f32,
         plot_height: f32,
         padding: &crate::render::Padding,
+        theme: &crate::theme::Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut axis_marks = Vec::new();
 
@@ -269,7 +278,7 @@ impl CoordinateSystem for Cartesian {
             })?;
 
             // Let the axis implementation handle all rendering logic
-            let axis_mark = axis.render(channel, scale, plot_width, plot_height, padding)?;
+            let axis_mark = axis.render(channel, scale, plot_width, plot_height, padding, theme)?;
 
             // Only add non-empty marks
             if let SceneMark::Group(ref group) = axis_mark {
