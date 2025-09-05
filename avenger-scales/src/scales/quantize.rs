@@ -172,8 +172,11 @@ impl ScaleImpl for QuantizeScale {
 
     fn legend_entries(&self, config: &ScaleConfig) -> Option<Vec<LegendEntry>> {
         // Get the normalized domain (after applying nice/zero)
+        let Ok(interval_domain) = config.numeric_interval_domain() else {
+            return None;
+        };
         let (min, max) = match QuantizeScale::apply_normalization(
-            config.numeric_interval_domain().ok()?,
+            interval_domain,
             config.options.get("zero"),
             config.options.get("nice"),
         ) {
