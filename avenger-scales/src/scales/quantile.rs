@@ -1,9 +1,9 @@
 use std::{collections::HashMap, sync::Arc};
 
 use arrow::{
-    array::{ArrayRef, AsArray, Float32Array, UInt32Array},
+    array::{ArrayRef, AsArray, DictionaryArray, Float32Array, Int16Array},
     compute::{
-        kernels::{cast, sort, take},
+        kernels::{cast, sort},
         SortOptions,
     },
     datatypes::{DataType, Float32Type},
@@ -92,7 +92,7 @@ impl ScaleImpl for QuantileScale {
         let values = values.as_primitive::<Float32Type>();
 
         // Compute range indices
-        let indices = UInt32Array::from(
+        let indices = Int16Array::from(
             values
                 .iter()
                 .map(|x| {
@@ -100,8 +100,8 @@ impl ScaleImpl for QuantileScale {
                         if x.is_finite() {
                             let idx =
                                 match thresholds.binary_search_by(|t| t.partial_cmp(&x).unwrap()) {
-                                    Ok(i) => (i + 1) as u32,
-                                    Err(i) => i as u32,
+                                    Ok(i) => (i + 1) as i16,
+                                    Err(i) => i as i16,
                                 };
                             Some(idx)
                         } else {
@@ -112,7 +112,9 @@ impl ScaleImpl for QuantileScale {
                 .collect::<Vec<_>>(),
         );
 
-        Ok(take::take(&config.range, &indices, None)?)
+        // Create dictionary array with indices pointing to range values
+        let dict_array = DictionaryArray::try_new(indices, config.range.clone())?;
+        Ok(Arc::new(dict_array) as ArrayRef)
     }
 
     fn ticks(

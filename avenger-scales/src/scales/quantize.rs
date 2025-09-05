@@ -2,8 +2,7 @@ use std::sync::Arc;
 
 use crate::scalar::Scalar;
 use arrow::{
-    array::{ArrayRef, AsArray, Float32Array, UInt32Array},
-    compute::kernels::take,
+    array::{ArrayRef, AsArray, DictionaryArray, Float32Array, Int16Array},
     datatypes::Float32Type,
 };
 use lazy_static::lazy_static;
@@ -124,7 +123,7 @@ impl ScaleImpl for QuantizeScale {
             config.options.get("nice"),
         )?;
 
-        let indices = Arc::new(UInt32Array::from(
+        let indices = Int16Array::from(
             values
                 .as_primitive::<Float32Type>()
                 .iter()
@@ -133,7 +132,7 @@ impl ScaleImpl for QuantizeScale {
                         if x.is_finite() {
                             let normalized = (x - domain_span.0) / domain_span.1;
                             let idx = ((normalized * segments).floor() as usize).clamp(0, n - 1);
-                            Some(idx as u32)
+                            Some(idx as i16)
                         } else {
                             None
                         }
@@ -141,9 +140,11 @@ impl ScaleImpl for QuantizeScale {
                     None => None,
                 })
                 .collect::<Vec<_>>(),
-        )) as ArrayRef;
+        );
 
-        Ok(take::take(&config.range, &indices, None)?)
+        // Create dictionary array with indices pointing to range values
+        let dict_array = DictionaryArray::try_new(indices, config.range.clone())?;
+        Ok(Arc::new(dict_array) as ArrayRef)
     }
 
     fn ticks(
