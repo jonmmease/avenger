@@ -53,7 +53,7 @@ async fn test_symbol_defaults_used_in_rendering() {
 
     // Create a render context with default theme
     let theme = avenger_chart::theme::Theme::default();
-    let context = avenger_chart::render_context::RenderContext::new(theme, 100.0, 100.0, 96.0);
+    let context = avenger_chart::render_context::RenderContext::new(theme);
     
     // Render the mark
     let rendered = symbol

@@ -1008,7 +1008,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         // Create render context with theme
         let theme = self.plot.get_theme();
-        let context = RenderContext::new(theme, plot_width, plot_height, 96.0);
+        let context = RenderContext::new(theme);
         
         // Call the mark's render_from_data method with context
         mark.render_from_data(data_batch.as_ref(), &scalar_batch, &context)
