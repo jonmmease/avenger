@@ -281,24 +281,15 @@ impl LegendRenderer for SymbolLegendRenderer {
                     legend_config.size = ScalarOrArray::new_array(sizes);
                 }
                 "fill" | "color" => {
-                    // Fill/color channel - for discrete-range scales, use range colors directly
-                    let colors = if channel.scale.scale_impl.range_kind() == avenger_scales::scales::RangeKind::Discrete {
-                        channel.scale.range_colors()?
-                    } else {
-                        // For continuous-range scales, map domain values through the scale
-                        channel.scale.scale_scalars_to_colors(&domain_values)?
-                    };
+                    // Symbol legends always use discrete entries, so use range colors directly
+                    let colors = channel.scale.range_colors()?;
                     legend_config.fill = ScalarOrArray::new_array(
                         colors.into_iter().map(ColorOrGradient::Color).collect(),
                     );
                 }
                 "stroke" => {
-                    // Stroke channel - same logic as fill/color
-                    let colors = if channel.scale.scale_impl.range_kind() == avenger_scales::scales::RangeKind::Discrete {
-                        channel.scale.range_colors()?
-                    } else {
-                        channel.scale.scale_scalars_to_colors(&domain_values)?
-                    };
+                    // Same as fill/color - always use range colors
+                    let colors = channel.scale.range_colors()?;
                     legend_config.stroke = ScalarOrArray::new_array(
                         colors.into_iter().map(ColorOrGradient::Color).collect(),
                     );
