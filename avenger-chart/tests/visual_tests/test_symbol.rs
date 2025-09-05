@@ -5,6 +5,7 @@ use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::logical_expr::col;
+use datafusion::logical_expr::lit;
 use datafusion::prelude::*;
 use std::sync::Arc;
 // Visual tests for symbol charts
@@ -411,4 +412,72 @@ async fn test_scatter_with_default_shape_scale() {
     );
 
     assert_visual_match_default(plot, "symbol", "scatter_with_default_shapes").await;
+}
+
+#[tokio::test]
+async fn test_scatter_with_threshold_shape() {
+    // Create continuous data that will be mapped to shapes using quantize scale
+    let x_values = Float64Array::from(vec![
+        1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5,
+        9.5, 10.5,
+    ]);
+    let y_values = Float64Array::from(vec![
+        2.0, 3.5, 2.8, 4.2, 5.1, 4.8, 6.2, 5.5, 7.0, 6.5, 3.0, 2.5, 3.8, 4.5, 5.5, 5.2, 6.8, 6.0,
+        7.5, 7.2,
+    ]);
+    // Values from 0 to 100 that will be mapped to shapes using quantize scale
+    let magnitude = Float64Array::from(vec![
+        5.0, 12.0, 18.0, 25.0, 32.0, 38.0, 45.0, 52.0, 58.0, 65.0, 72.0, 78.0, 85.0, 92.0, 15.0,
+        28.0, 42.0, 55.0, 68.0, 82.0,
+    ]);
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("x", DataType::Float64, false),
+        Field::new("y", DataType::Float64, false),
+        Field::new("magnitude", DataType::Float64, false),
+    ]));
+
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![Arc::new(x_values), Arc::new(y_values), Arc::new(magnitude)],
+    )
+    .expect("Failed to create RecordBatch");
+
+    let ctx = SessionContext::new();
+    let df = ctx
+        .read_batch(batch)
+        .expect("Failed to read batch into DataFrame");
+
+    let plot = Plot::<Cartesian>::new()
+        .data(df)
+        .legend("shape", |legend| legend.title("Magnitude"))
+        .mark(
+            Symbol::new()
+                .x_with(col("x"), |c| {
+                    c.scale_with::<Linear>(|s| s)
+                        .axis(|a| a.title("X Position"))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale_with::<Linear>(|s| s)
+                        .axis(|a| a.title("Y Position"))
+                })
+                .shape_with(col("magnitude"), |c| {
+                    c.scale_with::<Threshold>(|s| {
+                        s.domain_discrete(vec![lit(0.0), lit(20.0), lit(40.0), lit(100.0)])
+                            .range_discrete(vec![
+                                "circle",
+                                "square",
+                                "triangle-up",
+                                "diamond",
+                                "cross",
+                            ])
+                    })
+                })
+                .size(150.0)
+                .fill("#e74c3c")
+                .stroke("#c0392b")
+                .stroke_width(2.0),
+        );
+
+    assert_visual_match_default(plot, "symbol", "scatter_with_threshold_shape").await;
 }

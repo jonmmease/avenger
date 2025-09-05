@@ -654,8 +654,7 @@ impl<C: CoordinateSystem> Plot<C> {
             Some(ScaleSpec::Local(f)) => {
                 let mut base_scale = self.create_default_scale_for_channel_internal(base_name)?;
 
-                // Gather and apply domain expressions to give the scale a data-driven domain
-                // This happens BEFORE the user's lambda, so the user can override if desired
+                // Gather domain expressions from marks
                 if let Ok(domain_exprs) = self.gather_scale_domain_expressions(base_name) {
                     if !domain_exprs.is_empty() {
                         base_scale = base_scale.domain_data_fields(domain_exprs);
