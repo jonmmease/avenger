@@ -1,6 +1,6 @@
 //! Scale type specifications for compile-time type safety
 
-use avenger_scales::scales::ScaleImpl;
+use avenger_scales::scales::{ScaleImpl, DomainKind, RangeKind};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -16,6 +16,16 @@ pub trait ScaleSpec: 'static {
     /// Returns a map of option name to scalar value
     fn default_options() -> HashMap<String, avenger_scales::scalar::Scalar> {
         HashMap::new()
+    }
+    
+    /// Get the domain kind for this scale type
+    fn domain_kind() -> DomainKind {
+        Self::create_impl().domain_kind()
+    }
+    
+    /// Get the range kind for this scale type
+    fn range_kind() -> RangeKind {
+        Self::create_impl().range_kind()
     }
 }
 

@@ -3,6 +3,7 @@ use crate::error::AvengerChartError;
 use crate::legend::Legend;
 use crate::marks::{ChannelValue, Mark, RadiusExpression};
 use crate::scales::{Auto, Scale};
+use crate::theme::Theme;
 use datafusion::dataframe::DataFrame;
 use indexmap::IndexMap;
 use std::collections::HashMap;
@@ -88,6 +89,9 @@ pub struct Plot<C: CoordinateSystem> {
 
     /// Optional plot subtitle rendered by the layout system
     pub(crate) subtitle: Option<PlotSubtitle>,
+
+    /// Theme for visual styling
+    pub(crate) theme: Option<Theme>,
 }
 
 /// Enhanced resolution options with row/column specificity
@@ -379,6 +383,7 @@ impl<C: CoordinateSystem> Plot<C> {
             preferred_size: None,
             title: None,
             subtitle: None,
+            theme: None,
         }
     }
 }
@@ -835,7 +840,7 @@ impl<C: CoordinateSystem> Plot<C> {
                         lit(datafusion::scalar::ScalarValue::Null)
                     }
                 }
-            } else if let Some(default_scalar) = mark.default_channel_value(channel_name) {
+            } else if let Some(default_scalar) = mark.default_channel_value_without_context(channel_name) {
                 // Use mark-provided default
                 lit(default_scalar)
             } else {
@@ -1070,6 +1075,22 @@ impl<C: CoordinateSystem> Plot<C> {
         self
     }
 
+    /// Set the theme for the plot
+    pub fn theme(mut self, theme: Theme) -> Self {
+        self.theme = Some(theme);
+        self
+    }
+
+    /// Configure the theme with a closure
+    pub fn with_theme<F>(mut self, f: F) -> Self
+    where
+        F: FnOnce(Theme) -> Theme,
+    {
+        let theme = f(self.theme.unwrap_or_default());
+        self.theme = Some(theme);
+        self
+    }
+
     /// Access the configured title
     pub fn get_title(&self) -> Option<&PlotTitle> {
         self.title.as_ref()
@@ -1078,5 +1099,10 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Access the configured subtitle
     pub fn get_subtitle(&self) -> Option<&PlotSubtitle> {
         self.subtitle.as_ref()
+    }
+
+    /// Access the configured theme (or default if not set)
+    pub fn get_theme(&self) -> Theme {
+        self.theme.clone().unwrap_or_default()
     }
 }

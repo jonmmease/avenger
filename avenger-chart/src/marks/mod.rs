@@ -23,6 +23,7 @@ pub use state::MarkState;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::legend_renderer::LegendRenderer;
+use crate::render_context::RenderContext;
 use crate::scales::ScaleRange;
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -93,10 +94,12 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
     /// Build scene marks from processed data
     /// data: RecordBatch with array data (multiple rows), or None if all channels are scalar
     /// scalars: RecordBatch with scalar data (single row) for channels that don't vary per mark
+    /// context: RenderContext containing theme and other rendering state
     fn render_from_data(
         &self,
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
+        context: &RenderContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
 
     /// Whether this mark type supports the order encoding channel
@@ -105,7 +108,24 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
     }
 
     /// Returns the default value for a channel if not explicitly mapped
-    fn default_channel_value(&self, _channel: &str) -> Option<ScalarValue> {
+    /// First checks theme defaults, then falls back to mark-specific defaults
+    fn default_channel_value(&self, channel: &str, context: &RenderContext) -> Option<ScalarValue> {
+        // Check theme defaults first
+        if let Some(default) = context.theme.mark_defaults.get(self.mark_type(), channel) {
+            return Some(default.clone());
+        }
+        // Fall back to mark-specific defaults (for backward compatibility during migration)
+        self.mark_specific_default(channel)
+    }
+    
+    /// Get default without context (temporary during migration)
+    /// TODO: Remove once all callers have access to RenderContext
+    fn default_channel_value_without_context(&self, channel: &str) -> Option<ScalarValue> {
+        self.mark_specific_default(channel)
+    }
+    
+    /// Mark-specific default values (to be overridden by marks)
+    fn mark_specific_default(&self, _channel: &str) -> Option<ScalarValue> {
         None
     }
 

@@ -4,6 +4,7 @@ use crate::impl_mark_trait_common;
 use crate::marks::{Mark, RadiusExpression};
 
 use crate::polar::Polar;
+use crate::render_context::RenderContext;
 use crate::scales::ScaleRange;
 use crate::utils::ScalarValueHelpers;
 use arrow::array::RecordBatch;
@@ -32,7 +33,7 @@ define_position_channels! {
 impl Mark<Polar> for Symbol<Polar> {
     impl_mark_trait_common!(Symbol, Polar, "symbol");
 
-    fn default_channel_value(&self, channel: &str) -> Option<ScalarValue> {
+    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         match channel {
             "size" => Some(ScalarValue::Float32(Some(64.0))), // Default area
             "shape" => Some(ScalarValue::Utf8(Some("circle".to_string()))), // Default shape
@@ -73,6 +74,7 @@ impl Mark<Polar> for Symbol<Polar> {
         &self,
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
+        context: &RenderContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         use crate::marks::util::{
             coerce_color_channel_with_mark, coerce_numeric_channel_with_mark,
@@ -188,7 +190,7 @@ impl Mark<Polar> for Symbol<Polar> {
 
         // Handle shape channel - same as Cartesian
         let shape_default = self
-            .default_channel_value("shape")
+            .default_channel_value("shape", context)
             .and_then(|scalar| match scalar {
                 ScalarValue::Utf8(Some(s)) => {
                     avenger_common::types::SymbolShape::from_vega_str(&s).ok()
@@ -211,7 +213,7 @@ impl Mark<Polar> for Symbol<Polar> {
 
         // Stroke width - same as Cartesian
         let stroke_width_default = self
-            .default_channel_value("stroke_width")
+            .default_channel_value("stroke_width", context)
             .and_then(|scalar| scalar.as_f32().ok())
             .unwrap_or(1.0);
 
