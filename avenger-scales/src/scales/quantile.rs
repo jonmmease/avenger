@@ -128,10 +128,6 @@ impl ScaleImpl for QuantileScale {
         Ok(thresholds)
     }
 
-    fn creates_legend_intervals(&self) -> bool {
-        true
-    }
-    
     fn legend_entries(&self, config: &ScaleConfig) -> Option<Vec<LegendEntry>> {
         let n = config.range.len();
         if n == 0 || config.domain.is_empty() {

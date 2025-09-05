@@ -191,7 +191,9 @@ impl LegendRenderer for RectLegendRenderer {
             "fill" | "color" => {
                 // Scales with numeric domain and discrete range that provide legend entries
                 // (threshold, quantize, quantile) need colors from the range directly
-                let uses_range_colors = primary_channel.scale.scale_impl.creates_legend_intervals();
+                // For scales with numeric/temporal domain and discrete range, use range colors directly
+                let uses_range_colors = matches!(primary_channel.scale.scale_impl.domain_kind(), avenger_scales::scales::DomainKind::Numeric | avenger_scales::scales::DomainKind::Temporal) 
+                    && primary_channel.scale.scale_impl.range_kind() == avenger_scales::scales::RangeKind::Discrete;
                 let colors = if uses_range_colors {
                     // Get colors directly from the range (one per interval)
                     primary_channel.scale.range_colors()?
@@ -205,7 +207,9 @@ impl LegendRenderer for RectLegendRenderer {
             }
             "stroke" => {
                 // Same logic as fill/color
-                let uses_range_colors = primary_channel.scale.scale_impl.creates_legend_intervals();
+                // For scales with numeric/temporal domain and discrete range, use range colors directly
+                let uses_range_colors = matches!(primary_channel.scale.scale_impl.domain_kind(), avenger_scales::scales::DomainKind::Numeric | avenger_scales::scales::DomainKind::Temporal) 
+                    && primary_channel.scale.scale_impl.range_kind() == avenger_scales::scales::RangeKind::Discrete;
                 let colors = if uses_range_colors {
                     // Get colors directly from the range (one per interval)
                     primary_channel.scale.range_colors()?
@@ -227,7 +231,7 @@ impl LegendRenderer for RectLegendRenderer {
         // Create text labels for legend entries
         // Scales that provide legend_entries have custom labels
         let text_values: Vec<String> =
-            if primary_channel.scale.scale_impl.creates_legend_intervals() {
+            if primary_channel.scale.scale_impl.legend_entries(&primary_channel.scale.config).is_some() {
                 // Get custom labels from the scale
                 primary_channel.scale.domain_labels()?
             } else {

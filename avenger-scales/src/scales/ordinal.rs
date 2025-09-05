@@ -1,8 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use super::{
-    ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionDefinition, RangeKind,
-    ScaleConfig, ScaleContext, ScaleImpl,
+    ConfiguredScale, DomainKind, InferDomainFromDataMethod, LegendEntry, OptionDefinition, 
+    RangeKind, ScaleConfig, ScaleContext, ScaleImpl,
 };
 use crate::error::AvengerScaleError;
 use lazy_static::lazy_static;
@@ -115,6 +115,92 @@ impl ScaleImpl for OrdinalScale {
         let range_dict_with_values = dict_array.with_values(range_values);
 
         Ok(range_dict_with_values)
+    }
+
+    fn legend_entries(&self, config: &ScaleConfig) -> Option<Vec<LegendEntry>> {
+        use arrow::array::{Array, AsArray};
+        use arrow::datatypes::{Float32Type, Int32Type, Int64Type};
+        
+        // For ordinal scales, each domain value maps directly to a range value
+        // Create legend entries from the domain values
+        let formatter = &config.context.formatters.number;
+        
+        let mut entries = Vec::new();
+        let domain = &config.domain;
+        
+        // Handle different domain types
+        match domain.data_type() {
+            arrow::datatypes::DataType::Utf8 => {
+                let array = domain.as_string::<i32>();
+                for i in 0..array.len() {
+                    if !array.is_null(i) {
+                        let value = array.value(i);
+                        entries.push(LegendEntry {
+                            label: value.to_string(),
+                            representative_value: Scalar::from_string(value),
+                        });
+                    }
+                }
+            }
+            arrow::datatypes::DataType::Int32 => {
+                let array = domain.as_primitive::<Int32Type>();
+                for i in 0..array.len() {
+                    if !array.is_null(i) {
+                        let value = array.value(i);
+                        entries.push(LegendEntry {
+                            label: value.to_string(),
+                            representative_value: Scalar::from_i32(value),
+                        });
+                    }
+                }
+            }
+            arrow::datatypes::DataType::Int64 => {
+                let array = domain.as_primitive::<Int64Type>();
+                for i in 0..array.len() {
+                    if !array.is_null(i) {
+                        let value = array.value(i);
+                        entries.push(LegendEntry {
+                            label: value.to_string(),
+                            representative_value: Scalar::from_i32(value as i32),
+                        });
+                    }
+                }
+            }
+            arrow::datatypes::DataType::Float32 => {
+                let array = domain.as_primitive::<Float32Type>();
+                for i in 0..array.len() {
+                    if !array.is_null(i) {
+                        let value = array.value(i);
+                        let formatted = formatter.format(&[Some(value)], None);
+                        entries.push(LegendEntry {
+                            label: formatted[0].clone(),
+                            representative_value: Scalar::from_f32(value),
+                        });
+                    }
+                }
+            }
+            _ => {
+                // For other types, try to convert to string
+                if let Ok(string_array) = arrow::compute::kernels::cast::cast(domain, &arrow::datatypes::DataType::Utf8) {
+                    let array = string_array.as_string::<i32>();
+                    for i in 0..array.len() {
+                        if !array.is_null(i) {
+                            let value = array.value(i);
+                            entries.push(LegendEntry {
+                                label: value.to_string(),
+                                representative_value: Scalar::from_string(value),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        
+        if entries.is_empty() {
+            None
+        } else {
+            Some(entries)
+        }
     }
 
     // Enums
