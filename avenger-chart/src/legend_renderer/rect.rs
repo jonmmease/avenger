@@ -193,7 +193,7 @@ impl LegendRenderer for RectLegendRenderer {
                     // For threshold scales, get the range colors directly
                     primary_channel.scale.range_colors()?
                 } else {
-                    primary_channel.scale.map_values_colors(&domain_values)?
+                    primary_channel.scale.scale_scalars_to_colors(&domain_values)?
                 };
                 legend_config.fill = ScalarOrArray::new_array(
                     colors.into_iter().map(ColorOrGradient::Color).collect(),
@@ -204,14 +204,14 @@ impl LegendRenderer for RectLegendRenderer {
                     // For threshold scales, get the range colors directly
                     primary_channel.scale.range_colors()?
                 } else {
-                    primary_channel.scale.map_values_colors(&domain_values)?
+                    primary_channel.scale.scale_scalars_to_colors(&domain_values)?
                 };
                 legend_config.stroke = ScalarOrArray::new_array(
                     colors.into_iter().map(ColorOrGradient::Color).collect(),
                 );
             }
             "stroke_width" => {
-                let widths = primary_channel.scale.map_values_numeric(&domain_values)?;
+                let widths = primary_channel.scale.scale_scalars_to_numeric(&domain_values)?;
                 legend_config.stroke_width = Some(widths[0]); // Single width for rect legend
             }
             _ => {}

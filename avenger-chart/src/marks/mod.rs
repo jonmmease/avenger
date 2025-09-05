@@ -37,10 +37,8 @@ use std::sync::Arc;
 /// This function can be called by marks that override preferred_scale_type
 /// to provide fallback behavior for unhandled channels
 pub fn default_scale_for_data_type(data_type: &DataType) -> Option<Arc<dyn ScaleImpl>> {
-    use avenger_scales::scales::{
-        linear::LinearScale, ordinal::OrdinalScale, time::TimeScale,
-    };
-    
+    use avenger_scales::scales::{linear::LinearScale, ordinal::OrdinalScale, time::TimeScale};
+
     match data_type {
         // Categorical data uses ordinal scale
         DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View | DataType::Boolean => {
@@ -51,13 +49,18 @@ pub fn default_scale_for_data_type(data_type: &DataType) -> Option<Arc<dyn Scale
             Some(Arc::new(TimeScale))
         }
         // Numeric data defaults to linear
-        DataType::Float32 | DataType::Float64 |
-        DataType::Int8 | DataType::Int16 | DataType::Int32 | DataType::Int64 |
-        DataType::UInt8 | DataType::UInt16 | DataType::UInt32 | DataType::UInt64 => {
-            Some(Arc::new(LinearScale))
-        }
+        DataType::Float32
+        | DataType::Float64
+        | DataType::Int8
+        | DataType::Int16
+        | DataType::Int32
+        | DataType::Int64
+        | DataType::UInt8
+        | DataType::UInt16
+        | DataType::UInt32
+        | DataType::UInt64 => Some(Arc::new(LinearScale)),
         // Default to None for unknown types
-        _ => None
+        _ => None,
     }
 }
 
