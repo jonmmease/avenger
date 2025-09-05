@@ -189,16 +189,11 @@ impl LegendRenderer for RectLegendRenderer {
         // Apply the scale mapping based on the legend channel
         match channel_name.as_str() {
             "fill" | "color" => {
-                // Scales with numeric domain and discrete range that provide legend entries
-                // (threshold, quantize, quantile) need colors from the range directly
-                // For scales with numeric/temporal domain and discrete range, use range colors directly
-                let uses_range_colors = matches!(primary_channel.scale.scale_impl.domain_kind(), avenger_scales::scales::DomainKind::Numeric | avenger_scales::scales::DomainKind::Temporal) 
-                    && primary_channel.scale.scale_impl.range_kind() == avenger_scales::scales::RangeKind::Discrete;
-                let colors = if uses_range_colors {
-                    // Get colors directly from the range (one per interval)
+                // For all discrete-range scales, use range colors directly
+                let colors = if primary_channel.scale.scale_impl.range_kind() == avenger_scales::scales::RangeKind::Discrete {
                     primary_channel.scale.range_colors()?
                 } else {
-                    // Map domain values through the scale
+                    // For continuous-range scales, map domain values through the scale
                     primary_channel.scale.scale_scalars_to_colors(&domain_values)?
                 };
                 legend_config.fill = ScalarOrArray::new_array(
@@ -207,14 +202,9 @@ impl LegendRenderer for RectLegendRenderer {
             }
             "stroke" => {
                 // Same logic as fill/color
-                // For scales with numeric/temporal domain and discrete range, use range colors directly
-                let uses_range_colors = matches!(primary_channel.scale.scale_impl.domain_kind(), avenger_scales::scales::DomainKind::Numeric | avenger_scales::scales::DomainKind::Temporal) 
-                    && primary_channel.scale.scale_impl.range_kind() == avenger_scales::scales::RangeKind::Discrete;
-                let colors = if uses_range_colors {
-                    // Get colors directly from the range (one per interval)
+                let colors = if primary_channel.scale.scale_impl.range_kind() == avenger_scales::scales::RangeKind::Discrete {
                     primary_channel.scale.range_colors()?
                 } else {
-                    // Map domain values through the scale
                     primary_channel.scale.scale_scalars_to_colors(&domain_values)?
                 };
                 legend_config.stroke = ScalarOrArray::new_array(
