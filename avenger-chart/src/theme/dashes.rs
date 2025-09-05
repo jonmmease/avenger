@@ -45,4 +45,9 @@ impl DashPatterns {
             .map(|s| s.to_string())
             .collect()
     }
+    
+    /// Get all dash pattern names as strings
+    pub fn get_dash_names(&self) -> Vec<String> {
+        self.patterns.iter().map(|s| s.to_string()).collect()
+    }
 }

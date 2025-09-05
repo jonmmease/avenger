@@ -6,6 +6,7 @@ pub mod shape_defaults;
 pub mod udf;
 
 // Internal modules
+mod defaults;
 mod domain;
 mod domain_inference;
 mod range;
@@ -13,6 +14,10 @@ mod scale;
 mod spec;
 
 // Re-export the main types
+pub use defaults::{
+    create_default_scale_for_channel, get_channel_characteristics, 
+    is_categorical_data_type, is_numeric_data_type, is_temporal_data_type,
+};
 pub use domain::{DomainExpr, ScaleDefaultDomain, ScaleDomain};
 pub use extensions::{ConfiguredScaleDataFusionExt, ConfiguredScaleLegendExt, DomainValues};
 pub use range::ScaleRange;
