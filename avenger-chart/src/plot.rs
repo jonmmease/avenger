@@ -2,7 +2,7 @@ use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::legend::Legend;
 use crate::marks::{ChannelValue, Mark, RadiusExpression};
-use crate::scales::{Auto, Scale};
+use crate::scales::Scale;
 use crate::theme::Theme;
 use datafusion::dataframe::DataFrame;
 use indexmap::IndexMap;
@@ -492,17 +492,14 @@ impl<C: CoordinateSystem> Plot<C> {
                 channel
             ))
         })?;
-        
+
         // Create render context with theme for scale defaults
         let theme = self.get_theme();
         let context = crate::render_context::RenderContext::new(theme);
-        
+
         // Create scale with theme-based defaults
-        let mut scale = crate::scales::create_default_scale_for_channel(
-            channel,
-            scale_impl.clone(),
-            &context
-        )?;
+        let mut scale =
+            crate::scales::create_default_scale_for_channel(channel, scale_impl.clone(), &context)?;
 
         // Apply coordinate system and mark-specific scale options
         // These override theme defaults
@@ -852,7 +849,9 @@ impl<C: CoordinateSystem> Plot<C> {
                         lit(datafusion::scalar::ScalarValue::Null)
                     }
                 }
-            } else if let Some(default_scalar) = mark.default_channel_value_without_context(channel_name) {
+            } else if let Some(default_scalar) =
+                mark.default_channel_value_without_context(channel_name)
+            {
                 // Use mark-provided default
                 lit(default_scalar)
             } else {

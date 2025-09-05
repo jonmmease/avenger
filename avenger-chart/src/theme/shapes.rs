@@ -45,7 +45,7 @@ impl ShapeSequence {
             .map(|s| s.to_string())
             .collect()
     }
-    
+
     /// Get all shape names as strings
     pub fn get_shape_names(&self) -> Vec<String> {
         self.shapes.iter().map(|s| s.to_string()).collect()

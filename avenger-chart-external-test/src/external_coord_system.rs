@@ -235,6 +235,7 @@ impl CoordinateSystem for Isometric {
         _width: f32,
         _height: f32,
         _plot_area_ratio: f32,
+        _theme: &avenger_chart::theme::Theme,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         // For simplicity, assume isometric axes don't overflow
         Ok(OverflowSpaceRequirement {
@@ -252,6 +253,7 @@ impl CoordinateSystem for Isometric {
         _plot_width: f32,
         _plot_height: f32,
         _padding: &Padding,
+        _theme: &avenger_chart::theme::Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // For this test, we don't need to actually render axes
         Ok(vec![])
@@ -318,13 +320,14 @@ impl Mark<Isometric> for Cube<Isometric> {
         &self,
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
+        _context: &avenger_chart::render_context::RenderContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Custom cube rendering logic would go here
         // For this test, we just return an empty vector
         Ok(vec![])
     }
 
-    fn default_channel_value(&self, channel: &str) -> Option<ScalarValue> {
+    fn default_channel_value(&self, channel: &str, _context: &avenger_chart::render_context::RenderContext) -> Option<ScalarValue> {
         match channel {
             "size" => Some(ScalarValue::Float32(Some(10.0))),
             "fill" => Some(ScalarValue::Utf8(Some("#3498db".to_string()))),

@@ -288,6 +288,7 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
             grid: true,
             format_number: None,
             title_font_size: None,
+            ..Default::default()
         },
     )
     .unwrap();
@@ -303,6 +304,7 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
             grid: true,
             format_number: None,
             title_font_size: None,
+            ..Default::default()
         },
     )
     .unwrap();

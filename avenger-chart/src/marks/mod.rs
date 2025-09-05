@@ -117,13 +117,13 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
         // Fall back to mark-specific defaults (for backward compatibility during migration)
         self.mark_specific_default(channel)
     }
-    
+
     /// Get default without context (temporary during migration)
     /// TODO: Remove once all callers have access to RenderContext
     fn default_channel_value_without_context(&self, channel: &str) -> Option<ScalarValue> {
         self.mark_specific_default(channel)
     }
-    
+
     /// Mark-specific default values (to be overridden by marks)
     fn mark_specific_default(&self, _channel: &str) -> Option<ScalarValue> {
         None

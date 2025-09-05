@@ -11,12 +11,13 @@ use crate::error::AvengerGuidesError;
 
 use super::opts::{AxisConfig, AxisOrientation};
 
-const TICK_LENGTH: f32 = 5.0;
 const TEXT_MARGIN: f32 = 3.0;
 const TITLE_MARGIN: f32 = 2.0;
-const TITLE_FONT_SIZE: f32 = 12.0;
-const TICK_FONT_SIZE: f32 = 10.0;
 const PIXEL_OFFSET: f32 = 0.5;
+
+const DEFAULT_TICK_LENGTH: f32 = 5.0;
+const DEFAULT_TITLE_FONT_SIZE: f32 = 12.0;
+const DEFAULT_TICK_FONT_SIZE: f32 = 10.0;
 
 pub fn make_numeric_axis_marks(
     scale: &ConfiguredScale,
@@ -73,8 +74,14 @@ pub fn make_numeric_axis_marks(
 
     // Add tick grid if enabled
     if config.grid {
-        let grid_group =
-            make_tick_grid_marks(&ticks, &scale, &config.orientation, &config.dimensions)?;
+        let grid_group = make_tick_grid_marks(
+            &ticks,
+            &scale,
+            &config.orientation,
+            &config.dimensions,
+            config.grid_color,
+            config.grid_width,
+        )?;
         main_group.marks.push(grid_group.into());
     }
 
@@ -88,12 +95,20 @@ pub fn make_numeric_axis_marks(
     // Add axis line
     axis_elements_group
         .marks
-        .push(make_axis_line(start, end, is_vertical, offset).into());
+        .push(make_axis_line(start, end, is_vertical, offset, config.domain_color).into());
 
     // Add tick marks
-    axis_elements_group
-        .marks
-        .push(make_tick_marks(&ticks, &scale, &config.orientation, &config.dimensions)?.into());
+    axis_elements_group.marks.push(
+        make_tick_marks(
+            &ticks,
+            &scale,
+            &config.orientation,
+            &config.dimensions,
+            config.tick_length,
+            config.tick_color,
+        )?
+        .into(),
+    );
 
     // Add tick labels
     axis_elements_group.marks.push(
@@ -103,6 +118,9 @@ pub fn make_numeric_axis_marks(
             &config.orientation,
             &config.dimensions,
             config.format_number.as_deref(),
+            config.label_font_size,
+            config.label_font_weight,
+            config.label_color,
         )?
         .into(),
     );
@@ -134,7 +152,13 @@ pub fn make_numeric_axis_marks(
     Ok(main_group)
 }
 
-fn make_axis_line(start: f32, end: f32, is_vertical: bool, offset: f32) -> SceneRuleMark {
+fn make_axis_line(
+    start: f32,
+    end: f32,
+    is_vertical: bool,
+    offset: f32,
+    color: Option<[f32; 4]>,
+) -> SceneRuleMark {
     let (x0, x1, y0, y1) = if is_vertical {
         (offset, offset, start, end)
     } else {
@@ -146,7 +170,7 @@ fn make_axis_line(start: f32, end: f32, is_vertical: bool, offset: f32) -> Scene
         x2: x1.into(),
         y: y0.into(),
         y2: y1.into(),
-        stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
+        stroke: ColorOrGradient::Color(color.unwrap_or([0.0, 0.0, 0.0, 1.0])).into(),
         stroke_width: 1.0.into(),
         ..Default::default()
     }
@@ -157,19 +181,22 @@ fn make_tick_marks(
     scale: &ConfiguredScale,
     orientation: &AxisOrientation,
     dimensions: &[f32; 2],
+    tick_length: Option<f32>,
+    color: Option<[f32; 4]>,
 ) -> Result<SceneRuleMark, AvengerGuidesError> {
     let scaled_values = scale.scale_to_numeric(ticks)?;
+    let tick_len = tick_length.unwrap_or(DEFAULT_TICK_LENGTH);
 
     let (x0, x1, y0, y1) = match orientation {
         AxisOrientation::Left => (
             ScalarOrArray::new_scalar(0.0),
-            ScalarOrArray::new_scalar(-TICK_LENGTH),
+            ScalarOrArray::new_scalar(-tick_len),
             scaled_values.clone(),
             scaled_values.clone(),
         ),
         AxisOrientation::Right => (
             ScalarOrArray::new_scalar(dimensions[0]),
-            ScalarOrArray::new_scalar(dimensions[0] + TICK_LENGTH),
+            ScalarOrArray::new_scalar(dimensions[0] + tick_len),
             scaled_values.clone(),
             scaled_values.clone(),
         ),
@@ -177,13 +204,13 @@ fn make_tick_marks(
             scaled_values.clone(),
             scaled_values.clone(),
             ScalarOrArray::new_scalar(0.0),
-            ScalarOrArray::new_scalar(-TICK_LENGTH),
+            ScalarOrArray::new_scalar(-tick_len),
         ),
         AxisOrientation::Bottom => (
             scaled_values.clone(),
             scaled_values.clone(),
             ScalarOrArray::new_scalar(dimensions[1]),
-            ScalarOrArray::new_scalar(dimensions[1] + TICK_LENGTH),
+            ScalarOrArray::new_scalar(dimensions[1] + tick_len),
         ),
     };
 
@@ -194,7 +221,7 @@ fn make_tick_marks(
         x2: x1,
         y: y0,
         y2: y1,
-        stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]).into(),
+        stroke: ColorOrGradient::Color(color.unwrap_or([0.0, 0.0, 0.0, 1.0])).into(),
         stroke_width: 1.0.into(),
         ..Default::default()
     })
@@ -205,6 +232,8 @@ fn make_tick_grid_marks(
     scale: &ConfiguredScale,
     orientation: &AxisOrientation,
     dimensions: &[f32; 2],
+    color: Option<[f32; 4]>,
+    width: Option<f32>,
 ) -> Result<SceneGroup, AvengerGuidesError> {
     let scaled_values = scale.scale_to_numeric(ticks)?;
 
@@ -242,8 +271,8 @@ fn make_tick_grid_marks(
         x2: x1,
         y: y0,
         y2: y1,
-        stroke: ColorOrGradient::Color([0.878, 0.878, 0.878, 0.5]).into(), // #E0E0E0 with opacity 0.5
-        stroke_width: 0.5.into(),
+        stroke: ColorOrGradient::Color(color.unwrap_or([0.878, 0.878, 0.878, 0.5])).into(), // Default: #E0E0E0 with opacity 0.5
+        stroke_width: width.unwrap_or(0.5).into(),
         ..Default::default()
     };
 
@@ -264,6 +293,9 @@ fn make_tick_labels(
     orientation: &AxisOrientation,
     dimensions: &[f32; 2],
     format_number: Option<&str>,
+    font_size: Option<f32>,
+    font_weight: Option<f32>,
+    color: Option<[f32; 4]>,
 ) -> Result<SceneTextMark, AvengerGuidesError> {
     // If a numeric format string is provided, override the scale's number formatter
     let tick_text = if let Some(pattern) = format_number {
@@ -291,7 +323,8 @@ fn make_tick_labels(
 
     // Adjust y position slightly for Atkinson Hyperlegible Next font's metrics
     // Numbers don't use full descent, so shift up by ~10% of font size for better visual centering
-    let font_adjustment = TICK_FONT_SIZE * 0.10;
+    let tick_font_size = font_size.unwrap_or(DEFAULT_TICK_FONT_SIZE);
+    let font_adjustment = tick_font_size * 0.10;
     let adjusted_values_left_right = scaled_values
         .as_vec(ticks.len(), None)
         .into_iter()
@@ -300,14 +333,14 @@ fn make_tick_labels(
 
     let (x, y, align, baseline, angle) = match orientation {
         AxisOrientation::Left => (
-            ScalarOrArray::new_scalar(-TICK_LENGTH - TEXT_MARGIN),
+            ScalarOrArray::new_scalar(-DEFAULT_TICK_LENGTH - TEXT_MARGIN),
             ScalarOrArray::new_array(adjusted_values_left_right.clone()),
             TextAlign::Right,
             TextBaseline::Middle,
             0.0,
         ),
         AxisOrientation::Right => (
-            ScalarOrArray::new_scalar(dimensions[0] + TICK_LENGTH + TEXT_MARGIN),
+            ScalarOrArray::new_scalar(dimensions[0] + DEFAULT_TICK_LENGTH + TEXT_MARGIN),
             ScalarOrArray::new_array(adjusted_values_left_right),
             TextAlign::Left,
             TextBaseline::Middle,
@@ -315,14 +348,14 @@ fn make_tick_labels(
         ),
         AxisOrientation::Top => (
             scaled_values,
-            ScalarOrArray::new_scalar(-TICK_LENGTH),
+            ScalarOrArray::new_scalar(-DEFAULT_TICK_LENGTH),
             TextAlign::Center,
             TextBaseline::Bottom,
             0.0,
         ),
         AxisOrientation::Bottom => (
             scaled_values,
-            ScalarOrArray::new_scalar(dimensions[1] + TICK_LENGTH + TEXT_MARGIN),
+            ScalarOrArray::new_scalar(dimensions[1] + DEFAULT_TICK_LENGTH + TEXT_MARGIN),
             TextAlign::Center,
             TextBaseline::Top,
             0.0,
@@ -337,9 +370,9 @@ fn make_tick_labels(
         align: align.into(),
         baseline: baseline.into(),
         angle: angle.into(),
-        color: ColorOrGradient::Color([0.353, 0.353, 0.353, 1.0]).into(), // #5A5A5A
-        font_size: TICK_FONT_SIZE.into(),
-        font_weight: FontWeight::Number(300.0).into(), // Light weight for tick labels
+        color: ColorOrGradient::Color(color.unwrap_or([0.353, 0.353, 0.353, 1.0])).into(), // Default: #5A5A5A
+        font_size: tick_font_size.into(),
+        font_weight: FontWeight::Number(font_weight.unwrap_or(300.0)).into(), // Default: light weight for tick labels
         ..Default::default()
     })
 }
@@ -412,9 +445,13 @@ fn make_title(
         align: align.into(),
         baseline: baseline.into(),
         angle: angle.into(),
-        color: ColorOrGradient::Color([0.173, 0.173, 0.173, 1.0]).into(), // #2C2C2C
-        font_size: config.title_font_size.unwrap_or(TITLE_FONT_SIZE).into(),
-        font_weight: FontWeight::Number(400.0).into(),
+        color: ColorOrGradient::Color(config.title_color.unwrap_or([0.173, 0.173, 0.173, 1.0]))
+            .into(), // Default: #2C2C2C
+        font_size: config
+            .title_font_size
+            .unwrap_or(DEFAULT_TITLE_FONT_SIZE)
+            .into(),
+        font_weight: FontWeight::Number(config.title_font_weight.unwrap_or(400.0)).into(),
         ..Default::default()
     })
 }

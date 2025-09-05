@@ -50,10 +50,7 @@ impl Default for MarkDefaults {
             "stroke".to_string(),
             ScalarValue::Utf8(Some("#000000".to_string())),
         );
-        symbol_defaults.insert(
-            "stroke_width".to_string(),
-            ScalarValue::Float32(Some(1.0)),
-        );
+        symbol_defaults.insert("stroke_width".to_string(), ScalarValue::Float32(Some(1.0)));
         symbol_defaults.insert("size".to_string(), ScalarValue::Float32(Some(64.0)));
         symbol_defaults.insert(
             "shape".to_string(),
@@ -73,14 +70,8 @@ impl Default for MarkDefaults {
             "stroke".to_string(),
             ScalarValue::Utf8(Some("#000000".to_string())),
         );
-        rect_defaults.insert(
-            "stroke_width".to_string(),
-            ScalarValue::Float32(Some(0.0)),
-        );
-        rect_defaults.insert(
-            "corner_radius".to_string(),
-            ScalarValue::Float32(Some(0.0)),
-        );
+        rect_defaults.insert("stroke_width".to_string(), ScalarValue::Float32(Some(0.0)));
+        rect_defaults.insert("corner_radius".to_string(), ScalarValue::Float32(Some(0.0)));
         rect_defaults.insert("opacity".to_string(), ScalarValue::Float32(Some(1.0)));
         defaults.insert("rect".to_string(), rect_defaults);
 
@@ -90,15 +81,21 @@ impl Default for MarkDefaults {
             "stroke".to_string(),
             ScalarValue::Utf8(Some("#4682b4".to_string())),
         );
-        line_defaults.insert(
-            "stroke_width".to_string(),
-            ScalarValue::Float32(Some(2.0)),
-        );
+        line_defaults.insert("stroke_width".to_string(), ScalarValue::Float32(Some(2.0)));
         line_defaults.insert(
             "stroke_dash".to_string(),
             ScalarValue::Utf8(Some("solid".to_string())),
         );
+        line_defaults.insert(
+            "stroke_cap".to_string(),
+            ScalarValue::Utf8(Some("round".to_string())),
+        );
+        line_defaults.insert(
+            "stroke_join".to_string(),
+            ScalarValue::Utf8(Some("round".to_string())),
+        );
         line_defaults.insert("opacity".to_string(), ScalarValue::Float32(Some(1.0)));
+        line_defaults.insert("defined".to_string(), ScalarValue::Boolean(Some(true)));
         defaults.insert("line".to_string(), line_defaults);
 
         // Area mark defaults
@@ -107,18 +104,12 @@ impl Default for MarkDefaults {
             "fill".to_string(),
             ScalarValue::Utf8(Some("#4682b4".to_string())),
         );
-        area_defaults.insert(
-            "fill_opacity".to_string(),
-            ScalarValue::Float32(Some(0.7)),
-        );
+        area_defaults.insert("fill_opacity".to_string(), ScalarValue::Float32(Some(0.7)));
         area_defaults.insert(
             "stroke".to_string(),
             ScalarValue::Utf8(Some("#000000".to_string())),
         );
-        area_defaults.insert(
-            "stroke_width".to_string(),
-            ScalarValue::Float32(Some(0.0)),
-        );
+        area_defaults.insert("stroke_width".to_string(), ScalarValue::Float32(Some(0.0)));
         defaults.insert("area".to_string(), area_defaults);
 
         // Arc mark defaults
@@ -131,16 +122,10 @@ impl Default for MarkDefaults {
             "stroke".to_string(),
             ScalarValue::Utf8(Some("#000000".to_string())),
         );
-        arc_defaults.insert(
-            "stroke_width".to_string(),
-            ScalarValue::Float32(Some(1.0)),
-        );
+        arc_defaults.insert("stroke_width".to_string(), ScalarValue::Float32(Some(1.0)));
         arc_defaults.insert("opacity".to_string(), ScalarValue::Float32(Some(1.0)));
         arc_defaults.insert("pad_angle".to_string(), ScalarValue::Float32(Some(0.0)));
-        arc_defaults.insert(
-            "corner_radius".to_string(),
-            ScalarValue::Float32(Some(0.0)),
-        );
+        arc_defaults.insert("corner_radius".to_string(), ScalarValue::Float32(Some(0.0)));
         defaults.insert("arc".to_string(), arc_defaults);
 
         // Text mark defaults
@@ -154,10 +139,7 @@ impl Default for MarkDefaults {
             ScalarValue::Utf8(Some("Atkinson Hyperlegible Next".to_string())),
         );
         text_defaults.insert("font_size".to_string(), ScalarValue::Float32(Some(12.0)));
-        text_defaults.insert(
-            "font_weight".to_string(),
-            ScalarValue::Float32(Some(400.0)),
-        );
+        text_defaults.insert("font_weight".to_string(), ScalarValue::Float32(Some(400.0)));
         text_defaults.insert(
             "align".to_string(),
             ScalarValue::Utf8(Some("center".to_string())),

@@ -72,6 +72,7 @@ impl CoordinateSystem for Polar {
         width: f32,
         height: f32,
         plot_area_ratio: f32,
+        theme: &crate::theme::Theme,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         use crate::render::Padding;
         use avenger_geometry::marks::MarkGeometryUtils;
@@ -91,7 +92,14 @@ impl CoordinateSystem for Polar {
 
         // Render axes to measure their bounding box
         let axis_marks = self
-            .render_axes(&axes, scales, plot_width, plot_height, &initial_padding)
+            .render_axes(
+                &axes,
+                scales,
+                plot_width,
+                plot_height,
+                &initial_padding,
+                theme,
+            )
             .await?;
 
         // Calculate bounding box of all axis marks
@@ -185,6 +193,7 @@ impl CoordinateSystem for Polar {
         plot_width: f32,
         plot_height: f32,
         padding: &crate::render::Padding,
+        theme: &crate::theme::Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut axis_marks = Vec::new();
 
@@ -192,8 +201,15 @@ impl CoordinateSystem for Polar {
         for (channel, axis) in axes {
             let scale = scales.get(channel);
             if let Some(scale) = scale {
-                let marks =
-                    axis.render(channel, scale, scales, plot_width, plot_height, padding)?;
+                let marks = axis.render(
+                    channel,
+                    scale,
+                    scales,
+                    plot_width,
+                    plot_height,
+                    padding,
+                    theme,
+                )?;
                 axis_marks.extend(marks);
             }
         }

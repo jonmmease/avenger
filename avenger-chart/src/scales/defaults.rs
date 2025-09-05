@@ -2,7 +2,7 @@
 
 use crate::error::AvengerChartError;
 use crate::render_context::RenderContext;
-use crate::scales::{Scale, Auto};
+use crate::scales::{Auto, Scale};
 use crate::utils::ScalarValueHelpers;
 use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
 use datafusion::arrow::datatypes::DataType;
@@ -21,60 +21,46 @@ pub struct ChannelCharacteristics {
 pub fn get_channel_characteristics(channel: &str) -> ChannelCharacteristics {
     match channel {
         // Position channels - typically continuous
-        "x" | "y" | "x2" | "y2" | "r" | "theta" | "radius" | "angle" => {
-            ChannelCharacteristics {
-                expected_domain: DomainKind::Numeric,
-                expected_range: RangeKind::Continuous,
-            }
-        }
-        
+        "x" | "y" | "x2" | "y2" | "r" | "theta" | "radius" | "angle" => ChannelCharacteristics {
+            expected_domain: DomainKind::Numeric,
+            expected_range: RangeKind::Continuous,
+        },
+
         // Color channels - can be categorical or continuous
-        "fill" | "stroke" | "color" => {
-            ChannelCharacteristics {
-                expected_domain: DomainKind::Categorical,
-                expected_range: RangeKind::Discrete,
-            }
-        }
-        
+        "fill" | "stroke" | "color" => ChannelCharacteristics {
+            expected_domain: DomainKind::Categorical,
+            expected_range: RangeKind::Discrete,
+        },
+
         // Opacity channels - continuous 0-1
-        "opacity" | "fill_opacity" | "stroke_opacity" => {
-            ChannelCharacteristics {
-                expected_domain: DomainKind::Numeric,
-                expected_range: RangeKind::Continuous,
-            }
-        }
-        
+        "opacity" | "fill_opacity" | "stroke_opacity" => ChannelCharacteristics {
+            expected_domain: DomainKind::Numeric,
+            expected_range: RangeKind::Continuous,
+        },
+
         // Shape channel - categorical
-        "shape" => {
-            ChannelCharacteristics {
-                expected_domain: DomainKind::Categorical,
-                expected_range: RangeKind::Discrete,
-            }
-        }
-        
+        "shape" => ChannelCharacteristics {
+            expected_domain: DomainKind::Categorical,
+            expected_range: RangeKind::Discrete,
+        },
+
         // Size channels - continuous positive
-        "size" | "stroke_width" | "width" | "height" => {
-            ChannelCharacteristics {
-                expected_domain: DomainKind::Numeric,
-                expected_range: RangeKind::Continuous,
-            }
-        }
-        
+        "size" | "stroke_width" | "width" | "height" => ChannelCharacteristics {
+            expected_domain: DomainKind::Numeric,
+            expected_range: RangeKind::Continuous,
+        },
+
         // Dash channel - categorical
-        "stroke_dash" => {
-            ChannelCharacteristics {
-                expected_domain: DomainKind::Categorical,
-                expected_range: RangeKind::Discrete,
-            }
-        }
-        
+        "stroke_dash" => ChannelCharacteristics {
+            expected_domain: DomainKind::Categorical,
+            expected_range: RangeKind::Discrete,
+        },
+
         // Default to continuous numeric
-        _ => {
-            ChannelCharacteristics {
-                expected_domain: DomainKind::Numeric,
-                expected_range: RangeKind::Continuous,
-            }
-        }
+        _ => ChannelCharacteristics {
+            expected_domain: DomainKind::Numeric,
+            expected_range: RangeKind::Continuous,
+        },
     }
 }
 
@@ -87,65 +73,78 @@ pub fn create_default_scale_for_channel(
     let _characteristics = get_channel_characteristics(channel); // TODO: Use for validation
     let domain_kind = scale_impl.domain_kind();
     let range_kind = scale_impl.range_kind();
-    
+
     let mut scale = Scale::<Auto>::from_impl(scale_impl);
-    
+
     // Set range based on channel type and theme
     match (channel, domain_kind, range_kind) {
         // Color channels with discrete range
-        (ch, DomainKind::Categorical, RangeKind::Discrete) 
-            if ch == "fill" || ch == "stroke" || ch == "color" => {
-            let colors: Vec<ScalarValue> = context.theme.colors.categorical
+        (ch, DomainKind::Categorical, RangeKind::Discrete)
+            if ch == "fill" || ch == "stroke" || ch == "color" =>
+        {
+            let colors: Vec<ScalarValue> = context
+                .theme
+                .colors
+                .categorical
                 .iter()
                 .map(|c| ScalarValue::Utf8(Some(c.clone())))
                 .collect();
             scale = scale.range_discrete(colors);
         }
-        
+
         // Shape channel
         ("shape", DomainKind::Categorical, RangeKind::Discrete) => {
-            let shapes: Vec<ScalarValue> = context.theme.shapes.get_shape_names()
+            let shapes: Vec<ScalarValue> = context
+                .theme
+                .shapes
+                .get_shape_names()
                 .into_iter()
                 .map(|s| ScalarValue::Utf8(Some(s)))
                 .collect();
             scale = scale.range_discrete(shapes);
         }
-        
+
         // Stroke dash channel
         ("stroke_dash", DomainKind::Categorical, RangeKind::Discrete) => {
-            let dashes: Vec<ScalarValue> = context.theme.dashes.get_dash_names()
+            let dashes: Vec<ScalarValue> = context
+                .theme
+                .dashes
+                .get_dash_names()
                 .into_iter()
                 .map(|d| ScalarValue::Utf8(Some(d)))
                 .collect();
             scale = scale.range_discrete(dashes);
         }
-        
+
         // Size channels with continuous range
         (ch, _, RangeKind::Continuous) if ch == "size" => {
             // Get default size from theme
-            let default_size = context.theme.mark_defaults
+            let default_size = context
+                .theme
+                .mark_defaults
                 .get("symbol", "size")
                 .and_then(|v| v.as_f32().ok())
                 .unwrap_or(64.0);
             scale = scale.range_interval(lit(default_size * 0.5), lit(default_size * 2.0));
         }
-        
+
         // Stroke width
         ("stroke_width", _, RangeKind::Continuous) => {
             scale = scale.range_interval(lit(0.5), lit(5.0));
         }
-        
+
         // Opacity channels
-        (ch, _, RangeKind::Continuous) 
-            if ch == "opacity" || ch == "fill_opacity" || ch == "stroke_opacity" => {
+        (ch, _, RangeKind::Continuous)
+            if ch == "opacity" || ch == "fill_opacity" || ch == "stroke_opacity" =>
+        {
             scale = scale.range_interval(lit(0.0), lit(1.0));
         }
-        
+
         _ => {
             // Use default range already set by scale implementation
         }
     }
-    
+
     Ok(scale)
 }
 

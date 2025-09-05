@@ -3,12 +3,11 @@ use crate::channel_configs::{
 };
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
-use crate::marks::{ChannelDefault, MarkState};
+use crate::marks::MarkState;
 use crate::{define_common_mark_channels, impl_mark_base};
 use datafusion::arrow::array::ArrayRef;
 use datafusion::arrow::compute::kernels::cast::cast;
 use datafusion::arrow::datatypes::DataType;
-use datafusion::scalar::ScalarValue;
 
 pub struct Line<C: CoordinateSystem> {
     pub(crate) state: MarkState<C>,
@@ -22,35 +21,35 @@ impl_mark_base!(Line);
 define_common_mark_channels! {
     Line {
         stroke: {
-            default: ChannelDefault::Scalar(ScalarValue::Utf8(Some("#000000".to_string()))),
+            // Default now comes from theme
             allow_column: true,
             with_config: ColorChannelConfig,
         },
         stroke_width: {
-            default: ChannelDefault::Scalar(ScalarValue::Float32(Some(2.0))),
+            // Default now comes from theme
             allow_column: true,
             with_config: StrokeWidthChannelConfig,
         },
         stroke_dash: {
-            default: ChannelDefault::Scalar(ScalarValue::Utf8(Some("solid".to_string()))),
+            // Default now comes from theme
             allow_column: true,
             with_config: StrokeDashChannelConfig,
         },
         stroke_cap: {
-            default: ChannelDefault::Scalar(ScalarValue::Utf8(Some("round".to_string()))),
+            // Default now comes from theme
             allow_column: false,
         },
         stroke_join: {
-            default: ChannelDefault::Scalar(ScalarValue::Utf8(Some("round".to_string()))),
+            // Default now comes from theme
             allow_column: false,
         },
         opacity: {
-            default: ChannelDefault::Scalar(ScalarValue::Float32(Some(1.0))),
+            // Default now comes from theme
             allow_column: false,
             with_config: OpacityChannelConfig,
         },
         defined: {
-            default: ChannelDefault::Scalar(ScalarValue::Boolean(Some(true))),
+            // Default now comes from theme
         },
         order: {
             allow_column: true,

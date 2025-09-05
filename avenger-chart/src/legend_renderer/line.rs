@@ -66,7 +66,8 @@ impl LineLegendRenderer {
                     }
                 }
                 // Try to get stroke_join from mark's default channel values
-                if let Some(join_value) = mark.default_channel_value_without_context("stroke_join") {
+                if let Some(join_value) = mark.default_channel_value_without_context("stroke_join")
+                {
                     if let Ok(join_str) = join_value.as_scalar_string() {
                         stroke_join = match join_str.as_str() {
                             "miter" => StrokeJoin::Miter,

@@ -132,17 +132,11 @@ impl Theme {
         let mut mark_defaults = IndexMap::new();
 
         let mut line = IndexMap::new();
-        line.insert(
-            "stroke_width".to_string(),
-            ScalarValue::Float32(Some(3.0)),
-        );
+        line.insert("stroke_width".to_string(), ScalarValue::Float32(Some(3.0)));
         mark_defaults.insert("line".to_string(), line);
 
         let mut symbol = IndexMap::new();
-        symbol.insert(
-            "stroke_width".to_string(),
-            ScalarValue::Float32(Some(2.0)),
-        );
+        symbol.insert("stroke_width".to_string(), ScalarValue::Float32(Some(2.0)));
         symbol.insert("size".to_string(), ScalarValue::Float32(Some(100.0)));
         mark_defaults.insert("symbol".to_string(), symbol);
 

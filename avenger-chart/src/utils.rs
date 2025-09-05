@@ -34,6 +34,18 @@ pub fn parse_color_string(color_str: &str) -> Option<avenger_common::types::Colo
         .and_then(|colors| colors.as_vec(1, None).first().cloned())
 }
 
+/// Helper to parse color string to RGBA array
+pub fn parse_color_to_array(color_str: &str) -> [f32; 4] {
+    if let Some(color) = parse_color_string(color_str) {
+        match color {
+            avenger_common::types::ColorOrGradient::Color(rgba) => rgba,
+            _ => [0.0, 0.0, 0.0, 1.0], // Default to black if gradient
+        }
+    } else {
+        [0.0, 0.0, 0.0, 1.0] // Default to black if parse fails
+    }
+}
+
 pub trait DataFrameChartHelpers {
     /// Return two-element array of min and max values across all the columns in the input DataFrame
     fn span(&self) -> Result<Expr, AvengerChartError>;

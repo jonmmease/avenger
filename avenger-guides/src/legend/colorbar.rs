@@ -67,12 +67,19 @@ pub fn make_colorbar_marks(
                 orientation: AxisOrientation::Right,
                 dimensions: [0.0, gradient_height],
                 grid: false,
-                format_number: None,
-                title_font_size: Some(12.0), // Use smaller font for colorbar titles
-            };
-            let axis_config = AxisConfig {
                 format_number: config.format_number.clone(),
-                ..axis_config
+                title_font_size: Some(12.0), // Use smaller font for colorbar titles
+                // Use default theme values for colors
+                domain_color: None,
+                tick_color: None,
+                grid_color: None,
+                grid_width: None,
+                label_color: None,
+                title_color: None,
+                tick_length: None,
+                label_font_size: None,
+                label_font_weight: None,
+                title_font_weight: None,
             };
 
             // Create a new scale with desired range for the axis

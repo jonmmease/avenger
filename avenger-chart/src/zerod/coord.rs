@@ -99,6 +99,7 @@ impl CoordinateSystem for ZeroDCoord {
         _width: f32,
         _height: f32,
         _plot_area_ratio: f32,
+        _theme: &crate::theme::Theme,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         unreachable!("ZeroDCoord has no spatial extent for guides")
     }
@@ -110,6 +111,7 @@ impl CoordinateSystem for ZeroDCoord {
         _plot_width: f32,
         _plot_height: f32,
         _padding: &crate::render::Padding,
+        _theme: &crate::theme::Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         unreachable!("ZeroDCoord has no axes to render (0D space)")
     }

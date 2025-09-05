@@ -14,11 +14,11 @@ use indexmap::IndexMap;
 // Import Line for the macro, then re-export it
 use crate::error::AvengerChartError;
 pub use crate::marks::line::{Line, ensure_dictionary_array};
-use crate::render_context::RenderContext;
 use crate::marks::util::{
     coerce_bool_channel_with_mark, coerce_numeric_channel_with_mark,
     coerce_stroke_cap_channel_with_mark, coerce_stroke_join_channel_with_mark,
 };
+use crate::render_context::RenderContext;
 use crate::scales::ScaleRange;
 use std::sync::Arc;
 

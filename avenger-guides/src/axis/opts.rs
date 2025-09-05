@@ -13,4 +13,37 @@ pub struct AxisConfig {
     pub grid: bool,
     pub format_number: Option<String>,
     pub title_font_size: Option<f32>,
+    // Theming
+    pub domain_color: Option<[f32; 4]>,
+    pub tick_color: Option<[f32; 4]>,
+    pub grid_color: Option<[f32; 4]>,
+    pub grid_width: Option<f32>,
+    pub label_color: Option<[f32; 4]>,
+    pub title_color: Option<[f32; 4]>,
+    pub tick_length: Option<f32>,
+    pub label_font_size: Option<f32>,
+    pub label_font_weight: Option<f32>,
+    pub title_font_weight: Option<f32>,
+}
+
+impl Default for AxisConfig {
+    fn default() -> Self {
+        Self {
+            orientation: AxisOrientation::Bottom,
+            dimensions: [100.0, 100.0],
+            grid: false,
+            format_number: None,
+            title_font_size: None,
+            domain_color: None,
+            tick_color: None,
+            grid_color: None,
+            grid_width: None,
+            label_color: None,
+            title_color: None,
+            tick_length: None,
+            label_font_size: None,
+            label_font_weight: None,
+            title_font_weight: None,
+        }
+    }
 }
