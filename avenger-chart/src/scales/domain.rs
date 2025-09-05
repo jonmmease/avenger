@@ -16,6 +16,8 @@ pub enum ScaleDefaultDomain {
     Discrete(Vec<Expr>),
     // Domain derived from data
     DomainExprs(Vec<DomainExpr>),
+    // No default domain, must be provided explicitly
+    NoDefault,
 }
 
 #[derive(Debug, Clone)]

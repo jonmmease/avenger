@@ -294,7 +294,10 @@ impl<S: ScaleSpec> Scale<S> {
         }
 
         // Skip for discrete domains - normalization doesn't apply to categorical data
-        if matches!(&self.domain.default_domain, ScaleDefaultDomain::Discrete(_)) {
+        if matches!(
+            &self.domain.default_domain,
+            ScaleDefaultDomain::Discrete(_) | ScaleDefaultDomain::NoDefault
+        ) {
             return Ok(self);
         }
 
@@ -324,6 +327,11 @@ impl<S: ScaleSpec> Scale<S> {
 
         // Extract domain values as arrow array
         let domain = match &self.domain.default_domain {
+            ScaleDefaultDomain::NoDefault => {
+                return Err(AvengerChartError::InternalError(
+                    "Domain must be specified for scale before creating ConfiguredScale".to_string(),
+                ))
+            }
             ScaleDefaultDomain::Interval(start, end) => {
                 let scalars =
                     eval_to_scalars(vec![start.clone(), end.as_ref().clone()], None, None).await?;

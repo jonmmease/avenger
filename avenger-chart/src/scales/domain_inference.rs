@@ -278,9 +278,7 @@ impl DomainInferrer {
             InferDomainFromDataMethod::All => union_df.all_values()?,
             InferDomainFromDataMethod::Explicit => {
                 // Explicit scales shouldn't infer domain from data
-                return Err(AvengerChartError::InternalError(
-                    "Scale requires explicit domain and cannot infer from data".to_string(),
-                ));
+                return Ok(ScaleDefaultDomain::NoDefault);
             }
         };
 
