@@ -226,3 +226,25 @@ pub async fn assert_visual_match_default<C: CoordinateSystem>(
 ) {
     assert_visual_match(plot, category, baseline_name, 0.9999).await
 }
+
+/// Test a plot with a custom theme against its baseline
+pub async fn assert_visual_match_with_theme<C: CoordinateSystem>(
+    plot: Plot<C>,
+    theme: avenger_chart::theme::Theme,
+    category: &str,
+    baseline_name: &str,
+    tolerance: f64,
+) {
+    let plot_with_theme = plot.theme(theme);
+    let rendered = plot_with_theme.to_image().await;
+    let baseline_path = get_baseline_path(category, baseline_name);
+
+    let config = VisualTestConfig {
+        threshold: tolerance,
+        save_diff_on_failure: true,
+    };
+
+    if let Err(msg) = compare_images(&baseline_path, rendered, &config) {
+        panic!("Visual test '{}' failed: {}", baseline_name, msg);
+    }
+}

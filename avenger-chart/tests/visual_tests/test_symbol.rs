@@ -1,5 +1,6 @@
-use super::helpers::assert_visual_match_default;
+use super::helpers::{assert_visual_match_default, assert_visual_match_with_theme};
 use avenger_chart::prelude::*;
+use avenger_chart::theme::Theme;
 
 use datafusion::arrow::array::{Float64Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
@@ -74,6 +75,34 @@ async fn test_simple_scatter_plot() {
     assert_eq!(symbol.len, 10); // 10 data points
 
     assert_visual_match_default(plot, "symbol", "simple_scatter_plot").await;
+}
+
+#[tokio::test]
+async fn test_simple_scatter_plot_dark() {
+    let df = create_scatter_data();
+
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x_with(col("x"), |c| {
+                c.scale_with::<Linear>(|s| s).axis(|a| a.title("X Value"))
+            })
+            .y_with(col("y"), |c| {
+                c.scale_with::<Linear>(|s| s).axis(|a| a.title("Y Value"))
+            })
+            .size(100.0)
+            .fill("#4C9ED9") // Use a color from the dark theme palette
+            .stroke("#70E99D") // Use another color from dark theme
+            .stroke_width(1.5),
+    );
+
+    assert_visual_match_with_theme(
+        plot,
+        Theme::dark(),
+        "symbol",
+        "simple_scatter_plot_dark",
+        0.9999,
+    )
+    .await;
 }
 
 #[tokio::test]

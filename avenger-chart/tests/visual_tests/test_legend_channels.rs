@@ -1,5 +1,6 @@
-use crate::visual_tests::helpers::assert_visual_match_default;
+use crate::visual_tests::helpers::{assert_visual_match_default, assert_visual_match_with_theme};
 use avenger_chart::prelude::*;
+use avenger_chart::theme::Theme;
 
 use datafusion::arrow::array::{ArrayRef, Float32Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
@@ -201,4 +202,73 @@ async fn test_combined_size_color_shape_legend() {
         );
 
     assert_visual_match_default(plot, "legend", "combined_size_color_shape_legend").await;
+}
+
+#[tokio::test]
+async fn test_combined_size_color_shape_legend_dark() {
+    // Same data as original test
+    let categories = StringArray::from(vec![
+        "Type A", "Type A", "Type A", "Type A", "Type B", "Type B", "Type B", "Type B", "Type C",
+        "Type C", "Type C", "Type C",
+    ]);
+
+    let x_values = Float32Array::from(vec![
+        1.0, 2.0, 3.0, 4.0, 1.5, 2.5, 3.5, 4.5, 1.2, 2.2, 3.2, 4.2,
+    ]);
+
+    let y_values = Float32Array::from(vec![
+        2.0, 3.0, 2.5, 3.5, 2.2, 3.2, 2.7, 3.7, 2.1, 3.1, 2.6, 3.6,
+    ]);
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("category", DataType::Utf8, false),
+        Field::new("x", DataType::Float32, false),
+        Field::new("y", DataType::Float32, false),
+    ]));
+
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(categories) as ArrayRef,
+            Arc::new(x_values) as ArrayRef,
+            Arc::new(y_values) as ArrayRef,
+        ],
+    )
+    .unwrap();
+
+    let ctx = SessionContext::new();
+    let df = ctx.read_batch(batch).unwrap();
+
+    // Create plot without custom colors - let the dark theme provide them
+    let plot = Plot::<Cartesian>::new()
+        .data(df)
+        // Configure scales for the shared category column (sizes only, colors from theme)
+        ._scale("size", |scale| {
+            scale.range_discrete(vec![30.0, 120.0, 480.0]).domain(vec![
+                lit("Type A"),
+                lit("Type B"),
+                lit("Type C"),
+            ])
+        })
+        // Let the theme provide the colors and shapes
+        .legend("fill", |legend| legend.title("Type"))
+        .mark(
+            Symbol::new()
+                .x(col("x"))
+                .y(col("y"))
+                // All three channels use the same column
+                .size(col("category"))
+                .fill(col("category"))
+                .shape(col("category"))
+                .stroke_width_with(lit(1.5), |c| c.no_scale()),
+        );
+
+    assert_visual_match_with_theme(
+        plot,
+        Theme::dark(),
+        "legend",
+        "combined_size_color_shape_legend_dark",
+        0.9999,
+    )
+    .await;
 }

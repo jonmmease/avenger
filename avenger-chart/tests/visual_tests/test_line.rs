@@ -1,5 +1,6 @@
-use super::helpers::assert_visual_match_default;
+use super::helpers::{assert_visual_match_default, assert_visual_match_with_theme};
 use avenger_chart::prelude::*;
+use avenger_chart::theme::Theme;
 use datafusion::arrow::array::{Float64Array, Int32Array};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
@@ -44,6 +45,32 @@ async fn test_simple_line_chart() {
     );
 
     assert_visual_match_default(plot, "line", "simple_line_chart").await;
+}
+
+#[tokio::test]
+async fn test_simple_line_chart_dark() {
+    let df = create_line_data();
+
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Line::new()
+            .x_with(col("x"), |c| {
+                c.scale_with::<Linear>(|s| s).axis(|a| a.title("X Value"))
+            })
+            .y_with(col("y"), |c| {
+                c.scale_with::<Linear>(|s| s).axis(|a| a.title("Y Value"))
+            })
+            .stroke("#70E99D") // Mint green from dark theme
+            .stroke_width(2.5),
+    );
+
+    assert_visual_match_with_theme(
+        plot,
+        Theme::dark(),
+        "line",
+        "simple_line_chart_dark",
+        0.9999,
+    )
+    .await;
 }
 
 #[tokio::test]
