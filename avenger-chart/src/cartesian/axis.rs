@@ -112,24 +112,28 @@ impl CartesianAxis {
         };
 
         // Generate axis marks based on scale type
-        let scale_type = scale.scale_impl.scale_type();
-
-        let axis_group = match scale_type {
-            "band" | "point" => make_band_axis_marks(
+        // Check if scale has "band" option (band and point scales have this)
+        let has_band_option = scale
+            .scale_impl
+            .option_definitions()
+            .iter()
+            .any(|def| def.name == "band");
+        
+        let axis_group = if has_band_option {
+            make_band_axis_marks(
                 scale,
                 self.title.as_deref().unwrap_or(""),
                 axis_origin,
                 &axis_config,
-            )?,
-            _ => {
-                // Default to numeric axis for linear and other continuous scales
-                make_numeric_axis_marks(
-                    scale,
-                    self.title.as_deref().unwrap_or(""),
-                    axis_origin,
-                    &axis_config,
-                )?
-            }
+            )?
+        } else {
+            // Default to numeric axis for linear and other continuous scales
+            make_numeric_axis_marks(
+                scale,
+                self.title.as_deref().unwrap_or(""),
+                axis_origin,
+                &axis_config,
+            )?
         };
 
         Ok(SceneMark::Group(axis_group))

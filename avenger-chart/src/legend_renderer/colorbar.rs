@@ -27,12 +27,15 @@ impl LegendRenderer for ColorbarRenderer {
     }
 
     fn can_render(&self, channels: &[LegendChannel]) -> bool {
-        // Colorbar is for continuous color scales
+        use avenger_scales::scales::{DomainKind, RangeKind};
+        
+        // Colorbar is for continuous color scales with numeric/temporal domains
         channels.iter().all(|c| {
             (c.channel_type == "fill" || c.channel_type == "stroke")
+                && c.scale.scale_impl.range_kind() == RangeKind::Continuous
                 && matches!(
-                    c.scale.scale_impl.scale_type(),
-                    "linear" | "log" | "pow" | "sqrt" | "symlog" | "time"
+                    c.scale.scale_impl.domain_kind(),
+                    DomainKind::Numeric | DomainKind::Temporal
                 )
         })
     }

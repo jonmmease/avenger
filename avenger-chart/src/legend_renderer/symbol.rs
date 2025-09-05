@@ -69,12 +69,14 @@ impl LegendRenderer for SymbolLegendRenderer {
     }
 
     fn can_render(&self, channels: &[LegendChannel]) -> bool {
-        // Symbol legend can render discrete channels
+        use avenger_scales::scales::{DomainKind, RangeKind};
+        
+        // Symbol legends work with:
+        // - Discrete-range scales (ordinal, threshold, quantize, quantile)
+        // - Categorical domain scales (band, point) even with continuous range
         channels.iter().all(|c| {
-            matches!(
-                c.scale.scale_impl.scale_type(),
-                "ordinal" | "band" | "point" | "threshold" | "quantile" | "quantize"
-            )
+            c.scale.scale_impl.range_kind() == RangeKind::Discrete
+                || c.scale.scale_impl.domain_kind() == DomainKind::Categorical
         })
     }
 
