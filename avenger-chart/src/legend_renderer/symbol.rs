@@ -139,14 +139,14 @@ impl LegendRenderer for SymbolLegendRenderer {
             return Ok(None);
         }
 
-        // Create text labels - use special labels for threshold scales
+        // Create text labels - use custom labels for scales with legend entries
         let text_values: Vec<String> =
-            if primary_channel.scale.scale_impl.scale_type() == "threshold" {
+            if primary_channel.scale.scale_impl.creates_legend_intervals() {
                 let labels = primary_channel.scale.domain_labels()?;
                 tracing::debug!(
                     channel = channel_name.as_str(),
                     labels = ?labels,
-                    "Threshold scale legend labels"
+                    "Scale with legend entries - using custom labels"
                 );
                 labels
             } else {
@@ -281,11 +281,13 @@ impl LegendRenderer for SymbolLegendRenderer {
                     legend_config.size = ScalarOrArray::new_array(sizes);
                 }
                 "fill" | "color" => {
-                    // Fill/color channel - map through scale
-                    let colors = if channel.scale.scale_impl.scale_type() == "threshold" {
-                        // For threshold scales, get the range colors directly
+                    // Fill/color channel - check if scale provides legend entries
+                    let uses_range_colors = channel.scale.scale_impl.creates_legend_intervals();
+                    let colors = if uses_range_colors {
+                        // Get colors directly from the range (for interval-based scales)
                         channel.scale.range_colors()?
                     } else {
+                        // Map domain values through the scale
                         channel.scale.scale_scalars_to_colors(&domain_values)?
                     };
                     legend_config.fill = ScalarOrArray::new_array(
@@ -293,11 +295,13 @@ impl LegendRenderer for SymbolLegendRenderer {
                     );
                 }
                 "stroke" => {
-                    // Stroke channel - map through scale
-                    let colors = if channel.scale.scale_impl.scale_type() == "threshold" {
-                        // For threshold scales, get the range colors directly
+                    // Stroke channel - check if scale provides legend entries
+                    let uses_range_colors = channel.scale.scale_impl.creates_legend_intervals();
+                    let colors = if uses_range_colors {
+                        // Get colors directly from the range (for interval-based scales)
                         channel.scale.range_colors()?
                     } else {
+                        // Map domain values through the scale
                         channel.scale.scale_scalars_to_colors(&domain_values)?
                     };
                     legend_config.stroke = ScalarOrArray::new_array(

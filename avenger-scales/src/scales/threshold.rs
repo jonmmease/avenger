@@ -122,6 +122,10 @@ impl ScaleImpl for ThresholdScale {
         Ok(config.domain.clone())
     }
 
+    fn creates_legend_intervals(&self) -> bool {
+        true
+    }
+    
     fn legend_entries(&self, config: &ScaleConfig) -> Option<Vec<LegendEntry>> {
         // Extract threshold values from domain
         let thresholds = match validate_extract_thresholds(&config.domain) {

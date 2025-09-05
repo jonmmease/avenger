@@ -189,10 +189,14 @@ impl LegendRenderer for RectLegendRenderer {
         // Apply the scale mapping based on the legend channel
         match channel_name.as_str() {
             "fill" | "color" => {
-                let colors = if primary_channel.scale.scale_impl.scale_type() == "threshold" {
-                    // For threshold scales, get the range colors directly
+                // Scales with numeric domain and discrete range that provide legend entries
+                // (threshold, quantize, quantile) need colors from the range directly
+                let uses_range_colors = primary_channel.scale.scale_impl.creates_legend_intervals();
+                let colors = if uses_range_colors {
+                    // Get colors directly from the range (one per interval)
                     primary_channel.scale.range_colors()?
                 } else {
+                    // Map domain values through the scale
                     primary_channel.scale.scale_scalars_to_colors(&domain_values)?
                 };
                 legend_config.fill = ScalarOrArray::new_array(
@@ -200,10 +204,13 @@ impl LegendRenderer for RectLegendRenderer {
                 );
             }
             "stroke" => {
-                let colors = if primary_channel.scale.scale_impl.scale_type() == "threshold" {
-                    // For threshold scales, get the range colors directly
+                // Same logic as fill/color
+                let uses_range_colors = primary_channel.scale.scale_impl.creates_legend_intervals();
+                let colors = if uses_range_colors {
+                    // Get colors directly from the range (one per interval)
                     primary_channel.scale.range_colors()?
                 } else {
+                    // Map domain values through the scale
                     primary_channel.scale.scale_scalars_to_colors(&domain_values)?
                 };
                 legend_config.stroke = ScalarOrArray::new_array(
@@ -218,11 +225,13 @@ impl LegendRenderer for RectLegendRenderer {
         }
 
         // Create text labels for legend entries
+        // Scales that provide legend_entries have custom labels
         let text_values: Vec<String> =
-            if primary_channel.scale.scale_impl.scale_type() == "threshold" {
-                // For threshold scales, get special labels
+            if primary_channel.scale.scale_impl.creates_legend_intervals() {
+                // Get custom labels from the scale
                 primary_channel.scale.domain_labels()?
             } else {
+                // Use default string conversion
                 domain_values
                     .iter()
                     .map(|v| v.as_scalar_string())
