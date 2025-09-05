@@ -165,7 +165,7 @@ impl LegendRenderer for LineLegendRenderer {
 
         // Create text labels - use custom labels for scales with legend entries
         let text_values: Vec<String> =
-            if primary_channel.scale.scale_impl.creates_legend_intervals() {
+            if primary_channel.scale.scale_impl.legend_entries(&primary_channel.scale.config).is_some() {
                 let labels = primary_channel.scale.domain_labels()?;
                 tracing::debug!(
                     channel = channel_name.as_str(),

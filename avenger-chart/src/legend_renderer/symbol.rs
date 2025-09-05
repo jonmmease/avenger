@@ -141,7 +141,7 @@ impl LegendRenderer for SymbolLegendRenderer {
 
         // Create text labels - use custom labels for scales with legend entries
         let text_values: Vec<String> =
-            if primary_channel.scale.scale_impl.creates_legend_intervals() {
+            if primary_channel.scale.scale_impl.legend_entries(&primary_channel.scale.config).is_some() {
                 let labels = primary_channel.scale.domain_labels()?;
                 tracing::debug!(
                     channel = channel_name.as_str(),
@@ -282,7 +282,9 @@ impl LegendRenderer for SymbolLegendRenderer {
                 }
                 "fill" | "color" => {
                     // Fill/color channel - check if scale provides legend entries
-                    let uses_range_colors = channel.scale.scale_impl.creates_legend_intervals();
+                    // For scales with numeric/temporal domain and discrete range, use range colors directly
+                    let uses_range_colors = matches!(channel.scale.scale_impl.domain_kind(), avenger_scales::scales::DomainKind::Numeric | avenger_scales::scales::DomainKind::Temporal) 
+                        && channel.scale.scale_impl.range_kind() == avenger_scales::scales::RangeKind::Discrete;
                     let colors = if uses_range_colors {
                         // Get colors directly from the range (for interval-based scales)
                         channel.scale.range_colors()?
@@ -296,7 +298,9 @@ impl LegendRenderer for SymbolLegendRenderer {
                 }
                 "stroke" => {
                     // Stroke channel - check if scale provides legend entries
-                    let uses_range_colors = channel.scale.scale_impl.creates_legend_intervals();
+                    // For scales with numeric/temporal domain and discrete range, use range colors directly
+                    let uses_range_colors = matches!(channel.scale.scale_impl.domain_kind(), avenger_scales::scales::DomainKind::Numeric | avenger_scales::scales::DomainKind::Temporal) 
+                        && channel.scale.scale_impl.range_kind() == avenger_scales::scales::RangeKind::Discrete;
                     let colors = if uses_range_colors {
                         // Get colors directly from the range (for interval-based scales)
                         channel.scale.range_colors()?
