@@ -74,9 +74,11 @@ impl ScalarUDFImpl for ScaleUDF {
     }
 
     fn return_type(&self, _arg_types: &[DataType]) -> datafusion::error::Result<DataType> {
-        // Check if this is an ordinal scale that will return a dictionary
-        if self.scale_impl.scale_type() == "ordinal" {
-            // Ordinal scales return dictionary arrays
+        use avenger_scales::scales::RangeKind;
+        
+        // Scales with discrete ranges return dictionary arrays for efficiency
+        if self.scale_impl.range_kind() == RangeKind::Discrete {
+            // Discrete-range scales return dictionary arrays
             Ok(DataType::Dictionary(
                 Box::new(DataType::Int16),
                 Box::new(self.range_type.clone()),
