@@ -850,6 +850,14 @@ pub trait ScaleImpl: Debug + Send + Sync + 'static {
     fn legend_entries(&self, _config: &ScaleConfig) -> Option<Vec<LegendEntry>> {
         None // Default: let caller extract from domain
     }
+    
+    /// Returns true if this scale returns dictionary arrays
+    ///
+    /// Only ordinal scales return dictionary arrays for efficiency when dealing
+    /// with repeated categorical values. Other scales return plain arrays.
+    fn returns_dictionary_array(&self) -> bool {
+        false // Default: most scales return plain arrays
+    }
 
     // Scale to enums
     declare_enum_scale_method!(StrokeCap);

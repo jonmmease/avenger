@@ -117,6 +117,10 @@ impl ScaleImpl for OrdinalScale {
         Ok(range_dict_with_values)
     }
 
+    fn returns_dictionary_array(&self) -> bool {
+        true // Ordinal scales return dictionary arrays
+    }
+    
     fn legend_entries(&self, config: &ScaleConfig) -> Option<Vec<LegendEntry>> {
         use arrow::array::{Array, AsArray};
         use arrow::datatypes::{Float32Type, Int32Type, Int64Type};
