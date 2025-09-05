@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use super::{
-    ConfiguredScale, DomainKind, InferDomainFromDataMethod, LegendEntry, OptionDefinition, 
+    ConfiguredScale, DomainKind, InferDomainFromDataMethod, LegendEntry, OptionDefinition,
     RangeKind, ScaleConfig, ScaleContext, ScaleImpl,
 };
 use crate::error::AvengerScaleError;
@@ -120,14 +120,14 @@ impl ScaleImpl for OrdinalScale {
     fn legend_entries(&self, config: &ScaleConfig) -> Option<Vec<LegendEntry>> {
         use arrow::array::{Array, AsArray};
         use arrow::datatypes::{Float32Type, Int32Type, Int64Type};
-        
+
         // For ordinal scales, create one legend entry for each domain value
         // The legend renderers will handle mapping to colors via modulo/wrapping
         let formatter = &config.context.formatters.number;
-        
+
         let mut entries = Vec::new();
         let domain = &config.domain;
-        
+
         // Handle different domain types - create entries for ALL domain values
         match domain.data_type() {
             arrow::datatypes::DataType::Utf8 => {
@@ -181,7 +181,9 @@ impl ScaleImpl for OrdinalScale {
             }
             _ => {
                 // For other types, try to convert to string
-                if let Ok(string_array) = arrow::compute::kernels::cast::cast(domain, &arrow::datatypes::DataType::Utf8) {
+                if let Ok(string_array) =
+                    arrow::compute::kernels::cast::cast(domain, &arrow::datatypes::DataType::Utf8)
+                {
                     let array = string_array.as_string::<i32>();
                     for i in 0..array.len() {
                         if !array.is_null(i) {
@@ -195,7 +197,7 @@ impl ScaleImpl for OrdinalScale {
                 }
             }
         }
-        
+
         if entries.is_empty() {
             None
         } else {

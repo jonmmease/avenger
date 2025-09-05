@@ -79,7 +79,7 @@ impl ScaleImpl for ThresholdScale {
         values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError> {
         use arrow::datatypes::DataType;
-        
+
         let thresholds = validate_extract_thresholds(&config.domain)?;
 
         // Validate the range has the correct number of elements

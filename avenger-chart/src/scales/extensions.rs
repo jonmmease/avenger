@@ -36,11 +36,16 @@ pub trait ConfiguredScaleLegendExt {
     fn range_strings(&self) -> Result<Vec<String>, AvengerChartError>;
 
     /// Map scalar values through the scale to get numeric values
-    fn scale_scalars_to_numeric(&self, values: &[ScalarValue]) -> Result<Vec<f32>, AvengerChartError>;
+    fn scale_scalars_to_numeric(
+        &self,
+        values: &[ScalarValue],
+    ) -> Result<Vec<f32>, AvengerChartError>;
 
     /// Map scalar values through the scale to get color values
-    fn scale_scalars_to_colors(&self, values: &[ScalarValue])
-                               -> Result<Vec<[f32; 4]>, AvengerChartError>;
+    fn scale_scalars_to_colors(
+        &self,
+        values: &[ScalarValue],
+    ) -> Result<Vec<[f32; 4]>, AvengerChartError>;
 
     /// Map domain values to dash patterns
     fn scale_scalars_to_dash_patterns(&self, values: &[ScalarValue]) -> Vec<Option<Vec<f32>>>;
@@ -80,7 +85,8 @@ impl ConfiguredScaleDataFusionExt for ConfiguredScale {
                 .iter()
                 .flat_map(|(key, value)| {
                     // Convert avenger_scales::Scalar to ScalarValue
-                    let scalar_value = ScalarValue::try_from_array(&value.0, 0).unwrap_or(ScalarValue::Null);
+                    let scalar_value =
+                        ScalarValue::try_from_array(&value.0, 0).unwrap_or(ScalarValue::Null);
                     vec![lit(key.clone()), lit(scalar_value)]
                 })
                 .collect();
@@ -227,14 +233,14 @@ impl ConfiguredScaleLegendExt for ConfiguredScale {
     }
 
     fn range_colors(&self) -> Result<Vec<[f32; 4]>, AvengerChartError> {
-        use datafusion::arrow::datatypes::DataType;
         use avenger_scales::scales::DomainKind;
+        use datafusion::arrow::datatypes::DataType;
 
         // For ordinal scales (categorical domain), return colors matching domain length with wrapping
         if self.scale_impl.domain_kind() == DomainKind::Categorical {
             let domain_len = self.config.domain.len();
             let range_len = self.config.range.len();
-            
+
             if domain_len == 0 || range_len == 0 {
                 return Ok(vec![]);
             }
@@ -268,7 +274,7 @@ impl ConfiguredScaleLegendExt for ConfiguredScale {
                 }
                 _ => {
                     return Err(AvengerChartError::InternalError(
-                        "Ordinal scale expected string color range".to_string()
+                        "Ordinal scale expected string color range".to_string(),
                     ));
                 }
             };
@@ -352,22 +358,23 @@ impl ConfiguredScaleLegendExt for ConfiguredScale {
 
     fn range_strings(&self) -> Result<Vec<String>, AvengerChartError> {
         use avenger_scales::scales::DomainKind;
-        
+
         // For ordinal scales, return strings matching domain length with wrapping
         if self.scale_impl.domain_kind() == DomainKind::Categorical {
             let domain_len = self.config.domain.len();
             let range_len = self.config.range.len();
-            
+
             if domain_len == 0 || range_len == 0 {
                 return Ok(vec![]);
             }
-            
+
             // Extract all range strings first
             let mut all_strings = Vec::new();
             for i in 0..range_len {
-                all_strings.push(ScalarValue::try_from_array(&self.config.range, i)?.as_scalar_string()?);
+                all_strings
+                    .push(ScalarValue::try_from_array(&self.config.range, i)?.as_scalar_string()?);
             }
-            
+
             // Return exactly domain_len strings, wrapping if necessary
             let mut result = Vec::with_capacity(domain_len);
             for i in 0..domain_len {
@@ -378,13 +385,17 @@ impl ConfiguredScaleLegendExt for ConfiguredScale {
             // For non-ordinal scales, return all range strings
             let mut shapes = Vec::new();
             for i in 0..self.config.range.len() {
-                shapes.push(ScalarValue::try_from_array(&self.config.range, i)?.as_scalar_string()?);
+                shapes
+                    .push(ScalarValue::try_from_array(&self.config.range, i)?.as_scalar_string()?);
             }
             Ok(shapes)
         }
     }
 
-    fn scale_scalars_to_numeric(&self, values: &[ScalarValue]) -> Result<Vec<f32>, AvengerChartError> {
+    fn scale_scalars_to_numeric(
+        &self,
+        values: &[ScalarValue],
+    ) -> Result<Vec<f32>, AvengerChartError> {
         use datafusion::arrow::array::AsArray;
         use datafusion::arrow::compute::cast;
         use datafusion::arrow::datatypes::DataType;

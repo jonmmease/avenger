@@ -164,18 +164,22 @@ impl LegendRenderer for LineLegendRenderer {
         }
 
         // Create text labels - use custom labels for scales with legend entries
-        let text_values: Vec<String> =
-            if primary_channel.scale.scale_impl.legend_entries(&primary_channel.scale.config).is_some() {
-                let labels = primary_channel.scale.domain_labels()?;
-                tracing::debug!(
-                    channel = channel_name.as_str(),
-                    labels = ?labels,
-                    "Scale with legend entries - using custom labels"
-                );
-                labels
-            } else {
-                domain_values.iter().map(format_scalar_value).collect()
-            };
+        let text_values: Vec<String> = if primary_channel
+            .scale
+            .scale_impl
+            .legend_entries(&primary_channel.scale.config)
+            .is_some()
+        {
+            let labels = primary_channel.scale.domain_labels()?;
+            tracing::debug!(
+                channel = channel_name.as_str(),
+                labels = ?labels,
+                "Scale with legend entries - using custom labels"
+            );
+            labels
+        } else {
+            domain_values.iter().map(format_scalar_value).collect()
+        };
 
         // Get default stroke properties
         let _default_stroke = "#000000".to_string();
@@ -232,7 +236,9 @@ impl LegendRenderer for LineLegendRenderer {
         if has_stroke_channel {
             // Find the stroke channel and map its values
             if let Some(stroke_channel) = channels.iter().find(|c| c.channel_type == "stroke") {
-                let colors = stroke_channel.scale.scale_scalars_to_colors(&domain_values)?;
+                let colors = stroke_channel
+                    .scale
+                    .scale_scalars_to_colors(&domain_values)?;
                 legend_config.stroke = ScalarOrArray::new_array(
                     colors.into_iter().map(ColorOrGradient::Color).collect(),
                 );
@@ -258,7 +264,9 @@ impl LegendRenderer for LineLegendRenderer {
             // Find the stroke_width channel and map its values
             if let Some(width_channel) = channels.iter().find(|c| c.channel_type == "stroke_width")
             {
-                let widths = width_channel.scale.scale_scalars_to_numeric(&domain_values)?;
+                let widths = width_channel
+                    .scale
+                    .scale_scalars_to_numeric(&domain_values)?;
                 legend_config.stroke_width = ScalarOrArray::new_array(widths);
             }
         } else {
@@ -278,7 +286,9 @@ impl LegendRenderer for LineLegendRenderer {
             // Find the stroke_dash channel and process it
             if let Some(dash_channel) = channels.iter().find(|c| c.channel_type == "stroke_dash") {
                 // Vary dash pattern based on the dash channel's scale
-                let mut dash_patterns = dash_channel.scale.scale_scalars_to_dash_patterns(&domain_values);
+                let mut dash_patterns = dash_channel
+                    .scale
+                    .scale_scalars_to_dash_patterns(&domain_values);
 
                 // Replace empty patterns (solid lines) with a dash pattern for uniform processing
                 // Use a slightly shorter dash to account for visual alignment with dashed patterns
