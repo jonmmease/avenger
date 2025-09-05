@@ -9,6 +9,7 @@ use avenger_scenegraph::marks::rect::SceneRectMark;
 use crate::error::AvengerChartError;
 pub use crate::marks::rect::Rect;
 use crate::marks::util::{coerce_color_channel_with_mark, coerce_numeric_channel_with_mark};
+use crate::render_context::RenderContext;
 use crate::scales::ScaleRange;
 use avenger_scales::scales::{ScaleImpl, band::BandScale, ordinal::OrdinalScale};
 use datafusion::arrow::datatypes::DataType;
@@ -38,7 +39,7 @@ define_position_channels! {
 impl Mark<Cartesian> for Rect<Cartesian> {
     impl_mark_trait_common!(Rect, Cartesian, "rect");
 
-    fn default_channel_value(&self, channel: &str) -> Option<ScalarValue> {
+    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         match channel {
             "fill" => Some(ScalarValue::Utf8(Some("#4682b4".to_string()))), // Default steel blue
             "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))), // Default black
@@ -53,6 +54,7 @@ impl Mark<Cartesian> for Rect<Cartesian> {
         &self,
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
+        _context: &RenderContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Determine number of marks from data batch or default to 1
         let len = data.map_or(1, |data| data.num_rows()) as u32;

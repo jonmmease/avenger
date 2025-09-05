@@ -16,6 +16,8 @@ mod plot_scales;
 pub mod polar;
 pub mod prelude;
 pub mod render;
+pub mod render_context;
 pub mod scales;
+pub mod theme;
 pub mod utils;
 pub mod zerod;

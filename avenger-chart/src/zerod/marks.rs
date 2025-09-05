@@ -7,6 +7,7 @@
 use crate::error::AvengerChartError;
 use crate::impl_mark_trait_common;
 use crate::marks::Mark;
+use crate::render_context::RenderContext;
 use crate::zerod::ZeroDCoord;
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -60,7 +61,7 @@ impl Rect<ZeroDCoord> {
 impl Mark<ZeroDCoord> for Symbol<ZeroDCoord> {
     impl_mark_trait_common!(Symbol, ZeroDCoord, "symbol");
 
-    fn default_channel_value(&self, channel: &str) -> Option<ScalarValue> {
+    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         // Visual channel defaults (coordinate-agnostic)
         match channel {
             "size" => Some(ScalarValue::Float32(Some(64.0))),
@@ -78,6 +79,7 @@ impl Mark<ZeroDCoord> for Symbol<ZeroDCoord> {
         &self,
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
+        _context: &RenderContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         unreachable!("ZeroDCoord marks should not be rendered through standard pipeline")
     }
@@ -87,7 +89,7 @@ impl Mark<ZeroDCoord> for Symbol<ZeroDCoord> {
 impl Mark<ZeroDCoord> for Line<ZeroDCoord> {
     impl_mark_trait_common!(Line, ZeroDCoord, "line");
 
-    fn default_channel_value(&self, channel: &str) -> Option<ScalarValue> {
+    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         // Visual channel defaults (coordinate-agnostic)
         match channel {
             "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))),
@@ -109,6 +111,7 @@ impl Mark<ZeroDCoord> for Line<ZeroDCoord> {
         &self,
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
+        _context: &RenderContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         unreachable!("ZeroDCoord marks should not be rendered through standard pipeline")
     }
@@ -118,7 +121,7 @@ impl Mark<ZeroDCoord> for Line<ZeroDCoord> {
 impl Mark<ZeroDCoord> for Rect<ZeroDCoord> {
     impl_mark_trait_common!(Rect, ZeroDCoord, "rect");
 
-    fn default_channel_value(&self, channel: &str) -> Option<ScalarValue> {
+    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         // Visual channel defaults (coordinate-agnostic)
         match channel {
             "fill" => Some(ScalarValue::Utf8(Some("#4682b4".to_string()))),
@@ -133,6 +136,7 @@ impl Mark<ZeroDCoord> for Rect<ZeroDCoord> {
         &self,
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
+        _context: &RenderContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         unreachable!("ZeroDCoord marks should not be rendered through standard pipeline")
     }

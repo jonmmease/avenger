@@ -3,6 +3,7 @@ use crate::impl_mark_trait_common;
 use crate::marks::{Mark, RadiusExpression};
 
 use crate::polar::Polar;
+use crate::render_context::RenderContext;
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::logical_expr::{Expr, lit};
@@ -28,7 +29,7 @@ define_position_channels! {
 impl Mark<Polar> for Line<Polar> {
     impl_mark_trait_common!(Line, Polar, "line");
 
-    fn default_channel_value(&self, channel: &str) -> Option<ScalarValue> {
+    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         match channel {
             "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))), // Default black
             "stroke_width" => Some(ScalarValue::Float32(Some(2.0))),          // Default line width
@@ -68,6 +69,7 @@ impl Mark<Polar> for Line<Polar> {
         &self,
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
+        _context: &RenderContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Err(AvengerChartError::InternalError(
             "Polar line mark rendering not yet implemented".to_string(),

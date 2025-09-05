@@ -15,6 +15,7 @@ use std::collections::HashMap;
 // Import Symbol for the macro, then re-export it
 use crate::error::AvengerChartError;
 pub use crate::marks::symbol::Symbol;
+use crate::render_context::RenderContext;
 use crate::utils::ScalarValueHelpers;
 use std::sync::Arc;
 
@@ -34,7 +35,7 @@ define_position_channels! {
 impl Mark<Cartesian> for Symbol<Cartesian> {
     impl_mark_trait_common!(Symbol, Cartesian, "symbol");
 
-    fn default_channel_value(&self, channel: &str) -> Option<ScalarValue> {
+    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         match channel {
             "size" => Some(ScalarValue::Float32(Some(64.0))), // Default area
             "shape" => Some(ScalarValue::Utf8(Some("circle".to_string()))), // Default shape
@@ -75,6 +76,7 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
         &self,
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
+        context: &RenderContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         use crate::marks::util::{
             coerce_color_channel_with_mark, coerce_numeric_channel_with_mark,
@@ -106,7 +108,7 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
 
         // Handle shape channel efficiently - get default from mark
         let shape_default = self
-            .default_channel_value("shape")
+            .default_channel_value("shape", context)
             .and_then(|scalar| {
                 match scalar {
                     ScalarValue::Utf8(Some(s)) => {
@@ -132,7 +134,7 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
 
         // Stroke width is scalar only - get default from mark
         let stroke_width_default = self
-            .default_channel_value("stroke_width")
+            .default_channel_value("stroke_width", context)
             .and_then(|scalar| scalar.as_f32().ok())
             .unwrap_or(1.0);
 

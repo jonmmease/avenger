@@ -26,6 +26,9 @@ pub use crate::zerod::ZeroDCoord;
 // Re-export the Plot type
 pub use crate::plot::{Plot, PlotSubtitle, PlotTitle, TitleAlign};
 
+// Re-export theme types
+pub use crate::theme::{Theme, FontWeight, NamedFontWeight};
+
 // Re-export marks
 pub use crate::marks::line::Line;
 pub use crate::marks::rect::Rect;

@@ -55,7 +55,7 @@ impl LineLegendRenderer {
                 }
 
                 // Try to get stroke_cap from mark's default channel values
-                if let Some(cap_value) = mark.default_channel_value("stroke_cap") {
+                if let Some(cap_value) = mark.default_channel_value_without_context("stroke_cap") {
                     if let Ok(cap_str) = cap_value.as_scalar_string() {
                         stroke_cap = match cap_str.as_str() {
                             "butt" => StrokeCap::Butt,
@@ -66,7 +66,7 @@ impl LineLegendRenderer {
                     }
                 }
                 // Try to get stroke_join from mark's default channel values
-                if let Some(join_value) = mark.default_channel_value("stroke_join") {
+                if let Some(join_value) = mark.default_channel_value_without_context("stroke_join") {
                     if let Ok(join_str) = join_value.as_scalar_string() {
                         stroke_join = match join_str.as_str() {
                             "miter" => StrokeJoin::Miter,

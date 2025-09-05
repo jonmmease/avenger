@@ -6,6 +6,7 @@ use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::marks::{ChannelValue, Mark};
 use crate::plot::Plot;
+use crate::render_context::RenderContext;
 use crate::scales::Scale;
 use avenger_common::types::ColorOrGradient;
 use avenger_scenegraph::marks::group::SceneGroup;
@@ -1005,8 +1006,12 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 .coord_system()
                 .prepare_scalar_batch(scalar_batch, plot_width, plot_height)?;
 
-        // Call the mark's render_from_data method
-        mark.render_from_data(data_batch.as_ref(), &scalar_batch)
+        // Create render context with theme
+        let theme = self.plot.get_theme();
+        let context = RenderContext::new(theme, plot_width, plot_height, 96.0);
+        
+        // Call the mark's render_from_data method with context
+        mark.render_from_data(data_batch.as_ref(), &scalar_batch, &context)
     }
 
     /// Validate that positional channels have numeric data types

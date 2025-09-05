@@ -3,6 +3,7 @@ use crate::impl_mark_trait_common;
 use crate::marks::Mark;
 
 use crate::polar::Polar;
+use crate::render_context::RenderContext;
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
 
@@ -36,6 +37,7 @@ impl Mark<Polar> for Rect<Polar> {
         &self,
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
+        _context: &RenderContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Polar rect rendering not yet implemented
         Err(AvengerChartError::InternalError(

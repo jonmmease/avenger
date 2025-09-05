@@ -14,11 +14,11 @@ async fn test_symbol_defaults_used_in_rendering() {
     let symbol = Symbol::<Cartesian>::new().x(col("x")).y(col("y"));
 
     // Get the mark's default values
-    let size_default = symbol.default_channel_value("size").unwrap();
-    let fill_default = symbol.default_channel_value("fill").unwrap();
-    let stroke_default = symbol.default_channel_value("stroke").unwrap();
-    let stroke_width_default = symbol.default_channel_value("stroke_width").unwrap();
-    let shape_default = symbol.default_channel_value("shape").unwrap();
+    let size_default = symbol.default_channel_value_without_context("size").unwrap();
+    let fill_default = symbol.default_channel_value_without_context("fill").unwrap();
+    let stroke_default = symbol.default_channel_value_without_context("stroke").unwrap();
+    let stroke_width_default = symbol.default_channel_value_without_context("stroke_width").unwrap();
+    let shape_default = symbol.default_channel_value_without_context("shape").unwrap();
 
     // Expected values from our consolidation
     assert_eq!(size_default, ScalarValue::Float32(Some(64.0)));
@@ -51,9 +51,13 @@ async fn test_symbol_defaults_used_in_rendering() {
     let empty_schema = Arc::new(Schema::empty());
     let scalar_batch = RecordBatch::new_empty(empty_schema);
 
+    // Create a render context with default theme
+    let theme = avenger_chart::theme::Theme::default();
+    let context = avenger_chart::render_context::RenderContext::new(theme, 100.0, 100.0, 96.0);
+    
     // Render the mark
     let rendered = symbol
-        .render_from_data(Some(&batch), &scalar_batch)
+        .render_from_data(Some(&batch), &scalar_batch, &context)
         .unwrap();
 
     // Check that the rendered mark uses our defaults

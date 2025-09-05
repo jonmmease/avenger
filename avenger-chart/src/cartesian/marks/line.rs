@@ -14,6 +14,7 @@ use indexmap::IndexMap;
 // Import Line for the macro, then re-export it
 use crate::error::AvengerChartError;
 pub use crate::marks::line::{Line, ensure_dictionary_array};
+use crate::render_context::RenderContext;
 use crate::marks::util::{
     coerce_bool_channel_with_mark, coerce_numeric_channel_with_mark,
     coerce_stroke_cap_channel_with_mark, coerce_stroke_join_channel_with_mark,
@@ -41,7 +42,7 @@ impl Mark<Cartesian> for Line<Cartesian> {
         true
     }
 
-    fn default_channel_value(&self, channel: &str) -> Option<ScalarValue> {
+    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         match channel {
             "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))), // Default black
             "stroke_width" => Some(ScalarValue::Float32(Some(2.0))),          // Default line width
@@ -82,6 +83,7 @@ impl Mark<Cartesian> for Line<Cartesian> {
         &self,
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
+        _context: &RenderContext,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         use avenger_common::value::ScalarOrArrayValue;
         use avenger_scales::scales::coerce::Coercer;
