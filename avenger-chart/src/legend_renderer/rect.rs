@@ -189,24 +189,15 @@ impl LegendRenderer for RectLegendRenderer {
         // Apply the scale mapping based on the legend channel
         match channel_name.as_str() {
             "fill" | "color" => {
-                // For all discrete-range scales, use range colors directly
-                let colors = if primary_channel.scale.scale_impl.range_kind() == avenger_scales::scales::RangeKind::Discrete {
-                    primary_channel.scale.range_colors()?
-                } else {
-                    // For continuous-range scales, map domain values through the scale
-                    primary_channel.scale.scale_scalars_to_colors(&domain_values)?
-                };
+                // Rect legends always use discrete entries, so use range colors directly
+                let colors = primary_channel.scale.range_colors()?;
                 legend_config.fill = ScalarOrArray::new_array(
                     colors.into_iter().map(ColorOrGradient::Color).collect(),
                 );
             }
             "stroke" => {
-                // Same logic as fill/color
-                let colors = if primary_channel.scale.scale_impl.range_kind() == avenger_scales::scales::RangeKind::Discrete {
-                    primary_channel.scale.range_colors()?
-                } else {
-                    primary_channel.scale.scale_scalars_to_colors(&domain_values)?
-                };
+                // Same as fill/color - always use range colors
+                let colors = primary_channel.scale.range_colors()?;
                 legend_config.stroke = ScalarOrArray::new_array(
                     colors.into_iter().map(ColorOrGradient::Color).collect(),
                 );
