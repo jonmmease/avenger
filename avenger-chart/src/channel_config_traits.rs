@@ -78,17 +78,12 @@ pub trait ChannelConfig: Sized {
     /// Configure the scale with explicit type
     fn scale_with<S: ScaleSpec>(
         self,
-        f: impl FnOnce(Scale<S>) -> Scale<S> + Send + Sync + 'static,
+        f: impl Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
     ) -> Self {
-        // Implementation using Mutex trick for FnOnce
-        let f = Arc::new(std::sync::Mutex::new(Some(f)));
+        // Use Fn instead of FnOnce so it can be called multiple times
         self.scale(move |default_scale| {
             let typed_scale = default_scale.into_type::<S>();
-            if let Some(f) = f.lock().unwrap().take() {
-                f(typed_scale).into_auto()
-            } else {
-                typed_scale.into_auto()
-            }
+            f(typed_scale).into_auto()
         })
     }
 

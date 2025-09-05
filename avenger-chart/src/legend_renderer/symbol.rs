@@ -70,12 +70,12 @@ impl LegendRenderer for SymbolLegendRenderer {
 
     fn can_render(&self, channels: &[LegendChannel]) -> bool {
         use avenger_scales::scales::RangeKind;
-        
+
         // Symbol legends work with any scale that has discrete outputs
         // This includes ordinal, threshold, quantize, quantile, etc.
-        channels.iter().all(|c| {
-            c.scale.scale_impl.range_kind() == RangeKind::Discrete
-        })
+        channels
+            .iter()
+            .all(|c| c.scale.scale_impl.range_kind() == RangeKind::Discrete)
     }
 
     fn supported_merge_channels(&self) -> std::collections::HashSet<&'static str> {
@@ -140,18 +140,22 @@ impl LegendRenderer for SymbolLegendRenderer {
         }
 
         // Create text labels - use custom labels for scales with legend entries
-        let text_values: Vec<String> =
-            if primary_channel.scale.scale_impl.legend_entries(&primary_channel.scale.config).is_some() {
-                let labels = primary_channel.scale.domain_labels()?;
-                tracing::debug!(
-                    channel = channel_name.as_str(),
-                    labels = ?labels,
-                    "Scale with legend entries - using custom labels"
-                );
-                labels
-            } else {
-                domain_values.iter().map(format_scalar_value).collect()
-            };
+        let text_values: Vec<String> = if primary_channel
+            .scale
+            .scale_impl
+            .legend_entries(&primary_channel.scale.config)
+            .is_some()
+        {
+            let labels = primary_channel.scale.domain_labels()?;
+            tracing::debug!(
+                channel = channel_name.as_str(),
+                labels = ?labels,
+                "Scale with legend entries - using custom labels"
+            );
+            labels
+        } else {
+            domain_values.iter().map(format_scalar_value).collect()
+        };
 
         // Get mark defaults - use rect defaults if we have rect marks, otherwise symbol defaults
         let (
