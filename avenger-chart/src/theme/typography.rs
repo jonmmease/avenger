@@ -119,7 +119,7 @@ impl Default for Typography {
             legend_item_size: 10.0,
 
             // Font weights
-            title_weight: FontWeight::Named(NamedFontWeight::Medium), // 500 - matches original
+            title_weight: FontWeight::Named(NamedFontWeight::Medium),
             subtitle_weight: FontWeight::Number(200.0),
             axis_label_weight: FontWeight::Named(NamedFontWeight::Normal),
             default_weight: FontWeight::Named(NamedFontWeight::Normal),

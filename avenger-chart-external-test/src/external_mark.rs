@@ -60,7 +60,11 @@ impl Mark<Cartesian> for HexBin<Cartesian> {
         Ok(vec![])
     }
 
-    fn default_channel_value(&self, channel: &str, _context: &avenger_chart::render_context::RenderContext) -> Option<ScalarValue> {
+    fn default_channel_value(
+        &self,
+        channel: &str,
+        _context: &avenger_chart::render_context::RenderContext,
+    ) -> Option<ScalarValue> {
         match channel {
             "size" => Some(ScalarValue::Float32(Some(20.0))),
             "fill" => Some(ScalarValue::Utf8(Some("#4682b4".to_string()))),

@@ -327,7 +327,11 @@ impl Mark<Isometric> for Cube<Isometric> {
         Ok(vec![])
     }
 
-    fn default_channel_value(&self, channel: &str, _context: &avenger_chart::render_context::RenderContext) -> Option<ScalarValue> {
+    fn default_channel_value(
+        &self,
+        channel: &str,
+        _context: &avenger_chart::render_context::RenderContext,
+    ) -> Option<ScalarValue> {
         match channel {
             "size" => Some(ScalarValue::Float32(Some(10.0))),
             "fill" => Some(ScalarValue::Utf8(Some("#3498db".to_string()))),
