@@ -6,7 +6,7 @@ use crate::scales::domain_inference::DomainInferrer;
 use crate::scales::range::ScaleRange;
 use crate::scales::spec::*;
 use crate::utils::{ScalarValueHelpers, eval_to_scalars, scalar_to_scalar_value};
-use avenger_scales::scales::ScaleImpl;
+use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::{Expr, lit};
 use datafusion_common::ScalarValue;
@@ -17,11 +17,18 @@ use std::sync::Arc;
 
 /// Helper to infer default domain from scale implementation
 fn infer_default_domain(scale_impl: &Arc<dyn ScaleImpl>) -> ScaleDomain {
-    use avenger_scales::scales::InferDomainFromDataMethod;
-    match scale_impl.infer_domain_from_data_method() {
-        InferDomainFromDataMethod::Unique => ScaleDomain::new_discrete(vec![]),
-        InferDomainFromDataMethod::Interval => ScaleDomain::new_interval(lit(0.0), lit(1.0)),
-        InferDomainFromDataMethod::All => ScaleDomain::new_discrete(vec![]), // Treat All as discrete
+    // Use DomainKind and RangeKind to determine default domain structure
+    match (scale_impl.domain_kind(), scale_impl.range_kind()) {
+        // Categorical domains are always discrete
+        (DomainKind::Categorical, _) => ScaleDomain::new_discrete(vec![]),
+        // Numeric/Temporal domains with continuous ranges use intervals
+        (DomainKind::Numeric | DomainKind::Temporal, RangeKind::Continuous) => {
+            ScaleDomain::new_interval(lit(0.0), lit(1.0))
+        }
+        // Numeric/Temporal domains with discrete ranges are discrete
+        (DomainKind::Numeric | DomainKind::Temporal, RangeKind::Discrete) => {
+            ScaleDomain::new_discrete(vec![])
+        }
     }
 }
 
@@ -331,24 +338,35 @@ impl<S: ScaleSpec> Scale<S> {
                 Arc::new(Float32Array::from(vec![start_f32, end_f32])) as ArrayRef
             }
             ScaleDefaultDomain::Discrete(values) => {
-                // For threshold scales, we need numeric values
-                // For other discrete scales (ordinal, band, point), we need strings
+                // Determine domain type based on scale's domain kind
                 let scalars = eval_to_scalars(values.clone(), None, None).await?;
 
-                if self.scale_impl.scale_type() == "threshold" {
-                    // Threshold scales need numeric domain values
-                    let mut float_values = Vec::new();
-                    for scalar in scalars {
-                        float_values.push(scalar.as_f32()?);
+                match self.scale_impl.domain_kind() {
+                    DomainKind::Numeric => {
+                        // Numeric domains need float values
+                        let mut float_values = Vec::new();
+                        for scalar in scalars {
+                            float_values.push(scalar.as_f32()?);
+                        }
+                        Arc::new(Float32Array::from(float_values)) as ArrayRef
                     }
-                    Arc::new(Float32Array::from(float_values)) as ArrayRef
-                } else {
-                    // Other discrete scales need string values
-                    let mut string_values = Vec::new();
-                    for scalar in scalars {
-                        string_values.push(scalar.as_scalar_string()?);
+                    DomainKind::Categorical => {
+                        // Categorical domains need string values
+                        let mut string_values = Vec::new();
+                        for scalar in scalars {
+                            string_values.push(scalar.as_scalar_string()?);
+                        }
+                        Arc::new(StringArray::from(string_values)) as ArrayRef
                     }
-                    Arc::new(StringArray::from(string_values)) as ArrayRef
+                    DomainKind::Temporal => {
+                        // Temporal domains - convert to appropriate temporal type
+                        // For now, treat as numeric (timestamps)
+                        let mut float_values = Vec::new();
+                        for scalar in scalars {
+                            float_values.push(scalar.as_f32()?);
+                        }
+                        Arc::new(Float32Array::from(float_values)) as ArrayRef
+                    }
                 }
             }
             ScaleDefaultDomain::DomainExprs(_) => {
@@ -426,13 +444,11 @@ impl<S: ScaleSpec> Scale<S> {
             }
         }
 
-        // Convert padding to clip_padding_lower and clip_padding_upper for linear/log/pow/symlog scales
+        // Convert padding to clip_padding_lower and clip_padding_upper for numeric continuous scales
         if scalar_options.contains_key("padding") {
-            let scale_type = self.scale_impl.scale_type();
-            if scale_type == "linear"
-                || scale_type == "log"
-                || scale_type == "pow"
-                || scale_type == "symlog"
+            // Check if this is a numeric continuous scale that supports clip padding
+            if self.scale_impl.domain_kind() == DomainKind::Numeric
+                && self.scale_impl.range_kind() == RangeKind::Continuous
             {
                 if let Some(padding_value) = scalar_options.get("padding").cloned() {
                     // For continuous scales, padding becomes clip_padding

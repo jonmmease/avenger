@@ -7,8 +7,8 @@ use lazy_static::lazy_static;
 use crate::error::AvengerScaleError;
 
 use super::{
-    band::BandScale, ConfiguredScale, InferDomainFromDataMethod, OptionConstraint,
-    OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl,
+    band::BandScale, ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionConstraint,
+    OptionDefinition, RangeKind, ScaleConfig, ScaleContext, ScaleImpl,
 };
 
 /// Point scale that maps discrete domain values to evenly-spaced points along a continuous range.
@@ -68,6 +68,14 @@ impl ScaleImpl for PointScale {
 
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Unique
+    }
+
+    fn domain_kind(&self) -> DomainKind {
+        DomainKind::Categorical
+    }
+
+    fn range_kind(&self) -> RangeKind {
+        RangeKind::Continuous
     }
 
     fn default_options(&self) -> std::collections::HashMap<String, crate::scalar::Scalar> {

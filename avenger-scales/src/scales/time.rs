@@ -17,8 +17,8 @@ use crate::error::AvengerScaleError;
 use crate::formatter::{DateFormatter, TimestampFormatter, TimestamptzFormatter};
 
 use super::{
-    ConfiguredScale, InferDomainFromDataMethod, OptionConstraint, OptionDefinition, ScaleConfig,
-    ScaleContext, ScaleImpl,
+    ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionConstraint, OptionDefinition,
+    RangeKind, ScaleConfig, ScaleContext, ScaleImpl,
 };
 
 /// Time scale for temporal data visualization.
@@ -501,6 +501,14 @@ impl ScaleImpl for TimeScale {
 
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Interval
+    }
+
+    fn domain_kind(&self) -> DomainKind {
+        DomainKind::Temporal
+    }
+
+    fn range_kind(&self) -> RangeKind {
+        RangeKind::Continuous
     }
 
     fn option_definitions(&self) -> &[OptionDefinition] {

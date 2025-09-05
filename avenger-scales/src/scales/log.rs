@@ -11,8 +11,8 @@ use lazy_static::lazy_static;
 use crate::{color_interpolator::scale_numeric_to_color, error::AvengerScaleError, scalar::Scalar};
 
 use super::{
-    ConfiguredScale, InferDomainFromDataMethod, OptionConstraint, OptionDefinition, ScaleConfig,
-    ScaleContext, ScaleImpl,
+    ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionConstraint, OptionDefinition,
+    RangeKind, ScaleConfig, ScaleContext, ScaleImpl,
 };
 
 /// Configuration for log scale normalization operations
@@ -274,6 +274,14 @@ impl ScaleImpl for LogScale {
 
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Interval
+    }
+
+    fn domain_kind(&self) -> DomainKind {
+        DomainKind::Numeric
+    }
+
+    fn range_kind(&self) -> RangeKind {
+        RangeKind::Continuous
     }
 
     fn default_options(&self) -> std::collections::HashMap<String, Scalar> {

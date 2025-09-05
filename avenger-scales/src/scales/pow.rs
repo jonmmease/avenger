@@ -16,8 +16,8 @@ use crate::{array, color_interpolator::scale_numeric_to_color, error::AvengerSca
 
 use super::{
     linear::{LinearScale, NormalizationConfig},
-    ConfiguredScale, InferDomainFromDataMethod, OptionConstraint, OptionDefinition, ScaleConfig,
-    ScaleContext, ScaleImpl,
+    ConfiguredScale, DomainKind, InferDomainFromDataMethod, OptionConstraint, OptionDefinition,
+    RangeKind, ScaleConfig, ScaleContext, ScaleImpl,
 };
 
 /// Power scale that maps a continuous numeric domain to a continuous numeric range
@@ -204,6 +204,14 @@ impl ScaleImpl for PowScale {
 
     fn infer_domain_from_data_method(&self) -> InferDomainFromDataMethod {
         InferDomainFromDataMethod::Interval
+    }
+
+    fn domain_kind(&self) -> DomainKind {
+        DomainKind::Numeric
+    }
+
+    fn range_kind(&self) -> RangeKind {
+        RangeKind::Continuous
     }
 
     fn default_options(&self) -> std::collections::HashMap<String, crate::scalar::Scalar> {
