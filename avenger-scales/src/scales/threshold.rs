@@ -1,8 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use arrow::{
-    array::{ArrayRef, AsArray, Float32Array, UInt32Array},
-    compute::kernels::{cast, take},
+    array::{ArrayRef, AsArray, DictionaryArray, Float32Array, Int16Array},
+    compute::kernels::cast,
     datatypes::{DataType, Float32Type},
 };
 use lazy_static::lazy_static;
@@ -78,6 +78,8 @@ impl ScaleImpl for ThresholdScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError> {
+        use arrow::datatypes::DataType;
+        
         let thresholds = validate_extract_thresholds(&config.domain)?;
 
         // Validate the range has the correct number of elements
@@ -88,17 +90,21 @@ impl ScaleImpl for ThresholdScale {
             });
         }
 
-        let indices = Arc::new(UInt32Array::from(
-            values
-                .as_primitive::<Float32Type>()
+        // Cast input values to Float32
+        let values = cast(&values, &DataType::Float32)?;
+        let values_array = values.as_primitive::<Float32Type>();
+
+        // Create indices into the range based on thresholds
+        let indices = Int16Array::from(
+            values_array
                 .iter()
                 .map(|x| match x {
                     Some(x) => {
                         if x.is_finite() {
                             let idx =
                                 match thresholds.binary_search_by(|t| t.partial_cmp(&x).unwrap()) {
-                                    Ok(i) => (i + 1) as u32,
-                                    Err(i) => i as u32,
+                                    Ok(i) => (i + 1) as i16,
+                                    Err(i) => i as i16,
                                 };
                             Some(idx)
                         } else {
@@ -108,9 +114,11 @@ impl ScaleImpl for ThresholdScale {
                     None => None,
                 })
                 .collect::<Vec<_>>(),
-        )) as ArrayRef;
+        );
 
-        Ok(take::take(&config.range, &indices, None)?)
+        // Create dictionary array with indices pointing to range values
+        let dict_array = DictionaryArray::try_new(indices, config.range.clone())?;
+        Ok(Arc::new(dict_array) as ArrayRef)
     }
 
     fn ticks(
