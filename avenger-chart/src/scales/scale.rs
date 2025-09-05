@@ -329,8 +329,9 @@ impl<S: ScaleSpec> Scale<S> {
         let domain = match &self.domain.default_domain {
             ScaleDefaultDomain::NoDefault => {
                 return Err(AvengerChartError::InternalError(
-                    "Domain must be specified for scale before creating ConfiguredScale".to_string(),
-                ))
+                    "Domain must be specified for scale before creating ConfiguredScale"
+                        .to_string(),
+                ));
             }
             ScaleDefaultDomain::Interval(start, end) => {
                 let scalars =

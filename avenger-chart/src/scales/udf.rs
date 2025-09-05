@@ -75,7 +75,7 @@ impl ScalarUDFImpl for ScaleUDF {
 
     fn return_type(&self, _arg_types: &[DataType]) -> datafusion::error::Result<DataType> {
         use avenger_scales::scales::RangeKind;
-        
+
         // All scales with discrete ranges return dictionary arrays for efficiency
         if self.scale_impl.range_kind() == RangeKind::Discrete {
             // Discrete-range scales return dictionary arrays

@@ -28,7 +28,7 @@ impl LegendRenderer for ColorbarRenderer {
 
     fn can_render(&self, channels: &[LegendChannel]) -> bool {
         use avenger_scales::scales::{DomainKind, RangeKind};
-        
+
         // Colorbar is for continuous color scales with numeric/temporal domains
         channels.iter().all(|c| {
             (c.channel_type == "fill" || c.channel_type == "stroke")

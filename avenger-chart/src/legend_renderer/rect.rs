@@ -204,7 +204,9 @@ impl LegendRenderer for RectLegendRenderer {
                 );
             }
             "stroke_width" => {
-                let widths = primary_channel.scale.scale_scalars_to_numeric(&domain_values)?;
+                let widths = primary_channel
+                    .scale
+                    .scale_scalars_to_numeric(&domain_values)?;
                 legend_config.stroke_width = Some(widths[0]); // Single width for rect legend
             }
             _ => {}
@@ -212,17 +214,21 @@ impl LegendRenderer for RectLegendRenderer {
 
         // Create text labels for legend entries
         // Scales that provide legend_entries have custom labels
-        let text_values: Vec<String> =
-            if primary_channel.scale.scale_impl.legend_entries(&primary_channel.scale.config).is_some() {
-                // Get custom labels from the scale
-                primary_channel.scale.domain_labels()?
-            } else {
-                // Use default string conversion
-                domain_values
-                    .iter()
-                    .map(|v| v.as_scalar_string())
-                    .collect::<Result<Vec<_>, _>>()?
-            };
+        let text_values: Vec<String> = if primary_channel
+            .scale
+            .scale_impl
+            .legend_entries(&primary_channel.scale.config)
+            .is_some()
+        {
+            // Get custom labels from the scale
+            primary_channel.scale.domain_labels()?
+        } else {
+            // Use default string conversion
+            domain_values
+                .iter()
+                .map(|v| v.as_scalar_string())
+                .collect::<Result<Vec<_>, _>>()?
+        };
 
         // Add text to the legend config
         legend_config.text = ScalarOrArray::new_array(text_values);
