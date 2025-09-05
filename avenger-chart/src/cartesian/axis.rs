@@ -112,26 +112,45 @@ impl CartesianAxis {
             title_font_size: None, // Use default for regular axes
         };
 
-        // Generate axis marks based on scale type
-        // Check scale type to determine which axis maker to use
-        let scale_type = scale.scale_impl.scale_type();
-
-        // Use appropriate axis maker based on scale type
-        let axis_group = match scale_type {
-            "band" => make_band_axis_marks(
-                scale,
-                self.title.as_deref().unwrap_or(""),
-                axis_origin,
-                &axis_config,
-            )?,
-            "point" => make_point_axis_marks(
-                scale.clone(),
-                self.title.as_deref().unwrap_or(""),
-                axis_origin,
-                &axis_config,
-            )?,
+        // Generate axis marks based on scale characteristics
+        // Use domain and range kinds to determine which axis maker to use
+        use avenger_scales::scales::{DomainKind, RangeKind};
+        
+        let domain_kind = scale.scale_impl.domain_kind();
+        let range_kind = scale.scale_impl.range_kind();
+        
+        // For categorical domains with continuous ranges, check if it's band or point
+        let axis_group = match (domain_kind, range_kind) {
+            (DomainKind::Categorical, RangeKind::Continuous) => {
+                // Use scale_type to distinguish band from point
+                // TODO: Add a trait method to detect band vs point without string comparison
+                let scale_type = scale.scale_impl.scale_type();
+                match scale_type {
+                    "band" => make_band_axis_marks(
+                        scale,
+                        self.title.as_deref().unwrap_or(""),
+                        axis_origin,
+                        &axis_config,
+                    )?,
+                    "point" => make_point_axis_marks(
+                        scale.clone(),
+                        self.title.as_deref().unwrap_or(""),
+                        axis_origin,
+                        &axis_config,
+                    )?,
+                    _ => {
+                        // Shouldn't happen, but default to numeric
+                        make_numeric_axis_marks(
+                            scale,
+                            self.title.as_deref().unwrap_or(""),
+                            axis_origin,
+                            &axis_config,
+                        )?
+                    }
+                }
+            }
             _ => {
-                // Default to numeric axis for linear and other continuous scales
+                // All other scales use numeric axis
                 make_numeric_axis_marks(
                     scale,
                     self.title.as_deref().unwrap_or(""),

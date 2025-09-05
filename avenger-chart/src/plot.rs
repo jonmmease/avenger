@@ -492,14 +492,26 @@ impl<C: CoordinateSystem> Plot<C> {
                 channel
             ))
         })?;
-        let scale_type = scale_impl.scale_type();
-        let mut scale = Scale::<Auto>::from_impl(scale_impl.clone());
+        
+        // Create render context with theme for scale defaults
+        let theme = self.get_theme();
+        let context = crate::render_context::RenderContext::new(theme);
+        
+        // Create scale with theme-based defaults
+        let mut scale = crate::scales::create_default_scale_for_channel(
+            channel,
+            scale_impl.clone(),
+            &context
+        )?;
 
-        // Apply default options based on channel and scale type
+        // Apply coordinate system and mark-specific scale options
+        // These override theme defaults
         if let (Some(dt), Some(mark)) = (&data_type, found_mark) {
             let mut default_options = HashMap::new();
 
             // First get coordinate system defaults (for all channels, not just position)
+            // Use scale_type from the implementation for compatibility
+            let scale_type = scale_impl.scale_type();
             let coord_options = self.coord_system.default_scale_options(channel, scale_type);
             default_options.extend(coord_options);
 
