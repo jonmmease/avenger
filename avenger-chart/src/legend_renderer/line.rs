@@ -253,6 +253,26 @@ impl LegendRenderer for LineLegendRenderer {
             });
         }
 
+        // Set typography from legend config
+        if let Some(ref family) = config.title_font_family {
+            legend_config.title_font_family = Some(family.clone());
+        }
+        if let Some(size) = config.title_font_size {
+            legend_config.title_font_size = Some(size);
+        }
+        if let Some(weight) = config.title_font_weight {
+            legend_config.title_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+        }
+        if let Some(ref family) = config.label_font_family {
+            legend_config.label_font_family = Some(family.clone());
+        }
+        if let Some(size) = config.label_font_size {
+            legend_config.label_font_size = Some(size);
+        }
+        if let Some(weight) = config.label_font_weight {
+            legend_config.label_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+        }
+
         // When multiple channels are present, vary all of them together
         // Check each channel in the group to see if it should vary
 

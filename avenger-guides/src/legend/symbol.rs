@@ -45,6 +45,16 @@ pub struct SymbolLegendConfig {
     /// Text colors
     pub title_color: Option<[f32; 4]>,
     pub label_color: Option<[f32; 4]>,
+    
+    /// Typography configuration for title
+    pub title_font_family: Option<String>,
+    pub title_font_size: Option<f32>,
+    pub title_font_weight: Option<FontWeight>,
+    
+    /// Typography configuration for labels
+    pub label_font_family: Option<String>,
+    pub label_font_size: Option<f32>,
+    pub label_font_weight: Option<FontWeight>,
 }
 
 impl Default for SymbolLegendConfig {
@@ -69,6 +79,12 @@ impl Default for SymbolLegendConfig {
             background_padding: None,
             title_color: None,
             label_color: None,
+            title_font_family: None,
+            title_font_size: None,
+            title_font_weight: None,
+            label_font_family: None,
+            label_font_size: None,
+            label_font_weight: None,
         }
     }
 }
@@ -131,9 +147,11 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
 
     // Add title if present
     if let Some(ref title_text) = config.title {
-        let title_font_size = 12.0; // Legend title font size
-        let title_font = "Atkinson Hyperlegible Next".to_string();
-        let title_font_weight = FontWeight::Number(400.0);
+        let title_font_size = config.title_font_size.unwrap_or(12.0);
+        let title_font = config.title_font_family.clone()
+            .unwrap_or_else(|| "sans-serif".to_string());
+        let title_font_weight = config.title_font_weight.clone()
+            .unwrap_or(FontWeight::Number(400.0));
 
         // Measure the actual title text height
         let measurer = default_text_measurer();
@@ -183,6 +201,9 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
             i,
             [(config.inner_width + content_offset_x).round(), y.round()],
             config.label_color,
+            config.label_font_family.as_deref(),
+            config.label_font_size,
+            config.label_font_weight.as_ref(),
         );
         let height = group.bounding_box().height();
         if i == 0 {
@@ -254,6 +275,9 @@ fn make_symbol_group(
     index: usize,
     origin: [f32; 2],
     label_color: Option<[f32; 4]>,
+    label_font_family: Option<&str>,
+    label_font_size: Option<f32>,
+    label_font_weight: Option<&FontWeight>,
 ) -> SceneGroup {
     //
     let mut single_symbol_mark = symbols_mark.single_symbol_mark(index);
@@ -284,9 +308,12 @@ fn make_symbol_group(
         y: single_symbol_mark.y.clone(),
         align: TextAlign::Left.into(),
         baseline: TextBaseline::Middle.into(),
-        font_size: 11.0.into(), // Legend item size
-        font: "Atkinson Hyperlegible Next".to_string().into(),
-        font_weight: FontWeight::Number(300.0).into(), // Regular weight for legend items
+        font_size: label_font_size.unwrap_or(11.0).into(),
+        font: label_font_family.unwrap_or("sans-serif").to_string().into(),
+        font_weight: label_font_weight
+            .cloned()
+            .unwrap_or(FontWeight::Number(300.0))
+            .into(),
         color: ColorOrGradient::Color(label_color.unwrap_or([0.235, 0.235, 0.235, 1.0])).into(),
         ..Default::default()
     };

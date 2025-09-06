@@ -24,6 +24,8 @@ pub struct AxisConfig {
     pub label_font_size: Option<f32>,
     pub label_font_weight: Option<f32>,
     pub title_font_weight: Option<f32>,
+    pub label_font_family: Option<String>,
+    pub title_font_family: Option<String>,
 }
 
 impl Default for AxisConfig {
@@ -44,6 +46,8 @@ impl Default for AxisConfig {
             label_font_size: None,
             label_font_weight: None,
             title_font_weight: None,
+            label_font_family: None,
+            title_font_family: None,
         }
     }
 }

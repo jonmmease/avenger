@@ -337,6 +337,16 @@ pub async fn run() {
             background_stroke: None,
             background_corner_radius: None,
             background_padding: None,
+            title_font_family: None,
+            title_font_size: None,
+            title_font_weight: None,
+            title_color: None,
+            label_font_family: None,
+            label_font_size: None,
+            label_font_weight: None,
+            label_color: None,
+            domain_color: None,
+            tick_color: None,
         },
     )
     .unwrap();

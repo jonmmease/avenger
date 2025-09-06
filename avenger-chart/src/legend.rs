@@ -31,6 +31,19 @@ pub struct Legend {
     pub theme_mark_defaults: Option<
         indexmap::IndexMap<String, indexmap::IndexMap<String, datafusion_common::ScalarValue>>,
     >,
+    /// Typography from theme
+    pub title_font_family: Option<String>,
+    pub title_font_size: Option<f32>,
+    pub title_font_weight: Option<f32>,
+    /// Item label typography (for discrete legends: symbol, line, rect)
+    pub label_font_family: Option<String>,
+    pub label_font_size: Option<f32>,
+    pub label_font_weight: Option<f32>,
+    /// Tick label typography (for continuous legends: colorbar)
+    pub tick_font_family: Option<String>,
+    pub tick_font_size: Option<f32>,
+    pub tick_font_weight: Option<f32>,
+    pub tick_color: Option<String>,
 }
 
 // Custom Debug implementation since LegendRenderer doesn't implement Debug
@@ -58,6 +71,16 @@ impl std::fmt::Debug for Legend {
             .field("title_color", &self.title_color)
             .field("label_color", &self.label_color)
             .field("theme_mark_defaults", &self.theme_mark_defaults.is_some())
+            .field("title_font_family", &self.title_font_family)
+            .field("title_font_size", &self.title_font_size)
+            .field("title_font_weight", &self.title_font_weight)
+            .field("label_font_family", &self.label_font_family)
+            .field("label_font_size", &self.label_font_size)
+            .field("label_font_weight", &self.label_font_weight)
+            .field("tick_font_family", &self.tick_font_family)
+            .field("tick_font_size", &self.tick_font_size)
+            .field("tick_font_weight", &self.tick_font_weight)
+            .field("tick_color", &self.tick_color)
             .finish()
     }
 }
@@ -100,6 +123,16 @@ impl Legend {
             title_color: None,
             label_color: None,
             theme_mark_defaults: None,
+            title_font_family: None,
+            title_font_size: None,
+            title_font_weight: None,
+            label_font_family: None,
+            label_font_size: None,
+            label_font_weight: None,
+            tick_font_family: None,
+            tick_font_size: None,
+            tick_font_weight: None,
+            tick_color: None,
         }
     }
 

@@ -2,6 +2,7 @@ use avenger_common::types::{ColorOrGradient, Gradient, LinearGradient};
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{group::SceneGroup, rect::SceneRectMark};
+use avenger_text::types::{FontWeight, FontWeightNameSpec};
 
 use crate::{
     axis::{
@@ -68,18 +69,27 @@ pub fn make_colorbar_marks(
                 dimensions: [0.0, gradient_height],
                 grid: false,
                 format_number: config.format_number.clone(),
-                title_font_size: Some(12.0), // Use smaller font for colorbar titles
-                // Use default theme values for colors
-                domain_color: None,
-                tick_color: None,
+                title_font_size: config.title_font_size,
+                title_font_weight: config.title_font_weight.as_ref().map(|w| match w {
+                    FontWeight::Number(n) => *n,
+                    FontWeight::Name(FontWeightNameSpec::Normal) => 400.0,
+                    FontWeight::Name(FontWeightNameSpec::Bold) => 700.0,
+                }),
+                title_font_family: config.title_font_family.clone(),
+                title_color: config.title_color,
+                label_font_size: config.label_font_size,
+                label_font_weight: config.label_font_weight.as_ref().map(|w| match w {
+                    FontWeight::Number(n) => *n,
+                    FontWeight::Name(FontWeightNameSpec::Normal) => 400.0,
+                    FontWeight::Name(FontWeightNameSpec::Bold) => 700.0,
+                }),
+                label_font_family: config.label_font_family.clone(),
+                label_color: config.label_color,
+                domain_color: config.domain_color,
+                tick_color: config.tick_color,
                 grid_color: None,
                 grid_width: None,
-                label_color: None,
-                title_color: None,
                 tick_length: None,
-                label_font_size: None,
-                label_font_weight: None,
-                title_font_weight: None,
             };
 
             // Create a new scale with desired range for the axis
@@ -175,6 +185,22 @@ pub struct ColorbarConfig {
     pub background_stroke: Option<ColorOrGradient>,
     pub background_corner_radius: Option<f32>,
     pub background_padding: Option<f32>,
+    
+    /// Typography configuration for axis title
+    pub title_font_family: Option<String>,
+    pub title_font_size: Option<f32>,
+    pub title_font_weight: Option<FontWeight>,
+    pub title_color: Option<[f32; 4]>,
+    
+    /// Typography configuration for axis labels
+    pub label_font_family: Option<String>,
+    pub label_font_size: Option<f32>,
+    pub label_font_weight: Option<FontWeight>,
+    pub label_color: Option<[f32; 4]>,
+    
+    /// Axis line and tick colors
+    pub domain_color: Option<[f32; 4]>,
+    pub tick_color: Option<[f32; 4]>,
 }
 
 impl Default for ColorbarConfig {
@@ -190,6 +216,16 @@ impl Default for ColorbarConfig {
             background_stroke: None,
             background_corner_radius: None,
             background_padding: None,
+            title_font_family: None,
+            title_font_size: None,
+            title_font_weight: None,
+            title_color: None,
+            label_font_family: None,
+            label_font_size: None,
+            label_font_weight: None,
+            label_color: None,
+            domain_color: None,
+            tick_color: None,
         }
     }
 }

@@ -303,6 +303,26 @@ impl LegendRenderer for SymbolLegendRenderer {
             });
         }
 
+        // Set typography from legend config
+        if let Some(ref family) = config.title_font_family {
+            legend_config.title_font_family = Some(family.clone());
+        }
+        if let Some(size) = config.title_font_size {
+            legend_config.title_font_size = Some(size);
+        }
+        if let Some(weight) = config.title_font_weight {
+            legend_config.title_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+        }
+        if let Some(ref family) = config.label_font_family {
+            legend_config.label_font_family = Some(family.clone());
+        }
+        if let Some(size) = config.label_font_size {
+            legend_config.label_font_size = Some(size);
+        }
+        if let Some(weight) = config.label_font_weight {
+            legend_config.label_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+        }
+
         // Apply legend background styling if provided
         if let Some(pad) = config.background_padding {
             legend_config.background_padding = Some(pad);
