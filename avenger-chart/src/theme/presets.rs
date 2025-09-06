@@ -46,8 +46,9 @@ impl Theme {
         theme.axis.domain_color = "#FFFFFF".to_string();
         theme.axis.tick_color = "#FFFFFF".to_string();
 
-        theme.axis.label_color = "#AAAAAA".to_string();
-        theme.axis.title_color = "#FFFFFF".to_string();
+        // Text colors are now in Typography
+        theme.typography.axis_label_color = "#AAAAAA".to_string();
+        theme.typography.axis_title_color = "#FFFFFF".to_string();
 
         // Update legend defaults for dark mode
         theme.legend.background_fill = None; // No background by default

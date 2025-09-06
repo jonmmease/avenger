@@ -124,24 +124,6 @@ pub struct AxisDefaults {
 
     /// Default label angle (0 for horizontal)
     pub label_angle: f32,
-
-    /// Label text color
-    pub label_color: String,
-
-    /// Label font size
-    pub label_font_size: f32,
-
-    /// Label font weight
-    pub label_font_weight: f32,
-
-    /// Title text color
-    pub title_color: String,
-
-    /// Title font size
-    pub title_font_size: f32,
-
-    /// Title font weight
-    pub title_font_weight: f32,
 }
 
 /// Legend styling configuration
@@ -219,12 +201,6 @@ impl Default for AxisDefaults {
             tick_length: 5.0,
             label_padding: 3.0,
             label_angle: 0.0,
-            label_color: "#5a5a5a".to_string(),
-            label_font_size: 10.0,
-            label_font_weight: 300.0,
-            title_color: "#2c2c2c".to_string(),
-            title_font_size: 12.0,
-            title_font_weight: 400.0,
         }
     }
 }
