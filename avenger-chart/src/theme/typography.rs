@@ -96,6 +96,12 @@ pub struct Typography {
 
     /// Subtitle text color
     pub subtitle_color: String,
+    
+    /// Axis title text color
+    pub axis_title_color: String,
+    
+    /// Axis label text color
+    pub axis_label_color: String,
 
     /// Legend title text color
     pub legend_title_color: String,
@@ -106,12 +112,18 @@ pub struct Typography {
     /// Default text color
     pub default_color: String,
     
-    // Axis typography
+    // Additional axis typography
     /// Axis title font family
     pub axis_title_font_family: String,
     
-    /// Axis label font family
+    /// Axis label font family (for tick labels)
     pub axis_label_font_family: String,
+    
+    /// Axis title font size
+    pub axis_title_size: f32,
+    
+    /// Axis title font weight
+    pub axis_title_weight: f32,
     
     /// Legend title font family
     pub legend_title_font_family: String,
@@ -158,19 +170,23 @@ impl Default for Typography {
             // Font weights
             title_weight: FontWeight::Named(NamedFontWeight::Medium),
             subtitle_weight: FontWeight::Number(200.0),
-            axis_label_weight: FontWeight::Named(NamedFontWeight::Normal),
+            axis_label_weight: FontWeight::Number(300.0),  // Light weight for axis labels
             default_weight: FontWeight::Named(NamedFontWeight::Normal),
 
             // Colors
             title_color: "#1a1a1a".to_string(),
             subtitle_color: "#4a4a4a".to_string(),
+            axis_title_color: "#2a2a2a".to_string(),  // Axis title color
+            axis_label_color: "#5a5a5a".to_string(),  // Same as we use for axis tick labels
             legend_title_color: "#2C2C2C".to_string(), // Same as hardcoded default
             legend_label_color: "#3C3C3C".to_string(), // Same as hardcoded default
             default_color: "#000000".to_string(),
             
-            // Additional font families
+            // Additional font families and sizes
             axis_title_font_family: "Atkinson Hyperlegible Next".to_string(),
             axis_label_font_family: "Atkinson Hyperlegible Next".to_string(),
+            axis_title_size: 12.0,  // Axis title font size (matching old default)
+            axis_title_weight: 400.0,  // Normal weight for axis titles
             legend_title_font_family: "Atkinson Hyperlegible Next".to_string(),
             legend_label_font_family: "Atkinson Hyperlegible Next".to_string(),
             
