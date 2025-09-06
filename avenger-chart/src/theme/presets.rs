@@ -45,7 +45,7 @@ impl Theme {
         theme.axis.grid_opacity = 0.5; // Keep same opacity
         theme.axis.domain_color = "#484F58".to_string(); // Medium-dark gray for axis lines
         theme.axis.tick_color = "#484F58".to_string(); // Same as domain
-        theme.axis.label_color = "#C9D1D9".to_string(); // Lighter gray for axis labels (was #8B949E)
+        theme.axis.label_color = "#E1E6EA".to_string(); // Even lighter gray for tick labels
         theme.axis.title_color = "#FFFFFF".to_string(); // Bright white for axis titles
 
         // Update legend defaults for dark mode - keep mostly transparent
