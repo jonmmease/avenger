@@ -9,17 +9,17 @@ fn test_default_theme() {
     let theme = plot.get_theme();
 
     // Check default values
-    assert_eq!(theme.typography.default_font, "Atkinson Hyperlegible Next");
-    assert_eq!(theme.typography.title_size, 18.0);
+    assert_eq!(theme.default_font, "Atkinson Hyperlegible Next");
+    assert_eq!(theme.title.title_font_size, 18.0);
     assert_eq!(theme.colors.default_color, "#4682b4");
 }
 
 #[test]
 fn test_theme_builder() {
-    let plot = Plot::<Cartesian>::new().with_theme(|t| t.with_font("Inter"));
+    let plot = Plot::<Cartesian>::new().with_theme(|t| t.with_font_family("Inter"));
 
     let theme = plot.get_theme();
-    assert_eq!(theme.typography.default_font, "Inter");
+    assert_eq!(theme.default_font, "Inter");
 }
 
 #[test]
@@ -34,7 +34,7 @@ fn test_preset_themes() {
 
     // Test light theme (should be same as default)
     let light = Theme::light();
-    assert_eq!(light.typography.default_font, "Atkinson Hyperlegible Next");
+    assert_eq!(light.default_font, "Atkinson Hyperlegible Next");
 
     // Test high contrast theme
     let high_contrast = Theme::high_contrast();
@@ -46,8 +46,8 @@ fn test_preset_themes() {
 
     // Test publication theme
     let publication = Theme::publication();
-    assert_eq!(publication.typography.default_font, "Helvetica");
-    assert_eq!(publication.typography.title_size, 14.0);
+    assert_eq!(publication.default_font, "Helvetica");
+    assert_eq!(publication.title.title_font_size, 14.0);
 }
 
 #[test]

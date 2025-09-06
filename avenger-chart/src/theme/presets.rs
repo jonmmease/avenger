@@ -10,19 +10,16 @@ impl Theme {
         let mut theme = Theme::default();
 
         // Dark background colors
-        theme.background = BackgroundDefaults {
+        theme.background = BackgroundTheme {
             plot_background: Some("#1E1E1E".to_string()), // Dark plot area
             canvas_background: Some("#121212".to_string()), // Darker canvas background
         };
 
-        // Keep default font
-        theme.typography.default_font = theme.typography.default_font.clone();
-
         // Update text colors for dark mode
-        theme.typography.title_color = "#FFFFFF".to_string(); // Bright white for titles
-        theme.typography.subtitle_color = "#FFFFFF".to_string(); // Bright white for subtitles
-        theme.typography.legend_title_color = "#FFFFFF".to_string(); // White for legend titles
-        theme.typography.legend_label_color = "#E1E6EA".to_string(); // Light gray for legend labels (matching axis tick labels)
+        theme.title.title_color = "#FFFFFF".to_string(); // Bright white for titles
+        theme.title.subtitle_color = "#FFFFFF".to_string(); // Bright white for subtitles
+        theme.legend.title_color = "#FFFFFF".to_string(); // White for legend titles
+        theme.legend.label_color = "#E1E6EA".to_string(); // Light gray for legend labels
 
         // Okabe-Ito colorblind-safe palette (optimized for dark backgrounds)
         theme.colors = ColorPalettes {
@@ -47,8 +44,8 @@ impl Theme {
         theme.axis.tick_color = "#FFFFFF".to_string();
 
         // Text colors are now in Typography
-        theme.typography.axis_label_color = "#AAAAAA".to_string();
-        theme.typography.axis_title_color = "#FFFFFF".to_string();
+        theme.axis.label_color = "#AAAAAA".to_string();
+        theme.axis.title_color = "#FFFFFF".to_string();
 
         // Update legend defaults for dark mode
         theme.legend.background_fill = None; // No background by default
@@ -142,9 +139,9 @@ impl Theme {
             ..ColorPalettes::default()
         };
 
-        // Bold fonts
-        theme.typography.default_weight = FontWeight::Named(NamedFontWeight::Bold);
-        theme.typography.axis_label_weight = FontWeight::Named(NamedFontWeight::SemiBold);
+        // Bold fonts - TODO: Update for new architecture
+        // theme.axis.label_font_weight = 700.0; // Bold
+        // theme.title.title_font_weight = 700.0;
 
         // Thicker lines
         let mut mark_defaults = IndexMap::new();
@@ -163,13 +160,13 @@ impl Theme {
         };
 
         // High contrast axis
-        theme.axis = AxisDefaults {
+        theme.axis = AxisTheme {
             grid_color: "#000000".to_string(),
             grid_width: 2.0,
             domain_color: "#000000".to_string(),
             domain_width: 2.0,
             tick_color: "#000000".to_string(),
-            ..AxisDefaults::default()
+            ..AxisTheme::default()
         };
 
         theme
@@ -203,17 +200,13 @@ impl Theme {
         let mut theme = Theme::default();
 
         // Conservative font choices
-        theme.typography = Typography {
-            default_font: "Helvetica".to_string(),
-            title_font: Some("Helvetica".to_string()),
-            title_size: 14.0,
-            subtitle_size: 12.0,
-            axis_label_size: 10.0,
-            axis_tick_size: 9.0,
-            legend_title_size: 10.0,
-            legend_item_size: 9.0,
-            ..Typography::default()
-        };
+        theme.set_font_family("Helvetica");
+        theme.title.title_font_size = 14.0;
+        theme.title.subtitle_font_size = 12.0;
+        theme.axis.label_font_size = 9.0;
+        theme.axis.title_font_size = 10.0;
+        theme.legend.title_font_size = 10.0;
+        theme.legend.label_font_size = 9.0;
 
         // Grayscale palette
         theme.colors = ColorPalettes {
@@ -229,20 +222,20 @@ impl Theme {
         };
 
         // Minimal styling
-        theme.axis = AxisDefaults {
+        theme.axis = AxisTheme {
             grid_color: "#CCCCCC".to_string(),
             grid_width: 0.5,
             domain_color: "#000000".to_string(),
             domain_width: 1.0,
             tick_color: "#000000".to_string(),
-            ..AxisDefaults::default()
+            ..AxisTheme::default()
         };
 
         // No legend background
-        theme.legend = LegendDefaults {
+        theme.legend = LegendTheme {
             background_fill: None,
             background_stroke: None,
-            ..LegendDefaults::default()
+            ..LegendTheme::default()
         };
 
         theme

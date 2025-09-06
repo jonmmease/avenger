@@ -1469,18 +1469,18 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             }
 
             // Set text colors and typography from theme
-            legend.title_color = Some(theme.typography.legend_title_color.clone());
-            legend.label_color = Some(theme.typography.legend_label_color.clone());
-            legend.title_font_family = Some(theme.typography.legend_title_font_family.clone());
-            legend.title_font_size = Some(theme.typography.legend_title_size);
-            legend.title_font_weight = Some(theme.typography.legend_title_weight);
-            legend.label_font_family = Some(theme.typography.legend_label_font_family.clone());
-            legend.label_font_size = Some(theme.typography.legend_item_size);
-            legend.label_font_weight = Some(theme.typography.legend_label_weight);
-            legend.tick_font_family = Some(theme.typography.legend_tick_font_family.clone());
-            legend.tick_font_size = Some(theme.typography.legend_tick_font_size);
-            legend.tick_font_weight = Some(theme.typography.legend_tick_font_weight);
-            legend.tick_color = Some(theme.typography.legend_tick_color.clone());
+            legend.title_color = Some(theme.legend.title_color.clone());
+            legend.label_color = Some(theme.legend.label_color.clone());
+            legend.title_font_family = Some(theme.legend.title_font_family.clone());
+            legend.title_font_size = Some(theme.legend.title_font_size);
+            legend.title_font_weight = Some(theme.legend.title_font_weight);
+            legend.label_font_family = Some(theme.legend.label_font_family.clone());
+            legend.label_font_size = Some(theme.legend.label_font_size);
+            legend.label_font_weight = Some(theme.legend.label_font_weight);
+            legend.tick_font_family = Some(theme.legend.tick_font_family.clone());
+            legend.tick_font_size = Some(theme.legend.tick_font_size);
+            legend.tick_font_weight = Some(theme.legend.tick_font_weight);
+            legend.tick_color = Some(theme.legend.tick_color.clone());
 
             default_legends.insert(channel.clone(), legend);
         }
@@ -1548,10 +1548,10 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             font: title.font_family.clone().into(),
             font_size: title.font_size.into(),
             font_weight: avenger_text::types::FontWeight::Number(
-                theme.typography.title_font_weight(),
+                theme.title.title_font_weight,
             )
             .into(),
-            color: crate::utils::parse_color_string(&theme.typography.title_color)
+            color: crate::utils::parse_color_string(&theme.title.title_color)
                 .unwrap_or(ColorOrGradient::Color([0.102, 0.102, 0.102, 1.0]))
                 .into(),
             ..Default::default()
@@ -1601,10 +1601,10 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             font: subtitle.font_family.clone().into(),
             font_size: subtitle.font_size.into(),
             font_weight: avenger_text::types::FontWeight::Number(
-                theme.typography.subtitle_font_weight(),
+                theme.title.subtitle_font_weight,
             )
             .into(),
-            color: crate::utils::parse_color_string(&theme.typography.subtitle_color)
+            color: crate::utils::parse_color_string(&theme.title.subtitle_color)
                 .unwrap_or(ColorOrGradient::Color([0.290, 0.290, 0.290, 1.0]))
                 .into(),
             ..Default::default()
@@ -1785,42 +1785,42 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         for legend in all_legends.values_mut() {
             // Only set colors if not already explicitly set by user
             if legend.title_color.is_none() {
-                legend.title_color = Some(theme.typography.legend_title_color.clone());
+                legend.title_color = Some(theme.legend.title_color.clone());
             }
             if legend.label_color.is_none() {
-                legend.label_color = Some(theme.typography.legend_label_color.clone());
+                legend.label_color = Some(theme.legend.label_color.clone());
             }
             // Set typography from theme
             if legend.title_font_family.is_none() {
-                legend.title_font_family = Some(theme.typography.legend_title_font_family.clone());
+                legend.title_font_family = Some(theme.legend.title_font_family.clone());
             }
             if legend.title_font_size.is_none() {
-                legend.title_font_size = Some(theme.typography.legend_title_size);
+                legend.title_font_size = Some(theme.legend.title_font_size);
             }
             if legend.title_font_weight.is_none() {
-                legend.title_font_weight = Some(theme.typography.legend_title_weight);
+                legend.title_font_weight = Some(theme.legend.title_font_weight);
             }
             if legend.label_font_family.is_none() {
-                legend.label_font_family = Some(theme.typography.legend_label_font_family.clone());
+                legend.label_font_family = Some(theme.legend.label_font_family.clone());
             }
             if legend.label_font_size.is_none() {
-                legend.label_font_size = Some(theme.typography.legend_item_size);
+                legend.label_font_size = Some(theme.legend.label_font_size);
             }
             if legend.label_font_weight.is_none() {
-                legend.label_font_weight = Some(theme.typography.legend_label_weight);
+                legend.label_font_weight = Some(theme.legend.label_font_weight);
             }
             // Set tick label typography (for colorbar legends)
             if legend.tick_font_family.is_none() {
-                legend.tick_font_family = Some(theme.typography.legend_tick_font_family.clone());
+                legend.tick_font_family = Some(theme.legend.tick_font_family.clone());
             }
             if legend.tick_font_size.is_none() {
-                legend.tick_font_size = Some(theme.typography.legend_tick_font_size);
+                legend.tick_font_size = Some(theme.legend.tick_font_size);
             }
             if legend.tick_font_weight.is_none() {
-                legend.tick_font_weight = Some(theme.typography.legend_tick_font_weight);
+                legend.tick_font_weight = Some(theme.legend.tick_font_weight);
             }
             if legend.tick_color.is_none() {
-                legend.tick_color = Some(theme.typography.legend_tick_color.clone());
+                legend.tick_color = Some(theme.legend.tick_color.clone());
             }
             // Always pass theme mark defaults for legend rendering
             if legend.theme_mark_defaults.is_none() {
