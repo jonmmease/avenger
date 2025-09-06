@@ -475,6 +475,26 @@ mod tests {
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::arrow::record_batch::RecordBatch;
 
+    #[test]
+    fn test_parse_white_color() {
+        let white = parse_color_to_array("#FFFFFF");
+        eprintln!("Parsed white: {:?}", white);
+        assert!(white[0] > 0.99 && white[0] <= 1.0, "Red should be ~1.0, got {}", white[0]);
+        assert!(white[1] > 0.99 && white[1] <= 1.0, "Green should be ~1.0, got {}", white[1]);
+        assert!(white[2] > 0.99 && white[2] <= 1.0, "Blue should be ~1.0, got {}", white[2]);
+        assert_eq!(white[3], 1.0, "Alpha should be 1.0");
+    }
+
+    #[test]
+    fn test_parse_black_color() {
+        let black = parse_color_to_array("#000000");
+        eprintln!("Parsed black: {:?}", black);
+        assert!(black[0] < 0.01, "Red should be ~0.0, got {}", black[0]);
+        assert!(black[1] < 0.01, "Green should be ~0.0, got {}", black[1]);
+        assert!(black[2] < 0.01, "Blue should be ~0.0, got {}", black[2]);
+        assert_eq!(black[3], 1.0, "Alpha should be 1.0");
+    }
+
     #[tokio::test]
     async fn test_span_numeric_columns() {
         // Create test data with numeric columns
