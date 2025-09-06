@@ -41,6 +41,10 @@ pub struct SymbolLegendConfig {
     pub background_stroke: Option<ColorOrGradient>,
     pub background_corner_radius: Option<f32>,
     pub background_padding: Option<f32>,
+
+    /// Text colors
+    pub title_color: Option<[f32; 4]>,
+    pub label_color: Option<[f32; 4]>,
 }
 
 impl Default for SymbolLegendConfig {
@@ -63,6 +67,8 @@ impl Default for SymbolLegendConfig {
             background_stroke: None,
             background_corner_radius: None,
             background_padding: None,
+            title_color: None,
+            label_color: None,
         }
     }
 }
@@ -150,7 +156,8 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
             font_size: title_font_size.into(),
             font_weight: title_font_weight.into(),
             font: title_font.into(),
-            color: ColorOrGradient::Color([0.173, 0.173, 0.173, 1.0]).into(), // #2C2C2C
+            color: ColorOrGradient::Color(config.title_color.unwrap_or([0.173, 0.173, 0.173, 1.0]))
+                .into(),
             align: TextAlign::Left.into(),
             baseline: TextBaseline::Top.into(), // Changed to Top baseline
             ..Default::default()
@@ -175,6 +182,7 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
             max_width,
             i,
             [(config.inner_width + content_offset_x).round(), y.round()],
+            config.label_color,
         );
         let height = group.bounding_box().height();
         if i == 0 {
@@ -245,6 +253,7 @@ fn make_symbol_group(
     max_width: f32,
     index: usize,
     origin: [f32; 2],
+    label_color: Option<[f32; 4]>,
 ) -> SceneGroup {
     //
     let mut single_symbol_mark = symbols_mark.single_symbol_mark(index);
@@ -278,7 +287,7 @@ fn make_symbol_group(
         font_size: 11.0.into(), // Legend item size
         font: "Atkinson Hyperlegible Next".to_string().into(),
         font_weight: FontWeight::Number(300.0).into(), // Regular weight for legend items
-        color: ColorOrGradient::Color([0.235, 0.235, 0.235, 1.0]).into(), // #3C3C3C
+        color: ColorOrGradient::Color(label_color.unwrap_or([0.235, 0.235, 0.235, 1.0])).into(),
         ..Default::default()
     };
 

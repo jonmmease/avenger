@@ -259,8 +259,7 @@ async fn test_combined_size_color_shape_legend_dark() {
                 // All three channels use the same column
                 .size(col("category"))
                 .fill(col("category"))
-                .shape(col("category"))
-                .stroke_width_with(lit(1.5), |c| c.no_scale()),
+                .shape(col("category")),
         );
 
     assert_visual_match_with_theme(

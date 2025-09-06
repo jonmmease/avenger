@@ -145,7 +145,7 @@ async fn test_eight_types_fill_shape_dark() {
         .data(df)
         .title("Eight Category Scatter Plot - Dark Mode")
         .subtitle("Dark theme with vibrant colors")
-        .legend("fill", |legend| legend.title("Category")) // Only one legend since both use same column
+        .legend("fill", |legend| legend.title("Category"))
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| {

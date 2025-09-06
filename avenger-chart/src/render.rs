@@ -146,10 +146,10 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         if let Some(bg_color) = &theme.background.canvas_background {
             use avenger_common::types::ColorOrGradient;
             use avenger_scenegraph::marks::rect::SceneRectMark;
-            
-            // Parse the color string to RGBA
-            let color = crate::utils::parse_color_to_array(bg_color);
-            
+
+            // Parse the color string to RGBA - fail if color is invalid
+            let color = crate::utils::parse_color_to_array_strict(bg_color)?;
+
             let background_rect = SceneRectMark {
                 x: 0.0.into(),
                 y: 0.0.into(),
@@ -1331,10 +1331,28 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // Get default legends for channels with data-driven scales
         let default_legends = self.create_default_legends(scales);
 
+        // Get theme for legend text colors
+        let theme = self.plot.get_theme();
+
         // Combine existing legends with defaults
         let mut all_legend_configs = self.plot.legends.clone();
         for (channel, default_legend) in default_legends {
             all_legend_configs.entry(channel).or_insert(default_legend);
+        }
+
+        // Apply theme colors and mark defaults to all legends (both user-configured and defaults)
+        for legend in all_legend_configs.values_mut() {
+            // Only set colors if not already explicitly set by user
+            if legend.title_color.is_none() {
+                legend.title_color = Some(theme.typography.legend_title_color.clone());
+            }
+            if legend.label_color.is_none() {
+                legend.label_color = Some(theme.typography.legend_label_color.clone());
+            }
+            // Always pass theme mark defaults for legend rendering
+            if legend.theme_mark_defaults.is_none() {
+                legend.theme_mark_defaults = Some(theme.mark_defaults.defaults.clone());
+            }
         }
 
         // Use the helper to merge legend channels - exactly the same as for layout
@@ -1473,6 +1491,10 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             if let Some(ref stroke) = theme.legend.background_stroke {
                 legend = legend.background_stroke(stroke.clone());
             }
+
+            // Set text colors from theme
+            legend.title_color = Some(theme.typography.legend_title_color.clone());
+            legend.label_color = Some(theme.typography.legend_label_color.clone());
 
             default_legends.insert(channel.clone(), legend);
         }

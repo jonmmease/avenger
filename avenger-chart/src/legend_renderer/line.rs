@@ -219,14 +219,38 @@ impl LegendRenderer for LineLegendRenderer {
             legend_config.background_corner_radius = Some(r);
         }
         if let Some(ref fill_str) = config.background_fill {
-            if let Some(color) = crate::utils::parse_color_string(fill_str) {
-                legend_config.background_fill = Some(color);
-            }
+            legend_config.background_fill =
+                Some(crate::utils::parse_color_string_strict(fill_str)?);
         }
         if let Some(ref stroke_str) = config.background_stroke {
-            if let Some(color) = crate::utils::parse_color_string(stroke_str) {
-                legend_config.background_stroke = Some(color);
-            }
+            legend_config.background_stroke =
+                Some(crate::utils::parse_color_string_strict(stroke_str)?);
+        }
+
+        // Set text colors from legend config - fail if colors cannot be parsed
+        if let Some(ref title_color) = config.title_color {
+            let color = crate::utils::parse_color_string_strict(title_color)?;
+            legend_config.title_color = Some(match color {
+                ColorOrGradient::Color(c) => c,
+                _ => {
+                    return Err(AvengerChartError::InternalError(format!(
+                        "Legend title color '{}' parsed to gradient, expected solid color",
+                        title_color
+                    )));
+                }
+            });
+        }
+        if let Some(ref label_color) = config.label_color {
+            let color = crate::utils::parse_color_string_strict(label_color)?;
+            legend_config.label_color = Some(match color {
+                ColorOrGradient::Color(c) => c,
+                _ => {
+                    return Err(AvengerChartError::InternalError(format!(
+                        "Legend label color '{}' parsed to gradient, expected solid color",
+                        label_color
+                    )));
+                }
+            });
         }
 
         // When multiple channels are present, vary all of them together

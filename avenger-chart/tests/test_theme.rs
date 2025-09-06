@@ -42,7 +42,7 @@ fn test_preset_themes() {
 
     // Test colorblind-safe theme
     let colorblind = Theme::colorblind_safe();
-    assert_eq!(colorblind.colors.categorical[0], "#332288");
+    assert_eq!(colorblind.colors.categorical[0], "#0072B2");
 
     // Test publication theme
     let publication = Theme::publication();

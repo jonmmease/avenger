@@ -11,8 +11,8 @@ impl Theme {
 
         // Dark background colors
         theme.background = BackgroundDefaults {
-            plot_background: None,                          // Transparent plot area
-            canvas_background: Some("#0D1117".to_string()), // GitHub dark mode background
+            plot_background: Some("#1E1E1E".to_string()), // Dark plot area
+            canvas_background: Some("#121212".to_string()), // Darker canvas background
         };
 
         // Keep default font
@@ -21,36 +21,37 @@ impl Theme {
         // Update text colors for dark mode
         theme.typography.title_color = "#FFFFFF".to_string(); // Bright white for titles
         theme.typography.subtitle_color = "#FFFFFF".to_string(); // Bright white for subtitles
+        theme.typography.legend_title_color = "#FFFFFF".to_string(); // White for legend titles
+        theme.typography.legend_label_color = "#E1E6EA".to_string(); // Light gray for legend labels (matching axis tick labels)
 
-        // Adjusted color palette for dark backgrounds - vibrant colors
+        // Okabe-Ito colorblind-safe palette (optimized for dark backgrounds)
         theme.colors = ColorPalettes {
             categorical: vec![
-                "#4C9ED9".to_string(), // Bright blue
-                "#70E99D".to_string(), // Mint green
-                "#F79E54".to_string(), // Orange
-                "#D96BBD".to_string(), // Pink/purple
-                "#F2E965".to_string(), // Yellow
-                "#9DD5D5".to_string(), // Cyan
-                "#FF6B6B".to_string(), // Red
-                "#B4A7D6".to_string(), // Lavender
-                "#8FD14F".to_string(), // Lime green
-                "#FFB3BA".to_string(), // Light pink
+                "#56B4E9".to_string(), // Sky blue
+                "#E69F00".to_string(), // Orange
+                "#009E73".to_string(), // Green
+                "#F0E442".to_string(), // Yellow
+                "#0072B2".to_string(), // Blue
+                "#D55E00".to_string(), // Vermillion
+                "#CC79A7".to_string(), // Reddish purple
+                "#999999".to_string(), // Grey
             ],
-            default_color: "#4C9ED9".to_string(),
+            default_color: "#56B4E9".to_string(),
             ..ColorPalettes::default()
         };
 
-        // Update axis defaults for dark mode
-        theme.axis.grid_color = "#30363D".to_string(); // Subtle dark gray grid lines
-        theme.axis.grid_opacity = 0.5; // Keep same opacity
-        theme.axis.domain_color = "#484F58".to_string(); // Medium-dark gray for axis lines
-        theme.axis.tick_color = "#484F58".to_string(); // Same as domain
-        theme.axis.label_color = "#E1E6EA".to_string(); // Even lighter gray for tick labels
-        theme.axis.title_color = "#FFFFFF".to_string(); // Bright white for axis titles
+        theme.axis.grid_color = "#30363D".to_string();
+        theme.axis.grid_opacity = 0.5;
 
-        // Update legend defaults for dark mode - keep mostly transparent
+        theme.axis.domain_color = "#FFFFFF".to_string();
+        theme.axis.tick_color = "#FFFFFF".to_string();
+
+        theme.axis.label_color = "#AAAAAA".to_string();
+        theme.axis.title_color = "#FFFFFF".to_string();
+
+        // Update legend defaults for dark mode
         theme.legend.background_fill = None; // No background by default
-        theme.legend.background_stroke = Some("#30363D".to_string()); // Dark border if needed
+        theme.legend.background_stroke = None; // No stroke outline by default
 
         // Dark theme mark defaults
         let mut mark_defaults = IndexMap::new();
@@ -59,11 +60,15 @@ impl Theme {
         let mut symbol = IndexMap::new();
         symbol.insert(
             "fill".to_string(),
-            ScalarValue::Utf8(Some("#4C9ED9".to_string())), // Use bright blue
+            ScalarValue::Utf8(Some("#56B4E9".to_string())), // Sky blue from Okabe-Ito
         );
         symbol.insert(
             "stroke".to_string(),
             ScalarValue::Utf8(Some("#30363D".to_string())), // Subtle dark stroke
+        );
+        symbol.insert(
+            "stroke_width".to_string(),
+            ScalarValue::Float64(Some(0.0)), // No stroke by default
         );
         mark_defaults.insert("symbol".to_string(), symbol);
 
@@ -71,11 +76,15 @@ impl Theme {
         let mut rect = IndexMap::new();
         rect.insert(
             "fill".to_string(),
-            ScalarValue::Utf8(Some("#4C9ED9".to_string())), // Bright blue
+            ScalarValue::Utf8(Some("#56B4E9".to_string())), // Sky blue from Okabe-Ito
         );
         rect.insert(
             "stroke".to_string(),
             ScalarValue::Utf8(Some("#30363D".to_string())), // Subtle dark stroke
+        );
+        rect.insert(
+            "stroke_width".to_string(),
+            ScalarValue::Float64(Some(0.0)), // No stroke by default
         );
         mark_defaults.insert("rect".to_string(), rect);
 
@@ -96,27 +105,12 @@ impl Theme {
             .unwrap_or_else(IndexMap::new);
         line.insert(
             "stroke".to_string(),
-            ScalarValue::Utf8(Some("#4C9ED9".to_string())), // Bright blue
+            ScalarValue::Utf8(Some("#56B4E9".to_string())), // Sky blue from Okabe-Ito
         );
         mark_defaults.insert("line".to_string(), line);
 
         theme.mark_defaults = MarkDefaults {
             defaults: mark_defaults,
-        };
-
-        // Axis styling for dark theme
-        theme.axis = AxisDefaults {
-            grid_color: "#424242".to_string(),
-            domain_color: "#E0E0E0".to_string(),
-            tick_color: "#E0E0E0".to_string(),
-            ..AxisDefaults::default()
-        };
-
-        // Legend styling for dark theme
-        theme.legend = LegendDefaults {
-            background_fill: Some("#2A2A2A".to_string()),
-            background_stroke: Some("#424242".to_string()),
-            ..LegendDefaults::default()
         };
 
         theme
@@ -180,24 +174,23 @@ impl Theme {
         theme
     }
 
-    /// Colorblind-safe theme using optimized palettes
+    /// Colorblind-safe theme using Okabe-Ito palette
     pub fn colorblind_safe() -> Self {
         let mut theme = Theme::default();
 
-        // Paul Tol's colorblind-safe palette
+        // Okabe-Ito colorblind-safe palette
         theme.colors = ColorPalettes {
             categorical: vec![
-                "#332288".to_string(), // Indigo
-                "#88CCEE".to_string(), // Cyan
-                "#44AA99".to_string(), // Teal
-                "#117733".to_string(), // Green
-                "#999933".to_string(), // Olive
-                "#DDCC77".to_string(), // Sand
-                "#CC6677".to_string(), // Rose
-                "#882255".to_string(), // Wine
-                "#AA4499".to_string(), // Purple
+                "#0072B2".to_string(), // Blue
+                "#E69F00".to_string(), // Orange
+                "#009E73".to_string(), // Green
+                "#F0E442".to_string(), // Yellow
+                "#56B4E9".to_string(), // Sky blue
+                "#D55E00".to_string(), // Vermillion
+                "#CC79A7".to_string(), // Reddish purple
+                "#999999".to_string(), // Grey
             ],
-            default_color: "#332288".to_string(),
+            default_color: "#0072B2".to_string(),
             ..ColorPalettes::default()
         };
 
