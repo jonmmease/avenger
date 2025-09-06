@@ -90,9 +90,7 @@ async fn test_simple_scatter_plot_dark() {
                 c.scale_with::<Linear>(|s| s).axis(|a| a.title("Y Value"))
             })
             .size(100.0)
-            .fill("#4C9ED9") // Use a color from the dark theme palette
-            .stroke("#70E99D") // Use another color from dark theme
-            .stroke_width(1.5),
+            .fill("#4C9ED9"), // Use a color from the dark theme palette
     );
 
     assert_visual_match_with_theme(

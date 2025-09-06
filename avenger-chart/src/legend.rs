@@ -24,6 +24,13 @@ pub struct Legend {
     pub renderer: Option<Arc<dyn LegendRenderer>>,
     /// Channels that have been merged into this legend (for layout width calculation)
     pub merged_channels: Vec<String>,
+    /// Text colors from theme
+    pub title_color: Option<String>,
+    pub label_color: Option<String>,
+    /// Theme mark defaults (for legend symbol rendering)
+    pub theme_mark_defaults: Option<
+        indexmap::IndexMap<String, indexmap::IndexMap<String, datafusion_common::ScalarValue>>,
+    >,
 }
 
 // Custom Debug implementation since LegendRenderer doesn't implement Debug
@@ -48,6 +55,9 @@ impl std::fmt::Debug for Legend {
             .field("contributing_marks", &self.contributing_marks)
             .field("renderer", &self.renderer.is_some())
             .field("merged_channels", &self.merged_channels)
+            .field("title_color", &self.title_color)
+            .field("label_color", &self.label_color)
+            .field("theme_mark_defaults", &self.theme_mark_defaults.is_some())
             .finish()
     }
 }
@@ -87,6 +97,9 @@ impl Legend {
             contributing_marks: Vec::new(),
             renderer: None,
             merged_channels: Vec::new(),
+            title_color: None,
+            label_color: None,
+            theme_mark_defaults: None,
         }
     }
 

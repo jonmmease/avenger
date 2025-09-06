@@ -45,6 +45,10 @@ pub struct LineLegendConfig {
     pub background_stroke: Option<ColorOrGradient>,
     pub background_corner_radius: Option<f32>,
     pub background_padding: Option<f32>,
+
+    /// Text colors
+    pub title_color: Option<[f32; 4]>,
+    pub label_color: Option<[f32; 4]>,
 }
 
 impl Default for LineLegendConfig {
@@ -69,6 +73,8 @@ impl Default for LineLegendConfig {
             background_stroke: None,
             background_corner_radius: None,
             background_padding: None,
+            title_color: None,
+            label_color: None,
         }
     }
 }
@@ -117,7 +123,8 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
             font_size: 12.0.into(),                          // Legend title size
             font_weight: FontWeight::Number(400.0).into(),   // Medium weight for titles
             font: config.font_family.as_vec(1, None)[0].clone().into(),
-            color: ColorOrGradient::Color([0.173, 0.173, 0.173, 1.0]).into(), // #2C2C2C
+            color: ColorOrGradient::Color(config.title_color.unwrap_or([0.173, 0.173, 0.173, 1.0]))
+                .into(),
             align: TextAlign::Left.into(),
             baseline: TextBaseline::Middle.into(),
             ..Default::default()
@@ -154,6 +161,7 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
             line_lengths[i],
             max_line_length,
             config.text_padding,
+            config.label_color,
         );
         groups.push(SceneMark::Group(group));
         line_group_y = (line_group_y + legend_group_height).round();
@@ -223,6 +231,7 @@ fn make_line_group(
     line_length: f32,
     max_line_length: f32,
     text_padding: f32,
+    label_color: Option<[f32; 4]>,
 ) -> SceneGroup {
     // Line and text should be positioned relative to the group's local origin
     let x0 = 0.0;
@@ -268,7 +277,7 @@ fn make_line_group(
         baseline: TextBaseline::Middle.into(),
         font_size: 11.0.into(),                        // Legend item size
         font_weight: FontWeight::Number(300.0).into(), // Regular weight for legend items
-        color: ColorOrGradient::Color([0.235, 0.235, 0.235, 1.0]).into(), // #3C3C3C
+        color: ColorOrGradient::Color(label_color.unwrap_or([0.235, 0.235, 0.235, 1.0])).into(),
         ..Default::default()
     };
 

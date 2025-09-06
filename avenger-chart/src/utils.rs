@@ -16,8 +16,10 @@ use datafusion::scalar::ScalarValue;
 use datafusion_common::ToDFSchema;
 use std::sync::Arc;
 
-/// Helper to parse color from string using the color coercer
-pub fn parse_color_string(color_str: &str) -> Option<avenger_common::types::ColorOrGradient> {
+/// Strict color parser that returns an error if the color string cannot be parsed
+pub fn parse_color_string_strict(
+    color_str: &str,
+) -> Result<avenger_common::types::ColorOrGradient, AvengerChartError> {
     use avenger_scales::scales::coerce::Coercer;
     use datafusion::scalar::ScalarValue;
 
@@ -27,23 +29,42 @@ pub fn parse_color_string(color_str: &str) -> Option<avenger_common::types::Colo
             .iter()
             .cloned(),
     )
-    .ok()?;
-    coercer
-        .to_color(&array, None)
-        .ok()
-        .and_then(|colors| colors.as_vec(1, None).first().cloned())
+    .map_err(|e| {
+        AvengerChartError::InternalError(format!("Failed to create array for color: {}", e))
+    })?;
+
+    let colors = coercer.to_color(&array, None).map_err(|e| {
+        AvengerChartError::InternalError(format!("Invalid color string '{}': {}", color_str, e))
+    })?;
+
+    colors.as_vec(1, None).first().cloned().ok_or_else(|| {
+        AvengerChartError::InternalError(format!("Failed to extract color from '{}'", color_str))
+    })
+}
+
+/// Helper to parse color from string using the color coercer
+/// Returns None if parsing fails (kept for backward compatibility)
+pub fn parse_color_string(color_str: &str) -> Option<avenger_common::types::ColorOrGradient> {
+    parse_color_string_strict(color_str).ok()
+}
+
+/// Parse a color string to RGBA array
+/// Returns an error if the color string cannot be parsed
+pub fn parse_color_to_array_strict(color_str: &str) -> Result<[f32; 4], AvengerChartError> {
+    let color = parse_color_string_strict(color_str)?;
+    match color {
+        avenger_common::types::ColorOrGradient::Color(rgba) => Ok(rgba),
+        _ => Err(AvengerChartError::InternalError(format!(
+            "Color string '{}' parsed to gradient, expected solid color",
+            color_str
+        ))),
+    }
 }
 
 /// Helper to parse color string to RGBA array
+/// Returns black if parsing fails (kept for backward compatibility)
 pub fn parse_color_to_array(color_str: &str) -> [f32; 4] {
-    if let Some(color) = parse_color_string(color_str) {
-        match color {
-            avenger_common::types::ColorOrGradient::Color(rgba) => rgba,
-            _ => [0.0, 0.0, 0.0, 1.0], // Default to black if gradient
-        }
-    } else {
-        [0.0, 0.0, 0.0, 1.0] // Default to black if parse fails
-    }
+    parse_color_to_array_strict(color_str).unwrap_or([0.0, 0.0, 0.0, 1.0])
 }
 
 pub trait DataFrameChartHelpers {
@@ -479,9 +500,21 @@ mod tests {
     fn test_parse_white_color() {
         let white = parse_color_to_array("#FFFFFF");
         eprintln!("Parsed white: {:?}", white);
-        assert!(white[0] > 0.99 && white[0] <= 1.0, "Red should be ~1.0, got {}", white[0]);
-        assert!(white[1] > 0.99 && white[1] <= 1.0, "Green should be ~1.0, got {}", white[1]);
-        assert!(white[2] > 0.99 && white[2] <= 1.0, "Blue should be ~1.0, got {}", white[2]);
+        assert!(
+            white[0] > 0.99 && white[0] <= 1.0,
+            "Red should be ~1.0, got {}",
+            white[0]
+        );
+        assert!(
+            white[1] > 0.99 && white[1] <= 1.0,
+            "Green should be ~1.0, got {}",
+            white[1]
+        );
+        assert!(
+            white[2] > 0.99 && white[2] <= 1.0,
+            "Blue should be ~1.0, got {}",
+            white[2]
+        );
         assert_eq!(white[3], 1.0, "Alpha should be 1.0");
     }
 

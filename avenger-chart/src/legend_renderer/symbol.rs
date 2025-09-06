@@ -4,6 +4,7 @@ use crate::error::AvengerChartError;
 use crate::legend::Legend;
 use crate::legend_renderer::{LegendChannel, LegendRenderer, helpers};
 use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
+use crate::utils::ScalarValueHelpers;
 use avenger_common::types::{ColorOrGradient, SymbolShape};
 use avenger_common::value::ScalarOrArray;
 use avenger_guides::legend::symbol::{SymbolLegendConfig, make_symbol_legend};
@@ -22,6 +23,10 @@ pub struct SymbolLegendRenderer {
     mark_encodings: HashMap<String, crate::marks::channel::ChannelValue>,
     /// Whether the plot has rect marks
     has_rect_mark: bool,
+    /// Theme mark defaults for symbols
+    symbol_defaults: indexmap::IndexMap<String, datafusion_common::ScalarValue>,
+    /// Theme mark defaults for rects
+    rect_defaults: indexmap::IndexMap<String, datafusion_common::ScalarValue>,
 }
 
 impl SymbolLegendRenderer {
@@ -55,10 +60,27 @@ impl SymbolLegendRenderer {
             }
         }
 
+        // Get theme mark defaults
+        let theme = plot.get_theme();
+        let symbol_defaults = theme
+            .mark_defaults
+            .defaults
+            .get("symbol")
+            .cloned()
+            .unwrap_or_default();
+        let rect_defaults = theme
+            .mark_defaults
+            .defaults
+            .get("rect")
+            .cloned()
+            .unwrap_or_default();
+
         Self {
             plot_marks: Vec::new(), // We don't actually store the marks for now
             mark_encodings,
             has_rect_mark,
+            symbol_defaults,
+            rect_defaults,
         }
     }
 }
@@ -157,34 +179,83 @@ impl LegendRenderer for SymbolLegendRenderer {
             domain_values.iter().map(format_scalar_value).collect()
         };
 
-        // Get mark defaults - use rect defaults if we have rect marks, otherwise symbol defaults
-        let (
-            default_size,
-            default_shape,
-            default_angle,
-            default_fill,
-            default_stroke,
-            default_stroke_width,
-        ) = if self.has_rect_mark {
-            // For rect marks, use fixed square shape and appropriate size
-            (
-                64.0,
-                "square".to_string(),
-                0.0,
-                "#4682b4".to_string(),
-                "#000000".to_string(),
-                1.0,
-            )
+        // Get mark defaults from config's theme or use stored defaults
+        let mark_defaults = if let Some(ref theme_defaults) = config.theme_mark_defaults {
+            if self.has_rect_mark {
+                theme_defaults.get("rect").unwrap_or(&self.rect_defaults)
+            } else {
+                theme_defaults
+                    .get("symbol")
+                    .unwrap_or(&self.symbol_defaults)
+            }
+        } else if self.has_rect_mark {
+            &self.rect_defaults
         } else {
-            // Use symbol defaults
-            (
-                64.0,
-                "circle".to_string(),
-                0.0,
-                "#4682b4".to_string(),
-                "#000000".to_string(),
-                1.0,
-            )
+            &self.symbol_defaults
+        };
+
+        // Extract defaults from theme or use fallbacks
+        let default_size = mark_defaults
+            .get("size")
+            .and_then(|v| {
+                // Try both Float32 and Float64
+                v.as_f32()
+                    .ok()
+                    .or_else(|| v.as_f64().ok().map(|f| f as f32))
+            })
+            .unwrap_or(64.0);
+
+        let default_shape = if self.has_rect_mark {
+            "square".to_string()
+        } else {
+            mark_defaults
+                .get("shape")
+                .and_then(|v| match v {
+                    ScalarValue::Utf8(Some(s)) => Some(s.clone()),
+                    _ => None,
+                })
+                .unwrap_or_else(|| "circle".to_string())
+        };
+
+        let default_angle = mark_defaults
+            .get("angle")
+            .and_then(|v| {
+                // Try both Float32 and Float64
+                v.as_f32()
+                    .ok()
+                    .or_else(|| v.as_f64().ok().map(|f| f as f32))
+            })
+            .unwrap_or(0.0);
+
+        let default_fill = mark_defaults
+            .get("fill")
+            .and_then(|v| match v {
+                ScalarValue::Utf8(Some(s)) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| "#4682b4".to_string());
+
+        let default_stroke_width = mark_defaults
+            .get("stroke_width")
+            .and_then(|v| {
+                // Try both Float32 and Float64
+                v.as_f32()
+                    .ok()
+                    .or_else(|| v.as_f64().ok().map(|f| f as f32))
+            })
+            .unwrap_or(1.0);
+
+        // If stroke_width is 0, use transparent stroke to avoid hairline rendering
+        let default_stroke = if default_stroke_width == 0.0 {
+            "transparent".to_string()
+        } else {
+            mark_defaults
+                .get("stroke")
+                .and_then(|v| match v {
+                    ScalarValue::Utf8(Some(s)) => Some(s.clone()),
+                    _ => None,
+                })
+                .unwrap_or_else(|| "#000000".to_string())
         };
 
         // Initialize config with defaults
@@ -206,6 +277,32 @@ impl LegendRenderer for SymbolLegendRenderer {
             ..Default::default()
         };
 
+        // Set text colors from legend config - fail if colors cannot be parsed
+        if let Some(ref title_color) = config.title_color {
+            let color = crate::utils::parse_color_string_strict(title_color)?;
+            legend_config.title_color = Some(match color {
+                ColorOrGradient::Color(c) => c,
+                _ => {
+                    return Err(AvengerChartError::InternalError(format!(
+                        "Legend title color '{}' parsed to gradient, expected solid color",
+                        title_color
+                    )));
+                }
+            });
+        }
+        if let Some(ref label_color) = config.label_color {
+            let color = crate::utils::parse_color_string_strict(label_color)?;
+            legend_config.label_color = Some(match color {
+                ColorOrGradient::Color(c) => c,
+                _ => {
+                    return Err(AvengerChartError::InternalError(format!(
+                        "Legend label color '{}' parsed to gradient, expected solid color",
+                        label_color
+                    )));
+                }
+            });
+        }
+
         // Apply legend background styling if provided
         if let Some(pad) = config.background_padding {
             legend_config.background_padding = Some(pad);
@@ -217,14 +314,12 @@ impl LegendRenderer for SymbolLegendRenderer {
             legend_config.background_corner_radius = Some(r);
         }
         if let Some(ref fill_str) = config.background_fill {
-            if let Some(color) = crate::utils::parse_color_string(fill_str) {
-                legend_config.background_fill = Some(color);
-            }
+            legend_config.background_fill =
+                Some(crate::utils::parse_color_string_strict(fill_str)?);
         }
         if let Some(ref stroke_str) = config.background_stroke {
-            if let Some(color) = crate::utils::parse_color_string(stroke_str) {
-                legend_config.background_stroke = Some(color);
-            }
+            legend_config.background_stroke =
+                Some(crate::utils::parse_color_string_strict(stroke_str)?);
         }
 
         // Apply each channel's mapping
@@ -232,14 +327,10 @@ impl LegendRenderer for SymbolLegendRenderer {
 
         // Start with defaults
         legend_config.shape = ScalarOrArray::new_scalar(parse_shape(&default_shape)?);
-        legend_config.fill = ScalarOrArray::new_scalar(
-            crate::utils::parse_color_string(&default_fill)
-                .unwrap_or(ColorOrGradient::Color([0.27, 0.51, 0.71, 1.0])),
-        );
-        legend_config.stroke = ScalarOrArray::new_scalar(
-            crate::utils::parse_color_string(&default_stroke)
-                .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
-        );
+        legend_config.fill =
+            ScalarOrArray::new_scalar(crate::utils::parse_color_string_strict(&default_fill)?);
+        legend_config.stroke =
+            ScalarOrArray::new_scalar(crate::utils::parse_color_string_strict(&default_stroke)?);
         legend_config.size = ScalarOrArray::new_scalar(default_size as f32);
         legend_config.angle = ScalarOrArray::new_scalar(default_angle as f32);
         legend_config.stroke_width = Some(default_stroke_width as f32);

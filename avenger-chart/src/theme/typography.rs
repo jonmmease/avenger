@@ -97,6 +97,12 @@ pub struct Typography {
     /// Subtitle text color
     pub subtitle_color: String,
 
+    /// Legend title text color
+    pub legend_title_color: String,
+
+    /// Legend label text color
+    pub legend_label_color: String,
+
     /// Default text color
     pub default_color: String,
 }
@@ -127,6 +133,8 @@ impl Default for Typography {
             // Colors
             title_color: "#1a1a1a".to_string(),
             subtitle_color: "#4a4a4a".to_string(),
+            legend_title_color: "#2C2C2C".to_string(), // Same as hardcoded default
+            legend_label_color: "#3C3C3C".to_string(), // Same as hardcoded default
             default_color: "#000000".to_string(),
         }
     }

@@ -87,27 +87,29 @@ pub fn make_band_axis_marks(
         .push(make_axis_line(start, end, is_vertical, offset, config.domain_color).into());
 
     // Add tick marks
-    axis_elements_group
-        .marks
-        .push(make_tick_marks(
+    axis_elements_group.marks.push(
+        make_tick_marks(
             &scale,
             &config.orientation,
             &config.dimensions,
             config.tick_length,
             config.tick_color,
-        )?.into());
+        )?
+        .into(),
+    );
 
     // Add tick labels
-    axis_elements_group
-        .marks
-        .push(make_tick_labels(
+    axis_elements_group.marks.push(
+        make_tick_labels(
             &scale,
             &config.orientation,
             &config.dimensions,
             config.label_font_size,
             config.label_font_weight,
             config.label_color,
-        )?.into());
+        )?
+        .into(),
+    );
 
     // Add title
     axis_elements_group

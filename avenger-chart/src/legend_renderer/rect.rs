@@ -130,29 +130,57 @@ impl LegendRenderer for RectLegendRenderer {
             ), // Always use square for rect marks
             size: ScalarOrArray::new_scalar(size_value),
             angle: ScalarOrArray::new_scalar(default_angle as f32),
-            fill: ScalarOrArray::new_scalar(
-                crate::utils::parse_color_string(&default_fill)
-                    .unwrap_or(ColorOrGradient::Color([0.27, 0.51, 0.71, 1.0])), // #4682b4 in RGBA
-            ),
-            stroke: ScalarOrArray::new_scalar(
-                crate::utils::parse_color_string(&default_stroke)
-                    .unwrap_or(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])), // Black
-            ),
+            fill: ScalarOrArray::new_scalar(crate::utils::parse_color_string_strict(
+                &default_fill,
+            )?),
+            stroke: ScalarOrArray::new_scalar(crate::utils::parse_color_string_strict(
+                &default_stroke,
+            )?),
             stroke_width: Some(default_stroke_width as f32),
             inner_width: 0.0,
             inner_height: 100.0,
             outer_margin: 0.0,
             text_padding: 2.0,
-            background_fill: config
-                .background_fill
-                .as_ref()
-                .and_then(|f| crate::utils::parse_color_string(f)),
-            background_stroke: config
-                .background_stroke
-                .as_ref()
-                .and_then(|s| crate::utils::parse_color_string(s)),
+            background_fill: match config.background_fill.as_ref() {
+                Some(f) => Some(crate::utils::parse_color_string_strict(f)?),
+                None => None,
+            },
+            background_stroke: match config.background_stroke.as_ref() {
+                Some(s) => Some(crate::utils::parse_color_string_strict(s)?),
+                None => None,
+            },
             background_corner_radius: config.background_corner_radius,
             background_padding: config.background_padding,
+            title_color: match config.title_color.as_ref() {
+                Some(c) => {
+                    let color = crate::utils::parse_color_string_strict(c)?;
+                    match color {
+                        ColorOrGradient::Color(color) => Some(color),
+                        _ => {
+                            return Err(AvengerChartError::InternalError(format!(
+                                "Legend title color '{}' parsed to gradient, expected solid color",
+                                c
+                            )));
+                        }
+                    }
+                }
+                None => None,
+            },
+            label_color: match config.label_color.as_ref() {
+                Some(c) => {
+                    let color = crate::utils::parse_color_string_strict(c)?;
+                    match color {
+                        ColorOrGradient::Color(color) => Some(color),
+                        _ => {
+                            return Err(AvengerChartError::InternalError(format!(
+                                "Legend label color '{}' parsed to gradient, expected solid color",
+                                c
+                            )));
+                        }
+                    }
+                }
+                None => None,
+            },
         };
 
         // Use constant values from mark if available (and not the legend channel itself)
