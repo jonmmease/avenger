@@ -141,6 +141,29 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             ..Default::default()
         };
 
+        // Add background rect if theme specifies one
+        let theme = self.plot.get_theme();
+        if let Some(bg_color) = &theme.background.canvas_background {
+            use avenger_common::types::ColorOrGradient;
+            use avenger_scenegraph::marks::rect::SceneRectMark;
+            
+            // Parse the color string to RGBA
+            let color = crate::utils::parse_color_to_array(bg_color);
+            
+            let background_rect = SceneRectMark {
+                x: 0.0.into(),
+                y: 0.0.into(),
+                width: Some(width.into()),
+                height: Some(height.into()),
+                fill: ColorOrGradient::Color(color).into(),
+                stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(), // No stroke
+                stroke_width: 0.0.into(),
+                zindex: Some(-100), // Ensure it's behind everything
+                ..Default::default()
+            };
+            all_marks.push(SceneMark::Rect(background_rect));
+        }
+
         // Add marks in proper z-order:
         // 1. Clipped data marks (background)
         all_marks.push(SceneMark::Group(data_marks_group));
