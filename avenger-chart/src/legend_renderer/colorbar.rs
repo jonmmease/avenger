@@ -93,8 +93,56 @@ impl LegendRenderer for ColorbarRenderer {
             background_stroke: None,
             background_corner_radius: None,
             background_padding: None,
+            title_font_family: None,
+            title_font_size: None,
+            title_font_weight: None,
+            title_color: None,
+            label_font_family: None,
+            label_font_size: None,
+            label_font_weight: None,
+            label_color: None,
+            domain_color: None,
+            tick_color: None,
         };
 
+        // Apply legend colors and typography from config
+        if let Some(ref title_color) = config.title_color {
+            if let Ok(color) = crate::utils::parse_color_string_strict(title_color) {
+                if let avenger_common::types::ColorOrGradient::Color(c) = color {
+                    legend_config.title_color = Some(c);
+                }
+            }
+        }
+        // Use tick_color for colorbar axis labels (not label_color which is for discrete legends)
+        if let Some(ref tick_color) = config.tick_color {
+            if let Ok(color) = crate::utils::parse_color_string_strict(tick_color) {
+                if let avenger_common::types::ColorOrGradient::Color(c) = color {
+                    legend_config.label_color = Some(c);
+                }
+            }
+        }
+        
+        // Set typography from legend config
+        if let Some(ref family) = config.title_font_family {
+            legend_config.title_font_family = Some(family.clone());
+        }
+        if let Some(size) = config.title_font_size {
+            legend_config.title_font_size = Some(size);
+        }
+        if let Some(weight) = config.title_font_weight {
+            legend_config.title_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+        }
+        // Use tick typography for colorbar axis labels
+        if let Some(ref family) = config.tick_font_family {
+            legend_config.label_font_family = Some(family.clone());
+        }
+        if let Some(size) = config.tick_font_size {
+            legend_config.label_font_size = Some(size);
+        }
+        if let Some(weight) = config.tick_font_weight {
+            legend_config.label_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+        }
+        
         // Apply legend background styling if provided
         if let Some(pad) = config.background_padding {
             legend_config.background_padding = Some(pad);

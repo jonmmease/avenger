@@ -1328,32 +1328,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         _plot_width: f32,
         _plot_height: f32,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // Get default legends for channels with data-driven scales
-        let default_legends = self.create_default_legends(scales);
-
-        // Get theme for legend text colors
-        let theme = self.plot.get_theme();
-
-        // Combine existing legends with defaults
-        let mut all_legend_configs = self.plot.legends.clone();
-        for (channel, default_legend) in default_legends {
-            all_legend_configs.entry(channel).or_insert(default_legend);
-        }
-
-        // Apply theme colors and mark defaults to all legends (both user-configured and defaults)
-        for legend in all_legend_configs.values_mut() {
-            // Only set colors if not already explicitly set by user
-            if legend.title_color.is_none() {
-                legend.title_color = Some(theme.typography.legend_title_color.clone());
-            }
-            if legend.label_color.is_none() {
-                legend.label_color = Some(theme.typography.legend_label_color.clone());
-            }
-            // Always pass theme mark defaults for legend rendering
-            if legend.theme_mark_defaults.is_none() {
-                legend.theme_mark_defaults = Some(theme.mark_defaults.defaults.clone());
-            }
-        }
+        // Get legends with theme applied (same as used for layout)
+        let all_legend_configs = self.get_legends_with_theme(scales);
 
         // Use the helper to merge legend channels - exactly the same as for layout
         let (sorted_channel_groups, _legends_map) =
@@ -1389,7 +1365,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                         .and_then(|mark| mark.preferred_merged_legend_renderer(&channels, &scales))
                 } else {
                     // Single channel - use the standard renderer selection
-                    scales.get(&primary_channel.name).and_then(|scale| {
+                    scales.get(&primary_channel.name).and_then(|scale| -> Option<Arc<dyn crate::legend_renderer::LegendRenderer>> {
                         if let Some(ref renderer) = legend.renderer {
                             // Use explicitly configured renderer
                             Some(renderer.clone())
@@ -1492,9 +1468,19 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 legend = legend.background_stroke(stroke.clone());
             }
 
-            // Set text colors from theme
+            // Set text colors and typography from theme
             legend.title_color = Some(theme.typography.legend_title_color.clone());
             legend.label_color = Some(theme.typography.legend_label_color.clone());
+            legend.title_font_family = Some(theme.typography.legend_title_font_family.clone());
+            legend.title_font_size = Some(theme.typography.legend_title_size);
+            legend.title_font_weight = Some(theme.typography.legend_title_weight);
+            legend.label_font_family = Some(theme.typography.legend_label_font_family.clone());
+            legend.label_font_size = Some(theme.typography.legend_item_size);
+            legend.label_font_weight = Some(theme.typography.legend_label_weight);
+            legend.tick_font_family = Some(theme.typography.legend_tick_font_family.clone());
+            legend.tick_font_size = Some(theme.typography.legend_tick_font_size);
+            legend.tick_font_weight = Some(theme.typography.legend_tick_font_weight);
+            legend.tick_color = Some(theme.typography.legend_tick_color.clone());
 
             default_legends.insert(channel.clone(), legend);
         }
@@ -1778,6 +1764,73 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         (sorted_channel_groups, legends_map)
     }
 
+    /// Get legends with theme applied - used for both layout measurement and rendering
+    /// This ensures consistency between measurement and actual rendering
+    fn get_legends_with_theme(
+        &self,
+        configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+    ) -> indexmap::IndexMap<String, crate::legend::Legend> {
+        // Get default legends for channels with ConfiguredScale
+        let default_legends = self.create_default_legends(configured_scales);
+        let mut all_legends = self.plot.legends.clone();
+        for (channel, default_legend) in default_legends {
+            all_legends.entry(channel).or_insert(default_legend);
+        }
+
+        // Get theme for legend text colors and typography
+        let theme = self.plot.get_theme();
+
+        // Apply theme colors, typography and mark defaults to all legends
+        // This ensures accurate text measurement during layout and consistent rendering
+        for legend in all_legends.values_mut() {
+            // Only set colors if not already explicitly set by user
+            if legend.title_color.is_none() {
+                legend.title_color = Some(theme.typography.legend_title_color.clone());
+            }
+            if legend.label_color.is_none() {
+                legend.label_color = Some(theme.typography.legend_label_color.clone());
+            }
+            // Set typography from theme
+            if legend.title_font_family.is_none() {
+                legend.title_font_family = Some(theme.typography.legend_title_font_family.clone());
+            }
+            if legend.title_font_size.is_none() {
+                legend.title_font_size = Some(theme.typography.legend_title_size);
+            }
+            if legend.title_font_weight.is_none() {
+                legend.title_font_weight = Some(theme.typography.legend_title_weight);
+            }
+            if legend.label_font_family.is_none() {
+                legend.label_font_family = Some(theme.typography.legend_label_font_family.clone());
+            }
+            if legend.label_font_size.is_none() {
+                legend.label_font_size = Some(theme.typography.legend_item_size);
+            }
+            if legend.label_font_weight.is_none() {
+                legend.label_font_weight = Some(theme.typography.legend_label_weight);
+            }
+            // Set tick label typography (for colorbar legends)
+            if legend.tick_font_family.is_none() {
+                legend.tick_font_family = Some(theme.typography.legend_tick_font_family.clone());
+            }
+            if legend.tick_font_size.is_none() {
+                legend.tick_font_size = Some(theme.typography.legend_tick_font_size);
+            }
+            if legend.tick_font_weight.is_none() {
+                legend.tick_font_weight = Some(theme.typography.legend_tick_font_weight);
+            }
+            if legend.tick_color.is_none() {
+                legend.tick_color = Some(theme.typography.legend_tick_color.clone());
+            }
+            // Always pass theme mark defaults for legend rendering
+            if legend.theme_mark_defaults.is_none() {
+                legend.theme_mark_defaults = Some(theme.mark_defaults.defaults.clone());
+            }
+        }
+
+        all_legends
+    }
+
     /// Compute layout using Taffy for the coordinate system
     /// Convert overflow requirements to pseudo-axes for Taffy layout
     async fn compute_layout_with_overflow(
@@ -1789,12 +1842,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
     ) -> Result<(Padding, crate::chart_layout::LayoutResult), AvengerChartError> {
         use crate::chart_layout::ChartLayout;
 
-        // Get default legends for channels with ConfiguredScale
-        let default_legends = self.create_default_legends(configured_scales);
-        let mut all_legends = self.plot.legends.clone();
-        for (channel, default_legend) in default_legends {
-            all_legends.entry(channel).or_insert(default_legend);
-        }
+        // Get legends with theme applied (ensures measurement uses correct fonts)
+        let all_legends = self.get_legends_with_theme(configured_scales);
 
         // Use the helper to merge legend channels - exactly the same as for rendering
         let (_channel_groups, legends_map) =

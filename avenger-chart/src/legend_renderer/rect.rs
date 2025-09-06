@@ -181,7 +181,33 @@ impl LegendRenderer for RectLegendRenderer {
                 }
                 None => None,
             },
+            title_font_family: None,
+            title_font_size: None,
+            title_font_weight: None,
+            label_font_family: None,
+            label_font_size: None,
+            label_font_weight: None,
         };
+
+        // Set typography from legend config
+        if let Some(ref family) = config.title_font_family {
+            legend_config.title_font_family = Some(family.clone());
+        }
+        if let Some(size) = config.title_font_size {
+            legend_config.title_font_size = Some(size);
+        }
+        if let Some(weight) = config.title_font_weight {
+            legend_config.title_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+        }
+        if let Some(ref family) = config.label_font_family {
+            legend_config.label_font_family = Some(family.clone());
+        }
+        if let Some(size) = config.label_font_size {
+            legend_config.label_font_size = Some(size);
+        }
+        if let Some(weight) = config.label_font_weight {
+            legend_config.label_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
+        }
 
         // Use constant values from mark if available (and not the legend channel itself)
         if channel_name != "fill" && channel_name != "color" {

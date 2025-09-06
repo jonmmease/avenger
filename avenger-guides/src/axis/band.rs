@@ -102,11 +102,7 @@ pub fn make_band_axis_marks(
     axis_elements_group.marks.push(
         make_tick_labels(
             &scale,
-            &config.orientation,
-            &config.dimensions,
-            config.label_font_size,
-            config.label_font_weight,
-            config.label_color,
+            &config,
         )?
         .into(),
     );
@@ -261,24 +257,20 @@ fn make_tick_grid_marks(
 
 fn make_tick_labels(
     scale: &ConfiguredScale,
-    orientation: &AxisOrientation,
-    dimensions: &[f32; 2],
-    font_size: Option<f32>,
-    font_weight: Option<f32>,
-    color: Option<[f32; 4]>,
+    config: &AxisConfig,
 ) -> Result<SceneTextMark, AvengerScaleError> {
     let scaled_values = scale.scale_to_numeric(scale.domain())?;
 
-    // Adjust y position slightly for Atkinson Hyperlegible Next font's metrics
+    // Adjust y position slightly for font metrics
     // Text appears too low with Middle baseline, shift up by ~10% of font size
-    let font_adjustment = TICK_FONT_SIZE * 0.10;
+    let font_adjustment = config.label_font_size.unwrap_or(TICK_FONT_SIZE) * 0.10;
     let adjusted_values_left_right = scaled_values
         .as_vec(scale.domain().len(), None)
         .into_iter()
         .map(|v| v - font_adjustment)
         .collect::<Vec<_>>();
 
-    let (x, y, align, baseline, angle) = match orientation {
+    let (x, y, align, baseline, angle) = match config.orientation {
         AxisOrientation::Left => (
             ScalarOrArray::new_scalar(-TICK_LENGTH - TEXT_MARGIN),
             ScalarOrArray::new_array(adjusted_values_left_right.clone()),
@@ -287,7 +279,7 @@ fn make_tick_labels(
             0.0,
         ),
         AxisOrientation::Right => (
-            ScalarOrArray::new_scalar(dimensions[0] + TICK_LENGTH + TEXT_MARGIN),
+            ScalarOrArray::new_scalar(config.dimensions[0] + TICK_LENGTH + TEXT_MARGIN),
             ScalarOrArray::new_array(adjusted_values_left_right),
             TextAlign::Left,
             TextBaseline::Middle,
@@ -302,7 +294,7 @@ fn make_tick_labels(
         ),
         AxisOrientation::Bottom => (
             scaled_values,
-            ScalarOrArray::new_scalar(dimensions[1] + TICK_LENGTH + TEXT_MARGIN),
+            ScalarOrArray::new_scalar(config.dimensions[1] + TICK_LENGTH + TEXT_MARGIN),
             TextAlign::Center,
             TextBaseline::Top,
             0.0,
@@ -317,9 +309,10 @@ fn make_tick_labels(
         align: align.into(),
         baseline: baseline.into(),
         angle: angle.into(),
-        color: ColorOrGradient::Color(color.unwrap_or([0.353, 0.353, 0.353, 1.0])).into(), // Default: #5A5A5A
-        font_size: font_size.unwrap_or(TICK_FONT_SIZE).into(),
-        font_weight: FontWeight::Number(font_weight.unwrap_or(300.0)).into(), // Default: light weight for tick labels
+        color: ColorOrGradient::Color(config.label_color.unwrap_or([0.353, 0.353, 0.353, 1.0])).into(), // Default: #5A5A5A
+        font_size: config.label_font_size.unwrap_or(TICK_FONT_SIZE).into(),
+        font_weight: FontWeight::Number(config.label_font_weight.unwrap_or(300.0)).into(), // Default: light weight for tick labels
+        font: config.label_font_family.clone().unwrap_or_else(|| "sans-serif".to_string()).into(),
         ..Default::default()
     })
 }
@@ -396,6 +389,7 @@ fn make_title(
             .into(), // Default: #2C2C2C
         font_size: config.title_font_size.unwrap_or(TITLE_FONT_SIZE).into(),
         font_weight: FontWeight::Number(config.title_font_weight.unwrap_or(400.0)).into(),
+        font: config.title_font_family.clone().unwrap_or_else(|| "sans-serif".to_string()).into(),
         ..Default::default()
     })
 }

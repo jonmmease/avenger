@@ -115,12 +115,7 @@ pub fn make_numeric_axis_marks(
         make_tick_labels(
             &ticks,
             &scale,
-            &config.orientation,
-            &config.dimensions,
-            config.format_number.as_deref(),
-            config.label_font_size,
-            config.label_font_weight,
-            config.label_color,
+            &config,
         )?
         .into(),
     );
@@ -290,15 +285,10 @@ fn make_tick_grid_marks(
 fn make_tick_labels(
     ticks: &ArrayRef,
     scale: &ConfiguredScale,
-    orientation: &AxisOrientation,
-    dimensions: &[f32; 2],
-    format_number: Option<&str>,
-    font_size: Option<f32>,
-    font_weight: Option<f32>,
-    color: Option<[f32; 4]>,
+    config: &AxisConfig,
 ) -> Result<SceneTextMark, AvengerGuidesError> {
     // If a numeric format string is provided, override the scale's number formatter
-    let tick_text = if let Some(pattern) = format_number {
+    let tick_text = if let Some(ref pattern) = config.format_number {
         use arrow::array::AsArray;
         use arrow::compute::kernels::cast;
         use arrow::datatypes::DataType;
@@ -321,9 +311,9 @@ fn make_tick_labels(
     };
     let scaled_values = scale.scale_to_numeric(ticks)?;
 
-    // Adjust y position slightly for Atkinson Hyperlegible Next font's metrics
+    // Adjust y position slightly for font metrics
     // Numbers don't use full descent, so shift up by ~10% of font size for better visual centering
-    let tick_font_size = font_size.unwrap_or(DEFAULT_TICK_FONT_SIZE);
+    let tick_font_size = config.label_font_size.unwrap_or(DEFAULT_TICK_FONT_SIZE);
     let font_adjustment = tick_font_size * 0.10;
     let adjusted_values_left_right = scaled_values
         .as_vec(ticks.len(), None)
@@ -331,7 +321,7 @@ fn make_tick_labels(
         .map(|v| v - font_adjustment)
         .collect::<Vec<_>>();
 
-    let (x, y, align, baseline, angle) = match orientation {
+    let (x, y, align, baseline, angle) = match config.orientation {
         AxisOrientation::Left => (
             ScalarOrArray::new_scalar(-DEFAULT_TICK_LENGTH - TEXT_MARGIN),
             ScalarOrArray::new_array(adjusted_values_left_right.clone()),
@@ -340,7 +330,7 @@ fn make_tick_labels(
             0.0,
         ),
         AxisOrientation::Right => (
-            ScalarOrArray::new_scalar(dimensions[0] + DEFAULT_TICK_LENGTH + TEXT_MARGIN),
+            ScalarOrArray::new_scalar(config.dimensions[0] + DEFAULT_TICK_LENGTH + TEXT_MARGIN),
             ScalarOrArray::new_array(adjusted_values_left_right),
             TextAlign::Left,
             TextBaseline::Middle,
@@ -355,7 +345,7 @@ fn make_tick_labels(
         ),
         AxisOrientation::Bottom => (
             scaled_values,
-            ScalarOrArray::new_scalar(dimensions[1] + DEFAULT_TICK_LENGTH + TEXT_MARGIN),
+            ScalarOrArray::new_scalar(config.dimensions[1] + DEFAULT_TICK_LENGTH + TEXT_MARGIN),
             TextAlign::Center,
             TextBaseline::Top,
             0.0,
@@ -370,9 +360,10 @@ fn make_tick_labels(
         align: align.into(),
         baseline: baseline.into(),
         angle: angle.into(),
-        color: ColorOrGradient::Color(color.unwrap_or([0.353, 0.353, 0.353, 1.0])).into(), // Default: #5A5A5A
+        color: ColorOrGradient::Color(config.label_color.unwrap_or([0.353, 0.353, 0.353, 1.0])).into(), // Default: #5A5A5A
         font_size: tick_font_size.into(),
-        font_weight: FontWeight::Number(font_weight.unwrap_or(300.0)).into(), // Default: light weight for tick labels
+        font_weight: FontWeight::Number(config.label_font_weight.unwrap_or(300.0)).into(), // Default: light weight for tick labels
+        font: config.label_font_family.clone().unwrap_or_else(|| "sans-serif".to_string()).into(),
         ..Default::default()
     })
 }
@@ -452,6 +443,7 @@ fn make_title(
             .unwrap_or(DEFAULT_TITLE_FONT_SIZE)
             .into(),
         font_weight: FontWeight::Number(config.title_font_weight.unwrap_or(400.0)).into(),
+        font: config.title_font_family.clone().unwrap_or_else(|| "sans-serif".to_string()).into(),
         ..Default::default()
     })
 }

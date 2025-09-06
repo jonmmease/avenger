@@ -126,6 +126,8 @@ impl CartesianAxis {
             label_font_size: Some(theme.axis.label_font_size),
             label_font_weight: Some(theme.axis.label_font_weight),
             title_font_weight: Some(theme.axis.title_font_weight),
+            label_font_family: Some(theme.typography.axis_label_font_family.clone()),
+            title_font_family: Some(theme.typography.axis_title_font_family.clone()),
         };
 
         // Generate axis marks based on scale characteristics

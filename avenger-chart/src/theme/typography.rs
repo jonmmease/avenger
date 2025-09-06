@@ -105,6 +105,37 @@ pub struct Typography {
 
     /// Default text color
     pub default_color: String,
+    
+    // Axis typography
+    /// Axis title font family
+    pub axis_title_font_family: String,
+    
+    /// Axis label font family
+    pub axis_label_font_family: String,
+    
+    /// Legend title font family
+    pub legend_title_font_family: String,
+    
+    /// Legend label font family
+    pub legend_label_font_family: String,
+    
+    /// Legend title font weight
+    pub legend_title_weight: f32,
+    
+    /// Legend label font weight
+    pub legend_label_weight: f32,
+    
+    /// Legend tick label font family (for colorbar legends)
+    pub legend_tick_font_family: String,
+    
+    /// Legend tick label font size (for colorbar legends)
+    pub legend_tick_font_size: f32,
+    
+    /// Legend tick label font weight (for colorbar legends)
+    pub legend_tick_font_weight: f32,
+    
+    /// Legend tick label color (for colorbar legends)
+    pub legend_tick_color: String,
 }
 
 impl Default for Typography {
@@ -122,7 +153,7 @@ impl Default for Typography {
             axis_label_size: 12.0,
             axis_tick_size: 10.0,
             legend_title_size: 12.0,
-            legend_item_size: 10.0,
+            legend_item_size: 11.0,
 
             // Font weights
             title_weight: FontWeight::Named(NamedFontWeight::Medium),
@@ -136,6 +167,22 @@ impl Default for Typography {
             legend_title_color: "#2C2C2C".to_string(), // Same as hardcoded default
             legend_label_color: "#3C3C3C".to_string(), // Same as hardcoded default
             default_color: "#000000".to_string(),
+            
+            // Additional font families
+            axis_title_font_family: "Atkinson Hyperlegible Next".to_string(),
+            axis_label_font_family: "Atkinson Hyperlegible Next".to_string(),
+            legend_title_font_family: "Atkinson Hyperlegible Next".to_string(),
+            legend_label_font_family: "Atkinson Hyperlegible Next".to_string(),
+            
+            // Additional font weights
+            legend_title_weight: 400.0,
+            legend_label_weight: 300.0,
+            
+            // Legend tick label typography (matches axis labels)
+            legend_tick_font_family: "Atkinson Hyperlegible Next".to_string(),
+            legend_tick_font_size: 10.0,  // Same as axis labels
+            legend_tick_font_weight: 300.0,  // Same as axis labels
+            legend_tick_color: "#5a5a5a".to_string(),  // Same as axis labels (#5A5A5A)
         }
     }
 }
