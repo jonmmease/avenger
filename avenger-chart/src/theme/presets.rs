@@ -19,8 +19,8 @@ impl Theme {
         theme.typography.default_font = theme.typography.default_font.clone();
 
         // Update text colors for dark mode
-        theme.typography.title_color = "#E6EDF3".to_string(); // Light gray for titles
-        theme.typography.subtitle_color = "#C9D1D9".to_string(); // Medium-light gray for subtitles
+        theme.typography.title_color = "#FFFFFF".to_string(); // Bright white for titles
+        theme.typography.subtitle_color = "#FFFFFF".to_string(); // Bright white for subtitles
 
         // Adjusted color palette for dark backgrounds - vibrant colors
         theme.colors = ColorPalettes {
@@ -45,8 +45,8 @@ impl Theme {
         theme.axis.grid_opacity = 0.5; // Keep same opacity
         theme.axis.domain_color = "#484F58".to_string(); // Medium-dark gray for axis lines
         theme.axis.tick_color = "#484F58".to_string(); // Same as domain
-        theme.axis.label_color = "#8B949E".to_string(); // Medium gray for axis labels
-        theme.axis.title_color = "#C9D1D9".to_string(); // Light gray for axis titles
+        theme.axis.label_color = "#C9D1D9".to_string(); // Lighter gray for axis labels (was #8B949E)
+        theme.axis.title_color = "#FFFFFF".to_string(); // Bright white for axis titles
 
         // Update legend defaults for dark mode - keep mostly transparent
         theme.legend.background_fill = None; // No background by default
