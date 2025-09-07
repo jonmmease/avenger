@@ -55,6 +55,7 @@ impl Mark<Cartesian> for Rect<Cartesian> {
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
         _context: &RenderContext,
+        _coord: &Cartesian,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Determine number of marks from data batch or default to 1
         let len = data.map_or(1, |data| data.num_rows()) as u32;

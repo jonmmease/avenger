@@ -2,7 +2,6 @@ use crate::axis::Axis;
 use crate::error::AvengerChartError;
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
-use datafusion::logical_expr::Expr;
 use std::collections::HashMap;
 
 /// Space requirements for coordinate system guides that overflow the plot area
@@ -12,17 +11,6 @@ pub struct OverflowSpaceRequirement {
     pub bottom: f32,
     pub left: f32,
     pub right: f32,
-}
-
-/// Result of coordinate transformation
-#[derive(Debug, Clone)]
-pub struct TransformResult {
-    /// X coordinate expression in screen space
-    pub x: Expr,
-    /// Y coordinate expression in screen space
-    pub y: Expr,
-    /// Optional depth/z-order expression for 3D effects or layering
-    pub depth: Option<Expr>,
 }
 
 #[async_trait::async_trait]
@@ -36,19 +24,6 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     /// Get default range for a specific position channel based on inner plot dimensions
     /// Returns the range as a tuple of (start, end) values
     fn default_range(&self, channel: &str, width: f64, height: f64) -> Option<(f64, f64)>;
-
-    /// Transform position channel expressions to screen coordinates
-    ///
-    /// # Arguments
-    /// * `channels` - Map from channel name (e.g., "r", "theta") to expressions
-    ///   that compute the scaled values for those channels
-    ///
-    /// # Returns
-    /// Result containing TransformResult or error if required channels are missing
-    fn transform_expressions(
-        &self,
-        channels: HashMap<String, Expr>,
-    ) -> Result<TransformResult, AvengerChartError>;
 
     /// Create default axes for all channels that have scales
     ///
@@ -129,17 +104,31 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
     ) -> Clip;
 
-    /// Prepare the scalar batch with any coordinate-specific data
+    /// Transform position channels to plot coordinates
     ///
-    /// This allows coordinate systems to inject additional scalar values
-    /// that marks might need for rendering (e.g., polar center coordinates).
-    fn prepare_scalar_batch(
+    /// Takes position data in the coordinate system's native space (after scaling)
+    /// and transforms it to x/y plot coordinates relative to the plot area origin.
+    ///
+    /// # Arguments
+    /// * `position_channels` - Map of position channel names to their scaled data
+    /// * `plot_width` - Width of the plot area
+    /// * `plot_height` - Height of the plot area
+    ///
+    /// # Returns
+    /// Tuple of (x, y) arrays in plot coordinates (screen space relative to plot area)
+    fn transform_to_plot_coords(
         &self,
-        batch: datafusion::arrow::record_batch::RecordBatch,
-        _plot_width: f32,
-        _plot_height: f32,
-    ) -> Result<datafusion::arrow::record_batch::RecordBatch, AvengerChartError> {
-        // Default implementation: return batch unchanged
-        Ok(batch)
-    }
+        position_channels: &std::collections::HashMap<
+            &str,
+            avenger_common::value::ScalarOrArray<f32>,
+        >,
+        plot_width: f32,
+        plot_height: f32,
+    ) -> Result<
+        (
+            avenger_common::value::ScalarOrArray<f32>,
+            avenger_common::value::ScalarOrArray<f32>,
+        ),
+        AvengerChartError,
+    >;
 }

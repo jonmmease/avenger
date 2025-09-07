@@ -94,12 +94,14 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
     /// Build scene marks from processed data
     /// data: RecordBatch with array data (multiple rows), or None if all channels are scalar
     /// scalars: RecordBatch with scalar data (single row) for channels that don't vary per mark
-    /// context: RenderContext containing theme and other rendering state
+    /// context: RenderContext containing theme, dimensions, and other rendering state
+    /// coord: Coordinate system for position transformations
     fn render_from_data(
         &self,
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
         context: &RenderContext,
+        coord: &C,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
 
     /// Whether this mark type supports the order encoding channel

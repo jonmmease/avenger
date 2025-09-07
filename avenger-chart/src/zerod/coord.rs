@@ -20,11 +20,10 @@
 //! will panic with `unreachable!()` as they are meaningless in zero dimensions.
 
 use crate::axis::Axis;
-use crate::coords::{CoordinateSystem, OverflowSpaceRequirement, TransformResult};
+use crate::coords::{CoordinateSystem, OverflowSpaceRequirement};
 use crate::error::AvengerChartError;
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
-use datafusion::logical_expr::Expr;
 use std::any::Any;
 use std::collections::HashMap;
 
@@ -73,13 +72,6 @@ impl CoordinateSystem for ZeroDCoord {
         None
     }
 
-    fn transform_expressions(
-        &self,
-        _channels: HashMap<String, Expr>,
-    ) -> Result<TransformResult, AvengerChartError> {
-        unreachable!("ZeroDCoord has no spatial dimensions to transform")
-    }
-
     fn create_default_axes(
         &self,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
@@ -125,13 +117,21 @@ impl CoordinateSystem for ZeroDCoord {
         Clip::None
     }
 
-    fn prepare_scalar_batch(
+    fn transform_to_plot_coords(
         &self,
-        batch: datafusion::arrow::record_batch::RecordBatch,
+        _position_channels: &HashMap<
+            &str,
+            avenger_common::value::ScalarOrArray<f32>,
+        >,
         _plot_width: f32,
         _plot_height: f32,
-    ) -> Result<datafusion::arrow::record_batch::RecordBatch, AvengerChartError> {
-        // Pass through unchanged - no coordinate preparation needed
-        Ok(batch)
+    ) -> Result<
+        (
+            avenger_common::value::ScalarOrArray<f32>,
+            avenger_common::value::ScalarOrArray<f32>,
+        ),
+        AvengerChartError,
+    > {
+        unreachable!("ZeroDCoord has no spatial dimensions to transform")
     }
 }

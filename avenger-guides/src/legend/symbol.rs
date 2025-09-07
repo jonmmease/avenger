@@ -154,7 +154,6 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
             .unwrap_or_else(|| "sans-serif".to_string());
         let title_font_weight = config
             .title_font_weight
-            .clone()
             .unwrap_or(FontWeight::Number(400.0));
 
         // Measure the actual title text height
@@ -270,6 +269,7 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn make_symbol_group(
     symbols_mark: &SceneSymbolMark,
     text: &str,

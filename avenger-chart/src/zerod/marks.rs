@@ -4,6 +4,8 @@
 //! for marks in a zero-dimensional coordinate system. Since there are no position
 //! channels in 0D space, only visual channels (color, size, shape, etc.) are relevant.
 
+use crate::zerod::coord::ZeroDCoord as ZeroD;
+
 use crate::error::AvengerChartError;
 use crate::impl_mark_trait_common;
 use crate::marks::Mark;
@@ -80,6 +82,7 @@ impl Mark<ZeroDCoord> for Symbol<ZeroDCoord> {
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
         _context: &RenderContext,
+        _coord: &ZeroD,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         unreachable!("ZeroDCoord marks should not be rendered through standard pipeline")
     }
@@ -112,6 +115,7 @@ impl Mark<ZeroDCoord> for Line<ZeroDCoord> {
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
         _context: &RenderContext,
+        _coord: &ZeroD,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         unreachable!("ZeroDCoord marks should not be rendered through standard pipeline")
     }
@@ -137,6 +141,7 @@ impl Mark<ZeroDCoord> for Rect<ZeroDCoord> {
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
         _context: &RenderContext,
+        _coord: &ZeroD,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         unreachable!("ZeroDCoord marks should not be rendered through standard pipeline")
     }

@@ -487,8 +487,9 @@ impl<C: CoordinateSystem> Plot<C> {
         })?;
 
         // Create render context with theme for scale defaults
+        // Use placeholder dimensions since we're not rendering yet
         let theme = self.get_theme();
-        let context = crate::render_context::RenderContext::new(theme);
+        let context = crate::render_context::RenderContext::new(theme, 0.0, 0.0);
 
         // Create scale with theme-based defaults
         let mut scale =

@@ -1,10 +1,8 @@
-use crate::coords::{CoordinateSystem, OverflowSpaceRequirement, TransformResult};
+use crate::coords::{CoordinateSystem, OverflowSpaceRequirement};
 use crate::error::AvengerChartError;
 use crate::polar::{PolarAxis, PolarAxisType, PolarDirection};
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
-use datafusion::functions::math::expr_fn::{cos, sin};
-use datafusion::logical_expr::Expr;
 use std::collections::HashMap;
 
 /// Polar coordinate system with concrete axis type
@@ -34,34 +32,6 @@ impl CoordinateSystem for Polar {
             }
             _ => None,
         }
-    }
-
-    fn transform_expressions(
-        &self,
-        mut channels: HashMap<String, Expr>,
-    ) -> Result<TransformResult, AvengerChartError> {
-        // Get required channels
-        let r = channels
-            .remove("r")
-            .ok_or_else(|| AvengerChartError::MissingChannelError("r".to_string()))?;
-
-        let theta = channels
-            .remove("theta")
-            .ok_or_else(|| AvengerChartError::MissingChannelError("theta".to_string()))?;
-
-        // Use center coordinates from scalar batch columns
-        // These are injected by prepare_scalar_batch
-        use datafusion::logical_expr::col;
-        let cx = col("center_x");
-        let cy = col("center_y");
-
-        // Transform to cartesian coordinates with center offset
-        // x = cx + r * cos(theta)
-        // y = cy + r * sin(theta)
-        let x = cx + r.clone() * cos(theta.clone());
-        let y = cy + r * sin(theta);
-
-        Ok(TransformResult { x, y, depth: None })
     }
 
     async fn measure_guide_overflow(
@@ -247,55 +217,6 @@ impl CoordinateSystem for Polar {
         options
     }
 
-    fn prepare_scalar_batch(
-        &self,
-        batch: datafusion::arrow::record_batch::RecordBatch,
-        plot_width: f32,
-        plot_height: f32,
-    ) -> Result<datafusion::arrow::record_batch::RecordBatch, AvengerChartError> {
-        use datafusion::arrow::array::Float32Array;
-        use datafusion::arrow::datatypes::{DataType, Field};
-        use std::sync::Arc;
-
-        // Calculate the center of the plot area
-        let center_x = plot_width / 2.0;
-        let center_y = plot_height / 2.0;
-
-        // Create arrays with the center coordinates
-        let center_x_array = Float32Array::from(vec![center_x]);
-        let center_y_array = Float32Array::from(vec![center_y]);
-
-        // Get the existing columns from the batch
-        let mut columns: Vec<Arc<dyn datafusion::arrow::array::Array>> = batch.columns().to_vec();
-        let mut fields: Vec<Arc<Field>> = batch.schema().fields().to_vec();
-
-        // Add polar_center_x column if not present (mark expects this name)
-        if batch.column_by_name("polar_center_x").is_none() {
-            columns.push(Arc::new(center_x_array));
-            fields.push(Arc::new(Field::new(
-                "polar_center_x",
-                DataType::Float32,
-                false,
-            )));
-        }
-
-        // Add polar_center_y column if not present (mark expects this name)
-        if batch.column_by_name("polar_center_y").is_none() {
-            columns.push(Arc::new(center_y_array));
-            fields.push(Arc::new(Field::new(
-                "polar_center_y",
-                DataType::Float32,
-                false,
-            )));
-        }
-
-        // Create new schema and batch with center coordinates
-        let new_schema = Arc::new(datafusion::arrow::datatypes::Schema::new(fields));
-        Ok(datafusion::arrow::record_batch::RecordBatch::try_new(
-            new_schema, columns,
-        )?)
-    }
-
     fn get_clip(
         &self,
         plot_width: f32,
@@ -364,5 +285,97 @@ impl CoordinateSystem for Polar {
             width: plot_width,
             height: plot_height,
         }
+    }
+
+    fn transform_to_plot_coords(
+        &self,
+        position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
+        plot_width: f32,
+        plot_height: f32,
+    ) -> Result<
+        (
+            avenger_common::value::ScalarOrArray<f32>,
+            avenger_common::value::ScalarOrArray<f32>,
+        ),
+        AvengerChartError,
+    > {
+        use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
+
+        // Get r and theta from position channels
+        let r = position_channels
+            .get("r")
+            .cloned()
+            .unwrap_or_else(|| ScalarOrArray::new_scalar(0.0));
+
+        let theta = position_channels
+            .get("theta")
+            .cloned()
+            .unwrap_or_else(|| ScalarOrArray::new_scalar(0.0));
+
+        // Calculate center of plot area
+        let center_x = plot_width / 2.0;
+        let center_y = plot_height / 2.0;
+
+        // Transform r/theta to x/y
+        let (x, y) = match (r.value(), theta.value()) {
+            (ScalarOrArrayValue::Scalar(r_val), ScalarOrArrayValue::Scalar(theta_val)) => {
+                // Both are scalars
+                let x_val = center_x + r_val * theta_val.cos();
+                let y_val = center_y + r_val * theta_val.sin();
+                (
+                    ScalarOrArray::new_scalar(x_val),
+                    ScalarOrArray::new_scalar(y_val),
+                )
+            }
+            (ScalarOrArrayValue::Array(r_arr), ScalarOrArrayValue::Array(theta_arr)) => {
+                // Both are arrays
+                let mut x_values = Vec::with_capacity(r_arr.len());
+                let mut y_values = Vec::with_capacity(r_arr.len());
+
+                for i in 0..r_arr.len() {
+                    let r_val = r_arr[i];
+                    let theta_val = theta_arr[i];
+                    x_values.push(center_x + r_val * theta_val.cos());
+                    y_values.push(center_y + r_val * theta_val.sin());
+                }
+
+                (
+                    ScalarOrArray::new_array(x_values),
+                    ScalarOrArray::new_array(y_values),
+                )
+            }
+            (ScalarOrArrayValue::Scalar(r_val), ScalarOrArrayValue::Array(theta_arr)) => {
+                // r is scalar, theta is array
+                let mut x_values = Vec::with_capacity(theta_arr.len());
+                let mut y_values = Vec::with_capacity(theta_arr.len());
+
+                for theta_val in theta_arr.iter() {
+                    x_values.push(center_x + r_val * theta_val.cos());
+                    y_values.push(center_y + r_val * theta_val.sin());
+                }
+
+                (
+                    ScalarOrArray::new_array(x_values),
+                    ScalarOrArray::new_array(y_values),
+                )
+            }
+            (ScalarOrArrayValue::Array(r_arr), ScalarOrArrayValue::Scalar(theta_val)) => {
+                // r is array, theta is scalar
+                let mut x_values = Vec::with_capacity(r_arr.len());
+                let mut y_values = Vec::with_capacity(r_arr.len());
+
+                for r_val in r_arr.iter() {
+                    x_values.push(center_x + r_val * theta_val.cos());
+                    y_values.push(center_y + r_val * theta_val.sin());
+                }
+
+                (
+                    ScalarOrArray::new_array(x_values),
+                    ScalarOrArray::new_array(y_values),
+                )
+            }
+        };
+
+        Ok((x, y))
     }
 }

@@ -38,6 +38,7 @@ impl Mark<Polar> for Rect<Polar> {
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
         _context: &RenderContext,
+        _coord: &Polar,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Polar rect rendering not yet implemented
         Err(AvengerChartError::InternalError(

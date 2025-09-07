@@ -67,13 +67,6 @@ pub struct PlotRenderer<'a, C: CoordinateSystem> {
     plot: &'a Plot<C>,
 }
 
-/// Helper to parse shape strings
-#[allow(dead_code)]
-fn parse_shape(s: &str) -> Result<avenger_common::types::SymbolShape, AvengerChartError> {
-    avenger_common::types::SymbolShape::from_vega_str(s)
-        .map_err(|_| AvengerChartError::InternalError(format!("Invalid shape name: '{}'", s)))
-}
-
 impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
     pub fn new(plot: &'a Plot<C>) -> Self {
         Self { plot }
@@ -1026,18 +1019,17 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // Validate positional channel data types before rendering
         self.validate_positional_channel_types(&data_batch, &scalar_batch)?;
 
-        // Let the coordinate system prepare the scalar batch with any required columns
-        let scalar_batch =
-            self.plot
-                .coord_system()
-                .prepare_scalar_batch(scalar_batch, plot_width, plot_height)?;
-
-        // Create render context with theme
+        // Create render context with theme and dimensions
         let theme = self.plot.get_theme();
-        let context = RenderContext::new(theme);
+        let context = RenderContext::new(theme, plot_width, plot_height);
 
-        // Call the mark's render_from_data method with context
-        mark.render_from_data(data_batch.as_ref(), &scalar_batch, &context)
+        // Call the mark's render_from_data method with context and coordinate system
+        mark.render_from_data(
+            data_batch.as_ref(),
+            &scalar_batch,
+            &context,
+            self.plot.coord_system(),
+        )
     }
 
     /// Validate that positional channels have numeric data types
