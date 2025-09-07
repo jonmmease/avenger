@@ -45,12 +45,12 @@ pub struct SymbolLegendConfig {
     /// Text colors
     pub title_color: Option<[f32; 4]>,
     pub label_color: Option<[f32; 4]>,
-    
+
     /// Typography configuration for title
     pub title_font_family: Option<String>,
     pub title_font_size: Option<f32>,
     pub title_font_weight: Option<FontWeight>,
-    
+
     /// Typography configuration for labels
     pub label_font_family: Option<String>,
     pub label_font_size: Option<f32>,
@@ -148,9 +148,13 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
     // Add title if present
     if let Some(ref title_text) = config.title {
         let title_font_size = config.title_font_size.unwrap_or(12.0);
-        let title_font = config.title_font_family.clone()
+        let title_font = config
+            .title_font_family
+            .clone()
             .unwrap_or_else(|| "sans-serif".to_string());
-        let title_font_weight = config.title_font_weight.clone()
+        let title_font_weight = config
+            .title_font_weight
+            .clone()
             .unwrap_or(FontWeight::Number(400.0));
 
         // Measure the actual title text height

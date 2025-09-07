@@ -121,7 +121,7 @@ impl LegendRenderer for ColorbarRenderer {
                 }
             }
         }
-        
+
         // Set typography from legend config
         if let Some(ref family) = config.title_font_family {
             legend_config.title_font_family = Some(family.clone());
@@ -142,7 +142,7 @@ impl LegendRenderer for ColorbarRenderer {
         if let Some(weight) = config.tick_font_weight {
             legend_config.label_font_weight = Some(avenger_text::types::FontWeight::Number(weight));
         }
-        
+
         // Apply legend background styling if provided
         if let Some(pad) = config.background_padding {
             legend_config.background_padding = Some(pad);

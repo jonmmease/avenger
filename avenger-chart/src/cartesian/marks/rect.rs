@@ -143,9 +143,9 @@ impl Mark<Cartesian> for Rect<Cartesian> {
                 }
             }
             "fill" | "stroke" | "color" => {
-                // Use color defaults system
-                use crate::scales::color_defaults::get_default_color_range;
-                Some(get_default_color_range(scale_type, None))
+                // Use theme color system
+                let theme = crate::theme::get_default_theme();
+                Some(theme.get_color_range(scale_type, None))
             }
             _ => None,
         }

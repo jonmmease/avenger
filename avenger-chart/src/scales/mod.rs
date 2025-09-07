@@ -1,8 +1,5 @@
 // Public submodules
-pub mod color_defaults;
-pub mod dash_defaults;
 pub mod extensions;
-pub mod shape_defaults;
 pub mod udf;
 
 // Internal modules
