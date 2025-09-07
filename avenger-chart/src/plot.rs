@@ -471,14 +471,7 @@ impl<C: CoordinateSystem> Plot<C> {
                     let schema = df.schema();
                     if let Some(dt) = channel_value.get_data_type(schema) {
                         data_type = Some(dt.clone());
-
-                        // Try scale type preference in order:
-                        // 1. Mark's preference for this specific channel
-                        // 2. Coordinate system's preference (typically for position channels)
-                        scale_impl = mark
-                            .preferred_scale_type(channel, &dt)
-                            .or_else(|| self.coord_system.preferred_scale_type(channel, &dt));
-
+                        scale_impl = mark.preferred_scale_type(channel, &dt);
                         found_mark = Some(mark);
                         break;
                     }
@@ -507,13 +500,15 @@ impl<C: CoordinateSystem> Plot<C> {
             let mut default_options = HashMap::new();
 
             // First get coordinate system defaults (for all channels, not just position)
-            // Use scale_type from the implementation for compatibility
-            let scale_type = scale_impl.scale_type();
-            let coord_options = self.coord_system.default_scale_options(channel, scale_type);
+            // Pass the scale implementation directly
+            let coord_options = self
+                .coord_system
+                .default_scale_options(channel, scale_impl.as_ref());
             default_options.extend(coord_options);
 
             // Then get mark-specific scale option preferences
             // We already know this mark has the channel since we found it above
+            let scale_type = scale_impl.scale_type();
             let mark_options = mark.default_scale_options(channel, scale_type, dt);
             // Mark preferences override coordinate system defaults
             default_options.extend(mark_options);
