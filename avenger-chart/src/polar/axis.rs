@@ -91,7 +91,7 @@ impl PolarAxis {
         plot_width: f32,
         plot_height: f32,
         padding: &crate::render::Padding,
-        _theme: &crate::theme::Theme,
+        theme: &crate::theme::Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Skip if invisible
         if !self.visible {
@@ -106,11 +106,11 @@ impl PolarAxis {
         match self.axis_type {
             PolarAxisType::Radial => {
                 // Render radial axis (circles from center)
-                self.render_radial_axis(scale, center_x, center_y, radius)
+                self.render_radial_axis(scale, center_x, center_y, radius, theme)
             }
             PolarAxisType::Angular => {
                 // Render angular axis (lines from center)
-                self.render_angular_axis(scale, center_x, center_y, radius, scales)
+                self.render_angular_axis(scale, center_x, center_y, radius, scales, theme)
             }
         }
     }
@@ -121,6 +121,7 @@ impl PolarAxis {
         center_x: f32,
         center_y: f32,
         max_radius: f32,
+        theme: &crate::theme::Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         use avenger_common::types::ColorOrGradient;
         use avenger_common::value::ScalarOrArray;
@@ -302,13 +303,15 @@ impl PolarAxis {
                     x: ScalarOrArray::new_array(x_vals),
                     y: ScalarOrArray::new_array(y_vals),
                     text: ScalarOrArray::new_array(text_vals),
-                    font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+                    font: ScalarOrArray::new_scalar(theme.axis.label_font_family.clone()),
                     font_weight: ScalarOrArray::new_scalar(
-                        avenger_text::types::FontWeight::Number(400.0),
+                        avenger_text::types::FontWeight::Number(theme.axis.label_font_weight),
                     ),
-                    font_size: ScalarOrArray::new_scalar(8.0), // Smaller font for radial labels
+                    font_size: ScalarOrArray::new_scalar(theme.axis.label_font_size),
                     font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
-                    color: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.4, 0.4, 0.4, 1.0])),
+                    color: ScalarOrArray::new_scalar(ColorOrGradient::Color(
+                        crate::utils::parse_color_to_array(&theme.axis.label_color),
+                    )),
                     align: ScalarOrArray::new_scalar(TextAlign::Center),
                     baseline: ScalarOrArray::new_scalar(TextBaseline::Top),
                     angle: ScalarOrArray::new_scalar(0.0),
@@ -329,13 +332,15 @@ impl PolarAxis {
                 x: ScalarOrArray::new_scalar(center_x),
                 y: ScalarOrArray::new_scalar(center_y - max_radius - 20.0),
                 text: ScalarOrArray::new_scalar(title.clone()),
-                font: ScalarOrArray::new_scalar("sans-serif".to_string()),
+                font: ScalarOrArray::new_scalar(theme.axis.title_font_family.clone()),
                 font_weight: ScalarOrArray::new_scalar(avenger_text::types::FontWeight::Number(
-                    400.0,
+                    theme.axis.title_font_weight,
                 )),
-                font_size: ScalarOrArray::new_scalar(14.0),
+                font_size: ScalarOrArray::new_scalar(theme.axis.title_font_size),
                 font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
-                color: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
+                color: ScalarOrArray::new_scalar(ColorOrGradient::Color(
+                    crate::utils::parse_color_to_array(&theme.axis.title_color),
+                )),
                 align: ScalarOrArray::new_scalar(TextAlign::Center),
                 baseline: ScalarOrArray::new_scalar(TextBaseline::Bottom),
                 angle: ScalarOrArray::new_scalar(0.0),
@@ -356,6 +361,7 @@ impl PolarAxis {
         center_y: f32,
         radius: f32,
         scales: &std::collections::HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        theme: &crate::theme::Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         use avenger_common::types::ColorOrGradient;
         use avenger_common::types::StrokeCap;
@@ -528,13 +534,15 @@ impl PolarAxis {
                     text: ScalarOrArray::new_array(text_vals),
                     align: ScalarOrArray::new_array(label_aligns),
                     baseline: ScalarOrArray::new_array(label_baselines),
-                    font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+                    font: ScalarOrArray::new_scalar(theme.axis.label_font_family.clone()),
                     font_weight: ScalarOrArray::new_scalar(
-                        avenger_text::types::FontWeight::Number(400.0),
+                        avenger_text::types::FontWeight::Number(theme.axis.label_font_weight),
                     ),
-                    font_size: ScalarOrArray::new_scalar(10.0),
+                    font_size: ScalarOrArray::new_scalar(theme.axis.label_font_size),
                     font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
-                    color: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
+                    color: ScalarOrArray::new_scalar(ColorOrGradient::Color(
+                        crate::utils::parse_color_to_array(&theme.axis.label_color),
+                    )),
                     angle: ScalarOrArray::new_scalar(0.0),
                     limit: ScalarOrArray::new_scalar(200.0),
                     indices: None,
@@ -553,13 +561,15 @@ impl PolarAxis {
                 x: ScalarOrArray::new_scalar(center_x + max_radius + 20.0),
                 y: ScalarOrArray::new_scalar(center_y),
                 text: ScalarOrArray::new_scalar(title.clone()),
-                font: ScalarOrArray::new_scalar("sans-serif".to_string()),
+                font: ScalarOrArray::new_scalar(theme.axis.title_font_family.clone()),
                 font_weight: ScalarOrArray::new_scalar(avenger_text::types::FontWeight::Number(
-                    400.0,
+                    theme.axis.title_font_weight,
                 )),
-                font_size: ScalarOrArray::new_scalar(14.0),
+                font_size: ScalarOrArray::new_scalar(theme.axis.title_font_size),
                 font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
-                color: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
+                color: ScalarOrArray::new_scalar(ColorOrGradient::Color(
+                    crate::utils::parse_color_to_array(&theme.axis.title_color),
+                )),
                 align: ScalarOrArray::new_scalar(TextAlign::Left),
                 baseline: ScalarOrArray::new_scalar(TextBaseline::Middle),
                 angle: ScalarOrArray::new_scalar(0.0),

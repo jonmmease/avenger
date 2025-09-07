@@ -1365,24 +1365,26 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                         .and_then(|mark| mark.preferred_merged_legend_renderer(&channels, &scales))
                 } else {
                     // Single channel - use the standard renderer selection
-                    scales.get(&primary_channel.name).and_then(|scale| -> Option<Arc<dyn crate::legend_renderer::LegendRenderer>> {
-                        if let Some(ref renderer) = legend.renderer {
-                            // Use explicitly configured renderer
-                            Some(renderer.clone())
-                        } else {
-                            // Find the mark and get its preference
-                            self.plot
-                                .marks
-                                .iter()
-                                .find(|m| m.mark_id() == primary_channel.mark_id)
-                                .and_then(|mark| {
-                                    mark.preferred_legend_renderer(
-                                        &primary_channel.channel_type,
-                                        scale,
-                                    )
-                                })
-                        }
-                    })
+                    scales.get(&primary_channel.name).and_then(
+                        |scale| -> Option<Arc<dyn crate::legend_renderer::LegendRenderer>> {
+                            if let Some(ref renderer) = legend.renderer {
+                                // Use explicitly configured renderer
+                                Some(renderer.clone())
+                            } else {
+                                // Find the mark and get its preference
+                                self.plot
+                                    .marks
+                                    .iter()
+                                    .find(|m| m.mark_id() == primary_channel.mark_id)
+                                    .and_then(|mark| {
+                                        mark.preferred_legend_renderer(
+                                            &primary_channel.channel_type,
+                                            scale,
+                                        )
+                                    })
+                            }
+                        },
+                    )
                 };
 
                 // Skip this legend group if no renderer is available
@@ -1545,12 +1547,17 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             y: y.into(),
             align: TextAlign::Left.into(),
             baseline: TextBaseline::Middle.into(),
-            font: title.font_family.clone().into(),
-            font_size: title.font_size.into(),
-            font_weight: avenger_text::types::FontWeight::Number(
-                theme.title.title_font_weight,
-            )
-            .into(),
+            font: title
+                .font_family
+                .clone()
+                .unwrap_or_else(|| theme.title.title_font_family.clone())
+                .into(),
+            font_size: title
+                .font_size
+                .unwrap_or(theme.title.title_font_size)
+                .into(),
+            font_weight: avenger_text::types::FontWeight::Number(theme.title.title_font_weight)
+                .into(),
             color: crate::utils::parse_color_string(&theme.title.title_color)
                 .unwrap_or(ColorOrGradient::Color([0.102, 0.102, 0.102, 1.0]))
                 .into(),
@@ -1598,12 +1605,17 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             y: y.into(),
             align: TextAlign::Left.into(),
             baseline: TextBaseline::Middle.into(),
-            font: subtitle.font_family.clone().into(),
-            font_size: subtitle.font_size.into(),
-            font_weight: avenger_text::types::FontWeight::Number(
-                theme.title.subtitle_font_weight,
-            )
-            .into(),
+            font: subtitle
+                .font_family
+                .clone()
+                .unwrap_or_else(|| theme.title.subtitle_font_family.clone())
+                .into(),
+            font_size: subtitle
+                .font_size
+                .unwrap_or(theme.title.subtitle_font_size)
+                .into(),
+            font_weight: avenger_text::types::FontWeight::Number(theme.title.subtitle_font_weight)
+                .into(),
             color: crate::utils::parse_color_string(&theme.title.subtitle_color)
                 .unwrap_or(ColorOrGradient::Color([0.290, 0.290, 0.290, 1.0]))
                 .into(),
@@ -1858,6 +1870,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             self.plot.get_title(),
             self.plot.get_subtitle(),
             &self.plot.marks,
+            &self.plot.get_theme(),
         )?;
 
         // Compute layout
