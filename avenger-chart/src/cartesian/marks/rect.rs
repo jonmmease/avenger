@@ -130,6 +130,7 @@ impl Mark<Cartesian> for Rect<Cartesian> {
         channel: &str,
         scale_type: &str,
         _data_type: &DataType,
+        theme: &crate::theme::Theme,
     ) -> Option<ScaleRange> {
         match channel {
             "corner_radius" => Some(ScaleRange::new_interval(lit(0.0), lit(10.0))),
@@ -144,7 +145,6 @@ impl Mark<Cartesian> for Rect<Cartesian> {
             }
             "fill" | "stroke" | "color" => {
                 // Use theme color system
-                let theme = crate::theme::get_default_theme();
                 Some(theme.get_color_range(scale_type, None))
             }
             _ => None,

@@ -2059,9 +2059,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                         });
 
                     if let Some(dt) = data_type {
-                        if let Some(mark_range) =
-                            mark.default_channel_range(name, scale.scale_impl.scale_type(), &dt)
-                        {
+                        let theme = self.plot.get_theme();
+                        if let Some(mark_range) = mark.default_channel_range(
+                            name,
+                            scale.scale_impl.scale_type(),
+                            &dt,
+                            &theme,
+                        ) {
                             scale = scale.range(mark_range);
                             break;
                         }

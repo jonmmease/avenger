@@ -236,6 +236,7 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
         channel: &str,
         scale_type: &str,
         _data_type: &DataType,
+        theme: &crate::theme::Theme,
     ) -> Option<ScaleRange> {
         match channel {
             "size" => {
@@ -266,7 +267,6 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
             "shape" => {
                 if scale_type == "ordinal" {
                     // Use theme shape sequence
-                    let theme = crate::theme::get_default_theme();
                     Some(theme.get_shape_range(None))
                 } else {
                     None
@@ -284,7 +284,6 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
             }
             "fill" | "stroke" | "color" => {
                 // Use theme color system
-                let theme = crate::theme::get_default_theme();
                 Some(theme.get_color_range(scale_type, None))
             }
             _ => None,

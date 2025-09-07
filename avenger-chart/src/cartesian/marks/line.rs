@@ -448,6 +448,7 @@ impl Mark<Cartesian> for Line<Cartesian> {
         channel: &str,
         scale_type: &str,
         _data_type: &DataType,
+        theme: &crate::theme::Theme,
     ) -> Option<ScaleRange> {
         match channel {
             "opacity" => Some(ScaleRange::new_interval(lit(0.0), lit(1.0))),
@@ -462,7 +463,6 @@ impl Mark<Cartesian> for Line<Cartesian> {
             "stroke_dash" => {
                 if scale_type == "ordinal" {
                     // Use theme dash patterns
-                    let theme = crate::theme::get_default_theme();
                     Some(theme.get_dash_range(None))
                 } else {
                     None
@@ -470,7 +470,6 @@ impl Mark<Cartesian> for Line<Cartesian> {
             }
             "stroke" => {
                 // Use theme color system
-                let theme = crate::theme::get_default_theme();
                 Some(theme.get_color_range(scale_type, None))
             }
             _ => None,

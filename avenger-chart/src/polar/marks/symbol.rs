@@ -257,6 +257,7 @@ impl Mark<Polar> for Symbol<Polar> {
         channel: &str,
         scale_type: &str,
         _data_type: &DataType,
+        theme: &crate::theme::Theme,
     ) -> Option<ScaleRange> {
         match channel {
             "size" => {
@@ -287,7 +288,6 @@ impl Mark<Polar> for Symbol<Polar> {
             "shape" => {
                 if scale_type == "ordinal" {
                     // Use theme shape sequence
-                    let theme = crate::theme::get_default_theme();
                     Some(theme.get_shape_range(None))
                 } else {
                     None
@@ -305,7 +305,6 @@ impl Mark<Polar> for Symbol<Polar> {
             }
             "fill" | "stroke" | "color" => {
                 // Use theme color system
-                let theme = crate::theme::get_default_theme();
                 Some(theme.get_color_range(scale_type, None))
             }
             _ => None,

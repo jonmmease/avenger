@@ -14,17 +14,6 @@ pub use dashes::DashPatterns;
 pub use marks::MarkDefaults;
 pub use shapes::ShapeSequence;
 
-use once_cell::sync::Lazy;
-use std::sync::RwLock;
-
-/// Global default theme instance used for scale defaults
-static DEFAULT_THEME: Lazy<RwLock<Theme>> = Lazy::new(|| RwLock::new(Theme::default()));
-
-/// Get the default theme for scale ranges
-pub fn get_default_theme() -> Theme {
-    DEFAULT_THEME.read().unwrap().clone()
-}
-
 /// Complete theme configuration for chart styling
 #[derive(Clone, Debug)]
 pub struct Theme {
