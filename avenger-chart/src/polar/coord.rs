@@ -6,7 +6,6 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::functions::math::expr_fn::{cos, sin};
 use datafusion::logical_expr::Expr;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 /// Polar coordinate system with concrete axis type
 #[derive(Clone, Default)]
@@ -217,70 +216,32 @@ impl CoordinateSystem for Polar {
         Ok(axis_marks)
     }
 
-    fn preferred_scale_type(
-        &self,
-        channel: &str,
-        data_type: &datafusion::arrow::datatypes::DataType,
-    ) -> Option<Arc<dyn avenger_scales::scales::ScaleImpl>> {
-        use avenger_scales::scales::{linear::LinearScale, point::PointScale, time::TimeScale};
-        use datafusion::arrow::datatypes::DataType;
-
-        // Handle position channels specifically
-        match channel {
-            "r" | "theta" => {
-                match data_type {
-                    // Categorical data uses point scale for positions
-                    DataType::Utf8
-                    | DataType::LargeUtf8
-                    | DataType::Utf8View
-                    | DataType::Boolean => Some(Arc::new(PointScale)),
-                    // Temporal data uses time scale
-                    DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _) => {
-                        Some(Arc::new(TimeScale))
-                    }
-                    // Numeric data uses linear scale
-                    DataType::Float32
-                    | DataType::Float64
-                    | DataType::Int8
-                    | DataType::Int16
-                    | DataType::Int32
-                    | DataType::Int64
-                    | DataType::UInt8
-                    | DataType::UInt16
-                    | DataType::UInt32
-                    | DataType::UInt64 => Some(Arc::new(LinearScale)),
-                    // Default to linear for unknown types
-                    _ => Some(Arc::new(LinearScale)),
-                }
-            }
-            // Not a position channel - let marks decide
-            _ => None,
-        }
-    }
-
     fn default_scale_options(
         &self,
         channel: &str,
-        scale_type: &str,
+        scale_impl: &dyn avenger_scales::scales::ScaleImpl,
     ) -> HashMap<String, datafusion::logical_expr::Expr> {
+        use avenger_scales::scales::{DomainKind, RangeKind};
         use datafusion::logical_expr::lit;
         let mut options = HashMap::new();
 
-        match (channel, scale_type) {
-            // Radial scales often start at zero
-            ("r", "linear") => {
-                options.insert("zero".to_string(), lit(true));
+        // Check if this is a position channel
+        let is_radial = channel == "r";
+        let is_angular = channel == "theta";
+
+        if is_radial || is_angular {
+            // For continuous numeric scales
+            if scale_impl.domain_kind() == DomainKind::Numeric
+                && scale_impl.range_kind() == RangeKind::Continuous
+            {
+                // Radial scales typically start at zero
+                if is_radial && scale_impl.scale_type() == "linear" {
+                    options.insert("zero".to_string(), lit(true));
+                }
+
+                // Nice domain for better tick values
                 options.insert("nice".to_string(), lit(true));
             }
-            // Angular scales for continuous data
-            ("theta", "linear") => {
-                options.insert("nice".to_string(), lit(true));
-            }
-            // Nice for other numeric scales
-            ("r" | "theta", "log" | "pow" | "sqrt" | "symlog") => {
-                options.insert("nice".to_string(), lit(true));
-            }
-            _ => {}
         }
 
         options

@@ -6,7 +6,6 @@ use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::logical_expr::Expr;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 /// Cartesian coordinate system with concrete axis type
 #[derive(Clone, Default)]
@@ -184,72 +183,42 @@ impl CoordinateSystem for Cartesian {
         Ok(result)
     }
 
-    fn preferred_scale_type(
-        &self,
-        channel: &str,
-        data_type: &datafusion::arrow::datatypes::DataType,
-    ) -> Option<Arc<dyn avenger_scales::scales::ScaleImpl>> {
-        use avenger_scales::scales::{linear::LinearScale, point::PointScale, time::TimeScale};
-        use datafusion::arrow::datatypes::DataType;
-
-        // Handle position channels specifically
-        match channel {
-            "x" | "y" | "x2" | "y2" => {
-                match data_type {
-                    // Categorical data uses point scale for positions
-                    DataType::Utf8
-                    | DataType::LargeUtf8
-                    | DataType::Utf8View
-                    | DataType::Boolean => Some(Arc::new(PointScale)),
-                    // Temporal data uses time scale
-                    DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _) => {
-                        Some(Arc::new(TimeScale))
-                    }
-                    // Numeric data uses linear scale
-                    DataType::Float32
-                    | DataType::Float64
-                    | DataType::Int8
-                    | DataType::Int16
-                    | DataType::Int32
-                    | DataType::Int64
-                    | DataType::UInt8
-                    | DataType::UInt16
-                    | DataType::UInt32
-                    | DataType::UInt64 => Some(Arc::new(LinearScale)),
-                    // Default to linear for unknown types
-                    _ => Some(Arc::new(LinearScale)),
-                }
-            }
-            // Not a position channel - let marks decide
-            _ => None,
-        }
-    }
-
     fn default_scale_options(
         &self,
         channel: &str,
-        scale_type: &str,
+        scale_impl: &dyn avenger_scales::scales::ScaleImpl,
     ) -> HashMap<String, datafusion::logical_expr::Expr> {
+        use avenger_scales::scales::{DomainKind, RangeKind};
         use datafusion::logical_expr::lit;
         let mut options = HashMap::new();
 
-        match (channel, scale_type) {
-            // Y-axis linear scales typically include zero
-            ("y" | "y2", "linear") => {
-                options.insert("zero".to_string(), lit(true));
+        // Check if this is a position channel
+        let is_position = matches!(channel, "x" | "x2" | "y" | "y2");
+        let is_y_axis = matches!(channel, "y" | "y2");
+
+        if is_position {
+            // For continuous numeric scales
+            if scale_impl.domain_kind() == DomainKind::Numeric
+                && scale_impl.range_kind() == RangeKind::Continuous
+            {
+                // Y-axis scales typically include zero, X-axis scales don't necessarily
+                if is_y_axis && scale_impl.scale_type() == "linear" {
+                    options.insert("zero".to_string(), lit(true));
+                }
+
+                // Nice domain for better tick values
                 options.insert("nice".to_string(), lit(true));
-                options.insert("round".to_string(), lit(true)); // Pixel-aligned for crisp grid lines
+
+                // Pixel-aligned positions for crisp rendering
+                options.insert("round".to_string(), lit(true));
             }
-            // X-axis linear scales don't necessarily need zero
-            ("x" | "x2", "linear") => {
-                options.insert("nice".to_string(), lit(true));
-                options.insert("round".to_string(), lit(true)); // Pixel-aligned for crisp grid lines
+            // For temporal scales
+            else if scale_impl.domain_kind() == DomainKind::Temporal
+                && scale_impl.range_kind() == RangeKind::Continuous
+            {
+                // Pixel-aligned positions
+                options.insert("round".to_string(), lit(true));
             }
-            // For any numeric positional scale, enable rounding for pixel alignment
-            ("x" | "x2" | "y" | "y2", "log" | "pow" | "sqrt" | "symlog" | "time") => {
-                options.insert("round".to_string(), lit(true)); // Pixel-aligned positions
-            }
-            _ => {}
         }
 
         options
