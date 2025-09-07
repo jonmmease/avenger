@@ -234,6 +234,7 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
     /// * `channel` - The channel name
     /// * `scale_type` - The scale type being used
     /// * `data_type` - The data type of the channel
+    /// * `theme` - The current theme for accessing default values
     ///
     /// Returns None to use system defaults
     fn default_channel_range(
@@ -241,6 +242,7 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
         _channel: &str,
         _scale_type: &str,
         _data_type: &DataType,
+        _theme: &crate::theme::Theme,
     ) -> Option<ScaleRange> {
         None
     }

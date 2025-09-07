@@ -365,9 +365,18 @@ impl LegendRenderer for SymbolLegendRenderer {
                         if !names.is_empty() {
                             names
                         } else {
-                            // Use theme shape sequence
-                            let theme = crate::theme::get_default_theme();
-                            theme.shapes.get_shape_names()
+                            // Fallback to a default shape sequence if scale doesn't provide shapes
+                            // This shouldn't happen if scales are properly configured with theme
+                            vec![
+                                "circle".to_string(),
+                                "cross".to_string(),
+                                "diamond".to_string(),
+                                "square".to_string(),
+                                "star".to_string(),
+                                "triangle-up".to_string(),
+                                "wye".to_string(),
+                                "cushion".to_string(),
+                            ]
                         }
                     };
 

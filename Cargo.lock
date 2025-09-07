@@ -453,7 +453,6 @@ dependencies = [
  "indexmap",
  "lazy_static 1.5.0",
  "lyon_path",
- "once_cell",
  "palette",
  "paste",
  "serde_json",
