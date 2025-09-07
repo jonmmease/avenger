@@ -185,19 +185,19 @@ pub struct ColorbarConfig {
     pub background_stroke: Option<ColorOrGradient>,
     pub background_corner_radius: Option<f32>,
     pub background_padding: Option<f32>,
-    
+
     /// Typography configuration for axis title
     pub title_font_family: Option<String>,
     pub title_font_size: Option<f32>,
     pub title_font_weight: Option<FontWeight>,
     pub title_color: Option<[f32; 4]>,
-    
+
     /// Typography configuration for axis labels
     pub label_font_family: Option<String>,
     pub label_font_size: Option<f32>,
     pub label_font_weight: Option<FontWeight>,
     pub label_color: Option<[f32; 4]>,
-    
+
     /// Axis line and tick colors
     pub domain_color: Option<[f32; 4]>,
     pub tick_color: Option<[f32; 4]>,

@@ -286,10 +286,9 @@ impl Mark<Polar> for Symbol<Polar> {
             }
             "shape" => {
                 if scale_type == "ordinal" {
-                    use crate::scales::shape_defaults::DEFAULT_SHAPES;
-                    let shapes: Vec<String> =
-                        DEFAULT_SHAPES.iter().map(|&s| s.to_string()).collect();
-                    Some(ScaleRange::new_discrete(shapes))
+                    // Use theme shape sequence
+                    let theme = crate::theme::get_default_theme();
+                    Some(theme.get_shape_range(None))
                 } else {
                     None
                 }
@@ -305,9 +304,9 @@ impl Mark<Polar> for Symbol<Polar> {
                 }
             }
             "fill" | "stroke" | "color" => {
-                // Use color defaults system
-                use crate::scales::color_defaults::get_default_color_range;
-                Some(get_default_color_range(scale_type, None))
+                // Use theme color system
+                let theme = crate::theme::get_default_theme();
+                Some(theme.get_color_range(scale_type, None))
             }
             _ => None,
         }

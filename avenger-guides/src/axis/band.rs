@@ -99,13 +99,9 @@ pub fn make_band_axis_marks(
     );
 
     // Add tick labels
-    axis_elements_group.marks.push(
-        make_tick_labels(
-            &scale,
-            &config,
-        )?
-        .into(),
-    );
+    axis_elements_group
+        .marks
+        .push(make_tick_labels(&scale, &config)?.into());
 
     // Add title
     axis_elements_group
@@ -309,10 +305,15 @@ fn make_tick_labels(
         align: align.into(),
         baseline: baseline.into(),
         angle: angle.into(),
-        color: ColorOrGradient::Color(config.label_color.unwrap_or([0.353, 0.353, 0.353, 1.0])).into(), // Default: #5A5A5A
+        color: ColorOrGradient::Color(config.label_color.unwrap_or([0.353, 0.353, 0.353, 1.0]))
+            .into(), // Default: #5A5A5A
         font_size: config.label_font_size.unwrap_or(TICK_FONT_SIZE).into(),
         font_weight: FontWeight::Number(config.label_font_weight.unwrap_or(300.0)).into(), // Default: light weight for tick labels
-        font: config.label_font_family.clone().unwrap_or_else(|| "sans-serif".to_string()).into(),
+        font: config
+            .label_font_family
+            .clone()
+            .unwrap_or_else(|| "sans-serif".to_string())
+            .into(),
         ..Default::default()
     })
 }
@@ -389,7 +390,11 @@ fn make_title(
             .into(), // Default: #2C2C2C
         font_size: config.title_font_size.unwrap_or(TITLE_FONT_SIZE).into(),
         font_weight: FontWeight::Number(config.title_font_weight.unwrap_or(400.0)).into(),
-        font: config.title_font_family.clone().unwrap_or_else(|| "sans-serif".to_string()).into(),
+        font: config
+            .title_font_family
+            .clone()
+            .unwrap_or_else(|| "sans-serif".to_string())
+            .into(),
         ..Default::default()
     })
 }

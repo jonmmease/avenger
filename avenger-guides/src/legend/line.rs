@@ -49,12 +49,12 @@ pub struct LineLegendConfig {
     /// Text colors
     pub title_color: Option<[f32; 4]>,
     pub label_color: Option<[f32; 4]>,
-    
+
     /// Typography configuration for title
     pub title_font_family: Option<String>,
     pub title_font_size: Option<f32>,
     pub title_font_weight: Option<FontWeight>,
-    
+
     /// Typography configuration for labels
     pub label_font_family: Option<String>,
     pub label_font_size: Option<f32>,
@@ -109,21 +109,28 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
     let text_strs = config.text.as_vec(len, None);
 
     // Use the label font configuration for measuring text (same as rendering)
-    let measure_font = config.label_font_family.clone()
-        .unwrap_or_else(|| match config.font_family.value() {
-            avenger_common::value::ScalarOrArrayValue::Scalar(s) => s.clone(),
-            _ => "sans-serif".to_string(),
-        });
-    let measure_font_size = config.label_font_size
-        .unwrap_or_else(|| match config.font_size.value() {
-            avenger_common::value::ScalarOrArrayValue::Scalar(s) => *s,
-            _ => 11.0,
-        });
-    
+    let measure_font =
+        config
+            .label_font_family
+            .clone()
+            .unwrap_or_else(|| match config.font_family.value() {
+                avenger_common::value::ScalarOrArrayValue::Scalar(s) => s.clone(),
+                _ => "sans-serif".to_string(),
+            });
+    let measure_font_size =
+        config
+            .label_font_size
+            .unwrap_or_else(|| match config.font_size.value() {
+                avenger_common::value::ScalarOrArrayValue::Scalar(s) => *s,
+                _ => 11.0,
+            });
+
     // Also use the same font weight for measuring as for rendering
-    let measure_font_weight = config.label_font_weight.clone()
+    let measure_font_weight = config
+        .label_font_weight
+        .clone()
         .unwrap_or(FontWeight::Number(300.0));
-    
+
     let all_text_mark = SceneTextMark {
         text: text_strs.into(),
         font: measure_font.into(),
@@ -149,11 +156,15 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
     let title_height = if let Some(ref title_text) = config.title {
         // Use configurable or default font size
         let title_font_size = config.title_font_size.unwrap_or(12.0);
-        let title_font = config.title_font_family.clone()
+        let title_font = config
+            .title_font_family
+            .clone()
             .unwrap_or_else(|| "sans-serif".to_string());
-        let title_font_weight = config.title_font_weight.clone()
+        let title_font_weight = config
+            .title_font_weight
+            .clone()
             .unwrap_or(FontWeight::Number(400.0));
-        
+
         let title_mark = SceneTextMark {
             text: title_text.clone().into(),
             x: bg_padding.into(),

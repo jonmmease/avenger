@@ -365,10 +365,9 @@ impl LegendRenderer for SymbolLegendRenderer {
                         if !names.is_empty() {
                             names
                         } else {
-                            crate::scales::shape_defaults::DEFAULT_SHAPES
-                                .iter()
-                                .map(|&s| s.to_string())
-                                .collect()
+                            // Use theme shape sequence
+                            let theme = crate::theme::get_default_theme();
+                            theme.shapes.get_shape_names()
                         }
                     };
 

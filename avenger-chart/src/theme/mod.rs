@@ -14,12 +14,23 @@ pub use dashes::DashPatterns;
 pub use marks::MarkDefaults;
 pub use shapes::ShapeSequence;
 
+use once_cell::sync::Lazy;
+use std::sync::RwLock;
+
+/// Global default theme instance used for scale defaults
+static DEFAULT_THEME: Lazy<RwLock<Theme>> = Lazy::new(|| RwLock::new(Theme::default()));
+
+/// Get the default theme for scale ranges
+pub fn get_default_theme() -> Theme {
+    DEFAULT_THEME.read().unwrap().clone()
+}
+
 /// Complete theme configuration for chart styling
 #[derive(Clone, Debug)]
 pub struct Theme {
     /// Default font family (others inherit from this if not specified)
     pub default_font: String,
-    
+
     /// Title and subtitle theme
     pub title: TitleTheme,
 
@@ -125,30 +136,30 @@ pub struct AxisTheme {
 
     /// Default label angle (0 for horizontal)
     pub label_angle: f32,
-    
+
     // Axis label (tick label) typography
     /// Label text color
     pub label_color: String,
-    
+
     /// Label font family
     pub label_font_family: String,
-    
+
     /// Label font size
     pub label_font_size: f32,
-    
+
     /// Label font weight
     pub label_font_weight: f32,
-    
+
     // Axis title typography
     /// Title text color
     pub title_color: String,
-    
+
     /// Title font family
     pub title_font_family: String,
-    
+
     /// Title font size
     pub title_font_size: f32,
-    
+
     /// Title font weight
     pub title_font_weight: f32,
 }
@@ -176,43 +187,43 @@ pub struct LegendTheme {
 
     /// Padding between symbol and label
     pub label_padding: f32,
-    
+
     // Legend title typography
     /// Title text color
     pub title_color: String,
-    
+
     /// Title font family
     pub title_font_family: String,
-    
+
     /// Title font size
     pub title_font_size: f32,
-    
+
     /// Title font weight
     pub title_font_weight: f32,
-    
+
     // Legend label typography (for discrete legends)
     /// Label text color
     pub label_color: String,
-    
+
     /// Label font family
     pub label_font_family: String,
-    
+
     /// Label font size
     pub label_font_size: f32,
-    
+
     /// Label font weight
     pub label_font_weight: f32,
-    
+
     // Legend tick label typography (for continuous/colorbar legends)
     /// Tick label text color
     pub tick_color: String,
-    
+
     /// Tick label font family
     pub tick_font_family: String,
-    
+
     /// Tick label font size
     pub tick_font_size: f32,
-    
+
     /// Tick label font weight
     pub tick_font_weight: f32,
 }
@@ -223,26 +234,26 @@ pub struct TitleTheme {
     // Main title typography
     /// Title text color
     pub title_color: String,
-    
+
     /// Title font family
     pub title_font_family: String,
-    
+
     /// Title font size
     pub title_font_size: f32,
-    
+
     /// Title font weight
     pub title_font_weight: f32,
-    
+
     // Subtitle typography
     /// Subtitle text color
     pub subtitle_color: String,
-    
+
     /// Subtitle font family
     pub subtitle_font_family: String,
-    
+
     /// Subtitle font size
     pub subtitle_font_size: f32,
-    
+
     /// Subtitle font weight
     pub subtitle_font_weight: f32,
 }
@@ -261,15 +272,15 @@ impl Theme {
     /// Set the font family for all text elements in the theme
     pub fn set_font_family(&mut self, font: &str) {
         self.default_font = font.to_string();
-        
+
         // Update title fonts
         self.title.title_font_family = font.to_string();
         self.title.subtitle_font_family = font.to_string();
-        
+
         // Update axis fonts
         self.axis.label_font_family = font.to_string();
         self.axis.title_font_family = font.to_string();
-        
+
         // Update legend fonts
         self.legend.title_font_family = font.to_string();
         self.legend.label_font_family = font.to_string();
@@ -280,6 +291,82 @@ impl Theme {
     pub fn with_font_family(mut self, font: &str) -> Self {
         self.set_font_family(font);
         self
+    }
+
+    /// Get default color range for a scale type
+    pub fn get_color_range(
+        &self,
+        scale_type: &str,
+        domain_cardinality: Option<usize>,
+    ) -> crate::scales::ScaleRange {
+        use crate::scales::ScaleRange;
+        use datafusion_common::ScalarValue;
+
+        match scale_type {
+            "ordinal" => {
+                // Use theme categorical colors
+                let colors: Vec<ScalarValue> = self
+                    .colors
+                    .categorical
+                    .iter()
+                    .map(|c| ScalarValue::Utf8(Some(c.clone())))
+                    .collect();
+
+                // If we know the domain cardinality, only return that many colors
+                match domain_cardinality {
+                    Some(n) if n <= colors.len() => {
+                        ScaleRange::Enum(colors.into_iter().take(n).collect())
+                    }
+                    _ => ScaleRange::Enum(colors),
+                }
+            }
+            "linear" | "log" | "pow" | "sqrt" => {
+                // Use theme sequential gradient
+                ScaleRange::Color(self.colors.sequential.colors.clone())
+            }
+            "quantize" | "quantile" => {
+                // Use theme quantized colors
+                let colors: Vec<ScalarValue> = self
+                    .colors
+                    .quantized
+                    .iter()
+                    .map(|c| ScalarValue::Utf8(Some(c.clone())))
+                    .collect();
+                ScaleRange::Enum(colors)
+            }
+            _ => {
+                // Default single color from theme
+                ScaleRange::Enum(vec![ScalarValue::Utf8(Some(
+                    self.colors.default_color.clone(),
+                ))])
+            }
+        }
+    }
+
+    /// Get default shape range for ordinal scales
+    pub fn get_shape_range(&self, domain_cardinality: Option<usize>) -> crate::scales::ScaleRange {
+        use crate::scales::ScaleRange;
+        use datafusion_common::ScalarValue;
+
+        let shapes = self.shapes.get_shape_strings(domain_cardinality);
+        let scalars: Vec<ScalarValue> = shapes
+            .into_iter()
+            .map(|s| ScalarValue::Utf8(Some(s)))
+            .collect();
+        ScaleRange::new_discrete(scalars)
+    }
+
+    /// Get default dash pattern range for ordinal scales
+    pub fn get_dash_range(&self, domain_cardinality: Option<usize>) -> crate::scales::ScaleRange {
+        use crate::scales::ScaleRange;
+        use datafusion_common::ScalarValue;
+
+        let patterns = self.dashes.get_pattern_strings(domain_cardinality);
+        let scalars: Vec<ScalarValue> = patterns
+            .into_iter()
+            .map(|p| ScalarValue::Utf8(Some(p)))
+            .collect();
+        ScaleRange::new_discrete(scalars)
     }
 }
 

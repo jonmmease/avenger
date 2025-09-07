@@ -461,20 +461,17 @@ impl Mark<Cartesian> for Line<Cartesian> {
             }
             "stroke_dash" => {
                 if scale_type == "ordinal" {
-                    use crate::scales::dash_defaults::DEFAULT_DASH_PATTERN_NAMES;
-                    let patterns: Vec<String> = DEFAULT_DASH_PATTERN_NAMES
-                        .iter()
-                        .map(|&s| s.to_string())
-                        .collect();
-                    Some(ScaleRange::new_discrete(patterns))
+                    // Use theme dash patterns
+                    let theme = crate::theme::get_default_theme();
+                    Some(theme.get_dash_range(None))
                 } else {
                     None
                 }
             }
             "stroke" => {
-                // Use color defaults system
-                use crate::scales::color_defaults::get_default_color_range;
-                Some(get_default_color_range(scale_type, None))
+                // Use theme color system
+                let theme = crate::theme::get_default_theme();
+                Some(theme.get_color_range(scale_type, None))
             }
             _ => None,
         }
