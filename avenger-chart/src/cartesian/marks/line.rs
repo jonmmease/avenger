@@ -84,6 +84,7 @@ impl Mark<Cartesian> for Line<Cartesian> {
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
         _context: &RenderContext,
+        _coord: &Cartesian,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         use avenger_common::value::ScalarOrArrayValue;
         use avenger_scales::scales::coerce::Coercer;

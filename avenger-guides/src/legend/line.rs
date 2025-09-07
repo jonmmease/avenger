@@ -128,7 +128,6 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
     // Also use the same font weight for measuring as for rendering
     let measure_font_weight = config
         .label_font_weight
-        .clone()
         .unwrap_or(FontWeight::Number(300.0));
 
     let all_text_mark = SceneTextMark {
@@ -162,7 +161,6 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
             .unwrap_or_else(|| "sans-serif".to_string());
         let title_font_weight = config
             .title_font_weight
-            .clone()
             .unwrap_or(FontWeight::Number(400.0));
 
         let title_mark = SceneTextMark {

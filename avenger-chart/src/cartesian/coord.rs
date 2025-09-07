@@ -1,10 +1,9 @@
 use crate::axis::AxisPosition;
 use crate::cartesian::CartesianAxis;
-use crate::coords::{CoordinateSystem, OverflowSpaceRequirement, TransformResult};
+use crate::coords::{CoordinateSystem, OverflowSpaceRequirement};
 use crate::error::AvengerChartError;
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
-use datafusion::logical_expr::Expr;
 use std::collections::HashMap;
 
 /// Cartesian coordinate system with concrete axis type
@@ -25,22 +24,6 @@ impl CoordinateSystem for Cartesian {
             "y" => Some((height, 0.0)), // Inverted for screen coords
             _ => None,
         }
-    }
-
-    fn transform_expressions(
-        &self,
-        mut channels: HashMap<String, Expr>,
-    ) -> Result<TransformResult, AvengerChartError> {
-        // Cartesian is identity transform - just pass through x and y
-        let x = channels
-            .remove("x")
-            .ok_or_else(|| AvengerChartError::MissingChannelError("x".to_string()))?;
-
-        let y = channels
-            .remove("y")
-            .ok_or_else(|| AvengerChartError::MissingChannelError("y".to_string()))?;
-
-        Ok(TransformResult { x, y, depth: None })
     }
 
     fn create_default_axes(
@@ -273,6 +256,40 @@ impl CoordinateSystem for Cartesian {
             width: plot_width,
             height: plot_height,
         }
+    }
+
+    fn transform_to_plot_coords(
+        &self,
+        position_channels: &std::collections::HashMap<
+            &str,
+            avenger_common::value::ScalarOrArray<f32>,
+        >,
+        _plot_width: f32,
+        _plot_height: f32,
+    ) -> Result<
+        (
+            avenger_common::value::ScalarOrArray<f32>,
+            avenger_common::value::ScalarOrArray<f32>,
+        ),
+        AvengerChartError,
+    > {
+        use avenger_common::value::ScalarOrArray;
+
+        // For Cartesian coordinates, x and y are already in plot coordinates
+        // (scales map directly to plot area)
+        let x = position_channels
+            .get("x")
+            .or_else(|| position_channels.get("x2"))
+            .cloned()
+            .unwrap_or_else(|| ScalarOrArray::new_scalar(0.0));
+
+        let y = position_channels
+            .get("y")
+            .or_else(|| position_channels.get("y2"))
+            .cloned()
+            .unwrap_or_else(|| ScalarOrArray::new_scalar(0.0));
+
+        Ok((x, y))
     }
 }
 

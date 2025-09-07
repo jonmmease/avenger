@@ -101,7 +101,7 @@ pub fn make_band_axis_marks(
     // Add tick labels
     axis_elements_group
         .marks
-        .push(make_tick_labels(&scale, &config)?.into());
+        .push(make_tick_labels(&scale, config)?.into());
 
     // Add title
     axis_elements_group

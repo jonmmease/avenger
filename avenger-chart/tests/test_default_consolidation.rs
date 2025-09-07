@@ -61,13 +61,16 @@ async fn test_symbol_defaults_used_in_rendering() {
     let empty_schema = Arc::new(Schema::empty());
     let scalar_batch = RecordBatch::new_empty(empty_schema);
 
-    // Create a render context with default theme
+    // Create a render context with default theme and dummy dimensions
     let theme = avenger_chart::theme::Theme::default();
-    let context = avenger_chart::render_context::RenderContext::new(theme);
+    let context = avenger_chart::render_context::RenderContext::new(theme, 500.0, 500.0);
+
+    // Create a Cartesian coordinate system
+    let coord = avenger_chart::cartesian::Cartesian::default();
 
     // Render the mark
     let rendered = symbol
-        .render_from_data(Some(&batch), &scalar_batch, &context)
+        .render_from_data(Some(&batch), &scalar_batch, &context, &coord)
         .unwrap();
 
     // Check that the rendered mark uses our defaults

@@ -113,7 +113,7 @@ pub fn make_numeric_axis_marks(
     // Add tick labels
     axis_elements_group
         .marks
-        .push(make_tick_labels(&ticks, &scale, &config)?.into());
+        .push(make_tick_labels(&ticks, &scale, config)?.into());
 
     // Add title
     axis_elements_group

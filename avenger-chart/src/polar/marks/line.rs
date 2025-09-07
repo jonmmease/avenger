@@ -70,6 +70,7 @@ impl Mark<Polar> for Line<Polar> {
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
         _context: &RenderContext,
+        _coord: &Polar,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Err(AvengerChartError::InternalError(
             "Polar line mark rendering not yet implemented".to_string(),
