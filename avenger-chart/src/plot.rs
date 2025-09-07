@@ -48,8 +48,8 @@ pub enum TitleAlign {
 #[derive(Clone, Debug)]
 pub struct PlotTitle {
     pub text: String,
-    pub font_size: f32,
-    pub font_family: String,
+    pub font_size: Option<f32>,
+    pub font_family: Option<String>,
     pub align: TitleAlign,
 }
 
@@ -57,8 +57,8 @@ pub struct PlotTitle {
 #[derive(Clone, Debug)]
 pub struct PlotSubtitle {
     pub text: String,
-    pub font_size: f32,
-    pub font_family: String,
+    pub font_size: Option<f32>,
+    pub font_family: Option<String>,
     pub align: TitleAlign,
 }
 
@@ -1038,8 +1038,8 @@ impl<C: CoordinateSystem> Plot<C> {
     pub fn title(mut self, text: impl Into<String>) -> Self {
         self.title = Some(PlotTitle {
             text: text.into(),
-            font_size: 18.0,
-            font_family: "Atkinson Hyperlegible Next".to_string(),
+            font_size: None,
+            font_family: None,
             align: TitleAlign::default(),
         });
         self
@@ -1052,8 +1052,8 @@ impl<C: CoordinateSystem> Plot<C> {
     {
         let title = PlotTitle {
             text: text.into(),
-            font_size: 18.0,
-            font_family: "Atkinson Hyperlegible Next".to_string(),
+            font_size: None,
+            font_family: None,
             align: TitleAlign::default(),
         };
         self.title = Some(f(title));
@@ -1064,8 +1064,8 @@ impl<C: CoordinateSystem> Plot<C> {
     pub fn subtitle(mut self, text: impl Into<String>) -> Self {
         self.subtitle = Some(PlotSubtitle {
             text: text.into(),
-            font_size: 14.0,
-            font_family: "Atkinson Hyperlegible Next".to_string(),
+            font_size: None,
+            font_family: None,
             align: TitleAlign::default(),
         });
         self
@@ -1078,8 +1078,8 @@ impl<C: CoordinateSystem> Plot<C> {
     {
         let subtitle = PlotSubtitle {
             text: text.into(),
-            font_size: 14.0,
-            font_family: "Atkinson Hyperlegible Next".to_string(),
+            font_size: None,
+            font_family: None,
             align: TitleAlign::default(),
         };
         self.subtitle = Some(f(subtitle));

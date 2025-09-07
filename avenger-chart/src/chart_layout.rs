@@ -165,6 +165,7 @@ impl ChartLayout {
         title: Option<&PlotTitle>,
         subtitle: Option<&PlotSubtitle>,
         marks: &[Box<dyn crate::marks::Mark<C>>],
+        theme: &crate::theme::Theme,
     ) -> Result<Self, AvengerChartError> {
         let mut taffy = TaffyTree::new();
         let mut builder = GridBuilder::new();
@@ -215,6 +216,7 @@ impl ChartLayout {
             marks,
             title,
             subtitle,
+            theme,
         )?;
 
         // Create root node with grid layout
@@ -251,10 +253,10 @@ impl ChartLayout {
             subtitle_node: None,
             grid_template,
             component_map,
-            title_font_size: title.map(|t| t.font_size),
-            title_font_family: title.map(|t| t.font_family.clone()),
-            subtitle_font_size: subtitle.map(|s| s.font_size),
-            subtitle_font_family: subtitle.map(|s| s.font_family.clone()),
+            title_font_size: title.and_then(|t| t.font_size),
+            title_font_family: title.and_then(|t| t.font_family.clone()),
+            subtitle_font_size: subtitle.and_then(|s| s.font_size),
+            subtitle_font_family: subtitle.and_then(|s| s.font_family.clone()),
         };
 
         // Measure legend sizes and flexibility preferences
@@ -1008,6 +1010,7 @@ impl GridBuilder {
         _marks: &[Box<dyn crate::marks::Mark<C>>],
         title: Option<&PlotTitle>,
         subtitle: Option<&PlotSubtitle>,
+        theme: &crate::theme::Theme,
     ) -> Result<(GridTemplate, ComponentGridMap), AvengerChartError> {
         // Use edge margins from constants to ensure consistent padding
         let mut cols = Vec::new();
@@ -1078,7 +1081,12 @@ impl GridBuilder {
 
         // Add title if present
         if let Some(t) = title {
-            let (height, _) = ChartLayout::measure_text(&t.text, t.font_size, &t.font_family);
+            let font_size = t.font_size.unwrap_or(theme.title.title_font_size);
+            let font_family = t
+                .font_family
+                .as_ref()
+                .unwrap_or(&theme.title.title_font_family);
+            let (height, _) = ChartLayout::measure_text(&t.text, font_size, font_family);
             rows.push(length(height * 1.15));
             // Title starts from left overflow column (if present) or plot column
             let title_start_col = left_overflow_col.unwrap_or(plot_col_index);
@@ -1088,7 +1096,12 @@ impl GridBuilder {
 
         // Add subtitle if present
         if let Some(s) = subtitle {
-            let (height, _) = ChartLayout::measure_text(&s.text, s.font_size, &s.font_family);
+            let font_size = s.font_size.unwrap_or(theme.title.subtitle_font_size);
+            let font_family = s
+                .font_family
+                .as_ref()
+                .unwrap_or(&theme.title.subtitle_font_family);
+            let (height, _) = ChartLayout::measure_text(&s.text, font_size, font_family);
             rows.push(length(height * 1.1));
             // Subtitle starts from left overflow column (if present) or plot column
             let subtitle_start_col = left_overflow_col.unwrap_or(plot_col_index);
