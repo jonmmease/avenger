@@ -69,25 +69,24 @@ impl CoordinateSystem for Polar {
         &self,
         axes: HashMap<String, Self::Axis>,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        width: f32,
-        height: f32,
-        plot_area_ratio: f32,
+        width_estimate: f32,
+        height_estimate: f32,
         theme: &crate::theme::Theme,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         use crate::render::Padding;
         use avenger_geometry::marks::MarkGeometryUtils;
 
-        // The scales were configured with the given ratio of canvas dimensions
-        // We need to use consistent dimensions for measuring overflow
-        let plot_width = width * plot_area_ratio;
-        let plot_height = height * plot_area_ratio;
+        // Use the estimated plot dimensions directly
+        let plot_width = width_estimate;
+        let plot_height = height_estimate;
 
-        // Calculate padding that centers this plot area in the canvas
+        // For overflow measurement, we can place the plot at origin
+        // The relative overflow is what matters, not the absolute position
         let initial_padding = Padding {
-            left: (width - plot_width) / 2.0,
-            right: (width - plot_width) / 2.0,
-            top: (height - plot_height) / 2.0,
-            bottom: (height - plot_height) / 2.0,
+            left: 0.0,
+            right: 0.0,
+            top: 0.0,
+            bottom: 0.0,
         };
 
         // Render axes to measure their bounding box
@@ -118,12 +117,13 @@ impl CoordinateSystem for Polar {
             max_y = max_y.max(upper[1]);
         }
 
-        // Calculate overflow on each side and add margin only if there's overflow
+        // Calculate overflow relative to plot boundaries
+        // Since we placed the plot at origin, boundaries are simple
         let margin = 5.0;
-        let left_overflow = (initial_padding.left - min_x).max(0.0);
-        let right_overflow = (max_x - (width - initial_padding.right)).max(0.0);
-        let top_overflow = (initial_padding.top - min_y).max(0.0);
-        let bottom_overflow = (max_y - (height - initial_padding.bottom)).max(0.0);
+        let left_overflow = (0.0 - min_x).max(0.0);
+        let right_overflow = (max_x - plot_width).max(0.0);
+        let top_overflow = (0.0 - min_y).max(0.0);
+        let bottom_overflow = (max_y - plot_height).max(0.0);
 
         // Only add margin if there's actual overflow
         let left = if left_overflow > 0.0 {

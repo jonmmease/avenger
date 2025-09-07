@@ -715,15 +715,16 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         // Measure how much space the coordinate system's guides need
         let theme = self.plot.get_theme();
+        let width_estimate = width * INITIAL_PLOT_AREA_RATIO;
+        let height_estimate = height * INITIAL_PLOT_AREA_RATIO;
         let overflow = self
             .plot
             .coord_system()
             .measure_guide_overflow(
                 customized_axes,
                 scales,
-                width,
-                height,
-                INITIAL_PLOT_AREA_RATIO,
+                width_estimate,
+                height_estimate,
                 &theme,
             )
             .await?;

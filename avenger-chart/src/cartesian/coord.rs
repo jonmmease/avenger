@@ -94,25 +94,24 @@ impl CoordinateSystem for Cartesian {
         &self,
         axes: HashMap<String, Self::Axis>,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        width: f32,
-        height: f32,
-        plot_area_ratio: f32,
+        width_estimate: f32,
+        height_estimate: f32,
         theme: &crate::theme::Theme,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         use crate::render::Padding;
         use avenger_geometry::marks::MarkGeometryUtils;
 
-        // The scales were configured with the given ratio of canvas dimensions
-        // We need to use consistent dimensions for measuring overflow
-        let plot_width = width * plot_area_ratio;
-        let plot_height = height * plot_area_ratio;
+        // Use the estimated plot dimensions directly
+        let plot_width = width_estimate;
+        let plot_height = height_estimate;
 
-        // Calculate padding that centers this plot area in the canvas
+        // For overflow measurement, we can place the plot at origin
+        // The relative overflow is what matters, not the absolute position
         let initial_padding = Padding {
-            left: (width - plot_width) / 2.0,
-            right: (width - plot_width) / 2.0,
-            top: (height - plot_height) / 2.0,
-            bottom: (height - plot_height) / 2.0,
+            left: 0.0,
+            right: 0.0,
+            top: 0.0,
+            bottom: 0.0,
         };
 
         // Render axes to measure their bounding box
@@ -155,12 +154,11 @@ impl CoordinateSystem for Cartesian {
         let x_range = x_scale.numeric_interval_range()?;
         let y_range = y_scale.numeric_interval_range()?;
 
-        // Calculate scale boundaries in screen coordinates
-        // Add initial padding to convert from plot-relative to screen coordinates
-        let scale_left = initial_padding.left + x_range.0.min(x_range.1);
-        let scale_right = initial_padding.left + x_range.0.max(x_range.1);
-        let scale_top = initial_padding.top + y_range.0.min(y_range.1);
-        let scale_bottom = initial_padding.top + y_range.0.max(y_range.1);
+        // Calculate scale boundaries (plot is at origin for measurement)
+        let scale_left = x_range.0.min(x_range.1);
+        let scale_right = x_range.0.max(x_range.1);
+        let scale_top = y_range.0.min(y_range.1);
+        let scale_bottom = y_range.0.max(y_range.1);
 
         // Calculate overflow relative to scale boundaries
         // Use a threshold to ignore tiny overflows from anti-aliasing/rounding
