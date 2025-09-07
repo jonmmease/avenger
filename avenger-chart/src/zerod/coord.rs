@@ -96,9 +96,8 @@ impl CoordinateSystem for ZeroDCoord {
         &self,
         _axes: HashMap<String, Self::Axis>,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _width: f32,
-        _height: f32,
-        _plot_area_ratio: f32,
+        _width_estimate: f32,
+        _height_estimate: f32,
         _theme: &crate::theme::Theme,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         unreachable!("ZeroDCoord has no spatial extent for guides")
