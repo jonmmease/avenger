@@ -164,6 +164,42 @@ impl CoordinateSystem for Cartesian {
         Ok(result)
     }
 
+    async fn render_axes(
+        &self,
+        axes: &HashMap<String, Self::Axis>,
+        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        plot_width: f32,
+        plot_height: f32,
+        padding: &crate::render::Padding,
+        theme: &crate::theme::Theme,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        let mut axis_marks = Vec::new();
+
+        for (channel, axis) in axes {
+            // Get the scale for this axis
+            let scale = scales.get(channel).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "No scale found for axis channel: {}",
+                    channel
+                ))
+            })?;
+
+            // Let the axis implementation handle all rendering logic
+            let axis_mark = axis.render(channel, scale, plot_width, plot_height, padding, theme)?;
+
+            // Only add non-empty marks
+            if let SceneMark::Group(ref group) = axis_mark {
+                if !group.marks.is_empty() {
+                    axis_marks.push(axis_mark);
+                }
+            } else {
+                axis_marks.push(axis_mark);
+            }
+        }
+
+        Ok(axis_marks)
+    }
+
     fn default_scale_options(
         &self,
         channel: &str,
@@ -203,42 +239,6 @@ impl CoordinateSystem for Cartesian {
         }
 
         options
-    }
-
-    async fn render_axes(
-        &self,
-        axes: &HashMap<String, Self::Axis>,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        plot_width: f32,
-        plot_height: f32,
-        padding: &crate::render::Padding,
-        theme: &crate::theme::Theme,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        let mut axis_marks = Vec::new();
-
-        for (channel, axis) in axes {
-            // Get the scale for this axis
-            let scale = scales.get(channel).ok_or_else(|| {
-                AvengerChartError::InternalError(format!(
-                    "No scale found for axis channel: {}",
-                    channel
-                ))
-            })?;
-
-            // Let the axis implementation handle all rendering logic
-            let axis_mark = axis.render(channel, scale, plot_width, plot_height, padding, theme)?;
-
-            // Only add non-empty marks
-            if let SceneMark::Group(ref group) = axis_mark {
-                if !group.marks.is_empty() {
-                    axis_marks.push(axis_mark);
-                }
-            } else {
-                axis_marks.push(axis_mark);
-            }
-        }
-
-        Ok(axis_marks)
     }
 
     fn get_clip(
