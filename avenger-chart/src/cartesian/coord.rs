@@ -42,11 +42,9 @@ impl CoordinateSystem for Cartesian {
                     .unwrap_or_else(|| channel.to_string());
 
                 // Determine if grid should be enabled based on scale type
+
                 let grid = if let Some(scale) = scales.get(channel) {
-                    matches!(
-                        scale.scale_impl.scale_type(),
-                        "linear" | "log" | "pow" | "sqrt" | "time"
-                    )
+                    scale.ticks(None).is_ok()
                 } else {
                     false
                 };
