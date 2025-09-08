@@ -292,12 +292,10 @@ impl CoordinateSystem for Cartesian {
 }
 
 /// Helper function to extract axis title from mark encodings
-fn extract_axis_title_from_marks<C: crate::coords::CoordinateSystem>(
+fn extract_axis_title_from_marks<C: CoordinateSystem>(
     marks: &[Box<dyn crate::marks::Mark<C>>],
     channel: &str,
 ) -> Option<String> {
-    use datafusion::logical_expr::Expr;
-    
     // Look through marks to find a column name for this channel
     for mark in marks {
         if let Some(channel_value) = mark.data_context().channels().get(channel) {

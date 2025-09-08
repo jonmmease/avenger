@@ -21,21 +21,25 @@ fn test_external_coord_system_can_be_created() {
 
 #[test]
 fn test_external_coord_system_transform() {
+    use avenger_common::value::ScalarOrArray;
+    
     // Create a custom coordinate system
     let iso = Isometric::new();
 
-    // Create channel expressions
-    let mut channels = HashMap::new();
-    channels.insert("iso_x".to_string(), col("x"));
-    channels.insert("iso_y".to_string(), col("y"));
-    channels.insert("iso_z".to_string(), col("z"));
+    // Create position channel values
+    let mut position_channels = HashMap::new();
+    position_channels.insert("iso_x", ScalarOrArray::new_scalar(10.0));
+    position_channels.insert("iso_y", ScalarOrArray::new_scalar(20.0));
+    position_channels.insert("iso_z", ScalarOrArray::new_scalar(5.0));
 
     // Transform should succeed
-    let result = iso.transform_expressions(channels);
+    let result = iso.transform_to_plot_coords(&position_channels, 100.0, 100.0);
     assert!(result.is_ok());
 
-    let transform = result.unwrap();
-    assert!(transform.depth.is_some()); // Should have depth for 3D
+    let (screen_x, screen_y) = result.unwrap();
+    // Verify we got transformed coordinates
+    assert!(matches!(screen_x.value(), avenger_common::value::ScalarOrArrayValue::Scalar(_)));
+    assert!(matches!(screen_y.value(), avenger_common::value::ScalarOrArrayValue::Scalar(_)));
 }
 
 #[test]

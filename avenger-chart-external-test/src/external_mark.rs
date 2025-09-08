@@ -54,6 +54,7 @@ impl Mark<Cartesian> for HexBin<Cartesian> {
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
         _context: &avenger_chart::render_context::RenderContext,
+        _coord: &Cartesian,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Custom hexbin rendering logic would go here
         // For this test, we just return an empty vector

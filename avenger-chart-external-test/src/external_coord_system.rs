@@ -2,7 +2,7 @@
 
 use avenger_chart::{
     axis::Axis,
-    coords::{CoordinateSystem, OverflowSpaceRequirement, TransformResult},
+    coords::{CoordinateSystem, OverflowSpaceRequirement},
     define_common_mark_channels, define_position_channels,
     error::AvengerChartError,
     impl_mark_base, impl_mark_trait_common,
@@ -171,35 +171,73 @@ impl CoordinateSystem for Isometric {
         }
     }
 
-    fn transform_expressions(
+    fn transform_to_plot_coords(
         &self,
-        channels: HashMap<String, Expr>,
-    ) -> Result<TransformResult, AvengerChartError> {
-        // Get the position channel expressions
-        let x_expr = channels
+        position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
+        _plot_width: f32,
+        _plot_height: f32,
+    ) -> Result<(avenger_common::value::ScalarOrArray<f32>, avenger_common::value::ScalarOrArray<f32>), AvengerChartError> {
+        use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
+        
+        // Get the position channel values
+        let x = position_channels
             .get("iso_x")
             .ok_or_else(|| AvengerChartError::MissingChannelError("iso_x".to_string()))?;
-        let y_expr = channels
+        let y = position_channels
             .get("iso_y")
             .ok_or_else(|| AvengerChartError::MissingChannelError("iso_y".to_string()))?;
-        let z_expr = channels
+        let z = position_channels
             .get("iso_z")
             .ok_or_else(|| AvengerChartError::MissingChannelError("iso_z".to_string()))?;
 
         // Isometric projection formulas:
         // screen_x = (x - y) * cos(angle)
         // screen_y = (x + y) * sin(angle) - z
-        let cos_angle = lit(self.angle.cos());
-        let sin_angle = lit(self.angle.sin());
+        let cos_angle = self.angle.cos() as f32;
+        let sin_angle = self.angle.sin() as f32;
 
-        let screen_x = (x_expr.clone() - y_expr.clone()) * cos_angle;
-        let screen_y = (x_expr.clone() + y_expr.clone()) * sin_angle - z_expr.clone();
+        // Compute screen coordinates based on scalar/array combinations
+        let screen_x = match (x.value(), y.value()) {
+            (ScalarOrArrayValue::Scalar(x_val), ScalarOrArrayValue::Scalar(y_val)) => {
+                ScalarOrArray::new_scalar((x_val - y_val) * cos_angle)
+            }
+            (ScalarOrArrayValue::Array(x_arr), ScalarOrArrayValue::Scalar(y_val)) => {
+                let result: Vec<f32> = x_arr.iter().map(|x| (x - y_val) * cos_angle).collect();
+                ScalarOrArray::new_array(result)
+            }
+            (ScalarOrArrayValue::Scalar(x_val), ScalarOrArrayValue::Array(y_arr)) => {
+                let result: Vec<f32> = y_arr.iter().map(|y| (x_val - y) * cos_angle).collect();
+                ScalarOrArray::new_array(result)
+            }
+            (ScalarOrArrayValue::Array(x_arr), ScalarOrArrayValue::Array(y_arr)) => {
+                let result: Vec<f32> = x_arr
+                    .iter()
+                    .zip(y_arr.iter())
+                    .map(|(x, y)| (x - y) * cos_angle)
+                    .collect();
+                ScalarOrArray::new_array(result)
+            }
+        };
 
-        Ok(TransformResult {
-            x: screen_x,
-            y: screen_y,
-            depth: Some(z_expr.clone()), // Use z for depth ordering
-        })
+        let screen_y = match (x.value(), y.value(), z.value()) {
+            (ScalarOrArrayValue::Scalar(x_val), ScalarOrArrayValue::Scalar(y_val), ScalarOrArrayValue::Scalar(z_val)) => {
+                ScalarOrArray::new_scalar((x_val + y_val) * sin_angle - z_val)
+            }
+            _ => {
+                // For simplicity in this test, just handle the scalar case
+                // A full implementation would handle all combinations
+                let x_vals = x.as_vec(1, None);
+                let y_vals = y.as_vec(1, None);
+                let z_vals = z.as_vec(1, None);
+                
+                let result: Vec<f32> = (0..x_vals.len())
+                    .map(|i| (x_vals[i] + y_vals[i]) * sin_angle - z_vals[i])
+                    .collect();
+                ScalarOrArray::new_array(result)
+            }
+        };
+
+        Ok((screen_x, screen_y))
     }
 
     fn create_default_axes(
@@ -232,9 +270,8 @@ impl CoordinateSystem for Isometric {
         &self,
         _axes: HashMap<String, Self::Axis>,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        _width: f32,
-        _height: f32,
-        _plot_area_ratio: f32,
+        _width_estimate: f32,
+        _height_estimate: f32,
         _theme: &avenger_chart::theme::Theme,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         // For simplicity, assume isometric axes don't overflow
@@ -321,6 +358,7 @@ impl Mark<Isometric> for Cube<Isometric> {
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
         _context: &avenger_chart::render_context::RenderContext,
+        _coord: &Isometric,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         // Custom cube rendering logic would go here
         // For this test, we just return an empty vector
