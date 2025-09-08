@@ -18,7 +18,7 @@ fn test_channel_reference_basic() {
     // Check that encoding was tracked
     assert_eq!(data_ctx.encoding("x"), Some("month".to_string()));
     // When using a channel reference like ":x", it's not a simple column name
-    assert_eq!(data_ctx.encoding("y"), None); // Channel ref is not a simple column
+    assert_eq!(data_ctx.encoding("y"), Some(":x".to_string()));
 
     // Check that expression was stored
     // The encoding_expr_string returns a debug representation of the Expr
@@ -51,8 +51,8 @@ fn test_channel_reference_with_expression() {
 
     // Check encodings
     assert_eq!(data_ctx.encoding("x"), Some("month".to_string()));
-    assert_eq!(data_ctx.encoding("y"), None); // sum(col("sales")) is not a simple column reference
-    assert_eq!(data_ctx.encoding("stroke"), Some(":y".to_string())); // col(":y") creates a column with name ":y"
+    assert_eq!(data_ctx.encoding("y"), Some("sum(sales)".to_string()));
+    assert_eq!(data_ctx.encoding("stroke"), Some(":y".to_string()));
 
     // Check expression strings contain the expected values
     assert!(

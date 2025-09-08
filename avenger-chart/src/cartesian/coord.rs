@@ -296,9 +296,18 @@ fn extract_axis_title_from_marks<C: crate::coords::CoordinateSystem>(
     marks: &[Box<dyn crate::marks::Mark<C>>],
     channel: &str,
 ) -> Option<String> {
+    use datafusion::logical_expr::Expr;
+    
     // Look through marks to find a column name for this channel
     for mark in marks {
         if let Some(channel_value) = mark.data_context().channels().get(channel) {
+            // Skip literal values - they don't represent data dimensions
+            if let Some(expr) = channel_value.expr() {
+                if matches!(expr, Expr::Literal(_, _)) {
+                    continue;
+                }
+            }
+            
             // Try to get column name
             if let Some(col_name) = channel_value.as_column_name() {
                 return Some(col_name);
