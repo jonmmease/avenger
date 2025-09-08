@@ -75,8 +75,8 @@ fn expr_to_string_impl(expr: &Expr, quote_strings: bool) -> String {
                 expr_to_string_impl(&binary.right, quote_strings))
         },
         
-        // For other complex expressions, return None would be better but we need a string
-        _ => "...".to_string(),
+        // For other complex expressions, fall back to the default Display implementation
+        _ => expr.to_string(),
     }
 }
 
@@ -416,23 +416,9 @@ impl ChannelValue {
 
     /// Extract a human-readable name from the expression.
     /// Returns column names directly, literal values without type wrapper,
-    /// function names for function calls, or None for complex expressions.
+    /// function names for function calls, or the expression's string representation.
     pub fn as_column_name(&self) -> Option<String> {
-        // For conditional values, we don't have a single name
-        if matches!(self, ChannelValue::Conditional { .. }) {
-            return None;
-        }
-        
-        // Check if this is a simple expression we can name
-        match self.expr()? {
-            // These are the types we can convert to a meaningful name
-            Expr::Column(_) | 
-            Expr::Literal(_, _) | 
-            Expr::ScalarFunction(_) | 
-            Expr::AggregateFunction(_) => Some(expr_to_string(self.expr()?)),
-            // Complex expressions don't have a simple name
-            _ => None,
-        }
+        self.expr().map(expr_to_string)
     }
 
     /// Get the data type of this channel value.
@@ -668,9 +654,9 @@ mod tests {
         let cv: ChannelValue = concat(vec![lit("hello"), lit("world")]).into();
         assert_eq!(cv.as_column_name(), Some("concat('hello', 'world')".to_string()));
         
-        // Test complex expression (should return None)
+        // Test complex expression (now returns the expression string)
         let cv: ChannelValue = (col("x") + col("y")).into();
-        assert_eq!(cv.as_column_name(), None);
+        assert_eq!(cv.as_column_name(), Some("x + y".to_string()));
         
         // Test conditional value (should return None - no single name)
         let cv = ChannelValue::Conditional {
