@@ -75,7 +75,7 @@ fn expr_to_string_impl(expr: &Expr, quote_strings: bool) -> String {
                 expr_to_string_impl(&binary.right, quote_strings))
         },
         
-        // For other complex expressions, fall back to the default Display implementation
+        // For other expressions, fall back to the default Display implementation
         _ => expr.to_string(),
     }
 }
