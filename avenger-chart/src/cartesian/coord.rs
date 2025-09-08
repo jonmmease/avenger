@@ -301,9 +301,9 @@ fn extract_axis_title_from_marks<C: crate::coords::CoordinateSystem>(
     // Look through marks to find a column name for this channel
     for mark in marks {
         if let Some(channel_value) = mark.data_context().channels().get(channel) {
-            // Skip literal values - they don't represent data dimensions
+            // Only use expressions that reference actual data columns
             if let Some(expr) = channel_value.expr() {
-                if matches!(expr, Expr::Literal(_, _)) {
+                if expr.column_refs().is_empty() {
                     continue;
                 }
             }
