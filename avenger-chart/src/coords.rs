@@ -1,5 +1,6 @@
 use crate::axis::Axis;
 use crate::error::AvengerChartError;
+use crate::marks::Mark;
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
@@ -131,4 +132,38 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         ),
         AvengerChartError,
     >;
+}
+
+/// Helper function to extract axis title from mark encodings
+/// 
+/// This looks through the marks to find a meaningful column name for the given channel,
+/// which can be used as a default axis title.
+///
+/// # Arguments
+/// * `marks` - The marks in the plot
+/// * `channel` - The channel name to extract a title for
+///
+/// # Returns
+/// An optional string containing the column name if found
+pub fn extract_axis_title_from_marks<C: CoordinateSystem>(
+    marks: &[Box<dyn Mark<C>>],
+    channel: &str,
+) -> Option<String> {
+    // Look through marks to find a column name for this channel
+    for mark in marks {
+        if let Some(channel_value) = mark.data_context().channels().get(channel) {
+            // Only use expressions that reference actual data columns
+            if let Some(expr) = channel_value.expr() {
+                if expr.column_refs().is_empty() {
+                    continue;
+                }
+            }
+            
+            // Try to get column name
+            if let Some(col_name) = channel_value.as_column_name() {
+                return Some(col_name);
+            }
+        }
+    }
+    None
 }

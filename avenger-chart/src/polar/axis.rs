@@ -120,14 +120,12 @@ impl PolarAxis {
         _scale: &avenger_scales::scales::ConfiguredScale,
         center_x: f32,
         center_y: f32,
-        max_radius: f32,
+        _max_radius: f32,
         theme: &crate::theme::Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         use avenger_common::types::ColorOrGradient;
         use avenger_common::value::ScalarOrArray;
         use avenger_scenegraph::marks::arc::SceneArcMark;
-        use avenger_scenegraph::marks::text::SceneTextMark;
-        use avenger_text::types::{FontStyle, TextAlign, TextBaseline};
 
         let mut marks = Vec::new();
         let _num_circles = self.grid_levels.unwrap_or(6);
@@ -323,33 +321,7 @@ impl PolarAxis {
             }
         }
 
-        // Add axis title if present
-        if let Some(ref title) = self.title {
-            let text_mark = SceneTextMark {
-                name: "radial_title".to_string(),
-                clip: false,
-                len: 1,
-                x: ScalarOrArray::new_scalar(center_x),
-                y: ScalarOrArray::new_scalar(center_y - max_radius - 20.0),
-                text: ScalarOrArray::new_scalar(title.clone()),
-                font: ScalarOrArray::new_scalar(theme.axis.title_font_family.clone()),
-                font_weight: ScalarOrArray::new_scalar(avenger_text::types::FontWeight::Number(
-                    theme.axis.title_font_weight,
-                )),
-                font_size: ScalarOrArray::new_scalar(theme.axis.title_font_size),
-                font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
-                color: ScalarOrArray::new_scalar(ColorOrGradient::Color(
-                    crate::utils::parse_color_to_array(&theme.axis.title_color),
-                )),
-                align: ScalarOrArray::new_scalar(TextAlign::Center),
-                baseline: ScalarOrArray::new_scalar(TextBaseline::Bottom),
-                angle: ScalarOrArray::new_scalar(0.0),
-                limit: ScalarOrArray::new_scalar(200.0),
-                indices: None,
-                zindex: Some(0),
-            };
-            marks.push(SceneMark::Text(std::sync::Arc::new(text_mark)));
-        }
+        // Note: Axis title rendering removed - placement needs design work
 
         Ok(marks)
     }
@@ -367,8 +339,6 @@ impl PolarAxis {
         use avenger_common::types::StrokeCap;
         use avenger_common::value::ScalarOrArray;
         use avenger_scenegraph::marks::rule::SceneRuleMark;
-        use avenger_scenegraph::marks::text::SceneTextMark;
-        use avenger_text::types::{FontStyle, TextAlign, TextBaseline};
 
         let mut marks = Vec::new();
 
@@ -458,6 +428,9 @@ impl PolarAxis {
 
         // Add angular tick labels
         if self.visible {
+            use avenger_scenegraph::marks::text::SceneTextMark;
+            use avenger_text::types::{FontStyle, TextAlign, TextBaseline};
+            
             // Get tick values from scale
             let tick_values: Vec<f32> = if let Ok(ticks_array) = _scale.ticks(Some(8.0)) {
                 // Convert arrow array to vec of f32
@@ -550,34 +523,6 @@ impl PolarAxis {
                 };
                 marks.push(SceneMark::Text(std::sync::Arc::new(text_mark)));
             }
-        }
-
-        // Add axis title if present
-        if let Some(ref title) = self.title {
-            let text_mark = SceneTextMark {
-                name: "angular_title".to_string(),
-                clip: false,
-                len: 1,
-                x: ScalarOrArray::new_scalar(center_x + max_radius + 20.0),
-                y: ScalarOrArray::new_scalar(center_y),
-                text: ScalarOrArray::new_scalar(title.clone()),
-                font: ScalarOrArray::new_scalar(theme.axis.title_font_family.clone()),
-                font_weight: ScalarOrArray::new_scalar(avenger_text::types::FontWeight::Number(
-                    theme.axis.title_font_weight,
-                )),
-                font_size: ScalarOrArray::new_scalar(theme.axis.title_font_size),
-                font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
-                color: ScalarOrArray::new_scalar(ColorOrGradient::Color(
-                    crate::utils::parse_color_to_array(&theme.axis.title_color),
-                )),
-                align: ScalarOrArray::new_scalar(TextAlign::Left),
-                baseline: ScalarOrArray::new_scalar(TextBaseline::Middle),
-                angle: ScalarOrArray::new_scalar(0.0),
-                limit: ScalarOrArray::new_scalar(200.0),
-                indices: None,
-                zindex: Some(0),
-            };
-            marks.push(SceneMark::Text(std::sync::Arc::new(text_mark)));
         }
 
         Ok(marks)

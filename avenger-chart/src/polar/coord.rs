@@ -88,33 +88,18 @@ impl CoordinateSystem for Polar {
 
         // Calculate overflow relative to plot boundaries
         // Since we placed the plot at origin, boundaries are simple
-        let margin = 5.0;
-        let left_overflow = (0.0 - min_x).max(0.0);
-        let right_overflow = (max_x - plot_width).max(0.0);
-        let top_overflow = (0.0 - min_y).max(0.0);
-        let bottom_overflow = (max_y - plot_height).max(0.0);
+        // Use a threshold to ignore tiny overflows from anti-aliasing/rounding
+        const THRESHOLD: f32 = 1.0; // Ignore overflows less than 1px as they're likely rounding errors
+        let left = (0.0 - min_x).max(0.0);
+        let right = (max_x - plot_width).max(0.0);
+        let top = (0.0 - min_y).max(0.0);
+        let bottom = (max_y - plot_height).max(0.0);
 
-        // Only add margin if there's actual overflow
-        let left = if left_overflow > 0.0 {
-            left_overflow + margin
-        } else {
-            0.0
-        };
-        let right = if right_overflow > 0.0 {
-            right_overflow + margin
-        } else {
-            0.0
-        };
-        let top = if top_overflow > 0.0 {
-            top_overflow + margin
-        } else {
-            0.0
-        };
-        let bottom = if bottom_overflow > 0.0 {
-            bottom_overflow + margin
-        } else {
-            0.0
-        };
+        // Round very small overflows to zero
+        let left = if left < THRESHOLD { 0.0 } else { left };
+        let right = if right < THRESHOLD { 0.0 } else { right };
+        let top = if top < THRESHOLD { 0.0 } else { top };
+        let bottom = if bottom < THRESHOLD { 0.0 } else { bottom };
 
         Ok(OverflowSpaceRequirement {
             top,
@@ -134,6 +119,13 @@ impl CoordinateSystem for Polar {
         // Create default axes for r and theta channels if they have scales
         for channel in ["r", "theta"] {
             if scales.get(channel).is_some() {
+                // Determine if grid should be enabled based on scale type
+                let grid = if let Some(scale) = scales.get(channel) {
+                    scale.ticks(None).is_ok()
+                } else {
+                    false
+                };
+
                 // Create axis with appropriate defaults
                 let axis_type = match channel {
                     "r" => PolarAxisType::Radial,
@@ -144,7 +136,7 @@ impl CoordinateSystem for Polar {
                 let axis = PolarAxis::default()
                     .axis_type(axis_type)
                     .visible(true)
-                    .grid(true)
+                    .grid(grid)
                     .start_angle(0.0)
                     .direction(PolarDirection::Clockwise);
 
@@ -168,19 +160,23 @@ impl CoordinateSystem for Polar {
 
         // Render each axis using its render method
         for (channel, axis) in axes {
-            let scale = scales.get(channel);
-            if let Some(scale) = scale {
-                let marks = axis.render(
-                    channel,
-                    scale,
-                    scales,
-                    plot_width,
-                    plot_height,
-                    padding,
-                    theme,
-                )?;
-                axis_marks.extend(marks);
-            }
+            let scale = scales.get(channel).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "No scale found for axis channel: {}",
+                    channel
+                ))
+            })?;
+
+            let marks = axis.render(
+                channel,
+                scale,
+                scales,
+                plot_width,
+                plot_height,
+                padding,
+                theme,
+            )?;
+            axis_marks.extend(marks);
         }
 
         Ok(axis_marks)
