@@ -13,7 +13,6 @@ use avenger_chart::{
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::logical_expr::{lit, Expr};
 use datafusion::scalar::ScalarValue;
 use std::any::Any;
 use std::collections::HashMap;
@@ -86,7 +85,7 @@ impl IsometricPositionConfig {
 }
 
 // Implement the PositionConfig trait to work with the macro
-impl avenger_chart::cartesian::channels::PositionConfig for IsometricPositionConfig {
+impl avenger_chart::channels::PositionConfig for IsometricPositionConfig {
     type Axis = IsometricAxis;
 
     fn new(value: ChannelValue) -> Self {

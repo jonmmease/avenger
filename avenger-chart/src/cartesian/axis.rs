@@ -157,13 +157,10 @@ impl CartesianAxis {
                         &axis_config,
                     )?,
                     _ => {
-                        // Shouldn't happen, but default to numeric
-                        make_numeric_axis_marks(
-                            scale,
-                            self.title.as_deref().unwrap_or(""),
-                            axis_origin,
-                            &axis_config,
-                        )?
+                        return Err(AvengerChartError::InternalError(format!(
+                            "Unsupported scale type '{}' for categorical domain with continuous range on axis '{}'",
+                            scale_type, channel
+                        )))
                     }
                 }
             }

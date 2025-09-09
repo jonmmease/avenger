@@ -48,8 +48,9 @@ pub use crate::channel_configs::{
     SizeChannelConfig, StrokeDashChannelConfig, StrokeWidthChannelConfig,
 };
 
-// Re-export position channel config for Cartesian
-pub use crate::cartesian::channels::{CartesianPositionConfig, PositionConfig};
+// Re-export position channel configs
+pub use crate::cartesian::channels::CartesianPositionConfig;
+pub use crate::channels::PositionConfig;
 
 // Re-export scale types
 pub use crate::scales::{

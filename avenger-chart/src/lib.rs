@@ -2,6 +2,7 @@ pub mod axis;
 pub mod cartesian;
 pub mod channel_config_traits;
 pub mod channel_configs;
+pub mod channels;
 mod channel_resolution;
 mod chart_layout;
 pub mod coords;
