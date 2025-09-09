@@ -1,6 +1,6 @@
 use crate::axis::AxisPosition;
 use crate::cartesian::CartesianAxis;
-use crate::coords::{CoordinateSystem, OverflowSpaceRequirement};
+use crate::coords::{extract_axis_title_from_marks, CoordinateSystem, OverflowSpaceRequirement};
 use crate::error::AvengerChartError;
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -289,28 +289,4 @@ impl CoordinateSystem for Cartesian {
 
         Ok((x, y))
     }
-}
-
-/// Helper function to extract axis title from mark encodings
-fn extract_axis_title_from_marks<C: CoordinateSystem>(
-    marks: &[Box<dyn crate::marks::Mark<C>>],
-    channel: &str,
-) -> Option<String> {
-    // Look through marks to find a column name for this channel
-    for mark in marks {
-        if let Some(channel_value) = mark.data_context().channels().get(channel) {
-            // Only use expressions that reference actual data columns
-            if let Some(expr) = channel_value.expr() {
-                if expr.column_refs().is_empty() {
-                    continue;
-                }
-            }
-            
-            // Try to get column name
-            if let Some(col_name) = channel_value.as_column_name() {
-                return Some(col_name);
-            }
-        }
-    }
-    None
 }
