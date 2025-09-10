@@ -31,8 +31,15 @@ use std::collections::HashMap;
 ///
 /// Represents a 0D space (a single point) where marks have no spatial extent
 /// or position channels. Useful for legends and other non-spatial mark rendering.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ZeroDCoord;
+
+impl ZeroDCoord {
+    /// Create a new zero-dimensional coordinate system
+    pub fn new() -> Self {
+        Self
+    }
+}
 
 /// A placeholder axis for the zero-dimensional coordinate system
 #[derive(Debug, Clone)]
@@ -92,7 +99,13 @@ impl CoordinateSystem for ZeroDCoord {
         _height_estimate: f32,
         _theme: &crate::theme::Theme,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
-        unreachable!("ZeroDCoord has no spatial extent for guides")
+        // No guides exist in 0D space, so no overflow
+        Ok(OverflowSpaceRequirement {
+            top: 0.0,
+            bottom: 0.0,
+            left: 0.0,
+            right: 0.0,
+        })
     }
 
     async fn render_axes(
@@ -104,7 +117,8 @@ impl CoordinateSystem for ZeroDCoord {
         _padding: &crate::render::Padding,
         _theme: &crate::theme::Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        unreachable!("ZeroDCoord has no axes to render (0D space)")
+        // No axes exist in 0D space
+        Ok(Vec::new())
     }
 
     fn get_clip(
@@ -119,12 +133,9 @@ impl CoordinateSystem for ZeroDCoord {
 
     fn transform_to_plot_coords(
         &self,
-        _position_channels: &HashMap<
-            &str,
-            avenger_common::value::ScalarOrArray<f32>,
-        >,
-        _plot_width: f32,
-        _plot_height: f32,
+        position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
+        plot_width: f32,
+        plot_height: f32,
     ) -> Result<
         (
             avenger_common::value::ScalarOrArray<f32>,
@@ -132,6 +143,84 @@ impl CoordinateSystem for ZeroDCoord {
         ),
         AvengerChartError,
     > {
-        unreachable!("ZeroDCoord has no spatial dimensions to transform")
+        use avenger_common::value::ScalarOrArray;
+
+        // In 0D space, all points collapse to the center of the plot area
+        let center_x = plot_width / 2.0;
+        let center_y = plot_height / 2.0;
+
+        // Determine the size of the output based on any channel data
+        // (all channels should have the same length if they're arrays)
+        let len = position_channels
+            .values()
+            .find_map(|v| match v.value() {
+                avenger_common::value::ScalarOrArrayValue::Array(arr) => Some(arr.len()),
+                _ => None,
+            })
+            .unwrap_or(1);
+
+        // Return center point(s) - either scalar or array of same center point
+        if len == 1 {
+            Ok((
+                ScalarOrArray::new_scalar(center_x),
+                ScalarOrArray::new_scalar(center_y),
+            ))
+        } else {
+            Ok((
+                ScalarOrArray::new_array(vec![center_x; len]),
+                ScalarOrArray::new_array(vec![center_y; len]),
+            ))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_zerod_transform_to_center() {
+        // Create ZeroD coordinate system
+        let coord = ZeroDCoord::new();
+
+        // Test with empty position channels (single point)
+        let position_channels = HashMap::new();
+        let (x, y) = coord
+            .transform_to_plot_coords(&position_channels, 100.0, 100.0)
+            .unwrap();
+
+        // Verify single point is at center (50, 50)
+        use avenger_common::value::ScalarOrArrayValue;
+        match (x.value(), y.value()) {
+            (ScalarOrArrayValue::Scalar(x_val), ScalarOrArrayValue::Scalar(y_val)) => {
+                assert_eq!(*x_val, 50.0);
+                assert_eq!(*y_val, 50.0);
+            }
+            _ => panic!("Expected scalar values for single point"),
+        }
+
+        // Test with array data (should return arrays of center points)
+        let mut position_channels_with_data = HashMap::new();
+        position_channels_with_data.insert(
+            "dummy",
+            avenger_common::value::ScalarOrArray::new_array(vec![1.0, 2.0, 3.0]),
+        );
+
+        let (x_arr, y_arr) = coord
+            .transform_to_plot_coords(&position_channels_with_data, 100.0, 100.0)
+            .unwrap();
+
+        match (x_arr.value(), y_arr.value()) {
+            (ScalarOrArrayValue::Array(x_vals), ScalarOrArrayValue::Array(y_vals)) => {
+                assert_eq!(x_vals.len(), 3);
+                assert_eq!(y_vals.len(), 3);
+                for i in 0..3 {
+                    assert_eq!(x_vals[i], 50.0);
+                    assert_eq!(y_vals[i], 50.0);
+                }
+            }
+            _ => panic!("Expected array values for multiple points"),
+        }
     }
 }
