@@ -132,7 +132,9 @@ impl<A: Clone + Send + Sync + 'static> From<ChannelValue> for GenericPositionCon
     }
 }
 
-impl<A: Clone + Send + Sync + 'static> From<datafusion::logical_expr::Expr> for GenericPositionConfig<A> {
+impl<A: Clone + Send + Sync + 'static> From<datafusion::logical_expr::Expr>
+    for GenericPositionConfig<A>
+{
     fn from(expr: datafusion::logical_expr::Expr) -> Self {
         Self::new(ChannelValue::from(expr))
     }

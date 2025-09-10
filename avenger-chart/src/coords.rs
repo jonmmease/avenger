@@ -135,7 +135,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
 }
 
 /// Helper function to extract axis title from mark encodings
-/// 
+///
 /// This looks through the marks to find a meaningful column name for the given channel,
 /// which can be used as a default axis title.
 ///
@@ -158,7 +158,7 @@ pub fn extract_axis_title_from_marks<C: CoordinateSystem>(
                     continue;
                 }
             }
-            
+
             // Try to get column name
             if let Some(col_name) = channel_value.as_column_name() {
                 return Some(col_name);

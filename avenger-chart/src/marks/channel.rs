@@ -20,11 +20,11 @@ fn expr_to_string(expr: &Expr) -> String {
 /// Helper to convert an expression to a string, with option to quote strings for nested contexts
 fn expr_to_string_impl(expr: &Expr, quote_strings: bool) -> String {
     use datafusion::scalar::ScalarValue;
-    
+
     match expr {
         // Column reference
         Expr::Column(col) => col.name.clone(),
-        
+
         // Literals - show value without type wrapper
         Expr::Literal(scalar, _) => match scalar {
             ScalarValue::Boolean(Some(b)) => b.to_string(),
@@ -44,37 +44,42 @@ fn expr_to_string_impl(expr: &Expr, quote_strings: bool) -> String {
                 } else {
                     s.clone()
                 }
-            },
+            }
             ScalarValue::Null => "null".to_string(),
             _ => "?".to_string(),
         },
-        
+
         // Function calls - recursively format arguments
         Expr::ScalarFunction(func) => {
-            let args = func.args
+            let args = func
+                .args
                 .iter()
-                .map(|arg| expr_to_string_impl(arg, true))  // Quote strings in function args
+                .map(|arg| expr_to_string_impl(arg, true)) // Quote strings in function args
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("{}({})", func.func.name(), args)
-        },
+        }
         Expr::AggregateFunction(agg) => {
-            let args = agg.params.args
+            let args = agg
+                .params
+                .args
                 .iter()
-                .map(|arg| expr_to_string_impl(arg, true))  // Quote strings in function args
+                .map(|arg| expr_to_string_impl(arg, true)) // Quote strings in function args
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("{}({})", agg.func, args)
-        },
-        
+        }
+
         // Binary expressions
         Expr::BinaryExpr(binary) => {
-            format!("{} {} {}", 
+            format!(
+                "{} {} {}",
                 expr_to_string_impl(&binary.left, quote_strings),
                 binary.op,
-                expr_to_string_impl(&binary.right, quote_strings))
-        },
-        
+                expr_to_string_impl(&binary.right, quote_strings)
+            )
+        }
+
         // For other expressions, fall back to the default Display implementation
         _ => expr.to_string(),
     }
@@ -589,78 +594,86 @@ mod tests {
     #[test]
     fn test_as_column_name() {
         use super::ConditionalValue;
-        use datafusion::logical_expr::col;
         use datafusion::functions::expr_fn::sqrt;
-        
+        use datafusion::logical_expr::col;
+
         // Test column reference
         let cv: ChannelValue = col("my_column").into();
         assert_eq!(cv.as_column_name(), Some("my_column".to_string()));
-        
+
         // Test integer literals
         let cv: ChannelValue = 42.into();
         assert_eq!(cv.as_column_name(), Some("42".to_string()));
-        
+
         let cv: ChannelValue = (-100i32).into();
         assert_eq!(cv.as_column_name(), Some("-100".to_string()));
-        
+
         // Test float literals
-        let cv: ChannelValue = 3.14.into();
-        assert_eq!(cv.as_column_name(), Some("3.14".to_string()));
-        
+        let cv: ChannelValue = 3.141.into();
+        assert_eq!(cv.as_column_name(), Some("3.141".to_string()));
+
         let cv: ChannelValue = 5.0.into();
         assert_eq!(cv.as_column_name(), Some("5".to_string())); // Should format as integer
-        
+
         let cv: ChannelValue = 1000.0.into();
         assert_eq!(cv.as_column_name(), Some("1000".to_string()));
-        
+
         // Test string literals
         let cv: ChannelValue = "hello".into();
         assert_eq!(cv.as_column_name(), Some("hello".to_string()));
-        
+
         let cv: ChannelValue = "#ff0000".into();
         assert_eq!(cv.as_column_name(), Some("#ff0000".to_string()));
-        
+
         // Test boolean literals
         let cv: ChannelValue = true.into();
         assert_eq!(cv.as_column_name(), Some("true".to_string()));
-        
+
         let cv: ChannelValue = false.into();
         assert_eq!(cv.as_column_name(), Some("false".to_string()));
-        
+
         // Test null literal
-        let cv: ChannelValue = ChannelValue::Value { expr: lit(datafusion::scalar::ScalarValue::Null) };
+        let cv: ChannelValue = ChannelValue::Value {
+            expr: lit(datafusion::scalar::ScalarValue::Null),
+        };
         assert_eq!(cv.as_column_name(), Some("null".to_string()));
-        
+
         // Test function call with arguments
         let cv: ChannelValue = sqrt(col("x")).into();
         assert_eq!(cv.as_column_name(), Some("sqrt(x)".to_string()));
-        
+
         // Test function with literal argument
         let cv: ChannelValue = sqrt(lit(16.0)).into();
         assert_eq!(cv.as_column_name(), Some("sqrt(16)".to_string()));
-        
+
         // Test nested function calls
         use datafusion::functions::expr_fn::abs;
         let cv: ChannelValue = sqrt(abs(col("x"))).into();
         assert_eq!(cv.as_column_name(), Some("sqrt(abs(x))".to_string()));
-        
+
         // Test function with multiple arguments (using pow as example)
         use datafusion::functions::expr_fn::power;
         let cv: ChannelValue = power(col("x"), lit(2)).into();
         assert_eq!(cv.as_column_name(), Some("power(x, 2)".to_string()));
-        
+
         // Test function with string arguments (should be quoted in function context)
         use datafusion::functions::expr_fn::concat;
         let cv: ChannelValue = concat(vec![lit("hello"), lit("world")]).into();
-        assert_eq!(cv.as_column_name(), Some("concat('hello', 'world')".to_string()));
-        
+        assert_eq!(
+            cv.as_column_name(),
+            Some("concat('hello', 'world')".to_string())
+        );
+
         // Test complex expression (now returns the expression string)
         let cv: ChannelValue = (col("x") + col("y")).into();
         assert_eq!(cv.as_column_name(), Some("x + y".to_string()));
-        
+
         // Test conditional value (should return None - no single name)
         let cv = ChannelValue::Conditional {
-            conditions: vec![(col("category").eq(lit("A")), ConditionalValue::Value { expr: lit("red") })],
+            conditions: vec![(
+                col("category").eq(lit("A")),
+                ConditionalValue::Value { expr: lit("red") },
+            )],
             otherwise: ConditionalValue::Scaled { expr: col("color") },
             scale_config: None,
             legend_config: None,

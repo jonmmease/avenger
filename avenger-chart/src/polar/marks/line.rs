@@ -86,11 +86,7 @@ impl Mark<Polar> for Line<Polar> {
         use std::sync::Arc;
 
         // Check if scale is continuous (for colorbar)
-        let scale_type = scale.scale_impl.scale_type();
-        let is_continuous = matches!(
-            scale_type,
-            "linear" | "log" | "pow" | "sqrt" | "symlog" | "time"
-        );
+        let is_continuous = crate::marks::util::is_continuous_scale(scale.scale_impl.as_ref());
 
         match channel {
             // Use colorbar for continuous color scales

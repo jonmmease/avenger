@@ -2,7 +2,6 @@ use avenger_chart::coords::CoordinateSystem;
 use avenger_chart::marks::Mark;
 use avenger_chart::plot::Plot;
 use avenger_chart_external_test::external_coord_system::{Cube, Isometric};
-use datafusion::logical_expr::col;
 use std::collections::HashMap;
 
 #[test]
@@ -22,7 +21,7 @@ fn test_external_coord_system_can_be_created() {
 #[test]
 fn test_external_coord_system_transform() {
     use avenger_common::value::ScalarOrArray;
-    
+
     // Create a custom coordinate system
     let iso = Isometric::new();
 
@@ -38,8 +37,14 @@ fn test_external_coord_system_transform() {
 
     let (screen_x, screen_y) = result.unwrap();
     // Verify we got transformed coordinates
-    assert!(matches!(screen_x.value(), avenger_common::value::ScalarOrArrayValue::Scalar(_)));
-    assert!(matches!(screen_y.value(), avenger_common::value::ScalarOrArrayValue::Scalar(_)));
+    assert!(matches!(
+        screen_x.value(),
+        avenger_common::value::ScalarOrArrayValue::Scalar(_)
+    ));
+    assert!(matches!(
+        screen_y.value(),
+        avenger_common::value::ScalarOrArrayValue::Scalar(_)
+    ));
 }
 
 #[test]

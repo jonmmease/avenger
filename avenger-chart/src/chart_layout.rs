@@ -772,10 +772,11 @@ impl ChartLayout {
             ));
         }
 
-        // Find the mark that has this channel
-        let mark_with_channel = marks
+        // Find the mark that has this channel and its index
+        let (mark_index, mark_with_channel) = marks
             .iter()
-            .find(|m| m.data_context().channels().contains_key(channel))
+            .enumerate()
+            .find(|(_, m)| m.data_context().channels().contains_key(channel))
             .ok_or_else(|| {
                 AvengerChartError::InternalError(format!(
                     "Channel '{}' not found in any mark",
@@ -836,7 +837,7 @@ impl ChartLayout {
             scale: scale.clone(),
             channel_type: channel.to_string(),
             mark_type: mark_with_channel.mark_type().to_string(),
-            mark_id: mark_with_channel.mark_id(),
+            mark_index,
             related_channels: related_channels.clone(),
         });
 
@@ -856,7 +857,7 @@ impl ChartLayout {
                             scale: merged_scale.clone(),
                             channel_type: merged_channel_name.clone(),
                             mark_type: mark_with_channel.mark_type().to_string(),
-                            mark_id: mark_with_channel.mark_id(),
+                            mark_index,
                             related_channels: related_channels.clone(),
                         });
                     }

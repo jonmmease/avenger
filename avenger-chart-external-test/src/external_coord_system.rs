@@ -175,9 +175,15 @@ impl CoordinateSystem for Isometric {
         position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
         _plot_width: f32,
         _plot_height: f32,
-    ) -> Result<(avenger_common::value::ScalarOrArray<f32>, avenger_common::value::ScalarOrArray<f32>), AvengerChartError> {
+    ) -> Result<
+        (
+            avenger_common::value::ScalarOrArray<f32>,
+            avenger_common::value::ScalarOrArray<f32>,
+        ),
+        AvengerChartError,
+    > {
         use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
-        
+
         // Get the position channel values
         let x = position_channels
             .get("iso_x")
@@ -219,16 +225,18 @@ impl CoordinateSystem for Isometric {
         };
 
         let screen_y = match (x.value(), y.value(), z.value()) {
-            (ScalarOrArrayValue::Scalar(x_val), ScalarOrArrayValue::Scalar(y_val), ScalarOrArrayValue::Scalar(z_val)) => {
-                ScalarOrArray::new_scalar((x_val + y_val) * sin_angle - z_val)
-            }
+            (
+                ScalarOrArrayValue::Scalar(x_val),
+                ScalarOrArrayValue::Scalar(y_val),
+                ScalarOrArrayValue::Scalar(z_val),
+            ) => ScalarOrArray::new_scalar((x_val + y_val) * sin_angle - z_val),
             _ => {
                 // For simplicity in this test, just handle the scalar case
                 // A full implementation would handle all combinations
                 let x_vals = x.as_vec(1, None);
                 let y_vals = y.as_vec(1, None);
                 let z_vals = z.as_vec(1, None);
-                
+
                 let result: Vec<f32> = (0..x_vals.len())
                     .map(|i| (x_vals[i] + y_vals[i]) * sin_angle - z_vals[i])
                     .collect();

@@ -248,7 +248,7 @@ pub struct TitleTheme {
 }
 
 /// Background color configuration
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct BackgroundTheme {
     /// Plot area background (None for transparent)
     pub plot_background: Option<String>,
@@ -460,14 +460,6 @@ impl Default for TitleTheme {
     }
 }
 
-impl Default for BackgroundTheme {
-    fn default() -> Self {
-        Self {
-            plot_background: None,
-            canvas_background: None,
-        }
-    }
-}
 
 impl Theme {
     /// Builder method to set color palettes

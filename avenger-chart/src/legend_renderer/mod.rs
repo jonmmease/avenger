@@ -131,7 +131,7 @@ pub struct LegendChannel {
     pub scale: ConfiguredScale,
     pub channel_type: String, // "fill", "stroke", "size", etc.
     pub mark_type: String,    // "point", "line", "rect", etc.
-    pub mark_id: String,      // Unique identifier for the mark instance
+    pub mark_index: usize,    // Index of the mark in the plot's marks array
     pub related_channels: std::collections::HashMap<String, ChannelInfo>, // Other channels from same mark
 }
 
@@ -149,8 +149,8 @@ pub struct MergeKey {
     pub expression: String,
     /// The actual domain values for exact matching
     pub domain_values: Vec<ScalarValue>,
-    /// Mark identifier for same-mark merging
-    pub mark_id: String,
+    /// Mark index for same-mark merging
+    pub mark_index: usize,
 }
 
 impl MergeKey {
@@ -170,7 +170,7 @@ impl MergeKey {
         Some(MergeKey {
             expression,
             domain_values,
-            mark_id: channel.mark_id.clone(),
+            mark_index: channel.mark_index,
         })
     }
 
