@@ -460,7 +460,6 @@ impl Default for TitleTheme {
     }
 }
 
-
 impl Theme {
     /// Builder method to set color palettes
     pub fn with_colors(mut self, colors: ColorPalettes) -> Self {

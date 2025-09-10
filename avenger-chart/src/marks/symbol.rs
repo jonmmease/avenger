@@ -77,7 +77,8 @@ impl<C: CoordinateSystem> Symbol<C> {
         // Extract position channels based on what the coordinate system requires
         let mut position_channels = std::collections::HashMap::new();
         for channel_name in coord.required_channels() {
-            let value = coerce_numeric_channel_with_mark(self, data, scalars, channel_name, 0.0)?;
+            let value =
+                coerce_numeric_channel_with_mark(self, data, scalars, channel_name, context, 0.0)?;
             position_channels.insert(*channel_name, value);
         }
 
@@ -89,17 +90,24 @@ impl<C: CoordinateSystem> Symbol<C> {
         )?;
 
         // Extract other channels using mark defaults
-        let size = coerce_numeric_channel_with_mark(self, data, scalars, "size", 64.0)?;
+        let size = coerce_numeric_channel_with_mark(self, data, scalars, "size", context, 64.0)?;
         let fill = coerce_color_channel_with_mark(
             self,
             data,
             scalars,
             "fill",
+            context,
             [70.0 / 255.0, 130.0 / 255.0, 180.0 / 255.0, 1.0],
         )?;
-        let stroke =
-            coerce_color_channel_with_mark(self, data, scalars, "stroke", [0.0, 0.0, 0.0, 1.0])?;
-        let angle = coerce_numeric_channel_with_mark(self, data, scalars, "angle", 0.0)?;
+        let stroke = coerce_color_channel_with_mark(
+            self,
+            data,
+            scalars,
+            "stroke",
+            context,
+            [0.0, 0.0, 0.0, 1.0],
+        )?;
+        let angle = coerce_numeric_channel_with_mark(self, data, scalars, "angle", context, 0.0)?;
 
         // Determine the number of symbols from any array channel
         let len = data.map_or(1, |data| data.num_rows()) as u32;

@@ -509,8 +509,7 @@ impl<C: CoordinateSystem> Plot<C> {
 
             // Then get mark-specific scale option preferences
             // We already know this mark has the channel since we found it above
-            let scale_type = scale_impl.scale_type();
-            let mark_options = mark.default_scale_options(channel, scale_type, dt);
+            let mark_options = mark.default_scale_options(channel, scale_impl.as_ref(), dt);
             // Mark preferences override coordinate system defaults
             default_options.extend(mark_options);
 
@@ -792,8 +791,9 @@ impl<C: CoordinateSystem> Plot<C> {
     /// This is used primarily for radius calculations that need size/stroke_width expressions
     fn create_channel_resolver<'a>(
         mark: &'a dyn Mark<C>,
-        encodings: &'a indexmap::IndexMap<String, crate::marks::ChannelValue>,
+        encodings: &'a IndexMap<String, ChannelValue>,
         configured_scales: &'a HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        context: &'a crate::render_context::RenderContext,
     ) -> impl Fn(&str) -> datafusion::logical_expr::Expr + 'a {
         use crate::marks::ChannelValue;
         use crate::marks::channel::strip_trailing_numbers;
@@ -845,9 +845,7 @@ impl<C: CoordinateSystem> Plot<C> {
                         lit(datafusion::scalar::ScalarValue::Null)
                     }
                 }
-            } else if let Some(default_scalar) =
-                mark.default_channel_value_without_context(channel_name)
-            {
+            } else if let Some(default_scalar) = mark.default_channel_value(channel_name, context) {
                 // Use mark-provided default
                 lit(default_scalar)
             } else {
@@ -863,6 +861,7 @@ impl<C: CoordinateSystem> Plot<C> {
         &self,
         scale_name: &str,
         configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        context: &crate::render_context::RenderContext,
     ) -> Result<ScaleDomainWithRadius, crate::error::AvengerChartError> {
         let mut data_expressions = Vec::new();
 
@@ -923,6 +922,7 @@ impl<C: CoordinateSystem> Plot<C> {
                 mark.as_ref(),
                 &resolved_encodings,
                 configured_scales,
+                context,
             );
 
             for (channel, position_channel_value) in &resolved_encodings {

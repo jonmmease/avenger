@@ -70,10 +70,15 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
     fn supported_channels(&self) -> Vec<ChannelDescriptor>;
 
     /// Build scene marks from processed data
-    /// data: RecordBatch with array data (multiple rows), or None if all channels are scalar
-    /// scalars: RecordBatch with scalar data (single row) for channels that don't vary per mark
-    /// context: RenderContext containing theme, dimensions, and other rendering state
-    /// coord: Coordinate system for position transformations
+    ///
+    /// # Arguments
+    /// * `data` - RecordBatch with array data (multiple rows), or None if all channels are scalar
+    /// * `scalars` - RecordBatch with scalar data (single row) for channels that don't vary per mark
+    /// * `context` - RenderContext containing theme, dimensions, and other rendering state
+    /// * `coord` - Coordinate system for position transformations
+    ///
+    /// # Returns
+    /// A vector of scene marks ready for rendering
     fn render_from_data(
         &self,
         data: Option<&RecordBatch>,
@@ -94,15 +99,6 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
         if let Some(default) = context.theme.mark_defaults.get(self.mark_type(), channel) {
             return Some(default.clone());
         }
-        // Fall back to mark-specific defaults (for backward compatibility during migration)
-        self.mark_specific_default(channel)
-    }
-
-    /// Get default channel value without RenderContext
-    ///
-    /// This is a compatibility method for callers that don't have access to RenderContext.
-    /// Prefer `default_channel_value` when RenderContext is available.
-    fn default_channel_value_without_context(&self, channel: &str) -> Option<ScalarValue> {
         self.mark_specific_default(channel)
     }
 
@@ -129,7 +125,13 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
     }
 
     /// Get the name of the channel used for sorting this mark's data
-    /// Returns None if the mark doesn't support sorting or uses default order
+    ///
+    /// # Returns
+    /// * `Some(channel_name)` - The name of the channel used for sorting
+    /// * `None` - If the mark doesn't support sorting or uses default order
+    ///
+    /// # Default Implementation
+    /// Returns `Some("order")` if `supports_order()` returns true, otherwise `None`
     fn sorting_channel(&self) -> Option<&str> {
         // Default: use "order" channel if mark supports ordering
         if self.supports_order() {
@@ -140,8 +142,18 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
     }
 
     /// Get the preferred legend renderer for a channel
-    /// Returns None if this mark doesn't want a legend for the channel
-    /// Note: Returning None means the channel does not get a legend
+    ///
+    /// # Arguments
+    /// * `channel` - The channel name (e.g., "fill", "size")
+    /// * `scale` - The configured scale for this channel
+    ///
+    /// # Returns
+    /// * `Some(renderer)` - The preferred legend renderer for this channel
+    /// * `None` - If this mark doesn't want a legend for the channel
+    ///
+    /// # Note
+    /// Returning `None` means the channel does not get a legend. This is called
+    /// for individual channels before considering merged legends.
     fn preferred_legend_renderer(
         &self,
         _channel: &str,
@@ -151,7 +163,21 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
     }
 
     /// Get the preferred legend renderer for merged channels
-    /// Only called when channels have matching MergeKeys
+    ///
+    /// Called when multiple channels from the same mark have matching MergeKeys,
+    /// allowing them to be combined into a single legend (e.g., size and color
+    /// both mapped to the same data field).
+    ///
+    /// # Arguments
+    /// * `channels` - Array of channels that could be merged
+    /// * `scales` - Map of channel names to their configured scales
+    ///
+    /// # Returns
+    /// * `Some(renderer)` - A renderer capable of handling all the merged channels
+    /// * `None` - If these channels cannot be merged with a single renderer
+    ///
+    /// # Default Implementation
+    /// Uses the renderer from the first channel if it supports merging all channels
     fn preferred_merged_legend_renderer(
         &self,
         channels: &[crate::legend_renderer::LegendChannel],
@@ -187,21 +213,27 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
     }
 
     /// Get default scale options for a channel and scale type
-    /// These are mark-specific preferences that override system defaults
+    ///
+    /// These are mark-specific preferences that override system defaults.
+    ///
+    /// # Arguments
+    /// * `channel` - The channel name
+    /// * `scale_impl` - The scale implementation
+    /// * `_data_type` - The data type of the channel
+    ///
+    /// # Returns
+    /// A map of option names to their values
     fn default_scale_options(
         &self,
         channel: &str,
-        scale_type: &str,
+        scale_impl: &dyn ScaleImpl,
         _data_type: &DataType,
     ) -> HashMap<String, Expr> {
         use datafusion::logical_expr::lit;
         let mut options = HashMap::new();
 
-        // Default: Color scales with numeric data should use nice for better legend labels
-        if matches!(
-            (channel, scale_type),
-            ("fill" | "stroke" | "color", "linear" | "log" | "pow" | "sqrt" | "symlog")
-        ) {
+        // Default: Color scales with continuous numeric output should use nice for better legend labels
+        if matches!(channel, "fill" | "stroke" | "color") && util::is_continuous_scale(scale_impl) {
             options.insert("nice".to_string(), lit(true));
         }
 

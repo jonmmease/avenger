@@ -88,13 +88,14 @@ pub fn coerce_numeric_channel_with_mark<C: crate::coords::CoordinateSystem>(
     data: Option<&RecordBatch>,
     scalars: &RecordBatch,
     channel: &str,
+    context: &crate::render_context::RenderContext,
     fallback_default: f32,
 ) -> Result<ScalarOrArray<f32>, AvengerChartError> {
     use crate::utils::ScalarValueHelpers;
 
     // Get default from mark, falling back to provided default
     let default = mark
-        .default_channel_value_without_context(channel)
+        .default_channel_value(channel, context)
         .and_then(|scalar| scalar.as_f32().ok())
         .unwrap_or(fallback_default);
 
@@ -144,12 +145,12 @@ pub fn coerce_color_channel_with_mark<C: crate::coords::CoordinateSystem>(
     data: Option<&RecordBatch>,
     scalars: &RecordBatch,
     channel: &str,
+    context: &crate::render_context::RenderContext,
     fallback_default: [f32; 4],
 ) -> Result<ScalarOrArray<ColorOrGradient>, AvengerChartError> {
     // Get default from mark - the mark's default_channel_value returns a ScalarValue
     // which for colors is typically a string like "#4682b4"
-    let default = if let Some(default_scalar) = mark.default_channel_value_without_context(channel)
-    {
+    let default = if let Some(default_scalar) = mark.default_channel_value(channel, context) {
         scalar_to_color(&default_scalar, fallback_default)?
     } else {
         ColorOrGradient::Color(fallback_default)
@@ -181,13 +182,14 @@ pub fn coerce_bool_channel_with_mark<C: crate::coords::CoordinateSystem>(
     data: Option<&RecordBatch>,
     scalars: &RecordBatch,
     channel: &str,
+    context: &crate::render_context::RenderContext,
     fallback_default: bool,
 ) -> Result<ScalarOrArray<bool>, AvengerChartError> {
     use datafusion::scalar::ScalarValue;
 
     // Get default from mark, falling back to provided default
     let default = mark
-        .default_channel_value_without_context(channel)
+        .default_channel_value(channel, context)
         .and_then(|scalar| match scalar {
             ScalarValue::Boolean(Some(b)) => Some(b),
             _ => None,
@@ -216,13 +218,14 @@ pub fn coerce_stroke_cap_channel_with_mark<C: crate::coords::CoordinateSystem>(
     data: Option<&RecordBatch>,
     scalars: &RecordBatch,
     channel: &str,
+    context: &crate::render_context::RenderContext,
     fallback_default: StrokeCap,
 ) -> Result<StrokeCap, AvengerChartError> {
     use datafusion::scalar::ScalarValue;
 
     // Get default from mark
     let default = mark
-        .default_channel_value_without_context(channel)
+        .default_channel_value(channel, context)
         .and_then(|scalar| match scalar {
             ScalarValue::Utf8(Some(s)) => match s.as_str() {
                 "butt" => Some(StrokeCap::Butt),
@@ -257,13 +260,14 @@ pub fn coerce_stroke_join_channel_with_mark<C: crate::coords::CoordinateSystem>(
     data: Option<&RecordBatch>,
     scalars: &RecordBatch,
     channel: &str,
+    context: &crate::render_context::RenderContext,
     fallback_default: StrokeJoin,
 ) -> Result<StrokeJoin, AvengerChartError> {
     use datafusion::scalar::ScalarValue;
 
     // Get default from mark
     let default = mark
-        .default_channel_value_without_context(channel)
+        .default_channel_value(channel, context)
         .and_then(|scalar| match scalar {
             ScalarValue::Utf8(Some(s)) => match s.as_str() {
                 "miter" => Some(StrokeJoin::Miter),

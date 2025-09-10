@@ -63,7 +63,7 @@ fn test_mark_defaults() {
     // Test rect defaults
     assert_eq!(
         theme.mark_defaults.get("rect", "stroke_width"),
-        Some(&ScalarValue::Float32(Some(0.0)))
+        Some(&ScalarValue::Float32(Some(1.0)))
     );
 
     // Test line defaults

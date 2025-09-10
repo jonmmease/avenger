@@ -23,24 +23,6 @@ impl RectLegendRenderer {
     pub fn new() -> Self {
         Self::default()
     }
-
-    pub fn with_plot_context<C: crate::coords::CoordinateSystem>(
-        plot: &crate::plot::Plot<C>,
-    ) -> Self {
-        let mut mark_encodings = HashMap::new();
-
-        // Analyze mark encodings from rect marks
-        for mark in &plot.marks {
-            if mark.mark_type() == "rect" {
-                let channels = mark.data_context().channels();
-                for (channel, value) in channels {
-                    mark_encodings.insert(channel.clone(), value.clone());
-                }
-            }
-        }
-
-        Self { mark_encodings }
-    }
 }
 
 impl LegendRenderer for RectLegendRenderer {

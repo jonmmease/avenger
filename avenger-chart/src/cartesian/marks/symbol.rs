@@ -117,13 +117,13 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
     fn default_scale_options(
         &self,
         channel: &str,
-        scale_type: &str,
+        scale_impl: &dyn ScaleImpl,
         _data_type: &DataType,
     ) -> HashMap<String, Expr> {
         let mut options = HashMap::new();
 
         // Configure PowScale as Sqrt scale for size channel
-        if channel == "size" && scale_type == "pow" {
+        if channel == "size" && scale_impl.scale_type() == "pow" {
             options.insert("exponent".to_string(), lit(0.5f32));
         }
 
