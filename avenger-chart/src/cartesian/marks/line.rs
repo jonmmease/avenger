@@ -83,7 +83,7 @@ impl Mark<Cartesian> for Line<Cartesian> {
         &self,
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
-        _context: &RenderContext,
+        context: &RenderContext,
         _coord: &Cartesian,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         use avenger_common::value::ScalarOrArrayValue;
@@ -100,11 +100,12 @@ impl Mark<Cartesian> for Line<Cartesian> {
         let coercer = Coercer::default();
 
         // Extract position arrays (x, y) - these must be arrays
-        let x = coerce_numeric_channel_with_mark(self, Some(data), scalars, "x", 0.0)?;
-        let y = coerce_numeric_channel_with_mark(self, Some(data), scalars, "y", 0.0)?;
+        let x = coerce_numeric_channel_with_mark(self, Some(data), scalars, "x", context, 0.0)?;
+        let y = coerce_numeric_channel_with_mark(self, Some(data), scalars, "y", context, 0.0)?;
 
         // Extract defined array (for gaps in the line)
-        let defined = coerce_bool_channel_with_mark(self, Some(data), scalars, "defined", true)?;
+        let defined =
+            coerce_bool_channel_with_mark(self, Some(data), scalars, "defined", context, true)?;
 
         // These remain scalar-only - use mark defaults
         let stroke_cap = coerce_stroke_cap_channel_with_mark(
@@ -112,6 +113,7 @@ impl Mark<Cartesian> for Line<Cartesian> {
             None,
             scalars,
             "stroke_cap",
+            context,
             avenger_common::types::StrokeCap::Round,
         )?;
         let stroke_join = coerce_stroke_join_channel_with_mark(
@@ -119,6 +121,7 @@ impl Mark<Cartesian> for Line<Cartesian> {
             None,
             scalars,
             "stroke_join",
+            context,
             avenger_common::types::StrokeJoin::Round,
         )?;
 

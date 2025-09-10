@@ -82,9 +82,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         let estimated_plot_width = width * INITIAL_PLOT_AREA_RATIO;
         let estimated_plot_height = height * INITIAL_PLOT_AREA_RATIO;
 
-        let (initial_scales, configured_non_positional, configured_positional) = self
-            .build_initial_scales(estimated_plot_width, estimated_plot_height)
-            .await?;
+        // Create initial RenderContext with estimated dimensions
+        let theme = self.plot.get_theme();
+        let initial_context =
+            RenderContext::new(theme.clone(), estimated_plot_width, estimated_plot_height);
+
+        let (initial_scales, configured_non_positional, configured_positional) =
+            self.build_initial_scales(&initial_context).await?;
 
         // Merge configured scales for layout computation
         let mut initial_configured_scales = configured_non_positional.clone();
@@ -98,12 +102,14 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             layout.plot_area_bounds();
 
         // STAGE 3: REBUILD POSITIONAL SCALES WITH FINAL DIMENSIONS
+        // Create final RenderContext with actual plot dimensions
+        let final_context = RenderContext::new(theme.clone(), plot_area_width, plot_area_height);
+
         let final_configured_scales = self
             .rebuild_scales_with_final_dimensions(
                 &initial_scales,
                 &configured_non_positional,
-                plot_area_width,
-                plot_area_height,
+                &final_context,
             )
             .await?;
 
@@ -448,8 +454,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
     /// Returns (raw_scales, configured_non_positional, configured_positional)
     async fn build_initial_scales(
         &self,
-        estimated_plot_width: f32,
-        estimated_plot_height: f32,
+        context: &RenderContext,
     ) -> Result<
         (
             HashMap<String, Scale>,
@@ -499,13 +504,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         let mut configured_non_positional = HashMap::new();
         for (name, scale) in &non_positional_scales {
             let configured = self
-                .build_configured_scale_with_radius_context(
-                    scale.clone(),
-                    name,
-                    estimated_plot_width,
-                    estimated_plot_height,
-                    None,
-                )
+                .build_configured_scale_with_radius_context(scale.clone(), name, context, None)
                 .await?;
             configured_non_positional.insert(name.clone(), configured);
         }
@@ -517,8 +516,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 .build_configured_scale_with_radius_context(
                     scale.clone(),
                     name,
-                    estimated_plot_width,
-                    estimated_plot_height,
+                    context,
                     Some(&configured_non_positional),
                 )
                 .await?;
@@ -748,8 +746,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         &self,
         initial_scales: &HashMap<String, Scale>,
         configured_non_positional: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        plot_area_width: f32,
-        plot_area_height: f32,
+        context: &RenderContext,
     ) -> Result<HashMap<String, avenger_scales::scales::ConfiguredScale>, AvengerChartError> {
         let mut final_configured_scales = HashMap::new();
 
@@ -773,8 +770,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                     .build_configured_scale_with_radius_context(
                         scale.clone(),
                         name,
-                        plot_area_width,
-                        plot_area_height,
+                        context,
                         Some(configured_non_positional),
                     )
                     .await?;
@@ -1895,8 +1891,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         &self,
         scale: Scale,
         name: &str,
-        plot_area_width: f32,
-        plot_area_height: f32,
+        context: &RenderContext,
         configured_non_positional: Option<
             &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         >,
@@ -1924,6 +1919,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                         self.plot.gather_scale_domain_expressions_with_radius(
                             name,
                             configured_non_positional,
+                            context,
                         )?;
 
                     // Check if any expressions actually have radius
@@ -1964,8 +1960,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // Step 2: Apply default range if it's a coordinate channel
         if let Some((start, end)) = self.plot.get_coordinate_default_range(
             name,
-            plot_area_width as f64,
-            plot_area_height as f64,
+            context.plot_width as f64,
+            context.plot_height as f64,
         ) {
             scale = scale.range_interval(
                 datafusion::logical_expr::lit(start),
@@ -1980,13 +1976,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         ) {
             // Infer domain from data
             scale = scale
-                .infer_domain_from_data(plot_area_width, plot_area_height)
+                .infer_domain_from_data(context.plot_width, context.plot_height)
                 .await?;
         }
 
         // Step 4: Normalize domain (apply zero, nice, padding)
         scale = scale
-            .normalize_domain(plot_area_width, plot_area_height)
+            .normalize_domain(context.plot_width, context.plot_height)
             .await?;
 
         // Step 5: Apply mark-specific range if not a position channel AND no range is set
@@ -2064,7 +2060,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         // Step 6: Create ConfiguredScale
         scale
-            .create_configured_scale(plot_area_width, plot_area_height)
+            .create_configured_scale(context.plot_width, context.plot_height)
             .await
     }
 }

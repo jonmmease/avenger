@@ -609,8 +609,8 @@ mod tests {
         assert_eq!(cv.as_column_name(), Some("-100".to_string()));
 
         // Test float literals
-        let cv: ChannelValue = 3.141.into();
-        assert_eq!(cv.as_column_name(), Some("3.141".to_string()));
+        let cv: ChannelValue = 3.5.into();
+        assert_eq!(cv.as_column_name(), Some("3.5".to_string()));
 
         let cv: ChannelValue = 5.0.into();
         assert_eq!(cv.as_column_name(), Some("5".to_string())); // Should format as integer

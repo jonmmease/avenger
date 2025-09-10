@@ -70,7 +70,7 @@ impl Default for MarkDefaults {
             "stroke".to_string(),
             ScalarValue::Utf8(Some("#000000".to_string())),
         );
-        rect_defaults.insert("stroke_width".to_string(), ScalarValue::Float32(Some(0.0)));
+        rect_defaults.insert("stroke_width".to_string(), ScalarValue::Float32(Some(1.0)));
         rect_defaults.insert("corner_radius".to_string(), ScalarValue::Float32(Some(0.0)));
         rect_defaults.insert("opacity".to_string(), ScalarValue::Float32(Some(1.0)));
         defaults.insert("rect".to_string(), rect_defaults);

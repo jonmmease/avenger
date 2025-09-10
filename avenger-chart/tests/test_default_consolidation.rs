@@ -1,6 +1,8 @@
 //! Test that verifies mark default values are consistently used
 
 use avenger_chart::prelude::*;
+use avenger_chart::render_context::RenderContext;
+use avenger_chart::theme::Theme;
 use datafusion::prelude::*;
 use datafusion::scalar::ScalarValue;
 use std::sync::Arc;
@@ -13,22 +15,18 @@ async fn test_symbol_defaults_used_in_rendering() {
 
     let symbol = Symbol::<Cartesian>::new().x(col("x")).y(col("y"));
 
+    // Create a RenderContext with default theme
+    let theme = Theme::default();
+    let context = RenderContext::new(theme, 500.0, 400.0);
+
     // Get the mark's default values
-    let size_default = symbol
-        .default_channel_value_without_context("size")
-        .unwrap();
-    let fill_default = symbol
-        .default_channel_value_without_context("fill")
-        .unwrap();
-    let stroke_default = symbol
-        .default_channel_value_without_context("stroke")
-        .unwrap();
+    let size_default = symbol.default_channel_value("size", &context).unwrap();
+    let fill_default = symbol.default_channel_value("fill", &context).unwrap();
+    let stroke_default = symbol.default_channel_value("stroke", &context).unwrap();
     let stroke_width_default = symbol
-        .default_channel_value_without_context("stroke_width")
+        .default_channel_value("stroke_width", &context)
         .unwrap();
-    let shape_default = symbol
-        .default_channel_value_without_context("shape")
-        .unwrap();
+    let shape_default = symbol.default_channel_value("shape", &context).unwrap();
 
     // Expected values from our consolidation
     assert_eq!(size_default, ScalarValue::Float32(Some(64.0)));

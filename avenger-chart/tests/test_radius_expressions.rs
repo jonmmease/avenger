@@ -1,4 +1,6 @@
 use avenger_chart::prelude::*;
+use avenger_chart::render_context::RenderContext;
+use avenger_chart::theme::Theme;
 use datafusion::prelude::SessionContext;
 use datafusion::scalar::ScalarValue;
 use std::sync::Arc;
@@ -10,50 +12,38 @@ async fn test_symbol_default_channel_values() {
 
     let symbol = Symbol::<Cartesian>::new().data(df).x(col("x")).y(col("y"));
 
+    // Create a RenderContext with default theme
+    let theme = Theme::default();
+    let context = RenderContext::new(theme, 500.0, 400.0);
+
     // Test default channel values
     assert_eq!(
-        symbol
-            .default_channel_value_without_context("size")
-            .unwrap(),
+        symbol.default_channel_value("size", &context).unwrap(),
         ScalarValue::Float32(Some(64.0))
     );
     assert_eq!(
-        symbol
-            .default_channel_value_without_context("shape")
-            .unwrap(),
+        symbol.default_channel_value("shape", &context).unwrap(),
         ScalarValue::Utf8(Some("circle".to_string()))
     );
     assert_eq!(
-        symbol
-            .default_channel_value_without_context("angle")
-            .unwrap(),
+        symbol.default_channel_value("angle", &context).unwrap(),
         ScalarValue::Float32(Some(0.0))
     );
     assert_eq!(
-        symbol
-            .default_channel_value_without_context("fill")
-            .unwrap(),
+        symbol.default_channel_value("fill", &context).unwrap(),
         ScalarValue::Utf8(Some("#4682b4".to_string()))
     );
     assert_eq!(
-        symbol
-            .default_channel_value_without_context("stroke")
-            .unwrap(),
+        symbol.default_channel_value("stroke", &context).unwrap(),
         ScalarValue::Utf8(Some("#000000".to_string()))
     );
     assert_eq!(
-        symbol
-            .default_channel_value_without_context("opacity")
-            .unwrap(),
+        symbol.default_channel_value("opacity", &context).unwrap(),
         ScalarValue::Float32(Some(1.0))
     );
 
     // Test unknown channel returns None
-    assert!(
-        symbol
-            .default_channel_value_without_context("unknown")
-            .is_none()
-    );
+    assert!(symbol.default_channel_value("unknown", &context).is_none());
 }
 
 #[tokio::test]

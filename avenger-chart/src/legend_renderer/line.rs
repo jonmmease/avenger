@@ -4,7 +4,6 @@ use crate::error::AvengerChartError;
 use crate::legend::Legend;
 use crate::legend_renderer::{LegendChannel, LegendRenderer, helpers};
 use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
-use crate::utils::ScalarValueHelpers;
 use avenger_common::types::{ColorOrGradient, StrokeCap, StrokeJoin};
 use avenger_common::value::ScalarOrArray;
 use avenger_guides::legend::line::{LineLegendConfig, make_line_legend};
@@ -36,56 +35,6 @@ impl Default for LineLegendRenderer {
 impl LineLegendRenderer {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    pub fn with_plot_context<C: crate::coords::CoordinateSystem>(
-        plot: &crate::plot::Plot<C>,
-    ) -> Self {
-        let mut mark_encodings = HashMap::new();
-        let mut stroke_cap = StrokeCap::Round; // Default to round
-        let mut stroke_join = StrokeJoin::Round; // Default to round
-
-        // Analyze mark encodings and extract stroke settings
-        for mark in &plot.marks {
-            let mark_type = mark.mark_type();
-            if mark_type == "line" {
-                let channels = mark.data_context().channels();
-                for (channel, value) in channels {
-                    mark_encodings.insert(channel.clone(), value.clone());
-                }
-
-                // Try to get stroke_cap from mark's default channel values
-                if let Some(cap_value) = mark.default_channel_value_without_context("stroke_cap") {
-                    if let Ok(cap_str) = cap_value.as_scalar_string() {
-                        stroke_cap = match cap_str.as_str() {
-                            "butt" => StrokeCap::Butt,
-                            "round" => StrokeCap::Round,
-                            "square" => StrokeCap::Square,
-                            _ => stroke_cap,
-                        };
-                    }
-                }
-                // Try to get stroke_join from mark's default channel values
-                if let Some(join_value) = mark.default_channel_value_without_context("stroke_join")
-                {
-                    if let Ok(join_str) = join_value.as_scalar_string() {
-                        stroke_join = match join_str.as_str() {
-                            "miter" => StrokeJoin::Miter,
-                            "round" => StrokeJoin::Round,
-                            "bevel" => StrokeJoin::Bevel,
-                            _ => stroke_join,
-                        };
-                    }
-                }
-                break; // Use settings from first line mark
-            }
-        }
-
-        Self {
-            mark_encodings,
-            stroke_cap,
-            stroke_join,
-        }
     }
 
     /// Convert dash pattern names to numeric arrays using the coercer

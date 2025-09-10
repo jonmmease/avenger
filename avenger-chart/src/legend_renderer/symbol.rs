@@ -37,52 +37,6 @@ impl SymbolLegendRenderer {
     pub fn set_rect_mark(&mut self, is_rect: bool) {
         self.has_rect_mark = is_rect;
     }
-
-    pub fn with_plot_context<C: crate::coords::CoordinateSystem>(
-        plot: &crate::plot::Plot<C>,
-    ) -> Self {
-        let mut mark_encodings = HashMap::new();
-        let mut has_rect_mark = false;
-
-        // Analyze mark encodings
-        for mark in &plot.marks {
-            let mark_type = mark.mark_type();
-            if mark_type == "rect" {
-                has_rect_mark = true;
-            }
-
-            // Collect encodings from symbol or rect marks
-            if mark_type == "symbol" || mark_type == "rect" {
-                let channels = mark.data_context().channels();
-                for (channel, value) in channels {
-                    mark_encodings.insert(channel.clone(), value.clone());
-                }
-            }
-        }
-
-        // Get theme mark defaults
-        let theme = plot.get_theme();
-        let symbol_defaults = theme
-            .mark_defaults
-            .defaults
-            .get("symbol")
-            .cloned()
-            .unwrap_or_default();
-        let rect_defaults = theme
-            .mark_defaults
-            .defaults
-            .get("rect")
-            .cloned()
-            .unwrap_or_default();
-
-        Self {
-            plot_marks: Vec::new(), // We don't actually store the marks for now
-            mark_encodings,
-            has_rect_mark,
-            symbol_defaults,
-            rect_defaults,
-        }
-    }
 }
 
 impl LegendRenderer for SymbolLegendRenderer {
