@@ -19,6 +19,7 @@ pub use channel_descriptor::{ChannelDefault, ChannelDescriptor};
 pub use data_context::DataContext;
 pub use facet_strategy::FacetStrategy;
 pub use state::MarkState;
+pub use util::default_scale_for_data_type;
 
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
@@ -34,44 +35,21 @@ use datafusion::scalar::ScalarValue;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// Default scale type inference based on data type alone
-/// This function can be called by marks that override preferred_scale_type
-/// to provide fallback behavior for unhandled channels
-pub fn default_scale_for_data_type(data_type: &DataType) -> Option<Arc<dyn ScaleImpl>> {
-    use avenger_scales::scales::{linear::LinearScale, ordinal::OrdinalScale, time::TimeScale};
-
-    match data_type {
-        // Categorical data uses ordinal scale
-        DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View | DataType::Boolean => {
-            Some(Arc::new(OrdinalScale))
-        }
-        // Temporal data uses time scale
-        DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _) => {
-            Some(Arc::new(TimeScale))
-        }
-        // Numeric data defaults to linear
-        DataType::Float32
-        | DataType::Float64
-        | DataType::Int8
-        | DataType::Int16
-        | DataType::Int32
-        | DataType::Int64
-        | DataType::UInt8
-        | DataType::UInt16
-        | DataType::UInt32
-        | DataType::UInt64 => Some(Arc::new(LinearScale)),
-        // Default to None for unknown types
-        _ => None,
-    }
-}
-
-/// Expression for computing radius/padding requirements
+/// Expression for computing radius/padding requirements for marks
+///
+/// Used to determine how much space a mark needs beyond its base position,
+/// accounting for visual properties like size, stroke width, etc.
 #[derive(Debug, Clone)]
 pub enum RadiusExpression {
-    /// Same radius in all directions
+    /// Same radius in all directions (e.g., circular symbols)
     Symmetric(Expr),
-    /// Different radius for negative and positive directions
-    Asymmetric { lower: Expr, upper: Expr },
+    /// Different radius for negative and positive directions (e.g., bars extending from baseline)
+    Asymmetric {
+        /// Radius in the negative direction
+        lower: Expr,
+        /// Radius in the positive direction
+        upper: Expr,
+    },
 }
 
 /// Core trait for all mark types
@@ -106,7 +84,7 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
 
     /// Whether this mark type supports the order encoding channel
     fn supports_order(&self) -> bool {
-        false // Default to false, marks opt-in
+        false
     }
 
     /// Returns the default value for a channel if not explicitly mapped
@@ -120,8 +98,10 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
         self.mark_specific_default(channel)
     }
 
-    /// Get default without context (temporary during migration)
-    /// TODO: Remove once all callers have access to RenderContext
+    /// Get default channel value without RenderContext
+    ///
+    /// This is a compatibility method for callers that don't have access to RenderContext.
+    /// Prefer `default_channel_value` when RenderContext is available.
     fn default_channel_value_without_context(&self, channel: &str) -> Option<ScalarValue> {
         self.mark_specific_default(channel)
     }
@@ -136,6 +116,10 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
     ///
     /// The `resolve_channel` function returns an expression for any channel,
     /// including defaults if the channel is not explicitly mapped.
+    ///
+    /// # Example
+    /// For a symbol mark, this might return an expression like:
+    /// `sqrt(size) * 0.5 + stroke_width / 2`
     fn radius_expression(
         &self,
         _dimension: &str,
@@ -163,7 +147,7 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
         _channel: &str,
         _scale: &ConfiguredScale,
     ) -> Option<Arc<dyn LegendRenderer>> {
-        None // Default: no legend preference
+        None
     }
 
     /// Get the preferred legend renderer for merged channels
@@ -171,7 +155,7 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
     fn preferred_merged_legend_renderer(
         &self,
         channels: &[crate::legend_renderer::LegendChannel],
-        scales: &std::collections::HashMap<String, ConfiguredScale>,
+        scales: &HashMap<String, ConfiguredScale>,
     ) -> Option<Arc<dyn LegendRenderer>> {
         // Default implementation: try to find a renderer that supports all channels
         // Marks can override this for custom behavior
@@ -189,12 +173,6 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
         }
     }
 
-    /// Get a unique identifier for this mark instance
-    fn mark_id(&self) -> String {
-        // Default: use pointer address as unique ID
-        format!("{:p}", self as *const _)
-    }
-
     /// Get the preferred scale type for a channel based on data type
     /// Returns None to use system defaults
     fn preferred_scale_type(
@@ -202,8 +180,8 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
         _channel: &str,
         data_type: &DataType,
     ) -> Option<Arc<dyn ScaleImpl>> {
-        // Base implementation delegates to the standalone function
-        // Marks that override this method can call default_scale_for_data_type
+        // Base implementation delegates to the utility function
+        // Marks that override this method can call util::default_scale_for_data_type
         // for channels they don't explicitly handle
         default_scale_for_data_type(data_type)
     }
@@ -220,11 +198,11 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
         let mut options = HashMap::new();
 
         // Default: Color scales with numeric data should use nice for better legend labels
-        match (channel, scale_type) {
-            ("fill" | "stroke" | "color", "linear" | "log" | "pow" | "sqrt" | "symlog") => {
-                options.insert("nice".to_string(), lit(true));
-            }
-            _ => {}
+        if matches!(
+            (channel, scale_type),
+            ("fill" | "stroke" | "color", "linear" | "log" | "pow" | "sqrt" | "symlog")
+        ) {
+            options.insert("nice".to_string(), lit(true));
         }
 
         options

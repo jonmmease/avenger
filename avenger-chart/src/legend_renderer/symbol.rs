@@ -351,9 +351,9 @@ impl LegendRenderer for SymbolLegendRenderer {
             ScalarOrArray::new_scalar(crate::utils::parse_color_string_strict(&default_fill)?);
         legend_config.stroke =
             ScalarOrArray::new_scalar(crate::utils::parse_color_string_strict(&default_stroke)?);
-        legend_config.size = ScalarOrArray::new_scalar(default_size as f32);
-        legend_config.angle = ScalarOrArray::new_scalar(default_angle as f32);
-        legend_config.stroke_width = Some(default_stroke_width as f32);
+        legend_config.size = ScalarOrArray::new_scalar(default_size);
+        legend_config.angle = ScalarOrArray::new_scalar(default_angle);
+        legend_config.stroke_width = Some(default_stroke_width);
 
         // Process each channel
         for channel in channels {

@@ -241,13 +241,10 @@ impl<C: CoordinateSystem> Symbol<C> {
         position_channels: &[&str],
     ) -> Option<std::sync::Arc<dyn crate::legend_renderer::LegendRenderer>> {
         use crate::legend_renderer::{ColorbarRenderer, SymbolLegendRenderer};
+        use crate::marks::util::is_continuous_scale;
         use std::sync::Arc;
 
-        let scale_type = scale.scale_impl.scale_type();
-        let is_continuous = matches!(
-            scale_type,
-            "linear" | "log" | "pow" | "sqrt" | "symlog" | "time"
-        );
+        let is_continuous = is_continuous_scale(scale.scale_impl.as_ref());
 
         match channel {
             "fill" | "stroke" | "color" if is_continuous => Some(Arc::new(ColorbarRenderer::new())),

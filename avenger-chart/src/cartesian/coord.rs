@@ -1,6 +1,6 @@
 use crate::axis::AxisPosition;
 use crate::cartesian::CartesianAxis;
-use crate::coords::{extract_axis_title_from_marks, CoordinateSystem, OverflowSpaceRequirement};
+use crate::coords::{CoordinateSystem, OverflowSpaceRequirement, extract_axis_title_from_marks};
 use crate::error::AvengerChartError;
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;

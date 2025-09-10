@@ -430,7 +430,7 @@ impl PolarAxis {
         if self.visible {
             use avenger_scenegraph::marks::text::SceneTextMark;
             use avenger_text::types::{FontStyle, TextAlign, TextBaseline};
-            
+
             // Get tick values from scale
             let tick_values: Vec<f32> = if let Ok(ticks_array) = _scale.ticks(Some(8.0)) {
                 // Convert arrow array to vec of f32

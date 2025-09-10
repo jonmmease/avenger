@@ -483,14 +483,11 @@ impl Mark<Cartesian> for Line<Cartesian> {
         scale: &avenger_scales::scales::ConfiguredScale,
     ) -> Option<std::sync::Arc<dyn crate::legend_renderer::LegendRenderer>> {
         use crate::legend_renderer::{ColorbarRenderer, LineLegendRenderer};
+        use crate::marks::util::is_continuous_scale;
         use std::sync::Arc;
 
         // Check if scale is continuous (for colorbar)
-        let scale_type = scale.scale_impl.scale_type();
-        let is_continuous = matches!(
-            scale_type,
-            "linear" | "log" | "pow" | "sqrt" | "symlog" | "time"
-        );
+        let is_continuous = is_continuous_scale(scale.scale_impl.as_ref());
 
         match channel {
             // Use colorbar for continuous color scales

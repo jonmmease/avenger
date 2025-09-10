@@ -107,18 +107,14 @@ impl LegendRenderer for ColorbarRenderer {
 
         // Apply legend colors and typography from config
         if let Some(ref title_color) = config.title_color {
-            if let Ok(color) = crate::utils::parse_color_string_strict(title_color) {
-                if let avenger_common::types::ColorOrGradient::Color(c) = color {
-                    legend_config.title_color = Some(c);
-                }
+            if let Ok(avenger_common::types::ColorOrGradient::Color(c)) = crate::utils::parse_color_string_strict(title_color) {
+                legend_config.title_color = Some(c);
             }
         }
         // Use tick_color for colorbar axis labels (not label_color which is for discrete legends)
         if let Some(ref tick_color) = config.tick_color {
-            if let Ok(color) = crate::utils::parse_color_string_strict(tick_color) {
-                if let avenger_common::types::ColorOrGradient::Color(c) = color {
-                    legend_config.label_color = Some(c);
-                }
+            if let Ok(avenger_common::types::ColorOrGradient::Color(c)) = crate::utils::parse_color_string_strict(tick_color) {
+                legend_config.label_color = Some(c);
             }
         }
 

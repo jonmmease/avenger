@@ -1348,11 +1348,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 let renderer_opt = if channels.len() > 1 {
                     // Multiple channels - try to get a merged renderer
                     // Find the mark that these channels belong to
-                    let mark_opt = self
-                        .plot
-                        .marks
-                        .iter()
-                        .find(|m| m.mark_id() == primary_channel.mark_id);
+                    let mark_opt = self.plot.marks.get(primary_channel.mark_index);
 
                     mark_opt
                         .and_then(|mark| mark.preferred_merged_legend_renderer(&channels, &scales))
@@ -1367,8 +1363,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                                 // Find the mark and get its preference
                                 self.plot
                                     .marks
-                                    .iter()
-                                    .find(|m| m.mark_id() == primary_channel.mark_id)
+                                    .get(primary_channel.mark_index)
                                     .and_then(|mark| {
                                         mark.preferred_legend_renderer(
                                             &primary_channel.channel_type,
@@ -1639,7 +1634,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // Collect all channels that need legends from all marks
         let mut all_channels = Vec::new();
 
-        for mark in &self.plot.marks {
+        for (mark_index, mark) in self.plot.marks.iter().enumerate() {
             for (channel_name, channel_value) in mark.data_context().channels() {
                 // Skip if no scale or no legend config
                 if !configured_scales.contains_key(channel_name)
@@ -1685,7 +1680,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                     scale: scale.clone(),
                     channel_type: channel_name.clone(),
                     mark_type: mark.mark_type().to_string(),
-                    mark_id: mark.mark_id(),
+                    mark_index,
                     related_channels,
                 };
 
