@@ -28,4 +28,5 @@ pub mod test_symbol;
 pub mod test_symbol_ordinal;
 pub mod test_symbol_padding;
 pub mod test_title;
+pub mod test_zerod_symbol;
 pub mod test_zindex;

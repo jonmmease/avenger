@@ -33,16 +33,7 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
     impl_mark_trait_common!(Symbol, Cartesian, "symbol");
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
-        match channel {
-            "size" => Some(ScalarValue::Float32(Some(64.0))), // Default area
-            "shape" => Some(ScalarValue::Utf8(Some("circle".to_string()))), // Default shape
-            "angle" => Some(ScalarValue::Float32(Some(0.0))), // Default angle
-            "fill" => Some(ScalarValue::Utf8(Some("#4682b4".to_string()))), // Default blue
-            "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))), // Default black
-            "stroke_width" => Some(ScalarValue::Float32(Some(1.0))), // Default stroke width
-            "opacity" => Some(ScalarValue::Float32(Some(1.0))), // Fully opaque
-            _ => None,
-        }
+        Symbol::<Cartesian>::common_mark_specific_default(channel)
     }
 
     fn radius_expression(
@@ -146,56 +137,7 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
         _data_type: &DataType,
         theme: &crate::theme::Theme,
     ) -> Option<ScaleRange> {
-        match channel {
-            "size" => {
-                // Size range depends on scale type
-                match scale_type {
-                    "linear" | "pow" | "sqrt" => {
-                        // For continuous scales, use area range
-                        Some(ScaleRange::new_interval(lit(16.0), lit(64.0))) // 4^2 to 8^2
-                    }
-                    "ordinal" => {
-                        // For ordinal scales, create discrete sizes
-                        let n = 5; // Default to 5 sizes
-                        let sizes: Vec<f32> = (0..n)
-                            .map(|i| {
-                                let t = if n > 1 {
-                                    i as f32 / (n - 1) as f32
-                                } else {
-                                    0.5
-                                };
-                                16.0 + t * (64.0 - 16.0) // Interpolate areas from 4^2 to 8^2
-                            })
-                            .collect();
-                        Some(ScaleRange::new_discrete(sizes))
-                    }
-                    _ => None,
-                }
-            }
-            "shape" => {
-                if scale_type == "ordinal" {
-                    // Use theme shape sequence
-                    Some(theme.get_shape_range(None))
-                } else {
-                    None
-                }
-            }
-            "angle" => Some(ScaleRange::new_interval(lit(0.0), lit(360.0))),
-            "opacity" => Some(ScaleRange::new_interval(lit(0.0), lit(1.0))),
-            "stroke_width" => {
-                if scale_type == "ordinal" {
-                    let widths: Vec<f32> = (1..=5).map(|i| i as f32).collect();
-                    Some(ScaleRange::new_discrete(widths))
-                } else {
-                    Some(ScaleRange::new_interval(lit(0.5), lit(5.0)))
-                }
-            }
-            "fill" | "stroke" | "color" => {
-                // Use theme color system
-                Some(theme.get_color_range(scale_type, None))
-            }
-            _ => None,
-        }
+        Symbol::<Cartesian>::common_default_channel_range(channel, scale_type, theme)
     }
 
     fn preferred_legend_renderer(
@@ -203,27 +145,10 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
         channel: &str,
         scale: &avenger_scales::scales::ConfiguredScale,
     ) -> Option<std::sync::Arc<dyn crate::legend_renderer::LegendRenderer>> {
-        use crate::legend_renderer::{ColorbarRenderer, SymbolLegendRenderer};
-        use std::sync::Arc;
-
-        // Check if scale is continuous (for colorbar)
-        let scale_type = scale.scale_impl.scale_type();
-        let is_continuous = matches!(
-            scale_type,
-            "linear" | "log" | "pow" | "sqrt" | "symlog" | "time"
-        );
-
-        match channel {
-            // Use colorbar for continuous color scales
-            "fill" | "stroke" | "color" if is_continuous => Some(Arc::new(ColorbarRenderer::new())),
-            // Symbol marks use symbol legend for discrete scales and other properties
-            "fill" | "stroke" | "color" | "size" | "shape" | "opacity" => {
-                Some(Arc::new(SymbolLegendRenderer::new()))
-            }
-            // No legend for position channels and utility channels
-            "x" | "y" | "x2" | "y2" | "defined" | "order" | "angle" => None,
-            // For any other channel, default to symbol legend
-            _ => Some(Arc::new(SymbolLegendRenderer::new())),
-        }
+        Symbol::<Cartesian>::common_preferred_legend_renderer(
+            channel,
+            scale,
+            &["x", "y", "x2", "y2"],
+        )
     }
 }

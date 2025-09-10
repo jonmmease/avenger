@@ -6,9 +6,11 @@ use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::marks::{Mark, MarkState};
 use crate::render_context::RenderContext;
+use crate::scales::ScaleRange;
 use crate::{define_common_mark_channels, impl_mark_base};
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
+use datafusion_common::ScalarValue;
 
 pub struct Symbol<C: CoordinateSystem> {
     pub(crate) state: MarkState<C>,
@@ -167,5 +169,99 @@ impl<C: CoordinateSystem> Symbol<C> {
         };
 
         Ok(vec![SceneMark::Symbol(symbol_mark)])
+    }
+
+    /// Common mark-specific defaults for Symbol marks across all coordinate systems
+    pub fn common_mark_specific_default(channel: &str) -> Option<ScalarValue> {
+        match channel {
+            "size" => Some(ScalarValue::Float32(Some(64.0))),
+            "shape" => Some(ScalarValue::Utf8(Some("circle".to_string()))),
+            "angle" => Some(ScalarValue::Float32(Some(0.0))),
+            "fill" => Some(ScalarValue::Utf8(Some("#4682b4".to_string()))),
+            "stroke" => Some(ScalarValue::Utf8(Some("#000000".to_string()))),
+            "stroke_width" => Some(ScalarValue::Float32(Some(1.0))),
+            "opacity" => Some(ScalarValue::Float32(Some(1.0))),
+            _ => None,
+        }
+    }
+
+    /// Common default channel range for Symbol marks
+    pub fn common_default_channel_range(
+        channel: &str,
+        scale_type: &str,
+        theme: &crate::theme::Theme,
+    ) -> Option<ScaleRange> {
+        use datafusion::logical_expr::lit;
+
+        match channel {
+            "size" => match scale_type {
+                "linear" | "pow" | "sqrt" => Some(ScaleRange::new_interval(lit(16.0), lit(64.0))),
+                "ordinal" => {
+                    let n = 5;
+                    let sizes: Vec<f32> = (0..n)
+                        .map(|i| {
+                            let t = if n > 1 {
+                                i as f32 / (n - 1) as f32
+                            } else {
+                                0.5
+                            };
+                            16.0 + t * (64.0 - 16.0)
+                        })
+                        .collect();
+                    Some(ScaleRange::new_discrete(sizes))
+                }
+                _ => None,
+            },
+            "shape" => {
+                if scale_type == "ordinal" {
+                    Some(theme.get_shape_range(None))
+                } else {
+                    None
+                }
+            }
+            "angle" => Some(ScaleRange::new_interval(lit(0.0), lit(360.0))),
+            "opacity" => Some(ScaleRange::new_interval(lit(0.0), lit(1.0))),
+            "stroke_width" => {
+                if scale_type == "ordinal" {
+                    let widths: Vec<f32> = (1..=5).map(|i| i as f32).collect();
+                    Some(ScaleRange::new_discrete(widths))
+                } else {
+                    Some(ScaleRange::new_interval(lit(0.5), lit(5.0)))
+                }
+            }
+            "fill" | "stroke" | "color" => Some(theme.get_color_range(scale_type, None)),
+            _ => None,
+        }
+    }
+
+    /// Common preferred legend renderer logic for Symbol marks
+    pub fn common_preferred_legend_renderer(
+        channel: &str,
+        scale: &avenger_scales::scales::ConfiguredScale,
+        position_channels: &[&str],
+    ) -> Option<std::sync::Arc<dyn crate::legend_renderer::LegendRenderer>> {
+        use crate::legend_renderer::{ColorbarRenderer, SymbolLegendRenderer};
+        use std::sync::Arc;
+
+        let scale_type = scale.scale_impl.scale_type();
+        let is_continuous = matches!(
+            scale_type,
+            "linear" | "log" | "pow" | "sqrt" | "symlog" | "time"
+        );
+
+        match channel {
+            "fill" | "stroke" | "color" if is_continuous => Some(Arc::new(ColorbarRenderer::new())),
+            "fill" | "stroke" | "color" | "size" | "shape" | "opacity" | "stroke_width" => {
+                Some(Arc::new(SymbolLegendRenderer::new()))
+            }
+            "angle" | "defined" | "order" => None,
+            _ => {
+                if position_channels.contains(&channel) {
+                    None
+                } else {
+                    Some(Arc::new(SymbolLegendRenderer::new()))
+                }
+            }
+        }
     }
 }
