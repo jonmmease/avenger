@@ -1997,7 +1997,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // The default range is [0, 1], so check if it's been customized from that
         let has_user_range = match scale.get_range() {
             crate::scales::ScaleRange::Color(_) => true, // Custom color range
-            crate::scales::ScaleRange::Enum(_) => true,  // Custom discrete values
+            crate::scales::ScaleRange::Discrete(_) => true, // Custom discrete values
             crate::scales::ScaleRange::Numeric(start, end) => {
                 // Check if it's not the default [0, 1] range
                 use datafusion::logical_expr::Expr;
@@ -2044,9 +2044,12 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
                     if let Some(dt) = data_type {
                         let theme = self.plot.get_theme();
+                        // Convert domain to ResolvedDomain
+                        let resolved_domain = scale.get_domain().to_resolved()?;
                         if let Some(mark_range) = mark.default_channel_range(
                             name,
-                            scale.scale_impl.scale_type(),
+                            scale.scale_impl.as_ref(),
+                            &resolved_domain,
                             &dt,
                             &theme,
                         ) {

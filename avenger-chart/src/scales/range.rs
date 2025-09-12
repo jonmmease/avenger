@@ -5,7 +5,7 @@ use palette::Srgba;
 #[derive(Debug, Clone)]
 pub enum ScaleRange {
     Numeric(Expr, Box<Expr>),
-    Enum(Vec<ScalarValue>),
+    Discrete(Vec<ScalarValue>),
     Color(Vec<Srgba>),
 }
 
@@ -18,12 +18,20 @@ impl ScaleRange {
         Self::Color(colors)
     }
 
-    pub fn new_enum<T: Into<ScalarValue>>(values: Vec<T>) -> Self {
-        Self::Enum(values.into_iter().map(|v| v.into()).collect())
+    pub fn new_discrete<T: Into<ScalarValue>>(values: Vec<T>) -> Self {
+        Self::Discrete(values.into_iter().map(|v| v.into()).collect())
     }
 
-    /// Alias for new_enum (backward compat)
-    pub fn new_discrete<T: Into<ScalarValue>>(values: Vec<T>) -> Self {
-        Self::new_enum(values)
+    /// Create a discrete range with `num` values linearly spaced between `start` and `end`
+    pub fn new_linspace_discrete(start: f32, end: f32, num: usize) -> Self {
+        let step = if num > 1 {
+            (end - start) / (num - 1) as f32
+        } else {
+            0.0
+        };
+        let values: Vec<ScalarValue> = (0..num)
+            .map(|i| ScalarValue::Float32(Some(start + i as f32 * step)))
+            .collect();
+        Self::Discrete(values)
     }
 }

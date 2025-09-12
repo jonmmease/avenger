@@ -420,7 +420,7 @@ impl<S: ScaleSpec> Scale<S> {
                 let end_f32 = end_val.as_f32()?;
                 Arc::new(Float32Array::from(vec![start_f32, end_f32])) as ArrayRef
             }
-            ScaleRange::Enum(values) => {
+            ScaleRange::Discrete(values) => {
                 // Check if all values are numeric - if so, keep as Float32Array
                 // This handles cases like stroke_width which uses ordinal scale with numeric range
                 let all_numeric = values.iter().all(|v| v.as_f32().is_ok());

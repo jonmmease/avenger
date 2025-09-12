@@ -13,7 +13,6 @@ use crate::render_context::RenderContext;
 use crate::scales::ScaleRange;
 use avenger_scales::scales::{ScaleImpl, band::BandScale, ordinal::OrdinalScale};
 use datafusion::arrow::datatypes::DataType;
-use datafusion::logical_expr::lit;
 use datafusion_common::ScalarValue;
 use std::sync::Arc;
 
@@ -136,23 +135,21 @@ impl Mark<Cartesian> for Rect<Cartesian> {
     fn default_channel_range(
         &self,
         channel: &str,
-        scale_type: &str,
+        scale_impl: &dyn ScaleImpl,
+        domain: &crate::scales::ResolvedDomain,
         _data_type: &DataType,
         theme: &crate::theme::Theme,
     ) -> Option<ScaleRange> {
         match channel {
-            "corner_radius" => Some(ScaleRange::new_interval(lit(0.0), lit(10.0))),
-            "opacity" => Some(ScaleRange::new_interval(lit(0.0), lit(1.0))),
-            "stroke_width" => {
-                if scale_type == "ordinal" {
-                    let widths: Vec<f32> = (1..=5).map(|i| i as f32).collect();
-                    Some(ScaleRange::new_discrete(widths))
-                } else {
-                    Some(ScaleRange::new_interval(lit(0.5), lit(5.0)))
-                }
-            }
+            "corner_radius" => Some(domain.make_interval_or_linspaced_range(0.0, 10.0)),
+            "opacity" => Some(domain.make_interval_or_linspaced_range(0.1, 1.0)),
+            "stroke_width" => Some(domain.make_interval_or_linspaced_range(0.5, 5.0)),
             "fill" | "stroke" | "color" => {
-                // Use theme color system
+                // Use theme color system - check if domain is discrete
+                let scale_type = match domain {
+                    crate::scales::ResolvedDomain::Discrete(_) => "ordinal",
+                    crate::scales::ResolvedDomain::Interval => scale_impl.scale_type(),
+                };
                 Some(theme.get_color_range(scale_type, None))
             }
             _ => None,

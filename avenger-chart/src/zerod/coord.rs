@@ -1,23 +1,7 @@
 //! Zero-dimensional coordinate system
 //!
 //! The ZeroDCoord type represents a zero-dimensional coordinate system - essentially
-//! a single point with no spatial extent. This is useful in contexts where marks need
-//! to be rendered without any coordinate mapping, such as:
-//!
-//! - Legend symbols that show mark appearance without position
-//! - Default value extraction from marks
-//! - Standalone mark previews
-//!
-//! # Conceptual Model
-//!
-//! In a 0D coordinate system, there are no position channels, no axes, and no spatial
-//! transformations. Marks rendered in this system appear at a fixed location without
-//! any data-driven positioning.
-//!
-//! # Important
-//!
-//! ZeroDCoord should NOT be used for actual data visualization. All spatial methods
-//! will panic with `unreachable!()` as they are meaningless in zero dimensions.
+//! a single point with no spatial extent.
 
 use crate::axis::Axis;
 use crate::coords::{CoordinateSystem, OverflowSpaceRequirement};

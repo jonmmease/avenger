@@ -1,3 +1,5 @@
+use crate::error::AvengerChartError;
+use crate::scales::ScaleRange;
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::{Expr, lit};
 use std::sync::Arc;
@@ -102,5 +104,47 @@ impl From<(Expr, Expr)> for ScaleDomain {
 impl From<Vec<Expr>> for ScaleDomain {
     fn from(values: Vec<Expr>) -> Self {
         ScaleDomain::new_discrete(values)
+    }
+}
+
+/// Resolved domain type for marks to make range decisions
+///
+/// This enum indicates whether a domain has been resolved to discrete
+/// values or a continuous interval, without needing to evaluate expressions.
+#[derive(Debug, Clone, Copy)]
+pub enum ResolvedDomain {
+    /// Discrete domain with the number of unique values
+    Discrete(usize),
+    /// Continuous interval domain
+    Interval,
+}
+
+impl ResolvedDomain {
+    /// Create a numeric interval or linear spaced ScaleRange
+    pub fn make_interval_or_linspaced_range(&self, start: f32, end: f32) -> ScaleRange {
+        match self {
+            ResolvedDomain::Interval => ScaleRange::new_interval(lit(start), lit(end)),
+            ResolvedDomain::Discrete(count) => {
+                ScaleRange::new_linspace_discrete(start, end, *count)
+            }
+        }
+    }
+}
+
+impl ScaleDomain {
+    /// Convert to ResolvedDomain if the domain has been resolved
+    ///
+    /// Returns an error if the domain is still DomainExprs or NoDefault
+    pub fn to_resolved(&self) -> Result<ResolvedDomain, AvengerChartError> {
+        match &self.default_domain {
+            ScaleDefaultDomain::Discrete(values) => Ok(ResolvedDomain::Discrete(values.len())),
+            ScaleDefaultDomain::Interval(_, _) => Ok(ResolvedDomain::Interval),
+            ScaleDefaultDomain::DomainExprs(_) => Err(AvengerChartError::InternalError(
+                "Cannot resolve domain: DomainExprs not yet evaluated".to_string(),
+            )),
+            ScaleDefaultDomain::NoDefault => Err(AvengerChartError::InternalError(
+                "Cannot resolve domain: NoDefault domain type".to_string(),
+            )),
+        }
     }
 }

@@ -6,7 +6,7 @@ use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::marks::{Mark, MarkState};
 use crate::render_context::RenderContext;
-use crate::scales::ScaleRange;
+use crate::scales::{ResolvedDomain, ScaleRange};
 use crate::{define_common_mark_channels, impl_mark_base};
 use arrow::array::RecordBatch;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -196,48 +196,31 @@ impl<C: CoordinateSystem> Symbol<C> {
     /// Common default channel range for Symbol marks
     pub fn common_default_channel_range(
         channel: &str,
-        scale_type: &str,
+        scale_impl: &dyn avenger_scales::scales::ScaleImpl,
+        domain: &crate::scales::ResolvedDomain,
         theme: &crate::theme::Theme,
     ) -> Option<ScaleRange> {
-        use datafusion::logical_expr::lit;
-
         match channel {
-            "size" => match scale_type {
-                "linear" | "pow" | "sqrt" => Some(ScaleRange::new_interval(lit(16.0), lit(64.0))),
-                "ordinal" => {
-                    let n = 5;
-                    let sizes: Vec<f32> = (0..n)
-                        .map(|i| {
-                            let t = if n > 1 {
-                                i as f32 / (n - 1) as f32
-                            } else {
-                                0.5
-                            };
-                            16.0 + t * (64.0 - 16.0)
-                        })
-                        .collect();
-                    Some(ScaleRange::new_discrete(sizes))
-                }
-                _ => None,
-            },
+            "size" => Some(domain.make_interval_or_linspaced_range(16.0, 64.0)),
             "shape" => {
-                if scale_type == "ordinal" {
+                // Only provide shapes for categorical domains
+                if let ResolvedDomain::Discrete(_) = domain {
                     Some(theme.get_shape_range(None))
                 } else {
                     None
                 }
             }
-            "angle" => Some(ScaleRange::new_interval(lit(0.0), lit(360.0))),
-            "opacity" => Some(ScaleRange::new_interval(lit(0.0), lit(1.0))),
-            "stroke_width" => {
-                if scale_type == "ordinal" {
-                    let widths: Vec<f32> = (1..=5).map(|i| i as f32).collect();
-                    Some(ScaleRange::new_discrete(widths))
-                } else {
-                    Some(ScaleRange::new_interval(lit(0.5), lit(5.0)))
-                }
+            "angle" => Some(domain.make_interval_or_linspaced_range(0.0, 360.0)),
+            "opacity" => Some(domain.make_interval_or_linspaced_range(0.0, 1.0)),
+            "stroke_width" => Some(domain.make_interval_or_linspaced_range(0.5, 5.0)),
+            "fill" | "stroke" | "color" => {
+                // Use theme color system - check if domain is discrete
+                let scale_type = match domain {
+                    ResolvedDomain::Discrete(_) => "ordinal",
+                    ResolvedDomain::Interval => scale_impl.scale_type(),
+                };
+                Some(theme.get_color_range(scale_type, None))
             }
-            "fill" | "stroke" | "color" => Some(theme.get_color_range(scale_type, None)),
             _ => None,
         }
     }

@@ -31,7 +31,7 @@ define_common_mark_channels! {
             with_config: OpacityChannelConfig,
         },
         corner_radius: {
-            // Default now comes from theme
+            allow_column: false,
         },
     }
 }
