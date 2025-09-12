@@ -304,9 +304,9 @@ impl Theme {
                 // If we know the domain cardinality, only return that many colors
                 match domain_cardinality {
                     Some(n) if n <= colors.len() => {
-                        ScaleRange::Enum(colors.into_iter().take(n).collect())
+                        ScaleRange::Discrete(colors.into_iter().take(n).collect())
                     }
-                    _ => ScaleRange::Enum(colors),
+                    _ => ScaleRange::Discrete(colors),
                 }
             }
             "linear" | "log" | "pow" | "sqrt" => {
@@ -321,11 +321,11 @@ impl Theme {
                     .iter()
                     .map(|c| ScalarValue::Utf8(Some(c.clone())))
                     .collect();
-                ScaleRange::Enum(colors)
+                ScaleRange::Discrete(colors)
             }
             _ => {
                 // Default single color from theme
-                ScaleRange::Enum(vec![ScalarValue::Utf8(Some(
+                ScaleRange::Discrete(vec![ScalarValue::Utf8(Some(
                     self.colors.default_color.clone(),
                 ))])
             }

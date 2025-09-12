@@ -71,11 +71,12 @@ impl Mark<Polar> for Symbol<Polar> {
     fn default_channel_range(
         &self,
         channel: &str,
-        scale_type: &str,
+        scale_impl: &dyn avenger_scales::scales::ScaleImpl,
+        domain: &crate::scales::ResolvedDomain,
         _data_type: &DataType,
         theme: &crate::theme::Theme,
     ) -> Option<ScaleRange> {
-        Symbol::<Polar>::common_default_channel_range(channel, scale_type, theme)
+        Symbol::<Polar>::common_default_channel_range(channel, scale_impl, domain, theme)
     }
 
     fn preferred_legend_renderer(

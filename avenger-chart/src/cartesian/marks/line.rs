@@ -450,14 +450,18 @@ impl Mark<Cartesian> for Line<Cartesian> {
     fn default_channel_range(
         &self,
         channel: &str,
-        scale_type: &str,
+        scale_impl: &dyn ScaleImpl,
+        domain: &crate::scales::ResolvedDomain,
         _data_type: &DataType,
         theme: &crate::theme::Theme,
     ) -> Option<ScaleRange> {
+        use avenger_scales::scales::DomainKind;
+
         match channel {
             "opacity" => Some(ScaleRange::new_interval(lit(0.0), lit(1.0))),
             "stroke_width" => {
-                if scale_type == "ordinal" {
+                // Use discrete range for categorical domains
+                if scale_impl.domain_kind() == DomainKind::Categorical {
                     let widths: Vec<f32> = (1..=5).map(|i| i as f32).collect();
                     Some(ScaleRange::new_discrete(widths))
                 } else {
@@ -465,7 +469,8 @@ impl Mark<Cartesian> for Line<Cartesian> {
                 }
             }
             "stroke_dash" => {
-                if scale_type == "ordinal" {
+                // Only provide dash patterns for categorical domains
+                if scale_impl.domain_kind() == DomainKind::Categorical {
                     // Use theme dash patterns
                     Some(theme.get_dash_range(None))
                 } else {
@@ -473,7 +478,11 @@ impl Mark<Cartesian> for Line<Cartesian> {
                 }
             }
             "stroke" => {
-                // Use theme color system
+                // Use theme color system - check if domain is discrete
+                let scale_type = match domain {
+                    crate::scales::ResolvedDomain::Discrete(_) => "ordinal",
+                    crate::scales::ResolvedDomain::Interval => scale_impl.scale_type(),
+                };
                 Some(theme.get_color_range(scale_type, None))
             }
             _ => None,

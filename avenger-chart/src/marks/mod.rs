@@ -206,9 +206,6 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
         _channel: &str,
         data_type: &DataType,
     ) -> Option<Arc<dyn ScaleImpl>> {
-        // Base implementation delegates to the utility function
-        // Marks that override this method can call util::default_scale_for_data_type
-        // for channels they don't explicitly handle
         default_scale_for_data_type(data_type)
     }
 
@@ -240,19 +237,26 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
         options
     }
 
-    /// Get default range for a channel after domain is known
+    /// Get default range for a channel after domain has been determined
+    ///
+    /// This method is called after the scale's domain has been inferred and normalized.
+    /// Marks can use this to provide channel-specific default ranges.
     ///
     /// # Arguments
     /// * `channel` - The channel name
-    /// * `scale_type` - The scale type being used
+    /// * `scale_impl` - The scale implementation being used
+    /// * `domain` - The resolved domain type (Discrete with count or Interval)
     /// * `data_type` - The data type of the channel
     /// * `theme` - The current theme for accessing default values
     ///
-    /// Returns None to use system defaults
+    /// # Returns
+    /// * `Some(range)` - A specific range to use for this channel
+    /// * `None` - Use system defaults
     fn default_channel_range(
         &self,
         _channel: &str,
-        _scale_type: &str,
+        _scale_impl: &dyn ScaleImpl,
+        _domain: &crate::scales::ResolvedDomain,
         _data_type: &DataType,
         _theme: &crate::theme::Theme,
     ) -> Option<ScaleRange> {

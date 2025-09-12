@@ -57,13 +57,9 @@ define_common_mark_channels! {
     }
 }
 
-// Position channels are now defined in coordinate-specific modules:
-// - cartesian/marks/line.rs for Cartesian
-// - polar/marks/line.rs for Polar
-
-// Partitioning support for multi-series lines
+/// Partitioning key for multi-series lines
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Ord, PartialOrd)]
-pub struct PartitionKey {
+pub(crate) struct PartitionKey {
     pub stroke: Option<usize>,
     pub width: Option<usize>,
     pub dash: Option<usize>,
