@@ -101,4 +101,3 @@ impl Guide for NoGuide {
         Ok(Vec::new())
     }
 }
-

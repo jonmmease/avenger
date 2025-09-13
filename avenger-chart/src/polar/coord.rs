@@ -1,4 +1,4 @@
-use crate::coords::{CoordinateSystem, extract_axis_title_from_marks};
+use crate::coords::{CoordinateSystem, PointGeometry, extract_axis_title_from_marks};
 use crate::error::AvengerChartError;
 use crate::guide::{Guide, OverflowSpaceRequirement};
 use crate::polar::{PolarAxis, PolarAxisType, PolarGuide};
@@ -19,6 +19,7 @@ impl Polar {
 #[async_trait::async_trait]
 impl CoordinateSystem for Polar {
     type Guide = PolarGuide;
+    type PlotGeometry = PointGeometry;
 
     fn required_channels(&self) -> &'static [&'static str] {
         &["r", "theta"]
@@ -129,18 +130,12 @@ impl CoordinateSystem for Polar {
         Clip::Path(path)
     }
 
-    fn transform_to_plot_coords(
+    fn transform(
         &self,
         position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
         plot_width: f32,
         plot_height: f32,
-    ) -> Result<
-        (
-            avenger_common::value::ScalarOrArray<f32>,
-            avenger_common::value::ScalarOrArray<f32>,
-        ),
-        AvengerChartError,
-    > {
+    ) -> Result<PointGeometry, AvengerChartError> {
         use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 
         // Get r and theta channels
@@ -159,11 +154,11 @@ impl CoordinateSystem for Polar {
         // Convert polar to Cartesian coordinates
         // x = center_x + r * cos(theta)
         // y = center_y + r * sin(theta)
-        match (r.value(), theta.value()) {
+        let (x, y) = match (r.value(), theta.value()) {
             (ScalarOrArrayValue::Scalar(r_val), ScalarOrArrayValue::Scalar(theta_val)) => {
                 let x = center_x + r_val * theta_val.cos();
                 let y = center_y + r_val * theta_val.sin();
-                Ok((ScalarOrArray::new_scalar(x), ScalarOrArray::new_scalar(y)))
+                (ScalarOrArray::new_scalar(x), ScalarOrArray::new_scalar(y))
             }
             (ScalarOrArrayValue::Array(r_vals), ScalarOrArrayValue::Array(theta_vals)) => {
                 if r_vals.len() != theta_vals.len() {
@@ -184,15 +179,18 @@ impl CoordinateSystem for Polar {
                     .map(|(r, theta)| center_y + r * theta.sin())
                     .collect();
 
-                Ok((
+                (
                     ScalarOrArray::new_array(x_vals),
                     ScalarOrArray::new_array(y_vals),
-                ))
+                )
             }
-            _ => Err(AvengerChartError::InternalError(
-                "r and theta must both be scalars or both be arrays".to_string(),
-            )),
-        }
+            _ => {
+                return Err(AvengerChartError::InternalError(
+                    "r and theta must both be scalars or both be arrays".to_string(),
+                ));
+            }
+        };
+
+        Ok(PointGeometry { x, y })
     }
 }
-

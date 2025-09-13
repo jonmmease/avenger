@@ -152,4 +152,3 @@ async fn test_polar_background_with_grid() {
 
     assert_visual_match_default(plot, "plot_background", "polar_dark_with_grid").await;
 }
-
