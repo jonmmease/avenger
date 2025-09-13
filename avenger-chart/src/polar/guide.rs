@@ -244,4 +244,3 @@ impl Guide for PolarGuide {
         Ok(marks)
     }
 }
-

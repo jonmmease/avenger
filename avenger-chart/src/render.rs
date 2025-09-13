@@ -4,7 +4,6 @@
 
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
-use crate::guide::Guide;
 use crate::marks::{ChannelValue, Mark};
 use crate::plot::Plot;
 use crate::render_context::RenderContext;

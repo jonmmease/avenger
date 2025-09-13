@@ -3,7 +3,7 @@
 //! The ZeroDCoord type represents a zero-dimensional coordinate system - essentially
 //! a single point with no spatial extent.
 
-use crate::coords::CoordinateSystem;
+use crate::coords::{CoordinateSystem, PointGeometry};
 use crate::error::AvengerChartError;
 use crate::guide::{Guide, NoGuide, OverflowSpaceRequirement};
 use avenger_scenegraph::marks::group::Clip;
@@ -27,6 +27,7 @@ impl ZeroDCoord {
 #[async_trait::async_trait]
 impl CoordinateSystem for ZeroDCoord {
     type Guide = NoGuide;
+    type PlotGeometry = PointGeometry;
 
     fn required_channels(&self) -> &'static [&'static str] {
         // ZeroDCoord has no position channels (0D space)
@@ -96,18 +97,12 @@ impl CoordinateSystem for ZeroDCoord {
         Clip::None
     }
 
-    fn transform_to_plot_coords(
+    fn transform(
         &self,
         position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
         plot_width: f32,
         plot_height: f32,
-    ) -> Result<
-        (
-            avenger_common::value::ScalarOrArray<f32>,
-            avenger_common::value::ScalarOrArray<f32>,
-        ),
-        AvengerChartError,
-    > {
+    ) -> Result<PointGeometry, AvengerChartError> {
         use avenger_common::value::ScalarOrArray;
 
         // In 0D space, all points collapse to the center of the plot area
@@ -125,17 +120,19 @@ impl CoordinateSystem for ZeroDCoord {
             .unwrap_or(1);
 
         // Return center point(s) - either scalar or array of same center point
-        if len == 1 {
-            Ok((
+        let (x, y) = if len == 1 {
+            (
                 ScalarOrArray::new_scalar(center_x),
                 ScalarOrArray::new_scalar(center_y),
-            ))
+            )
         } else {
-            Ok((
+            (
                 ScalarOrArray::new_array(vec![center_x; len]),
                 ScalarOrArray::new_array(vec![center_y; len]),
-            ))
-        }
+            )
+        };
+
+        Ok(PointGeometry { x, y })
     }
 }
 
@@ -151,13 +148,11 @@ mod tests {
 
         // Test with empty position channels (single point)
         let position_channels = HashMap::new();
-        let (x, y) = coord
-            .transform_to_plot_coords(&position_channels, 100.0, 100.0)
-            .unwrap();
+        let geometry = coord.transform(&position_channels, 100.0, 100.0).unwrap();
 
         // Verify single point is at center (50, 50)
         use avenger_common::value::ScalarOrArrayValue;
-        match (x.value(), y.value()) {
+        match (geometry.x.value(), geometry.y.value()) {
             (ScalarOrArrayValue::Scalar(x_val), ScalarOrArrayValue::Scalar(y_val)) => {
                 assert_eq!(*x_val, 50.0);
                 assert_eq!(*y_val, 50.0);
@@ -172,11 +167,11 @@ mod tests {
             avenger_common::value::ScalarOrArray::new_array(vec![1.0, 2.0, 3.0]),
         );
 
-        let (x_arr, y_arr) = coord
-            .transform_to_plot_coords(&position_channels_with_data, 100.0, 100.0)
+        let geometry_arr = coord
+            .transform(&position_channels_with_data, 100.0, 100.0)
             .unwrap();
 
-        match (x_arr.value(), y_arr.value()) {
+        match (geometry_arr.x.value(), geometry_arr.y.value()) {
             (ScalarOrArrayValue::Array(x_vals), ScalarOrArrayValue::Array(y_vals)) => {
                 assert_eq!(x_vals.len(), 3);
                 assert_eq!(y_vals.len(), 3);
@@ -189,4 +184,3 @@ mod tests {
         }
     }
 }
-

@@ -65,6 +65,7 @@ impl<C: CoordinateSystem> Symbol<C> {
     ) -> Result<Vec<SceneMark>, AvengerChartError>
     where
         Self: Mark<C>,
+        C: CoordinateSystem<PlotGeometry = crate::coords::PointGeometry>,
     {
         use crate::marks::util::{
             coerce_color_channel_with_mark, coerce_numeric_channel_with_mark,
@@ -83,11 +84,10 @@ impl<C: CoordinateSystem> Symbol<C> {
         }
 
         // Transform position channels to plot coordinates
-        let (x, y) = coord.transform_to_plot_coords(
-            &position_channels,
-            context.plot_width,
-            context.plot_height,
-        )?;
+        let geometry =
+            coord.transform(&position_channels, context.plot_width, context.plot_height)?;
+        let x = geometry.x;
+        let y = geometry.y;
 
         // Extract other channels using mark defaults
         let size = coerce_numeric_channel_with_mark(self, data, scalars, "size", context, 64.0)?;

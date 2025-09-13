@@ -93,4 +93,3 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
             .await
     }
 }
-

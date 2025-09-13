@@ -240,4 +240,3 @@ impl Guide for CartesianGuide {
         Ok(marks)
     }
 }
-

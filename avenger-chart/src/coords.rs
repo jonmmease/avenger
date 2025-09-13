@@ -2,9 +2,17 @@ use crate::error::AvengerChartError;
 use crate::guide::Guide;
 pub use crate::guide::OverflowSpaceRequirement;
 use crate::marks::Mark;
+use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
+
+/// Geometry type for point-based coordinate systems (Cartesian, Polar, ZeroD)
+#[derive(Debug, Clone)]
+pub struct PointGeometry {
+    pub x: ScalarOrArray<f32>,
+    pub y: ScalarOrArray<f32>,
+}
 
 #[async_trait::async_trait]
 pub trait CoordinateSystem: Sized + Send + Sync + 'static {
@@ -13,6 +21,9 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     /// This could be axes (Cartesian), geographic features (Geo),
     /// camera controls (3D), or no guide at all (ZeroD)
     type Guide: Guide;
+
+    /// The plot geometry type produced by this coordinate system's transform
+    type PlotGeometry: Send + Sync + 'static;
 
     /// Get the names of position channels required by this coordinate system
     fn required_channels(&self) -> &'static [&'static str];
@@ -112,10 +123,10 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
     ) -> Clip;
 
-    /// Transform position channels to plot coordinates
+    /// Transform position channels to coordinate system geometry
     ///
     /// Takes position data in the coordinate system's native space (after scaling)
-    /// and transforms it to x/y plot coordinates relative to the plot area origin.
+    /// and transforms it to the coordinate system's geometry type.
     ///
     /// # Arguments
     /// * `position_channels` - Map of position channel names to their scaled data
@@ -123,8 +134,8 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     /// * `plot_height` - Height of the plot area
     ///
     /// # Returns
-    /// Tuple of (x, y) arrays in plot coordinates (screen space relative to plot area)
-    fn transform_to_plot_coords(
+    /// The coordinate system's plot geometry type containing transformed positions
+    fn transform(
         &self,
         position_channels: &std::collections::HashMap<
             &str,
@@ -132,13 +143,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         >,
         plot_width: f32,
         plot_height: f32,
-    ) -> Result<
-        (
-            avenger_common::value::ScalarOrArray<f32>,
-            avenger_common::value::ScalarOrArray<f32>,
-        ),
-        AvengerChartError,
-    >;
+    ) -> Result<Self::PlotGeometry, AvengerChartError>;
 }
 
 /// Helper function to extract axis title from mark encodings
@@ -195,4 +200,3 @@ pub fn extract_axis_title_from_marks<C: CoordinateSystem>(
 
     None
 }
-

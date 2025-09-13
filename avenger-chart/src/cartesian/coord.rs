@@ -1,5 +1,5 @@
 use crate::cartesian::{CartesianAxis, CartesianGuide, axis::AxisPosition};
-use crate::coords::{CoordinateSystem, extract_axis_title_from_marks};
+use crate::coords::{CoordinateSystem, PointGeometry, extract_axis_title_from_marks};
 use crate::error::AvengerChartError;
 use crate::guide::{Guide, OverflowSpaceRequirement};
 use avenger_scenegraph::marks::group::Clip;
@@ -13,6 +13,7 @@ pub struct Cartesian;
 #[async_trait::async_trait]
 impl CoordinateSystem for Cartesian {
     type Guide = CartesianGuide;
+    type PlotGeometry = PointGeometry;
 
     fn required_channels(&self) -> &'static [&'static str] {
         &["x", "y"]
@@ -124,18 +125,12 @@ impl CoordinateSystem for Cartesian {
         }
     }
 
-    fn transform_to_plot_coords(
+    fn transform(
         &self,
         position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
         _plot_width: f32,
         _plot_height: f32,
-    ) -> Result<
-        (
-            avenger_common::value::ScalarOrArray<f32>,
-            avenger_common::value::ScalarOrArray<f32>,
-        ),
-        AvengerChartError,
-    > {
+    ) -> Result<PointGeometry, AvengerChartError> {
         // In Cartesian coordinates, the scaled values are already in plot coordinates
         // Just extract x and y from the position channels
         let x = position_channels
@@ -152,7 +147,7 @@ impl CoordinateSystem for Cartesian {
             })?
             .clone();
 
-        Ok((x, y))
+        Ok(PointGeometry { x, y })
     }
 
     fn default_scale_options(
@@ -205,4 +200,3 @@ impl CoordinateSystem for Cartesian {
         options
     }
 }
-
