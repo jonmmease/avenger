@@ -513,7 +513,7 @@ impl SymbolShape {
         })
     }
 
-    pub fn as_path(&self) -> Cow<lyon_path::Path> {
+    pub fn as_path(&self) -> Cow<'_, lyon_path::Path> {
         match self {
             SymbolShape::Circle => {
                 let mut builder = lyon_path::Path::builder();

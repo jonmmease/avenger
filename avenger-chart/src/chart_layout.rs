@@ -1,4 +1,4 @@
-use crate::axis::AxisPosition;
+use crate::cartesian::axis::AxisPosition;
 use crate::error::AvengerChartError;
 use crate::legend::{Legend, LegendPosition};
 use crate::plot::{PlotSubtitle, PlotTitle, TitleAlign};

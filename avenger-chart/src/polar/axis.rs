@@ -1,7 +1,5 @@
-use crate::axis::Axis;
 use crate::error::AvengerChartError;
 use avenger_scenegraph::marks::mark::SceneMark;
-use std::any::Any;
 
 /// Type of polar axis
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -542,23 +540,5 @@ impl Default for PolarAxis {
             start_angle: 0.0,
             direction: PolarDirection::Clockwise,
         }
-    }
-}
-
-impl Axis for PolarAxis {
-    fn clone_box(&self) -> Box<dyn Axis> {
-        Box::new(self.clone())
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
-    fn into_any(self: Box<Self>) -> Box<dyn Any> {
-        self
     }
 }

@@ -66,8 +66,7 @@ pub use crate::legend_builder::{
 };
 
 // Re-export axis types
-pub use crate::axis::{Axis, AxisPosition};
-pub use crate::cartesian::CartesianAxis;
+pub use crate::cartesian::{AxisPosition, CartesianAxis};
 pub use crate::polar::PolarAxis;
 
 // Re-export rendering types

@@ -1,7 +1,14 @@
-use crate::axis::{Axis, AxisPosition};
 use crate::error::AvengerChartError;
 use avenger_scenegraph::marks::mark::SceneMark;
-use std::any::Any;
+
+/// Position for Cartesian axes
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum AxisPosition {
+    Top,
+    Right,
+    Bottom,
+    Left,
+}
 
 /// Concrete struct for Cartesian axes
 /// Using a struct instead of a trait enables type inference in closure parameters
@@ -190,23 +197,5 @@ impl Default for CartesianAxis {
             label_angle: 0.0,
             format_number: None,
         }
-    }
-}
-
-impl Axis for CartesianAxis {
-    fn clone_box(&self) -> Box<dyn Axis> {
-        Box::new(self.clone())
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
-    fn into_any(self: Box<Self>) -> Box<dyn Any> {
-        self
     }
 }
