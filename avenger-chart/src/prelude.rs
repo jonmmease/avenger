@@ -60,7 +60,7 @@ pub use crate::scales::{
 
 // Re-export legend types
 pub use crate::legend::{Legend, LegendOrientation, LegendPosition};
-pub use crate::legend_builder::{
+pub use crate::legend::{
     AngleLegendBuilder, ColorLegendBuilder, LegendBuilder, OpacityLegendBuilder,
     ShapeLegendBuilder, SizeLegendBuilder, StrokeDashLegendBuilder, StrokeWidthLegendBuilder,
 };

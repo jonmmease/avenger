@@ -230,8 +230,8 @@ impl<C: CoordinateSystem> Symbol<C> {
         channel: &str,
         scale: &avenger_scales::scales::ConfiguredScale,
         position_channels: &[&str],
-    ) -> Option<std::sync::Arc<dyn crate::legend_renderer::LegendRenderer>> {
-        use crate::legend_renderer::{ColorbarRenderer, SymbolLegendRenderer};
+    ) -> Option<std::sync::Arc<dyn crate::legend::LegendRenderer>> {
+        use crate::legend::{ColorbarRenderer, SymbolLegendRenderer};
         use crate::marks::util::is_continuous_scale;
         use std::sync::Arc;
 

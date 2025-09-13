@@ -759,7 +759,7 @@ impl ChartLayout {
         available_space: Size<f32>,
         marks: &[Box<dyn crate::marks::Mark<C>>],
     ) -> Result<(Size<f32>, bool), AvengerChartError> {
-        use crate::legend_renderer::LegendChannel;
+        use crate::legend::LegendChannel;
 
         // Skip invisible legends
         if !legend.visible {
@@ -801,7 +801,7 @@ impl ChartLayout {
         };
 
         // Collect related channels from the mark (needed for correct size constants)
-        use crate::legend_renderer::ChannelInfo;
+        use crate::legend::ChannelInfo;
         let mut related_channels = HashMap::new();
         for (other_name, other_value) in mark_with_channel.data_context().channels() {
             if other_name != channel {

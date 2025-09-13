@@ -493,8 +493,8 @@ impl Mark<Cartesian> for Line<Cartesian> {
         &self,
         channel: &str,
         scale: &avenger_scales::scales::ConfiguredScale,
-    ) -> Option<std::sync::Arc<dyn crate::legend_renderer::LegendRenderer>> {
-        use crate::legend_renderer::{ColorbarRenderer, LineLegendRenderer};
+    ) -> Option<std::sync::Arc<dyn crate::legend::LegendRenderer>> {
+        use crate::legend::{ColorbarRenderer, LineLegendRenderer};
         use crate::marks::util::is_continuous_scale;
         use std::sync::Arc;
 

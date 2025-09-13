@@ -50,8 +50,8 @@ impl Mark<Polar> for Rect<Polar> {
         &self,
         channel: &str,
         scale: &avenger_scales::scales::ConfiguredScale,
-    ) -> Option<std::sync::Arc<dyn crate::legend_renderer::LegendRenderer>> {
-        use crate::legend_renderer::{ColorbarRenderer, RectLegendRenderer};
+    ) -> Option<std::sync::Arc<dyn crate::legend::LegendRenderer>> {
+        use crate::legend::{ColorbarRenderer, RectLegendRenderer};
         use std::sync::Arc;
 
         // Check if scale is continuous (for colorbar)
