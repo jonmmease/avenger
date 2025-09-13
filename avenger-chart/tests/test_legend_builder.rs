@@ -32,7 +32,7 @@ fn test_symbol_with_typed_legend() {
 
 #[test]
 fn test_legend_builder_methods() {
-    use avenger_chart::legend_builder::{ColorLegendBuilder, LegendBuilder, SizeLegendBuilder};
+    use avenger_chart::legend::{ColorLegendBuilder, LegendBuilder, SizeLegendBuilder};
 
     // Test that ColorLegendBuilder has gradient methods
     let color_legend = ColorLegendBuilder::new()
