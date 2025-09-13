@@ -12,11 +12,11 @@ use std::collections::HashMap;
 
 /// Trait for visual guides in coordinate systems
 ///
-/// A Guide represents the visual reference elements for a coordinate system.
+/// A CoordinateGuide represents the visual reference elements for a coordinate system.
 /// This includes both axes (configured at the channel level) and coordinate-specific
 /// options (configured at the plot level).
 #[async_trait::async_trait]
-pub trait Guide: Clone + Send + Sync + 'static {
+pub trait CoordinateGuide: Clone + Send + Sync + 'static {
     /// The axis type used by this guide (if any)
     type Axis: Clone + Send + Sync + 'static;
 
@@ -68,7 +68,7 @@ pub struct NoGuide {
 }
 
 #[async_trait::async_trait]
-impl Guide for NoGuide {
+impl CoordinateGuide for NoGuide {
     type Axis = ();
 
     fn set_axes(&mut self, _axes: HashMap<String, Self::Axis>) {

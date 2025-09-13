@@ -42,7 +42,7 @@ macro_rules! define_position_channels {
             where
                 V: Into<$crate::marks::ChannelValue>,
                 F: FnOnce($config_type) -> $config_type,
-                $config_type: $crate::channels::PositionConfig<Axis = <<$coord as $crate::coords::CoordinateSystem>::Guide as $crate::guide::Guide>::Axis>,
+                $config_type: $crate::channels::PositionConfig<Axis = <<$coord as $crate::coords::CoordinateSystem>::Guide as $crate::guide::CoordinateGuide>::Axis>,
             {
                 use $crate::channels::PositionConfig;
 

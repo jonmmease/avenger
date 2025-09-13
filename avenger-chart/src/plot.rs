@@ -1,6 +1,6 @@
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
-use crate::guide::Guide;
+use crate::guide::CoordinateGuide;
 use crate::legend::Legend;
 use crate::marks::{ChannelValue, Mark, RadiusExpression};
 use crate::scales::Scale;
@@ -65,7 +65,7 @@ pub struct PlotSubtitle {
 
 pub struct Plot<C: CoordinateSystem> {
     coord_system: C,
-    pub(crate) axis_specs: HashMap<String, AxisSpec<<C::Guide as Guide>::Axis>>,
+    pub(crate) axis_specs: HashMap<String, AxisSpec<<C::Guide as CoordinateGuide>::Axis>>,
     pub(crate) legends: IndexMap<String, Legend>,
     pub(crate) marks: Vec<Box<dyn Mark<C>>>,
 
@@ -417,7 +417,7 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     /// Get a reference to the axis specifications
-    pub fn axis_specs(&self) -> &HashMap<String, AxisSpec<<C::Guide as Guide>::Axis>> {
+    pub fn axis_specs(&self) -> &HashMap<String, AxisSpec<<C::Guide as CoordinateGuide>::Axis>> {
         &self.axis_specs
     }
 

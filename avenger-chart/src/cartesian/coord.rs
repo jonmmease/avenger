@@ -1,7 +1,7 @@
 use crate::cartesian::{CartesianAxis, CartesianGuide, axis::AxisPosition};
 use crate::coords::{CoordinateSystem, PointGeometry, extract_axis_title_from_marks};
 use crate::error::AvengerChartError;
-use crate::guide::{Guide, OverflowSpaceRequirement};
+use crate::guide::{CoordinateGuide, OverflowSpaceRequirement};
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
@@ -31,7 +31,7 @@ impl CoordinateSystem for Cartesian {
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         marks: &[Box<dyn crate::marks::Mark<Self>>],
-    ) -> HashMap<String, <Self::Guide as Guide>::Axis> {
+    ) -> HashMap<String, <Self::Guide as CoordinateGuide>::Axis> {
         let mut default_axes = HashMap::new();
 
         // Always create default axes for x and y channels if they have scales
@@ -74,7 +74,7 @@ impl CoordinateSystem for Cartesian {
 
     fn create_default_guide(
         &self,
-        axes: HashMap<String, <Self::Guide as Guide>::Axis>,
+        axes: HashMap<String, <Self::Guide as CoordinateGuide>::Axis>,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         _marks: &[Box<dyn crate::marks::Mark<Self>>],
     ) -> Self::Guide {
