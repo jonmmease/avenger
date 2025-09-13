@@ -18,7 +18,6 @@ pub mod polar;
 pub mod prelude;
 pub mod render;
 pub mod render_context;
-mod render_guide;
 pub mod scales;
 pub mod theme;
 pub mod utils;

@@ -2,6 +2,8 @@
 //!
 //! This module bridges the high-level chart API with the low-level rendering components.
 
+mod guide;
+
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::marks::{ChannelValue, Mark};

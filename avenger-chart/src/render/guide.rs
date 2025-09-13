@@ -3,7 +3,7 @@
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::guide::OverflowSpaceRequirement;
-use crate::render::PlotRenderer;
+use super::PlotRenderer;
 use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
 
@@ -84,7 +84,7 @@ impl<C: CoordinateSystem> PlotRenderer<'_, C> {
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
-        padding: &crate::render::Padding,
+        padding: &super::Padding,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let theme = self.plot.get_theme();
         self.plot
