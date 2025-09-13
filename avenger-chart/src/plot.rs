@@ -1,5 +1,6 @@
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
+use crate::guide::Guide;
 use crate::legend::Legend;
 use crate::marks::{ChannelValue, Mark, RadiusExpression};
 use crate::scales::Scale;
@@ -64,7 +65,7 @@ pub struct PlotSubtitle {
 
 pub struct Plot<C: CoordinateSystem> {
     coord_system: C,
-    pub(crate) axis_specs: HashMap<String, AxisSpec<C::Axis>>,
+    pub(crate) axis_specs: HashMap<String, AxisSpec<<C::Guide as Guide>::Axis>>,
     pub(crate) legends: IndexMap<String, Legend>,
     pub(crate) marks: Vec<Box<dyn Mark<C>>>,
 
@@ -92,6 +93,9 @@ pub struct Plot<C: CoordinateSystem> {
 
     /// Theme for visual styling
     pub(crate) theme: Option<Theme>,
+
+    /// Guide configuration function
+    pub(crate) guide_spec: Option<Box<dyn Fn(C::Guide) -> C::Guide + Send + Sync>>,
 }
 
 /// Enhanced resolution options with row/column specificity
@@ -384,6 +388,7 @@ impl<C: CoordinateSystem> Plot<C> {
             title: None,
             subtitle: None,
             theme: None,
+            guide_spec: None,
         }
     }
 }
@@ -412,7 +417,7 @@ impl<C: CoordinateSystem> Plot<C> {
     }
 
     /// Get a reference to the axis specifications
-    pub fn axis_specs(&self) -> &HashMap<String, AxisSpec<C::Axis>> {
+    pub fn axis_specs(&self) -> &HashMap<String, AxisSpec<<C::Guide as Guide>::Axis>> {
         &self.axis_specs
     }
 
@@ -1095,6 +1100,15 @@ impl<C: CoordinateSystem> Plot<C> {
     {
         let theme = f(self.theme.unwrap_or_default());
         self.theme = Some(theme);
+        self
+    }
+
+    /// Configure the guide (coordinate system visual elements like axes and background)
+    pub fn guide<F>(mut self, f: F) -> Self
+    where
+        F: Fn(C::Guide) -> C::Guide + Send + Sync + 'static,
+    {
+        self.guide_spec = Some(Box::new(f));
         self
     }
 

@@ -3,12 +3,11 @@
 //! The ZeroDCoord type represents a zero-dimensional coordinate system - essentially
 //! a single point with no spatial extent.
 
-use crate::axis::Axis;
-use crate::coords::{CoordinateSystem, OverflowSpaceRequirement};
+use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
+use crate::guide::{Guide, NoGuide, OverflowSpaceRequirement};
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
-use std::any::Any;
 use std::collections::HashMap;
 
 /// A zero-dimensional coordinate system
@@ -25,33 +24,9 @@ impl ZeroDCoord {
     }
 }
 
-/// A placeholder axis for the zero-dimensional coordinate system
-#[derive(Debug, Clone)]
-pub struct ZeroDAxis {
-    // No axes exist in 0D space
-}
-
-impl Axis for ZeroDAxis {
-    fn clone_box(&self) -> Box<dyn Axis> {
-        Box::new(self.clone())
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
-    fn into_any(self: Box<Self>) -> Box<dyn Any> {
-        self
-    }
-}
-
 #[async_trait::async_trait]
 impl CoordinateSystem for ZeroDCoord {
-    type Axis = ZeroDAxis;
+    type Guide = NoGuide;
 
     fn required_channels(&self) -> &'static [&'static str] {
         // ZeroDCoord has no position channels (0D space)
@@ -67,17 +42,23 @@ impl CoordinateSystem for ZeroDCoord {
         &self,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         _marks: &[Box<dyn crate::marks::Mark<Self>>],
-    ) -> HashMap<String, Self::Axis>
-    where
-        Self: Sized,
-    {
+    ) -> HashMap<String, <Self::Guide as Guide>::Axis> {
         // No axes exist in zero-dimensional space
         HashMap::new()
     }
 
+    fn create_default_guide(
+        &self,
+        _axes: HashMap<String, <Self::Guide as Guide>::Axis>,
+        _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
+        _marks: &[Box<dyn crate::marks::Mark<Self>>],
+    ) -> Self::Guide {
+        NoGuide::default()
+    }
+
     async fn measure_guide_overflow(
         &self,
-        _axes: HashMap<String, Self::Axis>,
+        _guide: &Self::Guide,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         _width_estimate: f32,
         _height_estimate: f32,
@@ -92,16 +73,16 @@ impl CoordinateSystem for ZeroDCoord {
         })
     }
 
-    async fn render_axes(
+    async fn render_guide(
         &self,
-        _axes: &HashMap<String, Self::Axis>,
+        _guide: &Self::Guide,
         _scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         _plot_width: f32,
         _plot_height: f32,
         _padding: &crate::render::Padding,
         _theme: &crate::theme::Theme,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // No axes exist in 0D space
+        // No guides exist in 0D space
         Ok(Vec::new())
     }
 
@@ -208,3 +189,4 @@ mod tests {
         }
     }
 }
+

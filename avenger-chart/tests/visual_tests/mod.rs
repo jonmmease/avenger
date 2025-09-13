@@ -20,6 +20,7 @@ pub mod test_line_legend;
 pub mod test_line_multi_series;
 pub mod test_multiple_legends;
 pub mod test_multiple_legends_background;
+pub mod test_plot_background;
 pub mod test_plot_level_config;
 pub mod test_polar_scatter;
 pub mod test_rect_legend;

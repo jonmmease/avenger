@@ -138,7 +138,7 @@ impl SceneGraphRTree {
     }
 
     /// Returns an iterator over all elements contained in the tree
-    pub fn iter(&self) -> RTreeIterator<GeometryInstance> {
+    pub fn iter(&self) -> RTreeIterator<'_, GeometryInstance> {
         self.rtree.iter()
     }
 
@@ -179,7 +179,7 @@ impl SceneGraphRTree {
     /// Returns a mutable reference to the object that covers a given point.
     ///
     /// If multiple elements contain the given point, any of them is returned.
-    pub fn locate_all_at_point(&self, point: &[f32; 2]) -> LocateAllAtPoint<GeometryInstance> {
+    pub fn locate_all_at_point(&self, point: &[f32; 2]) -> LocateAllAtPoint<'_, GeometryInstance> {
         self.rtree.locate_all_at_point(point)
     }
 
@@ -187,7 +187,7 @@ impl SceneGraphRTree {
     pub fn locate_in_envelope(
         &self,
         envelope: &AABB<[f32; 2]>,
-    ) -> LocateInEnvelope<GeometryInstance> {
+    ) -> LocateInEnvelope<'_, GeometryInstance> {
         self.rtree.locate_in_envelope(envelope)
     }
 
@@ -195,7 +195,7 @@ impl SceneGraphRTree {
     pub fn locate_in_envelope_intersecting(
         &self,
         envelope: &AABB<[f32; 2]>,
-    ) -> LocateInEnvelopeIntersecting<GeometryInstance> {
+    ) -> LocateInEnvelopeIntersecting<'_, GeometryInstance> {
         self.rtree.locate_in_envelope_intersecting(envelope)
     }
 
@@ -208,7 +208,7 @@ impl SceneGraphRTree {
     pub fn nearest_neighbor_iter(
         &self,
         query_point: &[f32; 2],
-    ) -> NearestNeighborIterator<GeometryInstance> {
+    ) -> NearestNeighborIterator<'_, GeometryInstance> {
         self.rtree.nearest_neighbor_iter(query_point)
     }
 
@@ -217,7 +217,7 @@ impl SceneGraphRTree {
         &self,
         query_point: [f32; 2],
         max_squared_radius: f32,
-    ) -> LocateWithinDistanceIterator<GeometryInstance> {
+    ) -> LocateWithinDistanceIterator<'_, GeometryInstance> {
         self.rtree
             .locate_within_distance(query_point, max_squared_radius)
     }
@@ -226,7 +226,7 @@ impl SceneGraphRTree {
     pub fn nearest_neighbor_iter_with_distance_2(
         &self,
         query_point: &[f32; 2],
-    ) -> NearestNeighborDistance2Iterator<GeometryInstance> {
+    ) -> NearestNeighborDistance2Iterator<'_, GeometryInstance> {
         self.rtree
             .nearest_neighbor_iter_with_distance_2(query_point)
     }

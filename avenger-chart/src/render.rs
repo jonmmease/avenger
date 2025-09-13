@@ -4,6 +4,7 @@
 
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
+use crate::guide::Guide;
 use crate::marks::{ChannelValue, Mark};
 use crate::plot::Plot;
 use crate::render_context::RenderContext;
@@ -64,7 +65,7 @@ pub struct RenderResult {
 
 /// Renderer for converting Plot specifications to SceneGraph
 pub struct PlotRenderer<'a, C: CoordinateSystem> {
-    plot: &'a Plot<C>,
+    pub(crate) plot: &'a Plot<C>,
 }
 
 impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
@@ -257,7 +258,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
             // Add axis label - check if it's an overflow pseudo-axis
             let (axis_label, label_x, label_y, angle, align, baseline) = match position {
-                crate::axis::AxisPosition::Left => {
+                crate::cartesian::axis::AxisPosition::Left => {
                     // Rotate 90 degrees for left, position at top-left
                     (
                         "of-left",
@@ -268,7 +269,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                         avenger_text::types::TextBaseline::Top,
                     )
                 }
-                crate::axis::AxisPosition::Right => {
+                crate::cartesian::axis::AxisPosition::Right => {
                     // Rotate 90 degrees for right, position at top-right
                     (
                         "of-right",
@@ -279,7 +280,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                         avenger_text::types::TextBaseline::Bottom,
                     ) // Bottom baseline becomes right when rotated
                 }
-                crate::axis::AxisPosition::Top => {
+                crate::cartesian::axis::AxisPosition::Top => {
                     // Position at top of region
                     (
                         "of-top",
@@ -290,7 +291,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                         avenger_text::types::TextBaseline::Top,
                     )
                 }
-                crate::axis::AxisPosition::Bottom => {
+                crate::cartesian::axis::AxisPosition::Bottom => {
                     // Position at bottom of region
                     (
                         "of-bottom",
@@ -645,79 +646,31 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         height: f32,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
     ) -> Result<LayoutSolution, AvengerChartError> {
-        // All coordinate systems now use dynamic layout with Taffy
+        // Create guide with all configurations applied
+        let guide = self.create_configured_guide(scales);
 
-        // Get default axes for all channels with scales
-        let default_axes = self
-            .plot
-            .coord_system()
-            .create_default_axes(scales, &self.plot.marks);
-
-        // Apply user axis customizations to defaults
-        let mut all_axes = default_axes;
-        for (channel, axis_spec) in &self.plot.axis_specs {
-            // Only apply customizations if there's a default axis
-            // Axes without scales won't be rendered anyway
-            if let Some(base_axis) = all_axes.get(channel).cloned() {
-                // Apply the customization function
-                match axis_spec {
-                    crate::plot::AxisSpec::Local(f) => {
-                        let customized = f(base_axis);
-                        all_axes.insert(channel.clone(), customized);
-                    }
-                    crate::plot::AxisSpec::Reference(_) => {
-                        // Reference axes not yet supported, keep default
-                    }
-                }
-            }
-        }
-
-        // Apply axis configurations from mark channels (last mark wins for conflicts)
-        // This must happen BEFORE layout measurement so the layout system knows the actual axis titles
-        for mark in &self.plot.marks {
-            for (channel, axis_config) in mark.state().axis_configs.iter() {
-                if let Some(base_axis) = all_axes.get(channel).cloned() {
-                    let configured = axis_config(base_axis);
-                    all_axes.insert(channel.clone(), configured);
-                }
-            }
-        }
-
-        // Call the dynamic layout helper with the coordinate system's axes
-        self.compute_layout_with_dynamic_axes(width, height, scales, all_axes)
+        // Call the dynamic layout helper with the guide
+        self.compute_layout_with_dynamic_guide(width, height, scales, guide)
             .await
     }
 
-    /// Helper method for dynamic layout with type-erased axes
-    async fn compute_layout_with_dynamic_axes(
+    /// Helper method for dynamic layout with guide
+    async fn compute_layout_with_dynamic_guide(
         &self,
         width: f32,
         height: f32,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        axes: HashMap<String, C::Axis>,
+        guide: C::Guide,
     ) -> Result<LayoutSolution, AvengerChartError> {
-        // The axes parameter already has all customizations applied from compute_layout
-        // (both plot-level and mark-level configurations)
-        let customized_axes = axes;
-
         // Check for required positional scales before measuring overflow
         // This ensures we provide proper error messages for literal values
         self.validate_positional_scales_exist(scales)?;
 
-        // Measure how much space the coordinate system's guides need
-        let theme = self.plot.get_theme();
+        // Measure how much space the guide needs
         let width_estimate = width * INITIAL_PLOT_AREA_RATIO;
         let height_estimate = height * INITIAL_PLOT_AREA_RATIO;
         let overflow = self
-            .plot
-            .coord_system()
-            .measure_guide_overflow(
-                customized_axes,
-                scales,
-                width_estimate,
-                height_estimate,
-                &theme,
-            )
+            .measure_guide_overflow(&guide, scales, width_estimate, height_estimate)
             .await?;
 
         tracing::trace!(
@@ -1257,7 +1210,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         }
     }
 
-    /// Create axis marks based on configured axes
+    /// Create guide marks (axes and other visual guides)
     async fn create_axes(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
@@ -1265,46 +1218,11 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         plot_height: f32,
         padding: &Padding,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // Get default axes for all channels with scales
-        let default_axes = self
-            .plot
-            .coord_system()
-            .create_default_axes(scales, &self.plot.marks);
+        // Create guide with all configurations applied
+        let guide = self.create_configured_guide(scales);
 
-        // Apply user axis customizations to defaults
-        let mut all_axes = default_axes;
-        for (channel, axis_spec) in &self.plot.axis_specs {
-            // Only apply customizations if there's a default axis
-            // Axes without scales won't be rendered anyway
-            if let Some(base_axis) = all_axes.get(channel).cloned() {
-                // Apply the customization function
-                match axis_spec {
-                    crate::plot::AxisSpec::Local(f) => {
-                        let customized = f(base_axis);
-                        all_axes.insert(channel.clone(), customized);
-                    }
-                    crate::plot::AxisSpec::Reference(_) => {
-                        // Reference axes not yet supported, keep default
-                    }
-                }
-            }
-        }
-
-        // Apply axis configurations from mark channels (same as in compute_layout)
-        for mark in &self.plot.marks {
-            for (channel, axis_config) in mark.state().axis_configs.iter() {
-                if let Some(base_axis) = all_axes.get(channel).cloned() {
-                    let configured = axis_config(base_axis);
-                    all_axes.insert(channel.clone(), configured);
-                }
-            }
-        }
-
-        // Delegate all axis rendering to the coordinate system
-        let theme = self.plot.get_theme();
-        self.plot
-            .coord_system()
-            .render_axes(&all_axes, scales, plot_width, plot_height, padding, &theme)
+        // Render the guide
+        self.render_guide(&guide, scales, plot_width, plot_height, padding)
             .await
     }
 
