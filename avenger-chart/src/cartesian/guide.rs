@@ -3,7 +3,7 @@
 use crate::cartesian::axis::{AxisPosition, CartesianAxis};
 use crate::coords::extract_axis_title_from_marks;
 use crate::error::AvengerChartError;
-use crate::guide::{Guide, OverflowSpaceRequirement};
+use crate::guide::{CoordinateGuide, OverflowSpaceRequirement};
 use crate::marks::Mark;
 use crate::render::Padding;
 use crate::theme::Theme;
@@ -102,7 +102,7 @@ impl Default for CartesianGuide {
 }
 
 #[async_trait::async_trait]
-impl Guide for CartesianGuide {
+impl CoordinateGuide for CartesianGuide {
     type Axis = CartesianAxis;
 
     fn set_axes(&mut self, axes: HashMap<String, Self::Axis>) {

@@ -2,7 +2,7 @@
 
 use crate::coords::extract_axis_title_from_marks;
 use crate::error::AvengerChartError;
-use crate::guide::{Guide, OverflowSpaceRequirement};
+use crate::guide::{CoordinateGuide, OverflowSpaceRequirement};
 use crate::marks::Mark;
 use crate::polar::{PolarAxis, PolarAxisType};
 use crate::render::Padding;
@@ -99,7 +99,7 @@ impl Default for PolarGuide {
 }
 
 #[async_trait::async_trait]
-impl Guide for PolarGuide {
+impl CoordinateGuide for PolarGuide {
     type Axis = PolarAxis;
 
     fn set_axes(&mut self, axes: HashMap<String, Self::Axis>) {

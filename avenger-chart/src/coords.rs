@@ -1,5 +1,5 @@
 use crate::error::AvengerChartError;
-use crate::guide::Guide;
+use crate::guide::CoordinateGuide;
 pub use crate::guide::OverflowSpaceRequirement;
 use crate::marks::Mark;
 use avenger_common::value::ScalarOrArray;
@@ -20,7 +20,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     ///
     /// This could be axes (Cartesian), geographic features (Geo),
     /// camera controls (3D), or no guide at all (ZeroD)
-    type Guide: Guide;
+    type Guide: CoordinateGuide;
 
     /// The plot geometry type produced by this coordinate system's transform
     type PlotGeometry: Send + Sync + 'static;
@@ -43,7 +43,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     /// The default guide configuration for this coordinate system with axes set
     fn create_default_guide(
         &self,
-        axes: HashMap<String, <Self::Guide as Guide>::Axis>,
+        axes: HashMap<String, <Self::Guide as CoordinateGuide>::Axis>,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         marks: &[Box<dyn Mark<Self>>],
     ) -> Self::Guide;
@@ -66,7 +66,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         marks: &[Box<dyn Mark<Self>>],
-    ) -> HashMap<String, <Self::Guide as Guide>::Axis>;
+    ) -> HashMap<String, <Self::Guide as CoordinateGuide>::Axis>;
 
     /// Measure how much space the coordinate system's guide needs outside the plot area
     ///

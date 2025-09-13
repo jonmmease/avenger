@@ -46,7 +46,7 @@ pub enum AvengerChartError {
     #[error("App error: `{0}`")]
     AppError(#[from] AvengerAppError),
 
-    #[error("Guide error: `{0}`")]
+    #[error("Coordinate guide error: `{0}`")]
     GuideError(#[from] AvengerGuidesError),
 
     #[error("DataFusion error: `{0}`")]
