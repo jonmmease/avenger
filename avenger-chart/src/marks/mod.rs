@@ -23,7 +23,7 @@ pub use util::default_scale_for_data_type;
 
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
-use crate::legend_renderer::LegendRenderer;
+use crate::legend::LegendRenderer;
 use crate::render_context::RenderContext;
 use crate::scales::ScaleRange;
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
@@ -180,7 +180,7 @@ pub trait Mark<C: CoordinateSystem>: Send + Sync + 'static {
     /// Uses the renderer from the first channel if it supports merging all channels
     fn preferred_merged_legend_renderer(
         &self,
-        channels: &[crate::legend_renderer::LegendChannel],
+        channels: &[crate::legend::LegendChannel],
         scales: &HashMap<String, ConfiguredScale>,
     ) -> Option<Arc<dyn LegendRenderer>> {
         // Default implementation: try to find a renderer that supports all channels

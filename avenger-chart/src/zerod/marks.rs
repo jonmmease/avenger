@@ -54,7 +54,7 @@ impl Mark<ZeroDCoord> for Symbol<ZeroDCoord> {
         &self,
         channel: &str,
         scale: &avenger_scales::scales::ConfiguredScale,
-    ) -> Option<std::sync::Arc<dyn crate::legend_renderer::LegendRenderer>> {
+    ) -> Option<std::sync::Arc<dyn crate::legend::LegendRenderer>> {
         // ZeroD has no position channels
         Symbol::<ZeroDCoord>::common_preferred_legend_renderer(channel, scale, &[])
     }

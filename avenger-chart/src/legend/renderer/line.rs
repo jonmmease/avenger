@@ -2,7 +2,7 @@
 
 use crate::error::AvengerChartError;
 use crate::legend::Legend;
-use crate::legend_renderer::{LegendChannel, LegendRenderer, helpers};
+use super::{LegendChannel, LegendRenderer, helpers};
 use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
 use avenger_common::types::{ColorOrGradient, StrokeCap, StrokeJoin};
 use avenger_common::value::ScalarOrArray;

@@ -83,7 +83,7 @@ impl Mark<Polar> for Symbol<Polar> {
         &self,
         channel: &str,
         scale: &avenger_scales::scales::ConfiguredScale,
-    ) -> Option<std::sync::Arc<dyn crate::legend_renderer::LegendRenderer>> {
+    ) -> Option<std::sync::Arc<dyn crate::legend::LegendRenderer>> {
         Symbol::<Polar>::common_preferred_legend_renderer(channel, scale, &["r", "theta"])
     }
 }

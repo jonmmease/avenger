@@ -145,7 +145,7 @@ impl Mark<Cartesian> for Symbol<Cartesian> {
         &self,
         channel: &str,
         scale: &avenger_scales::scales::ConfiguredScale,
-    ) -> Option<std::sync::Arc<dyn crate::legend_renderer::LegendRenderer>> {
+    ) -> Option<std::sync::Arc<dyn crate::legend::LegendRenderer>> {
         Symbol::<Cartesian>::common_preferred_legend_renderer(
             channel,
             scale,

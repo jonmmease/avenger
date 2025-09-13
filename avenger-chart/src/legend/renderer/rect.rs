@@ -2,7 +2,7 @@
 
 use crate::error::AvengerChartError;
 use crate::legend::Legend;
-use crate::legend_renderer::{LegendChannel, LegendRenderer, helpers};
+use super::{LegendChannel, LegendRenderer, helpers};
 use crate::marks::channel::ChannelValue;
 use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
 use crate::utils::ScalarValueHelpers;

@@ -1270,7 +1270,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 } else {
                     // Single channel - use the standard renderer selection
                     scales.get(&primary_channel.name).and_then(
-                        |scale| -> Option<Arc<dyn crate::legend_renderer::LegendRenderer>> {
+                        |scale| -> Option<Arc<dyn crate::legend::LegendRenderer>> {
                             if let Some(ref renderer) = legend.renderer {
                                 // Use explicitly configured renderer
                                 Some(renderer.clone())
@@ -1540,10 +1540,10 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         all_legends: &IndexMap<String, crate::legend::Legend>,
         configured_scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
     ) -> (
-        Vec<Vec<crate::legend_renderer::LegendChannel>>,
+        Vec<Vec<crate::legend::LegendChannel>>,
         IndexMap<String, crate::legend::Legend>,
     ) {
-        use crate::legend_renderer::{LegendChannel, MergeKey};
+        use crate::legend::{LegendChannel, MergeKey};
         use std::collections::HashMap;
 
         // Collect all channels that need legends from all marks
@@ -1566,7 +1566,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 let scale = &configured_scales[channel_name];
 
                 // Collect related channels
-                use crate::legend_renderer::ChannelInfo;
+                use crate::legend::ChannelInfo;
                 let mut related_channels = HashMap::new();
                 for (other_name, other_value) in mark.data_context().channels() {
                     if other_name != channel_name {

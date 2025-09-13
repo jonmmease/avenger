@@ -1,4 +1,4 @@
-use crate::legend_renderer::LegendRenderer;
+use super::LegendRenderer;
 use std::sync::Arc;
 
 /// Legend configuration for visualizations

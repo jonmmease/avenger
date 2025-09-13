@@ -1,5 +1,5 @@
 use crate::legend::{Legend, LegendOrientation, LegendPosition};
-use crate::legend_renderer::LegendRenderer;
+use super::LegendRenderer;
 use std::sync::Arc;
 
 /// Base trait for legend builders - just for common functionality

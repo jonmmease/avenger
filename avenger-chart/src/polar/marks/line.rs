@@ -81,8 +81,8 @@ impl Mark<Polar> for Line<Polar> {
         &self,
         channel: &str,
         scale: &avenger_scales::scales::ConfiguredScale,
-    ) -> Option<std::sync::Arc<dyn crate::legend_renderer::LegendRenderer>> {
-        use crate::legend_renderer::{ColorbarRenderer, LineLegendRenderer};
+    ) -> Option<std::sync::Arc<dyn crate::legend::LegendRenderer>> {
+        use crate::legend::{ColorbarRenderer, LineLegendRenderer};
         use std::sync::Arc;
 
         // Check if scale is continuous (for colorbar)

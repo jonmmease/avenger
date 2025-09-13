@@ -1,5 +1,5 @@
 use crate::channel_config_traits::{ChannelConfig, LegendableChannel};
-use crate::legend_builder::{
+use crate::legend::{
     AngleLegendBuilder, ColorLegendBuilder, OpacityLegendBuilder, ShapeLegendBuilder,
     SizeLegendBuilder, StrokeDashLegendBuilder, StrokeWidthLegendBuilder,
 };
