@@ -1,4 +1,4 @@
-use crate::channel_configs::{
+use crate::channel::{
     ColorChannelConfig, OpacityChannelConfig, StrokeDashChannelConfig, StrokeWidthChannelConfig,
 };
 use crate::coords::CoordinateSystem;

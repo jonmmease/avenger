@@ -1,9 +1,9 @@
-use crate::channel_config_traits::{ChannelConfig, LegendableChannel};
+use super::config_traits::{ChannelConfig, LegendableChannel};
+use super::value::ChannelValue;
 use crate::legend::{
     AngleLegendBuilder, ColorLegendBuilder, OpacityLegendBuilder, ShapeLegendBuilder,
     SizeLegendBuilder, StrokeDashLegendBuilder, StrokeWidthLegendBuilder,
 };
-use crate::marks::channel::ChannelValue;
 
 // Channel config for color channels (fill, stroke, color)
 pub struct ColorChannelConfig {
@@ -211,7 +211,7 @@ impl LegendableChannel for StrokeDashChannelConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::marks::channel::ConditionalValue;
+    use crate::channel::ConditionalValue;
     use datafusion::prelude::*;
 
     // Helper function to check if two ChannelValues are structurally equal

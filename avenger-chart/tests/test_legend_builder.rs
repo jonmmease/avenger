@@ -57,7 +57,7 @@ fn test_legend_builder_methods() {
 
 #[test]
 fn test_channel_config_legend() {
-    use avenger_chart::channel_configs::ColorChannelConfig;
+    use avenger_chart::channel::ColorChannelConfig;
     use avenger_chart::marks::ChannelValue;
     use datafusion::prelude::lit;
 

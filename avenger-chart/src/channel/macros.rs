@@ -16,7 +16,7 @@ macro_rules! define_common_mark_channels {
                 V: Into<$crate::marks::ChannelValue>,
                 F: FnOnce($config_type) -> $config_type,
             {
-                use $crate::channel_config_traits::ChannelConfig;
+                use $crate::channel::ChannelConfig;
                 let channel_value = value.into();
                 let config = <$config_type>::new(channel_value);
                 let configured = f(config);

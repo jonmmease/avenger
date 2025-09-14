@@ -3,8 +3,8 @@
 //! This module provides traits that reduce duplication across channel configs
 //! by implementing common behavior once and allowing configs to opt into capabilities.
 
+use crate::channel::{ChannelValue, ConditionalValue, LegendConfig, ScaleConfig};
 use crate::legend::LegendBuilder;
-use crate::marks::channel::{ChannelValue, ConditionalValue, LegendConfig, ScaleConfig};
 use crate::scales::{Auto, Scale, ScaleSpec};
 use datafusion::logical_expr::Expr;
 use std::sync::Arc;

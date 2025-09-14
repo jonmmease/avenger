@@ -1,8 +1,8 @@
 //! Colorbar legend renderer for continuous color scales
 
+use super::{LegendChannel, LegendRenderer};
 use crate::error::AvengerChartError;
 use crate::legend::Legend;
-use super::{LegendChannel, LegendRenderer};
 use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
 use avenger_guides::legend::colorbar::{ColorbarConfig, ColorbarOrientation};
 use avenger_scenegraph::marks::group::SceneGroup;

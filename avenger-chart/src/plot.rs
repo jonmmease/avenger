@@ -451,7 +451,7 @@ impl<C: CoordinateSystem> Plot<C> {
 
             // Try to resolve channel references first
             let resolved_channels =
-                match crate::channel_resolution::resolve_all_channel_refs(channels) {
+                match crate::channel::resolution::resolve_all_channel_refs(channels) {
                     Ok(resolved) => resolved,
                     Err(e) => {
                         // If resolution failed (e.g., due to cycles), return an error
@@ -545,7 +545,7 @@ impl<C: CoordinateSystem> Plot<C> {
         // Try to resolve channel references, but if it fails (e.g., due to conditional references),
         // we still want to extract configs from non-reference channels
         let resolved_encodings =
-            match crate::channel_resolution::resolve_all_channel_refs(encodings) {
+            match crate::channel::resolution::resolve_all_channel_refs(encodings) {
                 Ok(resolved) => resolved,
                 Err(_) => {
                     // Resolution failed (probably due to conditional references)
@@ -658,7 +658,7 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Build a scale by name, applying any configured transformations
     /// Note: Default range will be applied during rendering when actual dimensions are known
     pub fn get_scale(&self, name: &str) -> Result<Scale, AvengerChartError> {
-        use crate::marks::channel::strip_trailing_numbers;
+        use crate::channel::value::strip_trailing_numbers;
 
         // Strip trailing numbers to get the base scale name
         // e.g., "x2" -> "x", "y2" -> "y"
@@ -710,7 +710,7 @@ impl<C: CoordinateSystem> Plot<C> {
         for mark in &self.marks {
             // Get channels and resolve references first to check if columns are referenced
             let channels = mark.data_context().channels();
-            let resolved_channels = crate::channel_resolution::resolve_all_channel_refs(channels)?;
+            let resolved_channels = crate::channel::resolution::resolve_all_channel_refs(channels)?;
 
             // Check if any expressions reference columns
             let references_columns =
@@ -768,7 +768,7 @@ impl<C: CoordinateSystem> Plot<C> {
                             } => {
                                 // For conditional values, we need to extract field expressions
                                 // (not literal values) for domain inference
-                                use crate::marks::channel::ConditionalValue;
+                                use crate::channel::ConditionalValue;
 
                                 // Add field expressions from conditions
                                 for (_, value) in conditions {
@@ -800,8 +800,8 @@ impl<C: CoordinateSystem> Plot<C> {
         configured_scales: &'a HashMap<String, avenger_scales::scales::ConfiguredScale>,
         context: &'a crate::render_context::RenderContext,
     ) -> impl Fn(&str) -> datafusion::logical_expr::Expr + 'a {
+        use crate::channel::value::strip_trailing_numbers;
         use crate::marks::ChannelValue;
-        use crate::marks::channel::strip_trailing_numbers;
         use datafusion::prelude::lit;
 
         move |channel_name: &str| -> datafusion::logical_expr::Expr {
@@ -885,7 +885,7 @@ impl<C: CoordinateSystem> Plot<C> {
             // Get channels and resolve references first
             let encodings = mark.data_context().channels();
             let resolved_encodings =
-                crate::channel_resolution::resolve_all_channel_refs(encodings)?;
+                crate::channel::resolution::resolve_all_channel_refs(encodings)?;
 
             // Check if any expressions reference columns
             let references_columns =
@@ -949,7 +949,7 @@ impl<C: CoordinateSystem> Plot<C> {
                                 ..
                             } => {
                                 // For conditional values, we need to extract field expressions
-                                use crate::marks::channel::ConditionalValue;
+                                use crate::channel::ConditionalValue;
 
                                 // For radius expressions, we use the mark's radius for all branches
                                 // since radius doesn't vary by condition
@@ -1008,8 +1008,9 @@ impl<C: CoordinateSystem> Plot<C> {
             // Get channels and resolve references first
             let encodings = mark.data_context().channels();
             // Try to resolve, but use original channels if resolution fails
-            let resolved_encodings = crate::channel_resolution::resolve_all_channel_refs(encodings)
-                .unwrap_or_else(|_| encodings.clone());
+            let resolved_encodings =
+                crate::channel::resolution::resolve_all_channel_refs(encodings)
+                    .unwrap_or_else(|_| encodings.clone());
             for (channel_name, channel_value) in resolved_encodings {
                 if channel_value.get_scale_name(&channel_name).is_some() {
                     used_channels.insert(channel_name.clone());

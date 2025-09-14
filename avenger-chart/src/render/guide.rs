@@ -1,9 +1,9 @@
 //! Helper methods for rendering with the Guide API
 
+use super::PlotRenderer;
 use crate::coords::CoordinateSystem;
 use crate::error::AvengerChartError;
 use crate::guide::OverflowSpaceRequirement;
-use super::PlotRenderer;
 use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
 

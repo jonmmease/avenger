@@ -1,9 +1,9 @@
 //! Rectangle/bar legend renderer for discrete scales
 
+use super::{LegendChannel, LegendRenderer, helpers};
+use crate::channel::ChannelValue;
 use crate::error::AvengerChartError;
 use crate::legend::Legend;
-use super::{LegendChannel, LegendRenderer, helpers};
-use crate::marks::channel::ChannelValue;
 use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
 use crate::utils::ScalarValueHelpers;
 use avenger_common::types::{ColorOrGradient, SymbolShape};

@@ -13,15 +13,13 @@ pub mod renderer;
 
 // Re-export main types
 pub use builder::{
-    AngleLegendBuilder, ColorLegendBuilder, LegendBuilder,
-    OpacityLegendBuilder, ShapeLegendBuilder, SizeLegendBuilder, 
-    StrokeDashLegendBuilder, StrokeWidthLegendBuilder
+    AngleLegendBuilder, ColorLegendBuilder, LegendBuilder, OpacityLegendBuilder,
+    ShapeLegendBuilder, SizeLegendBuilder, StrokeDashLegendBuilder, StrokeWidthLegendBuilder,
 };
 pub use legend_spec::{Legend, LegendOrientation, LegendPosition};
 
 // Re-export renderer types
 pub use renderer::{
-    ChannelInfo, ChannelLegendCapability, ColorbarRenderer, LegendChannel, 
-    LegendRenderer, LineLegendRenderer, MergeKey, RectLegendRenderer, 
-    SymbolLegendRenderer
+    ChannelInfo, ChannelLegendCapability, ColorbarRenderer, LegendChannel, LegendRenderer,
+    LineLegendRenderer, MergeKey, RectLegendRenderer, SymbolLegendRenderer,
 };

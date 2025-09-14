@@ -1,8 +1,8 @@
 //! Line legend renderer for stroke properties on line marks
 
+use super::{LegendChannel, LegendRenderer, helpers};
 use crate::error::AvengerChartError;
 use crate::legend::Legend;
-use super::{LegendChannel, LegendRenderer, helpers};
 use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
 use avenger_common::types::{ColorOrGradient, StrokeCap, StrokeJoin};
 use avenger_common::value::ScalarOrArray;
@@ -16,7 +16,7 @@ use std::sync::Arc;
 /// Line legend renderer for stroke properties on line marks
 pub struct LineLegendRenderer {
     /// Map of mark encodings from the plot
-    mark_encodings: HashMap<String, crate::marks::channel::ChannelValue>,
+    mark_encodings: HashMap<String, crate::channel::ChannelValue>,
     /// Stroke cap and join settings from line marks
     stroke_cap: StrokeCap,
     stroke_join: StrokeJoin,
