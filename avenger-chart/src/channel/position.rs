@@ -1,6 +1,6 @@
 //! Generic position channel configuration that can be used across coordinate systems
 
-use crate::marks::channel::ChannelValue;
+use super::value::ChannelValue;
 use crate::scales::{Auto, Scale, ScaleSpec as ScaleTypeSpec};
 use std::sync::Arc;
 

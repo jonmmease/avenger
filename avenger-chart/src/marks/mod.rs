@@ -1,5 +1,3 @@
-pub mod channel;
-pub mod channel_descriptor;
 pub mod data_context;
 pub mod facet_strategy;
 pub mod line;
@@ -9,13 +7,8 @@ pub mod symbol;
 pub mod util;
 #[macro_use]
 pub mod macros;
-#[macro_use]
-pub mod channel_macros;
-#[macro_use]
-pub mod position_channel_macros;
 
-pub use channel::{ChannelValue, ConditionalValue};
-pub use channel_descriptor::{ChannelDefault, ChannelDescriptor};
+pub use crate::channel::{ChannelDefault, ChannelDescriptor, ChannelValue, ConditionalValue};
 pub use data_context::DataContext;
 pub use facet_strategy::FacetStrategy;
 pub use state::MarkState;

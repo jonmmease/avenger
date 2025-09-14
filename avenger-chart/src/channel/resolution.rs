@@ -65,7 +65,7 @@
 //!
 //! For typical visualizations with < 20 channels, this is very efficient.
 
-use crate::marks::ChannelValue;
+use super::value::ChannelValue;
 use datafusion::logical_expr::Expr;
 use datafusion_common::tree_node::{Transformed, TransformedResult, TreeNode};
 use indexmap::IndexMap;
@@ -525,7 +525,7 @@ pub fn resolve_all_channel_refs(
                     legend_config,
                 } => {
                     // Resolve channel references in conditions and otherwise
-                    use crate::marks::channel::ConditionalValue;
+                    use crate::channel::ConditionalValue;
 
                     let resolved_conditions = conditions
                         .iter()

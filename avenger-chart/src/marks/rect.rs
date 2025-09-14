@@ -1,4 +1,4 @@
-use crate::channel_configs::{ColorChannelConfig, OpacityChannelConfig, StrokeWidthChannelConfig};
+use crate::channel::{ColorChannelConfig, OpacityChannelConfig, StrokeWidthChannelConfig};
 use crate::coords::CoordinateSystem;
 use crate::marks::MarkState;
 use crate::{define_common_mark_channels, impl_mark_base};

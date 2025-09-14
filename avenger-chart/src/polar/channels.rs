@@ -1,4 +1,4 @@
-use crate::channels::GenericPositionConfig;
+use crate::channel::GenericPositionConfig;
 use crate::polar::axis::PolarAxis;
 
 /// Configuration for Polar position channels (r, theta)

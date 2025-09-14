@@ -1,8 +1,5 @@
 pub mod cartesian;
-pub mod channel_config_traits;
-pub mod channel_configs;
-mod channel_resolution;
-pub mod channels;
+pub mod channel;
 mod chart_layout;
 pub mod coords;
 pub mod error;

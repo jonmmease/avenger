@@ -1,4 +1,4 @@
-use crate::channel_configs::{
+use crate::channel::{
     AngleChannelConfig, ColorChannelConfig, ShapeChannelConfig, SizeChannelConfig,
     StrokeWidthChannelConfig,
 };

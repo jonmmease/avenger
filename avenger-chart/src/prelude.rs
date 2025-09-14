@@ -40,17 +40,17 @@ pub use crate::marks::{
 };
 
 // Re-export channel config traits - ESSENTIAL for using channel methods
-pub use crate::channel_config_traits::{ChannelConfig, LegendableChannel};
+pub use crate::channel::{ChannelConfig, LegendableChannel};
 
 // Re-export channel configs for direct use
-pub use crate::channel_configs::{
+pub use crate::channel::{
     AngleChannelConfig, ColorChannelConfig, OpacityChannelConfig, ShapeChannelConfig,
     SizeChannelConfig, StrokeDashChannelConfig, StrokeWidthChannelConfig,
 };
 
 // Re-export position channel configs
 pub use crate::cartesian::channels::CartesianPositionConfig;
-pub use crate::channels::PositionConfig;
+pub use crate::channel::PositionConfig;
 
 // Re-export scale types
 pub use crate::scales::{
@@ -59,11 +59,11 @@ pub use crate::scales::{
 };
 
 // Re-export legend types
-pub use crate::legend::{Legend, LegendOrientation, LegendPosition};
 pub use crate::legend::{
     AngleLegendBuilder, ColorLegendBuilder, LegendBuilder, OpacityLegendBuilder,
     ShapeLegendBuilder, SizeLegendBuilder, StrokeDashLegendBuilder, StrokeWidthLegendBuilder,
 };
+pub use crate::legend::{Legend, LegendOrientation, LegendPosition};
 
 // Re-export axis types
 pub use crate::cartesian::{AxisPosition, CartesianAxis};

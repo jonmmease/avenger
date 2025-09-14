@@ -822,7 +822,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         let channels = mark.data_context().channels();
 
         // Resolve channel references (e.g., ":x" -> actual x expression)
-        let channels = crate::channel_resolution::resolve_all_channel_refs(channels)?;
+        let channels = crate::channel::resolution::resolve_all_channel_refs(channels)?;
 
         // Check if any channel expressions reference columns
         let references_columns = channels.values().any(|channel_value| match channel_value {
@@ -1075,7 +1075,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         channel_value: &ChannelValue,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
     ) -> Result<datafusion::logical_expr::Expr, AvengerChartError> {
-        use crate::marks::channel::strip_trailing_numbers;
+        use crate::channel::value::strip_trailing_numbers;
 
         match channel_value {
             ChannelValue::Value { expr } => {
@@ -1088,7 +1088,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                 ..
             } => {
                 // Build a CASE WHEN expression from the conditions
-                use crate::marks::channel::{ConditionalValue, strip_trailing_numbers};
+                use crate::channel::{ConditionalValue, value::strip_trailing_numbers};
                 use datafusion::arrow::datatypes::DataType;
                 use datafusion::logical_expr::{lit, when};
                 use datafusion::scalar::ScalarValue;
@@ -1944,7 +1944,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
                     // First resolve channel references
                     let channels = mark.data_context().channels();
                     let resolved_channels =
-                        crate::channel_resolution::resolve_all_channel_refs(channels)
+                        crate::channel::resolution::resolve_all_channel_refs(channels)
                             .ok()
                             .unwrap_or_else(|| channels.clone());
 

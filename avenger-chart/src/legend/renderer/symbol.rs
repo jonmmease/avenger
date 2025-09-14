@@ -1,8 +1,8 @@
 //! Symbol legend renderer for discrete channels
 
+use super::{LegendChannel, LegendRenderer, helpers};
 use crate::error::AvengerChartError;
 use crate::legend::Legend;
-use super::{LegendChannel, LegendRenderer, helpers};
 use crate::scales::{ConfiguredScaleLegendExt, DomainValues};
 use crate::utils::ScalarValueHelpers;
 use avenger_common::types::{ColorOrGradient, SymbolShape};
@@ -20,7 +20,7 @@ pub struct SymbolLegendRenderer {
     #[allow(dead_code)]
     plot_marks: Vec<Arc<dyn std::any::Any + Send + Sync>>,
     /// Map of mark encodings from the plot  
-    mark_encodings: HashMap<String, crate::marks::channel::ChannelValue>,
+    mark_encodings: HashMap<String, crate::channel::ChannelValue>,
     /// Whether the plot has rect marks
     has_rect_mark: bool,
     /// Theme mark defaults for symbols

@@ -1,4 +1,4 @@
-use crate::channel_resolution::ChannelResolutionError;
+use crate::channel::resolution::ChannelResolutionError;
 use avenger_app::error::AvengerAppError;
 use avenger_guides::error::AvengerGuidesError;
 use avenger_scales::error::AvengerScaleError;

@@ -21,6 +21,10 @@ pub struct MarkState<C: CoordinateSystem> {
     #[doc(hidden)]
     pub axis_configs: HashMap<
         String,
-        Arc<dyn Fn(<C::Guide as CoordinateGuide>::Axis) -> <C::Guide as CoordinateGuide>::Axis + Send + Sync>,
+        Arc<
+            dyn Fn(<C::Guide as CoordinateGuide>::Axis) -> <C::Guide as CoordinateGuide>::Axis
+                + Send
+                + Sync,
+        >,
     >,
 }

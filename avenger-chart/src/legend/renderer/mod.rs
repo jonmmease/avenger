@@ -218,7 +218,7 @@ pub fn normalize_expression(expr: &Expr) -> String {
 
 /// Helper functions for extracting constant values from channels
 pub mod helpers {
-    use crate::marks::channel::ChannelValue;
+    use crate::channel::ChannelValue;
     use crate::utils::ScalarValueHelpers;
     use avenger_common::types::ColorOrGradient;
     use datafusion_common::ScalarValue;
