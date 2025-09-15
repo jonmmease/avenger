@@ -32,17 +32,17 @@ fn test_external_coord_system_transform() {
     position_channels.insert("iso_z", ScalarOrArray::new_scalar(5.0));
 
     // Transform should succeed
-    let result = iso.transform_to_plot_coords(&position_channels, 100.0, 100.0);
+    let result = iso.transform(&position_channels, 100.0, 100.0);
     assert!(result.is_ok());
 
-    let (screen_x, screen_y) = result.unwrap();
+    let geometry = result.unwrap();
     // Verify we got transformed coordinates
     assert!(matches!(
-        screen_x.value(),
+        geometry.x.value(),
         avenger_common::value::ScalarOrArrayValue::Scalar(_)
     ));
     assert!(matches!(
-        screen_y.value(),
+        geometry.y.value(),
         avenger_common::value::ScalarOrArrayValue::Scalar(_)
     ));
 }
