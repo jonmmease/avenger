@@ -1398,8 +1398,13 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
     /// Infer a title for the legend based on channel
     fn infer_legend_title(&self, channel: &str) -> String {
-        // TODO: Could potentially extract field name from scale's domain expression
-        // For now, convert underscores to spaces and apply title case
+        // First try to extract from marks (like we do for axes)
+        use crate::coords::extract_channel_title_from_marks;
+        if let Some(title) = extract_channel_title_from_marks(&self.plot.marks, channel) {
+            return title;
+        }
+
+        // Fallback: convert underscores to spaces and apply title case
         channel
             .split('_')
             .map(|word| {

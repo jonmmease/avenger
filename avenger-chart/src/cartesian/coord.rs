@@ -1,5 +1,5 @@
 use crate::cartesian::{CartesianAxis, CartesianGuide, axis::AxisPosition};
-use crate::coords::{CoordinateSystem, PointGeometry, extract_axis_title_from_marks};
+use crate::coords::{CoordinateSystem, PointGeometry, extract_channel_title_from_marks};
 use crate::error::AvengerChartError;
 use crate::guide::{CoordinateGuide, OverflowSpaceRequirement};
 use avenger_scenegraph::marks::group::Clip;
@@ -39,7 +39,7 @@ impl CoordinateSystem for Cartesian {
         for channel in ["x", "y"] {
             if scales.get(channel).is_some() {
                 // Extract title from mark encodings, fall back to channel name if not found
-                let title = extract_axis_title_from_marks(marks, channel);
+                let title = extract_channel_title_from_marks(marks, channel);
 
                 // Determine if grid should be enabled based on scale type
                 let grid = if let Some(scale) = scales.get(channel) {

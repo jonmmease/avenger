@@ -146,10 +146,10 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
     ) -> Result<Self::PlotGeometry, AvengerChartError>;
 }
 
-/// Helper function to extract axis title from mark encodings
+/// Helper function to extract channel title from mark encodings
 ///
 /// This looks through the marks to find a meaningful column name for the given channel,
-/// which can be used as a default axis title.
+/// which can be used as a default title for axes or legends.
 ///
 /// # Arguments
 /// * `marks` - The marks in the plot
@@ -157,7 +157,7 @@ pub trait CoordinateSystem: Sized + Send + Sync + 'static {
 ///
 /// # Returns
 /// An optional string containing the column name if found
-pub fn extract_axis_title_from_marks<C: CoordinateSystem>(
+pub fn extract_channel_title_from_marks<C: CoordinateSystem>(
     marks: &[Box<dyn Mark<C>>],
     channel: &str,
 ) -> Option<String> {
