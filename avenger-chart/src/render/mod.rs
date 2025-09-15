@@ -120,7 +120,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             .render_all_components(&final_configured_scales, &layout, width, height)
             .await?;
 
-        let (mark_groups, axis_marks, legend_marks, title_marks, subtitle_marks) =
+        let (mark_groups, guide_marks, legend_marks, title_marks, subtitle_marks) =
             all_component_marks;
 
         // Compose all elements into a scene graph
@@ -169,8 +169,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         // 1. Clipped data marks (background)
         all_marks.push(SceneMark::Group(data_marks_group));
 
-        // 2. Axes (can overflow the plot area)
-        all_marks.extend(axis_marks);
+        // 2. Guide marks (axes, grids, backgrounds - can overflow the plot area)
+        all_marks.extend(guide_marks);
 
         // 3. Legends (positioned outside plot area)
         all_marks.extend(legend_marks);
@@ -763,9 +763,9 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
             mark_groups.extend(scene_marks);
         }
 
-        // Create axes
-        let axis_marks = self
-            .create_axes(scales, plot_area_width, plot_area_height, &layout.padding)
+        // Create guide marks (axes, grids, backgrounds)
+        let guide_marks = self
+            .create_guide_marks(scales, plot_area_width, plot_area_height, &layout.padding)
             .await?;
 
         // Create legends
@@ -804,7 +804,7 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
 
         Ok((
             mark_groups,
-            axis_marks,
+            guide_marks,
             legend_marks,
             title_marks,
             subtitle_marks,
@@ -1211,8 +1211,8 @@ impl<'a, C: CoordinateSystem + Any> PlotRenderer<'a, C> {
         }
     }
 
-    /// Create guide marks (axes and other visual guides)
-    async fn create_axes(
+    /// Create guide marks (axes, grids, backgrounds, and other visual guides)
+    async fn create_guide_marks(
         &self,
         scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
         plot_width: f32,
