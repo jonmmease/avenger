@@ -1,9 +1,8 @@
 use crate::coords::{CoordinateSystem, PointGeometry, extract_channel_title_from_marks};
 use crate::error::AvengerChartError;
-use crate::guide::{CoordinateGuide, OverflowSpaceRequirement};
+use crate::guide::CoordinateGuide;
 use crate::polar::{PolarAxis, PolarAxisType, PolarGuide};
 use avenger_scenegraph::marks::group::Clip;
-use avenger_scenegraph::marks::mark::SceneMark;
 use std::collections::HashMap;
 
 /// Polar coordinate system with radial and angular axes
@@ -78,33 +77,6 @@ impl CoordinateSystem for Polar {
         let mut guide = PolarGuide::new();
         guide.set_axes(axes);
         guide
-    }
-
-    async fn measure_guide_overflow(
-        &self,
-        guide: &Self::Guide,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        width_estimate: f32,
-        height_estimate: f32,
-        theme: &crate::theme::Theme,
-    ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
-        guide
-            .measure_overflow(scales, width_estimate, height_estimate, theme)
-            .await
-    }
-
-    async fn render_guide(
-        &self,
-        guide: &Self::Guide,
-        scales: &HashMap<String, avenger_scales::scales::ConfiguredScale>,
-        plot_width: f32,
-        plot_height: f32,
-        padding: &crate::render::Padding,
-        theme: &crate::theme::Theme,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        guide
-            .render(scales, plot_width, plot_height, padding, theme)
-            .await
     }
 
     fn get_clip(
